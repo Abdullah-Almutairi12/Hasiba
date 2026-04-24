@@ -1,0 +1,654 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>المنتجات والمخزون - حاسبة.AI</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.plot.ly/plotly-2.24.1.min.js"></script>
+    <script>
+        window.FontAwesomeConfig = { autoReplaceSvg: 'nest' };
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        dark: {
+                            950: '#05060A',
+                            900: '#0F111A', // Deep background
+                            800: '#1A1D2D', // Card background
+                            700: '#252A40', // Lighter elements
+                        },
+                        brand: {
+                            cyan: '#00D4FF',
+                            pink: '#FF6B6B',
+                            purple: '#7B61FF',
+                            green: '#10B981',
+                            orange: '#F59E0B',
+                            blue: '#3B82F6'
+                        }
+                    },
+                    fontFamily: {
+                        sans: ['IBM Plex Sans Arabic', 'Inter', 'sans-serif'],
+                    },
+                    backgroundImage: {
+                        'gradient-radial': 'radial-gradient(var(--tw-gradient-stops))',
+                        'hero-glow': 'conic-gradient(from 180deg at 50% 50%, #00D4FF 0deg, #7B61FF 120deg, #FF6B6B 240deg, #00D4FF 360deg)',
+                    },
+                    boxShadow: {
+                        'glow-cyan': '0 0 20px rgba(0, 212, 255, 0.3)',
+                        'glow-purple': '0 0 20px rgba(123, 97, 255, 0.3)',
+                        'card-hover': '0 10px 30px -10px rgba(0, 0, 0, 0.5)',
+                    }
+                }
+            }
+        }
+    </script>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/js/all.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    
+    <style>
+        body {
+            background-color: #0F111A;
+            color: white;
+            font-family: 'IBM Plex Sans Arabic', sans-serif;
+            overflow-x: hidden;
+            overflow-y: hidden;
+        }
+        
+        /* Custom scrollbar */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #0F111A; }
+        ::-webkit-scrollbar-thumb { background: #252A40; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #3B4260; }
+
+        /* Glassmorphism utilities */
+        .glass-panel {
+            background: rgba(26, 29, 45, 0.7);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        
+        .glass-card {
+            background: rgba(37, 42, 64, 0.4);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        
+        .glass-card:hover {
+            background: rgba(37, 42, 64, 0.6);
+            border-color: rgba(255, 255, 255, 0.15);
+        }
+
+        /* Table Styles */
+        .table-row-hover:hover {
+            background-color: rgba(255, 255, 255, 0.03);
+        }
+
+        /* Animations */
+        @keyframes pulse-soft {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+        .animate-pulse-soft { animation: pulse-soft 3s infinite; }
+
+        .sidebar-link {
+            transition: all 0.2s;
+        }
+        .sidebar-link:hover {
+            color: #00D4FF;
+            background: rgba(0, 212, 255, 0.1);
+        }
+        .sidebar-link.active {
+            color: #00D4FF;
+            background: rgba(0, 212, 255, 0.1);
+            border-right: 3px solid #00D4FF;
+        }
+    </style>
+</head>
+<body class="antialiased h-screen relative selection:bg-brand-cyan selection:text-white flex overflow-hidden">
+
+    <!-- Background Orbs -->
+    <div class="glow-orb w-[800px] h-[800px] bg-brand-cyan/5 top-[-200px] right-[-200px] animate-pulse-soft fixed pointer-events-none"></div>
+    <div class="glow-orb w-[600px] h-[600px] bg-brand-purple/5 bottom-[-100px] left-[-100px] animate-pulse-soft fixed pointer-events-none" style="animation-delay: 2s;"></div>
+
+    <!-- Sidebar Navigation (Ultra-Compact) -->
+    <aside class="w-16 bg-dark-900/95 backdrop-blur-xl border-l border-white/5 flex flex-col h-full z-50 shrink-0">
+        <div class="p-4 border-b border-white/5 flex justify-center">
+            <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-brand-cyan to-brand-purple flex items-center justify-center shadow-lg shadow-brand-cyan/20">
+                <i class="fa-solid fa-calculator text-white text-sm"></i>
+            </div>
+        </div>
+        <nav class="flex-1 py-4 px-2 space-y-2">
+            <a href="#" class="sidebar-link flex justify-center py-3 rounded-lg text-gray-400" title="لوحة القيادة"><i class="fa-solid fa-chart-line text-lg"></i></a>
+            <a href="#" class="sidebar-link flex justify-center py-3 rounded-lg text-gray-400" title="نقطة البيع"><i class="fa-solid fa-cash-register text-lg"></i></a>
+            <a href="#" class="sidebar-link active flex justify-center py-3 rounded-lg" title="المنتجات والمخزون"><i class="fa-solid fa-boxes-stacked text-lg"></i></a>
+            <a href="#" class="sidebar-link flex justify-center py-3 rounded-lg text-gray-400" title="الفواتير (AI Scanner)"><i class="fa-solid fa-file-invoice text-lg"></i></a>
+            <a href="#" class="sidebar-link flex justify-center py-3 rounded-lg text-gray-400" title="المحاسبة"><i class="fa-solid fa-calculator text-lg"></i></a>
+            <a href="#" class="sidebar-link flex justify-center py-3 rounded-lg text-gray-400" title="التقارير"><i class="fa-solid fa-chart-pie text-lg"></i></a>
+            <a href="#" class="sidebar-link flex justify-center py-3 rounded-lg text-gray-400" title="الإعدادات"><i class="fa-solid fa-gear text-lg"></i></a>
+        </nav>
+        <div class="p-4 border-t border-white/5 flex justify-center">
+            <img src="https://storage.googleapis.com/uxpilot-auth.appspot.com/avatars/avatar-2.jpg" class="w-8 h-8 rounded-full border border-white/10">
+        </div>
+    </aside>
+
+    <!-- Main Workspace -->
+    <main class="flex-1 flex flex-col h-full overflow-hidden relative bg-dark-950">
+        
+        <!-- Top Header Bar -->
+        <header class="h-16 bg-dark-900/80 backdrop-blur-md border-b border-white/5 flex items-center justify-between px-6 z-30 shrink-0">
+            <!-- Left: Search & Context -->
+            <div class="flex items-center gap-4 flex-1">
+                <h1 class="text-lg font-bold text-white ml-4">المنتجات والمخزون</h1>
+                
+                <!-- Global Search -->
+                <div class="relative w-full max-w-lg group transition-all duration-300">
+                    <div class="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
+                        <i class="fa-solid fa-magnifying-glass text-gray-400 group-focus-within:text-brand-cyan transition-colors"></i>
+                    </div>
+                    <input type="text" class="block w-full pr-10 pl-4 py-2 bg-dark-800/50 border border-white/10 rounded-xl text-sm placeholder-gray-500 text-white focus:outline-none focus:ring-2 focus:ring-brand-cyan/50 focus:border-transparent transition-all" placeholder="بحث بالاسم، SKU، أو الباركود...">
+                </div>
+            </div>
+
+            <!-- Right: Actions -->
+            <div class="flex items-center gap-3">
+                <button class="px-4 py-2 bg-dark-800 hover:bg-dark-700 text-white text-sm font-medium rounded-xl border border-white/10 transition-colors flex items-center gap-2">
+                    <i class="fa-solid fa-file-import text-brand-purple"></i>
+                    استيراد
+                </button>
+                <button onclick="document.getElementById('productModal').classList.remove('hidden')" class="px-4 py-2 bg-gradient-to-r from-brand-cyan to-brand-blue hover:from-brand-cyan/90 hover:to-brand-blue/90 text-white text-sm font-bold rounded-xl shadow-lg shadow-brand-cyan/20 transition-all flex items-center gap-2">
+                    <i class="fa-solid fa-plus"></i>
+                    منتج جديد
+                </button>
+            </div>
+        </header>
+
+        <!-- Content Split: Product List (Left) + Operations Sidebar (Right) -->
+        <div class="flex-1 flex overflow-hidden">
+            
+            <!-- Main Content: Product Management -->
+            <div class="flex-1 flex flex-col min-w-0 bg-dark-950/50 overflow-hidden">
+                
+                <!-- Toolbar & Filters -->
+                <div class="px-6 py-4 border-b border-white/5 flex items-center justify-between bg-dark-900/30">
+                    <!-- Tabs -->
+                    <div class="flex gap-2">
+                        <button class="px-4 py-1.5 rounded-lg bg-brand-cyan/10 text-brand-cyan text-sm font-medium border border-brand-cyan/20">الكل (124)</button>
+                        <button class="px-4 py-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/5 text-sm font-medium transition-colors">منخفض المخزون (8)</button>
+                        <button class="px-4 py-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/5 text-sm font-medium transition-colors">باقات العروض (5)</button>
+                        <button class="px-4 py-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/5 text-sm font-medium transition-colors">تتبع الصلاحية</button>
+                    </div>
+
+                    <!-- View Toggles & Bulk Actions -->
+                    <div class="flex items-center gap-3">
+                        <div class="h-4 w-px bg-white/10"></div>
+                        <button class="text-gray-400 hover:text-white transition-colors" title="تصفية"><i class="fa-solid fa-filter"></i></button>
+                        <button class="text-brand-cyan bg-brand-cyan/10 p-1.5 rounded-lg transition-colors" title="عرض قائمة"><i class="fa-solid fa-list"></i></button>
+                        <button class="text-gray-400 hover:text-white p-1.5 rounded-lg transition-colors" title="عرض شبكة"><i class="fa-solid fa-border-all"></i></button>
+                    </div>
+                </div>
+
+                <!-- Products Table Area -->
+                <div class="flex-1 overflow-auto">
+                    <table class="w-full text-right">
+                        <thead class="bg-dark-900/50 text-xs uppercase text-gray-400 sticky top-0 z-10 backdrop-blur-md">
+                            <tr>
+                                <th class="px-6 py-3 font-medium border-b border-white/5 w-12">
+                                    <input type="checkbox" class="rounded border-gray-600 bg-dark-800 text-brand-cyan focus:ring-0">
+                                </th>
+                                <th class="px-6 py-3 font-medium border-b border-white/5">المنتج</th>
+                                <th class="px-6 py-3 font-medium border-b border-white/5">SKU / الباركود</th>
+                                <th class="px-6 py-3 font-medium border-b border-white/5">التصنيف</th>
+                                <th class="px-6 py-3 font-medium border-b border-white/5">المخزون</th>
+                                <th class="px-6 py-3 font-medium border-b border-white/5">السعر</th>
+                                <th class="px-6 py-3 font-medium border-b border-white/5">الحالة</th>
+                                <th class="px-6 py-3 font-medium border-b border-white/5"></th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-white/5 text-sm">
+                            
+                            <!-- Product Row 1 -->
+                            <tr class="table-row-hover group transition-colors cursor-pointer">
+                                <td class="px-6 py-4">
+                                    <input type="checkbox" class="rounded border-gray-600 bg-dark-800 text-brand-cyan focus:ring-0">
+                                </td>
+                                <td class="px-6 py-4">
+                                    <div class="flex items-center gap-3">
+                                        <img src="https://images.unsplash.com/photo-1541167760496-1628856ab772?q=80&w=100&auto=format&fit=crop" class="w-10 h-10 rounded-lg object-cover bg-dark-800" alt="">
+                                        <div>
+                                            <div class="font-bold text-white">لاتيه وسط</div>
+                                            <div class="text-xs text-gray-500">حليب طازج، اسبريسو</div>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td class="px-6 py-4 text-gray-300 font-mono text-xs">SKU-88219</td>
+                                <td class="px-6 py-4">
+                                    <span class="px-2 py-1 rounded-md bg-dark-800 text-xs text-gray-300 border border-white/5">مشروبات ساخنة</span>
+                                </td>
+                                <td class="px-6 py-4">
+                                    <div class="flex items-center gap-2">
+                                        <span class="text-white font-bold">142</span>
+                                        <span class="text-xs text-gray-500">وحدة</span>
+                                    </div>
+                                    <div class="w-16 h-1 bg-dark-800 rounded-full mt-1 overflow-hidden">
+                                        <div class="h-full bg-brand-green w-[80%]"></div>
+                                    </div>
+                                </td>
+                                <td class="px-6 py-4">
+                                    <div class="text-white font-bold">18.00 ر.س</div>
+                                    <div class="text-xs text-brand-green">هامش 45%</div>
+                                </td>
+                                <td class="px-6 py-4">
+                                    <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-brand-green/10 text-brand-green border border-brand-green/20">
+                                        <span class="w-1.5 h-1.5 rounded-full bg-brand-green"></span>
+                                        نشط
+                                    </span>
+                                </td>
+                                <td class="px-6 py-4">
+                                    <button class="text-gray-400 hover:text-white opacity-0 group-hover:opacity-100 transition-opacity"><i class="fa-solid fa-ellipsis-vertical"></i></button>
+                                </td>
+                            </tr>
+
+                            <!-- Product Row 2 (Low Stock) -->
+                            <tr class="table-row-hover group transition-colors cursor-pointer bg-brand-orange/5">
+                                <td class="px-6 py-4">
+                                    <input type="checkbox" class="rounded border-gray-600 bg-dark-800 text-brand-cyan focus:ring-0">
+                                </td>
+                                <td class="px-6 py-4">
+                                    <div class="flex items-center gap-3">
+                                        <img src="https://images.unsplash.com/photo-1600093463592-8e36ae95ef56?q=80&w=100&auto=format&fit=crop" class="w-10 h-10 rounded-lg object-cover bg-dark-800" alt="">
+                                        <div>
+                                            <div class="font-bold text-white">بن كولومبي 250ج</div>
+                                            <div class="text-xs text-gray-500">حبوب كاملة</div>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td class="px-6 py-4 text-gray-300 font-mono text-xs">SKU-99321</td>
+                                <td class="px-6 py-4">
+                                    <span class="px-2 py-1 rounded-md bg-dark-800 text-xs text-gray-300 border border-white/5">منتجات الجملة</span>
+                                </td>
+                                <td class="px-6 py-4">
+                                    <div class="flex items-center gap-2">
+                                        <span class="text-brand-orange font-bold">5</span>
+                                        <span class="text-xs text-gray-500">وحدة</span>
+                                        <i class="fa-solid fa-triangle-exclamation text-brand-orange text-xs" title="تحت حد الطلب"></i>
+                                    </div>
+                                    <div class="w-16 h-1 bg-dark-800 rounded-full mt-1 overflow-hidden">
+                                        <div class="h-full bg-brand-orange w-[10%]"></div>
+                                    </div>
+                                </td>
+                                <td class="px-6 py-4">
+                                    <div class="text-white font-bold">65.00 ر.س</div>
+                                    <div class="text-xs text-brand-green">هامش 30%</div>
+                                </td>
+                                <td class="px-6 py-4">
+                                    <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-brand-orange/10 text-brand-orange border border-brand-orange/20">
+                                        <span class="w-1.5 h-1.5 rounded-full bg-brand-orange"></span>
+                                        منخفض
+                                    </span>
+                                </td>
+                                <td class="px-6 py-4">
+                                    <button class="text-gray-400 hover:text-white opacity-0 group-hover:opacity-100 transition-opacity"><i class="fa-solid fa-ellipsis-vertical"></i></button>
+                                </td>
+                            </tr>
+
+                            <!-- Product Row 3 (Bundle) -->
+                            <tr class="table-row-hover group transition-colors cursor-pointer">
+                                <td class="px-6 py-4">
+                                    <input type="checkbox" class="rounded border-gray-600 bg-dark-800 text-brand-cyan focus:ring-0">
+                                </td>
+                                <td class="px-6 py-4">
+                                    <div class="flex items-center gap-3">
+                                        <div class="relative">
+                                            <img src="https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?q=80&w=100&auto=format&fit=crop" class="w-10 h-10 rounded-lg object-cover bg-dark-800" alt="">
+                                            <div class="absolute -bottom-1 -right-1 bg-brand-purple text-[8px] text-white px-1 rounded font-bold">BUNDLE</div>
+                                        </div>
+                                        <div>
+                                            <div class="font-bold text-white">باقة فطور الصباح</div>
+                                            <div class="text-xs text-gray-500">كرواسون + قهوة سوداء</div>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td class="px-6 py-4 text-gray-300 font-mono text-xs">BND-001</td>
+                                <td class="px-6 py-4">
+                                    <span class="px-2 py-1 rounded-md bg-dark-800 text-xs text-gray-300 border border-white/5">باقات</span>
+                                </td>
+                                <td class="px-6 py-4">
+                                    <div class="flex items-center gap-2">
+                                        <span class="text-white font-bold">∞</span>
+                                        <span class="text-xs text-gray-500">افتراضي</span>
+                                    </div>
+                                </td>
+                                <td class="px-6 py-4">
+                                    <div class="text-white font-bold">28.00 ر.س</div>
+                                    <div class="text-xs text-brand-purple line-through opacity-70">35.00 ر.س</div>
+                                </td>
+                                <td class="px-6 py-4">
+                                    <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-brand-purple/10 text-brand-purple border border-brand-purple/20">
+                                        <span class="w-1.5 h-1.5 rounded-full bg-brand-purple"></span>
+                                        عرض
+                                    </span>
+                                </td>
+                                <td class="px-6 py-4">
+                                    <button class="text-gray-400 hover:text-white opacity-0 group-hover:opacity-100 transition-opacity"><i class="fa-solid fa-ellipsis-vertical"></i></button>
+                                </td>
+                            </tr>
+
+                             <!-- Product Row 4 -->
+                             <tr class="table-row-hover group transition-colors cursor-pointer">
+                                <td class="px-6 py-4">
+                                    <input type="checkbox" class="rounded border-gray-600 bg-dark-800 text-brand-cyan focus:ring-0">
+                                </td>
+                                <td class="px-6 py-4">
+                                    <div class="flex items-center gap-3">
+                                        <img src="https://images.unsplash.com/photo-1555507036-ab1f4038808a?q=80&w=100&auto=format&fit=crop" class="w-10 h-10 rounded-lg object-cover bg-dark-800" alt="">
+                                        <div>
+                                            <div class="font-bold text-white">كرواسون زبدة</div>
+                                            <div class="text-xs text-gray-500">مخبوز طازج</div>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td class="px-6 py-4 text-gray-300 font-mono text-xs">SKU-10293</td>
+                                <td class="px-6 py-4">
+                                    <span class="px-2 py-1 rounded-md bg-dark-800 text-xs text-gray-300 border border-white/5">مخبوزات</span>
+                                </td>
+                                <td class="px-6 py-4">
+                                    <div class="flex items-center gap-2">
+                                        <span class="text-white font-bold">45</span>
+                                        <span class="text-xs text-gray-500">وحدة</span>
+                                    </div>
+                                    <div class="w-16 h-1 bg-dark-800 rounded-full mt-1 overflow-hidden">
+                                        <div class="h-full bg-brand-green w-[40%]"></div>
+                                    </div>
+                                </td>
+                                <td class="px-6 py-4">
+                                    <div class="text-white font-bold">12.00 ر.س</div>
+                                    <div class="text-xs text-brand-green">هامش 55%</div>
+                                </td>
+                                <td class="px-6 py-4">
+                                    <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-brand-green/10 text-brand-green border border-brand-green/20">
+                                        <span class="w-1.5 h-1.5 rounded-full bg-brand-green"></span>
+                                        نشط
+                                    </span>
+                                </td>
+                                <td class="px-6 py-4">
+                                    <button class="text-gray-400 hover:text-white opacity-0 group-hover:opacity-100 transition-opacity"><i class="fa-solid fa-ellipsis-vertical"></i></button>
+                                </td>
+                            </tr>
+                            
+                            <!-- Product Row 5 -->
+                             <tr class="table-row-hover group transition-colors cursor-pointer">
+                                <td class="px-6 py-4">
+                                    <input type="checkbox" class="rounded border-gray-600 bg-dark-800 text-brand-cyan focus:ring-0">
+                                </td>
+                                <td class="px-6 py-4">
+                                    <div class="flex items-center gap-3">
+                                        <img src="https://images.unsplash.com/photo-1550950158-d0d960dff51b?q=80&w=100&auto=format&fit=crop" class="w-10 h-10 rounded-lg object-cover bg-dark-800" alt="">
+                                        <div>
+                                            <div class="font-bold text-white">تشيز كيك توت</div>
+                                            <div class="text-xs text-gray-500">قطعة واحدة</div>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td class="px-6 py-4 text-gray-300 font-mono text-xs">SKU-55412</td>
+                                <td class="px-6 py-4">
+                                    <span class="px-2 py-1 rounded-md bg-dark-800 text-xs text-gray-300 border border-white/5">حلويات</span>
+                                </td>
+                                <td class="px-6 py-4">
+                                    <div class="flex items-center gap-2">
+                                        <span class="text-white font-bold">20</span>
+                                        <span class="text-xs text-gray-500">وحدة</span>
+                                    </div>
+                                    <div class="w-16 h-1 bg-dark-800 rounded-full mt-1 overflow-hidden">
+                                        <div class="h-full bg-brand-green w-[20%]"></div>
+                                    </div>
+                                </td>
+                                <td class="px-6 py-4">
+                                    <div class="text-white font-bold">22.00 ر.س</div>
+                                    <div class="text-xs text-brand-green">هامش 60%</div>
+                                </td>
+                                <td class="px-6 py-4">
+                                    <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-brand-green/10 text-brand-green border border-brand-green/20">
+                                        <span class="w-1.5 h-1.5 rounded-full bg-brand-green"></span>
+                                        نشط
+                                    </span>
+                                </td>
+                                <td class="px-6 py-4">
+                                    <button class="text-gray-400 hover:text-white opacity-0 group-hover:opacity-100 transition-opacity"><i class="fa-solid fa-ellipsis-vertical"></i></button>
+                                </td>
+                            </tr>
+                            
+                             <!-- Product Row 6 -->
+                             <tr class="table-row-hover group transition-colors cursor-pointer">
+                                <td class="px-6 py-4">
+                                    <input type="checkbox" class="rounded border-gray-600 bg-dark-800 text-brand-cyan focus:ring-0">
+                                </td>
+                                <td class="px-6 py-4">
+                                    <div class="flex items-center gap-3">
+                                        <img src="https://images.unsplash.com/photo-1579954115545-a95591f28bfc?q=80&w=100&auto=format&fit=crop" class="w-10 h-10 rounded-lg object-cover bg-dark-800" alt="">
+                                        <div>
+                                            <div class="font-bold text-white">أمريكانو</div>
+                                            <div class="text-xs text-gray-500">قهوة سوداء</div>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td class="px-6 py-4 text-gray-300 font-mono text-xs">SKU-77123</td>
+                                <td class="px-6 py-4">
+                                    <span class="px-2 py-1 rounded-md bg-dark-800 text-xs text-gray-300 border border-white/5">مشروبات ساخنة</span>
+                                </td>
+                                <td class="px-6 py-4">
+                                    <div class="flex items-center gap-2">
+                                        <span class="text-white font-bold">200+</span>
+                                        <span class="text-xs text-gray-500">وحدة</span>
+                                    </div>
+                                    <div class="w-16 h-1 bg-dark-800 rounded-full mt-1 overflow-hidden">
+                                        <div class="h-full bg-brand-green w-full"></div>
+                                    </div>
+                                </td>
+                                <td class="px-6 py-4">
+                                    <div class="text-white font-bold">14.00 ر.س</div>
+                                    <div class="text-xs text-brand-green">هامش 80%</div>
+                                </td>
+                                <td class="px-6 py-4">
+                                    <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-brand-green/10 text-brand-green border border-brand-green/20">
+                                        <span class="w-1.5 h-1.5 rounded-full bg-brand-green"></span>
+                                        نشط
+                                    </span>
+                                </td>
+                                <td class="px-6 py-4">
+                                    <button class="text-gray-400 hover:text-white opacity-0 group-hover:opacity-100 transition-opacity"><i class="fa-solid fa-ellipsis-vertical"></i></button>
+                                </td>
+                            </tr>
+
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Right Sidebar: Contextual Operations Panel (Fixed Width) -->
+            <aside class="w-[400px] bg-dark-900 border-r border-white/5 flex flex-col shadow-2xl z-20 overflow-hidden">
+                
+                <!-- Panel Header -->
+                <div class="p-4 border-b border-white/5 bg-dark-800/30 flex items-center justify-between">
+                    <h2 class="font-bold text-white flex items-center gap-2">
+                        <i class="fa-solid fa-wand-magic-sparkles text-brand-cyan"></i>
+                        العمليات الذكية
+                    </h2>
+                </div>
+
+                <!-- Scrollable Content -->
+                <div class="flex-1 overflow-y-auto p-4 space-y-6">
+
+                    <!-- Section 1: AI Pricing Recommendations -->
+                    <section>
+                        <h3 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">توصيات AI</h3>
+                        
+                        <!-- Recommendation Card 1 -->
+                        <div class="glass-card rounded-xl p-4 border border-brand-orange/20 relative overflow-hidden group">
+                            <div class="flex justify-between items-start mb-2">
+                                <div class="flex items-center gap-2">
+                                    <img src="https://images.unsplash.com/photo-1600093463592-8e36ae95ef56?q=80&w=50&auto=format&fit=crop" class="w-8 h-8 rounded-md object-cover">
+                                    <p class="text-sm font-bold text-white">بن كولومبي</p>
+                                </div>
+                                <span class="px-2 py-0.5 bg-brand-orange/10 text-brand-orange text-[10px] font-bold rounded">بطيء</span>
+                            </div>
+                            
+                            <div class="flex items-center justify-between bg-dark-800/50 rounded-lg p-2 mb-3">
+                                <div class="text-center">
+                                    <p class="text-[10px] text-gray-500">الحالي</p>
+                                    <p class="text-sm font-bold text-white line-through decoration-red-500">65.00</p>
+                                </div>
+                                <i class="fa-solid fa-arrow-left text-gray-500 text-xs"></i>
+                                <div class="text-center">
+                                    <p class="text-[10px] text-brand-cyan">المقترح</p>
+                                    <p class="text-sm font-bold text-brand-cyan">58.50</p>
+                                </div>
+                            </div>
+                            
+                            <button class="w-full py-1.5 bg-brand-cyan/10 text-brand-cyan text-xs font-bold rounded-lg hover:bg-brand-cyan/20 transition-colors">تطبيق السعر</button>
+                        </div>
+                    </section>
+
+                    <!-- Section 2: Quick Operations -->
+                    <section>
+                        <h3 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">تسوية سريعة</h3>
+                        
+                        <div class="bg-dark-800 rounded-xl border border-white/5 p-3 space-y-3">
+                            <select class="w-full bg-dark-900 border border-white/10 rounded-lg text-xs text-white p-2 focus:outline-none">
+                                <option selected>بن كولومبي 250ج</option>
+                            </select>
+                            <div class="flex gap-2">
+                                <select class="flex-1 bg-dark-900 border border-white/10 rounded-lg text-xs text-white p-2">
+                                    <option>تالف</option>
+                                    <option>إضافة</option>
+                                </select>
+                                <input type="number" value="1" class="w-16 bg-dark-900 border border-white/10 rounded-lg text-xs text-white p-2 text-center">
+                            </div>
+                            <button class="w-full py-2 bg-brand-purple text-white text-xs font-bold rounded-lg hover:bg-brand-purple/90 transition-colors">تأكيد</button>
+                        </div>
+                    </section>
+                    
+                    <!-- Section 3: Reorder Alerts -->
+                    <section>
+                         <div class="bg-red-500/10 rounded-xl p-3 border border-red-500/20">
+                             <p class="text-sm font-bold text-white flex items-center gap-2"><i class="fa-solid fa-bell text-red-500"></i> مخزون حرج</p>
+                             <p class="text-xs text-gray-400 mt-1">المتبقي 5 وحدات من "بن كولومبي".</p>
+                             <button class="mt-2 text-xs text-brand-cyan font-bold">طلب شراء تلقائي <i class="fa-solid fa-arrow-left"></i></button>
+                         </div>
+                    </section>
+                </div>
+                
+                <!-- Panel Footer -->
+                <div class="p-4 border-t border-white/5 bg-dark-900">
+                    <button class="w-full py-3 border border-white/10 rounded-xl text-gray-300 hover:text-white hover:bg-white/5 transition-colors text-sm font-medium flex items-center justify-center gap-2">
+                        <i class="fa-solid fa-chart-pie"></i>
+                        عرض تقرير المخزون الكامل
+                    </button>
+                </div>
+            </aside>
+        </div>
+    </main>
+
+    <!-- Modal: Create New Product (Hidden by default) -->
+    <div id="productModal" class="hidden fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm animate-fade-in-up">
+        <div class="bg-dark-800 border border-white/10 rounded-2xl shadow-2xl w-full max-w-4xl h-[80vh] flex flex-col overflow-hidden">
+            
+            <!-- Modal Header -->
+            <div class="p-6 border-b border-white/10 flex justify-between items-center bg-dark-900">
+                <h2 class="text-xl font-bold text-white">إضافة منتج جديد</h2>
+                <div class="flex gap-3">
+                     <button class="px-4 py-2 text-sm text-gray-400 hover:text-white transition-colors" onclick="document.getElementById('productModal').classList.add('hidden')">إلغاء</button>
+                     <button class="px-6 py-2 bg-brand-cyan text-dark-900 font-bold rounded-xl hover:bg-brand-cyan/90 transition-colors">حفظ المنتج</button>
+                </div>
+            </div>
+
+            <!-- Modal Content (Tabs & Form) -->
+            <div class="flex-1 flex overflow-hidden">
+                <!-- Sidebar Tabs -->
+                <div class="w-48 bg-dark-900/50 border-l border-white/5 p-4 space-y-1">
+                    <button class="w-full text-right px-4 py-2.5 rounded-lg bg-brand-cyan/10 text-brand-cyan font-medium text-sm">بيانات أساسية</button>
+                    <button class="w-full text-right px-4 py-2.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/5 transition-colors font-medium text-sm">التسعير والضرائب</button>
+                    <button class="w-full text-right px-4 py-2.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/5 transition-colors font-medium text-sm">المخزون والفروع</button>
+                    <button class="w-full text-right px-4 py-2.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/5 transition-colors font-medium text-sm">المكونات (BOM)</button>
+                    <button class="w-full text-right px-4 py-2.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/5 transition-colors font-medium text-sm">الصور والملفات</button>
+                </div>
+
+                <!-- Form Area -->
+                <div class="flex-1 overflow-y-auto p-8">
+                    <div class="grid grid-cols-2 gap-6">
+                        <!-- Basic Info -->
+                        <div class="col-span-2">
+                            <label class="block text-sm text-gray-400 mb-2">اسم المنتج (العربية)</label>
+                            <input type="text" class="w-full bg-dark-900 border border-white/10 rounded-xl p-3 text-white focus:border-brand-cyan focus:outline-none" placeholder="مثال: لاتيه وسط">
+                        </div>
+                        
+                        <div>
+                            <label class="block text-sm text-gray-400 mb-2">التصنيف</label>
+                            <select class="w-full bg-dark-900 border border-white/10 rounded-xl p-3 text-white focus:border-brand-cyan focus:outline-none">
+                                <option>مشروبات ساخنة</option>
+                                <option>مشروبات باردة</option>
+                                <option>حلويات</option>
+                            </select>
+                        </div>
+
+                        <div>
+                            <label class="block text-sm text-gray-400 mb-2">الباركود / SKU</label>
+                            <div class="relative">
+                                <input type="text" class="w-full bg-dark-900 border border-white/10 rounded-xl p-3 pl-10 text-white focus:border-brand-cyan focus:outline-none" placeholder="Scan or type...">
+                                <i class="fa-solid fa-barcode absolute left-3 top-3.5 text-gray-500"></i>
+                            </div>
+                        </div>
+
+                        <div class="col-span-2 border-t border-white/10 pt-6 mt-2">
+                            <h3 class="text-white font-bold mb-4">وحدات القياس</h3>
+                            <div class="flex gap-4">
+                                <div class="flex-1">
+                                    <label class="block text-sm text-gray-400 mb-2">الوحدة الأساسية</label>
+                                    <select class="w-full bg-dark-900 border border-white/10 rounded-xl p-3 text-white focus:border-brand-cyan focus:outline-none">
+                                        <option>قطعة</option>
+                                        <option>كجم</option>
+                                        <option>لتر</option>
+                                    </select>
+                                </div>
+                                <div class="flex-1">
+                                    <label class="block text-sm text-gray-400 mb-2">تنبيه انخفاض المخزون عند</label>
+                                    <input type="number" class="w-full bg-dark-900 border border-white/10 rounded-xl p-3 text-white focus:border-brand-cyan focus:outline-none" placeholder="10">
+                                </div>
+                            </div>
+                        </div>
+                        
+                         <div class="col-span-2 border-t border-white/10 pt-6 mt-2">
+                             <div class="flex items-center justify-between mb-4">
+                                 <h3 class="text-white font-bold">خيارات متقدمة</h3>
+                             </div>
+                             <div class="space-y-3">
+                                 <label class="flex items-center gap-3 p-3 rounded-xl border border-white/5 bg-dark-900/50 cursor-pointer hover:bg-dark-900 transition-colors">
+                                     <input type="checkbox" class="rounded border-gray-600 bg-dark-800 text-brand-cyan focus:ring-0 w-5 h-5">
+                                     <div>
+                                         <span class="block text-sm font-bold text-white">منتج مركب (باقة / Bundle)</span>
+                                         <span class="block text-xs text-gray-500">يتكون من عدة أصناف يتم خصمها من المخزون عند البيع</span>
+                                     </div>
+                                 </label>
+                                 <label class="flex items-center gap-3 p-3 rounded-xl border border-white/5 bg-dark-900/50 cursor-pointer hover:bg-dark-900 transition-colors">
+                                     <input type="checkbox" class="rounded border-gray-600 bg-dark-800 text-brand-cyan focus:ring-0 w-5 h-5">
+                                     <div>
+                                         <span class="block text-sm font-bold text-white">تتبع تاريخ الصلاحية (Expiry Tracking)</span>
+                                         <span class="block text-xs text-gray-500">يتطلب إدخال تاريخ الانتهاء عند الاستلام</span>
+                                     </div>
+                                 </label>
+                             </div>
+                         </div>
+
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</body>
+</html>

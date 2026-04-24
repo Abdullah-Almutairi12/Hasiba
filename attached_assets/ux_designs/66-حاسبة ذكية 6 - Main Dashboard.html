@@ -1,0 +1,690 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>لوحة القيادة التنفيذية - حاسبة.AI</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+    <script>
+        window.FontAwesomeConfig = { autoReplaceSvg: 'nest' };
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        dark: {
+                            950: '#05060A',
+                            900: '#0F111A', // Deep background
+                            800: '#1A1D2D', // Card background
+                            700: '#252A40', // Lighter elements
+                        },
+                        brand: {
+                            cyan: '#00D4FF',
+                            pink: '#FF6B6B',
+                            purple: '#7B61FF',
+                            green: '#10B981',
+                            orange: '#F59E0B',
+                        }
+                    },
+                    fontFamily: {
+                        sans: ['IBM Plex Sans Arabic', 'Inter', 'sans-serif'],
+                    },
+                    backgroundImage: {
+                        'gradient-radial': 'radial-gradient(var(--tw-gradient-stops))',
+                        'hero-glow': 'conic-gradient(from 180deg at 50% 50%, #00D4FF 0deg, #7B61FF 120deg, #FF6B6B 240deg, #00D4FF 360deg)',
+                    },
+                    boxShadow: {
+                        'glow-cyan': '0 0 20px rgba(0, 212, 255, 0.3)',
+                        'glow-purple': '0 0 20px rgba(123, 97, 255, 0.3)',
+                        'card-hover': '0 10px 30px -10px rgba(0, 0, 0, 0.5)',
+                    }
+                }
+            }
+        }
+    </script>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/js/all.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    
+    <style>
+        body {
+            background-color: #0F111A;
+            color: white;
+            font-family: 'IBM Plex Sans Arabic', sans-serif;
+            overflow-x: hidden;
+        }
+        
+        /* Custom scrollbar */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #0F111A; }
+        ::-webkit-scrollbar-thumb { background: #252A40; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #3B4260; }
+
+        /* Glassmorphism utilities */
+        .glass-panel {
+            background: rgba(26, 29, 45, 0.7);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        
+        .glass-card {
+            background: rgba(37, 42, 64, 0.4);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        
+        .glass-card:hover {
+            background: rgba(37, 42, 64, 0.6);
+            border-color: rgba(255, 255, 255, 0.15);
+            transform: translateY(-2px);
+            box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.5);
+        }
+
+        /* Gradient Text */
+        .text-gradient {
+            background: linear-gradient(135deg, #00D4FF 0%, #FF6B6B 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        /* Glow effects */
+        .glow-orb {
+            position: absolute;
+            border-radius: 50%;
+            filter: blur(100px);
+            opacity: 0.3;
+            z-index: -1;
+            pointer-events: none;
+        }
+
+        /* Animations */
+        @keyframes fade-in-up {
+            0% { opacity: 0; transform: translateY(20px); }
+            100% { opacity: 1; transform: translateY(0); }
+        }
+        .animate-fade-in-up { animation: fade-in-up 0.6s ease-out forwards; }
+        .delay-100 { animation-delay: 100ms; }
+        .delay-200 { animation-delay: 200ms; }
+        .delay-300 { animation-delay: 300ms; }
+        
+        @keyframes pulse-soft {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+        .animate-pulse-soft { animation: pulse-soft 3s infinite; }
+
+        /* Navigation Active State */
+        .nav-link.active {
+            background: linear-gradient(90deg, rgba(0, 212, 255, 0.1) 0%, rgba(0, 212, 255, 0) 100%);
+            border-right: 3px solid #00D4FF;
+            color: #fff;
+        }
+        
+        .nav-link {
+            border-right: 3px solid transparent;
+            transition: all 0.2s;
+        }
+
+        /* Circular Progress for Health Score */
+        .health-ring-circle {
+            transition: stroke-dashoffset 1s ease-in-out;
+            transform: rotate(-90deg);
+            transform-origin: 50% 50%;
+        }
+
+        /* AI Copilot Input */
+        .copilot-input-wrapper:focus-within {
+            border-color: #7B61FF;
+            box-shadow: 0 0 0 2px rgba(123, 97, 255, 0.2);
+        }
+
+        /* Fix for scrollbar visibility on chips */
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+    </style>
+</head>
+<body class="antialiased min-h-screen relative selection:bg-brand-cyan selection:text-white overflow-hidden">
+
+    <!-- Background Orbs -->
+    <div class="glow-orb w-[800px] h-[800px] bg-brand-cyan/10 top-[-200px] right-[-200px] animate-pulse-soft"></div>
+    <div class="glow-orb w-[600px] h-[600px] bg-brand-purple/10 bottom-[-100px] left-[-100px] animate-pulse-soft" style="animation-delay: 2s;"></div>
+
+    <!-- Layout Container -->
+    <div class="flex h-screen overflow-hidden">
+
+        <!-- Sidebar Navigation -->
+        <aside class="w-72 bg-dark-900/90 backdrop-blur-xl border-l border-white/5 flex flex-col h-full z-40 hidden lg:flex">
+            <!-- Logo -->
+            <div class="p-6 border-b border-white/5">
+                <a href="#" class="flex items-center gap-3 group">
+                    <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-brand-cyan to-brand-purple flex items-center justify-center shadow-lg shadow-brand-cyan/20 group-hover:shadow-brand-cyan/40 transition-all">
+                        <i class="fa-solid fa-calculator text-white text-xl"></i>
+                    </div>
+                    <span class="text-2xl font-bold tracking-tight text-white">حاسبة<span class="text-brand-cyan">.AI</span></span>
+                </a>
+            </div>
+
+            <!-- Navigation Items -->
+            <nav class="flex-1 overflow-y-auto py-6 px-3 space-y-1">
+                <a href="#" class="nav-link active flex items-center gap-3 px-4 py-3 text-sm font-medium rounded-lg text-white group">
+                    <i class="fa-solid fa-chart-line w-5 text-center text-brand-cyan"></i>
+                    <span>لوحة القيادة التنفيذية</span>
+                </a>
+                <a href="#" class="nav-link flex items-center gap-3 px-4 py-3 text-sm font-medium text-gray-400 hover:text-white hover:bg-white/5 rounded-lg group transition-colors">
+                    <i class="fa-solid fa-cash-register w-5 text-center group-hover:text-brand-purple transition-colors"></i>
+                    <span>نقطة البيع (POS)</span>
+                </a>
+                <a href="#" class="nav-link flex items-center gap-3 px-4 py-3 text-sm font-medium text-gray-400 hover:text-white hover:bg-white/5 rounded-lg group transition-colors">
+                    <i class="fa-solid fa-boxes-stacked w-5 text-center group-hover:text-brand-purple transition-colors"></i>
+                    <span>المنتجات والمخزون</span>
+                </a>
+                <a href="#" class="nav-link flex items-center gap-3 px-4 py-3 text-sm font-medium text-gray-400 hover:text-white hover:bg-white/5 rounded-lg group transition-colors">
+                    <i class="fa-solid fa-file-invoice w-5 text-center group-hover:text-brand-purple transition-colors"></i>
+                    <span>فواتير الموردين (AI)</span>
+                </a>
+                <a href="#" class="nav-link flex items-center gap-3 px-4 py-3 text-sm font-medium text-gray-400 hover:text-white hover:bg-white/5 rounded-lg group transition-colors">
+                    <i class="fa-solid fa-calculator w-5 text-center group-hover:text-brand-purple transition-colors"></i>
+                    <span>المحاسبة والامتثال</span>
+                </a>
+                <a href="#" class="nav-link flex items-center gap-3 px-4 py-3 text-sm font-medium text-gray-400 hover:text-white hover:bg-white/5 rounded-lg group transition-colors">
+                    <i class="fa-solid fa-chart-pie w-5 text-center group-hover:text-brand-purple transition-colors"></i>
+                    <span>التقارير والرؤى</span>
+                </a>
+                <div class="pt-4 mt-4 border-t border-white/5">
+                    <a href="#" class="nav-link flex items-center gap-3 px-4 py-3 text-sm font-medium text-gray-400 hover:text-white hover:bg-white/5 rounded-lg group transition-colors">
+                        <i class="fa-solid fa-gear w-5 text-center group-hover:text-gray-300 transition-colors"></i>
+                        <span>الإعدادات والأمان</span>
+                    </a>
+                </div>
+            </nav>
+
+            <!-- User Profile -->
+            <div class="p-4 border-t border-white/5 bg-dark-800/50">
+                <div class="flex items-center gap-3">
+                    <div class="relative">
+                        <img src="https://storage.googleapis.com/uxpilot-auth.appspot.com/avatars/avatar-2.jpg" alt="User" class="w-10 h-10 rounded-full border border-white/10">
+                        <span class="absolute bottom-0 right-0 w-3 h-3 bg-brand-green rounded-full border-2 border-dark-900"></span>
+                    </div>
+                    <div class="flex-1 min-w-0">
+                        <p class="text-sm font-medium text-white truncate">أحمد المدير</p>
+                        <p class="text-xs text-gray-400 truncate">المدير العام</p>
+                    </div>
+                    <button class="text-gray-400 hover:text-white transition-colors">
+                        <i class="fa-solid fa-right-from-bracket"></i>
+                    </button>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="flex-1 flex flex-col h-full overflow-hidden relative">
+            
+            <!-- Header -->
+            <header class="h-20 bg-dark-900/80 backdrop-blur-md border-b border-white/5 flex items-center justify-between px-8 z-30 shrink-0">
+                <div class="flex items-center gap-4">
+                    <button class="lg:hidden text-gray-400 hover:text-white">
+                        <i class="fa-solid fa-bars text-xl"></i>
+                    </button>
+                    <h1 class="text-xl font-bold text-white">لوحة القيادة <span class="text-gray-500 font-normal text-sm mr-2">| نظرة عامة على الأداء</span></h1>
+                </div>
+
+                <div class="flex items-center gap-6">
+                    <!-- Branch Selector -->
+                    <div class="relative group">
+                        <button class="flex items-center gap-2 text-sm text-gray-300 hover:text-white bg-white/5 hover:bg-white/10 px-4 py-2 rounded-lg transition-all border border-white/5">
+                            <i class="fa-solid fa-store text-brand-cyan"></i>
+                            <span>جميع الفروع (3)</span>
+                            <i class="fa-solid fa-chevron-down text-xs"></i>
+                        </button>
+                    </div>
+
+                    <!-- Date Range -->
+                    <div class="flex items-center gap-2 text-sm text-gray-400 bg-white/5 px-4 py-2 rounded-lg border border-white/5">
+                        <i class="fa-regular fa-calendar text-brand-purple"></i>
+                        <span>14 فبراير 2024</span>
+                    </div>
+
+                    <!-- Notifications -->
+                    <button class="relative w-10 h-10 rounded-full bg-white/5 hover:bg-white/10 flex items-center justify-center text-gray-400 hover:text-white transition-all border border-white/5">
+                        <i class="fa-regular fa-bell"></i>
+                        <span class="absolute top-2 right-2.5 w-2 h-2 bg-brand-pink rounded-full animate-pulse"></span>
+                    </button>
+                </div>
+            </header>
+
+            <!-- Scrollable Content -->
+            <div class="flex-1 overflow-y-auto p-6 md:p-8 scroll-smooth" id="dashboard-content">
+                <div class="max-w-[1600px] mx-auto space-y-8">
+
+                    <!-- AI Copilot Bar -->
+                    <section id="ai-copilot" class="animate-fade-in-up">
+                        <div class="glass-panel rounded-2xl p-1.5 border border-brand-purple/30 shadow-lg shadow-brand-purple/5 relative overflow-hidden group">
+                            <div class="absolute inset-0 bg-gradient-to-r from-brand-cyan/5 via-brand-purple/5 to-brand-pink/5 opacity-50 group-hover:opacity-100 transition-opacity"></div>
+                            <div class="relative flex items-center gap-4 bg-dark-900/80 rounded-xl p-3 copilot-input-wrapper border border-transparent transition-all">
+                                <div class="w-10 h-10 rounded-lg bg-gradient-to-br from-brand-purple to-brand-cyan flex items-center justify-center shrink-0 animate-pulse-soft">
+                                    <i class="fa-solid fa-wand-magic-sparkles text-white"></i>
+                                </div>
+                                <input type="text" placeholder="اسأل حاسبة Copilot: 'لماذا انخفضت الأرباح هذا الأسبوع؟' أو 'توقع مبيعات الشهر القادم'..." 
+                                       class="flex-1 bg-transparent border-none text-white placeholder-gray-400 focus:outline-none text-sm md:text-base h-full">
+                                <button class="p-2 text-gray-400 hover:text-brand-cyan transition-colors">
+                                    <i class="fa-solid fa-microphone"></i>
+                                </button>
+                                <button class="px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-lg text-sm font-medium transition-all flex items-center gap-2">
+                                    <span>تحليل</span>
+                                    <i class="fa-solid fa-arrow-left"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <!-- AI Insights Chips -->
+                        <div class="flex gap-3 mt-3 overflow-x-auto pb-2 no-scrollbar">
+                            <button class="text-xs font-medium text-brand-cyan bg-brand-cyan/10 border border-brand-cyan/20 px-3 py-1.5 rounded-full hover:bg-brand-cyan/20 transition-colors whitespace-nowrap">
+                                <i class="fa-solid fa-bolt mr-1"></i> فرصة لزيادة المبيعات +15%
+                            </button>
+                            <button class="text-xs font-medium text-brand-pink bg-brand-pink/10 border border-brand-pink/20 px-3 py-1.5 rounded-full hover:bg-brand-pink/20 transition-colors whitespace-nowrap">
+                                <i class="fa-solid fa-triangle-exclamation mr-1"></i> انتباه: مخزون القهوة منخفض
+                            </button>
+                            <button class="text-xs font-medium text-brand-purple bg-brand-purple/10 border border-brand-purple/20 px-3 py-1.5 rounded-full hover:bg-brand-purple/20 transition-colors whitespace-nowrap">
+                                <i class="fa-solid fa-magnifying-glass-chart mr-1"></i> تحليل أداء فرع العليا
+                            </button>
+                        </div>
+                    </section>
+
+                    <!-- Top KPI Grid -->
+                    <section id="kpi-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 animate-fade-in-up delay-100">
+                        
+                        <!-- Sales KPI -->
+                        <div class="glass-card rounded-2xl p-5 border border-white/5 relative overflow-hidden group">
+                            <div class="absolute top-0 right-0 w-24 h-24 bg-brand-cyan/10 rounded-bl-full -mr-4 -mt-4 transition-transform group-hover:scale-110"></div>
+                            <div class="flex justify-between items-start mb-4 relative">
+                                <div>
+                                    <p class="text-gray-400 text-sm font-medium mb-1">إجمالي المبيعات (اليوم)</p>
+                                    <h3 class="text-2xl font-bold text-white tracking-tight">45,230 <span class="text-sm font-normal text-gray-500">ر.س</span></h3>
+                                </div>
+                                <div class="w-10 h-10 rounded-lg bg-brand-cyan/10 flex items-center justify-center text-brand-cyan border border-brand-cyan/20">
+                                    <i class="fa-solid fa-sack-dollar text-lg"></i>
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-2 text-xs">
+                                <span class="text-brand-green bg-brand-green/10 px-1.5 py-0.5 rounded flex items-center gap-1">
+                                    <i class="fa-solid fa-arrow-trend-up"></i> 12.5%
+                                </span>
+                                <span class="text-gray-500">مقارنة بالأمس</span>
+                            </div>
+                        </div>
+
+                        <!-- Gross Profit KPI -->
+                        <div class="glass-card rounded-2xl p-5 border border-white/5 relative overflow-hidden group">
+                            <div class="absolute top-0 right-0 w-24 h-24 bg-brand-purple/10 rounded-bl-full -mr-4 -mt-4 transition-transform group-hover:scale-110"></div>
+                            <div class="flex justify-between items-start mb-4 relative">
+                                <div>
+                                    <p class="text-gray-400 text-sm font-medium mb-1">إجمالي الربح</p>
+                                    <h3 class="text-2xl font-bold text-white tracking-tight">18,540 <span class="text-sm font-normal text-gray-500">ر.س</span></h3>
+                                </div>
+                                <div class="w-10 h-10 rounded-lg bg-brand-purple/10 flex items-center justify-center text-brand-purple border border-brand-purple/20">
+                                    <i class="fa-solid fa-chart-line text-lg"></i>
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-2 text-xs">
+                                <span class="text-brand-green bg-brand-green/10 px-1.5 py-0.5 rounded flex items-center gap-1">
+                                    <i class="fa-solid fa-arrow-trend-up"></i> 8.2%
+                                </span>
+                                <span class="text-gray-500">هامش ربح 41%</span>
+                            </div>
+                        </div>
+
+                        <!-- Inventory Value KPI -->
+                        <div class="glass-card rounded-2xl p-5 border border-white/5 relative overflow-hidden group">
+                            <div class="absolute top-0 right-0 w-24 h-24 bg-brand-orange/10 rounded-bl-full -mr-4 -mt-4 transition-transform group-hover:scale-110"></div>
+                            <div class="flex justify-between items-start mb-4 relative">
+                                <div>
+                                    <p class="text-gray-400 text-sm font-medium mb-1">قيمة المخزون</p>
+                                    <h3 class="text-2xl font-bold text-white tracking-tight">124,800 <span class="text-sm font-normal text-gray-500">ر.س</span></h3>
+                                </div>
+                                <div class="w-10 h-10 rounded-lg bg-brand-orange/10 flex items-center justify-center text-brand-orange border border-brand-orange/20">
+                                    <i class="fa-solid fa-boxes-stacked text-lg"></i>
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-2 text-xs">
+                                <span class="text-brand-orange bg-brand-orange/10 px-1.5 py-0.5 rounded flex items-center gap-1">
+                                    <i class="fa-solid fa-circle-exclamation"></i> 5 أصناف
+                                </span>
+                                <span class="text-gray-500">أوشكت على النفاد</span>
+                            </div>
+                        </div>
+
+                        <!-- Net Profit Estimate KPI -->
+                        <div class="glass-card rounded-2xl p-5 border border-white/5 relative overflow-hidden group">
+                            <div class="absolute top-0 right-0 w-24 h-24 bg-brand-green/10 rounded-bl-full -mr-4 -mt-4 transition-transform group-hover:scale-110"></div>
+                            <div class="flex justify-between items-start mb-4 relative">
+                                <div>
+                                    <p class="text-gray-400 text-sm font-medium mb-1">صافي الربح (تقديري)</p>
+                                    <h3 class="text-2xl font-bold text-white tracking-tight">12,150 <span class="text-sm font-normal text-gray-500">ر.س</span></h3>
+                                </div>
+                                <div class="w-10 h-10 rounded-lg bg-brand-green/10 flex items-center justify-center text-brand-green border border-brand-green/20">
+                                    <i class="fa-solid fa-wallet text-lg"></i>
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-2 text-xs">
+                                <span class="text-brand-green bg-brand-green/10 px-1.5 py-0.5 rounded flex items-center gap-1">
+                                    <i class="fa-solid fa-check"></i> مستقر
+                                </span>
+                                <span class="text-gray-500">بعد خصم المصاريف</span>
+                            </div>
+                        </div>
+
+                    </section>
+
+                    <!-- Main Charts & Health Score Section -->
+                    <section class="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-fade-in-up delay-200">
+                        
+                        <!-- Main Chart Area (Sales & Forecasting) -->
+                        <div class="lg:col-span-2 glass-card rounded-2xl p-6 border border-white/5">
+                            <div class="flex items-center justify-between mb-6">
+                                <div>
+                                    <h3 class="text-lg font-bold text-white mb-1">تحليل المبيعات والتنبؤات</h3>
+                                    <p class="text-xs text-gray-400">مقارنة الأداء الفعلي مع توقعات الذكاء الاصطناعي</p>
+                                </div>
+                                <div class="flex bg-white/5 rounded-lg p-1">
+                                    <button class="px-3 py-1 text-xs font-medium bg-white/10 text-white rounded shadow-sm">أسبوعي</button>
+                                    <button class="px-3 py-1 text-xs font-medium text-gray-400 hover:text-white transition-colors">شهري</button>
+                                    <button class="px-3 py-1 text-xs font-medium text-gray-400 hover:text-white transition-colors">سنوي</button>
+                                </div>
+                            </div>
+                            
+                            <!-- Chart Container -->
+                            <div id="salesChart" class="w-full h-[300px]"></div>
+                        </div>
+
+                        <!-- Business Health Score & Quick Actions -->
+                        <div class="space-y-6">
+                            
+                            <!-- Health Score Card -->
+                            <div class="glass-card rounded-2xl p-6 border border-white/5 relative overflow-hidden">
+                                <h3 class="text-lg font-bold text-white mb-4 flex items-center gap-2">
+                                    <i class="fa-solid fa-heart-pulse text-brand-pink"></i>
+                                    مؤشر صحة المشروع
+                                </h3>
+                                
+                                <div class="flex items-center gap-6">
+                                    <!-- Circular Progress -->
+                                    <div class="relative w-32 h-32 flex items-center justify-center">
+                                        <svg class="w-full h-full" viewBox="0 0 100 100">
+                                            <circle cx="50" cy="50" r="45" fill="none" stroke="#252A40" stroke-width="8" />
+                                            <circle cx="50" cy="50" r="45" fill="none" stroke="url(#gradient-health)" stroke-width="8" stroke-dasharray="283" stroke-dashoffset="42" stroke-linecap="round" class="health-ring-circle" />
+                                            <defs>
+                                                <linearGradient id="gradient-health" x1="0%" y1="0%" x2="100%" y2="0%">
+                                                    <stop offset="0%" stop-color="#00D4FF" />
+                                                    <stop offset="100%" stop-color="#10B981" />
+                                                </linearGradient>
+                                            </defs>
+                                        </svg>
+                                        <div class="absolute inset-0 flex flex-col items-center justify-center">
+                                            <span class="text-3xl font-bold text-white">85</span>
+                                            <span class="text-[10px] text-gray-400">من 100</span>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Score Breakdown -->
+                                    <div class="flex-1 space-y-3">
+                                        <div class="flex justify-between items-center text-xs">
+                                            <span class="text-gray-400">السيولة</span>
+                                            <span class="text-brand-green font-medium">ممتاز</span>
+                                        </div>
+                                        <div class="w-full bg-dark-700 h-1.5 rounded-full overflow-hidden">
+                                            <div class="bg-brand-green h-full rounded-full" style="width: 90%"></div>
+                                        </div>
+                                        
+                                        <div class="flex justify-between items-center text-xs">
+                                            <span class="text-gray-400">النمو</span>
+                                            <span class="text-brand-cyan font-medium">جيد جداً</span>
+                                        </div>
+                                        <div class="w-full bg-dark-700 h-1.5 rounded-full overflow-hidden">
+                                            <div class="bg-brand-cyan h-full rounded-full" style="width: 75%"></div>
+                                        </div>
+
+                                        <div class="flex justify-between items-center text-xs">
+                                            <span class="text-gray-400">المخاطر</span>
+                                            <span class="text-brand-orange font-medium">متوسط</span>
+                                        </div>
+                                        <div class="w-full bg-dark-700 h-1.5 rounded-full overflow-hidden">
+                                            <div class="bg-brand-orange h-full rounded-full" style="width: 40%"></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Quick Actions Grid -->
+                            <div class="grid grid-cols-2 gap-3">
+                                <button class="glass-card p-4 rounded-xl flex flex-col items-center justify-center gap-2 hover:bg-brand-cyan/10 border border-white/5 hover:border-brand-cyan/30 transition-all group">
+                                    <div class="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center group-hover:scale-110 transition-transform">
+                                        <i class="fa-solid fa-plus text-brand-cyan"></i>
+                                    </div>
+                                    <span class="text-xs font-medium text-gray-300 group-hover:text-white">بيع جديد</span>
+                                </button>
+                                <button class="glass-card p-4 rounded-xl flex flex-col items-center justify-center gap-2 hover:bg-brand-purple/10 border border-white/5 hover:border-brand-purple/30 transition-all group">
+                                    <div class="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center group-hover:scale-110 transition-transform">
+                                        <i class="fa-solid fa-camera text-brand-purple"></i>
+                                    </div>
+                                    <span class="text-xs font-medium text-gray-300 group-hover:text-white">مسح فاتورة</span>
+                                </button>
+                                <button class="glass-card p-4 rounded-xl flex flex-col items-center justify-center gap-2 hover:bg-brand-pink/10 border border-white/5 hover:border-brand-pink/30 transition-all group">
+                                    <div class="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center group-hover:scale-110 transition-transform">
+                                        <i class="fa-solid fa-box text-brand-pink"></i>
+                                    </div>
+                                    <span class="text-xs font-medium text-gray-300 group-hover:text-white">إضافة منتج</span>
+                                </button>
+                                <button class="glass-card p-4 rounded-xl flex flex-col items-center justify-center gap-2 hover:bg-brand-green/10 border border-white/5 hover:border-brand-green/30 transition-all group">
+                                    <div class="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center group-hover:scale-110 transition-transform">
+                                        <i class="fa-solid fa-lock text-brand-green"></i>
+                                    </div>
+                                    <span class="text-xs font-medium text-gray-300 group-hover:text-white">إغلاق يومي</span>
+                                </button>
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- Bottom Section: Branch Comparison & AI Feed -->
+                    <section class="grid grid-cols-1 lg:grid-cols-2 gap-6 animate-fade-in-up delay-300 pb-8">
+                        
+                        <!-- Branch Comparison Table -->
+                        <div class="glass-card rounded-2xl border border-white/5 overflow-hidden flex flex-col">
+                            <div class="p-6 border-b border-white/5 flex justify-between items-center">
+                                <h3 class="text-lg font-bold text-white">مقارنة أداء الفروع</h3>
+                                <button class="text-xs text-brand-cyan hover:underline">عرض التفاصيل الكاملة</button>
+                            </div>
+                            <div class="overflow-x-auto">
+                                <table class="w-full text-sm text-right">
+                                    <thead class="bg-white/5 text-gray-400 font-medium text-xs">
+                                        <tr>
+                                            <th class="px-6 py-3">الفرع</th>
+                                            <th class="px-6 py-3">المبيعات</th>
+                                            <th class="px-6 py-3">الربح</th>
+                                            <th class="px-6 py-3">الحالة</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="divide-y divide-white/5">
+                                        <tr class="hover:bg-white/5 transition-colors">
+                                            <td class="px-6 py-4 font-medium text-white flex items-center gap-2">
+                                                <div class="w-2 h-2 rounded-full bg-brand-green"></div>
+                                                الفرع الرئيسي - الرياض
+                                            </td>
+                                            <td class="px-6 py-4 text-gray-300">24,500 ر.س</td>
+                                            <td class="px-6 py-4 text-brand-green">+12%</td>
+                                            <td class="px-6 py-4"><span class="px-2 py-1 rounded bg-brand-green/10 text-brand-green text-xs">نشط</span></td>
+                                        </tr>
+                                        <tr class="hover:bg-white/5 transition-colors">
+                                            <td class="px-6 py-4 font-medium text-white flex items-center gap-2">
+                                                <div class="w-2 h-2 rounded-full bg-brand-orange"></div>
+                                                فرع جدة - التحلية
+                                            </td>
+                                            <td class="px-6 py-4 text-gray-300">12,350 ر.س</td>
+                                            <td class="px-6 py-4 text-brand-orange">-3%</td>
+                                            <td class="px-6 py-4"><span class="px-2 py-1 rounded bg-brand-orange/10 text-brand-orange text-xs">يحتاج انتباه</span></td>
+                                        </tr>
+                                        <tr class="hover:bg-white/5 transition-colors">
+                                            <td class="px-6 py-4 font-medium text-white flex items-center gap-2">
+                                                <div class="w-2 h-2 rounded-full bg-brand-green"></div>
+                                                فرع الدمام
+                                            </td>
+                                            <td class="px-6 py-4 text-gray-300">8,380 ر.س</td>
+                                            <td class="px-6 py-4 text-brand-green">+5%</td>
+                                            <td class="px-6 py-4"><span class="px-2 py-1 rounded bg-brand-green/10 text-brand-green text-xs">نشط</span></td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <!-- AI Alerts Feed -->
+                        <div class="glass-card rounded-2xl p-6 border border-white/5 flex flex-col">
+                            <div class="flex justify-between items-center mb-6">
+                                <h3 class="text-lg font-bold text-white flex items-center gap-2">
+                                    <i class="fa-solid fa-robot text-brand-purple"></i>
+                                    تنبيهات الذكاء الاصطناعي
+                                </h3>
+                                <span class="bg-brand-pink/20 text-brand-pink text-xs px-2 py-1 rounded-full animate-pulse">3 جديد</span>
+                            </div>
+                            
+                            <div class="space-y-4 overflow-y-auto max-h-[250px] pr-2 custom-scrollbar">
+                                <!-- Alert 1 -->
+                                <div class="p-4 rounded-xl bg-white/5 border-r-4 border-brand-pink hover:bg-white/10 transition-colors cursor-pointer">
+                                    <div class="flex items-start gap-3">
+                                        <div class="mt-1 w-6 h-6 rounded bg-brand-pink/20 flex items-center justify-center shrink-0">
+                                            <i class="fa-solid fa-triangle-exclamation text-brand-pink text-xs"></i>
+                                        </div>
+                                        <div>
+                                            <h4 class="text-sm font-bold text-white">انخفاض غير مبرر في المبيعات</h4>
+                                            <p class="text-xs text-gray-400 mt-1">فرع جدة سجل انخفاض 25% مقارنة بنفس اليوم الأسبوع الماضي. يوصى بمراجعة الكاشير.</p>
+                                            <div class="flex items-center gap-3 mt-2 text-[10px] text-gray-500">
+                                                <span><i class="fa-regular fa-clock"></i> منذ 30 دقيقة</span>
+                                                <span class="text-brand-cyan hover:underline">عرض التحليل</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Alert 2 -->
+                                <div class="p-4 rounded-xl bg-white/5 border-r-4 border-brand-orange hover:bg-white/10 transition-colors cursor-pointer">
+                                    <div class="flex items-start gap-3">
+                                        <div class="mt-1 w-6 h-6 rounded bg-brand-orange/20 flex items-center justify-center shrink-0">
+                                            <i class="fa-solid fa-box-open text-brand-orange text-xs"></i>
+                                        </div>
+                                        <div>
+                                            <h4 class="text-sm font-bold text-white">خطر نفاد المخزون</h4>
+                                            <p class="text-xs text-gray-400 mt-1">منتج "قهوة كولومبية" سيصل للحد الأدنى خلال 48 ساعة بناءً على معدل البيع الحالي.</p>
+                                            <div class="flex items-center gap-3 mt-2 text-[10px] text-gray-500">
+                                                <span><i class="fa-regular fa-clock"></i> منذ ساعتين</span>
+                                                <span class="text-brand-cyan hover:underline">إعادة الطلب</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Alert 3 -->
+                                <div class="p-4 rounded-xl bg-white/5 border-r-4 border-brand-purple hover:bg-white/10 transition-colors cursor-pointer">
+                                    <div class="flex items-start gap-3">
+                                        <div class="mt-1 w-6 h-6 rounded bg-brand-purple/20 flex items-center justify-center shrink-0">
+                                            <i class="fa-solid fa-user-secret text-brand-purple text-xs"></i>
+                                        </div>
+                                        <div>
+                                            <h4 class="text-sm font-bold text-white">إلغاء فواتير متكرر</h4>
+                                            <p class="text-xs text-gray-400 mt-1">تم رصد 5 عمليات إلغاء فاتورة بعد الطباعة للموظف "محمد" خلال ساعة واحدة.</p>
+                                            <div class="flex items-center gap-3 mt-2 text-[10px] text-gray-500">
+                                                <span><i class="fa-regular fa-clock"></i> منذ 4 ساعات</span>
+                                                <span class="text-brand-cyan hover:underline">مراجعة السجل</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                    </section>
+
+                </div>
+                
+                <!-- Footer -->
+                <footer class="mt-8 border-t border-white/5 pt-6 pb-2 text-center text-xs text-gray-500">
+                    <div class="flex flex-col md:flex-row justify-between items-center gap-4">
+                        <p>© 2024 حاسبة.AI - جميع الحقوق محفوظة.</p>
+                        <div class="flex gap-4">
+                            <a href="#" class="hover:text-white transition-colors">سياسة الخصوصية</a>
+                            <a href="#" class="hover:text-white transition-colors">الدعم الفني</a>
+                        </div>
+                    </div>
+                </footer>
+            </div>
+        </main>
+    </div>
+
+    <!-- Chart Script -->
+    <script>
+        window.addEventListener('load', function() {
+            try {
+                // Mock Data
+                var xValues = ['السبت', 'الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة'];
+                var actualSales = [12000, 15000, 14500, 18000, 16500, 22000, 25000];
+                var predictedSales = [12500, 14800, 15000, 17500, 18000, 23000, 28000];
+
+                var trace1 = {
+                    x: xValues,
+                    y: actualSales,
+                    mode: 'lines+markers',
+                    name: 'المبيعات الفعلية',
+                    line: { color: '#00D4FF', width: 3 },
+                    marker: { size: 6, color: '#00D4FF' }
+                };
+
+                var trace2 = {
+                    x: xValues,
+                    y: predictedSales,
+                    mode: 'lines',
+                    name: 'توقعات AI',
+                    line: { color: '#7B61FF', width: 2, dash: 'dot' },
+                    opacity: 0.7
+                };
+
+                var data = [trace1, trace2];
+
+                var layout = {
+                    font: { family: 'IBM Plex Sans Arabic' },
+                    margin: { t: 20, r: 20, b: 40, l: 40 },
+                    paper_bgcolor: 'rgba(0,0,0,0)',
+                    plot_bgcolor: 'rgba(0,0,0,0)',
+                    showlegend: true,
+                    legend: { orientation: 'h', y: 1.1, font: { color: '#9CA3AF' } },
+                    xaxis: { 
+                        color: '#9CA3AF', 
+                        gridcolor: 'rgba(255,255,255,0.05)',
+                        tickfont: { size: 12 }
+                    },
+                    yaxis: { 
+                        color: '#9CA3AF', 
+                        gridcolor: 'rgba(255,255,255,0.05)',
+                        tickprefix: 'SAR ',
+                        tickfont: { size: 10 }
+                    },
+                    hovermode: 'x unified'
+                };
+
+                var config = { responsive: true, displayModeBar: false };
+
+                Plotly.newPlot('salesChart', data, layout, config);
+            } catch(e) {
+                console.error("Chart error:", e);
+                document.getElementById('salesChart').innerHTML = '<div class="flex items-center justify-center h-full text-gray-500">فشل تحميل الرسم البياني</div>';
+            }
+        });
+    </script>
+</body>
+</html>

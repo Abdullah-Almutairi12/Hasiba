@@ -1,0 +1,610 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <script>
+        window.FontAwesomeConfig = {
+          autoReplaceSvg: 'nest'
+        };
+      </script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>حاسبة | فواتير الموردين - Supplier Invoices AI</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.plot.ly/plotly-3.1.1.min.js"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            50: '#EFF6FF',
+                            100: '#DBEAFE',
+                            200: '#BFDBFE',
+                            300: '#93C5FD',
+                            400: '#60A5FA',
+                            500: '#3B82F6',
+                            600: '#2563EB',
+                            700: '#1D4ED8',
+                            800: '#1E40AF',
+                            900: '#1E3A8A',
+                            950: '#1A2238',
+                        },
+                        neutral: {
+                            50: '#F9FAFB',
+                            100: '#F3F4F6',
+                            200: '#E5E7EB',
+                            300: '#D1D5DB',
+                            400: '#9CA3AF',
+                            500: '#6B7280',
+                            600: '#4B5563',
+                            700: '#374151',
+                            800: '#1F2937',
+                            850: '#1A2238',
+                            900: '#111827',
+                        }
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'IBM Plex Sans Arabic', 'sans-serif'],
+                        display: ['Inter', 'IBM Plex Sans Arabic', 'sans-serif'],
+                    },
+                    boxShadow: {
+                        'soft': '0 1px 3px 0 rgba(0, 0, 0, 0.05)',
+                        'soft-xl': '0 10px 25px -5px rgba(0, 0, 0, 0.06)',
+                        'card-hover': '0 10px 30px -5px rgba(59, 130, 246, 0.1)',
+                    }
+                }
+            }
+        }
+    </script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/js/all.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <style>
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #F9FAFB; }
+        ::-webkit-scrollbar-thumb { background: #D1D5DB; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #9CA3AF; }
+        
+        .nav-item {
+            position: relative;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .nav-item::before {
+            content: '';
+            position: absolute;
+            right: 0;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 3px;
+            height: 0;
+            background-color: #3B82F6;
+            border-radius: 3px 0 0 3px;
+            transition: height 0.3s ease;
+        }
+        .nav-item:hover { background: #F9FAFB; }
+        .nav-item.active {
+            background: #EFF6FF;
+            color: #1D4ED8;
+            font-weight: 600;
+        }
+        .nav-item.active::before { 
+            height: 70%; 
+            background-color: #3B82F6;
+        }
+
+        .tab-button {
+            position: relative;
+            transition: all 0.3s ease;
+        }
+        .tab-button.active {
+            color: #1D4ED8;
+            font-weight: 600;
+        }
+        .tab-button.active::after {
+            content: '';
+            position: absolute;
+            bottom: -2px;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: #3B82F6;
+            border-radius: 3px 3px 0 0;
+        }
+
+        .scanner-line {
+            position: absolute;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: linear-gradient(90deg, transparent, #3B82F6, transparent);
+            box-shadow: 0 0 15px #3B82F6;
+            animation: scan 2.5s ease-in-out infinite;
+            z-index: 10;
+        }
+        
+        @keyframes scan {
+            0% { top: 0%; }
+            50% { top: 100%; }
+            100% { top: 0%; }
+        }
+    </style>
+</head>
+<body class="bg-neutral-50 text-neutral-900 font-sans selection:bg-brand-100 selection:text-brand-900 overflow-hidden h-screen flex">
+
+    <!-- Sidebar Navigation -->
+    <aside class="w-[260px] bg-white border-l border-neutral-200 flex flex-col h-full z-40 shadow-soft transition-all duration-300 flex-shrink-0">
+        <!-- Brand Header -->
+        <div class="h-16 flex items-center px-5 border-b border-neutral-100">
+            <a href="#" class="flex items-center gap-3 group w-full">
+                <div class="w-9 h-9 bg-brand-600 rounded-lg flex items-center justify-center shadow-soft text-white text-base group-hover:scale-105 transition-transform">
+                    <i class="fa-solid fa-calculator"></i>
+                </div>
+                <div>
+                    <span class="text-lg font-bold tracking-tight text-neutral-900 block leading-tight">حاسبة<span class="text-brand-600">.</span></span>
+                    <span class="text-[9px] text-neutral-500 font-medium tracking-wide uppercase">Inventory Hub</span>
+                </div>
+            </a>
+        </div>
+
+        <!-- Navigation Links -->
+        <nav class="flex-1 overflow-y-auto py-4 px-2 space-y-1">
+            <div class="px-4 mb-2 text-[10px] font-bold text-neutral-400 uppercase tracking-wider">القائمة الرئيسية</div>
+            
+            <a href="#" class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-neutral-600 hover:text-neutral-900 group">
+                <i class="fa-solid fa-chart-line w-5 text-center text-neutral-400 group-hover:text-brand-500 transition-colors"></i>
+                <span class="text-sm">لوحة التحكم</span>
+            </a>
+
+            <a href="#" class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-neutral-600 hover:text-neutral-900 group">
+                <i class="fa-solid fa-cash-register w-5 text-center text-neutral-400 group-hover:text-brand-500 transition-colors"></i>
+                <span class="text-sm">نقطة البيع (POS)</span>
+            </a>
+
+            <a href="#" class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-neutral-600 hover:text-neutral-900 group">
+                <i class="fa-solid fa-boxes-stacked w-5 text-center text-neutral-400 group-hover:text-brand-500 transition-colors"></i>
+                <span class="text-sm">المنتجات والمخزون</span>
+            </a>
+
+            <!-- Supplier Invoices (AI Scanner) - Active -->
+            <a href="#" class="nav-item active flex items-center gap-3 px-3 py-2.5 rounded-lg group relative overflow-hidden">
+                <i class="fa-solid fa-file-invoice-dollar w-5 text-center relative z-10"></i>
+                <span class="text-sm relative z-10">فواتير الموردين</span>
+                <i class="fa-solid fa-wand-magic-sparkles text-[12px] text-brand-500 ml-auto animate-pulse relative z-10" title="AI Scanner Active"></i>
+            </a>
+
+            <a href="#" class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-neutral-600 hover:text-neutral-900 group">
+                <i class="fa-solid fa-users w-5 text-center text-neutral-400 group-hover:text-brand-500 transition-colors"></i>
+                <span class="text-sm">العملاء</span>
+            </a>
+
+            <div class="px-4 mt-6 mb-2 text-[10px] font-bold text-neutral-400 uppercase tracking-wider">الإدارة والمالية</div>
+
+            <a href="#" class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-neutral-600 hover:text-neutral-900 group">
+                <i class="fa-solid fa-scale-balanced w-5 text-center text-neutral-400 group-hover:text-brand-500 transition-colors"></i>
+                <span class="text-sm">المحاسبة والامتثال</span>
+            </a>
+
+            <a href="#" class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-neutral-600 hover:text-neutral-900 group">
+                <i class="fa-solid fa-chart-pie w-5 text-center text-neutral-400 group-hover:text-brand-500 transition-colors"></i>
+                <span class="text-sm">التقارير والتحليلات</span>
+            </a>
+
+            <a href="#" class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-neutral-600 hover:text-neutral-900 group">
+                <i class="fa-solid fa-gear w-5 text-center text-neutral-400 group-hover:text-brand-500 transition-colors"></i>
+                <span class="text-sm">الإعدادات والأمان</span>
+            </a>
+        </nav>
+
+        <!-- User Profile Footer -->
+        <div class="p-3 border-t border-neutral-100 bg-neutral-50/50">
+            <button class="flex items-center gap-3 w-full p-2 rounded-lg hover:bg-white hover:shadow-soft transition-all border border-transparent hover:border-neutral-100">
+                <div class="relative">
+                    <img src="https://storage.googleapis.com/uxpilot-auth.appspot.com/avatars/avatar-2.jpg" alt="User" class="w-9 h-9 rounded-full object-cover ring-2 ring-white shadow-sm">
+                    <span class="absolute bottom-0 right-0 w-2.5 h-2.5 bg-green-500 border-2 border-white rounded-full"></span>
+                </div>
+                <div class="text-right flex-1 min-w-0">
+                    <p class="text-sm font-bold text-neutral-900 truncate">أحمد المدير</p>
+                    <p class="text-[10px] text-neutral-500 truncate">مدير المخزون</p>
+                </div>
+                <i class="fa-solid fa-chevron-left text-xs text-neutral-400"></i>
+            </button>
+        </div>
+    </aside>
+
+    <!-- Main Content Area -->
+    <main class="flex-1 flex flex-col h-full overflow-hidden relative bg-neutral-50">
+        
+        <!-- Top Utility Bar -->
+        <header class="h-16 bg-white border-b border-neutral-200 flex items-center justify-between px-6 z-20 shadow-soft shrink-0">
+            <div class="flex items-center gap-4">
+                <div>
+                    <h1 class="text-xl font-bold text-neutral-900 flex items-center gap-2">
+                        قارئ الفواتير الذكي
+                        <span class="bg-brand-100 text-brand-700 text-[10px] px-2 py-0.5 rounded-full border border-brand-200 font-mono tracking-wide">AI SCANNER V2.0</span>
+                    </h1>
+                    <p class="text-xs text-neutral-500">استخراج البيانات، المطابقة التلقائية، واكتشاف الفروقات</p>
+                </div>
+            </div>
+
+            <div class="flex items-center gap-3">
+                <!-- AI Status Badge -->
+                <div class="flex items-center gap-2 px-3 py-1.5 bg-neutral-50 border border-neutral-200 rounded-full">
+                    <span class="relative flex h-2 w-2">
+                      <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                      <span class="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+                    </span>
+                    <span class="text-xs font-medium text-neutral-600">محرك AI متصل</span>
+                </div>
+
+                <div class="h-8 w-px bg-neutral-200 mx-1"></div>
+
+                <!-- Manual Upload Button -->
+                <button onclick="document.getElementById('fileInput').click()" class="flex items-center gap-2 bg-white hover:bg-neutral-50 text-neutral-700 px-3 py-2 rounded-lg text-sm font-medium transition-colors border border-neutral-200 shadow-soft">
+                    <i class="fa-solid fa-upload"></i>
+                    <span>رفع ملف (PDF/IMG)</span>
+                </button>
+                <input type="file" id="fileInput" class="hidden" accept=".pdf,.jpg,.png,.jpeg">
+
+                <!-- Scan Button -->
+                <button class="flex items-center gap-2 bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded-lg text-sm font-bold transition-colors shadow-soft group">
+                    <i class="fa-solid fa-camera group-hover:scale-110 transition-transform"></i>
+                    <span>مسح فاتورة جديدة</span>
+                </button>
+            </div>
+        </header>
+
+        <!-- Tabs Navigation -->
+        <div class="bg-white border-b border-neutral-200 px-6 shrink-0">
+            <div class="flex gap-1 relative overflow-x-auto">
+                <button class="tab-button active px-4 py-3 text-sm font-medium text-neutral-600 hover:text-brand-600 transition-colors whitespace-nowrap flex items-center gap-2">
+                    <i class="fa-solid fa-hourglass-half"></i>
+                    قيد المعالجة
+                    <span class="bg-brand-100 text-brand-700 text-[10px] px-1.5 rounded-full">2</span>
+                </button>
+                <button class="tab-button px-4 py-3 text-sm font-medium text-neutral-600 hover:text-brand-600 transition-colors whitespace-nowrap flex items-center gap-2">
+                    <i class="fa-solid fa-check-double"></i>
+                    تمت الموافقة
+                    <span class="bg-slate-100 text-slate-600 text-[10px] px-1.5 rounded-full">142</span>
+                </button>
+                <button class="tab-button px-4 py-3 text-sm font-medium text-neutral-600 hover:text-brand-600 transition-colors whitespace-nowrap flex items-center gap-2">
+                    <i class="fa-solid fa-triangle-exclamation"></i>
+                    مرفوضة / معلقة
+                    <span class="bg-red-100 text-red-600 text-[10px] px-1.5 rounded-full">3</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Main Workspace Area -->
+        <div class="flex-1 overflow-hidden px-6 pb-6 pt-6 flex gap-6">
+            
+            <!-- Left Panel: Invoice Preview & Upload -->
+            <div class="w-[400px] flex flex-col gap-4">
+                <!-- Upload/Preview Area -->
+                <div class="bg-slate-800 rounded-2xl shadow-lg border border-slate-700 flex-1 relative overflow-hidden group">
+                    <!-- Scanner Overlay Effect -->
+                    <div class="scanner-line"></div>
+                    
+                    <!-- Invoice Image -->
+                    <div class="absolute inset-0 p-4 overflow-auto custom-scrollbar">
+                        <img src="https://cdn.dribbble.com/users/1894420/screenshots/14050228/media/1a90710639999426466f8f17a940f828.png" alt="Invoice Preview" class="w-full h-auto rounded opacity-90 shadow-2xl">
+                        
+                        <!-- AI Detection Boxes -->
+                        <div class="absolute top-[22%] left-[10%] w-[30%] h-[4%] border-2 border-brand-500 bg-brand-500/10 rounded">
+                             <div class="absolute -top-5 left-0 bg-brand-500 text-white text-[9px] px-1 rounded">المورد: شركة المراعي</div>
+                        </div>
+                        <div class="absolute top-[22%] right-[10%] w-[20%] h-[4%] border-2 border-brand-500 bg-brand-500/10 rounded">
+                             <div class="absolute -top-5 right-0 bg-brand-500 text-white text-[9px] px-1 rounded">التاريخ: 2024-02-14</div>
+                        </div>
+                        
+                        <!-- Items Table Detection -->
+                        <div class="absolute top-[35%] left-[5%] right-[5%] h-[40%] border-2 border-dashed border-brand-400/50 bg-brand-400/5 rounded"></div>
+                    </div>
+
+                    <!-- Controls Overlay -->
+                    <div class="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-slate-900 to-transparent flex justify-center gap-3">
+                        <button class="w-10 h-10 rounded-full bg-slate-700 text-white hover:bg-slate-600 flex items-center justify-center transition-colors" title="Zoom In"><i class="fa-solid fa-magnifying-glass-plus"></i></button>
+                        <button class="w-10 h-10 rounded-full bg-slate-700 text-white hover:bg-slate-600 flex items-center justify-center transition-colors" title="Zoom Out"><i class="fa-solid fa-magnifying-glass-minus"></i></button>
+                        <button class="w-10 h-10 rounded-full bg-slate-700 text-white hover:bg-slate-600 flex items-center justify-center transition-colors" title="Rotate"><i class="fa-solid fa-rotate-right"></i></button>
+                    </div>
+                </div>
+
+                <!-- Quick Stats Card -->
+                <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                    <h3 class="text-xs font-bold text-slate-500 uppercase mb-3">ملخص الاستخراج</h3>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <p class="text-[10px] text-slate-400">إجمالي الفاتورة</p>
+                            <p class="text-lg font-bold text-slate-800">4,250.00 <span class="text-xs font-normal text-slate-500">ر.س</span></p>
+                        </div>
+                        <div>
+                            <p class="text-[10px] text-slate-400">عدد الأصناف</p>
+                            <p class="text-lg font-bold text-slate-800">12 <span class="text-xs font-normal text-slate-500">صنف</span></p>
+                        </div>
+                        <div class="col-span-2">
+                            <div class="flex justify-between items-center mb-1">
+                                <p class="text-[10px] text-slate-400">دقة القراءة (Confidence)</p>
+                                <p class="text-[10px] font-bold text-green-600">98.5%</p>
+                            </div>
+                            <div class="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                                <div class="h-full bg-green-500 w-[98.5%] rounded-full shadow-[0_0_10px_rgba(34,197,94,0.5)]"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Panel: Extracted Data & Actions -->
+            <div class="flex-1 flex flex-col gap-4 overflow-hidden">
+                
+                <!-- Alerts Section -->
+                <div class="flex flex-col gap-2">
+                    <!-- Duplicate Alert -->
+                    <div class="bg-red-50 border border-red-100 rounded-xl p-3 flex items-start gap-3 animate-fade-in">
+                        <div class="w-8 h-8 rounded-full bg-red-100 text-red-500 flex items-center justify-center flex-shrink-0 mt-0.5">
+                            <i class="fa-solid fa-triangle-exclamation"></i>
+                        </div>
+                        <div class="flex-1">
+                            <h4 class="text-sm font-bold text-red-800">تحذير: احتمالية تكرار فاتورة</h4>
+                            <p class="text-xs text-red-600 mt-1">تم العثور على فاتورة بنفس الرقم (#INV-2024-001) والمبلغ للمورد "شركة المراعي" بتاريخ سابق (10-02-2024).</p>
+                        </div>
+                        <button class="text-xs bg-white border border-red-200 text-red-600 px-3 py-1.5 rounded-lg hover:bg-red-50 font-bold">عرض الفاتورة السابقة</button>
+                    </div>
+
+                    <!-- New SKU Alert -->
+                    <div class="bg-brand-50 border border-brand-100 rounded-xl p-3 flex items-start gap-3 animate-fade-in" style="animation-delay: 0.1s">
+                        <div class="w-8 h-8 rounded-full bg-brand-100 text-brand-600 flex items-center justify-center flex-shrink-0 mt-0.5">
+                            <i class="fa-solid fa-wand-magic-sparkles"></i>
+                        </div>
+                        <div class="flex-1">
+                            <h4 class="text-sm font-bold text-brand-800">اقتراح إنشاء أصناف جديدة</h4>
+                            <p class="text-xs text-brand-600 mt-1">تم اكتشاف 2 صنف غير موجود في قاعدة البيانات. قام النظام باقتراح بياناتها بناءً على الوصف.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Main Data Table -->
+                <div class="bg-white rounded-2xl border border-slate-200 shadow-sm flex flex-col flex-1 overflow-hidden">
+                    <div class="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+                        <h3 class="font-bold text-slate-800 flex items-center gap-2">
+                            <i class="fa-solid fa-list-check text-slate-400"></i>
+                            مراجعة الأصناف المستخرجة
+                        </h3>
+                        <div class="flex gap-2">
+                            <button class="text-xs flex items-center gap-1 text-slate-500 hover:text-brand-600 px-2 py-1 rounded hover:bg-slate-100 transition-colors">
+                                <i class="fa-solid fa-filter"></i> تصفية: الكل
+                            </button>
+                            <button class="text-xs flex items-center gap-1 text-red-500 bg-red-50 px-2 py-1 rounded hover:bg-red-100 transition-colors border border-red-100 font-bold">
+                                <i class="fa-solid fa-circle-exclamation"></i> 1 يتطلب مراجعة
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="flex-1 overflow-auto">
+                        <table class="w-full text-right">
+                            <thead class="bg-slate-50 sticky top-0 z-10 text-xs font-bold text-slate-500 uppercase tracking-wider">
+                                <tr>
+                                    <th class="px-4 py-3 border-b border-slate-200">الحالة</th>
+                                    <th class="px-4 py-3 border-b border-slate-200">اسم الصنف (بالفاتورة)</th>
+                                    <th class="px-4 py-3 border-b border-slate-200">المطابقة (SKU)</th>
+                                    <th class="px-4 py-3 border-b border-slate-200 w-24">الكمية</th>
+                                    <th class="px-4 py-3 border-b border-slate-200 w-28">سعر الوحدة</th>
+                                    <th class="px-4 py-3 border-b border-slate-200 w-28">الإجمالي</th>
+                                    <th class="px-4 py-3 border-b border-slate-200 w-10"></th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-100">
+                                <!-- Row 1: Perfect Match -->
+                                <tr class="group hover:bg-slate-50 transition-colors">
+                                    <td class="px-4 py-3">
+                                        <div class="w-6 h-6 rounded-full bg-green-100 text-green-600 flex items-center justify-center text-xs" title="High Confidence">
+                                            <i class="fa-solid fa-check"></i>
+                                        </div>
+                                    </td>
+                                    <td class="px-4 py-3">
+                                        <span class="text-sm font-medium text-slate-800">حليب كامل الدسم 1 لتر</span>
+                                    </td>
+                                    <td class="px-4 py-3">
+                                        <div class="flex items-center gap-2 bg-slate-100 px-2 py-1 rounded-lg border border-slate-200 w-fit">
+                                            <span class="text-xs font-mono text-slate-600">MK-FULL-01</span>
+                                            <i class="fa-solid fa-link text-[10px] text-green-500"></i>
+                                        </div>
+                                    </td>
+                                    <td class="px-4 py-3">
+                                        <input type="number" value="120" class="w-20 px-2 py-1 border border-transparent hover:border-slate-300 focus:border-brand-500 rounded bg-transparent focus:bg-white text-sm text-center outline-none transition-all">
+                                    </td>
+                                    <td class="px-4 py-3">
+                                        <input type="number" value="4.50" class="w-24 px-2 py-1 border border-transparent hover:border-slate-300 focus:border-brand-500 rounded bg-transparent focus:bg-white text-sm text-center outline-none transition-all">
+                                    </td>
+                                    <td class="px-4 py-3 text-sm font-bold text-slate-700">540.00</td>
+                                    <td class="px-4 py-3 text-center">
+                                        <button class="text-slate-400 hover:text-red-500 transition-colors"><i class="fa-solid fa-trash-can"></i></button>
+                                    </td>
+                                </tr>
+
+                                <!-- Row 2: Low Confidence / Variance -->
+                                <tr class="group bg-orange-50/40 hover:bg-orange-50 transition-colors border-l-2 border-orange-400">
+                                    <td class="px-4 py-3">
+                                        <div class="w-6 h-6 rounded-full bg-orange-100 text-orange-600 flex items-center justify-center text-xs animate-pulse" title="Price Variance Detected">
+                                            <i class="fa-solid fa-exclamation"></i>
+                                        </div>
+                                    </td>
+                                    <td class="px-4 py-3">
+                                        <span class="text-sm font-medium text-slate-800">زبادي يوناني سادة</span>
+                                        <p class="text-[10px] text-orange-600 mt-0.5">تغير في السعر (+15%)</p>
+                                    </td>
+                                    <td class="px-4 py-3">
+                                        <div class="flex items-center gap-2 bg-slate-100 px-2 py-1 rounded-lg border border-slate-200 w-fit">
+                                            <span class="text-xs font-mono text-slate-600">YG-GRK-02</span>
+                                            <i class="fa-solid fa-link text-[10px] text-green-500"></i>
+                                        </div>
+                                    </td>
+                                    <td class="px-4 py-3">
+                                        <input type="number" value="50" class="w-20 px-2 py-1 border border-orange-200 bg-white focus:border-brand-500 rounded text-sm text-center outline-none transition-all">
+                                    </td>
+                                    <td class="px-4 py-3 relative">
+                                        <input type="number" value="6.50" class="w-24 px-2 py-1 border border-orange-200 bg-white focus:border-brand-500 rounded text-sm text-center font-bold text-orange-600 outline-none transition-all">
+                                        <span class="absolute -top-1 right-2 text-[9px] bg-slate-100 px-1 rounded text-slate-500">سابقاً: 5.65</span>
+                                    </td>
+                                    <td class="px-4 py-3 text-sm font-bold text-slate-700">325.00</td>
+                                    <td class="px-4 py-3 text-center">
+                                        <button class="text-slate-400 hover:text-red-500 transition-colors"><i class="fa-solid fa-trash-can"></i></button>
+                                    </td>
+                                </tr>
+
+                                <!-- Row 3: New Item Proposal -->
+                                <tr class="group bg-brand-50/30 hover:bg-brand-50 transition-colors border-l-2 border-brand-400">
+                                    <td class="px-4 py-3">
+                                        <div class="w-6 h-6 rounded-full bg-brand-100 text-brand-600 flex items-center justify-center text-xs" title="New Item">
+                                            <i class="fa-solid fa-plus"></i>
+                                        </div>
+                                    </td>
+                                    <td class="px-4 py-3">
+                                        <span class="text-sm font-medium text-slate-800">عصير برتقال طازج 300مل</span>
+                                        <span class="bg-brand-100 text-brand-700 text-[9px] px-1.5 rounded ml-2">جديد</span>
+                                    </td>
+                                    <td class="px-4 py-3">
+                                        <button class="flex items-center gap-2 bg-white hover:bg-brand-50 px-2 py-1 rounded-lg border border-brand-200 border-dashed w-full text-left transition-colors group-hover:border-brand-300">
+                                            <i class="fa-solid fa-magic text-brand-500 text-xs"></i>
+                                            <span class="text-xs text-brand-700 font-medium">إنشاء SKU جديد</span>
+                                        </button>
+                                    </td>
+                                    <td class="px-4 py-3">
+                                        <input type="number" value="200" class="w-20 px-2 py-1 border border-slate-200 bg-white focus:border-brand-500 rounded text-sm text-center outline-none transition-all">
+                                    </td>
+                                    <td class="px-4 py-3">
+                                        <input type="number" value="3.00" class="w-24 px-2 py-1 border border-slate-200 bg-white focus:border-brand-500 rounded text-sm text-center outline-none transition-all">
+                                    </td>
+                                    <td class="px-4 py-3 text-sm font-bold text-slate-700">600.00</td>
+                                    <td class="px-4 py-3 text-center">
+                                        <button class="text-slate-400 hover:text-red-500 transition-colors"><i class="fa-solid fa-trash-can"></i></button>
+                                    </td>
+                                </tr>
+                                
+                                <!-- More Rows -->
+                                <tr class="group hover:bg-slate-50 transition-colors">
+                                    <td class="px-4 py-3">
+                                        <div class="w-6 h-6 rounded-full bg-green-100 text-green-600 flex items-center justify-center text-xs">
+                                            <i class="fa-solid fa-check"></i>
+                                        </div>
+                                    </td>
+                                    <td class="px-4 py-3">
+                                        <span class="text-sm font-medium text-slate-800">جبنة فيتا 500جم</span>
+                                    </td>
+                                    <td class="px-4 py-3">
+                                        <div class="flex items-center gap-2 bg-slate-100 px-2 py-1 rounded-lg border border-slate-200 w-fit">
+                                            <span class="text-xs font-mono text-slate-600">CH-FET-05</span>
+                                            <i class="fa-solid fa-link text-[10px] text-green-500"></i>
+                                        </div>
+                                    </td>
+                                    <td class="px-4 py-3">
+                                        <input type="number" value="24" class="w-20 px-2 py-1 border border-transparent hover:border-slate-300 focus:border-brand-500 rounded bg-transparent focus:bg-white text-sm text-center outline-none transition-all">
+                                    </td>
+                                    <td class="px-4 py-3">
+                                        <input type="number" value="12.50" class="w-24 px-2 py-1 border border-transparent hover:border-slate-300 focus:border-brand-500 rounded bg-transparent focus:bg-white text-sm text-center outline-none transition-all">
+                                    </td>
+                                    <td class="px-4 py-3 text-sm font-bold text-slate-700">300.00</td>
+                                    <td class="px-4 py-3 text-center">
+                                        <button class="text-slate-400 hover:text-red-500 transition-colors"><i class="fa-solid fa-trash-can"></i></button>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Action Footer -->
+                <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between shrink-0">
+                    <div class="flex items-center gap-4">
+                        <div class="text-right">
+                            <p class="text-xs text-slate-500">إجمالي الفاتورة</p>
+                            <p class="text-xl font-bold text-slate-900">4,250.00 <span class="text-sm font-normal text-slate-500">ر.س</span></p>
+                        </div>
+                        <div class="h-8 w-px bg-slate-200"></div>
+                        <div class="text-right">
+                            <p class="text-xs text-slate-500">عدد الأصناف</p>
+                            <p class="text-sm font-bold text-slate-900">12</p>
+                        </div>
+                        <div class="h-8 w-px bg-slate-200"></div>
+                        <div class="text-right">
+                            <p class="text-xs text-slate-500">المورد</p>
+                            <p class="text-sm font-bold text-slate-900">شركة المراعي</p>
+                        </div>
+                    </div>
+
+                    <div class="flex gap-3">
+                        <button class="px-4 py-2 bg-white border border-slate-200 text-slate-600 rounded-lg text-sm font-bold hover:bg-slate-50 transition-colors">حفظ كمسودة</button>
+                        <button class="px-6 py-2 bg-brand-600 text-white rounded-lg text-sm font-bold hover:bg-brand-700 shadow-lg shadow-brand-500/20 transition-all flex items-center gap-2 group">
+                            <span>اعتماد وإضافة للمخزون</span>
+                            <i class="fa-solid fa-arrow-left group-hover:-translate-x-1 transition-transform"></i>
+                        </button>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+        <!-- Approval History Sidebar (Collapsible) -->
+        <div class="w-[300px] bg-white border-r border-slate-200 flex flex-col h-full shrink-0 z-30 shadow-[-5px_0_15px_-5px_rgba(0,0,0,0.05)]">
+            <div class="p-4 border-b border-slate-100 bg-slate-50/50">
+                <h3 class="font-bold text-slate-800 text-sm">سجل العمليات والموافقات</h3>
+            </div>
+            
+            <div class="flex-1 overflow-y-auto p-4">
+                <div class="relative pl-4 border-r border-slate-200 space-y-8 mr-2">
+                    <!-- Timeline Item 1 -->
+                    <div class="relative">
+                        <div class="absolute -right-[21px] top-0 w-3 h-3 rounded-full bg-brand-500 border-2 border-white ring-2 ring-brand-100"></div>
+                        <p class="text-[10px] text-slate-400 mb-1">الآن</p>
+                        <h4 class="text-xs font-bold text-slate-800">جاري المراجعة</h4>
+                        <p class="text-xs text-slate-500 mt-0.5">يقوم <span class="text-slate-700 font-medium">أحمد المدير</span> بمراجعة الفاتورة المستخرجة.</p>
+                    </div>
+
+                    <!-- Timeline Item 2 -->
+                    <div class="relative opacity-70">
+                        <div class="absolute -right-[21px] top-0 w-3 h-3 rounded-full bg-green-500 border-2 border-white"></div>
+                        <p class="text-[10px] text-slate-400 mb-1">منذ 5 دقائق</p>
+                        <h4 class="text-xs font-bold text-slate-800">اكتمال التحليل الذكي</h4>
+                        <p class="text-xs text-slate-500 mt-0.5">تم استخراج 12 صنف بنجاح. تم اكتشاف 2 صنف جديد.</p>
+                    </div>
+
+                    <!-- Timeline Item 3 -->
+                    <div class="relative opacity-50">
+                        <div class="absolute -right-[21px] top-0 w-3 h-3 rounded-full bg-slate-300 border-2 border-white"></div>
+                        <p class="text-[10px] text-slate-400 mb-1">منذ 6 دقائق</p>
+                        <h4 class="text-xs font-bold text-slate-800">رفع الفاتورة</h4>
+                        <p class="text-xs text-slate-500 mt-0.5">تم رفع الملف <span class="font-mono bg-slate-100 px-1 rounded">invoice_feb.pdf</span></p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- AI Insight Widget -->
+            <div class="p-4 bg-gradient-to-br from-brand-50 to-white border-t border-brand-100">
+                <div class="flex items-center gap-2 mb-2">
+                    <i class="fa-solid fa-robot text-brand-500"></i>
+                    <h4 class="text-xs font-bold text-brand-800">تحليل المشتريات</h4>
+                </div>
+                <p class="text-[10px] text-slate-600 leading-relaxed">
+                    أسعار هذا المورد "شركة المراعي" ارتفعت بنسبة <span class="text-red-500 font-bold">3.2%</span> مقارنة بمتوسط آخر 3 فواتير.
+                </p>
+            </div>
+        </div>
+
+    </main>
+
+    <script>
+        // Simple interactions
+        document.addEventListener('DOMContentLoaded', () => {
+            console.log("AI Scanner Module Loaded");
+            
+            // Example: Add hover effect to table rows to highlight corresponding bounding box on image (conceptual)
+            const rows = document.querySelectorAll('tbody tr');
+            rows.forEach(row => {
+                row.addEventListener('mouseenter', () => {
+                    // Logic to highlight image area would go here
+                });
+            });
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,706 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <script>
+        window.FontAwesomeConfig = {
+          autoReplaceSvg: 'nest'
+        };
+      </script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>حاسبة | المستخدمين، الصلاحيات والأجهزة - الخطوة 3/3</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            50: '#f0f9ff',
+                            100: '#e0f2fe',
+                            200: '#bae6fd',
+                            300: '#7dd3fc',
+                            400: '#38bdf8',
+                            500: '#0ea5e9',
+                            600: '#0284c7',
+                            700: '#0369a1',
+                            800: '#075985',
+                            900: '#0c4a6e',
+                            950: '#082f49',
+                        },
+                        secondary: {
+                            50: '#fdf4ff',
+                            100: '#fae8ff',
+                            200: '#f5d0fe',
+                            300: '#f0abfc',
+                            400: '#e879f9',
+                            500: '#d946ef',
+                            600: '#c026d3',
+                            700: '#a21caf',
+                            800: '#86198f',
+                            900: '#701a75',
+                        },
+                        neutral: {
+                            850: '#1f1f1f',
+                            900: '#121212',
+                        },
+                        success: {
+                            50: '#f0fdf4',
+                            500: '#22c55e',
+                            600: '#16a34a',
+                        }
+                    },
+                    fontFamily: {
+                        sans: ['IBM Plex Sans Arabic', 'Inter', 'sans-serif'],
+                        display: ['IBM Plex Sans Arabic', 'Inter', 'sans-serif'],
+                    },
+                    boxShadow: {
+                        'soft-xl': '0 20px 40px -10px rgba(0, 0, 0, 0.05)',
+                        'glow': '0 0 20px rgba(14, 165, 233, 0.3)',
+                        'card-hover': '0 10px 30px -5px rgba(0, 0, 0, 0.1)',
+                        'input-focus': '0 0 0 4px rgba(14, 165, 233, 0.15)',
+                    },
+                    animation: {
+                        'float': 'float 6s ease-in-out infinite',
+                        'pulse-slow': 'pulse 4s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+                        'slide-up': 'slideUp 0.5s ease-out forwards',
+                        'slide-in-right': 'slideInRight 0.6s ease-out forwards',
+                        'fade-in': 'fadeIn 0.4s ease-out forwards',
+                        'expand': 'expand 0.3s ease-out forwards',
+                        'spin-slow': 'spin 3s linear infinite',
+                    },
+                    keyframes: {
+                        float: {
+                            '0%, 100%': { transform: 'translateY(0)' },
+                            '50%': { transform: 'translateY(-10px)' },
+                        },
+                        slideUp: {
+                            '0%': { opacity: '0', transform: 'translateY(20px)' },
+                            '100%': { opacity: '1', transform: 'translateY(0)' },
+                        },
+                        slideInRight: {
+                            '0%': { opacity: '0', transform: 'translateX(-30px)' },
+                            '100%': { opacity: '1', transform: 'translateX(0)' },
+                        },
+                        fadeIn: {
+                            '0%': { opacity: '0' },
+                            '100%': { opacity: '1' },
+                        },
+                        expand: {
+                            '0%': { height: '0', opacity: '0' },
+                            '100%': { height: 'auto', opacity: '1' },
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@100;200;300;400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/js/all.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script src="https://cdn.plot.ly/plotly-3.1.1.min.js"></script>
+    <style>
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        .glass { background: rgba(255, 255, 255, 0.7); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.5); }
+        [dir="rtl"] .rtl-flip { transform: scaleX(-1); }
+        html { scroll-behavior: smooth; }
+        
+        .input-group:focus-within label { color: #0ea5e9; }
+        .input-group:focus-within i { color: #0ea5e9; }
+        
+        @keyframes fillProgress {
+            from { width: 66.66%; }
+            to { width: 100%; }
+        }
+        .progress-fill {
+            animation: fillProgress 1s ease-out forwards;
+        }
+
+        .toggle-checkbox:checked {
+            right: 0;
+            border-color: #0ea5e9;
+        }
+        .toggle-checkbox:checked + .toggle-label {
+            background-color: #0ea5e9;
+        }
+        
+        details > summary {
+            list-style: none;
+        }
+        details > summary::-webkit-details-marker {
+            display: none;
+        }
+
+        .hover-card-effect {
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .hover-card-effect:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+            border-color: #bae6fd;
+        }
+
+        .role-card.selected {
+            border-color: #0ea5e9;
+            background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+        }
+
+        .permission-badge {
+            transition: all 0.2s;
+        }
+        .permission-badge:hover {
+            transform: scale(1.05);
+        }
+        
+        /* Receipt Animation */
+        @keyframes printReceipt {
+            0% { height: 0; opacity: 0; transform: translateY(-20px); }
+            100% { height: auto; opacity: 1; transform: translateY(0); }
+        }
+        .receipt-print {
+            animation: printReceipt 1.5s cubic-bezier(0.25, 1, 0.5, 1) forwards;
+            transform-origin: top center;
+        }
+
+        .device-status-connected {
+            box-shadow: 0 0 15px rgba(34, 197, 94, 0.4);
+        }
+
+        /* Checkmark Animation */
+        .checkmark-circle {
+            stroke-dasharray: 166;
+            stroke-dashoffset: 166;
+            stroke-width: 2;
+            stroke-miterlimit: 10;
+            stroke: #fff;
+            fill: none;
+            animation: stroke 0.6s cubic-bezier(0.65, 0, 0.45, 1) forwards;
+        }
+        .checkmark {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            display: block;
+            stroke-width: 2;
+            stroke: #fff;
+            stroke-miterlimit: 10;
+            box-shadow: inset 0px 0px 0px #22c55e;
+            animation: fill .4s ease-in-out .4s forwards, scale .3s ease-in-out .9s both;
+        }
+        .checkmark__check {
+            transform-origin: 50% 50%;
+            stroke-dasharray: 48;
+            stroke-dashoffset: 48;
+            animation: stroke 0.3s cubic-bezier(0.65, 0, 0.45, 1) 0.8s forwards;
+        }
+        @keyframes stroke {
+            100% { stroke-dashoffset: 0; }
+        }
+        @keyframes scale {
+            0%, 100% { transform: none; }
+            50% { transform: scale3d(1.1, 1.1, 1); }
+        }
+        @keyframes fill {
+            100% { box-shadow: inset 0px 0px 0px 30px #22c55e; }
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-900 font-sans selection:bg-brand-100 selection:text-brand-900 overflow-x-hidden">
+
+    <!-- Language Toggle Fixed -->
+    <div class="fixed top-6 left-6 z-50 flex items-center gap-2 bg-white/80 backdrop-blur-md px-4 py-2 rounded-full shadow-lg border border-slate-100 transition-all hover:scale-105 cursor-pointer group hover:border-brand-200" onclick="toggleLanguage()">
+        <i class="fa-solid fa-globe text-slate-500 group-hover:text-brand-600 transition-colors"></i>
+        <span class="text-sm font-semibold text-slate-700" id="lang-label">English</span>
+    </div>
+
+    <!-- Main Wrapper -->
+    <div class="relative w-full min-h-screen flex flex-col">
+        
+        <!-- Background Elements -->
+        <div class="absolute inset-0 z-0 overflow-hidden pointer-events-none">
+            <div class="absolute -top-[20%] -right-[10%] w-[800px] h-[800px] bg-brand-100/40 rounded-full blur-3xl opacity-60"></div>
+            <div class="absolute top-[40%] -left-[10%] w-[600px] h-[600px] bg-secondary-100/40 rounded-full blur-3xl opacity-50"></div>
+            <div class="absolute bottom-[10%] right-[20%] w-[400px] h-[400px] bg-blue-50/60 rounded-full blur-3xl"></div>
+            <div class="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20"></div>
+            <div class="absolute inset-0" style="background-image: radial-gradient(#cbd5e1 1px, transparent 1px); background-size: 40px 40px; opacity: 0.3;"></div>
+        </div>
+
+        <!-- Navigation -->
+        <nav class="relative z-40 w-full px-6 py-6 md:px-12 flex justify-between items-center max-w-[1440px] mx-auto">
+            <a href="#" class="flex items-center gap-3 group">
+                <div class="w-10 h-10 bg-brand-600 rounded-xl flex items-center justify-center shadow-lg shadow-brand-500/30 text-white text-xl group-hover:scale-105 transition-transform">
+                    <i class="fa-solid fa-calculator"></i>
+                </div>
+                <span class="text-2xl font-bold tracking-tight text-slate-900">حاسبة<span class="text-brand-600">.</span></span>
+            </a>
+            <div class="flex items-center gap-3">
+                <button class="px-4 py-2 text-slate-500 hover:text-slate-700 text-sm font-medium transition-colors flex items-center gap-2 tooltip" data-tooltip="حفظ التقدم والخروج">
+                    <i class="fa-solid fa-floppy-disk"></i>
+                    <span class="hidden sm:inline">حفظ والخروج</span>
+                </button>
+            </div>
+        </nav>
+
+        <!-- Main Content Area -->
+        <main class="relative z-10 flex-grow flex flex-col justify-center px-4 md:px-12 pt-4 pb-20 max-w-[1000px] mx-auto w-full">
+            
+            <!-- Progress Indicator -->
+            <div class="mb-8 animate-slide-up flex flex-col items-center justify-center">
+                <div class="inline-flex items-center gap-2">
+                    <!-- Step 1 Done -->
+                    <div class="relative group">
+                        <span class="w-8 h-8 rounded-full bg-success-500 text-white flex items-center justify-center text-sm font-bold shadow-lg shadow-success-500/30 transition-all">
+                            <i class="fa-solid fa-check"></i>
+                        </span>
+                        <div class="absolute -bottom-8 right-1/2 translate-x-1/2 whitespace-nowrap text-xs font-medium text-slate-500 opacity-0 group-hover:opacity-100 transition-opacity">الإعداد الأساسي</div>
+                    </div>
+                    
+                    <!-- Line 1-2 -->
+                    <span class="h-0.5 w-16 bg-success-500 rounded-full"></span>
+                    
+                    <!-- Step 2 Done -->
+                    <div class="relative group">
+                        <span class="w-8 h-8 rounded-full bg-success-500 text-white flex items-center justify-center text-sm font-bold shadow-lg shadow-success-500/30 transition-all">
+                            <i class="fa-solid fa-check"></i>
+                        </span>
+                        <div class="absolute -bottom-8 right-1/2 translate-x-1/2 whitespace-nowrap text-xs font-medium text-slate-500 opacity-0 group-hover:opacity-100 transition-opacity">الفروع والمستودعات</div>
+                    </div>
+
+                    <!-- Line 2-3 -->
+                    <span class="h-0.5 w-16 bg-slate-200 relative overflow-hidden rounded-full">
+                        <span class="absolute inset-0 bg-brand-600 w-0 progress-fill rounded-full"></span>
+                    </span>
+
+                    <!-- Step 3 Active -->
+                    <div class="relative">
+                        <span class="w-8 h-8 rounded-full bg-brand-600 text-white flex items-center justify-center text-sm font-bold border-2 border-brand-600 shadow-lg shadow-brand-600/30 ring-4 ring-brand-100 transition-all">3</span>
+                    </div>
+                </div>
+                <div class="mt-4 flex flex-col items-center">
+                    <span class="text-xs font-bold text-brand-600 uppercase tracking-wider bg-brand-50 px-3 py-1 rounded-full border border-brand-100 mb-2">الخطوة 3 من 3</span>
+                    <h2 class="text-slate-800 font-bold text-lg">المستخدمين، الصلاحيات والأجهزة</h2>
+                </div>
+            </div>
+
+            <!-- Header -->
+            <div class="mb-8 animate-slide-in-right text-center max-w-2xl mx-auto">
+                <h1 class="text-3xl md:text-4xl font-bold text-slate-900 mb-3">أكمل إعداد فريقك</h1>
+                <p class="text-slate-500 text-lg leading-relaxed">قم بدعوة المستخدمين، تعيين الصلاحيات، وربط الأجهزة لبدء العمل الفوري.</p>
+            </div>
+            
+            <!-- Wizard Form Container -->
+            <form id="wizardForm" class="space-y-6 animate-slide-up" style="animation-delay: 0.2s;">
+                
+                <!-- Main Container -->
+                <div class="bg-white/80 backdrop-blur-xl border border-white/60 rounded-[2.5rem] p-6 md:p-8 shadow-xl shadow-slate-200/50">
+                    
+                    <!-- SECTION 1: Users & Roles -->
+                    <div id="users-section" class="mb-10">
+                        <div class="flex items-center justify-between mb-6">
+                            <div class="flex items-center gap-3">
+                                <div class="w-12 h-12 rounded-2xl bg-gradient-to-br from-brand-500 to-brand-600 text-white flex items-center justify-center text-xl shadow-lg shadow-brand-500/30">
+                                    <i class="fa-solid fa-users"></i>
+                                </div>
+                                <div>
+                                    <h3 class="text-xl font-bold text-slate-900">المستخدمين والصلاحيات</h3>
+                                    <p class="text-sm text-slate-500">قم بدعوة فريقك وتحديد أدوارهم</p>
+                                </div>
+                            </div>
+                            <button type="button" class="text-sm font-bold text-brand-600 bg-brand-50 hover:bg-brand-100 px-4 py-2 rounded-xl transition-colors flex items-center gap-2">
+                                <i class="fa-solid fa-plus"></i>
+                                <span>إضافة مستخدم</span>
+                            </button>
+                        </div>
+
+                        <!-- Role Templates Grid -->
+                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+                            
+                            <!-- Manager Role -->
+                            <div class="role-card selected relative border-2 border-brand-500 bg-brand-50/50 rounded-2xl p-4 cursor-pointer hover-card-effect transition-all group" onclick="selectRole(this, 'manager')">
+                                <div class="flex items-center justify-between mb-3">
+                                    <div class="w-10 h-10 rounded-xl bg-purple-100 text-purple-600 flex items-center justify-center text-lg shadow-sm">
+                                        <i class="fa-solid fa-user-tie"></i>
+                                    </div>
+                                    <div class="w-5 h-5 rounded-full bg-brand-500 text-white flex items-center justify-center text-xs">
+                                        <i class="fa-solid fa-check"></i>
+                                    </div>
+                                </div>
+                                <h4 class="font-bold text-slate-900 mb-1">مدير عام</h4>
+                                <p class="text-xs text-slate-500 mb-3 line-clamp-2">صلاحيات كاملة للتحكم في النظام والتقارير المالية.</p>
+                                <div class="flex flex-wrap gap-1">
+                                    <span class="px-2 py-0.5 bg-white border border-slate-200 rounded text-[10px] text-slate-600">الكل</span>
+                                    <span class="px-2 py-0.5 bg-red-50 border border-red-100 rounded text-[10px] text-red-600 font-medium flex items-center gap-1"><i class="fa-solid fa-shield-halved text-[8px]"></i> 2FA مطلوب</span>
+                                </div>
+                            </div>
+
+                            <!-- Accountant Role -->
+                            <div class="role-card relative border-2 border-slate-200 bg-white rounded-2xl p-4 cursor-pointer hover-card-effect transition-all group" onclick="selectRole(this, 'accountant')">
+                                <div class="flex items-center justify-between mb-3">
+                                    <div class="w-10 h-10 rounded-xl bg-blue-100 text-blue-600 flex items-center justify-center text-lg shadow-sm">
+                                        <i class="fa-solid fa-calculator"></i>
+                                    </div>
+                                    <div class="w-5 h-5 rounded-full border-2 border-slate-300 group-hover:border-brand-300 flex items-center justify-center text-xs text-transparent">
+                                        <i class="fa-solid fa-check"></i>
+                                    </div>
+                                </div>
+                                <h4 class="font-bold text-slate-900 mb-1">محاسب</h4>
+                                <p class="text-xs text-slate-500 mb-3 line-clamp-2">إدارة الفواتير، التقارير الضريبية، والقيود اليومية.</p>
+                                <div class="flex flex-wrap gap-1">
+                                    <span class="px-2 py-0.5 bg-slate-50 border border-slate-100 rounded text-[10px] text-slate-600">التقارير</span>
+                                    <span class="px-2 py-0.5 bg-slate-50 border border-slate-100 rounded text-[10px] text-slate-600">الفواتير</span>
+                                </div>
+                            </div>
+
+                            <!-- Cashier Role -->
+                            <div class="role-card relative border-2 border-slate-200 bg-white rounded-2xl p-4 cursor-pointer hover-card-effect transition-all group" onclick="selectRole(this, 'cashier')">
+                                <div class="flex items-center justify-between mb-3">
+                                    <div class="w-10 h-10 rounded-xl bg-green-100 text-green-600 flex items-center justify-center text-lg shadow-sm">
+                                        <i class="fa-solid fa-cash-register"></i>
+                                    </div>
+                                    <div class="w-5 h-5 rounded-full border-2 border-slate-300 group-hover:border-brand-300 flex items-center justify-center text-xs text-transparent">
+                                        <i class="fa-solid fa-check"></i>
+                                    </div>
+                                </div>
+                                <h4 class="font-bold text-slate-900 mb-1">كاشير</h4>
+                                <p class="text-xs text-slate-500 mb-3 line-clamp-2">إصدار الفواتير، المرتجعات المحدودة، وإغلاق الصندوق.</p>
+                                <div class="flex flex-wrap gap-1">
+                                    <span class="px-2 py-0.5 bg-slate-50 border border-slate-100 rounded text-[10px] text-slate-600">POS</span>
+                                    <span class="px-2 py-0.5 bg-slate-50 border border-slate-100 rounded text-[10px] text-slate-600">المبيعات</span>
+                                </div>
+                            </div>
+
+                            <!-- Auditor Role -->
+                            <div class="role-card relative border-2 border-slate-200 bg-white rounded-2xl p-4 cursor-pointer hover-card-effect transition-all group" onclick="selectRole(this, 'auditor')">
+                                <div class="flex items-center justify-between mb-3">
+                                    <div class="w-10 h-10 rounded-xl bg-orange-100 text-orange-600 flex items-center justify-center text-lg shadow-sm">
+                                        <i class="fa-solid fa-magnifying-glass-chart"></i>
+                                    </div>
+                                    <div class="w-5 h-5 rounded-full border-2 border-slate-300 group-hover:border-brand-300 flex items-center justify-center text-xs text-transparent">
+                                        <i class="fa-solid fa-check"></i>
+                                    </div>
+                                </div>
+                                <h4 class="font-bold text-slate-900 mb-1">مراقب / مدقق</h4>
+                                <p class="text-xs text-slate-500 mb-3 line-clamp-2">الاطلاع فقط على العمليات والمخزون دون تعديل.</p>
+                                <div class="flex flex-wrap gap-1">
+                                    <span class="px-2 py-0.5 bg-slate-50 border border-slate-100 rounded text-[10px] text-slate-600">قراءة فقط</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Add User Form -->
+                        <div class="bg-slate-50 border border-slate-200 rounded-2xl p-5 animate-fade-in">
+                            <h4 class="text-sm font-bold text-slate-800 mb-4 flex items-center gap-2">
+                                <i class="fa-regular fa-envelope text-brand-500"></i> دعوة مستخدم جديد (مدير عام)
+                            </h4>
+                            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                <div class="input-group">
+                                    <label for="user-full-name" class="sr-only">الاسم الكامل</label>
+                                    <input type="text" id="user-full-name" name="fullname" placeholder="الاسم الكامل" class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10 outline-none transition-all">
+                                </div>
+                                <div class="input-group">
+                                    <label for="user-email" class="sr-only">البريد الإلكتروني</label>
+                                    <input type="email" id="user-email" name="email" placeholder="البريد الإلكتروني" class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10 outline-none transition-all">
+                                </div>
+                                <div class="input-group relative">
+                                    <label for="user-phone" class="sr-only">رقم الجوال</label>
+                                    <input type="text" id="user-phone" name="phone" placeholder="رقم الجوال" class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10 outline-none transition-all text-left" dir="ltr">
+                                    <span class="absolute left-3 top-2.5 text-slate-400 text-sm pointer-events-none" aria-hidden="true">+966</span>
+                                </div>
+                            </div>
+                            
+                            <!-- 2FA Toggle -->
+                            <div class="mt-4 flex items-center justify-between bg-white p-3 rounded-xl border border-slate-200">
+                                <div class="flex items-center gap-3">
+                                    <div class="w-8 h-8 rounded-lg bg-red-50 text-red-500 flex items-center justify-center">
+                                        <i class="fa-solid fa-shield-halved"></i>
+                                    </div>
+                                    <div>
+                                        <p class="text-sm font-bold text-slate-800">تفعيل المصادقة الثنائية (2FA)</p>
+                                        <p class="text-xs text-slate-500">مطلوب للأدوار الحساسة (المدير، المحاسب)</p>
+                                    </div>
+                                </div>
+                                <label for="2fa-toggle" class="relative inline-flex items-center cursor-pointer">
+                                    <input type="checkbox" id="2fa-toggle" class="sr-only peer" checked>
+                                    <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-brand-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-brand-600"></div>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="h-px bg-slate-100 w-full mb-10"></div>
+
+                    <!-- SECTION 2: Devices Setup -->
+                    <div id="devices-section" class="mb-6">
+                        <div class="flex items-center justify-between mb-6">
+                            <div class="flex items-center gap-3">
+                                <div class="w-12 h-12 rounded-2xl bg-gradient-to-br from-indigo-500 to-indigo-600 text-white flex items-center justify-center text-xl shadow-lg shadow-indigo-500/30">
+                                    <i class="fa-solid fa-desktop"></i>
+                                </div>
+                                <div>
+                                    <h3 class="text-xl font-bold text-slate-900">إعداد الأجهزة الطرفية</h3>
+                                    <p class="text-sm text-slate-500">ربط الطابعات، الماسحات الضوئية ونقاط البيع</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                            
+                            <!-- Device Column 1: POS & Scanner -->
+                            <div class="lg:col-span-2 space-y-4">
+                                <!-- POS Terminal Card -->
+                                <div class="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm hover:shadow-md transition-shadow flex items-center justify-between">
+                                    <div class="flex items-center gap-4">
+                                        <div class="w-12 h-12 bg-slate-50 rounded-xl flex items-center justify-center relative">
+                                            <i class="fa-solid fa-cash-register text-slate-400 text-xl" aria-hidden="true"></i>
+                                            <span class="absolute -top-1 -right-1 w-3 h-3 bg-green-500 rounded-full border-2 border-white device-status-connected"></span>
+                                        </div>
+                                        <div>
+                                            <h4 class="font-bold text-slate-900">نقطة بيع رئيسية (POS 01)</h4>
+                                            <p class="text-xs text-green-600 font-medium flex items-center gap-1">
+                                                <i class="fa-solid fa-wifi text-[10px]" aria-hidden="true"></i> 
+                                                <span>متصل</span> <span class="sr-only">(نشط)</span> - 192.168.1.105
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <button class="text-xs font-semibold text-slate-500 border border-slate-200 px-3 py-1.5 rounded-lg hover:bg-slate-50 hover:text-slate-800 transition-colors">
+                                        إعدادات
+                                    </button>
+                                </div>
+
+                                <!-- Barcode Scanner Card -->
+                                <div class="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm hover:shadow-md transition-shadow flex items-center justify-between">
+                                    <div class="flex items-center gap-4">
+                                        <div class="w-12 h-12 bg-slate-50 rounded-xl flex items-center justify-center relative">
+                                            <i class="fa-solid fa-barcode text-slate-400 text-xl" aria-hidden="true"></i>
+                                            <span class="absolute -top-1 -right-1 w-3 h-3 bg-green-500 rounded-full border-2 border-white device-status-connected"></span>
+                                        </div>
+                                        <div>
+                                            <h4 class="font-bold text-slate-900">ماسح الباركود (Zebra DS2208)</h4>
+                                            <p class="text-xs text-green-600 font-medium flex items-center gap-1">
+                                                <i class="fa-brands fa-bluetooth-b text-[10px]" aria-hidden="true"></i> 
+                                                <span>متصل عبر البلوتوث</span> <span class="sr-only">(نشط)</span>
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <div class="flex items-center gap-2">
+                                        <span class="text-[10px] bg-indigo-50 text-indigo-600 px-2 py-1 rounded font-bold">جاهز للمسح</span>
+                                    </div>
+                                </div>
+
+                                <!-- Printer Configuration -->
+                                <div class="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm hover:shadow-md transition-shadow">
+                                    <div class="flex items-center justify-between mb-4">
+                                        <div class="flex items-center gap-4">
+                                            <div class="w-12 h-12 bg-slate-50 rounded-xl flex items-center justify-center relative">
+                                                <i class="fa-solid fa-print text-slate-400 text-xl" aria-hidden="true"></i>
+                                                <span class="absolute -top-1 -right-1 w-3 h-3 bg-orange-400 rounded-full border-2 border-white animate-pulse"></span>
+                                            </div>
+                                            <div>
+                                                <h4 class="font-bold text-slate-900">طابعة الفواتير الحرارية</h4>
+                                                <p class="text-xs text-orange-500 font-medium flex items-center gap-1">
+                                                    <i class="fa-solid fa-circle-exclamation text-[10px]" aria-hidden="true"></i> 
+                                                    <span>جاري الاتصال...</span> <span class="sr-only">(تنبيه)</span>
+                                                </p>
+                                            </div>
+                                        </div>
+                                        <button onclick="simulatePrint()" type="button" class="text-xs font-bold text-white bg-slate-900 px-4 py-2 rounded-lg hover:bg-slate-800 transition-colors shadow-lg shadow-slate-900/10 flex items-center gap-2">
+                                            <i class="fa-solid fa-print"></i> طباعة تجريبية
+                                        </button>
+                                    </div>
+                                    
+                                    <!-- Print Settings -->
+                                    <div class="bg-slate-50 rounded-xl p-3 border border-slate-200">
+                                        <div class="grid grid-cols-2 gap-3">
+                                            <div>
+                                                <label for="paper-type" class="block text-[10px] font-bold text-slate-500 mb-1">نوع الورق</label>
+                                                <select id="paper-type" class="w-full text-xs bg-white border border-slate-200 rounded-lg px-2 py-1.5 outline-none focus:border-brand-500">
+                                                    <option>80mm حراري</option>
+                                                    <option>57mm حراري</option>
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label for="print-copies" class="block text-[10px] font-bold text-slate-500 mb-1">عدد النسخ</label>
+                                                <select id="print-copies" class="w-full text-xs bg-white border border-slate-200 rounded-lg px-2 py-1.5 outline-none focus:border-brand-500">
+                                                    <option>نسخة واحدة</option>
+                                                    <option>نسختين</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Device Column 2: Receipt Preview -->
+                            <div class="lg:col-span-1">
+                                <div class="bg-slate-100 border border-slate-200 rounded-2xl p-4 h-full flex flex-col items-center justify-center relative overflow-hidden min-h-[300px]">
+                                    <div class="absolute inset-0 opacity-10" style="background-image: radial-gradient(#94a3b8 1px, transparent 1px); background-size: 10px 10px;"></div>
+                                    
+                                    <p class="text-xs font-bold text-slate-400 mb-4 uppercase tracking-widest">معاينة الفاتورة</p>
+                                    
+                                    <!-- The Receipt -->
+                                    <div id="receipt-paper" class="w-full max-w-[240px] bg-white shadow-xl shadow-slate-300/50 p-4 text-[10px] font-mono leading-tight text-slate-600 relative receipt-print hidden">
+                                        <!-- Receipt Header -->
+                                        <div class="text-center mb-3 border-b border-dashed border-slate-300 pb-3">
+                                            <div class="w-8 h-8 bg-slate-900 rounded mx-auto mb-2 flex items-center justify-center text-white text-xs"><i class="fa-solid fa-calculator"></i></div>
+                                            <h4 class="font-bold text-slate-900 text-sm">متجر حاسبة</h4>
+                                            <p>الرياض، المملكة العربية السعودية</p>
+                                            <p>الرقم الضريبي: 300012345678903</p>
+                                        </div>
+                                        
+                                        <!-- Receipt Body -->
+                                        <div class="mb-3 border-b border-dashed border-slate-300 pb-3">
+                                            <div class="flex justify-between mb-1">
+                                                <span>فاتورة ضريبية مبسطة</span>
+                                                <span>#1024</span>
+                                            </div>
+                                            <div class="flex justify-between text-slate-400">
+                                                <span>2024-02-14</span>
+                                                <span>14:30 PM</span>
+                                            </div>
+                                        </div>
+
+                                        <!-- Items -->
+                                        <div class="mb-3 space-y-1">
+                                            <div class="flex justify-between">
+                                                <span>قهوة لاتيه (كبير)</span>
+                                                <span class="font-bold">18.00</span>
+                                            </div>
+                                            <div class="flex justify-between">
+                                                <span>كيكة الزعفران</span>
+                                                <span class="font-bold">24.00</span>
+                                            </div>
+                                        </div>
+
+                                        <!-- Totals -->
+                                        <div class="border-t border-dashed border-slate-300 pt-2 mb-3">
+                                            <div class="flex justify-between mb-1">
+                                                <span>المجموع (شامل الضريبة)</span>
+                                                <span class="font-bold text-slate-900 text-xs">42.00 ر.س</span>
+                                            </div>
+                                            <div class="flex justify-between text-[8px] text-slate-400">
+                                                <span>ضريبة القيمة المضافة (15%)</span>
+                                                <span>5.48 ر.س</span>
+                                            </div>
+                                        </div>
+
+                                        <!-- QR Code -->
+                                        <div class="flex justify-center mt-4">
+                                            <img src="https://api.qrserver.com/v1/create-qr-code/?size=80x80&data=HasibaPOSReceipt1024" alt="QR" class="w-16 h-16 opacity-80 mix-blend-multiply">
+                                        </div>
+                                        
+                                        <!-- Cut pattern -->
+                                        <div class="absolute -bottom-1 left-0 w-full h-2 bg-slate-100" style="clip-path: polygon(0% 0%, 5% 100%, 10% 0%, 15% 100%, 20% 0%, 25% 100%, 30% 0%, 35% 100%, 40% 0%, 45% 100%, 50% 0%, 55% 100%, 60% 0%, 65% 100%, 70% 0%, 75% 100%, 80% 0%, 85% 100%, 90% 0%, 95% 100%, 100% 0%);"></div>
+                                    </div>
+                                    
+                                    <!-- Placeholder before print -->
+                                    <div id="receipt-placeholder" class="text-center">
+                                        <div class="w-16 h-16 rounded-full bg-slate-200 flex items-center justify-center text-slate-400 mx-auto mb-2">
+                                            <i class="fa-solid fa-print text-2xl"></i>
+                                        </div>
+                                        <p class="text-xs text-slate-500">اضغط "طباعة تجريبية"</p>
+                                    </div>
+
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+
+                <!-- Actions Footer -->
+                <div class="flex flex-col-reverse md:flex-row items-center justify-between gap-4 pt-4 pb-8">
+                    <button type="button" class="w-full md:w-auto px-8 py-4 text-slate-500 font-bold hover:text-slate-800 transition-colors flex items-center justify-center gap-2 group">
+                        <i class="fa-solid fa-arrow-right group-hover:-translate-x-1 transition-transform"></i>
+                        <span>السابق</span>
+                    </button>
+                    
+                    <div class="flex items-center gap-4 w-full md:w-auto">
+                        <button type="button" class="px-6 py-4 text-slate-500 font-semibold hover:text-brand-600 hover:bg-brand-50 rounded-xl transition-all">
+                            تخطي هذه الخطوة
+                        </button>
+                        <button type="button" class="flex-1 md:flex-none px-10 py-4 bg-slate-900 text-white rounded-xl font-bold shadow-xl shadow-slate-900/20 hover:bg-slate-800 hover:shadow-2xl hover:-translate-y-1 transition-all duration-300 flex items-center justify-center gap-3 group">
+                            <span>إنهاء الإعداد والبدء</span>
+                            <div class="w-6 h-6 rounded-full bg-white/20 flex items-center justify-center group-hover:bg-white/30 transition-colors">
+                                <i class="fa-solid fa-check text-xs"></i>
+                            </div>
+                        </button>
+                    </div>
+                </div>
+
+            </form>
+            
+        </main>
+    </div>
+
+    <!-- Scripts -->
+    <script>
+        // Language Toggle Logic
+        const translations = {
+            ar: {
+                label: 'English',
+            },
+            en: {
+                label: 'العربية',
+            }
+        };
+
+        function toggleLanguage() {
+            const html = document.documentElement;
+            const currentLang = html.getAttribute('lang') === 'ar' ? 'en' : 'ar';
+            const data = translations[currentLang];
+            
+            html.setAttribute('dir', currentLang === 'ar' ? 'rtl' : 'ltr');
+            html.setAttribute('lang', currentLang);
+            
+            document.getElementById('lang-label').textContent = data.label;
+        }
+
+        // Role Selection Logic
+        function selectRole(element, role) {
+            // Remove selected class from all cards
+            document.querySelectorAll('.role-card').forEach(card => {
+                card.classList.remove('selected', 'bg-brand-50/50', 'border-brand-500');
+                card.classList.add('bg-white', 'border-slate-200');
+                
+                // Hide checkmark
+                const checkContainer = card.querySelector('.w-5');
+                checkContainer.classList.remove('bg-brand-500', 'text-white', 'border-transparent');
+                checkContainer.classList.add('border-slate-300', 'text-transparent', 'border-2');
+            });
+
+            // Add selected class to clicked card
+            element.classList.add('selected', 'bg-brand-50/50', 'border-brand-500');
+            element.classList.remove('bg-white', 'border-slate-200');
+
+            // Show checkmark
+            const checkContainer = element.querySelector('.w-5');
+            checkContainer.classList.add('bg-brand-500', 'text-white', 'border-transparent');
+            checkContainer.classList.remove('border-slate-300', 'text-transparent', 'border-2');
+        }
+
+        // Simulate Print Logic
+        function simulatePrint() {
+            const placeholder = document.getElementById('receipt-placeholder');
+            const receipt = document.getElementById('receipt-paper');
+            
+            // Hide placeholder
+            placeholder.style.display = 'none';
+            
+            // Reset animation
+            receipt.style.display = 'none';
+            receipt.classList.remove('receipt-print');
+            
+            // Trigger reflow
+            void receipt.offsetWidth;
+            
+            // Show and animate receipt
+            receipt.style.display = 'block';
+            receipt.classList.add('receipt-print');
+        }
+    </script>
+</body>
+</html>
