@@ -12,15 +12,20 @@ import Invoices from "@/pages/invoices";
 import Accounting from "@/pages/accounting";
 import Reports from "@/pages/reports";
 import Customers from "@/pages/customers";
+import Branches from "@/pages/branches";
+import UsersPage from "@/pages/users";
+import Settings from "@/pages/settings";
 
 const queryClient = new QueryClient();
+
+const DARK_ROUTES = new Set(["/", "/settings"]);
 
 function Router() {
   const [location] = useLocation();
 
   // Automatically switch between dark and light mode based on the route
   useEffect(() => {
-    if (location === "/") {
+    if (DARK_ROUTES.has(location)) {
       document.documentElement.classList.add("dark");
     } else {
       document.documentElement.classList.remove("dark");
@@ -50,6 +55,15 @@ function Router() {
       </Route>
       <Route path="/customers">
         <Layout><Customers /></Layout>
+      </Route>
+      <Route path="/branches">
+        <Layout><Branches /></Layout>
+      </Route>
+      <Route path="/users">
+        <Layout><UsersPage /></Layout>
+      </Route>
+      <Route path="/settings">
+        <Layout><Settings /></Layout>
       </Route>
       <Route>
         <Layout><NotFound /></Layout>

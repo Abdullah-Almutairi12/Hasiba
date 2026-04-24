@@ -6,3 +6,6 @@ export * from "./pos";
 export * from "./invoices";
 export * from "./accounting";
 export * from "./alerts";
+export * from "./users";
+export * from "./warehouses";
+export * from "./audit_logs";

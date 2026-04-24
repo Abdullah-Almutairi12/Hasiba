@@ -571,6 +571,141 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/Branch"
+    post:
+      operationId: createBranch
+      tags: [branches]
+      summary: Create a branch
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateBranchBody"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Branch"
+
+  /warehouses:
+    get:
+      operationId: listWarehouses
+      tags: [warehouses]
+      summary: List warehouses
+      parameters:
+        - in: query
+          name: branchId
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Warehouses
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Warehouse"
+    post:
+      operationId: createWarehouse
+      tags: [warehouses]
+      summary: Create a warehouse
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateWarehouseBody"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Warehouse"
+
+  /users:
+    get:
+      operationId: listUsers
+      tags: [users]
+      summary: List users
+      responses:
+        "200":
+          description: Users
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/User"
+    post:
+      operationId: createUser
+      tags: [users]
+      summary: Create a user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateUserBody"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+
+  /users/roles:
+    get:
+      operationId: listRoles
+      tags: [users]
+      summary: List role templates with permissions
+      responses:
+        "200":
+          description: Roles
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Role"
+
+  /security/checklist:
+    get:
+      operationId: getSecurityChecklist
+      tags: [security]
+      summary: Get NCA ECC security checklist
+      responses:
+        "200":
+          description: Checklist
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SecurityChecklist"
+
+  /security/audit-logs:
+    get:
+      operationId: listAuditLogs
+      tags: [security]
+      summary: List recent audit logs
+      parameters:
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            default: 20
+      responses:
+        "200":
+          description: Audit logs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AuditLog"
 
 components:
   schemas:
@@ -1115,3 +1250,185 @@ components:
         isActive:
           type: boolean
       required: [id, name, nameAr, city, isActive]
+
+    CreateBranchBody:
+      type: object
+      properties:
+        name:
+          type: string
+        nameAr:
+          type: string
+        city:
+          type: string
+        isActive:
+          type: boolean
+      required: [name, nameAr, city]
+
+    Warehouse:
+      type: object
+      properties:
+        id:
+          type: integer
+        branchId:
+          type: integer
+        name:
+          type: string
+        nameAr:
+          type: string
+        isDefault:
+          type: boolean
+      required: [id, branchId, name, nameAr, isDefault]
+
+    CreateWarehouseBody:
+      type: object
+      properties:
+        branchId:
+          type: integer
+        name:
+          type: string
+        nameAr:
+          type: string
+        isDefault:
+          type: boolean
+      required: [branchId, name, nameAr]
+
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        email:
+          type: string
+        phone:
+          type: string
+          nullable: true
+        role:
+          type: string
+        branchId:
+          type: integer
+          nullable: true
+        isActive:
+          type: boolean
+        has2fa:
+          type: boolean
+        avatarUrl:
+          type: string
+          nullable: true
+        lastLoginAt:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+      required: [id, name, email, role, isActive, has2fa, createdAt]
+
+    CreateUserBody:
+      type: object
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+        phone:
+          type: string
+          nullable: true
+        role:
+          type: string
+        branchId:
+          type: integer
+          nullable: true
+        has2fa:
+          type: boolean
+      required: [name, email, role]
+
+    Role:
+      type: object
+      properties:
+        key:
+          type: string
+        name:
+          type: string
+        nameAr:
+          type: string
+        description:
+          type: string
+        icon:
+          type: string
+        color:
+          type: string
+        requires2fa:
+          type: boolean
+        permissions:
+          type: array
+          items:
+            type: string
+      required: [key, name, nameAr, description, requires2fa, permissions]
+
+    SecurityChecklistItem:
+      type: object
+      properties:
+        key:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        status:
+          type: string
+        severity:
+          type: string
+      required: [key, title, description, status, severity]
+
+    SecurityChecklist:
+      type: object
+      properties:
+        score:
+          type: integer
+        ncaCompliant:
+          type: boolean
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/SecurityChecklistItem"
+        roleMatrix:
+          type: array
+          items:
+            $ref: "#/components/schemas/RoleMatrixRow"
+      required: [score, ncaCompliant, items, roleMatrix]
+
+    RoleMatrixRow:
+      type: object
+      properties:
+        permission:
+          type: string
+        manager:
+          type: boolean
+        accountant:
+          type: boolean
+        cashier:
+          type: boolean
+      required: [permission, manager, accountant, cashier]
+
+    AuditLog:
+      type: object
+      properties:
+        id:
+          type: integer
+        userName:
+          type: string
+        action:
+          type: string
+        entity:
+          type: string
+        details:
+          type: string
+          nullable: true
+        ipAddress:
+          type: string
+          nullable: true
+        severity:
+          type: string
+        createdAt:
+          type: string
+      required: [id, userName, action, entity, severity, createdAt]

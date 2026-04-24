@@ -507,3 +507,130 @@ export const ListBranchesResponseItem = zod.object({
   isActive: zod.boolean(),
 });
 export const ListBranchesResponse = zod.array(ListBranchesResponseItem);
+
+/**
+ * @summary Create a branch
+ */
+export const CreateBranchBody = zod.object({
+  name: zod.string(),
+  nameAr: zod.string(),
+  city: zod.string(),
+  isActive: zod.boolean().optional(),
+});
+
+/**
+ * @summary List warehouses
+ */
+export const ListWarehousesQueryParams = zod.object({
+  branchId: zod.coerce.number().optional(),
+});
+
+export const ListWarehousesResponseItem = zod.object({
+  id: zod.number(),
+  branchId: zod.number(),
+  name: zod.string(),
+  nameAr: zod.string(),
+  isDefault: zod.boolean(),
+});
+export const ListWarehousesResponse = zod.array(ListWarehousesResponseItem);
+
+/**
+ * @summary Create a warehouse
+ */
+export const CreateWarehouseBody = zod.object({
+  branchId: zod.number(),
+  name: zod.string(),
+  nameAr: zod.string(),
+  isDefault: zod.boolean().optional(),
+});
+
+/**
+ * @summary List users
+ */
+export const ListUsersResponseItem = zod.object({
+  id: zod.number(),
+  name: zod.string(),
+  email: zod.string(),
+  phone: zod.string().nullish(),
+  role: zod.string(),
+  branchId: zod.number().nullish(),
+  isActive: zod.boolean(),
+  has2fa: zod.boolean(),
+  avatarUrl: zod.string().nullish(),
+  lastLoginAt: zod.string().nullish(),
+  createdAt: zod.string(),
+});
+export const ListUsersResponse = zod.array(ListUsersResponseItem);
+
+/**
+ * @summary Create a user
+ */
+export const CreateUserBody = zod.object({
+  name: zod.string(),
+  email: zod.string(),
+  phone: zod.string().nullish(),
+  role: zod.string(),
+  branchId: zod.number().nullish(),
+  has2fa: zod.boolean().optional(),
+});
+
+/**
+ * @summary List role templates with permissions
+ */
+export const ListRolesResponseItem = zod.object({
+  key: zod.string(),
+  name: zod.string(),
+  nameAr: zod.string(),
+  description: zod.string(),
+  icon: zod.string().optional(),
+  color: zod.string().optional(),
+  requires2fa: zod.boolean(),
+  permissions: zod.array(zod.string()),
+});
+export const ListRolesResponse = zod.array(ListRolesResponseItem);
+
+/**
+ * @summary Get NCA ECC security checklist
+ */
+export const GetSecurityChecklistResponse = zod.object({
+  score: zod.number(),
+  ncaCompliant: zod.boolean(),
+  items: zod.array(
+    zod.object({
+      key: zod.string(),
+      title: zod.string(),
+      description: zod.string(),
+      status: zod.string(),
+      severity: zod.string(),
+    }),
+  ),
+  roleMatrix: zod.array(
+    zod.object({
+      permission: zod.string(),
+      manager: zod.boolean(),
+      accountant: zod.boolean(),
+      cashier: zod.boolean(),
+    }),
+  ),
+});
+
+/**
+ * @summary List recent audit logs
+ */
+export const listAuditLogsQueryLimitDefault = 20;
+
+export const ListAuditLogsQueryParams = zod.object({
+  limit: zod.coerce.number().default(listAuditLogsQueryLimitDefault),
+});
+
+export const ListAuditLogsResponseItem = zod.object({
+  id: zod.number(),
+  userName: zod.string(),
+  action: zod.string(),
+  entity: zod.string(),
+  details: zod.string().nullish(),
+  ipAddress: zod.string().nullish(),
+  severity: zod.string(),
+  createdAt: zod.string(),
+});
+export const ListAuditLogsResponse = zod.array(ListAuditLogsResponseItem);

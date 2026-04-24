@@ -8,7 +8,8 @@ import {
   Calculator,
   BarChart3,
   Settings,
-  Menu,
+  Building2,
+  ShieldCheck,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -36,6 +37,12 @@ const mainNavItems = [
 const financeNavItems = [
   { title: "المحاسبة والامتثال", url: "/accounting", icon: Calculator },
   { title: "التقارير والتحليلات", url: "/reports", icon: BarChart3 },
+];
+
+const adminNavItems = [
+  { title: "الفروع والمستودعات", url: "/branches", icon: Building2 },
+  { title: "المستخدمون والصلاحيات", url: "/users", icon: Users },
+  { title: "الأمان والإعدادات", url: "/settings", icon: ShieldCheck },
 ];
 
 export function AppSidebar() {
@@ -94,12 +101,28 @@ export function AppSidebar() {
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               ))}
-              <SidebarMenuItem>
-                <SidebarMenuButton tooltip="الإعدادات">
-                  <Settings />
-                  <span>الإعدادات</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        <SidebarGroup>
+          <SidebarGroupLabel>الإدارة والإعدادات</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {adminNavItems.map((item) => (
+                <SidebarMenuItem key={item.title}>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={location === item.url}
+                    tooltip={item.title}
+                  >
+                    <Link href={item.url}>
+                      <item.icon />
+                      <span>{item.title}</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>

@@ -345,6 +345,95 @@ export interface Branch {
   isActive: boolean;
 }
 
+export interface CreateBranchBody {
+  name: string;
+  nameAr: string;
+  city: string;
+  isActive?: boolean;
+}
+
+export interface Warehouse {
+  id: number;
+  branchId: number;
+  name: string;
+  nameAr: string;
+  isDefault: boolean;
+}
+
+export interface CreateWarehouseBody {
+  branchId: number;
+  name: string;
+  nameAr: string;
+  isDefault?: boolean;
+}
+
+export interface User {
+  id: number;
+  name: string;
+  email: string;
+  phone?: string | null;
+  role: string;
+  branchId?: number | null;
+  isActive: boolean;
+  has2fa: boolean;
+  avatarUrl?: string | null;
+  lastLoginAt?: string | null;
+  createdAt: string;
+}
+
+export interface CreateUserBody {
+  name: string;
+  email: string;
+  phone?: string | null;
+  role: string;
+  branchId?: number | null;
+  has2fa?: boolean;
+}
+
+export interface Role {
+  key: string;
+  name: string;
+  nameAr: string;
+  description: string;
+  icon?: string;
+  color?: string;
+  requires2fa: boolean;
+  permissions: string[];
+}
+
+export interface SecurityChecklistItem {
+  key: string;
+  title: string;
+  description: string;
+  status: string;
+  severity: string;
+}
+
+export interface RoleMatrixRow {
+  permission: string;
+  manager: boolean;
+  accountant: boolean;
+  cashier: boolean;
+}
+
+export interface SecurityChecklist {
+  score: number;
+  ncaCompliant: boolean;
+  items: SecurityChecklistItem[];
+  roleMatrix: RoleMatrixRow[];
+}
+
+export interface AuditLog {
+  id: number;
+  userName: string;
+  action: string;
+  entity: string;
+  details?: string | null;
+  ipAddress?: string | null;
+  severity: string;
+  createdAt: string;
+}
+
 export type GetDashboardSalesChartParams = {
   period?: GetDashboardSalesChartPeriod;
 };
@@ -400,4 +489,12 @@ export const GetSalesReportPeriod = {
 
 export type ListCustomersParams = {
   search?: string;
+};
+
+export type ListWarehousesParams = {
+  branchId?: number;
+};
+
+export type ListAuditLogsParams = {
+  limit?: number;
 };
