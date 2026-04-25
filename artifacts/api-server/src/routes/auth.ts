@@ -47,14 +47,16 @@ router.post("/auth/login", async (req, res) => {
     req.session.regenerate((regenErr) => {
       if (regenErr) {
         req.log.error({ err: regenErr }, "Session regenerate failed");
-        return res.status(500).json({ error: "حدث خطأ في الخادم" });
+        res.status(500).json({ error: "حدث خطأ في الخادم" });
+        return;
       }
       req.session.userId = user.id;
       req.session.role = user.role as typeof req.session.role;
       req.session.save((saveErr) => {
         if (saveErr) {
           req.log.error({ err: saveErr }, "Session save failed");
-          return res.status(500).json({ error: "حدث خطأ في الخادم" });
+          res.status(500).json({ error: "حدث خطأ في الخادم" });
+          return;
         }
         res.json({
           id: user.id,
@@ -66,9 +68,10 @@ router.post("/auth/login", async (req, res) => {
         });
       });
     });
+    return;
   } catch (err) {
     req.log.error({ err }, "Login failed");
-    res.status(500).json({ error: "حدث خطأ في الخادم" });
+    return res.status(500).json({ error: "حدث خطأ في الخادم" });
   }
 });
 
@@ -76,7 +79,8 @@ router.post("/auth/logout", (req, res) => {
   req.session.destroy((err) => {
     if (err) {
       req.log.error({ err }, "Logout failed");
-      return res.status(500).json({ error: "تعذر تسجيل الخروج" });
+      res.status(500).json({ error: "تعذر تسجيل الخروج" });
+      return;
     }
     res.clearCookie("hasba.sid");
     res.json({ ok: true });
@@ -130,14 +134,16 @@ router.post("/auth/signup", async (req, res) => {
     req.session.regenerate((regenErr) => {
       if (regenErr) {
         req.log.error({ err: regenErr }, "Session regenerate failed");
-        return res.status(500).json({ error: "حدث خطأ في الخادم" });
+        res.status(500).json({ error: "حدث خطأ في الخادم" });
+        return;
       }
       req.session.userId = user.id;
       req.session.role = user.role as typeof req.session.role;
       req.session.save((saveErr) => {
         if (saveErr) {
           req.log.error({ err: saveErr }, "Session save failed");
-          return res.status(500).json({ error: "حدث خطأ في الخادم" });
+          res.status(500).json({ error: "حدث خطأ في الخادم" });
+          return;
         }
         res.status(201).json({
           id: user.id,
@@ -149,9 +155,10 @@ router.post("/auth/signup", async (req, res) => {
         });
       });
     });
+    return;
   } catch (err) {
     req.log.error({ err }, "Signup failed");
-    res.status(500).json({ error: "حدث خطأ في الخادم" });
+    return res.status(500).json({ error: "حدث خطأ في الخادم" });
   }
 });
 
@@ -171,7 +178,7 @@ router.get("/auth/me", async (req, res) => {
       return res.status(401).json({ error: "غير مسجل دخول" });
     }
 
-    res.json({
+    return res.json({
       id: user.id,
       name: user.name,
       email: user.email,
@@ -181,7 +188,7 @@ router.get("/auth/me", async (req, res) => {
     });
   } catch (err) {
     req.log.error({ err }, "Auth me failed");
-    res.status(500).json({ error: "حدث خطأ في الخادم" });
+    return res.status(500).json({ error: "حدث خطأ في الخادم" });
   }
 });
 

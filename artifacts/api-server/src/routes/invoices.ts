@@ -86,7 +86,7 @@ router.get("/invoices/:id", async (req, res) => {
     const [invoice] = await db.select().from(invoicesTable).where(eq(invoicesTable.id, id));
     if (!invoice) return res.status(404).json({ error: "Not found" });
 
-    res.json({
+    return res.json({
       ...invoice,
       amount: Number(invoice.amount),
       dueDate: invoice.dueDate?.toISOString() ?? null,
@@ -94,7 +94,7 @@ router.get("/invoices/:id", async (req, res) => {
     });
   } catch (err) {
     req.log.error({ err }, "Error fetching invoice");
-    res.status(500).json({ error: "Internal server error" });
+    return res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -110,7 +110,7 @@ router.patch("/invoices/:id", async (req, res) => {
     const [updated] = await db.update(invoicesTable).set(updateData).where(eq(invoicesTable.id, id)).returning();
     if (!updated) return res.status(404).json({ error: "Not found" });
 
-    res.json({
+    return res.json({
       ...updated,
       amount: Number(updated.amount),
       dueDate: updated.dueDate?.toISOString() ?? null,
@@ -118,7 +118,7 @@ router.patch("/invoices/:id", async (req, res) => {
     });
   } catch (err) {
     req.log.error({ err }, "Error updating invoice");
-    res.status(500).json({ error: "Internal server error" });
+    return res.status(500).json({ error: "Internal server error" });
   }
 });
 

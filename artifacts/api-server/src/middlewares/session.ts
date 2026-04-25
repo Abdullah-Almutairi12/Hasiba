@@ -1,4 +1,5 @@
 import session from "express-session";
+// @ts-expect-error - connect-pg-simple has no published types; we declare what we use below.
 import connectPgSimple from "connect-pg-simple";
 import { pool } from "@workspace/db";
 

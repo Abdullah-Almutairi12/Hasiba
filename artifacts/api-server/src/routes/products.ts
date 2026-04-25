@@ -155,7 +155,7 @@ router.get("/products/:id", async (req, res) => {
 
     if (!product) return res.status(404).json({ error: "Not found" });
 
-    res.json({
+    return res.json({
       ...product,
       price: Number(product.price),
       costPrice: Number(product.costPrice),
@@ -163,7 +163,7 @@ router.get("/products/:id", async (req, res) => {
     });
   } catch (err) {
     req.log.error({ err }, "Error fetching product");
-    res.status(500).json({ error: "Internal server error" });
+    return res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -186,7 +186,7 @@ router.patch("/products/:id", async (req, res) => {
 
     const category = await db.select().from(categoriesTable).where(eq(categoriesTable.id, updated.categoryId)).limit(1);
 
-    res.json({
+    return res.json({
       ...updated,
       price: Number(updated.price),
       costPrice: Number(updated.costPrice),
@@ -195,7 +195,7 @@ router.patch("/products/:id", async (req, res) => {
     });
   } catch (err) {
     req.log.error({ err }, "Error updating product");
-    res.status(500).json({ error: "Internal server error" });
+    return res.status(500).json({ error: "Internal server error" });
   }
 });
 

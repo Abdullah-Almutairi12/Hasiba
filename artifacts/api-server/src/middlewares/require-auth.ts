@@ -1,8 +1,9 @@
 import type { Request, Response, NextFunction } from "express";
 
-export function requireAuth(req: Request, res: Response, next: NextFunction) {
+export function requireAuth(req: Request, res: Response, next: NextFunction): void {
   if (!req.session?.userId) {
-    return res.status(401).json({ error: "غير مسجل دخول" });
+    res.status(401).json({ error: "غير مسجل دخول" });
+    return;
   }
   next();
 }
