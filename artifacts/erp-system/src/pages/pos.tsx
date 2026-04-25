@@ -60,7 +60,7 @@ export default function POS() {
   const [search, setSearch] = useState("");
   const [categoryId, setCategoryId] = useState<number | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<
-    "card" | "cash" | "apple" | "stc" | "gift"
+    "card" | "cash" | "stc" | "gift"
   >("card");
   const [clock, setClock] = useState<string>("");
   const [showSuccess, setShowSuccess] = useState<{
@@ -177,9 +177,8 @@ export default function POS() {
       {
         onSuccess: (data: any) => {
           const methodLabels: Record<string, string> = {
-            card: "مدى",
+            card: "شبكة",
             cash: "كاش",
-            apple: "Apple Pay",
             stc: "STC Pay",
             gift: "بطاقة هدية",
           };
@@ -749,11 +748,10 @@ export default function POS() {
             </div>
 
             {/* Payment methods */}
-            <div className="grid grid-cols-5 gap-2 border-t border-neutral-200 bg-white p-4">
+            <div className="grid grid-cols-4 gap-2 border-t border-neutral-200 bg-white p-4">
               {[
                 { key: "cash", icon: Banknote, label: "كاش" },
-                { key: "card", icon: CreditCard, label: "مدى", default: true },
-                { key: "apple", icon: Apple, label: "Apple" },
+                { key: "card", icon: CreditCard, label: "شبكة", default: true },
                 { key: "stc", icon: Wallet, label: "STC Pay" },
                 { key: "gift", icon: Gift, label: "بطاقة هدية" },
               ].map((m) => {
