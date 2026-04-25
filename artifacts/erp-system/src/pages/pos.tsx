@@ -7,13 +7,26 @@ import {
   useCreatePosSession,
   useListPosSessions,
   useGetPosSummary,
+  useGetZatcaStatus,
 } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Search, ShoppingCart, Trash2, ArrowRight, User, PackageSearch } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import {
+  Search,
+  ShoppingCart,
+  Trash2,
+  ArrowRight,
+  User,
+  PackageSearch,
+  ScanLine,
+  Crown,
+  ShieldCheck,
+  Gift,
+} from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { motion } from "framer-motion";
 
@@ -31,6 +44,7 @@ export default function POS() {
   });
   
   const { data: sessions } = useListPosSessions();
+  const { data: zatca } = useGetZatcaStatus();
   const createSession = useCreatePosSession();
   const createOrder = useCreatePosOrder();
   
@@ -38,6 +52,7 @@ export default function POS() {
 
   const [cart, setCart] = useState<Array<{ product: any, quantity: number }>>([]);
   const [discount, setDiscount] = useState(0);
+  const [customer, setCustomer] = useState<{ name: string; loyaltyPoints: number; tier: string } | null>(null);
 
   const addToCart = (product: any) => {
     setCart(prev => {
@@ -68,8 +83,13 @@ export default function POS() {
   };
 
   const subtotal = useMemo(() => cart.reduce((acc, item) => acc + (item.product.price * item.quantity), 0), [cart]);
-  const tax = subtotal * 0.15; // 15% VAT
-  const total = subtotal + tax - discount;
+  const loyaltyDiscount = customer ? Math.min(customer.loyaltyPoints * 0.05, subtotal * 0.1) : 0;
+  // Combined discount sent to backend (manual + loyalty redemption) so UI total matches persisted total.
+  const effectiveDiscount = discount + loyaltyDiscount;
+  // Mirror server-side formula: tax = (subtotal - discount) * 0.15
+  const tax = Math.max(0, (subtotal - effectiveDiscount)) * 0.15;
+  const total = Math.max(0, subtotal - effectiveDiscount) + tax;
+  const earnedPoints = Math.floor(total / 10);
 
   const handleCheckout = () => {
     if (!activeSession) {
@@ -84,13 +104,16 @@ export default function POS() {
         sessionId: activeSession.id,
         paymentMethod: "card",
         items: cart.map(item => ({ productId: item.product.id, quantity: item.quantity })),
-        discount,
+        discount: effectiveDiscount,
       }
     }, {
       onSuccess: () => {
         toast({ title: "تم إكمال الطلب بنجاح" });
         setCart([]);
         setDiscount(0);
+        if (customer) {
+          setCustomer({ ...customer, loyaltyPoints: customer.loyaltyPoints + earnedPoints });
+        }
       }
     });
   };
@@ -132,16 +155,40 @@ export default function POS() {
             </Button>
             <h1 className="text-xl font-bold">نقطة البيع</h1>
           </div>
-          <div className="flex items-center gap-4 w-1/2">
+          <div className="flex items-center gap-2 w-1/2">
             <div className="relative flex-1">
               <Search className="absolute right-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
               <Input 
                 className="pl-4 pr-10" 
-                placeholder="ابحث عن منتج..." 
+                placeholder="ابحث عن منتج أو امسح الباركود..." 
                 value={search}
                 onChange={e => setSearch(e.target.value)}
               />
             </div>
+            <Button variant="outline" size="icon" title="مسح الباركود">
+              <ScanLine className="size-5" />
+            </Button>
+          </div>
+          <div className="flex items-center gap-2">
+            {zatca && (
+              <Badge
+                variant="outline"
+                className={
+                  zatca.connected
+                    ? "border-emerald-300 bg-emerald-50 text-emerald-700"
+                    : "border-red-300 bg-red-50 text-red-700"
+                }
+              >
+                <ShieldCheck className="ms-1 size-3" />
+                ZATCA {zatca.connected ? "متصل" : "غير متصل"}
+              </Badge>
+            )}
+            {activeSession && (
+              <Badge variant="outline" className="border-emerald-300 bg-emerald-50 text-emerald-700">
+                <span className="me-1.5 size-2 animate-pulse rounded-full bg-emerald-500" />
+                جلسة #{activeSession.id} مفتوحة
+              </Badge>
+            )}
           </div>
         </header>
 
@@ -209,10 +256,66 @@ export default function POS() {
             <ShoppingCart className="size-5" />
             سلة الشراء
           </h2>
-          <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground">
-            <User className="size-4 ml-2" /> إضافة عميل
-          </Button>
+          {customer ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-muted-foreground hover:text-foreground"
+              onClick={() => setCustomer(null)}
+            >
+              إزالة
+            </Button>
+          ) : (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-muted-foreground hover:text-foreground"
+              onClick={() =>
+                setCustomer({ name: "نوره الحربي", loyaltyPoints: 240, tier: "ذهبي" })
+              }
+            >
+              <User className="size-4 ml-2" /> إضافة عميل
+            </Button>
+          )}
         </div>
+
+        {/* Loyalty Customer Widget */}
+        {customer && (
+          <div className="border-b bg-gradient-to-l from-amber-50 to-yellow-50 p-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="grid size-10 place-items-center rounded-full bg-gradient-to-br from-amber-400 to-orange-500 text-white">
+                  <Crown className="size-5" />
+                </div>
+                <div>
+                  <p className="text-sm font-bold text-slate-800">{customer.name}</p>
+                  <Badge
+                    variant="outline"
+                    className="mt-0.5 border-amber-400 bg-amber-100 text-amber-800"
+                  >
+                    عضو {customer.tier}
+                  </Badge>
+                </div>
+              </div>
+              <div className="text-left">
+                <p className="text-xs text-slate-600">رصيد النقاط</p>
+                <p className="text-lg font-bold tabular-nums text-amber-700">
+                  {customer.loyaltyPoints}
+                </p>
+              </div>
+            </div>
+            {cart.length > 0 && (
+              <div className="mt-3 flex items-center gap-2 rounded-lg bg-white/60 p-2 text-xs">
+                <Gift className="size-4 text-amber-600" />
+                <span className="text-slate-700">
+                  سيكسب{" "}
+                  <span className="font-bold text-amber-700">{earnedPoints} نقطة</span> من
+                  هذه العملية
+                </span>
+              </div>
+            )}
+          </div>
+        )}
 
         <ScrollArea className="flex-1 p-4">
           {cart.length === 0 ? (
@@ -256,8 +359,14 @@ export default function POS() {
           </div>
           {discount > 0 && (
             <div className="flex justify-between text-sm text-green-600">
-              <span>الخصم</span>
+              <span>الخصم اليدوي</span>
               <span>-{new Intl.NumberFormat('ar-SA', { style: 'currency', currency: 'SAR' }).format(discount)}</span>
+            </div>
+          )}
+          {loyaltyDiscount > 0 && (
+            <div className="flex justify-between text-sm text-amber-600">
+              <span className="flex items-center gap-1"><Gift className="size-3" /> خصم الولاء</span>
+              <span>-{new Intl.NumberFormat('ar-SA', { style: 'currency', currency: 'SAR' }).format(loyaltyDiscount)}</span>
             </div>
           )}
           <div className="border-t pt-3 flex justify-between font-bold text-lg">

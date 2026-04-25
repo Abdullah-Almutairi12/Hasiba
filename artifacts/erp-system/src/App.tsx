@@ -15,6 +15,8 @@ import Customers from "@/pages/customers";
 import Branches from "@/pages/branches";
 import UsersPage from "@/pages/users";
 import Settings from "@/pages/settings";
+import OnboardingWizard from "@/pages/onboarding-wizard";
+import CreateCompany from "@/pages/create-company";
 
 const queryClient = new QueryClient();
 
@@ -36,7 +38,11 @@ function Router() {
     <Switch>
       {/* POS has its own full-screen layout usually, but let's keep it consistent or use a separate layout */}
       <Route path="/pos" component={POS} />
-      
+
+      {/* Onboarding flows are full-screen (no app shell) */}
+      <Route path="/signup" component={CreateCompany} />
+      <Route path="/onboarding" component={OnboardingWizard} />
+
       {/* All other routes wrapped in layout */}
       <Route path="/">
         <Layout><Dashboard /></Layout>

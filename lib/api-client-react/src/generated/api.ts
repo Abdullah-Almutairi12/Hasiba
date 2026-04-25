@@ -35,6 +35,7 @@ import type {
   CreateWarehouseBody,
   Customer,
   DashboardSummary,
+  FraudAlert,
   GetDashboardSalesChartParams,
   GetSalesReportParams,
   HealthStatus,
@@ -52,6 +53,7 @@ import type {
   PosSummary,
   Product,
   ProductStats,
+  ReportInsights,
   Role,
   SalesChartPoint,
   SalesReport,
@@ -2421,6 +2423,156 @@ export function useGetTopProducts<
   request?: SecondParameter<typeof customFetch>;
 }): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getGetTopProductsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Get AI-powered insights, anomalies, and benchmarks
+ */
+export const getGetReportInsightsUrl = () => {
+  return `/api/reports/insights`;
+};
+
+export const getReportInsights = async (
+  options?: RequestInit,
+): Promise<ReportInsights> => {
+  return customFetch<ReportInsights>(getGetReportInsightsUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetReportInsightsQueryKey = () => {
+  return [`/api/reports/insights`] as const;
+};
+
+export const getGetReportInsightsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getReportInsights>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getReportInsights>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetReportInsightsQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getReportInsights>>
+  > = ({ signal }) => getReportInsights({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getReportInsights>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetReportInsightsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getReportInsights>>
+>;
+export type GetReportInsightsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Get AI-powered insights, anomalies, and benchmarks
+ */
+
+export function useGetReportInsights<
+  TData = Awaited<ReturnType<typeof getReportInsights>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getReportInsights>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetReportInsightsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Get suspicious transactions detected by AI
+ */
+export const getGetFraudDetectionUrl = () => {
+  return `/api/reports/fraud-detection`;
+};
+
+export const getFraudDetection = async (
+  options?: RequestInit,
+): Promise<FraudAlert[]> => {
+  return customFetch<FraudAlert[]>(getGetFraudDetectionUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetFraudDetectionQueryKey = () => {
+  return [`/api/reports/fraud-detection`] as const;
+};
+
+export const getGetFraudDetectionQueryOptions = <
+  TData = Awaited<ReturnType<typeof getFraudDetection>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getFraudDetection>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetFraudDetectionQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getFraudDetection>>
+  > = ({ signal }) => getFraudDetection({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getFraudDetection>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetFraudDetectionQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getFraudDetection>>
+>;
+export type GetFraudDetectionQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Get suspicious transactions detected by AI
+ */
+
+export function useGetFraudDetection<
+  TData = Awaited<ReturnType<typeof getFraudDetection>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getFraudDetection>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetFraudDetectionQueryOptions(options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;

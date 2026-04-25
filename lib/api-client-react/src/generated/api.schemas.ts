@@ -434,6 +434,42 @@ export interface AuditLog {
   createdAt: string;
 }
 
+export interface Anomaly {
+  title: string;
+  description: string;
+  severity: string;
+  action: string;
+}
+
+export interface Benchmark {
+  metric: string;
+  you: number;
+  industry: number;
+}
+
+export interface ReportInsights {
+  netProfitToday: number;
+  profitChange: number;
+  customerLifetimeValue: number;
+  clvChange: number;
+  avgBenchmark: number;
+  forecastNextWeek: number;
+  forecastConfidence: number;
+  anomalies: Anomaly[];
+  benchmarks: Benchmark[];
+}
+
+export interface FraudAlert {
+  id: number;
+  type: string;
+  description: string;
+  branch: string;
+  cashier: string;
+  amount: number;
+  time: string;
+  severity: string;
+}
+
 export type GetDashboardSalesChartParams = {
   period?: GetDashboardSalesChartPeriod;
 };

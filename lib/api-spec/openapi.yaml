@@ -518,6 +518,34 @@ paths:
                 items:
                   $ref: "#/components/schemas/TopProduct"
 
+  /reports/insights:
+    get:
+      operationId: getReportInsights
+      tags: [reports]
+      summary: Get AI-powered insights, anomalies, and benchmarks
+      responses:
+        "200":
+          description: Insights
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReportInsights"
+
+  /reports/fraud-detection:
+    get:
+      operationId: getFraudDetection
+      tags: [reports]
+      summary: Get suspicious transactions detected by AI
+      responses:
+        "200":
+          description: Fraud alerts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/FraudAlert"
+
   # Customers
   /customers:
     get:
@@ -1432,3 +1460,75 @@ components:
         createdAt:
           type: string
       required: [id, userName, action, entity, severity, createdAt]
+
+    ReportInsights:
+      type: object
+      properties:
+        netProfitToday:
+          type: number
+        profitChange:
+          type: number
+        customerLifetimeValue:
+          type: number
+        clvChange:
+          type: number
+        avgBenchmark:
+          type: number
+        forecastNextWeek:
+          type: number
+        forecastConfidence:
+          type: number
+        anomalies:
+          type: array
+          items:
+            $ref: "#/components/schemas/Anomaly"
+        benchmarks:
+          type: array
+          items:
+            $ref: "#/components/schemas/Benchmark"
+      required: [netProfitToday, profitChange, customerLifetimeValue, clvChange, avgBenchmark, forecastNextWeek, forecastConfidence, anomalies, benchmarks]
+
+    Anomaly:
+      type: object
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        severity:
+          type: string
+        action:
+          type: string
+      required: [title, description, severity, action]
+
+    Benchmark:
+      type: object
+      properties:
+        metric:
+          type: string
+        you:
+          type: number
+        industry:
+          type: number
+      required: [metric, you, industry]
+
+    FraudAlert:
+      type: object
+      properties:
+        id:
+          type: integer
+        type:
+          type: string
+        description:
+          type: string
+        branch:
+          type: string
+        cashier:
+          type: string
+        amount:
+          type: number
+        time:
+          type: string
+        severity:
+          type: string
+      required: [id, type, description, branch, cashier, amount, time, severity]

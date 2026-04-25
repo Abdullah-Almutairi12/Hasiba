@@ -470,6 +470,51 @@ export const GetTopProductsResponseItem = zod.object({
 export const GetTopProductsResponse = zod.array(GetTopProductsResponseItem);
 
 /**
+ * @summary Get AI-powered insights, anomalies, and benchmarks
+ */
+export const GetReportInsightsResponse = zod.object({
+  netProfitToday: zod.number(),
+  profitChange: zod.number(),
+  customerLifetimeValue: zod.number(),
+  clvChange: zod.number(),
+  avgBenchmark: zod.number(),
+  forecastNextWeek: zod.number(),
+  forecastConfidence: zod.number(),
+  anomalies: zod.array(
+    zod.object({
+      title: zod.string(),
+      description: zod.string(),
+      severity: zod.string(),
+      action: zod.string(),
+    }),
+  ),
+  benchmarks: zod.array(
+    zod.object({
+      metric: zod.string(),
+      you: zod.number(),
+      industry: zod.number(),
+    }),
+  ),
+});
+
+/**
+ * @summary Get suspicious transactions detected by AI
+ */
+export const GetFraudDetectionResponseItem = zod.object({
+  id: zod.number(),
+  type: zod.string(),
+  description: zod.string(),
+  branch: zod.string(),
+  cashier: zod.string(),
+  amount: zod.number(),
+  time: zod.string(),
+  severity: zod.string(),
+});
+export const GetFraudDetectionResponse = zod.array(
+  GetFraudDetectionResponseItem,
+);
+
+/**
  * @summary List customers
  */
 export const ListCustomersQueryParams = zod.object({

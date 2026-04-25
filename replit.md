@@ -27,6 +27,10 @@ Full-stack ERP system targeting Arabic/Saudi businesses, inspired by Odoo. Built
 5. **المحاسبة والامتثال** — Journal entries, cash flow, ZATCA integration status
 6. **التقارير والتحليلات** — Reporting and analytics
 7. **العملاء** — Customer management with order history
+8. **الفروع، المستخدمون، الإعدادات (NCA ECC)** — Multi-branch ops, user/permission management, security settings
+9. **التسجيل والإعداد الموجّه** — Full-screen `/signup` (create company) and `/onboarding` (5-step wizard) flows
+10. **التقارير الذكية + كشف الاحتيال** — AI Copilot, predictive forecast, CLV, benchmarks, fraud detection table
+11. **POS Loyalty + ZATCA badge** — In-cart customer loyalty (points → discount) with combined effectiveDiscount sent to backend so UI total mirrors persisted total
 
 ## Artifacts
 
