@@ -1,394 +1,510 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Card, CardContent } from "@/components/ui/card";
 import {
   Calculator,
-  Building2,
   Sparkles,
-  ShoppingCart,
-  Package,
-  FileText,
-  Users,
-  ChartBar,
+  Check,
   ChevronLeft,
   ChevronRight,
-  Check,
-  Wand2,
   Store,
-  Briefcase,
-  Coffee,
-  Shirt,
+  Truck,
+  UtensilsCrossed,
   Wrench,
-  Palette,
+  Info,
+  Receipt,
+  FileText,
+  ArrowLeft,
 } from "lucide-react";
 
-const STEPS = [
-  { key: "business", title: "نوع نشاطك", description: "اختر القطاع المناسب لمنشأتك" },
-  { key: "size", title: "حجم المنشأة", description: "حتى نختار لك الباقة المثلى" },
-  { key: "modules", title: "الوحدات الأساسية", description: "فعّل ما يناسب احتياجاتك" },
-  { key: "company", title: "بيانات الشركة", description: "معلومات أولية لتفعيل الفوترة" },
-  { key: "done", title: "اكتمل الإعداد", description: "جاهز للانطلاق!" },
-];
-
 const BUSINESS_TYPES = [
-  { key: "retail", icon: Store, name: "تجزئة / بقالة", color: "from-blue-500 to-cyan-500" },
-  { key: "fb", icon: Coffee, name: "مطاعم وكافيهات", color: "from-amber-500 to-orange-500" },
-  { key: "fashion", icon: Shirt, name: "أزياء ومستلزمات", color: "from-pink-500 to-rose-500" },
-  { key: "services", icon: Wrench, name: "خدمات وصيانة", color: "from-purple-500 to-indigo-500" },
-  { key: "wholesale", icon: Briefcase, name: "جملة وتوزيع", color: "from-emerald-500 to-teal-500" },
-  { key: "creative", icon: Palette, name: "أعمال إبداعية", color: "from-fuchsia-500 to-purple-500" },
+  {
+    key: "retail",
+    icon: Store,
+    title: "تجزئة وبيع",
+    desc: "متاجر، بقالات، ملابس، إلكترونيات",
+  },
+  {
+    key: "wholesale",
+    icon: Truck,
+    title: "جملة وتوزيع",
+    desc: "موزّعون، مستودعات، B2B",
+  },
+  {
+    key: "fb",
+    icon: UtensilsCrossed,
+    title: "مطاعم وكافيهات",
+    desc: "F&B مع KOT وإدارة الطاولات",
+  },
+  {
+    key: "services",
+    icon: Wrench,
+    title: "خدمات ومهنية",
+    desc: "ورش، استشارات، صيانة",
+  },
 ];
 
-const SIZES = [
-  { key: "solo", title: "أنا فقط", description: "مالك / فريلانسر", users: "1 مستخدم" },
-  { key: "small", title: "فريق صغير", description: "2 - 10 موظفين", users: "حتى 10" },
-  { key: "medium", title: "فريق متوسط", description: "11 - 50 موظف", users: "حتى 50" },
-  { key: "large", title: "منشأة كبيرة", description: "+50 موظف", users: "غير محدود" },
-];
-
-const MODULES = [
-  { key: "pos", icon: ShoppingCart, name: "نقطة البيع", description: "كاشير وفواتير لحظية", recommended: true },
-  { key: "inventory", icon: Package, name: "المخزون", description: "تتبع المنتجات والمستودعات", recommended: true },
-  { key: "invoicing", icon: FileText, name: "الفوترة وZATCA", description: "فواتير إلكترونية متوافقة", recommended: true },
-  { key: "crm", icon: Users, name: "إدارة العملاء", description: "CRM ومتابعة فرص البيع", recommended: false },
-  { key: "accounting", icon: Calculator, name: "المحاسبة", description: "قيود يومية ومراجعة", recommended: true },
-  { key: "reports", icon: ChartBar, name: "تقارير AI", description: "رؤى ذكية وتنبؤات", recommended: false },
+const CURRENCIES = [
+  { code: "SAR", label: "ريال سعودي (SAR)" },
+  { code: "AED", label: "درهم إماراتي (AED)" },
+  { code: "KWD", label: "دينار كويتي (KWD)" },
+  { code: "USD", label: "دولار أمريكي (USD)" },
 ];
 
 export default function OnboardingWizard() {
   const [, setLocation] = useLocation();
-  const [step, setStep] = useState(0);
-  const [businessType, setBusinessType] = useState<string | null>(null);
-  const [size, setSize] = useState<string | null>(null);
-  const [modules, setModules] = useState<Set<string>>(
-    new Set(MODULES.filter((m) => m.recommended).map((m) => m.key))
+  const [step, setStep] = useState<1 | 2 | 3>(1);
+  const [businessType, setBusinessType] = useState<string>("retail");
+  const [vatType, setVatType] = useState<"standard" | "zero" | "exempt">(
+    "standard"
   );
-  const [company, setCompany] = useState({ name: "", vat: "", city: "" });
-
-  const toggleModule = (key: string) => {
-    setModules((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  };
-
-  const canProceed = () => {
-    if (step === 0) return !!businessType;
-    if (step === 1) return !!size;
-    if (step === 2) return modules.size > 0;
-    if (step === 3) return company.name.trim().length > 0;
-    return true;
-  };
+  const [invoiceType, setInvoiceType] = useState<"simplified" | "standard">(
+    "simplified"
+  );
+  const [currency, setCurrency] = useState("SAR");
+  const [branches, setBranches] = useState(3);
 
   return (
-    <div dir="rtl" className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/40 to-indigo-50/30">
-      {/* Header */}
-      <header className="border-b border-slate-200 bg-white/80 backdrop-blur-md">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
-          <div className="flex items-center gap-2">
-            <div className="grid size-9 place-items-center rounded-lg bg-primary text-white">
-              <Calculator className="size-5" />
+    <div
+      dir="rtl"
+      className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/40 to-indigo-50/30 font-sans text-neutral-900"
+    >
+      {/* Top Bar */}
+      <header className="sticky top-0 z-30 border-b border-neutral-200 bg-white/90 backdrop-blur-md">
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-3">
+          <div className="flex items-center gap-3">
+            <div className="grid size-9 place-items-center rounded-lg bg-[#2563EB] text-white shadow">
+              <Calculator className="size-4" />
             </div>
-            <span className="bg-gradient-to-l from-primary to-cyan-500 bg-clip-text text-2xl font-bold text-transparent">
-              حاسبة.AI
-            </span>
+            <div className="text-right leading-tight">
+              <span className="block text-lg font-bold tracking-tight">
+                حاسبة<span className="text-[#2563EB]">.</span>
+              </span>
+              <span className="text-[9px] font-medium uppercase tracking-wider text-neutral-500">
+                Setup Wizard
+              </span>
+            </div>
           </div>
-          <Button variant="ghost" onClick={() => setLocation("/")}>
-            تخطي للوحة القيادة
-          </Button>
+          <div className="flex items-center gap-3 text-xs text-neutral-500">
+            <span className="hidden md:inline">يحتاج 5 دقائق فقط</span>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setLocation("/")}
+              className="text-neutral-500"
+            >
+              تخطي للوحة التحكم
+            </Button>
+          </div>
         </div>
       </header>
 
-      {/* Progress bar */}
-      <div className="mx-auto max-w-4xl px-6 pt-8">
-        <div className="mb-2 flex items-center justify-between text-sm">
-          <span className="font-medium text-slate-600">
-            الخطوة {step + 1} من {STEPS.length}
-          </span>
-          <span className="text-slate-500">
-            {Math.round(((step + 1) / STEPS.length) * 100)}% مكتمل
-          </span>
+      {/* Main */}
+      <main className="mx-auto max-w-[900px] px-6 py-10">
+        {/* Step indicator */}
+        <div className="mb-8">
+          <div className="mx-auto flex max-w-md items-center justify-between">
+            {[
+              { n: 1, label: "نشاطك" },
+              { n: 2, label: "الفروع" },
+              { n: 3, label: "الإطلاق" },
+            ].map((s, i, arr) => {
+              const active = step === s.n;
+              const done = step > s.n;
+              return (
+                <div key={s.n} className="flex flex-1 items-center">
+                  <div className="flex flex-col items-center">
+                    <div
+                      className={`grid size-10 place-items-center rounded-full text-sm font-bold transition-all ${
+                        active
+                          ? "bg-[#2563EB] text-white shadow-lg shadow-blue-500/30 ring-4 ring-blue-100"
+                          : done
+                            ? "bg-emerald-500 text-white"
+                            : "bg-white text-neutral-400 ring-1 ring-neutral-200"
+                      }`}
+                    >
+                      {done ? <Check className="size-4" /> : s.n}
+                    </div>
+                    <span
+                      className={`mt-2 whitespace-nowrap text-[11px] font-bold ${
+                        active ? "text-neutral-900" : "text-neutral-400"
+                      }`}
+                    >
+                      {s.label}
+                    </span>
+                  </div>
+                  {i < arr.length - 1 && (
+                    <div
+                      className={`mx-2 mt-[-22px] h-0.5 flex-1 ${
+                        done ? "bg-emerald-500" : "bg-neutral-200"
+                      }`}
+                    />
+                  )}
+                </div>
+              );
+            })}
+          </div>
         </div>
-        <div className="h-2 overflow-hidden rounded-full bg-slate-200">
-          <div
-            className="h-full rounded-full bg-gradient-to-l from-primary to-cyan-400 transition-all duration-500"
-            style={{ width: `${((step + 1) / STEPS.length) * 100}%` }}
-          />
-        </div>
-        <div className="mt-6 flex items-center justify-between">
-          {STEPS.map((s, i) => (
-            <div key={s.key} className="flex items-center gap-2">
-              <div
-                className={`grid size-8 place-items-center rounded-full text-xs font-bold transition-colors ${
-                  i < step
-                    ? "bg-emerald-500 text-white"
-                    : i === step
-                      ? "bg-primary text-white shadow-lg shadow-primary/30"
-                      : "bg-slate-200 text-slate-500"
-                }`}
-              >
-                {i < step ? <Check className="size-4" /> : i + 1}
-              </div>
-              <span
-                className={`hidden text-xs font-medium md:inline ${
-                  i === step ? "text-slate-900" : "text-slate-500"
-                }`}
-              >
-                {s.title}
+
+        {/* Glass card */}
+        <div className="rounded-[2.5rem] border border-white/60 bg-white/80 p-8 shadow-xl shadow-blue-900/5 backdrop-blur-xl md:p-10">
+          {/* Header */}
+          <div className="mb-8 text-center">
+            <div className="mb-3 inline-flex items-center gap-1.5 rounded-full bg-blue-100 px-3 py-1 text-[11px] font-bold text-[#1D4ED8]">
+              <Sparkles className="size-3" />
+              الخطوة {step} من 3
+            </div>
+            <h1 className="text-3xl font-extrabold leading-tight text-neutral-900">
+              {step === 1
+                ? "لنخصّص حاسبتك حسب نشاطك"
+                : step === 2
+                  ? "أضف فروعك ومستودعاتك"
+                  : "كل شيء جاهز للإطلاق"}
+            </h1>
+            <p className="mt-2 text-sm text-neutral-500">
+              {step === 1
+                ? "اختياراتك تساعدنا على تجهيز الحسابات والوحدات المناسبة لمنشأتك تلقائياً."
+                : step === 2
+                  ? "حدّد عدد الفروع والمستودعات لتوزيع المخزون وإدارة الكاشيرات."
+                  : "راجع الإعدادات ثم أطلق نظامك في دقائق."}
+            </p>
+          </div>
+
+          {step === 1 && (
+          <>
+          {/* Section: Business type */}
+          <section className="mb-8">
+            <div className="mb-4 flex items-center gap-2">
+              <span className="grid size-7 place-items-center rounded-lg bg-blue-100 text-[#2563EB]">
+                <Store className="size-4" />
               </span>
+              <h2 className="text-sm font-bold text-neutral-900">نوع النشاط التجاري</h2>
             </div>
-          ))}
-        </div>
-      </div>
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+              {BUSINESS_TYPES.map((b) => {
+                const Icon = b.icon;
+                const selected = businessType === b.key;
+                return (
+                  <button
+                    key={b.key}
+                    type="button"
+                    onClick={() => setBusinessType(b.key)}
+                    className={`group relative overflow-hidden rounded-2xl border-2 p-4 text-right transition-all ${
+                      selected
+                        ? "border-[#2563EB] bg-blue-50/70 shadow-md shadow-blue-200/50"
+                        : "border-neutral-200 bg-white hover:border-neutral-300 hover:shadow-sm"
+                    }`}
+                  >
+                    {selected && (
+                      <div className="absolute left-2 top-2 grid size-5 place-items-center rounded-full bg-[#2563EB] text-white">
+                        <Check className="size-3" />
+                      </div>
+                    )}
+                    <div
+                      className={`mb-3 grid size-10 place-items-center rounded-xl transition-colors ${
+                        selected
+                          ? "bg-[#2563EB] text-white"
+                          : "bg-neutral-100 text-neutral-500 group-hover:bg-blue-100 group-hover:text-[#2563EB]"
+                      }`}
+                    >
+                      <Icon className="size-5" />
+                    </div>
+                    <p className="text-sm font-bold text-neutral-900">{b.title}</p>
+                    <p className="mt-1 text-[10px] leading-snug text-neutral-500">
+                      {b.desc}
+                    </p>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
 
-      {/* Step content */}
-      <div className="mx-auto max-w-4xl px-6 py-10">
-        <Card className="border-slate-200 shadow-xl">
-          <CardContent className="p-8">
-            <div className="mb-6 text-center">
-              <div className="mb-3 inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
-                <Wand2 className="size-3" />
-                إعداد ذكي
-              </div>
-              <h2 className="text-3xl font-bold text-slate-900">{STEPS[step].title}</h2>
-              <p className="mt-2 text-slate-600">{STEPS[step].description}</p>
+          {/* Section: Tax settings */}
+          <section className="mb-8">
+            <div className="mb-4 flex items-center gap-2">
+              <span className="grid size-7 place-items-center rounded-lg bg-blue-100 text-[#2563EB]">
+                <Receipt className="size-4" />
+              </span>
+              <h2 className="text-sm font-bold text-neutral-900">إعدادات الضريبة</h2>
             </div>
 
-            {/* Step 0: Business type */}
-            {step === 0 && (
-              <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
-                {BUSINESS_TYPES.map((b) => {
-                  const Icon = b.icon;
-                  const selected = businessType === b.key;
-                  return (
-                    <button
-                      key={b.key}
-                      onClick={() => setBusinessType(b.key)}
-                      className={`group relative overflow-hidden rounded-2xl border-2 p-5 text-right transition-all ${
-                        selected
-                          ? "border-primary bg-primary/5 shadow-lg shadow-primary/10"
-                          : "border-slate-200 bg-white hover:border-slate-300 hover:shadow-md"
-                      }`}
-                    >
-                      {selected && (
-                        <div className="absolute left-3 top-3 grid size-6 place-items-center rounded-full bg-primary text-white">
-                          <Check className="size-4" />
-                        </div>
-                      )}
-                      <div
-                        className={`mb-3 grid size-12 place-items-center rounded-xl bg-gradient-to-br ${b.color} text-white shadow-md`}
-                      >
-                        <Icon className="size-6" />
-                      </div>
-                      <p className="font-bold text-slate-900">{b.name}</p>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-
-            {/* Step 1: Size */}
-            {step === 1 && (
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                {SIZES.map((s) => {
-                  const selected = size === s.key;
-                  return (
-                    <button
-                      key={s.key}
-                      onClick={() => setSize(s.key)}
-                      className={`relative rounded-2xl border-2 p-6 text-right transition-all ${
-                        selected
-                          ? "border-primary bg-primary/5 shadow-lg shadow-primary/10"
-                          : "border-slate-200 bg-white hover:border-slate-300"
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <h3 className="text-lg font-bold">{s.title}</h3>
-                          <p className="mt-1 text-sm text-slate-600">{s.description}</p>
-                        </div>
-                        <Building2
-                          className={`size-8 ${selected ? "text-primary" : "text-slate-300"}`}
-                        />
-                      </div>
-                      <div className="mt-4 inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
-                        {s.users}
-                      </div>
-                      {selected && (
-                        <div className="absolute left-4 top-4 grid size-6 place-items-center rounded-full bg-primary text-white">
-                          <Check className="size-4" />
-                        </div>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-
-            {/* Step 2: Modules */}
-            {step === 2 && (
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                {MODULES.map((m) => {
-                  const Icon = m.icon;
-                  const selected = modules.has(m.key);
-                  return (
-                    <button
-                      key={m.key}
-                      onClick={() => toggleModule(m.key)}
-                      className={`flex items-center gap-3 rounded-xl border-2 p-4 text-right transition-all ${
-                        selected
-                          ? "border-primary bg-primary/5"
-                          : "border-slate-200 bg-white hover:border-slate-300"
-                      }`}
-                    >
-                      <div
-                        className={`grid size-11 shrink-0 place-items-center rounded-xl ${
-                          selected ? "bg-primary text-white" : "bg-slate-100 text-slate-500"
+            <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+              <div>
+                <p className="mb-2 text-xs font-bold text-neutral-700">
+                  معدل ضريبة القيمة المضافة
+                </p>
+                <div className="space-y-2">
+                  {[
+                    { key: "standard", label: "قياسي 15%", sub: "غالبية السلع والخدمات" },
+                    { key: "zero", label: "صفري 0%", sub: "صادرات وأدوية معينة" },
+                    { key: "exempt", label: "معفى", sub: "خدمات تعليمية وصحية" },
+                  ].map((opt) => {
+                    const selected = vatType === opt.key;
+                    return (
+                      <label
+                        key={opt.key}
+                        className={`flex cursor-pointer items-center gap-3 rounded-xl border p-3 transition-all ${
+                          selected
+                            ? "border-[#2563EB] bg-blue-50/50"
+                            : "border-neutral-200 bg-white hover:border-neutral-300"
                         }`}
                       >
-                        <Icon className="size-5" />
-                      </div>
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2">
-                          <p className="font-bold">{m.name}</p>
-                          {m.recommended && (
-                            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-700">
-                              موصى به
-                            </span>
+                        <div
+                          className={`grid size-5 place-items-center rounded-full border-2 ${
+                            selected
+                              ? "border-[#2563EB] bg-[#2563EB]"
+                              : "border-neutral-300"
+                          }`}
+                        >
+                          {selected && (
+                            <div className="size-1.5 rounded-full bg-white" />
                           )}
                         </div>
-                        <p className="mt-0.5 text-xs text-slate-600">{m.description}</p>
-                      </div>
-                      <div
-                        className={`grid size-5 place-items-center rounded-md border-2 ${
-                          selected ? "border-primary bg-primary text-white" : "border-slate-300"
+                        <div className="flex-1">
+                          <p className="text-sm font-bold text-neutral-900">
+                            {opt.label}
+                          </p>
+                          <p className="text-[11px] text-neutral-500">{opt.sub}</p>
+                        </div>
+                        <input
+                          type="radio"
+                          checked={selected}
+                          onChange={() => setVatType(opt.key as typeof vatType)}
+                          className="hidden"
+                        />
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div>
+                <p className="mb-2 text-xs font-bold text-neutral-700">نوع الفاتورة</p>
+                <div className="space-y-2">
+                  {[
+                    {
+                      key: "simplified",
+                      icon: Receipt,
+                      label: "فاتورة مبسطة",
+                      sub: "B2C — تجزئة ونقاط بيع",
+                    },
+                    {
+                      key: "standard",
+                      icon: FileText,
+                      label: "فاتورة ضريبية قياسية",
+                      sub: "B2B — مع بيانات المشتري",
+                    },
+                  ].map((opt) => {
+                    const selected = invoiceType === opt.key;
+                    const Icon = opt.icon;
+                    return (
+                      <label
+                        key={opt.key}
+                        className={`flex cursor-pointer items-center gap-3 rounded-xl border p-3 transition-all ${
+                          selected
+                            ? "border-[#2563EB] bg-blue-50/50"
+                            : "border-neutral-200 bg-white hover:border-neutral-300"
                         }`}
                       >
-                        {selected && <Check className="size-3" />}
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-
-            {/* Step 3: Company info */}
-            {step === 3 && (
-              <div className="space-y-4">
-                <div>
-                  <label className="mb-2 block text-sm font-medium text-slate-700">
-                    اسم المنشأة *
-                  </label>
-                  <Input
-                    value={company.name}
-                    onChange={(e) => setCompany({ ...company, name: e.target.value })}
-                    placeholder="مثال: مؤسسة الرياض التجارية"
-                    className="h-12"
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="mb-2 block text-sm font-medium text-slate-700">
-                      الرقم الضريبي (VAT)
-                    </label>
-                    <Input
-                      value={company.vat}
-                      onChange={(e) => setCompany({ ...company, vat: e.target.value })}
-                      placeholder="3xxxxxxxxx"
-                      dir="ltr"
-                      className="h-12"
-                    />
-                  </div>
-                  <div>
-                    <label className="mb-2 block text-sm font-medium text-slate-700">
-                      المدينة
-                    </label>
-                    <Input
-                      value={company.city}
-                      onChange={(e) => setCompany({ ...company, city: e.target.value })}
-                      placeholder="الرياض"
-                      className="h-12"
-                    />
-                  </div>
-                </div>
-                <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
-                  <div className="flex gap-3">
-                    <Sparkles className="mt-0.5 size-5 shrink-0 text-blue-600" />
-                    <div>
-                      <p className="text-sm font-bold text-blue-900">جاهز للفوترة الإلكترونية</p>
-                      <p className="mt-1 text-xs text-blue-700">
-                        سنقوم تلقائياً بربط حسابك مع منصة فاتورة (ZATCA Phase 2) بعد إكمال الإعداد.
-                      </p>
-                    </div>
-                  </div>
+                        <div
+                          className={`grid size-9 shrink-0 place-items-center rounded-lg ${
+                            selected
+                              ? "bg-[#2563EB] text-white"
+                              : "bg-neutral-100 text-neutral-500"
+                          }`}
+                        >
+                          <Icon className="size-4" />
+                        </div>
+                        <div className="flex-1">
+                          <p className="text-sm font-bold text-neutral-900">
+                            {opt.label}
+                          </p>
+                          <p className="text-[11px] text-neutral-500">{opt.sub}</p>
+                        </div>
+                        <input
+                          type="radio"
+                          checked={selected}
+                          onChange={() =>
+                            setInvoiceType(opt.key as typeof invoiceType)
+                          }
+                          className="hidden"
+                        />
+                      </label>
+                    );
+                  })}
                 </div>
               </div>
-            )}
+            </div>
+          </section>
 
-            {/* Step 4: Done */}
-            {step === 4 && (
-              <div className="py-8 text-center">
-                <div className="mx-auto mb-6 grid size-24 place-items-center rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 text-white shadow-2xl shadow-emerald-500/30">
-                  <Check className="size-12" />
-                </div>
-                <h3 className="text-2xl font-bold text-slate-900">رائع! تم تجهيز حسابك</h3>
-                <p className="mx-auto mt-3 max-w-md text-slate-600">
-                  قمنا بتفعيل {modules.size} وحدات أساسية، إنشاء أول فرع، وربطك بـ ZATCA. أنت
-                  الآن جاهز لاستقبال أول عملية بيع.
+          {/* Section: currency + branches */}
+          <section className="mb-8">
+            <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+              <div>
+                <label className="mb-2 block text-xs font-bold text-neutral-700">
+                  العملة الأساسية
+                </label>
+                <select
+                  value={currency}
+                  onChange={(e) => setCurrency(e.target.value)}
+                  className="h-12 w-full appearance-none rounded-xl border border-neutral-200 bg-white px-4 text-sm font-medium focus:border-[#2563EB] focus:outline-none focus:ring-2 focus:ring-blue-200"
+                >
+                  {CURRENCIES.map((c) => (
+                    <option key={c.code} value={c.code}>
+                      {c.label}
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-2 text-[11px] text-neutral-500">
+                  يمكنك إضافة عملات أخرى لاحقاً من الإعدادات.
                 </p>
-                <div className="mx-auto mt-6 grid max-w-sm grid-cols-3 gap-3">
-                  <div className="rounded-xl border border-slate-200 bg-white p-3 text-center">
-                    <p className="text-2xl font-bold text-primary">{modules.size}</p>
-                    <p className="text-xs text-slate-600">وحدة مفعلة</p>
-                  </div>
-                  <div className="rounded-xl border border-slate-200 bg-white p-3 text-center">
-                    <p className="text-2xl font-bold text-emerald-600">1</p>
-                    <p className="text-xs text-slate-600">فرع جاهز</p>
-                  </div>
-                  <div className="rounded-xl border border-slate-200 bg-white p-3 text-center">
-                    <p className="text-2xl font-bold text-amber-600">∞</p>
-                    <p className="text-xs text-slate-600">إمكانيات</p>
-                  </div>
+              </div>
+
+              <div>
+                <label className="mb-2 flex items-center justify-between text-xs font-bold text-neutral-700">
+                  <span>عدد الفروع المتوقع</span>
+                  <span className="rounded-md bg-blue-100 px-2 py-0.5 font-mono text-[#1D4ED8]">
+                    {branches}
+                  </span>
+                </label>
+                <input
+                  type="range"
+                  min={1}
+                  max={20}
+                  value={branches}
+                  onChange={(e) => setBranches(Number(e.target.value))}
+                  className="h-2 w-full cursor-pointer appearance-none rounded-full bg-neutral-200 accent-[#2563EB]"
+                />
+                <div className="mt-1.5 flex justify-between text-[10px] text-neutral-400">
+                  <span>1</span>
+                  <span>10</span>
+                  <span>20+</span>
                 </div>
               </div>
-            )}
-          </CardContent>
-        </Card>
+            </div>
+          </section>
 
-        {/* Navigation */}
-        <div className="mt-6 flex items-center justify-between">
-          <Button
-            variant="outline"
-            disabled={step === 0}
-            onClick={() => setStep((s) => Math.max(0, s - 1))}
-          >
-            <ChevronRight className="ms-2 size-4" />
-            السابق
-          </Button>
-          {step < STEPS.length - 1 ? (
-            <Button
-              disabled={!canProceed()}
-              onClick={() => setStep((s) => Math.min(STEPS.length - 1, s + 1))}
-              className="bg-gradient-to-l from-primary to-cyan-500 hover:from-blue-600 hover:to-cyan-600"
-            >
-              التالي
-              <ChevronLeft className="me-2 size-4" />
-            </Button>
-          ) : (
-            <Button
-              onClick={() => setLocation("/")}
-              className="bg-gradient-to-l from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600"
-            >
-              <Sparkles className="ms-2 size-4" />
-              ابدأ استخدام النظام
-            </Button>
+          {/* Info banner */}
+          <div className="flex items-start gap-3 rounded-2xl border border-blue-200 bg-blue-50/70 p-4">
+            <div className="grid size-9 shrink-0 place-items-center rounded-xl bg-[#2563EB] text-white">
+              <Info className="size-4" />
+            </div>
+            <div>
+              <p className="text-sm font-bold text-blue-900">إعداد ذكي تلقائي</p>
+              <p className="mt-1 text-xs leading-relaxed text-blue-800">
+                بناءً على اختياراتك، سنقوم بإعداد دليل الحسابات، تجهيز قوالب الفواتير
+                المتوافقة مع ZATCA، وتفعيل الوحدات المناسبة لنشاطك تلقائياً.
+              </p>
+            </div>
+          </div>
+          </>
+          )}
+
+          {step === 2 && (
+            <section className="space-y-6">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                {Array.from({ length: Math.min(branches, 6) }).map((_, idx) => (
+                  <div
+                    key={idx}
+                    className="rounded-2xl border-2 border-dashed border-blue-200 bg-blue-50/40 p-5 text-right"
+                  >
+                    <div className="mb-3 grid size-10 place-items-center rounded-xl bg-[#2563EB] text-white">
+                      <Store className="size-5" />
+                    </div>
+                    <p className="text-sm font-bold text-neutral-900">
+                      الفرع #{idx + 1}
+                    </p>
+                    <p className="mt-1 text-[11px] text-neutral-500">
+                      اضبط الاسم والعنوان والمستودع لاحقاً
+                    </p>
+                  </div>
+                ))}
+              </div>
+              <div className="flex items-start gap-3 rounded-2xl border border-blue-200 bg-blue-50/70 p-4">
+                <div className="grid size-9 shrink-0 place-items-center rounded-xl bg-[#2563EB] text-white">
+                  <Info className="size-4" />
+                </div>
+                <p className="text-xs leading-relaxed text-blue-800">
+                  سنُنشئ {branches} فرع/فروع افتراضياً. يمكنك تعديل التفاصيل وإضافة
+                  مستودعات من شاشة الفروع لاحقاً.
+                </p>
+              </div>
+            </section>
+          )}
+
+          {step === 3 && (
+            <section className="space-y-4">
+              {[
+                { label: "نوع النشاط", value: BUSINESS_TYPES.find((b) => b.key === businessType)?.title },
+                { label: "ضريبة القيمة المضافة", value: vatType === "standard" ? "قياسي 15%" : vatType === "zero" ? "صفري 0%" : "معفى" },
+                { label: "نوع الفاتورة", value: invoiceType === "simplified" ? "فاتورة مبسطة" : "فاتورة قياسية" },
+                { label: "العملة الأساسية", value: currency },
+                { label: "عدد الفروع", value: `${branches} فرع` },
+              ].map((row) => (
+                <div
+                  key={row.label}
+                  className="flex items-center justify-between rounded-xl border border-neutral-200 bg-white px-4 py-3"
+                >
+                  <span className="text-sm font-bold text-neutral-900">
+                    {row.value}
+                  </span>
+                  <span className="text-xs text-neutral-500">{row.label}</span>
+                </div>
+              ))}
+              <div className="flex items-start gap-3 rounded-2xl border border-emerald-200 bg-emerald-50/70 p-4">
+                <div className="grid size-9 shrink-0 place-items-center rounded-xl bg-emerald-600 text-white">
+                  <Check className="size-4" />
+                </div>
+                <p className="text-xs leading-relaxed text-emerald-800">
+                  جاهز للإطلاق. سننقلك إلى لوحة التحكم لبدء استخدام النظام.
+                </p>
+              </div>
+            </section>
           )}
         </div>
-      </div>
+
+        {/* Footer actions */}
+        <div className="mt-6 flex items-center justify-between">
+          <Button
+            variant="ghost"
+            disabled={step === 1}
+            onClick={() => setStep((step - 1) as 1 | 2 | 3)}
+            className="text-neutral-500 hover:text-neutral-800 disabled:text-neutral-300"
+            size="lg"
+            data-testid="button-back"
+          >
+            <ChevronRight className="ms-1 size-4" />
+            رجوع
+          </Button>
+          <div className="flex items-center gap-3">
+            <Button
+              variant="ghost"
+              size="lg"
+              onClick={() => setLocation("/")}
+              className="text-neutral-500 hover:text-neutral-800"
+              data-testid="button-skip"
+            >
+              تخطي الإعداد
+            </Button>
+            <Button
+              size="lg"
+              onClick={() => {
+                if (step < 3) setStep((step + 1) as 1 | 2 | 3);
+                else setLocation("/");
+              }}
+              className="h-12 bg-neutral-900 px-6 font-bold text-white shadow-lg shadow-neutral-900/20 hover:bg-neutral-800"
+              data-testid="button-next"
+            >
+              {step === 1
+                ? "التالي: الفروع والمستودعات"
+                : step === 2
+                  ? "التالي: مراجعة وإطلاق"
+                  : "ابدأ الاستخدام"}
+              <ArrowLeft className="me-2 size-4" />
+            </Button>
+          </div>
+        </div>
+      </main>
     </div>
   );
 }

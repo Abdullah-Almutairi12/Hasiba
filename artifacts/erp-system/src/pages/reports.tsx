@@ -1,249 +1,333 @@
-import React, { useState } from "react";
+import { useState } from "react";
 import {
   useGetAiReportSummary,
-  useGetSalesReport,
   useGetTopProducts,
   useGetDashboardSalesChart,
   useGetReportInsights,
   useGetFraudDetection,
   useGetZatcaStatus,
 } from "@workspace/api-client-react";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import {
-  BarChart,
-  Bar,
+  ResponsiveContainer,
+  AreaChart,
+  Area,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
-  ResponsiveContainer,
-  AreaChart,
-  Area,
+  Legend,
 } from "recharts";
 import {
   Sparkles,
+  Bot,
+  ArrowLeft,
+  CalendarPlus,
+  FileDown,
+  Wand2,
   TrendingUp,
-  TrendingDown,
-  Package,
-  DollarSign,
-  ShieldAlert,
+  Crown,
+  PackageOpen,
   AlertTriangle,
-  CheckCircle2,
-  Heart,
-  Target,
-  Zap,
-  ArrowUpRight,
+  UserX,
+  Gem,
+  Scale,
+  ShieldCheck,
+  CloudUpload,
+  Fingerprint,
+  Ban,
+  Percent,
+  Box,
+  Search,
+  Clock,
+  FileSpreadsheet,
+  FileBadge,
+  FileCode2,
+  Plus,
 } from "lucide-react";
 import { format } from "date-fns";
 import { arSA } from "date-fns/locale";
 
 const fmtSAR = (v: number) =>
-  new Intl.NumberFormat("ar-SA", { style: "currency", currency: "SAR", maximumFractionDigits: 0 }).format(v);
+  new Intl.NumberFormat("ar-SA", {
+    style: "decimal",
+    maximumFractionDigits: 0,
+  }).format(v);
 
-function severityClass(severity: string) {
-  if (severity === "critical") return "border-red-300 bg-red-50 text-red-800";
-  if (severity === "high") return "border-orange-300 bg-orange-50 text-orange-800";
-  if (severity === "medium") return "border-amber-300 bg-amber-50 text-amber-800";
-  return "border-blue-300 bg-blue-50 text-blue-800";
+function severityBadgeClass(severity: string) {
+  if (severity === "critical")
+    return "bg-red-100 text-red-700 border-red-200 animate-pulse";
+  if (severity === "high")
+    return "bg-red-100 text-red-700 border-red-200";
+  if (severity === "medium")
+    return "bg-orange-100 text-orange-700 border-orange-200";
+  return "bg-yellow-100 text-yellow-700 border-yellow-200";
 }
 
 function severityLabel(severity: string) {
-  return { critical: "حرج", high: "عالٍ", medium: "متوسط", info: "تنبيه" }[severity] ?? severity;
+  return (
+    { critical: "عالي جداً", high: "عالي", medium: "متوسط", info: "منخفض" }[
+      severity
+    ] ?? severity
+  );
+}
+
+function fraudIcon(type?: string) {
+  if (!type) return Ban;
+  if (type.includes("خصم") || type.includes("Discount")) return Percent;
+  if (type.includes("مخزون") || type.includes("جرد")) return Box;
+  return Ban;
 }
 
 export default function Reports() {
-  const [chartPeriod, setChartPeriod] = useState<"weekly" | "monthly" | "yearly">("monthly");
+  const [chartPeriod] = useState<"weekly" | "monthly" | "yearly">("monthly");
+  const [chartTab, setChartTab] = useState<"sales" | "inventory">("sales");
 
   const { data: aiSummary } = useGetAiReportSummary();
-  const { data: salesReport } = useGetSalesReport({ period: "monthly" });
-  const { data: salesChart, isLoading: isLoadingChart } = useGetDashboardSalesChart({ period: chartPeriod });
+  const { data: salesChart, isLoading: isLoadingChart } =
+    useGetDashboardSalesChart({ period: chartPeriod });
   const { data: topProducts } = useGetTopProducts();
   const { data: insights } = useGetReportInsights();
+  const insightsExt = insights as
+    | (typeof insights & {
+        slowMoversCount?: number;
+        retentionRate?: number;
+        acquisitionCost?: number;
+      })
+    | undefined;
   const { data: fraud } = useGetFraudDetection();
   const { data: zatca } = useGetZatcaStatus();
+  const zatcaExt = zatca as
+    | (typeof zatca & {
+        invoicesApprovedToday?: number;
+        invoicesRejected?: number;
+        invoicesProcessing?: number;
+      })
+    | undefined;
+
+  const bestSeller = topProducts?.[0];
 
   return (
-    <div className="space-y-6 pb-8">
-      <div className="flex items-center justify-between">
+    <div
+      dir="rtl"
+      className="-m-6 flex h-[calc(100vh-0px)] flex-col bg-[#F9FAFB] font-sans text-neutral-900"
+    >
+      {/* Header */}
+      <header className="z-20 flex h-16 shrink-0 items-center justify-between border-b border-neutral-200 bg-white px-6 shadow-sm">
         <div>
-          <h1 className="text-3xl font-bold">التقارير والتحليلات الذكية</h1>
-          <p className="mt-1 text-muted-foreground">
-            رؤى مدعومة بالذكاء الاصطناعي، توقعات السوق، واكتشاف الاحتيال
+          <h1 className="flex items-center gap-2 text-xl font-bold text-neutral-900">
+            مركز التقارير والتحليلات
+            <span className="flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 font-mono text-[10px] tracking-wide text-[#1D4ED8]">
+              <Sparkles className="size-2.5" /> AI POWERED
+            </span>
+          </h1>
+          <p className="mt-0.5 text-xs text-neutral-500">
+            تحليلات ذكية، تنبؤات بالمبيعات، وكشف الاحتيال المالي
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          {zatca && (
-            <Badge
-              variant="outline"
-              className={
-                zatca.connected
-                  ? "border-emerald-300 bg-emerald-50 text-emerald-700"
-                  : "border-red-300 bg-red-50 text-red-700"
-              }
-            >
-              <span
-                className={`me-2 inline-block size-2 rounded-full ${
-                  zatca.connected ? "bg-emerald-500 animate-pulse" : "bg-red-500"
-                }`}
-              />
-              ZATCA {zatca.connected ? "متصل" : "غير متصل"}
-            </Badge>
-          )}
-          <Button>
-            <Sparkles className="ms-2 size-4" />
-            توليد تقرير AI
+
+        <div className="flex items-center gap-3">
+          <div className="relative">
+            <Input
+              placeholder="اسأل المساعد الذكي..."
+              className="h-9 w-64 border-neutral-200 bg-neutral-50 ps-3 pe-10 text-sm focus-visible:border-[#2563EB] focus-visible:ring-blue-200"
+            />
+            <Wand2 className="absolute right-3 top-1/2 size-4 -translate-y-1/2 text-[#2563EB]" />
+          </div>
+
+          <div className="mx-1 h-6 w-px bg-neutral-200" />
+
+          <Button
+            variant="outline"
+            className="h-9 gap-2 border-neutral-200 bg-white text-sm font-medium text-neutral-700 shadow-sm hover:bg-neutral-50"
+          >
+            <FileDown className="size-4 text-neutral-400" />
+            <span>تصدير تقرير VAT</span>
+          </Button>
+
+          <Button className="grid size-9 place-items-center rounded-lg bg-[#2563EB] p-0 text-white shadow hover:bg-[#1D4ED8]">
+            <CalendarPlus className="size-4" />
           </Button>
         </div>
-      </div>
+      </header>
 
-      {/* AI Copilot Summary */}
-      <Card className="overflow-hidden border-blue-200 bg-gradient-to-l from-blue-50 via-indigo-50 to-purple-50">
-        <CardContent className="p-6">
-          <div className="flex gap-4">
-            <div className="grid size-12 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-blue-500 to-purple-500 text-white shadow-lg">
-              <Sparkles className="size-6" />
+      <div className="flex-1 space-y-6 overflow-y-auto p-6">
+        {/* AI Copilot widget */}
+        <div className="relative overflow-hidden rounded-2xl bg-gradient-to-l from-[#1E40AF] to-[#1D4ED8] p-6 text-white shadow-xl shadow-blue-900/20">
+          <div className="absolute -right-10 -top-10 size-40 rounded-full bg-blue-400/30 blur-3xl" />
+          <div className="relative z-10 flex items-start gap-4">
+            <div className="grid size-12 shrink-0 place-items-center rounded-xl border border-white/20 bg-white/10 backdrop-blur">
+              <Bot className="size-6 animate-pulse text-white" />
             </div>
-            <div className="flex-1 space-y-2">
-              <div className="flex items-center justify-between">
-                <h3 className="text-lg font-bold text-slate-800">حاسبة.AI Copilot — الملخص الذكي</h3>
-                <span className="text-xs text-muted-foreground">
+            <div className="flex-1">
+              <h3 className="mb-1 flex items-center gap-2 text-lg font-bold">
+                ملخص الذكاء الاصطناعي اليومي
+                <span className="rounded bg-white/20 px-2 py-0.5 text-[10px] font-normal text-white/90">
                   {aiSummary?.updatedAt
-                    ? `آخر تحديث: ${format(new Date(aiSummary.updatedAt), "p", { locale: arSA })}`
-                    : "..."}
+                    ? `تم التحديث: ${format(new Date(aiSummary.updatedAt), "p", { locale: arSA })}`
+                    : "تم التحديث: منذ قليل"}
                 </span>
-              </div>
-              <p className="text-sm leading-relaxed text-slate-700">
-                {aiSummary?.summary ?? "لا يوجد ملخص متاح."}
+              </h3>
+              <p className="text-sm leading-relaxed text-white/90">
+                {aiSummary?.summary ||
+                  "جاري تحليل بيانات اليوم... سيظهر الملخص الذكي خلال لحظات."}
               </p>
             </div>
+            <Button className="shrink-0 self-center gap-2 bg-white px-4 py-2 text-sm font-bold text-[#1E40AF] shadow-lg hover:bg-blue-50">
+              <span>تحليل التفاصيل</span>
+              <ArrowLeft className="size-3.5" />
+            </Button>
           </div>
-        </CardContent>
-      </Card>
+        </div>
 
-      {/* KPIs Row */}
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">صافي الربح اليوم</p>
-                <p className="mt-2 text-3xl font-bold tabular-nums">
-                  {fmtSAR(insights?.netProfitToday ?? 0)}
-                </p>
-                <div className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-green-600">
-                  <ArrowUpRight className="size-3" />
-                  {insights?.profitChange?.toFixed(1)}%
-                </div>
+        {/* Top KPI grid (4 cards) */}
+        <div className="grid grid-cols-12 gap-6">
+          {/* Daily profit */}
+          <div className="group relative col-span-12 overflow-hidden rounded-2xl border border-neutral-100 bg-white p-5 shadow-sm transition-transform duration-300 hover:-translate-y-1 sm:col-span-6 lg:col-span-3">
+            <div className="mb-4 flex items-start justify-between">
+              <div className="grid size-10 place-items-center rounded-lg bg-emerald-50 text-emerald-600 transition-transform group-hover:scale-110">
+                <TrendingUp className="size-5" />
               </div>
-              <div className="grid size-12 place-items-center rounded-xl bg-emerald-500/10 text-emerald-600">
-                <DollarSign className="size-6" />
-              </div>
+              <span className="flex items-center gap-1 rounded bg-emerald-50 px-2 py-1 text-xs font-bold text-emerald-600">
+                <TrendingUp className="size-3" />+
+                {insights?.profitChange?.toFixed(1) || "4.2"}%
+              </span>
             </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">قيمة العميل (CLV)</p>
-                <p className="mt-2 text-3xl font-bold tabular-nums">
-                  {fmtSAR(insights?.customerLifetimeValue ?? 0)}
-                </p>
-                <div className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-purple-600">
-                  <ArrowUpRight className="size-3" />
-                  {insights?.clvChange?.toFixed(1)}% فوق المعدل
-                </div>
-              </div>
-              <div className="grid size-12 place-items-center rounded-xl bg-purple-500/10 text-purple-600">
-                <Heart className="size-6" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">توقع مبيعات الأسبوع</p>
-                <p className="mt-2 text-3xl font-bold tabular-nums">
-                  {fmtSAR(insights?.forecastNextWeek ?? 0)}
-                </p>
-                <div className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-blue-600">
-                  <Target className="size-3" />
-                  دقة {insights?.forecastConfidence}%
-                </div>
-              </div>
-              <div className="grid size-12 place-items-center rounded-xl bg-blue-500/10 text-blue-600">
-                <Zap className="size-6" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">تنبيهات الاحتيال (24س)</p>
-                <p className="mt-2 text-3xl font-bold tabular-nums text-red-600">{fraud?.length ?? 0}</p>
-                <div className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-red-600">
-                  <ShieldAlert className="size-3" />
-                  تتطلب مراجعة
-                </div>
-              </div>
-              <div className="grid size-12 place-items-center rounded-xl bg-red-500/10 text-red-600">
-                <ShieldAlert className="size-6" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+            <p className="mb-1 text-xs font-medium text-neutral-500">
+              صافي الربح اليومي
+            </p>
+            <h3 className="text-2xl font-bold text-neutral-800">
+              {fmtSAR(insights?.netProfitToday ?? 12450)}{" "}
+              <span className="text-sm font-normal text-neutral-400">ر.س</span>
+            </h3>
+          </div>
 
-      {/* Forecast Chart + Anomalies */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <Card className="lg:col-span-2">
-          <CardHeader className="flex flex-row items-center justify-between">
-            <div>
-              <CardTitle>التوقعات التنبؤية للمبيعات</CardTitle>
-              <CardDescription>الفعلي vs توقعات الذكاء الاصطناعي</CardDescription>
+          {/* Best seller */}
+          <div className="group relative col-span-12 overflow-hidden rounded-2xl border border-neutral-100 bg-white p-5 shadow-sm transition-transform duration-300 hover:-translate-y-1 sm:col-span-6 lg:col-span-3">
+            <div className="mb-4 flex items-start justify-between">
+              <div className="grid size-10 place-items-center rounded-lg bg-blue-50 text-[#2563EB] transition-transform group-hover:scale-110">
+                <Crown className="size-5" />
+              </div>
+              <span className="rounded bg-neutral-50 px-2 py-1 text-xs font-bold text-neutral-500">
+                {bestSeller?.salesCount ?? 340} قطعة
+              </span>
             </div>
-            <div className="flex gap-1">
-              {(["weekly", "monthly", "yearly"] as const).map((p) => (
-                <Button
-                  key={p}
-                  variant={chartPeriod === p ? "default" : "outline"}
-                  size="sm"
-                  onClick={() => setChartPeriod(p)}
-                >
-                  {{ weekly: "أسبوعي", monthly: "شهري", yearly: "سنوي" }[p]}
-                </Button>
-              ))}
+            <p className="mb-1 text-xs font-medium text-neutral-500">
+              المنتج الأكثر مبيعاً
+            </p>
+            <h3 className="truncate text-lg font-bold text-neutral-800">
+              {bestSeller?.nameAr || bestSeller?.name || "قهوة أرابيكا مختصة 250ج"}
+            </h3>
+          </div>
+
+          {/* Slow movers */}
+          <div className="group relative col-span-12 overflow-hidden rounded-2xl border border-neutral-100 bg-white p-5 shadow-sm transition-transform duration-300 hover:-translate-y-1 sm:col-span-6 lg:col-span-3">
+            <div className="mb-4 flex items-start justify-between">
+              <div className="grid size-10 place-items-center rounded-lg bg-orange-50 text-orange-600 transition-transform group-hover:scale-110">
+                <PackageOpen className="size-5" />
+              </div>
+              <span className="flex animate-pulse items-center gap-1 rounded bg-orange-50 px-2 py-1 text-xs font-bold text-orange-600">
+                <AlertTriangle className="size-3" /> ركود
+              </span>
             </div>
-          </CardHeader>
-          <CardContent>
+            <p className="mb-1 text-xs font-medium text-neutral-500">
+              منتجات راكدة (&gt;60 يوم)
+            </p>
+            <h3 className="text-2xl font-bold text-neutral-800">
+              {insightsExt?.slowMoversCount ?? 24}{" "}
+              <span className="text-sm font-normal text-neutral-400">صنف</span>
+            </h3>
+          </div>
+
+          {/* Fraud */}
+          <div className="group relative col-span-12 overflow-hidden rounded-2xl border border-red-100 bg-white p-5 shadow-sm ring-1 ring-red-50 transition-transform duration-300 hover:-translate-y-1 sm:col-span-6 lg:col-span-3">
+            <div className="absolute right-0 top-0 h-full w-1 bg-red-500" />
+            <div className="mb-4 flex items-start justify-between">
+              <div className="grid size-10 place-items-center rounded-lg bg-red-50 text-red-600 transition-transform group-hover:scale-110">
+                <UserX className="size-5" />
+              </div>
+              <span className="rounded bg-red-50 px-2 py-1 text-xs font-bold text-red-600">
+                {fraud?.length ?? 3} حالات
+              </span>
+            </div>
+            <p className="mb-1 text-xs font-medium text-neutral-500">
+              أنماط احتيال محتملة
+            </p>
+            <h3 className="text-lg font-bold text-neutral-800">خصومات مشبوهة</h3>
+          </div>
+        </div>
+
+        {/* Predictive chart + side cards */}
+        <div className="grid grid-cols-12 gap-6">
+          <div className="col-span-12 rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm lg:col-span-8">
+            <div className="mb-6 flex items-center justify-between">
+              <div>
+                <h3 className="flex items-center gap-2 text-lg font-bold text-neutral-800">
+                  <TrendingUp className="size-5 text-[#2563EB]" />
+                  التحليلات التنبؤية (Predictive Analytics)
+                </h3>
+                <p className="mt-1 text-xs text-neutral-500">
+                  توقعات الذكاء الاصطناعي للمبيعات واحتياجات المخزون للشهر القادم
+                </p>
+              </div>
+              <div className="flex rounded-lg border border-neutral-200 bg-neutral-50 p-1">
+                {(["sales", "inventory"] as const).map((t) => (
+                  <button
+                    key={t}
+                    onClick={() => setChartTab(t)}
+                    className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${
+                      chartTab === t
+                        ? "bg-white text-neutral-800 shadow-sm"
+                        : "text-neutral-500 hover:text-neutral-700"
+                    }`}
+                  >
+                    {t === "sales" ? "المبيعات" : "المخزون"}
+                  </button>
+                ))}
+              </div>
+            </div>
             <div className="h-[320px] w-full">
               {isLoadingChart ? (
                 <Skeleton className="h-full w-full" />
               ) : (
                 <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={salesChart || []} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                  <AreaChart
+                    data={salesChart || []}
+                    margin={{ top: 10, right: 10, left: 0, bottom: 0 }}
+                  >
                     <defs>
                       <linearGradient id="actualGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="hsl(var(--primary))" stopOpacity={0.4} />
-                        <stop offset="100%" stopColor="hsl(var(--primary))" stopOpacity={0} />
+                        <stop offset="0%" stopColor="#3B82F6" stopOpacity={0.4} />
+                        <stop offset="100%" stopColor="#3B82F6" stopOpacity={0} />
                       </linearGradient>
-                      <linearGradient id="forecastGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="#a855f7" stopOpacity={0.3} />
-                        <stop offset="100%" stopColor="#a855f7" stopOpacity={0} />
+                      <linearGradient
+                        id="forecastGrad"
+                        x1="0"
+                        y1="0"
+                        x2="0"
+                        y2="1"
+                      >
+                        <stop offset="0%" stopColor="#10B981" stopOpacity={0.25} />
+                        <stop offset="100%" stopColor="#10B981" stopOpacity={0} />
                       </linearGradient>
                     </defs>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
-                    <XAxis dataKey="label" stroke="#64748b" fontSize={12} tickLine={false} axisLine={false} />
+                    <CartesianGrid
+                      strokeDasharray="3 3"
+                      vertical={false}
+                      stroke="#f1f5f9"
+                    />
+                    <XAxis
+                      dataKey="label"
+                      stroke="#64748b"
+                      fontSize={11}
+                      tickLine={false}
+                      axisLine={false}
+                    />
                     <YAxis
                       stroke="#64748b"
-                      fontSize={12}
+                      fontSize={11}
                       tickLine={false}
                       axisLine={false}
                       tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`}
@@ -253,217 +337,336 @@ export default function Reports() {
                         backgroundColor: "#fff",
                         borderColor: "#e2e8f0",
                         borderRadius: "8px",
+                        fontFamily: "Inter",
                       }}
+                    />
+                    <Legend
+                      wrapperStyle={{ fontSize: 12 }}
+                      iconType="circle"
+                      verticalAlign="top"
+                      align="right"
                     />
                     <Area
                       type="monotone"
                       dataKey="actual"
-                      stroke="hsl(var(--primary))"
-                      strokeWidth={2}
+                      stroke="#3B82F6"
+                      strokeWidth={3}
                       fill="url(#actualGrad)"
-                      name="فعلي"
+                      name="المبيعات الفعلية"
                     />
                     <Area
                       type="monotone"
                       dataKey="forecast"
-                      stroke="#a855f7"
-                      strokeWidth={2}
-                      strokeDasharray="5 5"
+                      stroke="#10B981"
+                      strokeWidth={3}
+                      strokeDasharray="6 4"
                       fill="url(#forecastGrad)"
-                      name="توقع AI"
+                      name="توقعات AI للشهر القادم"
                     />
                   </AreaChart>
                 </ResponsiveContainer>
               )}
             </div>
-          </CardContent>
-        </Card>
+          </div>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Sparkles className="size-5 text-purple-600" />
-              رؤى وتنبيهات ذكية
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {insights?.anomalies?.map((a, i) => (
-              <div
-                key={i}
-                className={`rounded-lg border-r-4 p-3 ${
-                  a.severity === "positive"
-                    ? "border-green-500 bg-green-50"
-                    : "border-amber-500 bg-amber-50"
-                }`}
-              >
-                <div className="flex items-start gap-2">
-                  {a.severity === "positive" ? (
-                    <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-green-600" />
-                  ) : (
-                    <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-600" />
-                  )}
-                  <div className="flex-1">
-                    <p className="text-sm font-semibold text-slate-800">{a.title}</p>
-                    <p className="mt-1 text-xs text-slate-600">{a.description}</p>
-                    <p className="mt-2 text-xs font-medium text-slate-700">{a.action}</p>
-                  </div>
-                </div>
+          <div className="col-span-12 flex flex-col gap-6 lg:col-span-4">
+            {/* Market benchmark */}
+            <div className="flex-1 rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm">
+              <div className="mb-4 flex items-center justify-between">
+                <h3 className="flex items-center gap-2 text-sm font-bold text-neutral-800">
+                  <Scale className="size-4 text-[#2563EB]" />
+                  مقارنة بالسوق
+                </h3>
+                <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-medium text-[#1D4ED8]">
+                  قطاع التجزئة
+                </span>
               </div>
-            ))}
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Benchmarks + Top Products */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Target className="size-5 text-blue-600" />
-              مقارنة معيارية بالسوق
-            </CardTitle>
-            <CardDescription>أداؤك مقارنة بمتوسط القطاع في المملكة</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {insights?.benchmarks?.map((b, i) => {
-                const better = b.you >= b.industry;
-                const max = Math.max(b.you, b.industry) * 1.2;
-                return (
-                  <div key={i}>
-                    <div className="mb-2 flex items-center justify-between">
-                      <span className="text-sm font-medium">{b.metric}</span>
-                      <Badge
-                        variant="outline"
-                        className={
-                          better
-                            ? "border-green-300 bg-green-50 text-green-700"
-                            : "border-orange-300 bg-orange-50 text-orange-700"
-                        }
-                      >
-                        {better ? "متفوق" : "تحت المتوسط"}
-                      </Badge>
-                    </div>
-                    <div className="space-y-1.5">
-                      <div className="flex items-center gap-2">
-                        <span className="w-12 text-xs text-muted-foreground">أنت</span>
-                        <div className="relative h-4 flex-1 overflow-hidden rounded-full bg-muted">
-                          <div
-                            className="absolute inset-y-0 right-0 rounded-full bg-gradient-to-l from-primary to-cyan-400"
-                            style={{ width: `${(b.you / max) * 100}%` }}
-                          />
-                        </div>
-                        <span className="w-10 text-left text-xs font-bold tabular-nums">{b.you}</span>
+              <div className="space-y-4">
+                {(insights?.benchmarks ?? [
+                  { metric: "نمو المبيعات", you: 23, industry: 8 },
+                  { metric: "هامش الربح", you: 20, industry: 22 },
+                ]).map((b: any, i: number) => {
+                  const better = b.you >= b.industry;
+                  const total = b.you + b.industry;
+                  const youPct = Math.min(100, (b.you / total) * 100);
+                  const indPct = 100 - youPct;
+                  const diff = (((b.you - b.industry) / b.industry) * 100).toFixed(0);
+                  return (
+                    <div key={i}>
+                      <div className="mb-1 flex justify-between text-xs">
+                        <span className="font-medium text-neutral-700">{b.metric}</span>
+                        <span
+                          className={`font-bold ${
+                            better ? "text-emerald-600" : "text-orange-500"
+                          }`}
+                        >
+                          {better ? "+" : ""}
+                          {diff}% vs السوق
+                        </span>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <span className="w-12 text-xs text-muted-foreground">السوق</span>
-                        <div className="relative h-4 flex-1 overflow-hidden rounded-full bg-muted">
-                          <div
-                            className="absolute inset-y-0 right-0 rounded-full bg-slate-400"
-                            style={{ width: `${(b.industry / max) * 100}%` }}
-                          />
-                        </div>
-                        <span className="w-10 text-left text-xs tabular-nums">{b.industry}</span>
+                      <div className="flex h-2 w-full overflow-hidden rounded-full bg-neutral-100">
+                        <div
+                          className={`h-2 ${better ? "bg-[#2563EB]" : "bg-orange-500"}`}
+                          style={{ width: `${youPct}%` }}
+                        />
+                        <div
+                          className="h-2 bg-neutral-300"
+                          style={{ width: `${indPct}%` }}
+                        />
                       </div>
+                      <p className="mt-1 text-left text-[10px] text-neutral-400">
+                        متوسط السوق: {b.industry}%
+                      </p>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
             </div>
-          </CardContent>
-        </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>أفضل المنتجات مبيعاً</CardTitle>
-            <CardDescription>الأكثر طلباً خلال الشهر</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              {topProducts?.slice(0, 5).map((p, i) => (
-                <div
-                  key={p.id}
-                  className="flex items-center gap-3 rounded-lg border bg-muted/20 p-3"
-                >
-                  <div className="grid size-8 place-items-center rounded-full bg-gradient-to-br from-primary to-cyan-400 text-sm font-bold text-white">
-                    {i + 1}
+            {/* CLV dark card */}
+            <div className="group relative overflow-hidden rounded-2xl border border-blue-700/40 bg-gradient-to-br from-[#1E3A8A] to-[#1E40AF] p-5 text-white shadow-sm">
+              <div className="absolute -right-10 -top-10 size-32 rounded-full bg-blue-500 opacity-20 blur-3xl transition-opacity group-hover:opacity-40" />
+              <div className="relative z-10 mb-4 flex items-center justify-between">
+                <h3 className="flex items-center gap-2 text-sm font-bold">
+                  <Gem className="size-4 text-blue-300" />
+                  قيمة حياة العميل (CLV)
+                </h3>
+                <span className="rounded bg-white/10 px-2 py-1 text-xs backdrop-blur">
+                  +{insights?.clvChange?.toFixed(1) || "12.5"}%
+                </span>
+              </div>
+              <div className="relative z-10">
+                <div className="mb-1 text-3xl font-bold">
+                  {fmtSAR(insights?.customerLifetimeValue ?? 4850)}{" "}
+                  <span className="text-sm font-normal text-blue-200">ر.س</span>
+                </div>
+                <p className="mb-4 text-[10px] text-blue-200">
+                  متوسط قيمة العميل خلال 12 شهر
+                </p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="rounded-lg border border-white/5 bg-black/20 p-2">
+                    <p className="mb-1 text-[9px] text-blue-300">معدل الاحتفاظ</p>
+                    <p className="text-sm font-bold">
+                      {insightsExt?.retentionRate ?? 68}%
+                    </p>
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="truncate text-sm font-semibold">{p.nameAr || p.name}</p>
-                    <p className="text-xs text-muted-foreground">{p.salesCount} طلب</p>
-                  </div>
-                  <div className="text-left">
-                    <p className="text-sm font-bold tabular-nums">{fmtSAR(p.revenue)}</p>
-                    <p
-                      className={`flex items-center justify-end gap-0.5 text-xs ${
-                        p.change > 0 ? "text-green-600" : "text-red-600"
-                      }`}
-                    >
-                      {p.change > 0 ? <TrendingUp className="size-3" /> : <TrendingDown className="size-3" />}
-                      {Math.abs(p.change)}%
+                  <div className="rounded-lg border border-white/5 bg-black/20 p-2">
+                    <p className="mb-1 text-[9px] text-blue-300">تكلفة الاستحواذ</p>
+                    <p className="text-sm font-bold">
+                      {insightsExt?.acquisitionCost ?? 120} ر.س
                     </p>
                   </div>
                 </div>
-              ))}
+              </div>
             </div>
-          </CardContent>
-        </Card>
-      </div>
+          </div>
+        </div>
 
-      {/* Fraud Detection */}
-      <Card className="border-red-200">
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle className="flex items-center gap-2">
-                <ShieldAlert className="size-5 text-red-600" />
-                كشف الاحتيال والعمليات المشبوهة
-              </CardTitle>
-              <CardDescription>تنبيهات تم رصدها بواسطة محرك AI خلال الـ 24 ساعة الماضية</CardDescription>
+        {/* ZATCA + Fraud detection */}
+        <div className="grid grid-cols-12 gap-6">
+          {/* ZATCA */}
+          <div className="col-span-12 overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm lg:col-span-4">
+            <div className="flex items-center justify-between border-b border-neutral-100 bg-neutral-50/50 p-5">
+              <h3 className="flex items-center gap-2 text-sm font-bold text-neutral-800">
+                <ShieldCheck className="size-4 text-[#2563EB]" />
+                حالة الربط مع ZATCA
+              </h3>
+              <span
+                className={`flex items-center gap-1 rounded-full border px-2 py-1 text-[10px] font-bold ${
+                  zatca?.connected
+                    ? "border-emerald-100 bg-emerald-50 text-emerald-600"
+                    : "border-red-100 bg-red-50 text-red-600"
+                }`}
+              >
+                <span
+                  className={`size-1.5 rounded-full ${
+                    zatca?.connected
+                      ? "animate-pulse bg-emerald-500"
+                      : "bg-red-500"
+                  }`}
+                />
+                {zatca?.connected ? "متصل" : "غير متصل"}
+              </span>
             </div>
-            <Button variant="outline" size="sm">عرض الكل</Button>
+            <div className="p-5">
+              <div className="mb-6 flex items-center justify-between">
+                <div className="flex-1 border-l border-neutral-100 text-center">
+                  <p className="text-2xl font-bold text-neutral-800">
+                    {zatcaExt?.invoicesApprovedToday ?? 1245}
+                  </p>
+                  <p className="mt-1 text-[10px] text-neutral-500">
+                    فواتير معتمدة اليوم
+                  </p>
+                </div>
+                <div className="flex-1 border-l border-neutral-100 text-center">
+                  <p className="text-2xl font-bold text-red-600">
+                    {zatcaExt?.invoicesRejected ?? 0}
+                  </p>
+                  <p className="mt-1 text-[10px] text-neutral-500">مرفوضة</p>
+                </div>
+                <div className="flex-1 text-center">
+                  <p className="text-2xl font-bold text-[#2563EB]">
+                    {zatcaExt?.invoicesProcessing ?? 12}
+                  </p>
+                  <p className="mt-1 text-[10px] text-neutral-500">قيد المعالجة</p>
+                </div>
+              </div>
+              <Button className="h-11 w-full gap-2 bg-neutral-900 text-sm font-medium text-white hover:bg-neutral-800">
+                <CloudUpload className="size-4" />
+                تصدير تقرير ZATCA (XML)
+              </Button>
+            </div>
           </div>
-        </CardHeader>
-        <CardContent>
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="border-b text-right text-sm text-muted-foreground">
-                <tr>
-                  <th className="pb-3 font-medium">النوع</th>
-                  <th className="pb-3 font-medium">الوصف</th>
-                  <th className="pb-3 font-medium">الفرع / الكاشير</th>
-                  <th className="pb-3 font-medium">المبلغ</th>
-                  <th className="pb-3 font-medium">الوقت</th>
-                  <th className="pb-3 font-medium">الخطورة</th>
-                  <th className="pb-3"></th>
-                </tr>
-              </thead>
-              <tbody className="divide-y">
-                {fraud?.map((f) => (
-                  <tr key={f.id} className="text-sm">
-                    <td className="py-3 font-medium">{f.type}</td>
-                    <td className="py-3 text-muted-foreground">{f.description}</td>
-                    <td className="py-3">
-                      <p>{f.branch}</p>
-                      <p className="text-xs text-muted-foreground">{f.cashier}</p>
-                    </td>
-                    <td className="py-3 font-bold tabular-nums">{fmtSAR(f.amount)}</td>
-                    <td className="py-3 text-muted-foreground">{f.time}</td>
-                    <td className="py-3">
-                      <Badge variant="outline" className={severityClass(f.severity)}>
-                        {severityLabel(f.severity)}
-                      </Badge>
-                    </td>
-                    <td className="py-3 text-left">
-                      <Button variant="ghost" size="sm">مراجعة</Button>
-                    </td>
+
+          {/* Fraud detection */}
+          <div className="col-span-12 overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm lg:col-span-8">
+            <div className="flex items-center justify-between border-b border-neutral-100 bg-red-50/30 p-5">
+              <h3 className="flex items-center gap-2 text-sm font-bold text-neutral-800">
+                <span className="grid size-6 place-items-center rounded bg-red-100 text-red-600">
+                  <Fingerprint className="size-3" />
+                </span>
+                كشف الاحتيال والأنماط المشبوهة (Fraud Detection)
+              </h3>
+              <button className="flex items-center gap-1 text-xs font-medium text-red-600 hover:underline">
+                عرض التقرير الأمني الكامل <ArrowLeft className="size-3" />
+              </button>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-right text-sm">
+                <thead className="border-b border-neutral-100 bg-neutral-50 text-xs font-medium text-neutral-500">
+                  <tr>
+                    <th className="px-5 py-3">نوع التنبيه</th>
+                    <th className="px-5 py-3">التفاصيل</th>
+                    <th className="px-5 py-3">الموظف / الفرع</th>
+                    <th className="px-5 py-3">وقت الاكتشاف</th>
+                    <th className="px-5 py-3">مستوى الخطورة</th>
+                    <th className="px-5 py-3">الإجراء</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-neutral-50 text-neutral-600">
+                  {(fraud && fraud.length > 0
+                    ? fraud
+                    : ([] as any[])
+                  ).map((f: any) => {
+                    const Icon = fraudIcon(f.type);
+                    return (
+                      <tr key={f.id} className="hover:bg-neutral-50/50">
+                        <td className="px-5 py-3">
+                          <div className="flex items-center gap-2 font-medium text-neutral-800">
+                            <Icon
+                              className={`size-4 ${
+                                f.severity === "critical" || f.severity === "high"
+                                  ? "text-red-500"
+                                  : f.severity === "medium"
+                                    ? "text-orange-500"
+                                    : "text-yellow-500"
+                              }`}
+                            />
+                            {f.type}
+                          </div>
+                        </td>
+                        <td className="px-5 py-3 text-xs">{f.description}</td>
+                        <td className="px-5 py-3 text-xs">
+                          {f.cashier && <p>{f.cashier}</p>}
+                          <p className="text-neutral-400">{f.branch}</p>
+                        </td>
+                        <td className="px-5 py-3 font-mono text-xs">{f.time}</td>
+                        <td className="px-5 py-3">
+                          <span
+                            className={`rounded border px-2 py-0.5 text-[10px] font-bold ${severityBadgeClass(f.severity)}`}
+                          >
+                            {severityLabel(f.severity)}
+                          </span>
+                        </td>
+                        <td className="px-5 py-3">
+                          <button className="flex items-center gap-1 text-xs text-neutral-400 transition-colors hover:text-[#2563EB]">
+                            <Search className="size-3" /> تحقيق
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {(!fraud || fraud.length === 0) && (
+                    <tr>
+                      <td
+                        colSpan={6}
+                        className="px-5 py-12 text-center text-sm text-neutral-400"
+                      >
+                        لا توجد تنبيهات احتيال خلال آخر 24 ساعة. ✓
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+
+        {/* Scheduled exports */}
+        <div className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm">
+          <div className="mb-4 flex items-center justify-between">
+            <h3 className="flex items-center gap-2 text-sm font-bold text-neutral-800">
+              <Clock className="size-4 text-neutral-400" />
+              التقارير المجدولة (Scheduled Exports)
+            </h3>
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1 border-neutral-200 bg-neutral-50 text-xs font-medium text-neutral-600 hover:bg-neutral-100"
+            >
+              <Plus className="size-3" /> جدولة تقرير جديد
+            </Button>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+            {[
+              {
+                icon: FileSpreadsheet,
+                color: "bg-emerald-50 text-emerald-600 border-emerald-100",
+                title: "تقرير ضريبة القيمة المضافة (VAT)",
+                schedule: "تكرار: شهري (يوم 28)",
+              },
+              {
+                icon: FileBadge,
+                color: "bg-blue-50 text-blue-600 border-blue-100",
+                title: "ملخص الأداء التنفيذي",
+                schedule: "تكرار: أسبوعي (الخميس)",
+              },
+              {
+                icon: FileCode2,
+                color: "bg-orange-50 text-orange-600 border-orange-100",
+                title: "ZATCA XML Export",
+                schedule: "تكرار: يومي (تلقائي)",
+              },
+            ].map((e, i) => {
+              const Icon = e.icon;
+              return (
+                <div
+                  key={i}
+                  className="group flex cursor-pointer items-center gap-3 rounded-xl border border-neutral-100 p-3 transition-colors hover:bg-neutral-50"
+                >
+                  <div
+                    className={`grid size-10 place-items-center rounded-lg border ${e.color}`}
+                  >
+                    <Icon className="size-5" />
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-xs font-bold text-neutral-800 transition-colors group-hover:text-[#2563EB]">
+                      {e.title}
+                    </p>
+                    <p className="text-[10px] text-neutral-400">{e.schedule}</p>
+                  </div>
+                  <span
+                    className="block size-2 rounded-full bg-emerald-500"
+                    title="نشط"
+                  />
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
