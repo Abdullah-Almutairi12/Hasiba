@@ -10,8 +10,17 @@ import {
   Settings,
   Building2,
   ShieldCheck,
+  Sun,
+  Moon,
+  Monitor,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useTheme, type ThemeMode } from "@/hooks/use-theme";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   Sidebar,
   SidebarContent,
@@ -131,6 +140,36 @@ export function AppSidebar() {
   );
 }
 
+function ThemeToggle() {
+  const { theme, cycle } = useTheme();
+  const meta: Record<
+    ThemeMode,
+    { icon: React.ComponentType<{ className?: string }>; label: string }
+  > = {
+    light: { icon: Sun, label: "وضع فاتح" },
+    dark: { icon: Moon, label: "وضع داكن" },
+    auto: { icon: Monitor, label: "تلقائي حسب الصفحة" },
+  };
+  const { icon: Icon, label } = meta[theme];
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={cycle}
+          className="rounded-full"
+          data-testid="button-theme-toggle"
+          aria-label={label}
+        >
+          <Icon className="size-5" />
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent side="bottom">{label}</TooltipContent>
+    </Tooltip>
+  );
+}
+
 export default function Layout({ children }: { children: React.ReactNode }) {
   return (
     <SidebarProvider defaultOpen>
@@ -139,7 +178,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         <main className="flex flex-1 flex-col overflow-hidden">
           <header className="sticky top-0 z-10 flex h-16 shrink-0 items-center gap-4 border-b border-border/50 bg-background/95 px-6 backdrop-blur supports-[backdrop-filter]:bg-background/60">
             <SidebarTrigger className="-ml-2" />
-            <div className="flex flex-1 items-center justify-end gap-4">
+            <div className="flex flex-1 items-center justify-end gap-2">
+              <ThemeToggle />
               <Button variant="ghost" size="icon" className="rounded-full">
                 <div className="size-8 rounded-full bg-muted" />
               </Button>

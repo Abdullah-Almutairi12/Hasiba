@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
+import { useTheme } from "@/hooks/use-theme";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -25,15 +26,18 @@ const DARK_ROUTES = new Set(["/", "/settings"]);
 
 function Router() {
   const [location] = useLocation();
+  const { theme } = useTheme();
 
-  // Automatically switch between dark and light mode based on the route
+  // Apply theme: explicit user preference wins; "auto" falls back to per-route default
   useEffect(() => {
-    if (DARK_ROUTES.has(location)) {
-      document.documentElement.classList.add("dark");
-    } else {
-      document.documentElement.classList.remove("dark");
-    }
-  }, [location]);
+    let isDark: boolean;
+    if (theme === "dark") isDark = true;
+    else if (theme === "light") isDark = false;
+    else isDark = DARK_ROUTES.has(location);
+
+    if (isDark) document.documentElement.classList.add("dark");
+    else document.documentElement.classList.remove("dark");
+  }, [location, theme]);
 
   return (
     <Switch>
