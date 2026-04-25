@@ -109,7 +109,7 @@ export default function Login() {
               },
               {
                 icon: ShieldCheck,
-                title: "أمان على مستوى البنوك",
+                title: "أمان عالي",
                 sub: "تشفير TLS 1.3 ومصادقة ثنائية اختيارية",
               },
               {
