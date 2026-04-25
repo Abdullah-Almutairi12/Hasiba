@@ -56,7 +56,7 @@ export default function Login() {
       <header className="border-b border-neutral-200 bg-white/80 backdrop-blur-md">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3 sm:px-6 sm:py-4">
           <button
-            onClick={() => setLocation("/")}
+            onClick={() => setLocation("/welcome")}
             className="flex items-center gap-2 sm:gap-3"
           >
             <div className="grid size-9 place-items-center rounded-xl bg-[#2563EB] text-white shadow-lg shadow-blue-500/30 sm:size-10">

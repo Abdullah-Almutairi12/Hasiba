@@ -22,6 +22,7 @@ import MarketingPage from "@/pages/marketing";
 import OnboardingWizard from "@/pages/onboarding-wizard";
 import CreateCompany from "@/pages/create-company";
 import Login from "@/pages/login";
+import Welcome from "@/pages/welcome";
 import ProtectedRoute from "@/components/protected-route";
 
 const queryClient = new QueryClient();
@@ -57,6 +58,9 @@ function Router() {
       <Route path="/pos">
         <ProtectedRoute><POS /></ProtectedRoute>
       </Route>
+
+      {/* Public marketing landing page */}
+      <Route path="/welcome" component={Welcome} />
 
       {/* Auth + Onboarding flows are full-screen (no app shell) */}
       <Route path="/login" component={Login} />

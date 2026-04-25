@@ -34,6 +34,7 @@ Full-stack ERP system targeting Arabic/Saudi businesses, inspired by Odoo. Built
 12. **الموارد البشرية (HR)** — `/hr` page with tabs for employees / attendance / payroll. Requires `manager` or `accountant` role.
 13. **المشاريع** — `/projects` page with Kanban board + list view, project budgets and progress
 14. **التسويق** — `/marketing` page with campaigns and leads pipeline, conversion tracking
+15. **صفحة البداية (Landing)** — `/welcome` public marketing landing page with hero, mockup preview, features grid, how-it-works section, dark CTA, and footer. CTAs link to `/signup` and `/login`. Auto-redirects authenticated users to `/`.
 
 ## Artifacts
 
