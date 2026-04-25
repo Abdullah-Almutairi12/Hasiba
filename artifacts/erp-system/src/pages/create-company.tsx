@@ -116,7 +116,13 @@ export default function CreateCompany() {
             <span className="hidden text-neutral-500 md:inline">
               لديك حساب بالفعل؟
             </span>
-            <Button variant="outline" size="sm" className="font-bold">
+            <Button
+              variant="outline"
+              size="sm"
+              className="font-bold"
+              onClick={() => setLocation("/login")}
+              data-testid="link-login"
+            >
               تسجيل الدخول
             </Button>
           </div>
