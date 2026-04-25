@@ -17,11 +17,13 @@ import {
   Moon,
   Monitor,
   LogOut,
+  Languages,
   User as UserIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useTheme, type ThemeMode } from "@/hooks/use-theme";
 import { useAuth } from "@/hooks/use-auth";
+import { useLanguage } from "@/hooks/use-language";
 import {
   Tooltip,
   TooltipContent,
@@ -50,35 +52,66 @@ import {
 } from "@/components/ui/sidebar";
 
 const mainNavItems = [
-  { title: "لوحة التحكم", url: "/", icon: LayoutDashboard },
-  { title: "نقطة البيع", url: "/pos", icon: ShoppingCart },
-  { title: "المنتجات والمخزون", url: "/products", icon: Package },
-  { title: "فواتير الموردين", url: "/invoices", icon: FileText },
-  { title: "العملاء", url: "/customers", icon: Users },
-];
+  { key: "dashboard", url: "/", icon: LayoutDashboard },
+  { key: "pos", url: "/pos", icon: ShoppingCart },
+  { key: "products", url: "/products", icon: Package },
+  { key: "invoices", url: "/invoices", icon: FileText },
+  { key: "customers", url: "/customers", icon: Users },
+] as const;
 
 const financeNavItems = [
-  { title: "المحاسبة والامتثال", url: "/accounting", icon: Calculator },
-  { title: "التقارير والتحليلات", url: "/reports", icon: BarChart3 },
-];
+  { key: "accounting", url: "/accounting", icon: Calculator },
+  { key: "reports", url: "/reports", icon: BarChart3 },
+] as const;
 
 const operationsNavItems = [
-  { title: "الموارد البشرية", url: "/hr", icon: UserCog },
-  { title: "المشاريع", url: "/projects", icon: FolderKanban },
-  { title: "التسويق", url: "/marketing", icon: Megaphone },
-];
+  { key: "hr", url: "/hr", icon: UserCog },
+  { key: "projects", url: "/projects", icon: FolderKanban },
+  { key: "marketing", url: "/marketing", icon: Megaphone },
+] as const;
 
 const adminNavItems = [
-  { title: "الفروع والمستودعات", url: "/branches", icon: Building2 },
-  { title: "المستخدمون والصلاحيات", url: "/users", icon: Users },
-  { title: "الأمان والإعدادات", url: "/settings", icon: ShieldCheck },
-];
+  { key: "branches", url: "/branches", icon: Building2 },
+  { key: "users", url: "/users", icon: Users },
+  { key: "settings", url: "/settings", icon: ShieldCheck },
+] as const;
 
 export function AppSidebar() {
   const [location] = useLocation();
+  const { t, isRTL } = useLanguage();
+
+  const renderGroup = (
+    label: string,
+    items: ReadonlyArray<{ key: string; url: string; icon: React.ComponentType<{ className?: string }> }>,
+  ) => (
+    <SidebarGroup>
+      <SidebarGroupLabel>{label}</SidebarGroupLabel>
+      <SidebarGroupContent>
+        <SidebarMenu>
+          {items.map((item) => {
+            const title = t(`nav.${item.key}`);
+            return (
+              <SidebarMenuItem key={item.key}>
+                <SidebarMenuButton
+                  asChild
+                  isActive={location === item.url}
+                  tooltip={title}
+                >
+                  <Link href={item.url}>
+                    <item.icon />
+                    <span>{title}</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            );
+          })}
+        </SidebarMenu>
+      </SidebarGroupContent>
+    </SidebarGroup>
+  );
 
   return (
-    <Sidebar side="right" className="border-l border-border bg-sidebar">
+    <Sidebar side={isRTL ? "right" : "left"} className={`${isRTL ? "border-l" : "border-r"} border-border bg-sidebar`}>
       <SidebarHeader className="flex h-16 items-center justify-center border-b border-border/50 px-4">
         <Link href="/" className="flex items-center gap-2">
           <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
@@ -90,93 +123,10 @@ export function AppSidebar() {
         </Link>
       </SidebarHeader>
       <SidebarContent>
-        <SidebarGroup>
-          <SidebarGroupLabel>القائمة الرئيسية</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {mainNavItems.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton
-                    asChild
-                    isActive={location === item.url}
-                    tooltip={item.title}
-                  >
-                    <Link href={item.url}>
-                      <item.icon />
-                      <span>{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-
-        <SidebarGroup>
-          <SidebarGroupLabel>الإدارة والمالية</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {financeNavItems.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton
-                    asChild
-                    isActive={location === item.url}
-                    tooltip={item.title}
-                  >
-                    <Link href={item.url}>
-                      <item.icon />
-                      <span>{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-
-        <SidebarGroup>
-          <SidebarGroupLabel>العمليات والنمو</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {operationsNavItems.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton
-                    asChild
-                    isActive={location === item.url}
-                    tooltip={item.title}
-                  >
-                    <Link href={item.url}>
-                      <item.icon />
-                      <span>{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-
-        <SidebarGroup>
-          <SidebarGroupLabel>الإدارة والإعدادات</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {adminNavItems.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton
-                    asChild
-                    isActive={location === item.url}
-                    tooltip={item.title}
-                  >
-                    <Link href={item.url}>
-                      <item.icon />
-                      <span>{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+        {renderGroup(t("navGroups.main"), mainNavItems)}
+        {renderGroup(t("navGroups.finance"), financeNavItems)}
+        {renderGroup(t("navGroups.operations"), operationsNavItems)}
+        {renderGroup(t("navGroups.admin"), adminNavItems)}
       </SidebarContent>
     </Sidebar>
   );
@@ -184,15 +134,17 @@ export function AppSidebar() {
 
 function ThemeToggle() {
   const { theme, cycle } = useTheme();
+  const { t } = useLanguage();
   const meta: Record<
     ThemeMode,
-    { icon: React.ComponentType<{ className?: string }>; label: string }
+    { icon: React.ComponentType<{ className?: string }>; labelKey: string }
   > = {
-    light: { icon: Sun, label: "وضع فاتح" },
-    dark: { icon: Moon, label: "وضع داكن" },
-    auto: { icon: Monitor, label: "تلقائي حسب الصفحة" },
+    light: { icon: Sun, labelKey: "header.themeLight" },
+    dark: { icon: Moon, labelKey: "header.themeDark" },
+    auto: { icon: Monitor, labelKey: "header.themeAuto" },
   };
-  const { icon: Icon, label } = meta[theme];
+  const { icon: Icon, labelKey } = meta[theme];
+  const label = t(labelKey);
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -212,9 +164,35 @@ function ThemeToggle() {
   );
 }
 
+function LanguageToggle() {
+  const { language, toggleLanguage, t } = useLanguage();
+  const label = t("header.switchLanguage");
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={toggleLanguage}
+          className="relative rounded-full"
+          data-testid="button-language-toggle"
+          aria-label={label}
+        >
+          <Languages className="size-5" />
+          <span className="absolute -bottom-0.5 -end-0.5 rounded bg-primary px-1 text-[9px] font-bold leading-none text-primary-foreground">
+            {language.toUpperCase()}
+          </span>
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent side="bottom">{label}</TooltipContent>
+    </Tooltip>
+  );
+}
+
 function UserMenu() {
   const { user, logout, isLoggingOut } = useAuth();
   const [, setLocation] = useLocation();
+  const { t, isRTL } = useLanguage();
 
   const initials = (user?.name ?? "?")
     .split(" ")
@@ -223,13 +201,6 @@ function UserMenu() {
     .map((p) => p[0])
     .join("");
 
-  const roleLabel: Record<string, string> = {
-    manager: "مدير",
-    accountant: "محاسب",
-    cashier: "كاشير",
-    auditor: "مراجع",
-  };
-
   const handleLogout = async () => {
     try {
       await logout();
@@ -237,6 +208,8 @@ function UserMenu() {
       setLocation("/login");
     }
   };
+
+  const roleLabel = user?.role ? t(`roles.${user.role}`, { defaultValue: user.role }) : null;
 
   return (
     <DropdownMenu>
@@ -250,26 +223,26 @@ function UserMenu() {
             {initials || <UserIcon className="size-4" />}
           </div>
           <span className="hidden text-sm font-medium md:inline">
-            {user?.name ?? "ضيف"}
+            {user?.name ?? t("header.guest")}
           </span>
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-56">
-        <DropdownMenuLabel className="text-right">
+      <DropdownMenuContent align={isRTL ? "start" : "end"} className="w-56">
+        <DropdownMenuLabel className={isRTL ? "text-right" : "text-left"}>
           <div className="font-bold">{user?.name}</div>
           <div className="text-[11px] font-normal text-muted-foreground" dir="ltr">
             {user?.email}
           </div>
-          {user?.role && (
+          {roleLabel && (
             <div className="mt-1 inline-block rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-bold text-primary">
-              {roleLabel[user.role] ?? user.role}
+              {roleLabel}
             </div>
           )}
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
         <DropdownMenuItem onClick={() => setLocation("/settings")}>
-          <Settings className="ms-2 size-4" />
-          الإعدادات
+          <Settings className="me-2 size-4" />
+          {t("header.settings")}
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem
@@ -278,8 +251,8 @@ function UserMenu() {
           className="text-rose-600 focus:bg-rose-50 focus:text-rose-700"
           data-testid="button-logout"
         >
-          <LogOut className="ms-2 size-4" />
-          {isLoggingOut ? "جاري الخروج..." : "تسجيل الخروج"}
+          <LogOut className="me-2 size-4" />
+          {isLoggingOut ? t("header.loggingOut") : t("header.logout")}
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -292,14 +265,15 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       <div className="flex min-h-screen w-full bg-background text-foreground selection:bg-primary/30">
         <AppSidebar />
         <main className="flex flex-1 flex-col overflow-hidden">
-          <header className="sticky top-0 z-10 flex h-16 shrink-0 items-center gap-4 border-b border-border/50 bg-background/95 px-6 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-            <SidebarTrigger className="-ml-2" />
-            <div className="flex flex-1 items-center justify-end gap-2">
+          <header className="sticky top-0 z-10 flex h-16 shrink-0 items-center gap-2 border-b border-border/50 bg-background/95 px-3 backdrop-blur supports-[backdrop-filter]:bg-background/60 sm:gap-4 sm:px-6">
+            <SidebarTrigger />
+            <div className="flex flex-1 items-center justify-end gap-1 sm:gap-2">
+              <LanguageToggle />
               <ThemeToggle />
               <UserMenu />
             </div>
           </header>
-          <div className="flex-1 overflow-auto p-6">{children}</div>
+          <div className="flex-1 overflow-auto p-3 sm:p-4 md:p-6">{children}</div>
         </main>
       </div>
     </SidebarProvider>

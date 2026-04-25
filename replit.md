@@ -55,6 +55,25 @@ HR: `departments`, `employees`, `attendance`, `payroll`
 Projects: `projects`, `project_tasks`
 Marketing: `campaigns`, `leads`
 
+## Internationalization (i18n)
+
+- `i18next` + `react-i18next`. Config in `artifacts/erp-system/src/i18n/index.ts`.
+- Locale JSON files: `src/i18n/ar.json` (default) and `src/i18n/en.json`.
+- `useLanguage()` hook (`src/hooks/use-language.ts`) exposes `language`, `isRTL`, `setLanguage`, `toggleLanguage`, and `t`. It persists the choice to `localStorage` (`hasba.lang`) and updates `document.documentElement.lang/dir` on switch.
+- A language toggle button is in the layout header (next to the theme toggle) and on the login page top-right.
+- The sidebar `side` flips between `right` (RTL) and `left` (LTR) based on language.
+- Currently translated: layout (sidebar nav + groups, header), login page. Inner business pages (dashboard, hr, projects, marketing, etc.) intentionally remain in Arabic; t() keys can be added incrementally without further infrastructure changes.
+
+## Mobile Responsiveness
+
+- `<meta name="viewport">` allows pinch-zoom (removed `maximum-scale=1`).
+- Sidebar uses shadcn's mobile drawer (Sheet) automatically below the `md` breakpoint via `useIsMobile`.
+- Layout header padding/gap collapse on small screens (`px-3 sm:px-6`, `gap-2 sm:gap-4`).
+- Page content padding scales: `p-3 sm:p-4 md:p-6`.
+- shadcn `Table` already wraps in `overflow-auto`, so wide tables scroll horizontally inside their cards.
+- KPI grids in HR/Projects/Marketing collapse to 1 column below `sm` (`sm:grid-cols-2 lg:grid-cols-4`).
+- Login page: brand panel hidden below `lg`, form padding collapses, header buttons wrap.
+
 ## Auth & Authorization
 
 - Session-based via `express-session` + `connect-pg-simple` (cookie name `hasba.sid`).
