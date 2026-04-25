@@ -13,7 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Search, ShoppingCart, Trash2, ArrowRight, User } from "lucide-react";
+import { Search, ShoppingCart, Trash2, ArrowRight, User, PackageSearch } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { motion } from "framer-motion";
 
