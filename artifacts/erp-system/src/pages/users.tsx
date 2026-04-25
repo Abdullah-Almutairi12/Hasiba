@@ -218,7 +218,7 @@ export default function UsersPage() {
                         {user.phone ?? "—"}
                       </td>
                       <td className="py-4 text-muted-foreground">
-                        {timeAgo(user.lastLoginAt)}
+                        {timeAgo(user.lastLoginAt ?? null)}
                       </td>
                       <td className="py-4">
                         {user.has2fa ? (
