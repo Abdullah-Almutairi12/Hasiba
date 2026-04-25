@@ -778,19 +778,6 @@ export default function POS() {
                       }`}
                     />
                     <span className="text-[10px] font-bold">{m.label}</span>
-                    {m.key === "card" && (
-                      <div className="mt-1 flex items-center gap-1">
-                        <span className="rounded-sm bg-gradient-to-l from-emerald-500 to-emerald-600 px-1 py-px text-[7px] font-bold text-white">
-                          مدى
-                        </span>
-                        <span className="rounded-sm bg-gradient-to-l from-blue-700 to-blue-900 px-1 py-px text-[7px] font-bold italic text-white">
-                          VISA
-                        </span>
-                        <span className="rounded-sm bg-gradient-to-l from-red-500 to-orange-500 px-1 py-px text-[7px] font-bold text-white">
-                          MC
-                        </span>
-                      </div>
-                    )}
                   </button>
                 );
               })}
