@@ -16,13 +16,25 @@ import Customers from "@/pages/customers";
 import Branches from "@/pages/branches";
 import UsersPage from "@/pages/users";
 import Settings from "@/pages/settings";
+import HRPage from "@/pages/hr";
+import ProjectsPage from "@/pages/projects";
+import MarketingPage from "@/pages/marketing";
 import OnboardingWizard from "@/pages/onboarding-wizard";
 import CreateCompany from "@/pages/create-company";
 import Login from "@/pages/login";
+import ProtectedRoute from "@/components/protected-route";
 
 const queryClient = new QueryClient();
 
 const DARK_ROUTES = new Set(["/", "/settings"]);
+
+function Protected({ children }: { children: React.ReactNode }) {
+  return (
+    <ProtectedRoute>
+      <Layout>{children}</Layout>
+    </ProtectedRoute>
+  );
+}
 
 function Router() {
   const [location] = useLocation();
@@ -41,44 +53,55 @@ function Router() {
 
   return (
     <Switch>
-      {/* POS has its own full-screen layout usually, but let's keep it consistent or use a separate layout */}
-      <Route path="/pos" component={POS} />
+      {/* POS uses its own full-screen layout but still requires authentication */}
+      <Route path="/pos">
+        <ProtectedRoute><POS /></ProtectedRoute>
+      </Route>
 
       {/* Auth + Onboarding flows are full-screen (no app shell) */}
       <Route path="/login" component={Login} />
       <Route path="/signup" component={CreateCompany} />
       <Route path="/onboarding" component={OnboardingWizard} />
 
-      {/* All other routes wrapped in layout */}
+      {/* All other routes wrapped in layout + auth guard */}
       <Route path="/">
-        <Layout><Dashboard /></Layout>
+        <Protected><Dashboard /></Protected>
       </Route>
       <Route path="/products">
-        <Layout><Products /></Layout>
+        <Protected><Products /></Protected>
       </Route>
       <Route path="/invoices">
-        <Layout><Invoices /></Layout>
+        <Protected><Invoices /></Protected>
       </Route>
       <Route path="/accounting">
-        <Layout><Accounting /></Layout>
+        <Protected><Accounting /></Protected>
       </Route>
       <Route path="/reports">
-        <Layout><Reports /></Layout>
+        <Protected><Reports /></Protected>
       </Route>
       <Route path="/customers">
-        <Layout><Customers /></Layout>
+        <Protected><Customers /></Protected>
       </Route>
       <Route path="/branches">
-        <Layout><Branches /></Layout>
+        <Protected><Branches /></Protected>
+      </Route>
+      <Route path="/hr">
+        <Protected><HRPage /></Protected>
+      </Route>
+      <Route path="/projects">
+        <Protected><ProjectsPage /></Protected>
+      </Route>
+      <Route path="/marketing">
+        <Protected><MarketingPage /></Protected>
       </Route>
       <Route path="/users">
-        <Layout><UsersPage /></Layout>
+        <Protected><UsersPage /></Protected>
       </Route>
       <Route path="/settings">
-        <Layout><Settings /></Layout>
+        <Protected><Settings /></Protected>
       </Route>
       <Route>
-        <Layout><NotFound /></Layout>
+        <Protected><NotFound /></Protected>
       </Route>
     </Switch>
   );

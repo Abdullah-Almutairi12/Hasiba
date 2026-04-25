@@ -1,8 +1,25 @@
 import { Router } from "express";
 import { db, usersTable, insertUserSchema } from "@workspace/db";
 import { desc } from "drizzle-orm";
+import { requireRole } from "../middlewares/require-role";
+import { handleRouteError } from "../lib/handle-error";
 
 const router = Router();
+
+// Explicit safe column projection — NEVER include passwordHash in responses.
+const safeUserColumns = {
+  id: usersTable.id,
+  name: usersTable.name,
+  email: usersTable.email,
+  phone: usersTable.phone,
+  role: usersTable.role,
+  branchId: usersTable.branchId,
+  avatarUrl: usersTable.avatarUrl,
+  has2fa: usersTable.has2fa,
+  isActive: usersTable.isActive,
+  lastLoginAt: usersTable.lastLoginAt,
+  createdAt: usersTable.createdAt,
+} as const;
 
 const ROLES = [
   {
@@ -47,9 +64,12 @@ const ROLES = [
   },
 ];
 
-router.get("/users", async (req, res) => {
+router.get("/users", requireRole("manager"), async (req, res) => {
   try {
-    const rows = await db.select().from(usersTable).orderBy(desc(usersTable.createdAt));
+    const rows = await db
+      .select(safeUserColumns)
+      .from(usersTable)
+      .orderBy(desc(usersTable.createdAt));
     res.json(
       rows.map((u) => ({
         ...u,
@@ -63,10 +83,14 @@ router.get("/users", async (req, res) => {
   }
 });
 
-router.post("/users", async (req, res) => {
+router.post("/users", requireRole("manager"), async (req, res) => {
   try {
     const parsed = insertUserSchema.parse(req.body);
-    const [created] = await db.insert(usersTable).values(parsed).returning();
+    // Re-select with safe columns to avoid leaking passwordHash on insert.
+    const [created] = await db
+      .insert(usersTable)
+      .values(parsed)
+      .returning(safeUserColumns);
     res.status(201).json({
       ...created,
       lastLoginAt: created.lastLoginAt ? created.lastLoginAt.toISOString() : null,
@@ -74,7 +98,7 @@ router.post("/users", async (req, res) => {
     });
   } catch (err) {
     req.log.error({ err }, "Error creating user");
-    res.status(400).json({ error: "Invalid request" });
+    handleRouteError(err, res);
   }
 });
 

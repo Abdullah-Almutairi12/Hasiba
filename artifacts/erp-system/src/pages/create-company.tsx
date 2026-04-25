@@ -3,6 +3,7 @@ import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
+import { useAuth } from "@/hooks/use-auth";
 import {
   Calculator,
   Building2,
@@ -74,6 +75,8 @@ export default function CreateCompany() {
   const [showPwd, setShowPwd] = useState(false);
   const [twoFA, setTwoFA] = useState(true);
   const [agreed, setAgreed] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [signupError, setSignupError] = useState<string | null>(null);
 
   const pwInfo = strengthInfo(form.password);
   const passwordsMatch =
@@ -85,6 +88,36 @@ export default function CreateCompany() {
     form.password.length >= 8 &&
     passwordsMatch &&
     agreed;
+
+  const apiBase = `${import.meta.env.BASE_URL.replace(/\/$/, "")}/api`;
+
+  const handleSignup = async () => {
+    if (!isValid || submitting) return;
+    setSubmitting(true);
+    setSignupError(null);
+    try {
+      const res = await fetch(`${apiBase}/auth/signup`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: form.companyName.trim(),
+          email: form.email.trim().toLowerCase(),
+          password: form.password,
+          role: "manager",
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data?.error ?? "تعذر إنشاء الحساب");
+      }
+      setLocation("/onboarding");
+    } catch (err) {
+      setSignupError(err instanceof Error ? err.message : "تعذر إنشاء الحساب");
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   return (
     <div
@@ -497,23 +530,34 @@ export default function CreateCompany() {
               </span>
             </label>
 
+            {/* Error */}
+            {signupError && (
+              <div
+                className="mb-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-700"
+                data-testid="signup-error"
+              >
+                {signupError}
+              </div>
+            )}
+
             {/* CTAs */}
             <div className="flex flex-col gap-3 sm:flex-row-reverse">
               <Button
-                disabled={!isValid}
-                onClick={() => setLocation("/onboarding")}
+                disabled={!isValid || submitting}
+                onClick={handleSignup}
                 className="h-12 flex-1 bg-neutral-900 text-base font-bold text-white shadow-lg shadow-neutral-900/20 hover:bg-neutral-800 disabled:bg-neutral-300 disabled:shadow-none"
+                data-testid="button-signup-submit"
               >
-                إنشاء الحساب
+                {submitting ? "جارِ الإنشاء..." : "إنشاء الحساب"}
                 <ChevronLeft className="me-1 size-4" />
               </Button>
               <Button
                 variant="outline"
-                onClick={() => setLocation("/onboarding")}
+                onClick={() => setLocation("/login")}
                 className="h-12 border-neutral-200 bg-white font-bold text-neutral-700 hover:bg-neutral-50"
               >
                 <Wand2 className="ms-2 size-4 text-[#2563EB]" />
-                المعالج التلقائي
+                لدي حساب
               </Button>
             </div>
           </div>

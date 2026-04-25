@@ -1,36 +1,90 @@
 import { Router } from "express";
 import { db, posOrdersTable, productsTable } from "@workspace/db";
-import { sql, desc } from "drizzle-orm";
+import { sql, gte } from "drizzle-orm";
 
 const router = Router();
 
 router.get("/reports/sales", async (req, res) => {
   try {
     const period = (req.query.period as string) || "monthly";
+    const now = new Date();
 
-    const labels =
-      period === "daily"
-        ? Array.from({ length: 24 }, (_, i) => `${i}:00`)
-        : period === "weekly"
-          ? ["الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"]
-          : period === "monthly"
-            ? Array.from({ length: 4 }, (_, i) => `الأسبوع ${i + 1}`)
-            : ["يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو", "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"];
+    let bucketExpr: ReturnType<typeof sql>;
+    let labels: string[];
+    let startDate: Date;
 
-    const data = labels.map((label) => ({
-      label,
-      actual: Math.floor(25000 + Math.random() * 25000),
-      forecast: Math.floor(27000 + Math.random() * 22000),
-    }));
+    if (period === "daily") {
+      labels = Array.from({ length: 24 }, (_, i) => `${i}:00`);
+      startDate = new Date(now);
+      startDate.setHours(0, 0, 0, 0);
+      bucketExpr = sql`extract(hour from ${posOrdersTable.createdAt})::int`;
+    } else if (period === "weekly") {
+      labels = ["الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"];
+      startDate = new Date(now);
+      startDate.setDate(startDate.getDate() - 6);
+      startDate.setHours(0, 0, 0, 0);
+      bucketExpr = sql`extract(dow from ${posOrdersTable.createdAt})::int`;
+    } else if (period === "monthly") {
+      labels = ["الأسبوع 1", "الأسبوع 2", "الأسبوع 3", "الأسبوع 4"];
+      startDate = new Date(now);
+      startDate.setDate(startDate.getDate() - 27);
+      startDate.setHours(0, 0, 0, 0);
+      bucketExpr = sql`floor(extract(epoch from ${posOrdersTable.createdAt} - ${startDate.toISOString()}::timestamp) / (7 * 86400))::int`;
+    } else {
+      labels = [
+        "يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو",
+        "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر",
+      ];
+      startDate = new Date(now.getFullYear(), 0, 1);
+      bucketExpr = sql`extract(month from ${posOrdersTable.createdAt})::int - 1`;
+    }
+
+    const rows = await db
+      .select({
+        bucket: bucketExpr.as("bucket"),
+        total: sql<string>`coalesce(sum(${posOrdersTable.total}::numeric), 0)`,
+        cnt: sql<string>`count(*)`,
+      })
+      .from(posOrdersTable)
+      .where(gte(posOrdersTable.createdAt, startDate))
+      .groupBy(sql`bucket`);
+
+    const map = new Map<number, { total: number; cnt: number }>();
+    for (const r of rows) {
+      map.set(Number(r.bucket), { total: Number(r.total), cnt: Number(r.cnt) });
+    }
+
+    const data = labels.map((label, i) => {
+      const v = map.get(i) ?? { total: 0, cnt: 0 };
+      const prior = labels.slice(0, i).map((_, j) => map.get(j)?.total ?? 0);
+      const avg = prior.length ? prior.reduce((a, b) => a + b, 0) / prior.length : v.total;
+      return {
+        label,
+        actual: Math.round(v.total),
+        forecast: Math.round(avg * 1.05) || Math.round(v.total),
+      };
+    });
 
     const totalRevenue = data.reduce((sum, d) => sum + d.actual, 0);
+    const totalOrders = Array.from(map.values()).reduce((s, v) => s + v.cnt, 0);
+
+    // Real margin from product catalog
+    const [marginRow] = await db
+      .select({
+        avgMargin: sql<string>`coalesce(avg((${productsTable.price}::numeric - ${productsTable.costPrice}::numeric) / nullif(${productsTable.price}::numeric, 0)), 0.30)`,
+      })
+      .from(productsTable)
+      .where(sql`${productsTable.isActive} = true`);
+    const margin = Number(marginRow.avgMargin);
+
+    const avgOrderValue = totalOrders > 0 ? totalRevenue / totalOrders : 0;
 
     res.json({
       period,
       totalRevenue,
-      totalProfit: totalRevenue * 0.41,
-      totalOrders: Math.floor(totalRevenue / 85),
-      avgOrderValue: 85 + Math.random() * 20,
+      totalProfit: Math.round(totalRevenue * margin),
+      totalOrders,
+      avgOrderValue: Number(avgOrderValue.toFixed(2)),
       data,
     });
   } catch (err) {
@@ -41,11 +95,34 @@ router.get("/reports/sales", async (req, res) => {
 
 router.get("/reports/ai-summary", async (req, res) => {
   try {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+
+    const [todayAgg] = await db
+      .select({
+        total: sql<string>`coalesce(sum(${posOrdersTable.total}::numeric), 0)`,
+      })
+      .from(posOrdersTable)
+      .where(gte(posOrdersTable.createdAt, today));
+
+    const [marginRow] = await db
+      .select({
+        avgMargin: sql<string>`coalesce(avg((${productsTable.price}::numeric - ${productsTable.costPrice}::numeric) / nullif(${productsTable.price}::numeric, 0)), 0.30)`,
+      })
+      .from(productsTable)
+      .where(sql`${productsTable.isActive} = true`);
+
+    const sales = Number(todayAgg.total);
+    const margin = Number(marginRow.avgMargin);
+    const netProfit = Math.round(sales * margin * 0.7);
+
     res.json({
       summary:
         'لاحظت انخفاضًا في مبيعات فرع "الرياض - العليا" بنسبة 12% مقارنة بالأسبوع الماضي، بينما حقق فرع "جدة" نموًا مفاجئًا بنسبة 8% بفضل العروض الجديدة. هناك 3 عمليات مشبوهة تتطلب مراجعتك في قسم كشف الاحتيال. يُنصح بمراجعة مستوى مخزون منتجات القهوة المختصة.',
       updatedAt: new Date().toISOString(),
-      netProfitToday: 12450,
+      netProfitToday: netProfit,
       profitChange: 4.2,
     });
   } catch (err) {
@@ -139,23 +216,43 @@ router.get("/reports/fraud-detection", async (_req, res) => {
 
 router.get("/reports/top-products", async (req, res) => {
   try {
-    const products = await db
-      .select({
-        id: productsTable.id,
-        name: productsTable.name,
-        nameAr: productsTable.nameAr,
-      })
-      .from(productsTable)
-      .where(sql`${productsTable.isActive} = true`)
-      .limit(5);
+    // Aggregate items from pos_orders.items JSONB. Each item: {productId, quantity, price}
+    const rows = await db.execute(sql`
+      WITH expanded AS (
+        SELECT
+          (item->>'productId')::int AS product_id,
+          coalesce((item->>'quantity')::int, 1) AS qty,
+          coalesce((item->>'price')::numeric, 0) AS price
+        FROM ${posOrdersTable},
+        jsonb_array_elements(${posOrdersTable.items}) AS item
+      )
+      SELECT
+        p.id,
+        p.name,
+        p.name_ar AS "nameAr",
+        coalesce(sum(e.qty), 0)::int AS "salesCount",
+        coalesce(sum(e.qty * e.price), 0)::numeric AS revenue
+      FROM ${productsTable} p
+      LEFT JOIN expanded e ON e.product_id = p.id
+      WHERE p.is_active = true
+      GROUP BY p.id, p.name, p.name_ar
+      ORDER BY "salesCount" DESC
+      LIMIT 5
+    `);
 
-    const topProducts = products.map((p, i) => ({
+    const topProducts = (rows.rows as Array<{
+      id: number;
+      name: string;
+      nameAr: string;
+      salesCount: number;
+      revenue: string | number;
+    }>).map((p) => ({
       id: p.id,
       name: p.name,
       nameAr: p.nameAr,
-      salesCount: [320, 280, 245, 198, 156][i] || 100,
-      revenue: [5760, 4480, 3430, 2772, 1560][i] || 1000,
-      change: [12, 8, -3, 5, 15][i] || 0,
+      salesCount: Number(p.salesCount),
+      revenue: Math.round(Number(p.revenue)),
+      change: 0,
     }));
 
     res.json(topProducts);

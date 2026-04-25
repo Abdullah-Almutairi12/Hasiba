@@ -31,6 +31,9 @@ Full-stack ERP system targeting Arabic/Saudi businesses, inspired by Odoo. Built
 9. **التسجيل والإعداد الموجّه** — Full-screen `/signup` (create company) and `/onboarding` (5-step wizard) flows
 10. **التقارير الذكية + كشف الاحتيال** — AI Copilot, predictive forecast, CLV, benchmarks, fraud detection table
 11. **POS Loyalty + ZATCA badge** — In-cart customer loyalty (points → discount) with combined effectiveDiscount sent to backend so UI total mirrors persisted total
+12. **الموارد البشرية (HR)** — `/hr` page with tabs for employees / attendance / payroll. Requires `manager` or `accountant` role.
+13. **المشاريع** — `/projects` page with Kanban board + list view, project budgets and progress
+14. **التسويق** — `/marketing` page with campaigns and leads pipeline, conversion tracking
 
 ## Artifacts
 
@@ -47,7 +50,19 @@ Full-stack ERP system targeting Arabic/Saudi businesses, inspired by Odoo. Built
 
 ## Database Tables
 
-`branches`, `categories`, `products`, `customers`, `pos_sessions`, `pos_orders`, `invoices`, `journal_entries`, `alerts`
+Core: `branches`, `warehouses`, `categories`, `products`, `customers`, `pos_sessions`, `pos_orders`, `invoices`, `journal_entries`, `alerts`, `users`, `audit_logs`, `session`
+HR: `departments`, `employees`, `attendance`, `payroll`
+Projects: `projects`, `project_tasks`
+Marketing: `campaigns`, `leads`
+
+## Auth & Authorization
+
+- Session-based via `express-session` + `connect-pg-simple` (cookie name `hasba.sid`).
+- All routes after `/auth/*` and `/health` are protected by `requireAuth` (mounted in `routes/index.ts`).
+- Role-based authorization via `requireRole(...roles)` middleware. Role is stored in session (`req.session.role`) on login/signup.
+- Sensitive HR endpoints require `manager` or `accountant`. Mutations for projects/marketing require `manager` or `accountant`. Reads for projects/marketing are open to any authenticated user.
+- `/users` endpoints are restricted to `manager`. The response uses an explicit safe-column projection — `passwordHash` is NEVER returned.
+- Validation errors (Zod) return 400 via the `handleRouteError` helper in `lib/handle-error.ts`.
 
 ## Important Notes
 

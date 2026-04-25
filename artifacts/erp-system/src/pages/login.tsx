@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useAuth } from "@/hooks/use-auth";
 import {
   Calculator,
   Mail,
@@ -12,23 +13,33 @@ import {
   ShieldCheck,
   ArrowLeft,
   Fingerprint,
+  AlertCircle,
 } from "lucide-react";
 
 export default function Login() {
   const [, setLocation] = useLocation();
+  const { login, isLoggingIn, isAuthenticated } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPwd, setShowPwd] = useState(false);
   const [remember, setRemember] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  // If already logged in, bounce to dashboard
+  useEffect(() => {
+    if (isAuthenticated) setLocation("/");
+  }, [isAuthenticated, setLocation]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email || !password) return;
-    setSubmitting(true);
-    setTimeout(() => {
+    setError(null);
+    try {
+      await login({ email: email.trim().toLowerCase(), password });
       setLocation("/");
-    }, 600);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "تعذر تسجيل الدخول");
+    }
   };
 
   return (
@@ -235,16 +246,32 @@ export default function Login() {
                 </span>
               </div>
 
+              {/* Error message */}
+              {error && (
+                <div
+                  className="flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-700"
+                  data-testid="login-error"
+                >
+                  <AlertCircle className="mt-0.5 size-4 shrink-0" />
+                  <span>{error}</span>
+                </div>
+              )}
+
               {/* Submit */}
               <Button
                 type="submit"
-                disabled={submitting || !email || !password}
+                disabled={isLoggingIn || !email || !password}
                 className="h-12 w-full gap-2 rounded-xl bg-[#2563EB] text-base font-bold text-white shadow-lg shadow-blue-500/30 transition-all active:scale-[0.99] hover:bg-[#1D4ED8] disabled:bg-neutral-300 disabled:shadow-none"
                 data-testid="button-login"
               >
                 <ArrowLeft className="size-4" />
-                {submitting ? "جاري تسجيل الدخول..." : "تسجيل الدخول"}
+                {isLoggingIn ? "جاري تسجيل الدخول..." : "تسجيل الدخول"}
               </Button>
+
+              {/* Demo credentials hint */}
+              <p className="rounded-xl bg-blue-50 p-3 text-center text-[11px] leading-relaxed text-blue-800">
+                للتجربة: <span className="font-mono font-bold">admin@hasba.ai</span> / <span className="font-mono font-bold">admin123</span>
+              </p>
 
               {/* Divider */}
               <div className="relative my-2 flex items-center justify-center">

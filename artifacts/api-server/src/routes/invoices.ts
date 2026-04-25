@@ -39,7 +39,7 @@ router.post("/invoices", async (req, res) => {
         amount: String(body.amount),
         dueDate: body.dueDate ? new Date(body.dueDate) : null,
         status: "pending",
-        confidence: Math.random() * 0.2 + 0.8,
+        confidence: null,
       })
       .returning();
 

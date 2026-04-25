@@ -1,49 +1,109 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { productsTable, posOrdersTable, posSessionsTable, alertsTable, branchesTable } from "@workspace/db";
-import { sql, gte, desc } from "drizzle-orm";
+import {
+  productsTable,
+  posOrdersTable,
+  posSessionsTable,
+  alertsTable,
+  branchesTable,
+} from "@workspace/db";
+import { sql, gte, desc, and, lt, eq } from "drizzle-orm";
 
 const router = Router();
 
+function startOfDay(d: Date): Date {
+  const x = new Date(d);
+  x.setHours(0, 0, 0, 0);
+  return x;
+}
+
+function pctChange(current: number, previous: number): number {
+  if (previous === 0) return current > 0 ? 100 : 0;
+  return Number((((current - previous) / previous) * 100).toFixed(1));
+}
+
 router.get("/dashboard/summary", async (req, res) => {
   try {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const today = startOfDay(new Date());
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
 
-    const [todayOrders] = await db
+    // Today + yesterday sales
+    const [todayAgg] = await db
       .select({
-        total: sql<number>`coalesce(sum(${posOrdersTable.total}::numeric), 0)`,
-        count: sql<number>`count(*)`,
+        total: sql<string>`coalesce(sum(${posOrdersTable.total}::numeric), 0)`,
+        count: sql<string>`count(*)`,
       })
       .from(posOrdersTable)
       .where(gte(posOrdersTable.createdAt, today));
 
-    const [productStats] = await db
+    const [yestAgg] = await db
       .select({
-        inventoryValue: sql<number>`coalesce(sum(${productsTable.costPrice}::numeric * ${productsTable.stock}), 0)`,
-        lowStockCount: sql<number>`count(*) filter (where ${productsTable.stock} <= ${productsTable.minStock})`,
+        total: sql<string>`coalesce(sum(${posOrdersTable.total}::numeric), 0)`,
+      })
+      .from(posOrdersTable)
+      .where(
+        and(gte(posOrdersTable.createdAt, yesterday), lt(posOrdersTable.createdAt, today)),
+      );
+
+    // Real margin from product catalog (avg)
+    const [marginRow] = await db
+      .select({
+        avgMargin: sql<string>`coalesce(avg((${productsTable.price}::numeric - ${productsTable.costPrice}::numeric) / nullif(${productsTable.price}::numeric, 0)), 0.30)`,
       })
       .from(productsTable)
       .where(sql`${productsTable.isActive} = true`);
 
-    const totalSales = Number(todayOrders.total) || 0;
-    const profitMargin = 0.41;
+    const [productStats] = await db
+      .select({
+        inventoryValue: sql<string>`coalesce(sum(${productsTable.costPrice}::numeric * ${productsTable.stock}), 0)`,
+        lowStockCount: sql<string>`count(*) filter (where ${productsTable.stock} <= ${productsTable.minStock})`,
+      })
+      .from(productsTable)
+      .where(sql`${productsTable.isActive} = true`);
+
+    const totalSales = Number(todayAgg.total);
+    const yestSales = Number(yestAgg.total);
+    const profitMargin = Number(marginRow.avgMargin);
     const profit = totalSales * profitMargin;
-    const netProfit = totalSales * 0.27;
+    const yestProfit = yestSales * profitMargin;
+    // Net profit assumes operating cost overhead ~30% of gross profit
+    const netProfit = profit * 0.7;
+
+    // Health score: weighted of margin (40), low-stock ratio (30), sales growth (30)
+    const totalProducts = await db
+      .select({ count: sql<string>`count(*)` })
+      .from(productsTable)
+      .where(sql`${productsTable.isActive} = true`);
+    const productCount = Number(totalProducts[0].count) || 1;
+    const lowStockCount = Number(productStats.lowStockCount);
+    const stockHealth = Math.max(0, 100 - (lowStockCount / productCount) * 100);
+    const marginHealth = Math.min(100, profitMargin * 100 * 2);
+    const growthHealth = Math.max(0, Math.min(100, 50 + pctChange(totalSales, yestSales)));
+    const healthScore = Math.round(marginHealth * 0.4 + stockHealth * 0.3 + growthHealth * 0.3);
+
+    const liquidity = healthScore >= 75 ? "ممتاز" : healthScore >= 50 ? "جيد" : "ضعيف";
+    const growth =
+      pctChange(totalSales, yestSales) >= 10
+        ? "ممتاز"
+        : pctChange(totalSales, yestSales) >= 0
+          ? "جيد جداً"
+          : "ضعيف";
+    const risk = lowStockCount > productCount * 0.2 ? "مرتفع" : lowStockCount > 0 ? "متوسط" : "منخفض";
 
     res.json({
       totalSalesToday: totalSales,
-      totalSalesChange: 12.5,
+      totalSalesChange: pctChange(totalSales, yestSales),
       totalProfit: profit,
-      profitChange: 8.2,
-      profitMargin: profitMargin * 100,
-      inventoryValue: Number(productStats.inventoryValue) || 124800,
-      lowStockCount: Number(productStats.lowStockCount) || 0,
-      netProfit: netProfit,
-      healthScore: 85,
-      liquidity: "ممتاز",
-      growth: "جيد جداً",
-      risk: "متوسط",
+      profitChange: pctChange(profit, yestProfit),
+      profitMargin: Number((profitMargin * 100).toFixed(1)),
+      inventoryValue: Number(productStats.inventoryValue),
+      lowStockCount,
+      netProfit,
+      healthScore,
+      liquidity,
+      growth,
+      risk,
     });
   } catch (err) {
     req.log.error({ err }, "Error fetching dashboard summary");
@@ -54,19 +114,57 @@ router.get("/dashboard/summary", async (req, res) => {
 router.get("/dashboard/sales-chart", async (req, res) => {
   try {
     const period = (req.query.period as string) || "weekly";
-    const days = period === "weekly" ? 7 : period === "monthly" ? 30 : 365;
-    const labels =
-      period === "weekly"
-        ? ["الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"]
-        : period === "monthly"
-          ? Array.from({ length: 4 }, (_, i) => `الأسبوع ${i + 1}`)
-          : ["يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو", "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"];
+    const now = new Date();
 
-    const data = labels.map((label, i) => ({
-      label,
-      actual: Math.floor(30000 + Math.random() * 20000),
-      forecast: Math.floor(32000 + Math.random() * 18000),
-    }));
+    let bucketExpr: ReturnType<typeof sql>;
+    let labels: string[];
+    let buckets: number;
+    let startDate: Date;
+
+    if (period === "weekly") {
+      buckets = 7;
+      startDate = new Date(now);
+      startDate.setDate(startDate.getDate() - 6);
+      startDate.setHours(0, 0, 0, 0);
+      bucketExpr = sql`extract(dow from ${posOrdersTable.createdAt} at time zone 'UTC')::int`;
+      labels = ["الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"];
+    } else if (period === "monthly") {
+      buckets = 4;
+      startDate = new Date(now);
+      startDate.setDate(startDate.getDate() - 27);
+      startDate.setHours(0, 0, 0, 0);
+      bucketExpr = sql`floor(extract(epoch from ${posOrdersTable.createdAt} - ${startDate.toISOString()}::timestamp) / (7 * 86400))::int`;
+      labels = ["الأسبوع 1", "الأسبوع 2", "الأسبوع 3", "الأسبوع 4"];
+    } else {
+      buckets = 12;
+      startDate = new Date(now.getFullYear(), 0, 1);
+      bucketExpr = sql`extract(month from ${posOrdersTable.createdAt})::int - 1`;
+      labels = [
+        "يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو",
+        "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر",
+      ];
+    }
+
+    const rows = await db
+      .select({
+        bucket: bucketExpr.as("bucket"),
+        total: sql<string>`coalesce(sum(${posOrdersTable.total}::numeric), 0)`,
+      })
+      .from(posOrdersTable)
+      .where(gte(posOrdersTable.createdAt, startDate))
+      .groupBy(sql`bucket`);
+
+    const map = new Map<number, number>();
+    for (const r of rows) map.set(Number(r.bucket), Number(r.total));
+
+    const data = labels.map((label, i) => {
+      const actual = Math.round(map.get(i) ?? 0);
+      // Forecast = simple moving average of previous buckets * 1.05 growth factor
+      const prior = labels.slice(0, i).map((_, j) => map.get(j) ?? 0);
+      const avg = prior.length ? prior.reduce((a, b) => a + b, 0) / prior.length : actual;
+      const forecast = Math.round(avg * 1.05) || actual;
+      return { label, actual, forecast };
+    });
 
     res.json(data);
   } catch (err) {
@@ -91,7 +189,7 @@ router.get("/dashboard/alerts", async (req, res) => {
         message: a.message,
         isRead: a.isRead,
         createdAt: a.createdAt.toISOString(),
-      }))
+      })),
     );
   } catch (err) {
     req.log.error({ err }, "Error fetching alerts");
@@ -101,15 +199,62 @@ router.get("/dashboard/alerts", async (req, res) => {
 
 router.get("/dashboard/branch-performance", async (req, res) => {
   try {
-    const branches = await db.select().from(branchesTable).where(sql`${branchesTable.isActive} = true`);
+    const today = startOfDay(new Date());
+    const sevenDaysAgo = new Date(today);
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    const fourteenDaysAgo = new Date(today);
+    fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14);
 
-    const performance = branches.map((b, i) => ({
-      id: b.id,
-      name: b.nameAr,
-      sales: [24500, 12350, 8380][i] || 5000,
-      change: [12, -3, 5][i] || 0,
-      status: (["active", "needs_attention", "active"][i] || "active") as "active" | "needs_attention" | "inactive",
-    }));
+    const branches = await db
+      .select()
+      .from(branchesTable)
+      .where(eq(branchesTable.isActive, true));
+
+    // Aggregate pos_orders → pos_sessions → branches for the last 7 days and previous 7 days
+    const currentRows = await db
+      .select({
+        branchId: posSessionsTable.branchId,
+        total: sql<string>`coalesce(sum(${posOrdersTable.total}::numeric), 0)`,
+      })
+      .from(posOrdersTable)
+      .innerJoin(posSessionsTable, eq(posOrdersTable.sessionId, posSessionsTable.id))
+      .where(gte(posOrdersTable.createdAt, sevenDaysAgo))
+      .groupBy(posSessionsTable.branchId);
+
+    const prevRows = await db
+      .select({
+        branchId: posSessionsTable.branchId,
+        total: sql<string>`coalesce(sum(${posOrdersTable.total}::numeric), 0)`,
+      })
+      .from(posOrdersTable)
+      .innerJoin(posSessionsTable, eq(posOrdersTable.sessionId, posSessionsTable.id))
+      .where(
+        and(
+          gte(posOrdersTable.createdAt, fourteenDaysAgo),
+          lt(posOrdersTable.createdAt, sevenDaysAgo),
+        ),
+      )
+      .groupBy(posSessionsTable.branchId);
+
+    const curMap = new Map<number, number>();
+    for (const r of currentRows) curMap.set(r.branchId, Number(r.total));
+    const prevMap = new Map<number, number>();
+    for (const r of prevRows) prevMap.set(r.branchId, Number(r.total));
+
+    const performance = branches.map((b) => {
+      const sales = Math.round(curMap.get(b.id) ?? 0);
+      const prev = prevMap.get(b.id) ?? 0;
+      const change = pctChange(sales, prev);
+      const status: "active" | "needs_attention" | "inactive" =
+        change < -5 ? "needs_attention" : "active";
+      return {
+        id: b.id,
+        name: b.nameAr,
+        sales,
+        change: Math.round(change),
+        status,
+      };
+    });
 
     res.json(performance);
   } catch (err) {

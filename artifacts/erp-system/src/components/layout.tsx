@@ -10,17 +10,31 @@ import {
   Settings,
   Building2,
   ShieldCheck,
+  UserCog,
+  FolderKanban,
+  Megaphone,
   Sun,
   Moon,
   Monitor,
+  LogOut,
+  User as UserIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useTheme, type ThemeMode } from "@/hooks/use-theme";
+import { useAuth } from "@/hooks/use-auth";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Sidebar,
   SidebarContent,
@@ -46,6 +60,12 @@ const mainNavItems = [
 const financeNavItems = [
   { title: "المحاسبة والامتثال", url: "/accounting", icon: Calculator },
   { title: "التقارير والتحليلات", url: "/reports", icon: BarChart3 },
+];
+
+const operationsNavItems = [
+  { title: "الموارد البشرية", url: "/hr", icon: UserCog },
+  { title: "المشاريع", url: "/projects", icon: FolderKanban },
+  { title: "التسويق", url: "/marketing", icon: Megaphone },
 ];
 
 const adminNavItems = [
@@ -97,6 +117,28 @@ export function AppSidebar() {
           <SidebarGroupContent>
             <SidebarMenu>
               {financeNavItems.map((item) => (
+                <SidebarMenuItem key={item.title}>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={location === item.url}
+                    tooltip={item.title}
+                  >
+                    <Link href={item.url}>
+                      <item.icon />
+                      <span>{item.title}</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        <SidebarGroup>
+          <SidebarGroupLabel>العمليات والنمو</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {operationsNavItems.map((item) => (
                 <SidebarMenuItem key={item.title}>
                   <SidebarMenuButton
                     asChild
@@ -170,6 +212,80 @@ function ThemeToggle() {
   );
 }
 
+function UserMenu() {
+  const { user, logout, isLoggingOut } = useAuth();
+  const [, setLocation] = useLocation();
+
+  const initials = (user?.name ?? "?")
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((p) => p[0])
+    .join("");
+
+  const roleLabel: Record<string, string> = {
+    manager: "مدير",
+    accountant: "محاسب",
+    cashier: "كاشير",
+    auditor: "مراجع",
+  };
+
+  const handleLogout = async () => {
+    try {
+      await logout();
+    } finally {
+      setLocation("/login");
+    }
+  };
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="ghost"
+          className="h-10 gap-2 rounded-full px-2"
+          data-testid="button-user-menu"
+        >
+          <div className="grid size-8 place-items-center rounded-full bg-primary text-xs font-bold text-primary-foreground">
+            {initials || <UserIcon className="size-4" />}
+          </div>
+          <span className="hidden text-sm font-medium md:inline">
+            {user?.name ?? "ضيف"}
+          </span>
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-56">
+        <DropdownMenuLabel className="text-right">
+          <div className="font-bold">{user?.name}</div>
+          <div className="text-[11px] font-normal text-muted-foreground" dir="ltr">
+            {user?.email}
+          </div>
+          {user?.role && (
+            <div className="mt-1 inline-block rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-bold text-primary">
+              {roleLabel[user.role] ?? user.role}
+            </div>
+          )}
+        </DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onClick={() => setLocation("/settings")}>
+          <Settings className="ms-2 size-4" />
+          الإعدادات
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem
+          onClick={handleLogout}
+          disabled={isLoggingOut}
+          className="text-rose-600 focus:bg-rose-50 focus:text-rose-700"
+          data-testid="button-logout"
+        >
+          <LogOut className="ms-2 size-4" />
+          {isLoggingOut ? "جاري الخروج..." : "تسجيل الخروج"}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 export default function Layout({ children }: { children: React.ReactNode }) {
   return (
     <SidebarProvider defaultOpen>
@@ -180,9 +296,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             <SidebarTrigger className="-ml-2" />
             <div className="flex flex-1 items-center justify-end gap-2">
               <ThemeToggle />
-              <Button variant="ghost" size="icon" className="rounded-full">
-                <div className="size-8 rounded-full bg-muted" />
-              </Button>
+              <UserMenu />
             </div>
           </header>
           <div className="flex-1 overflow-auto p-6">{children}</div>
