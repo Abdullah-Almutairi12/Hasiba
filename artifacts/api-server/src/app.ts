@@ -49,8 +49,10 @@ app.use(
     credentials: true,
   }),
 );
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+// Default JSON limit — routes that accept image uploads (e.g. /api/invoices/scan)
+// override this with their own larger limit.
+app.use(express.json({ limit: "1mb" }));
+app.use(express.urlencoded({ extended: true, limit: "1mb" }));
 app.use(sessionMiddleware);
 
 app.use("/api", router);

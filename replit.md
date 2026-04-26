@@ -23,7 +23,7 @@ Full-stack ERP system targeting Arabic/Saudi businesses, inspired by Odoo. Built
 1. **لوحة القيادة التنفيذية** — Dark glassmorphism dashboard with AI insights, sales charts, health score, branch performance
 2. **نقطة البيع (POS)** — Point-of-sale system with sessions and orders
 3. **المنتجات والمخزون** — Products with categories, stock levels, low-stock alerts
-4. **فواتير الموردين (AI)** — AI-powered invoice extraction and processing with ZATCA compliance status
+4. **فواتير الموردين (AI)** — AI-powered invoice extraction with on-device camera + photo upload. The "Supplier Invoice Scanner Agent" uses OpenAI Vision (gpt-5-mini) via `/api/invoices/scan` to extract supplier name, invoice number, dates, line items, subtotal, VAT and total. After user review, `/api/invoices/from-scan` commits everything inside a single DB transaction: inserts the invoice, matches each line to an existing product (or auto-creates one under the "غير مصنف" category) and increments stock, and posts double-entry journal lines (Dr Inventory + Dr VAT-Inputs / Cr Suppliers). Routes are gated to manager+accountant roles, scan is rate-limited (15/15min), accepts up to a 20mb base64 JPEG/PNG/WEBP image, and returns 400/409/502 with proper error taxonomy. Includes ZATCA QR support on existing invoices.
 5. **المحاسبة والامتثال** — Journal entries, cash flow, ZATCA integration status
 6. **التقارير والتحليلات** — Reporting and analytics
 7. **العملاء** — Customer management with order history

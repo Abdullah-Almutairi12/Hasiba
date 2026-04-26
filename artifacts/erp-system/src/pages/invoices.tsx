@@ -1,8 +1,9 @@
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import {
   useListInvoices,
   useGetInvoiceStats,
 } from "@workspace/api-client-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
@@ -13,18 +14,189 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+  DialogDescription,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { FileText, UploadCloud, CheckCircle2, Clock, AlertTriangle, AlertCircle } from "lucide-react";
-import { motion } from "framer-motion";
+import {
+  FileText, UploadCloud, CheckCircle2, Clock, AlertTriangle, AlertCircle,
+  Camera, Sparkles, Trash2, Plus, Loader2, ScanLine,
+} from "lucide-react";
+import { toast } from "sonner";
+
+type ExtractedItem = {
+  description: string;
+  quantity: number;
+  unitPrice: number;
+  total: number;
+};
+
+type Extracted = {
+  supplierName: string;
+  supplierVatNumber: string | null;
+  invoiceNumber: string;
+  invoiceDate: string | null;
+  dueDate: string | null;
+  currency: string;
+  subtotal: number;
+  vat: number;
+  total: number;
+  items: ExtractedItem[];
+  confidence: number;
+};
+
+const API_BASE = (import.meta.env.BASE_URL || "/").replace(/\/$/, "") + "/api";
+
+// Resize a File to <=1600px wide JPEG (data URI). Keeps OCR cost low and stays under 20mb.
+async function resizeImage(file: File, maxDim = 1600, quality = 0.85): Promise<string> {
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+  const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const i = new Image();
+    i.onload = () => resolve(i);
+    i.onerror = () => reject(new Error("Failed to load image"));
+    i.src = dataUrl;
+  });
+  const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+  const w = Math.round(img.width * scale);
+  const h = Math.round(img.height * scale);
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Canvas unsupported");
+  ctx.drawImage(img, 0, 0, w, h);
+  return canvas.toDataURL("image/jpeg", quality);
+}
 
 export default function Invoices() {
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [scanOpen, setScanOpen] = useState(false);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [scanning, setScanning] = useState(false);
+  const [committing, setCommitting] = useState(false);
+  const [extracted, setExtracted] = useState<Extracted | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const qc = useQueryClient();
 
   const { data: stats, isLoading: isLoadingStats } = useGetInvoiceStats();
   const { data: invoices, isLoading: isLoadingInvoices } = useListInvoices({
     status: statusFilter === "all" ? undefined : (statusFilter as any),
   });
+
+  function resetScanner() {
+    setImagePreview(null);
+    setExtracted(null);
+    setScanning(false);
+    setCommitting(false);
+  }
+
+  function openScanner() {
+    resetScanner();
+    setScanOpen(true);
+  }
+
+  async function handleFileSelected(file: File) {
+    try {
+      setScanning(true);
+      setExtracted(null);
+      const dataUri = await resizeImage(file);
+      setImagePreview(dataUri);
+      const res = await fetch(`${API_BASE}/invoices/scan`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ image: dataUri }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err?.error || `فشل المسح (${res.status})`);
+      }
+      const data: Extracted = await res.json();
+      setExtracted(data);
+      toast.success(`تم استخراج البيانات (ثقة ${Math.round(data.confidence * 100)}%)`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "فشل تحليل الفاتورة");
+    } finally {
+      setScanning(false);
+    }
+  }
+
+  async function handleCommit() {
+    if (!extracted) return;
+    if (!extracted.supplierName.trim() || !extracted.invoiceNumber.trim() || extracted.total <= 0) {
+      toast.error("الرجاء استكمال اسم المورد ورقم الفاتورة والإجمالي");
+      return;
+    }
+    try {
+      setCommitting(true);
+      const res = await fetch(`${API_BASE}/invoices/from-scan`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          supplierName: extracted.supplierName,
+          invoiceNumber: extracted.invoiceNumber,
+          invoiceDate: extracted.invoiceDate,
+          dueDate: extracted.dueDate,
+          subtotal: extracted.subtotal,
+          vat: extracted.vat,
+          total: extracted.total,
+          confidence: extracted.confidence,
+          items: extracted.items,
+          addToInventory: true,
+          postToAccounting: true,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "فشل حفظ الفاتورة");
+
+      const matched = data.inventoryUpdates?.length ?? 0;
+      const created = data.newProducts?.length ?? 0;
+      const journals = data.journalEntryIds?.length ?? 0;
+      toast.success(
+        `تم حفظ الفاتورة. ${matched} منتج محدّث، ${created} منتج جديد، ${journals} قيد محاسبي.`,
+      );
+      await qc.invalidateQueries();
+      setScanOpen(false);
+      resetScanner();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "فشل حفظ الفاتورة");
+    } finally {
+      setCommitting(false);
+    }
+  }
+
+  function updateItem(idx: number, patch: Partial<ExtractedItem>) {
+    if (!extracted) return;
+    const items = [...extracted.items];
+    items[idx] = { ...items[idx]!, ...patch };
+    setExtracted({ ...extracted, items });
+  }
+  function removeItem(idx: number) {
+    if (!extracted) return;
+    setExtracted({ ...extracted, items: extracted.items.filter((_, i) => i !== idx) });
+  }
+  function addItem() {
+    if (!extracted) return;
+    setExtracted({
+      ...extracted,
+      items: [...extracted.items, { description: "", quantity: 1, unitPrice: 0, total: 0 }],
+    });
+  }
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -41,13 +213,19 @@ export default function Invoices() {
     }
   };
 
+  const fmt = (n: number) =>
+    new Intl.NumberFormat("ar-SA", { style: "currency", currency: "SAR", maximumFractionDigits: 2 }).format(n);
+
   return (
     <div className="space-y-6 pb-8 max-w-7xl mx-auto">
       <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">فواتير الموردين (AI)</h1>
-          <p className="text-muted-foreground">استخراج بيانات الفواتير تلقائياً باستخدام الذكاء الاصطناعي</p>
+          <p className="text-muted-foreground">استخراج بيانات الفواتير تلقائياً وإضافتها للمخزون والمحاسبة</p>
         </div>
+        <Button size="lg" onClick={openScanner} className="gap-2 shadow-md" data-testid="button-open-scanner">
+          <Sparkles className="size-4" /> تصوير فاتورة جديدة
+        </Button>
       </div>
 
       <div className="grid gap-4 md:grid-cols-4">
@@ -90,14 +268,18 @@ export default function Invoices() {
       </div>
 
       <div className="grid gap-6 md:grid-cols-3">
-        <Card className="md:col-span-1 border-dashed border-2 bg-muted/30">
-          <CardContent className="p-10 flex flex-col items-center justify-center text-center h-full min-h-[300px] cursor-pointer hover:bg-muted/50 transition-colors">
+        <Card
+          className="md:col-span-1 border-dashed border-2 bg-muted/30 hover:bg-muted/50 transition-colors cursor-pointer"
+          onClick={openScanner}
+          data-testid="card-upload-zone"
+        >
+          <CardContent className="p-10 flex flex-col items-center justify-center text-center h-full min-h-[300px]">
             <div className="size-16 rounded-full bg-primary/10 flex items-center justify-center mb-4">
-              <UploadCloud className="size-8 text-primary" />
+              <ScanLine className="size-8 text-primary" />
             </div>
-            <h3 className="font-semibold text-lg mb-1">رفع فاتورة جديدة</h3>
-            <p className="text-sm text-muted-foreground mb-4">اسحب الفاتورة هنا أو اضغط لاختيار ملف (PDF, JPG, PNG)</p>
-            <Button>تصفح الملفات</Button>
+            <h3 className="font-semibold text-lg mb-1">صوّر أو ارفع فاتورة</h3>
+            <p className="text-sm text-muted-foreground mb-4">سيقوم الوكيل الذكي بقراءتها وإضافة بنودها للمخزون والمحاسبة</p>
+            <Button className="gap-2"><Camera className="size-4" /> ابدأ الآن</Button>
           </CardContent>
         </Card>
 
@@ -142,13 +324,18 @@ export default function Invoices() {
                       <TableCell className="font-mono text-sm">{invoice.invoiceNumber || '---'}</TableCell>
                       <TableCell className="font-medium">{invoice.supplierName || 'جاري الاستخراج...'}</TableCell>
                       <TableCell className="font-semibold">
-                        {invoice.amount ? new Intl.NumberFormat('ar-SA', { style: 'currency', currency: 'SAR' }).format(invoice.amount) : '---'}
+                        {invoice.amount ? fmt(Number(invoice.amount)) : '---'}
                       </TableCell>
                       <TableCell className="text-center">
-                        {invoice.confidence ? (
-                          <span className={invoice.confidence > 90 ? "text-green-600" : invoice.confidence > 70 ? "text-yellow-600" : "text-red-600"}>
-                            {invoice.confidence}%
-                          </span>
+                        {invoice.confidence != null ? (
+                          (() => {
+                            const pct = invoice.confidence > 1 ? invoice.confidence : invoice.confidence * 100;
+                            return (
+                              <span className={pct > 90 ? "text-green-600" : pct > 70 ? "text-yellow-600" : "text-red-600"}>
+                                {Math.round(pct)}%
+                              </span>
+                            );
+                          })()
                         ) : '---'}
                       </TableCell>
                       <TableCell className="text-left">{getStatusBadge(invoice.status)}</TableCell>
@@ -160,6 +347,216 @@ export default function Invoices() {
           </CardContent>
         </Card>
       </div>
+
+      {/* ====== Scanner Dialog ====== */}
+      <Dialog open={scanOpen} onOpenChange={(o) => { if (!o) resetScanner(); setScanOpen(o); }}>
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto" data-testid="dialog-scanner">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Sparkles className="size-5 text-primary" /> الوكيل الذكي لمسح فواتير الموردين
+            </DialogTitle>
+            <DialogDescription>
+              صوّر الفاتورة بالكاميرا أو ارفع صورة، وسيقوم الوكيل بقراءتها واقتراح إضافة بنودها للمخزون وقيد محاسبي مزدوج.
+            </DialogDescription>
+          </DialogHeader>
+
+          {/* Step 1: Choose source */}
+          {!imagePreview && !scanning && (
+            <div className="grid gap-4 md:grid-cols-2 py-4">
+              <button
+                type="button"
+                onClick={() => cameraInputRef.current?.click()}
+                className="border-2 border-dashed rounded-lg p-8 flex flex-col items-center gap-3 hover:bg-muted/50 transition-colors"
+                data-testid="button-take-photo"
+              >
+                <div className="size-14 rounded-full bg-primary/10 flex items-center justify-center">
+                  <Camera className="size-7 text-primary" />
+                </div>
+                <div className="text-base font-semibold">التقاط صورة بالكاميرا</div>
+                <div className="text-sm text-muted-foreground">صوّر الفاتورة الآن</div>
+              </button>
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="border-2 border-dashed rounded-lg p-8 flex flex-col items-center gap-3 hover:bg-muted/50 transition-colors"
+                data-testid="button-upload-photo"
+              >
+                <div className="size-14 rounded-full bg-primary/10 flex items-center justify-center">
+                  <UploadCloud className="size-7 text-primary" />
+                </div>
+                <div className="text-base font-semibold">رفع صورة من الجهاز</div>
+                <div className="text-sm text-muted-foreground">JPG / PNG حتى 10 ميجا</div>
+              </button>
+            </div>
+          )}
+
+          <input
+            ref={cameraInputRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            className="hidden"
+            data-testid="input-camera"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) handleFileSelected(f);
+              e.target.value = "";
+            }}
+          />
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            data-testid="input-file"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) handleFileSelected(f);
+              e.target.value = "";
+            }}
+          />
+
+          {/* Step 2: Loading */}
+          {scanning && (
+            <div className="py-12 flex flex-col items-center justify-center gap-3 text-center">
+              {imagePreview && (
+                <img src={imagePreview} alt="preview" className="max-h-48 rounded-md border opacity-70" />
+              )}
+              <Loader2 className="size-8 animate-spin text-primary" />
+              <p className="font-medium">الوكيل يقرأ الفاتورة الآن…</p>
+              <p className="text-sm text-muted-foreground">قد يستغرق ذلك بضع ثوان</p>
+            </div>
+          )}
+
+          {/* Step 3: Review extracted data */}
+          {extracted && !scanning && (
+            <div className="space-y-4 py-2">
+              <div className="flex items-center justify-between gap-3 p-3 rounded-md bg-primary/5 border border-primary/20">
+                <div className="flex items-center gap-2 text-sm">
+                  <CheckCircle2 className="size-4 text-green-600" />
+                  <span>تم الاستخراج بثقة</span>
+                  <span className="font-bold text-primary">{Math.round(extracted.confidence * 100)}%</span>
+                </div>
+                {imagePreview && (
+                  <a href={imagePreview} target="_blank" rel="noreferrer" className="text-xs text-primary underline">
+                    عرض الصورة الأصلية
+                  </a>
+                )}
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label>اسم المورد</Label>
+                  <Input
+                    value={extracted.supplierName}
+                    onChange={(e) => setExtracted({ ...extracted, supplierName: e.target.value })}
+                    data-testid="input-supplier-name"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>رقم الفاتورة</Label>
+                  <Input
+                    value={extracted.invoiceNumber}
+                    onChange={(e) => setExtracted({ ...extracted, invoiceNumber: e.target.value })}
+                    data-testid="input-invoice-number"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>تاريخ الفاتورة</Label>
+                  <Input
+                    type="date"
+                    value={extracted.invoiceDate ?? ""}
+                    onChange={(e) => setExtracted({ ...extracted, invoiceDate: e.target.value || null })}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>تاريخ الاستحقاق</Label>
+                  <Input
+                    type="date"
+                    value={extracted.dueDate ?? ""}
+                    onChange={(e) => setExtracted({ ...extracted, dueDate: e.target.value || null })}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label>البنود</Label>
+                  <Button type="button" size="sm" variant="outline" onClick={addItem} className="gap-1">
+                    <Plus className="size-3.5" /> إضافة بند
+                  </Button>
+                </div>
+                <div className="border rounded-md overflow-hidden">
+                  <Table>
+                    <TableHeader className="bg-muted/50">
+                      <TableRow>
+                        <TableHead>الوصف</TableHead>
+                        <TableHead className="w-20">الكمية</TableHead>
+                        <TableHead className="w-28">سعر الوحدة</TableHead>
+                        <TableHead className="w-28">الإجمالي</TableHead>
+                        <TableHead className="w-10"></TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {extracted.items.length === 0 && (
+                        <TableRow><TableCell colSpan={5} className="text-center text-sm text-muted-foreground py-6">لا توجد بنود</TableCell></TableRow>
+                      )}
+                      {extracted.items.map((it, idx) => (
+                        <TableRow key={idx}>
+                          <TableCell>
+                            <Input value={it.description} onChange={(e) => updateItem(idx, { description: e.target.value })} className="h-8" />
+                          </TableCell>
+                          <TableCell>
+                            <Input type="number" min={0} value={it.quantity} onChange={(e) => updateItem(idx, { quantity: Number(e.target.value) || 0 })} className="h-8" />
+                          </TableCell>
+                          <TableCell>
+                            <Input type="number" min={0} step="0.01" value={it.unitPrice} onChange={(e) => updateItem(idx, { unitPrice: Number(e.target.value) || 0 })} className="h-8" />
+                          </TableCell>
+                          <TableCell>
+                            <Input type="number" min={0} step="0.01" value={it.total} onChange={(e) => updateItem(idx, { total: Number(e.target.value) || 0 })} className="h-8" />
+                          </TableCell>
+                          <TableCell>
+                            <Button type="button" size="icon" variant="ghost" onClick={() => removeItem(idx)}>
+                              <Trash2 className="size-4 text-destructive" />
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3">
+                <div className="space-y-1.5">
+                  <Label>المجموع الفرعي</Label>
+                  <Input type="number" step="0.01" value={extracted.subtotal} onChange={(e) => setExtracted({ ...extracted, subtotal: Number(e.target.value) || 0 })} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>ضريبة القيمة المضافة</Label>
+                  <Input type="number" step="0.01" value={extracted.vat} onChange={(e) => setExtracted({ ...extracted, vat: Number(e.target.value) || 0 })} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>الإجمالي</Label>
+                  <Input type="number" step="0.01" value={extracted.total} onChange={(e) => setExtracted({ ...extracted, total: Number(e.target.value) || 0 })} data-testid="input-total" />
+                </div>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter className="flex-row gap-2 justify-between sm:justify-between">
+            <Button variant="ghost" onClick={() => { setScanOpen(false); resetScanner(); }} disabled={committing}>
+              إلغاء
+            </Button>
+            {extracted && !scanning && (
+              <Button onClick={handleCommit} disabled={committing} className="gap-2" data-testid="button-commit">
+                {committing ? <Loader2 className="size-4 animate-spin" /> : <CheckCircle2 className="size-4" />}
+                حفظ وإضافة للمخزون والمحاسبة
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

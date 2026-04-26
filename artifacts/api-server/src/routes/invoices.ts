@@ -1,8 +1,30 @@
-import { Router } from "express";
+import express, { Router } from "express";
+import { z, ZodError } from "zod";
+import rateLimit from "express-rate-limit";
 import QRCode from "qrcode";
-import { db, invoicesTable } from "@workspace/db";
-import { eq, sql, desc } from "drizzle-orm";
+import { db, invoicesTable, productsTable, journalEntriesTable, categoriesTable } from "@workspace/db";
+import { eq, sql, desc, ilike } from "drizzle-orm";
 import { CreateInvoiceBody, UpdateInvoiceBody } from "@workspace/api-zod";
+import { extractInvoiceFromImage, type ExtractedInvoice } from "../lib/invoice-extractor";
+import { requireRole } from "../middlewares/require-role";
+
+// Postgres unique-violation SQLSTATE.
+// Drizzle wraps pg errors and may surface the original on `.cause`,
+// while the message typically still contains the original error text.
+const PG_UNIQUE_VIOLATION = "23505";
+
+function isUniqueViolation(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const e = err as { code?: string; cause?: unknown; message?: string };
+  if (e.code === PG_UNIQUE_VIOLATION) return true;
+  if (e.cause && typeof e.cause === "object" && (e.cause as { code?: string }).code === PG_UNIQUE_VIOLATION) {
+    return true;
+  }
+  if (typeof e.message === "string" && /duplicate key value|unique constraint|invoices_invoice_number_unique/i.test(e.message)) {
+    return true;
+  }
+  return false;
+}
 
 const router = Router();
 
@@ -206,5 +228,280 @@ router.patch("/invoices/:id", async (req, res) => {
     return res.status(500).json({ error: "Internal server error" });
   }
 });
+
+// ============== AI Supplier-Invoice Scanner Agent ==============
+// Vision API calls are expensive — cap to 15 scans per IP per 15 minutes.
+const scanLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 15,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "تجاوزت الحد المسموح من عمليات المسح. حاول مجدداً بعد قليل." },
+});
+
+const MAX_IMAGE_BYTES = 15 * 1024 * 1024; // ~15mb cap on the base64 string itself
+
+const ScanBody = z.object({
+  image: z
+    .string()
+    .min(100)
+    .max(MAX_IMAGE_BYTES * 4 / 3) // base64 inflates ~33%
+    .refine(
+      (s) => /^data:image\/(png|jpe?g|webp|gif);base64,/i.test(s),
+      "نوع الصورة غير مدعوم. استخدم JPG أو PNG أو WEBP.",
+    ),
+});
+
+const supplierInvoiceAgent = requireRole("manager", "accountant");
+
+// Override default 1mb JSON limit on the scan route only (allow up to 20mb for image uploads).
+const largeJsonBody = express.json({ limit: "20mb" });
+
+router.post(
+  "/invoices/scan",
+  largeJsonBody,
+  supplierInvoiceAgent,
+  scanLimiter,
+  async (req, res) => {
+    try {
+      const { image } = ScanBody.parse(req.body);
+      const extracted = await extractInvoiceFromImage(image);
+      return res.json(extracted);
+    } catch (err) {
+      if (err instanceof ZodError) {
+        return res.status(400).json({ error: "بيانات الصورة غير صالحة.", details: err.issues });
+      }
+      const msg = err instanceof Error ? err.message : "فشل تحليل الفاتورة";
+      // Distinguish upstream-AI errors (502) from server errors (500).
+      const isUpstream =
+        msg.includes("OpenAI") ||
+        msg.includes("Vision") ||
+        msg.includes("الوكيل") ||
+        msg.includes("نوع الصورة");
+      const status = isUpstream ? 502 : 500;
+      req.log.error({ err }, "Invoice scan failed");
+      return res.status(status).json({ error: msg });
+    }
+  },
+);
+
+const CommitItem = z.object({
+  description: z.string().min(1),
+  quantity: z.coerce.number().min(0).default(1),
+  unitPrice: z.coerce.number().min(0).default(0),
+  total: z.coerce.number().min(0).default(0),
+  productId: z.coerce.number().int().nullable().optional(), // existing product to update
+});
+
+const CommitBody = z.object({
+  supplierName: z.string().min(1),
+  invoiceNumber: z.string().min(1),
+  invoiceDate: z.string().nullable().optional(),
+  dueDate: z.string().nullable().optional(),
+  subtotal: z.coerce.number().min(0).default(0),
+  vat: z.coerce.number().min(0).default(0),
+  total: z.coerce.number().min(0),
+  confidence: z.coerce.number().min(0).max(1).default(0.7),
+  items: z.array(CommitItem).default([]),
+  addToInventory: z.boolean().default(true),
+  postToAccounting: z.boolean().default(true),
+});
+
+router.post("/invoices/from-scan", supplierInvoiceAgent, async (req, res) => {
+  let body: z.infer<typeof CommitBody>;
+  try {
+    body = CommitBody.parse(req.body);
+  } catch (err) {
+    if (err instanceof ZodError) {
+      return res.status(400).json({ error: "بيانات الفاتورة غير صالحة.", details: err.issues });
+    }
+    return res.status(400).json({ error: "Bad request" });
+  }
+
+  // Validate optional ISO date strings up front for clear 400 errors.
+  for (const [field, val] of [["invoiceDate", body.invoiceDate], ["dueDate", body.dueDate]] as const) {
+    if (val && Number.isNaN(Date.parse(val))) {
+      return res.status(400).json({ error: `حقل ${field} غير صالح. استخدم صيغة YYYY-MM-DD.` });
+    }
+  }
+
+  try {
+    const result = await db.transaction(async (tx) => {
+      // 1) Insert the invoice header — DB unique constraint on invoice_number guards against races.
+      const [invoice] = await tx
+        .insert(invoicesTable)
+        .values({
+          invoiceNumber: body.invoiceNumber,
+          supplierName: body.supplierName,
+          amount: String(body.total),
+          status: body.confidence >= 0.85 ? "done" : "needs_review",
+          confidence: body.confidence,
+          dueDate: body.dueDate ? new Date(body.dueDate) : null,
+        })
+        .returning();
+      if (!invoice) throw new Error("Failed to create invoice");
+
+      const inventoryUpdates: Array<{
+        productId: number; productName: string; quantityAdded: number; matched: boolean;
+      }> = [];
+      const newProducts: Array<{ productId: number; name: string; quantityAdded: number }> = [];
+
+      // Resolve a default category id (get-or-create "غير مصنف") if we'll create new products.
+      let defaultCategoryId: number | null = null;
+      if (body.addToInventory && body.items.some((it) => !it.productId)) {
+        const [existingCat] = await tx
+          .select({ id: categoriesTable.id })
+          .from(categoriesTable)
+          .where(eq(categoriesTable.nameAr, "غير مصنف"))
+          .limit(1);
+        if (existingCat) {
+          defaultCategoryId = existingCat.id;
+        } else {
+          const [created] = await tx
+            .insert(categoriesTable)
+            .values({ name: "Uncategorized", nameAr: "غير مصنف" })
+            .returning({ id: categoriesTable.id });
+          defaultCategoryId = created?.id ?? null;
+        }
+      }
+
+      // 2) Inventory: match-or-create per line item.
+      if (body.addToInventory) {
+        let autoSeq = 0;
+        for (const item of body.items) {
+          if (item.quantity <= 0) continue;
+          let matchedId: number | null = item.productId ?? null;
+          let matchedName = item.description;
+
+          if (!matchedId) {
+            const [match] = await tx
+              .select({ id: productsTable.id, name: productsTable.nameAr })
+              .from(productsTable)
+              .where(ilike(productsTable.nameAr, `%${item.description.trim()}%`))
+              .limit(1);
+            if (match) {
+              matchedId = match.id;
+              matchedName = match.name;
+            }
+          }
+
+          if (matchedId) {
+            await tx
+              .update(productsTable)
+              .set({ stock: sql`${productsTable.stock} + ${Math.round(item.quantity)}` })
+              .where(eq(productsTable.id, matchedId));
+            inventoryUpdates.push({
+              productId: matchedId,
+              productName: matchedName,
+              quantityAdded: Math.round(item.quantity),
+              matched: true,
+            });
+          } else {
+            if (defaultCategoryId === null) continue;
+            autoSeq += 1;
+            const [created] = await tx
+              .insert(productsTable)
+              .values({
+                name: item.description,
+                nameAr: item.description,
+                sku: `AUTO-${invoice.id}-${autoSeq}`,
+                price: String((item.unitPrice * 1.3).toFixed(2)),
+                costPrice: String(item.unitPrice.toFixed(2)),
+                stock: Math.round(item.quantity),
+                minStock: 5,
+                categoryId: defaultCategoryId,
+                unit: "piece",
+              })
+              .returning({ id: productsTable.id });
+            if (created) {
+              newProducts.push({
+                productId: created.id,
+                name: item.description,
+                quantityAdded: Math.round(item.quantity),
+              });
+            }
+          }
+        }
+      }
+
+      // 3) Double-entry journal: Dr Inventory + Dr VAT-Inputs / Cr Suppliers.
+      const journalRefs: number[] = [];
+      if (body.postToAccounting && body.total > 0) {
+        const ref = `INV-${invoice.invoiceNumber}`;
+        const desc = `فاتورة مورد — ${body.supplierName}`;
+        const date = body.invoiceDate ? new Date(body.invoiceDate) : new Date();
+
+        const entries: Array<typeof journalEntriesTable.$inferInsert> = [];
+        if (body.subtotal > 0) {
+          entries.push({
+            description: `${desc} (مخزون)`,
+            debitAccount: "المخزون",
+            creditAccount: "الموردون",
+            amount: String(body.subtotal),
+            reference: ref,
+            isAutomatic: true,
+            date,
+          });
+        }
+        if (body.vat > 0) {
+          entries.push({
+            description: `${desc} (ضريبة القيمة المضافة)`,
+            debitAccount: "ضريبة القيمة المضافة - مدخلات",
+            creditAccount: "الموردون",
+            amount: String(body.vat),
+            reference: ref,
+            isAutomatic: true,
+            date,
+          });
+        }
+        if (entries.length === 0) {
+          entries.push({
+            description: desc,
+            debitAccount: "المخزون",
+            creditAccount: "الموردون",
+            amount: String(body.total),
+            reference: ref,
+            isAutomatic: true,
+            date,
+          });
+        }
+        // Bulk insert all journal lines in a single round-trip.
+        const inserted = await tx
+          .insert(journalEntriesTable)
+          .values(entries)
+          .returning({ id: journalEntriesTable.id });
+        journalRefs.push(...inserted.map((r) => r.id));
+      }
+
+      return {
+        invoice: {
+          id: invoice.id,
+          invoiceNumber: invoice.invoiceNumber,
+          supplierName: invoice.supplierName,
+          amount: Number(invoice.amount),
+          status: invoice.status,
+          confidence: invoice.confidence ?? 0,
+        },
+        inventoryUpdates,
+        newProducts,
+        journalEntryIds: journalRefs,
+      };
+    });
+
+    return res.json({ ok: true, ...result });
+  } catch (err) {
+    if (isUniqueViolation(err)) {
+      return res.status(409).json({
+        error: `الفاتورة رقم ${body.invoiceNumber} موجودة مسبقاً.`,
+      });
+    }
+    req.log.error({ err }, "Commit scanned invoice failed");
+    const msg = err instanceof Error ? err.message : "فشل حفظ الفاتورة";
+    return res.status(500).json({ error: msg });
+  }
+});
+
+// Hint to keep `ExtractedInvoice` type referenced in this file.
+export type _ExtractedInvoiceRef = ExtractedInvoice;
 
 export default router;
