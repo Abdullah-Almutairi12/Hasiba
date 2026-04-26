@@ -13,3 +13,4 @@ export * from "./hr";
 export * from "./projects";
 export * from "./marketing";
 export * from "./admin";
+export * from "./ai-models";

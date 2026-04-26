@@ -951,6 +951,205 @@ paths:
                 items:
                   $ref: "#/components/schemas/Announcement"
 
+
+  /ai/models:
+    get:
+      tags: [ai]
+      summary: List AI models
+      operationId: listAiModels
+      responses:
+        "200":
+          description: AI models
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AiModel"
+
+  /ai/models/{key}/train:
+    post:
+      tags: [ai]
+      summary: Train a single AI model on real DB data
+      operationId: trainAiModel
+      parameters:
+        - name: key
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Trained
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  accuracy: { type: number }
+                  trainingSize: { type: integer }
+                required: [ok]
+
+  /ai/models/train-all:
+    post:
+      tags: [ai]
+      summary: Retrain all AI models
+      operationId: trainAllAiModels
+      responses:
+        "200":
+          description: Results per model
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  results:
+                    type: object
+                    additionalProperties:
+                      type: object
+                      properties:
+                        ok: { type: boolean }
+                        accuracy: { type: number }
+                        error: { type: string }
+
+  /ai/predict/sales-forecast:
+    get:
+      tags: [ai]
+      summary: 7-day sales forecast
+      operationId: getSalesForecast
+      responses:
+        "200":
+          description: Forecast
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  forecast:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        date: { type: string }
+                        predicted: { type: number }
+                      required: [date, predicted]
+                required: [forecast]
+
+  /ai/predict/at-risk-customers:
+    get:
+      tags: [ai]
+      summary: Customers at risk of churn
+      operationId: getAtRiskCustomers
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer }
+      responses:
+        "200":
+          description: At-risk customers
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  customers:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        customerId: { type: integer }
+                        name: { type: string }
+                        riskScore: { type: number }
+                        daysSinceLastOrder: { type: integer }
+                        totalSpent: { type: number }
+                      required: [customerId, name, riskScore]
+
+  /ai/predict/fraud-anomalies:
+    get:
+      tags: [ai]
+      summary: Anomalous orders detected
+      operationId: getFraudAnomalies
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Anomalies
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  anomalies:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        orderId: { type: integer }
+                        amount: { type: number }
+                        zScore: { type: number }
+                        reason: { type: string }
+                        createdAt: { type: string }
+                      required: [orderId, amount, zScore]
+
+  /ai/predict/recommendations:
+    get:
+      tags: [ai]
+      summary: Top product recommendations from basket analysis
+      operationId: getProductRecommendations
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Recommendations
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  recommendations:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        productAId: { type: integer }
+                        productAName: { type: string }
+                        productBId: { type: integer }
+                        productBName: { type: string }
+                        lift: { type: number }
+                      required: [productAId, productBId]
+
+  /ai/assistant/ask:
+    post:
+      tags: [ai]
+      summary: Ask the AI assistant a question about your business
+      operationId: askAiAssistant
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                question: { type: string }
+              required: [question]
+      responses:
+        "200":
+          description: Answer
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  answer: { type: string }
+                  tokensUsed: { type: integer }
+                required: [answer]
 components:
   schemas:
     HealthStatus:
@@ -1864,3 +2063,19 @@ components:
         updatedAt:
           type: string
       required: [id, key, name, isEnabled, category, updatedAt]
+
+    AiModel:
+      type: object
+      properties:
+        id: { type: integer }
+        key: { type: string }
+        name: { type: string }
+        description: { type: string, nullable: true }
+        category: { type: string }
+        status: { type: string }
+        accuracy: { type: number }
+        trainingSize: { type: integer }
+        lastTrainedAt: { type: string, nullable: true }
+        lastError: { type: string, nullable: true }
+        updatedAt: { type: string }
+      required: [id, key, name, category, status, accuracy, trainingSize, updatedAt]

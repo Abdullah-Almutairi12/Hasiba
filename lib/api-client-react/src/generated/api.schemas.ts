@@ -528,6 +528,20 @@ export interface FeatureFlag {
   updatedAt: string;
 }
 
+export interface AiModel {
+  id: number;
+  key: string;
+  name: string;
+  description?: string | null;
+  category: string;
+  status: string;
+  accuracy: number;
+  trainingSize: number;
+  lastTrainedAt?: string | null;
+  lastError?: string | null;
+  updatedAt: string;
+}
+
 export type GetDashboardSalesChartParams = {
   period?: GetDashboardSalesChartPeriod;
 };
@@ -625,4 +639,88 @@ export type DeleteAnnouncement200 = {
 
 export type UpdateFeatureFlagBody = {
   isEnabled: boolean;
+};
+
+export type TrainAiModel200 = {
+  ok: boolean;
+  accuracy?: number;
+  trainingSize?: number;
+};
+
+export type TrainAllAiModels200Results = {
+  [key: string]: {
+    ok?: boolean;
+    accuracy?: number;
+    error?: string;
+  };
+};
+
+export type TrainAllAiModels200 = {
+  results?: TrainAllAiModels200Results;
+};
+
+export type GetSalesForecast200ForecastItem = {
+  date: string;
+  predicted: number;
+};
+
+export type GetSalesForecast200 = {
+  forecast: GetSalesForecast200ForecastItem[];
+};
+
+export type GetAtRiskCustomersParams = {
+  limit?: number;
+};
+
+export type GetAtRiskCustomers200CustomersItem = {
+  customerId: number;
+  name: string;
+  riskScore: number;
+  daysSinceLastOrder?: number;
+  totalSpent?: number;
+};
+
+export type GetAtRiskCustomers200 = {
+  customers?: GetAtRiskCustomers200CustomersItem[];
+};
+
+export type GetFraudAnomaliesParams = {
+  limit?: number;
+};
+
+export type GetFraudAnomalies200AnomaliesItem = {
+  orderId: number;
+  amount: number;
+  zScore: number;
+  reason?: string;
+  createdAt?: string;
+};
+
+export type GetFraudAnomalies200 = {
+  anomalies?: GetFraudAnomalies200AnomaliesItem[];
+};
+
+export type GetProductRecommendationsParams = {
+  limit?: number;
+};
+
+export type GetProductRecommendations200RecommendationsItem = {
+  productAId: number;
+  productAName?: string;
+  productBId: number;
+  productBName?: string;
+  lift?: number;
+};
+
+export type GetProductRecommendations200 = {
+  recommendations?: GetProductRecommendations200RecommendationsItem[];
+};
+
+export type AskAiAssistantBody = {
+  question: string;
+};
+
+export type AskAiAssistant200 = {
+  answer: string;
+  tokensUsed?: number;
 };

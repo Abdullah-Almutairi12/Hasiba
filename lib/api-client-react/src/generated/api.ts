@@ -20,9 +20,12 @@ import type {
   AccountingSummary,
   AdminStats,
   AdminSystemHealth,
+  AiModel,
   AiReportSummary,
   Alert,
   Announcement,
+  AskAiAssistant200,
+  AskAiAssistantBody,
   AuditLog,
   Branch,
   BranchPerformance,
@@ -43,7 +46,14 @@ import type {
   DeleteAnnouncement200,
   FeatureFlag,
   FraudAlert,
+  GetAtRiskCustomers200,
+  GetAtRiskCustomersParams,
   GetDashboardSalesChartParams,
+  GetFraudAnomalies200,
+  GetFraudAnomaliesParams,
+  GetProductRecommendations200,
+  GetProductRecommendationsParams,
+  GetSalesForecast200,
   GetSalesReportParams,
   HealthStatus,
   Invoice,
@@ -68,6 +78,8 @@ import type {
   SecurityChecklist,
   SupportTicket,
   TopProduct,
+  TrainAiModel200,
+  TrainAllAiModels200,
   UpdateFeatureFlagBody,
   UpdateInvoiceBody,
   UpdateProductBody,
@@ -4400,3 +4412,713 @@ export function useListActiveAnnouncements<
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
+
+/**
+ * @summary List AI models
+ */
+export const getListAiModelsUrl = () => {
+  return `/api/ai/models`;
+};
+
+export const listAiModels = async (
+  options?: RequestInit,
+): Promise<AiModel[]> => {
+  return customFetch<AiModel[]>(getListAiModelsUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListAiModelsQueryKey = () => {
+  return [`/api/ai/models`] as const;
+};
+
+export const getListAiModelsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listAiModels>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listAiModels>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListAiModelsQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof listAiModels>>> = ({
+    signal,
+  }) => listAiModels({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listAiModels>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListAiModelsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listAiModels>>
+>;
+export type ListAiModelsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List AI models
+ */
+
+export function useListAiModels<
+  TData = Awaited<ReturnType<typeof listAiModels>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listAiModels>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListAiModelsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Train a single AI model on real DB data
+ */
+export const getTrainAiModelUrl = (key: string) => {
+  return `/api/ai/models/${key}/train`;
+};
+
+export const trainAiModel = async (
+  key: string,
+  options?: RequestInit,
+): Promise<TrainAiModel200> => {
+  return customFetch<TrainAiModel200>(getTrainAiModelUrl(key), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getTrainAiModelMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof trainAiModel>>,
+    TError,
+    { key: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof trainAiModel>>,
+  TError,
+  { key: string },
+  TContext
+> => {
+  const mutationKey = ["trainAiModel"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof trainAiModel>>,
+    { key: string }
+  > = (props) => {
+    const { key } = props ?? {};
+
+    return trainAiModel(key, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type TrainAiModelMutationResult = NonNullable<
+  Awaited<ReturnType<typeof trainAiModel>>
+>;
+
+export type TrainAiModelMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Train a single AI model on real DB data
+ */
+export const useTrainAiModel = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof trainAiModel>>,
+    TError,
+    { key: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof trainAiModel>>,
+  TError,
+  { key: string },
+  TContext
+> => {
+  return useMutation(getTrainAiModelMutationOptions(options));
+};
+
+/**
+ * @summary Retrain all AI models
+ */
+export const getTrainAllAiModelsUrl = () => {
+  return `/api/ai/models/train-all`;
+};
+
+export const trainAllAiModels = async (
+  options?: RequestInit,
+): Promise<TrainAllAiModels200> => {
+  return customFetch<TrainAllAiModels200>(getTrainAllAiModelsUrl(), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getTrainAllAiModelsMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof trainAllAiModels>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof trainAllAiModels>>,
+  TError,
+  void,
+  TContext
+> => {
+  const mutationKey = ["trainAllAiModels"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof trainAllAiModels>>,
+    void
+  > = () => {
+    return trainAllAiModels(requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type TrainAllAiModelsMutationResult = NonNullable<
+  Awaited<ReturnType<typeof trainAllAiModels>>
+>;
+
+export type TrainAllAiModelsMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Retrain all AI models
+ */
+export const useTrainAllAiModels = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof trainAllAiModels>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof trainAllAiModels>>,
+  TError,
+  void,
+  TContext
+> => {
+  return useMutation(getTrainAllAiModelsMutationOptions(options));
+};
+
+/**
+ * @summary 7-day sales forecast
+ */
+export const getGetSalesForecastUrl = () => {
+  return `/api/ai/predict/sales-forecast`;
+};
+
+export const getSalesForecast = async (
+  options?: RequestInit,
+): Promise<GetSalesForecast200> => {
+  return customFetch<GetSalesForecast200>(getGetSalesForecastUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetSalesForecastQueryKey = () => {
+  return [`/api/ai/predict/sales-forecast`] as const;
+};
+
+export const getGetSalesForecastQueryOptions = <
+  TData = Awaited<ReturnType<typeof getSalesForecast>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getSalesForecast>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetSalesForecastQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getSalesForecast>>
+  > = ({ signal }) => getSalesForecast({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getSalesForecast>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetSalesForecastQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getSalesForecast>>
+>;
+export type GetSalesForecastQueryError = ErrorType<unknown>;
+
+/**
+ * @summary 7-day sales forecast
+ */
+
+export function useGetSalesForecast<
+  TData = Awaited<ReturnType<typeof getSalesForecast>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getSalesForecast>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetSalesForecastQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Customers at risk of churn
+ */
+export const getGetAtRiskCustomersUrl = (params?: GetAtRiskCustomersParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/ai/predict/at-risk-customers?${stringifiedParams}`
+    : `/api/ai/predict/at-risk-customers`;
+};
+
+export const getAtRiskCustomers = async (
+  params?: GetAtRiskCustomersParams,
+  options?: RequestInit,
+): Promise<GetAtRiskCustomers200> => {
+  return customFetch<GetAtRiskCustomers200>(getGetAtRiskCustomersUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetAtRiskCustomersQueryKey = (
+  params?: GetAtRiskCustomersParams,
+) => {
+  return [
+    `/api/ai/predict/at-risk-customers`,
+    ...(params ? [params] : []),
+  ] as const;
+};
+
+export const getGetAtRiskCustomersQueryOptions = <
+  TData = Awaited<ReturnType<typeof getAtRiskCustomers>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetAtRiskCustomersParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getAtRiskCustomers>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetAtRiskCustomersQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getAtRiskCustomers>>
+  > = ({ signal }) => getAtRiskCustomers(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getAtRiskCustomers>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetAtRiskCustomersQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getAtRiskCustomers>>
+>;
+export type GetAtRiskCustomersQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Customers at risk of churn
+ */
+
+export function useGetAtRiskCustomers<
+  TData = Awaited<ReturnType<typeof getAtRiskCustomers>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetAtRiskCustomersParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getAtRiskCustomers>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetAtRiskCustomersQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Anomalous orders detected
+ */
+export const getGetFraudAnomaliesUrl = (params?: GetFraudAnomaliesParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/ai/predict/fraud-anomalies?${stringifiedParams}`
+    : `/api/ai/predict/fraud-anomalies`;
+};
+
+export const getFraudAnomalies = async (
+  params?: GetFraudAnomaliesParams,
+  options?: RequestInit,
+): Promise<GetFraudAnomalies200> => {
+  return customFetch<GetFraudAnomalies200>(getGetFraudAnomaliesUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetFraudAnomaliesQueryKey = (
+  params?: GetFraudAnomaliesParams,
+) => {
+  return [
+    `/api/ai/predict/fraud-anomalies`,
+    ...(params ? [params] : []),
+  ] as const;
+};
+
+export const getGetFraudAnomaliesQueryOptions = <
+  TData = Awaited<ReturnType<typeof getFraudAnomalies>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetFraudAnomaliesParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getFraudAnomalies>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetFraudAnomaliesQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getFraudAnomalies>>
+  > = ({ signal }) => getFraudAnomalies(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getFraudAnomalies>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetFraudAnomaliesQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getFraudAnomalies>>
+>;
+export type GetFraudAnomaliesQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Anomalous orders detected
+ */
+
+export function useGetFraudAnomalies<
+  TData = Awaited<ReturnType<typeof getFraudAnomalies>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetFraudAnomaliesParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getFraudAnomalies>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetFraudAnomaliesQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Top product recommendations from basket analysis
+ */
+export const getGetProductRecommendationsUrl = (
+  params?: GetProductRecommendationsParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/ai/predict/recommendations?${stringifiedParams}`
+    : `/api/ai/predict/recommendations`;
+};
+
+export const getProductRecommendations = async (
+  params?: GetProductRecommendationsParams,
+  options?: RequestInit,
+): Promise<GetProductRecommendations200> => {
+  return customFetch<GetProductRecommendations200>(
+    getGetProductRecommendationsUrl(params),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetProductRecommendationsQueryKey = (
+  params?: GetProductRecommendationsParams,
+) => {
+  return [
+    `/api/ai/predict/recommendations`,
+    ...(params ? [params] : []),
+  ] as const;
+};
+
+export const getGetProductRecommendationsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getProductRecommendations>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetProductRecommendationsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getProductRecommendations>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetProductRecommendationsQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getProductRecommendations>>
+  > = ({ signal }) =>
+    getProductRecommendations(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getProductRecommendations>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetProductRecommendationsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getProductRecommendations>>
+>;
+export type GetProductRecommendationsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Top product recommendations from basket analysis
+ */
+
+export function useGetProductRecommendations<
+  TData = Awaited<ReturnType<typeof getProductRecommendations>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetProductRecommendationsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getProductRecommendations>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetProductRecommendationsQueryOptions(
+    params,
+    options,
+  );
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Ask the AI assistant a question about your business
+ */
+export const getAskAiAssistantUrl = () => {
+  return `/api/ai/assistant/ask`;
+};
+
+export const askAiAssistant = async (
+  askAiAssistantBody: AskAiAssistantBody,
+  options?: RequestInit,
+): Promise<AskAiAssistant200> => {
+  return customFetch<AskAiAssistant200>(getAskAiAssistantUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(askAiAssistantBody),
+  });
+};
+
+export const getAskAiAssistantMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof askAiAssistant>>,
+    TError,
+    { data: BodyType<AskAiAssistantBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof askAiAssistant>>,
+  TError,
+  { data: BodyType<AskAiAssistantBody> },
+  TContext
+> => {
+  const mutationKey = ["askAiAssistant"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof askAiAssistant>>,
+    { data: BodyType<AskAiAssistantBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return askAiAssistant(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type AskAiAssistantMutationResult = NonNullable<
+  Awaited<ReturnType<typeof askAiAssistant>>
+>;
+export type AskAiAssistantMutationBody = BodyType<AskAiAssistantBody>;
+export type AskAiAssistantMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Ask the AI assistant a question about your business
+ */
+export const useAskAiAssistant = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof askAiAssistant>>,
+    TError,
+    { data: BodyType<AskAiAssistantBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof askAiAssistant>>,
+  TError,
+  { data: BodyType<AskAiAssistantBody> },
+  TContext
+> => {
+  return useMutation(getAskAiAssistantMutationOptions(options));
+};

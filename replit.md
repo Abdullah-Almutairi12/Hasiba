@@ -76,6 +76,20 @@ Marketing: `campaigns`, `leads`
 - KPI grids in HR/Projects/Marketing collapse to 1 column below `sm` (`sm:grid-cols-2 lg:grid-cols-4`).
 - Login page: brand panel hidden below `lg`, form padding collapses, header buttons wrap.
 
+## AI Models (نماذج الذكاء الاصطناعي)
+
+Five models registered in `ai_models` table, exposed via `/api/ai/*`:
+
+1. **sales_forecast** — Linear regression on daily POS totals + EWMA smoothing → `/ai/predict/sales-forecast` returns next 7 days. Accuracy = (1 − MAPE).
+2. **customer_churn** — RFM scoring (Recency/Frequency/Monetary) → `/ai/predict/at-risk-customers`.
+3. **fraud_detection** — z-score on order value, item count, hour-of-day → `/ai/predict/fraud-anomalies`.
+4. **product_recommendations** — Basket lift analysis on `pos_orders.items` jsonb → `/ai/predict/recommendations`.
+5. **ai_assistant** — Natural-language chat using OpenAI `gpt-5-mini`. Pulls live business context (last-30-days sales, branches, products, customers, open invoices) into the system prompt. Endpoint: `POST /ai/assistant/ask` (manager-only, rate-limited 30 req/15min/IP).
+
+Model registry endpoints (manager-only): `GET /ai/models`, `POST /ai/models/:key/train`, `POST /ai/models/train-all`. Prediction endpoints require manager or accountant role. Training stores parameters in `ai_models.parameters` jsonb; predictions auto-train on first use if params are missing.
+
+OpenAI integration provisioned via Replit AI Integrations proxy (`AI_INTEGRATIONS_OPENAI_BASE_URL` + `AI_INTEGRATIONS_OPENAI_API_KEY`). Files: `lib/ai-models.ts`, `lib/ai-assistant.ts`, `lib/openai-client.ts`, `routes/ai.ts`. Admin UI exposes two tabs: "نماذج AI" (model cards + predictions panel) and "المساعد الذكي" (chat).
+
 ## Auth & Authorization
 
 - Session-based via `express-session` + `connect-pg-simple` (cookie name `hasba.sid`).

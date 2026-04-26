@@ -12,6 +12,14 @@ import {
   useListFeatureFlags,
   useUpdateFeatureFlag,
   useListAuditLogs,
+  useListAiModels,
+  useTrainAiModel,
+  useTrainAllAiModels,
+  useGetSalesForecast,
+  useGetAtRiskCustomers,
+  useGetFraudAnomalies,
+  useGetProductRecommendations,
+  useAskAiAssistant,
 } from "@workspace/api-client-react";
 import type { SupportTicket } from "@workspace/api-client-react";
 import { useAuth } from "@/hooks/use-auth";
@@ -766,6 +774,357 @@ function FeatureFlagsTab() {
   );
 }
 
+function AiModelsTab() {
+  const { data: models, refetch, isLoading } = useListAiModels();
+  const trainMut = useTrainAiModel();
+  const trainAllMut = useTrainAllAiModels();
+  const { toast } = useToast();
+
+  const handleTrain = async (key: string, name: string) => {
+    try {
+      const r = await trainMut.mutateAsync({ key });
+      toast({
+        title: `تم تدريب نموذج "${name}"`,
+        description: `الدقة: ${(((r as { accuracy?: number }).accuracy ?? 0) * 100).toFixed(1)}% • العينات: ${(r as { trainingSize?: number }).trainingSize ?? 0}`,
+      });
+      refetch();
+    } catch (err) {
+      toast({
+        title: "فشل التدريب",
+        description: err instanceof Error ? err.message : "خطأ غير معروف",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleTrainAll = async () => {
+    try {
+      await trainAllMut.mutateAsync();
+      toast({ title: "اكتمل تدريب جميع النماذج" });
+      refetch();
+    } catch (err) {
+      toast({
+        title: "فشل التدريب الجماعي",
+        description: err instanceof Error ? err.message : "خطأ",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const categoryLabels: Record<string, string> = {
+    forecasting: "التنبؤ",
+    customer: "العملاء",
+    fraud: "كشف الاحتيال",
+    recommendation: "التوصيات",
+    assistant: "المساعد الذكي",
+  };
+
+  const statusBadge = (status: string) => {
+    if (status === "ready")
+      return <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-400">جاهز</Badge>;
+    if (status === "training")
+      return <Badge className="bg-blue-500/15 text-blue-700 dark:text-blue-400">قيد التدريب</Badge>;
+    if (status === "error")
+      return <Badge className="bg-red-500/15 text-red-700 dark:text-red-400">خطأ</Badge>;
+    return <Badge variant="outline">غير مدرب</Badge>;
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-lg font-bold">نماذج الذكاء الاصطناعي</h2>
+          <p className="text-sm text-muted-foreground">
+            5 نماذج مدربة على بيانات أعمالك الفعلية: تنبؤ المبيعات، تصنيف العملاء، كشف الاحتيال، التوصيات، والمساعد الذكي.
+          </p>
+        </div>
+        <Button onClick={handleTrainAll} disabled={trainAllMut.isPending} data-testid="btn-train-all">
+          {trainAllMut.isPending ? (
+            <Loader2 className="me-2 size-4 animate-spin" />
+          ) : (
+            <Cpu className="me-2 size-4" />
+          )}
+          تدريب جميع النماذج
+        </Button>
+      </div>
+
+      {isLoading && <p className="text-sm text-muted-foreground">جارِ التحميل...</p>}
+
+      <div className="grid gap-4 md:grid-cols-2">
+        {(models ?? []).map((m) => {
+          const accPct = ((m.accuracy ?? 0) * 100).toFixed(1);
+          const trained = m.lastTrainedAt
+            ? new Date(m.lastTrainedAt).toLocaleString("ar-SA", { dateStyle: "short", timeStyle: "short" })
+            : "—";
+          return (
+            <Card key={m.id} data-testid={`ai-model-${m.key}`}>
+              <CardHeader>
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      <Sparkles className="size-4 text-primary" />
+                      {m.name}
+                    </CardTitle>
+                    {m.description && (
+                      <CardDescription className="mt-1">{m.description}</CardDescription>
+                    )}
+                  </div>
+                  {statusBadge(m.status)}
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="grid grid-cols-3 gap-2 rounded-lg border bg-muted/30 p-3 text-center text-xs">
+                  <div>
+                    <div className="text-muted-foreground">الدقة</div>
+                    <div className="mt-0.5 text-base font-bold text-primary">{accPct}%</div>
+                  </div>
+                  <div>
+                    <div className="text-muted-foreground">حجم التدريب</div>
+                    <div className="mt-0.5 text-base font-bold">{m.trainingSize ?? 0}</div>
+                  </div>
+                  <div>
+                    <div className="text-muted-foreground">الفئة</div>
+                    <div className="mt-0.5 text-xs font-medium">{categoryLabels[m.category] ?? m.category}</div>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between text-xs text-muted-foreground">
+                  <span className="flex items-center gap-1">
+                    <Database className="size-3" />
+                    آخر تدريب: {trained}
+                  </span>
+                </div>
+                {m.lastError && (
+                  <p className="rounded bg-red-500/10 p-2 text-xs text-red-700 dark:text-red-400">
+                    {m.lastError}
+                  </p>
+                )}
+                <Button
+                  variant="outline"
+                  className="w-full"
+                  onClick={() => handleTrain(m.key, m.name)}
+                  disabled={trainMut.isPending}
+                  data-testid={`btn-train-${m.key}`}
+                >
+                  {trainMut.isPending ? (
+                    <Loader2 className="me-2 size-4 animate-spin" />
+                  ) : (
+                    <Cpu className="me-2 size-4" />
+                  )}
+                  إعادة التدريب
+                </Button>
+              </CardContent>
+            </Card>
+          );
+        })}
+      </div>
+
+      <AiPredictionsPanel />
+    </div>
+  );
+}
+
+function AiPredictionsPanel() {
+  const { data: forecast } = useGetSalesForecast();
+  const { data: atRisk } = useGetAtRiskCustomers({ limit: 5 });
+  const { data: anomalies } = useGetFraudAnomalies({ limit: 5 });
+  const { data: recs } = useGetProductRecommendations({ limit: 5 });
+
+  const fc = forecast?.forecast ?? [];
+  const totalForecast = fc.reduce((s, d) => s + Number(d.predicted), 0);
+
+  return (
+    <div className="grid gap-4 md:grid-cols-2">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">توقع المبيعات (7 أيام)</CardTitle>
+          <CardDescription>إجمالي متوقع: {totalForecast.toLocaleString("ar-SA")} ر.س</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-1 text-sm">
+            {fc.length === 0 && <p className="text-muted-foreground">لا تتوفر توقعات. درّب نموذج توقع المبيعات أولاً.</p>}
+            {fc.map((d) => (
+              <div key={d.date} className="flex items-center justify-between border-b py-1 last:border-0">
+                <span className="text-muted-foreground">{new Date(d.date).toLocaleDateString("ar-SA", { weekday: "short", day: "numeric", month: "short" })}</span>
+                <span className="font-mono font-semibold">{Number(d.predicted).toLocaleString("ar-SA")} ر.س</span>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">عملاء معرضون لخطر الانقطاع</CardTitle>
+          <CardDescription>أعلى 5 عملاء بحاجة لمتابعة</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-2 text-sm">
+            {(atRisk?.customers ?? []).length === 0 && (
+              <p className="text-muted-foreground">لا توجد بيانات. درّب نموذج تصنيف العملاء أولاً.</p>
+            )}
+            {(atRisk?.customers ?? []).map((c) => (
+              <div key={c.customerId} className="flex items-center justify-between rounded border p-2">
+                <span className="font-medium">{c.name}</span>
+                <Badge variant="outline" className="text-amber-700 dark:text-amber-400">
+                  خطر {(Number(c.riskScore) * 100).toFixed(0)}%
+                </Badge>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">طلبات مشبوهة</CardTitle>
+          <CardDescription>تنبيهات من نموذج كشف الاحتيال</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-2 text-sm">
+            {(anomalies?.anomalies ?? []).length === 0 && (
+              <p className="text-muted-foreground">لا توجد طلبات مشبوهة.</p>
+            )}
+            {(anomalies?.anomalies ?? []).map((a) => (
+              <div key={a.orderId} className="flex items-center justify-between rounded border p-2">
+                <div>
+                  <div className="font-medium">طلب #{a.orderId}</div>
+                  <div className="text-xs text-muted-foreground">{a.reason}</div>
+                </div>
+                <span className="font-mono text-amber-700 dark:text-amber-400">{Number(a.amount).toFixed(2)} ر.س</span>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">توصيات منتجات</CardTitle>
+          <CardDescription>منتجات يُشترى معاً (تحليل السلة)</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-2 text-sm">
+            {(recs?.recommendations ?? []).length === 0 && (
+              <p className="text-muted-foreground">لا توجد توصيات. درّب نموذج التوصيات أولاً.</p>
+            )}
+            {(recs?.recommendations ?? []).map((r, i) => (
+              <div key={i} className="rounded border p-2">
+                <div className="font-medium">
+                  {r.productAName} ↔ {r.productBName}
+                </div>
+                <div className="text-xs text-muted-foreground">قوة الارتباط: ×{Number(r.lift).toFixed(2)}</div>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function AssistantTab() {
+  const [question, setQuestion] = useState("");
+  const [history, setHistory] = useState<{ q: string; a: string }[]>([]);
+  const askMut = useAskAiAssistant();
+  const { toast } = useToast();
+
+  const handleAsk = async () => {
+    if (question.trim().length < 2) return;
+    const q = question.trim();
+    setQuestion("");
+    try {
+      const res = await askMut.mutateAsync({ data: { question: q } });
+      setHistory((h) => [...h, { q, a: res.answer }]);
+    } catch (err) {
+      toast({
+        title: "فشل المساعد الذكي",
+        description: err instanceof Error ? err.message : "خطأ",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const examples = [
+    "ما هي أهم 3 توصيات لزيادة المبيعات هذا الأسبوع؟",
+    "كيف أداء فروعي خلال الشهر الماضي؟",
+    "ما المنتجات التي يجب إعادة تخزينها قريباً؟",
+  ];
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Sparkles className="size-5 text-primary" />
+          المساعد الذكي
+        </CardTitle>
+        <CardDescription>
+          اسأل أي سؤال عن أعمالك. المساعد يحلل بياناتك الفعلية ويعطيك إجابات فورية.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="max-h-96 space-y-3 overflow-y-auto rounded-lg border bg-muted/20 p-3">
+          {history.length === 0 && (
+            <div className="space-y-2 py-8 text-center">
+              <Sparkles className="mx-auto size-8 text-primary/40" />
+              <p className="text-sm text-muted-foreground">ابدأ المحادثة. جرّب أحد الأمثلة:</p>
+              <div className="flex flex-wrap justify-center gap-2 pt-2">
+                {examples.map((ex) => (
+                  <button
+                    key={ex}
+                    onClick={() => setQuestion(ex)}
+                    className="rounded-full border bg-background px-3 py-1 text-xs hover:bg-muted"
+                    data-testid={`example-${examples.indexOf(ex)}`}
+                  >
+                    {ex}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          {history.map((m, i) => (
+            <div key={i} className="space-y-2">
+              <div className="flex justify-end">
+                <div className="max-w-[80%] rounded-lg bg-primary px-3 py-2 text-sm text-primary-foreground">
+                  {m.q}
+                </div>
+              </div>
+              <div className="flex justify-start">
+                <div className="max-w-[80%] whitespace-pre-wrap rounded-lg bg-background px-3 py-2 text-sm">
+                  {m.a}
+                </div>
+              </div>
+            </div>
+          ))}
+          {askMut.isPending && (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="size-4 animate-spin" />
+              يفكر المساعد...
+            </div>
+          )}
+        </div>
+        <div className="flex gap-2">
+          <Input
+            value={question}
+            onChange={(e) => setQuestion(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                handleAsk();
+              }
+            }}
+            placeholder="اكتب سؤالك..."
+            disabled={askMut.isPending}
+            data-testid="input-assistant-question"
+          />
+          <Button onClick={handleAsk} disabled={askMut.isPending || question.trim().length < 2} data-testid="btn-ask">
+            <Send className="size-4" />
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 function AuditTab() {
   const { data: logs } = useListAuditLogs({ limit: 50 });
   return (
@@ -851,6 +1210,14 @@ export default function AdminPage() {
             <ToggleRight className="me-2 size-4" />
             الميزات
           </TabsTrigger>
+          <TabsTrigger value="ai" data-testid="tab-ai">
+            <Cpu className="me-2 size-4" />
+            نماذج AI
+          </TabsTrigger>
+          <TabsTrigger value="assistant" data-testid="tab-assistant">
+            <Sparkles className="me-2 size-4" />
+            المساعد الذكي
+          </TabsTrigger>
           <TabsTrigger value="audit" data-testid="tab-audit">
             <History className="me-2 size-4" />
             السجلات
@@ -861,6 +1228,8 @@ export default function AdminPage() {
         <TabsContent value="tickets"><TicketsTab /></TabsContent>
         <TabsContent value="announcements"><AnnouncementsTab /></TabsContent>
         <TabsContent value="features"><FeatureFlagsTab /></TabsContent>
+        <TabsContent value="ai"><AiModelsTab /></TabsContent>
+        <TabsContent value="assistant"><AssistantTab /></TabsContent>
         <TabsContent value="audit"><AuditTab /></TabsContent>
       </Tabs>
       {/* hint icon used for tone palette */}

@@ -861,3 +861,137 @@ export const ListActiveAnnouncementsResponseItem = zod.object({
 export const ListActiveAnnouncementsResponse = zod.array(
   ListActiveAnnouncementsResponseItem,
 );
+
+/**
+ * @summary List AI models
+ */
+export const ListAiModelsResponseItem = zod.object({
+  id: zod.number(),
+  key: zod.string(),
+  name: zod.string(),
+  description: zod.string().nullish(),
+  category: zod.string(),
+  status: zod.string(),
+  accuracy: zod.number(),
+  trainingSize: zod.number(),
+  lastTrainedAt: zod.string().nullish(),
+  lastError: zod.string().nullish(),
+  updatedAt: zod.string(),
+});
+export const ListAiModelsResponse = zod.array(ListAiModelsResponseItem);
+
+/**
+ * @summary Train a single AI model on real DB data
+ */
+export const TrainAiModelParams = zod.object({
+  key: zod.coerce.string(),
+});
+
+export const TrainAiModelResponse = zod.object({
+  ok: zod.boolean(),
+  accuracy: zod.number().optional(),
+  trainingSize: zod.number().optional(),
+});
+
+/**
+ * @summary Retrain all AI models
+ */
+export const TrainAllAiModelsResponse = zod.object({
+  results: zod
+    .record(
+      zod.string(),
+      zod.object({
+        ok: zod.boolean().optional(),
+        accuracy: zod.number().optional(),
+        error: zod.string().optional(),
+      }),
+    )
+    .optional(),
+});
+
+/**
+ * @summary 7-day sales forecast
+ */
+export const GetSalesForecastResponse = zod.object({
+  forecast: zod.array(
+    zod.object({
+      date: zod.string(),
+      predicted: zod.number(),
+    }),
+  ),
+});
+
+/**
+ * @summary Customers at risk of churn
+ */
+export const GetAtRiskCustomersQueryParams = zod.object({
+  limit: zod.coerce.number().optional(),
+});
+
+export const GetAtRiskCustomersResponse = zod.object({
+  customers: zod
+    .array(
+      zod.object({
+        customerId: zod.number(),
+        name: zod.string(),
+        riskScore: zod.number(),
+        daysSinceLastOrder: zod.number().optional(),
+        totalSpent: zod.number().optional(),
+      }),
+    )
+    .optional(),
+});
+
+/**
+ * @summary Anomalous orders detected
+ */
+export const GetFraudAnomaliesQueryParams = zod.object({
+  limit: zod.coerce.number().optional(),
+});
+
+export const GetFraudAnomaliesResponse = zod.object({
+  anomalies: zod
+    .array(
+      zod.object({
+        orderId: zod.number(),
+        amount: zod.number(),
+        zScore: zod.number(),
+        reason: zod.string().optional(),
+        createdAt: zod.string().optional(),
+      }),
+    )
+    .optional(),
+});
+
+/**
+ * @summary Top product recommendations from basket analysis
+ */
+export const GetProductRecommendationsQueryParams = zod.object({
+  limit: zod.coerce.number().optional(),
+});
+
+export const GetProductRecommendationsResponse = zod.object({
+  recommendations: zod
+    .array(
+      zod.object({
+        productAId: zod.number(),
+        productAName: zod.string().optional(),
+        productBId: zod.number(),
+        productBName: zod.string().optional(),
+        lift: zod.number().optional(),
+      }),
+    )
+    .optional(),
+});
+
+/**
+ * @summary Ask the AI assistant a question about your business
+ */
+export const AskAiAssistantBody = zod.object({
+  question: zod.string(),
+});
+
+export const AskAiAssistantResponse = zod.object({
+  answer: zod.string(),
+  tokensUsed: zod.number().optional(),
+});
