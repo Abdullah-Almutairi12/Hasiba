@@ -11,6 +11,13 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
+import {
   ResponsiveContainer,
   AreaChart,
   Area,
@@ -55,6 +62,65 @@ const fmtSAR = (v: number) =>
     style: "decimal",
     maximumFractionDigits: 0,
   }).format(v);
+
+/**
+ * Header dropdown that triggers a file download for the selected report+format.
+ * Uses an <a download> click rather than fetch+blob so the browser handles auth cookies
+ * and saves the file to disk natively.
+ */
+function ExportMenu() {
+  const base = (import.meta.env.BASE_URL || "/").replace(/\/$/, "") + "/api";
+  const reports: Array<{ key: string; label: string }> = [
+    { key: "sales", label: "المبيعات (آخر 30 يوم)" },
+    { key: "products", label: "المنتجات والمخزون" },
+    { key: "invoices", label: "فواتير الموردين" },
+    { key: "suppliers", label: "الموردين" },
+    { key: "journal", label: "دفتر اليومية" },
+  ];
+  function download(reportKey: string, ext: "xlsx" | "pdf") {
+    // Open in a new tab so the download starts but the page stays in place.
+    window.open(`${base}/exports/${reportKey}.${ext}`, "_blank", "noopener");
+  }
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="outline"
+          className="h-9 gap-2 border-neutral-200 bg-white text-sm font-medium text-neutral-700 shadow-sm hover:bg-neutral-50"
+          data-testid="button-export-menu"
+        >
+          <FileDown className="size-4 text-neutral-400" />
+          <span>تصدير</span>
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-72">
+        <DropdownMenuLabel>اختر التقرير والصيغة</DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        {reports.map((r) => (
+          <div key={r.key} className="px-1">
+            <div className="px-2 pt-2 pb-1 text-[11px] font-semibold text-neutral-500">{r.label}</div>
+            <div className="grid grid-cols-2 gap-1 px-1 pb-1">
+              <button
+                onClick={() => download(r.key, "xlsx")}
+                className="flex items-center justify-center gap-1.5 rounded-md border border-neutral-200 px-2 py-1.5 text-xs font-medium text-neutral-700 hover:bg-blue-50 hover:text-[#1D4ED8]"
+                data-testid={`button-export-${r.key}-xlsx`}
+              >
+                <FileDown className="size-3" /> Excel
+              </button>
+              <button
+                onClick={() => download(r.key, "pdf")}
+                className="flex items-center justify-center gap-1.5 rounded-md border border-neutral-200 px-2 py-1.5 text-xs font-medium text-neutral-700 hover:bg-blue-50 hover:text-[#1D4ED8]"
+                data-testid={`button-export-${r.key}-pdf`}
+              >
+                <FileDown className="size-3" /> PDF
+              </button>
+            </div>
+          </div>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
 
 function severityBadgeClass(severity: string) {
   if (severity === "critical")
@@ -139,13 +205,8 @@ export default function Reports() {
 
           <div className="mx-1 h-6 w-px bg-neutral-200" />
 
-          <Button
-            variant="outline"
-            className="h-9 gap-2 border-neutral-200 bg-white text-sm font-medium text-neutral-700 shadow-sm hover:bg-neutral-50"
-          >
-            <FileDown className="size-4 text-neutral-400" />
-            <span>تصدير تقرير VAT</span>
-          </Button>
+          <ExportMenu />
+
 
           <Button className="grid size-9 place-items-center rounded-lg bg-[#2563EB] p-0 text-white shadow hover:bg-[#1D4ED8]">
             <CalendarPlus className="size-4" />

@@ -542,6 +542,27 @@ export interface AiModel {
   updatedAt: string;
 }
 
+export interface Supplier {
+  id: number;
+  name: string;
+  vatNumber?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  address?: string | null;
+  balance: number;
+  notes?: string | null;
+  createdAt: string;
+}
+
+export interface CreateSupplierBody {
+  name: string;
+  vatNumber?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  address?: string | null;
+  notes?: string | null;
+}
+
 export type GetDashboardSalesChartParams = {
   period?: GetDashboardSalesChartPeriod;
 };
@@ -723,4 +744,9 @@ export type AskAiAssistantBody = {
 export type AskAiAssistant200 = {
   answer: string;
   tokensUsed?: number;
+};
+
+export type GetSupplier200 = {
+  supplier: Supplier;
+  recentInvoices: Invoice[];
 };

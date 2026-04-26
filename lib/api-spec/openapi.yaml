@@ -1150,6 +1150,109 @@ paths:
                   answer: { type: string }
                   tokensUsed: { type: integer }
                 required: [answer]
+
+  # Suppliers
+  /suppliers:
+    get:
+      operationId: listSuppliers
+      tags: [suppliers]
+      summary: List suppliers
+      responses:
+        "200":
+          description: Suppliers list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Supplier"
+    post:
+      operationId: createSupplier
+      tags: [suppliers]
+      summary: Create supplier
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSupplierBody"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Supplier"
+
+  /suppliers/{id}:
+    get:
+      operationId: getSupplier
+      tags: [suppliers]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Supplier detail with recent invoices
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  supplier:
+                    $ref: "#/components/schemas/Supplier"
+                  recentInvoices:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Invoice"
+                required: [supplier, recentInvoices]
+
+  # Exports (binary downloads)
+  /exports/{type}.xlsx:
+    get:
+      operationId: exportXlsx
+      tags: [exports]
+      summary: Download a report as an Excel workbook
+      parameters:
+        - name: type
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [sales, products, invoices, suppliers, journal]
+      responses:
+        "200":
+          description: Excel file
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+
+  /exports/{type}.pdf:
+    get:
+      operationId: exportPdf
+      tags: [exports]
+      summary: Download a report as a PDF
+      parameters:
+        - name: type
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [sales, products, invoices, suppliers, journal]
+      responses:
+        "200":
+          description: PDF file
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+
 components:
   schemas:
     HealthStatus:
@@ -2079,3 +2182,28 @@ components:
         lastError: { type: string, nullable: true }
         updatedAt: { type: string }
       required: [id, key, name, category, status, accuracy, trainingSize, updatedAt]
+
+    Supplier:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        vatNumber: { type: string, nullable: true }
+        email: { type: string, nullable: true }
+        phone: { type: string, nullable: true }
+        address: { type: string, nullable: true }
+        balance: { type: number }
+        notes: { type: string, nullable: true }
+        createdAt: { type: string }
+      required: [id, name, balance, createdAt]
+
+    CreateSupplierBody:
+      type: object
+      properties:
+        name: { type: string }
+        vatNumber: { type: string, nullable: true }
+        email: { type: string, nullable: true }
+        phone: { type: string, nullable: true }
+        address: { type: string, nullable: true }
+        notes: { type: string, nullable: true }
+      required: [name]

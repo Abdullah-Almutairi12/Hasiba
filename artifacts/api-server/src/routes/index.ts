@@ -17,6 +17,9 @@ import projectsRouter from "./projects";
 import marketingRouter from "./marketing";
 import adminRouter from "./admin";
 import aiRouter from "./ai";
+import suppliersRouter from "./suppliers";
+import storageRouter from "./storage";
+import exportsRouter from "./exports";
 import { requireAuth } from "../middlewares/require-auth";
 
 const router: IRouter = Router();
@@ -44,5 +47,8 @@ router.use(projectsRouter);
 router.use(marketingRouter);
 router.use(adminRouter);
 router.use(aiRouter);
+router.use(suppliersRouter);
+router.use(storageRouter);
+router.use(exportsRouter);
 
 export default router;

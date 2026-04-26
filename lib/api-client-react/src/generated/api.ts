@@ -38,6 +38,7 @@ import type {
   CreatePosOrderBody,
   CreatePosSessionBody,
   CreateProductBody,
+  CreateSupplierBody,
   CreateSupportTicketBody,
   CreateUserBody,
   CreateWarehouseBody,
@@ -55,6 +56,7 @@ import type {
   GetProductRecommendationsParams,
   GetSalesForecast200,
   GetSalesReportParams,
+  GetSupplier200,
   HealthStatus,
   Invoice,
   InvoiceStats,
@@ -76,6 +78,7 @@ import type {
   SalesChartPoint,
   SalesReport,
   SecurityChecklist,
+  Supplier,
   SupportTicket,
   TopProduct,
   TrainAiModel200,
@@ -5122,3 +5125,424 @@ export const useAskAiAssistant = <
 > => {
   return useMutation(getAskAiAssistantMutationOptions(options));
 };
+
+/**
+ * @summary List suppliers
+ */
+export const getListSuppliersUrl = () => {
+  return `/api/suppliers`;
+};
+
+export const listSuppliers = async (
+  options?: RequestInit,
+): Promise<Supplier[]> => {
+  return customFetch<Supplier[]>(getListSuppliersUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListSuppliersQueryKey = () => {
+  return [`/api/suppliers`] as const;
+};
+
+export const getListSuppliersQueryOptions = <
+  TData = Awaited<ReturnType<typeof listSuppliers>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listSuppliers>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListSuppliersQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof listSuppliers>>> = ({
+    signal,
+  }) => listSuppliers({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listSuppliers>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListSuppliersQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listSuppliers>>
+>;
+export type ListSuppliersQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List suppliers
+ */
+
+export function useListSuppliers<
+  TData = Awaited<ReturnType<typeof listSuppliers>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listSuppliers>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListSuppliersQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Create supplier
+ */
+export const getCreateSupplierUrl = () => {
+  return `/api/suppliers`;
+};
+
+export const createSupplier = async (
+  createSupplierBody: CreateSupplierBody,
+  options?: RequestInit,
+): Promise<Supplier> => {
+  return customFetch<Supplier>(getCreateSupplierUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(createSupplierBody),
+  });
+};
+
+export const getCreateSupplierMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createSupplier>>,
+    TError,
+    { data: BodyType<CreateSupplierBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof createSupplier>>,
+  TError,
+  { data: BodyType<CreateSupplierBody> },
+  TContext
+> => {
+  const mutationKey = ["createSupplier"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof createSupplier>>,
+    { data: BodyType<CreateSupplierBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return createSupplier(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CreateSupplierMutationResult = NonNullable<
+  Awaited<ReturnType<typeof createSupplier>>
+>;
+export type CreateSupplierMutationBody = BodyType<CreateSupplierBody>;
+export type CreateSupplierMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Create supplier
+ */
+export const useCreateSupplier = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createSupplier>>,
+    TError,
+    { data: BodyType<CreateSupplierBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof createSupplier>>,
+  TError,
+  { data: BodyType<CreateSupplierBody> },
+  TContext
+> => {
+  return useMutation(getCreateSupplierMutationOptions(options));
+};
+
+export const getGetSupplierUrl = (id: number) => {
+  return `/api/suppliers/${id}`;
+};
+
+export const getSupplier = async (
+  id: number,
+  options?: RequestInit,
+): Promise<GetSupplier200> => {
+  return customFetch<GetSupplier200>(getGetSupplierUrl(id), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetSupplierQueryKey = (id: number) => {
+  return [`/api/suppliers/${id}`] as const;
+};
+
+export const getGetSupplierQueryOptions = <
+  TData = Awaited<ReturnType<typeof getSupplier>>,
+  TError = ErrorType<unknown>,
+>(
+  id: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getSupplier>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetSupplierQueryKey(id);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getSupplier>>> = ({
+    signal,
+  }) => getSupplier(id, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getSupplier>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetSupplierQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getSupplier>>
+>;
+export type GetSupplierQueryError = ErrorType<unknown>;
+
+export function useGetSupplier<
+  TData = Awaited<ReturnType<typeof getSupplier>>,
+  TError = ErrorType<unknown>,
+>(
+  id: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getSupplier>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetSupplierQueryOptions(id, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Download a report as an Excel workbook
+ */
+export const getExportXlsxUrl = (
+  type: "sales" | "products" | "invoices" | "suppliers" | "journal",
+) => {
+  return `/api/exports/${type}.xlsx`;
+};
+
+export const exportXlsx = async (
+  type: "sales" | "products" | "invoices" | "suppliers" | "journal",
+  options?: RequestInit,
+): Promise<Blob> => {
+  return customFetch<Blob>(getExportXlsxUrl(type), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getExportXlsxQueryKey = (
+  type: "sales" | "products" | "invoices" | "suppliers" | "journal",
+) => {
+  return [`/api/exports/${type}.xlsx`] as const;
+};
+
+export const getExportXlsxQueryOptions = <
+  TData = Awaited<ReturnType<typeof exportXlsx>>,
+  TError = ErrorType<unknown>,
+>(
+  type: "sales" | "products" | "invoices" | "suppliers" | "journal",
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof exportXlsx>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getExportXlsxQueryKey(type);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof exportXlsx>>> = ({
+    signal,
+  }) => exportXlsx(type, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!type,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof exportXlsx>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ExportXlsxQueryResult = NonNullable<
+  Awaited<ReturnType<typeof exportXlsx>>
+>;
+export type ExportXlsxQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Download a report as an Excel workbook
+ */
+
+export function useExportXlsx<
+  TData = Awaited<ReturnType<typeof exportXlsx>>,
+  TError = ErrorType<unknown>,
+>(
+  type: "sales" | "products" | "invoices" | "suppliers" | "journal",
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof exportXlsx>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getExportXlsxQueryOptions(type, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Download a report as a PDF
+ */
+export const getExportPdfUrl = (
+  type: "sales" | "products" | "invoices" | "suppliers" | "journal",
+) => {
+  return `/api/exports/${type}.pdf`;
+};
+
+export const exportPdf = async (
+  type: "sales" | "products" | "invoices" | "suppliers" | "journal",
+  options?: RequestInit,
+): Promise<Blob> => {
+  return customFetch<Blob>(getExportPdfUrl(type), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getExportPdfQueryKey = (
+  type: "sales" | "products" | "invoices" | "suppliers" | "journal",
+) => {
+  return [`/api/exports/${type}.pdf`] as const;
+};
+
+export const getExportPdfQueryOptions = <
+  TData = Awaited<ReturnType<typeof exportPdf>>,
+  TError = ErrorType<unknown>,
+>(
+  type: "sales" | "products" | "invoices" | "suppliers" | "journal",
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof exportPdf>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getExportPdfQueryKey(type);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof exportPdf>>> = ({
+    signal,
+  }) => exportPdf(type, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!type,
+    ...queryOptions,
+  } as UseQueryOptions<Awaited<ReturnType<typeof exportPdf>>, TError, TData> & {
+    queryKey: QueryKey;
+  };
+};
+
+export type ExportPdfQueryResult = NonNullable<
+  Awaited<ReturnType<typeof exportPdf>>
+>;
+export type ExportPdfQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Download a report as a PDF
+ */
+
+export function useExportPdf<
+  TData = Awaited<ReturnType<typeof exportPdf>>,
+  TError = ErrorType<unknown>,
+>(
+  type: "sales" | "products" | "invoices" | "suppliers" | "journal",
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof exportPdf>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getExportPdfQueryOptions(type, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}

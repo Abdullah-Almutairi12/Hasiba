@@ -51,6 +51,8 @@ type Extracted = {
   total: number;
   items: ExtractedItem[];
   confidence: number;
+  /** URL of the source photo persisted by /invoices/scan; carried into /from-scan. */
+  fileUrl?: string | null;
 };
 
 const API_BASE = (import.meta.env.BASE_URL || "/").replace(/\/$/, "") + "/api";
@@ -149,6 +151,7 @@ export default function Invoices() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           supplierName: extracted.supplierName,
+          supplierVatNumber: extracted.supplierVatNumber,
           invoiceNumber: extracted.invoiceNumber,
           invoiceDate: extracted.invoiceDate,
           dueDate: extracted.dueDate,
@@ -157,6 +160,7 @@ export default function Invoices() {
           total: extracted.total,
           confidence: extracted.confidence,
           items: extracted.items,
+          fileUrl: extracted.fileUrl ?? null,
           addToInventory: true,
           postToAccounting: true,
         }),
@@ -296,6 +300,7 @@ export default function Invoices() {
             <Table>
               <TableHeader className="bg-muted/50">
                 <TableRow>
+                  <TableHead className="w-16">صورة</TableHead>
                   <TableHead>رقم الفاتورة</TableHead>
                   <TableHead>المورد</TableHead>
                   <TableHead>المبلغ</TableHead>
@@ -307,6 +312,7 @@ export default function Invoices() {
                 {isLoadingInvoices ? (
                   Array.from({ length: 5 }).map((_, i) => (
                     <TableRow key={i}>
+                      <TableCell><Skeleton className="h-10 w-10 rounded" /></TableCell>
                       <TableCell><Skeleton className="h-5 w-20" /></TableCell>
                       <TableCell><Skeleton className="h-5 w-32" /></TableCell>
                       <TableCell><Skeleton className="h-5 w-20" /></TableCell>
@@ -316,11 +322,28 @@ export default function Invoices() {
                   ))
                 ) : invoices?.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={5} className="h-32 text-center text-muted-foreground">لا توجد فواتير</TableCell>
+                    <TableCell colSpan={6} className="h-32 text-center text-muted-foreground">لا توجد فواتير</TableCell>
                   </TableRow>
                 ) : (
                   invoices?.map((invoice) => (
-                    <TableRow key={invoice.id}>
+                    <TableRow key={invoice.id} data-testid={`row-invoice-${invoice.id}`}>
+                      <TableCell>
+                        {invoice.fileUrl ? (
+                          <a
+                            href={invoice.fileUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="block size-10 rounded overflow-hidden border hover:ring-2 hover:ring-primary transition"
+                            data-testid={`thumb-invoice-${invoice.id}`}
+                          >
+                            <img src={invoice.fileUrl} alt="فاتورة" className="size-full object-cover" />
+                          </a>
+                        ) : (
+                          <div className="size-10 rounded border border-dashed flex items-center justify-center text-muted-foreground">
+                            <FileText className="size-4" />
+                          </div>
+                        )}
+                      </TableCell>
                       <TableCell className="font-mono text-sm">{invoice.invoiceNumber || '---'}</TableCell>
                       <TableCell className="font-medium">{invoice.supplierName || 'جاري الاستخراج...'}</TableCell>
                       <TableCell className="font-semibold">

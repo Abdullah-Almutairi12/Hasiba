@@ -2,11 +2,14 @@ import express, { Router } from "express";
 import { z, ZodError } from "zod";
 import rateLimit from "express-rate-limit";
 import QRCode from "qrcode";
-import { db, invoicesTable, productsTable, journalEntriesTable, categoriesTable } from "@workspace/db";
+import { db, invoicesTable, productsTable, journalEntriesTable, categoriesTable, suppliersTable } from "@workspace/db";
 import { eq, sql, desc, ilike } from "drizzle-orm";
 import { CreateInvoiceBody, UpdateInvoiceBody } from "@workspace/api-zod";
 import { extractInvoiceFromImage, type ExtractedInvoice } from "../lib/invoice-extractor";
 import { requireRole } from "../middlewares/require-role";
+import { uploadBufferToPrivateObject } from "./storage";
+import { findOrCreateSupplier } from "./suppliers";
+import { recordAudit } from "../lib/audit";
 
 // Postgres unique-violation SQLSTATE.
 // Drizzle wraps pg errors and may surface the original on `.cause`,
@@ -265,14 +268,30 @@ router.post(
   async (req, res) => {
     try {
       const { image } = ScanBody.parse(req.body);
+
+      // Persist the source photo so users can audit it later.
+      // Decode the data URI: "data:image/jpeg;base64,XXXX"
+      const match = image.match(/^data:(image\/[a-z+]+);base64,(.+)$/i);
+      if (!match) throw new Error("نوع الصورة غير مدعوم.");
+      const contentType = match[1]!;
+      const buffer = Buffer.from(match[2]!, "base64");
+      const ext = contentType.split("/")[1]?.split("+")[0] ?? "jpg";
+
+      let fileUrl: string | null = null;
+      try {
+        const uploaded = await uploadBufferToPrivateObject({ buffer, contentType, ext });
+        fileUrl = uploaded.url;
+      } catch (uploadErr) {
+        req.log.warn({ err: uploadErr }, "invoice photo upload failed (continuing without)");
+      }
+
       const extracted = await extractInvoiceFromImage(image);
-      return res.json(extracted);
+      return res.json({ ...extracted, fileUrl });
     } catch (err) {
       if (err instanceof ZodError) {
         return res.status(400).json({ error: "بيانات الصورة غير صالحة.", details: err.issues });
       }
       const msg = err instanceof Error ? err.message : "فشل تحليل الفاتورة";
-      // Distinguish upstream-AI errors (502) from server errors (500).
       const isUpstream =
         msg.includes("OpenAI") ||
         msg.includes("Vision") ||
@@ -295,6 +314,7 @@ const CommitItem = z.object({
 
 const CommitBody = z.object({
   supplierName: z.string().min(1),
+  supplierVatNumber: z.string().nullable().optional(),
   invoiceNumber: z.string().min(1),
   invoiceDate: z.string().nullable().optional(),
   dueDate: z.string().nullable().optional(),
@@ -303,6 +323,23 @@ const CommitBody = z.object({
   total: z.coerce.number().min(0),
   confidence: z.coerce.number().min(0).max(1).default(0.7),
   items: z.array(CommitItem).default([]),
+  /**
+   * The fileUrl must reference our own storage proxy and live under the
+   * invoice key namespace produced by uploadBufferToPrivateObject:
+   *   /api/storage/objects/invoices/YYYY-MM-DD/<uuid>.<ext>
+   * Restricting the regex to this exact shape (a) blocks `javascript:` /
+   * external URLs from causing stored XSS in <a href> / <img src>, (b)
+   * prevents path traversal segments like "..", and (c) stops a caller from
+   * pointing the persisted invoice at unrelated objects in the bucket.
+   */
+  fileUrl: z
+    .string()
+    .regex(
+      /^\/api\/storage\/objects\/invoices\/\d{4}-\d{2}-\d{2}\/[0-9a-f-]{36}\.(jpg|jpeg|png|webp|gif|pdf)$/i,
+      "fileUrl must point to our storage proxy",
+    )
+    .nullable()
+    .optional(),
   addToInventory: z.boolean().default(true),
   postToAccounting: z.boolean().default(true),
 });
@@ -327,19 +364,68 @@ router.post("/invoices/from-scan", supplierInvoiceAgent, async (req, res) => {
 
   try {
     const result = await db.transaction(async (tx) => {
+      // 0) Find or create the supplier so the invoice can be linked to a supplier record.
+      // VAT number has a UNIQUE constraint, so we use ON CONFLICT DO UPDATE to
+      // make this race-safe under concurrent imports (the conflicting row is
+      // returned with its existing id). When VAT is absent we fall back to a
+      // name lookup; concurrent name-only inserts may still create duplicates,
+      // but those are easy to merge later by hand.
+      const trimmedSupplier = body.supplierName.trim();
+      let supplierId: number | null = null;
+      if (trimmedSupplier) {
+        if (body.supplierVatNumber) {
+          const [row] = await tx
+            .insert(suppliersTable)
+            .values({ name: trimmedSupplier, vatNumber: body.supplierVatNumber })
+            .onConflictDoUpdate({
+              target: suppliersTable.vatNumber,
+              // Touch a column so RETURNING fires for the existing row.
+              set: { name: sql`${suppliersTable.name}` },
+            })
+            .returning({ id: suppliersTable.id });
+          supplierId = row?.id ?? null;
+        } else {
+          const [byName] = await tx
+            .select({ id: suppliersTable.id })
+            .from(suppliersTable)
+            .where(eq(suppliersTable.name, trimmedSupplier))
+            .limit(1);
+          if (byName) {
+            supplierId = byName.id;
+          } else {
+            const [created] = await tx
+              .insert(suppliersTable)
+              .values({ name: trimmedSupplier })
+              .returning({ id: suppliersTable.id });
+            supplierId = created?.id ?? null;
+          }
+        }
+      }
+
       // 1) Insert the invoice header — DB unique constraint on invoice_number guards against races.
       const [invoice] = await tx
         .insert(invoicesTable)
         .values({
           invoiceNumber: body.invoiceNumber,
+          supplierId,
           supplierName: body.supplierName,
           amount: String(body.total),
           status: body.confidence >= 0.85 ? "done" : "needs_review",
           confidence: body.confidence,
+          fileUrl: body.fileUrl || null,
+          invoiceDate: body.invoiceDate ? new Date(body.invoiceDate) : null,
           dueDate: body.dueDate ? new Date(body.dueDate) : null,
         })
         .returning();
       if (!invoice) throw new Error("Failed to create invoice");
+
+      // Increase the supplier's outstanding payable balance.
+      if (supplierId) {
+        await tx
+          .update(suppliersTable)
+          .set({ balance: sql`${suppliersTable.balance} + ${body.total}` })
+          .where(eq(suppliersTable.id, supplierId));
+      }
 
       const inventoryUpdates: Array<{
         productId: number; productName: string; quantityAdded: number; matched: boolean;
@@ -488,6 +574,12 @@ router.post("/invoices/from-scan", supplierInvoiceAgent, async (req, res) => {
       };
     });
 
+    void recordAudit(req, {
+      action: "create",
+      entity: "invoice",
+      details: `فاتورة رقم ${result.invoice.invoiceNumber} للمورد ${result.invoice.supplierName} بقيمة ${result.invoice.amount} (الوكيل الذكي)`,
+      severity: result.invoice.status === "needs_review" ? "warning" : "info",
+    });
     return res.json({ ok: true, ...result });
   } catch (err) {
     if (isUniqueViolation(err)) {

@@ -49,8 +49,12 @@ app.use(
     credentials: true,
   }),
 );
-// Default JSON limit — routes that accept image uploads (e.g. /api/invoices/scan)
-// override this with their own larger limit.
+// Image-upload routes need a much larger JSON body limit.
+// We must mount the larger parser BEFORE the global 1mb parser, otherwise the
+// global one runs first, consumes the body, and rejects oversize payloads with 413.
+app.use("/api/invoices/scan", express.json({ limit: "20mb" }));
+
+// Default JSON limit for everything else.
 app.use(express.json({ limit: "1mb" }));
 app.use(express.urlencoded({ extended: true, limit: "1mb" }));
 app.use(sessionMiddleware);

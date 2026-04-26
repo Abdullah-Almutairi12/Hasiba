@@ -995,3 +995,82 @@ export const AskAiAssistantResponse = zod.object({
   answer: zod.string(),
   tokensUsed: zod.number().optional(),
 });
+
+/**
+ * @summary List suppliers
+ */
+export const ListSuppliersResponseItem = zod.object({
+  id: zod.number(),
+  name: zod.string(),
+  vatNumber: zod.string().nullish(),
+  email: zod.string().nullish(),
+  phone: zod.string().nullish(),
+  address: zod.string().nullish(),
+  balance: zod.number(),
+  notes: zod.string().nullish(),
+  createdAt: zod.string(),
+});
+export const ListSuppliersResponse = zod.array(ListSuppliersResponseItem);
+
+/**
+ * @summary Create supplier
+ */
+export const CreateSupplierBody = zod.object({
+  name: zod.string(),
+  vatNumber: zod.string().nullish(),
+  email: zod.string().nullish(),
+  phone: zod.string().nullish(),
+  address: zod.string().nullish(),
+  notes: zod.string().nullish(),
+});
+
+export const GetSupplierParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const GetSupplierResponse = zod.object({
+  supplier: zod.object({
+    id: zod.number(),
+    name: zod.string(),
+    vatNumber: zod.string().nullish(),
+    email: zod.string().nullish(),
+    phone: zod.string().nullish(),
+    address: zod.string().nullish(),
+    balance: zod.number(),
+    notes: zod.string().nullish(),
+    createdAt: zod.string(),
+  }),
+  recentInvoices: zod.array(
+    zod.object({
+      id: zod.number(),
+      invoiceNumber: zod.string(),
+      supplierName: zod.string(),
+      amount: zod.number(),
+      status: zod.enum([
+        "pending",
+        "processing",
+        "done",
+        "failed",
+        "needs_review",
+      ]),
+      confidence: zod.number().nullish(),
+      fileUrl: zod.string().nullish(),
+      dueDate: zod.string().nullish(),
+      createdAt: zod.string(),
+    }),
+  ),
+});
+
+/**
+ * @summary Download a report as an Excel workbook
+ */
+export const ExportXlsxParams = zod.object({
+  type: zod.enum(["sales", "products", "invoices", "suppliers", "journal"]),
+});
+
+/**
+ * @summary Download a report as a PDF
+ */
+export const ExportPdfParams = zod.object({
+  type: zod.enum(["sales", "products", "invoices", "suppliers", "journal"]),
+});
