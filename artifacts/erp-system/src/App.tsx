@@ -19,6 +19,7 @@ import Settings from "@/pages/settings";
 import HRPage from "@/pages/hr";
 import ProjectsPage from "@/pages/projects";
 import MarketingPage from "@/pages/marketing";
+import AdminPage from "@/pages/admin";
 import OnboardingWizard from "@/pages/onboarding-wizard";
 import CreateCompany from "@/pages/create-company";
 import Login from "@/pages/login";
@@ -107,6 +108,9 @@ function Router() {
       </Route>
       <Route path="/users">
         <Protected><UsersPage /></Protected>
+      </Route>
+      <Route path="/admin">
+        <Protected><AdminPage /></Protected>
       </Route>
       <Route path="/settings">
         <Protected><Settings /></Protected>

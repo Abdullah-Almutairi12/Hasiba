@@ -73,22 +73,25 @@ const operationsNavItems = [
 const adminNavItems = [
   { key: "branches", url: "/branches", icon: Building2 },
   { key: "users", url: "/users", icon: Users },
-  { key: "settings", url: "/settings", icon: ShieldCheck },
+  { key: "admin", url: "/admin", icon: ShieldCheck, managerOnly: true },
+  { key: "settings", url: "/settings", icon: Settings },
 ] as const;
 
 export function AppSidebar() {
   const [location] = useLocation();
   const { t, isRTL } = useLanguage();
+  const { user } = useAuth();
+  const isManager = user?.role === "manager";
 
   const renderGroup = (
     label: string,
-    items: ReadonlyArray<{ key: string; url: string; icon: React.ComponentType<{ className?: string }> }>,
+    items: ReadonlyArray<{ key: string; url: string; icon: React.ComponentType<{ className?: string }>; managerOnly?: boolean }>,
   ) => (
     <SidebarGroup>
       <SidebarGroupLabel>{label}</SidebarGroupLabel>
       <SidebarGroupContent>
         <SidebarMenu>
-          {items.map((item) => {
+          {items.filter((i) => !i.managerOnly || isManager).map((item) => {
             const title = t(`nav.${item.key}`);
             return (
               <SidebarMenuItem key={item.key}>

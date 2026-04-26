@@ -35,6 +35,7 @@ Full-stack ERP system targeting Arabic/Saudi businesses, inspired by Odoo. Built
 13. **المشاريع** — `/projects` page with Kanban board + list view, project budgets and progress
 14. **التسويق** — `/marketing` page with campaigns and leads pipeline, conversion tracking
 15. **صفحة البداية (Landing)** — `/welcome` public marketing landing page with hero, mockup preview, features grid, how-it-works section, dark CTA, and footer. CTAs link to `/signup` and `/login`. Auto-redirects authenticated users to `/`.
+16. **لوحة تحكم المدير (Admin Panel)** — `/admin` route, manager-only. Single-page tabs: نظرة عامة (KPIs + system health + announcements), الدعم الفني (CRUD support tickets, reply + status), الإعلانات (publish/expire/delete), الميزات (toggle feature flags grouped by category), السجلات (recent audit log entries). Backed by tables `support_tickets`, `announcements`, `feature_flags`. Endpoints under `/api/admin/*` gated by `requireRole("manager")`. Sidebar entry "لوحة الإدارة" appears only for managers.
 
 ## Artifacts
 

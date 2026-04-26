@@ -735,6 +735,222 @@ paths:
                 items:
                   $ref: "#/components/schemas/AuditLog"
 
+  # ===== Admin Control Panel =====
+  /admin/stats:
+    get:
+      tags: [admin]
+      summary: Admin dashboard KPIs
+      operationId: getAdminStats
+      responses:
+        "200":
+          description: Admin stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminStats"
+
+  /admin/system:
+    get:
+      tags: [admin]
+      summary: System health and metrics
+      operationId: getAdminSystemHealth
+      responses:
+        "200":
+          description: System health
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminSystemHealth"
+
+  /admin/tickets:
+    get:
+      tags: [admin]
+      summary: List support tickets
+      operationId: listSupportTickets
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Tickets
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SupportTicket"
+    post:
+      tags: [admin]
+      summary: Create a support ticket
+      operationId: createSupportTicket
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                subject: { type: string }
+                message: { type: string }
+                customerName: { type: string }
+                customerEmail: { type: string }
+                priority: { type: string }
+                category: { type: string }
+              required: [subject, message, customerName, customerEmail]
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SupportTicket"
+
+  /admin/tickets/{id}:
+    patch:
+      tags: [admin]
+      summary: Update support ticket
+      operationId: updateSupportTicket
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status: { type: string }
+                reply: { type: string }
+                priority: { type: string }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SupportTicket"
+
+  /admin/announcements:
+    get:
+      tags: [admin]
+      summary: List announcements
+      operationId: listAnnouncements
+      responses:
+        "200":
+          description: Announcements
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Announcement"
+    post:
+      tags: [admin]
+      summary: Create announcement
+      operationId: createAnnouncement
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title: { type: string }
+                message: { type: string }
+                type: { type: string }
+                expiresAt: { type: string, nullable: true }
+              required: [title, message, type]
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Announcement"
+
+  /admin/announcements/{id}:
+    delete:
+      tags: [admin]
+      summary: Delete announcement
+      operationId: deleteAnnouncement
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                required: [ok]
+
+  /admin/feature-flags:
+    get:
+      tags: [admin]
+      summary: List feature flags
+      operationId: listFeatureFlags
+      responses:
+        "200":
+          description: Feature flags
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/FeatureFlag"
+
+  /admin/feature-flags/{key}:
+    patch:
+      tags: [admin]
+      summary: Toggle feature flag
+      operationId: updateFeatureFlag
+      parameters:
+        - name: key
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                isEnabled: { type: boolean }
+              required: [isEnabled]
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeatureFlag"
+
+  /admin/active-announcements:
+    get:
+      tags: [admin]
+      summary: Active announcements visible to any logged-in user
+      operationId: listActiveAnnouncements
+      responses:
+        "200":
+          description: Active announcements
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Announcement"
+
 components:
   schemas:
     HealthStatus:
@@ -1532,3 +1748,119 @@ components:
         severity:
           type: string
       required: [id, type, description, branch, cashier, amount, time, severity]
+
+    AdminStats:
+      type: object
+      properties:
+        openTickets:
+          type: integer
+        criticalTickets:
+          type: integer
+        resolvedToday:
+          type: integer
+        activeUsers:
+          type: integer
+        totalUsers:
+          type: integer
+        activeAnnouncements:
+          type: integer
+        enabledFeatures:
+          type: integer
+        totalFeatures:
+          type: integer
+      required: [openTickets, criticalTickets, resolvedToday, activeUsers, totalUsers, activeAnnouncements, enabledFeatures, totalFeatures]
+
+    AdminSystemHealth:
+      type: object
+      properties:
+        databaseOk:
+          type: boolean
+        databaseLatencyMs:
+          type: number
+        uptimeSeconds:
+          type: number
+        memoryUsedMb:
+          type: number
+        memoryTotalMb:
+          type: number
+        nodeVersion:
+          type: string
+        appVersion:
+          type: string
+        environment:
+          type: string
+        startedAt:
+          type: string
+      required: [databaseOk, databaseLatencyMs, uptimeSeconds, memoryUsedMb, memoryTotalMb, nodeVersion, appVersion, environment, startedAt]
+
+    SupportTicket:
+      type: object
+      properties:
+        id:
+          type: integer
+        subject:
+          type: string
+        message:
+          type: string
+        customerName:
+          type: string
+        customerEmail:
+          type: string
+        status:
+          type: string
+        priority:
+          type: string
+        category:
+          type: string
+        reply:
+          type: string
+          nullable: true
+        assignedToUserId:
+          type: integer
+          nullable: true
+        createdAt:
+          type: string
+        resolvedAt:
+          type: string
+          nullable: true
+      required: [id, subject, message, customerName, customerEmail, status, priority, category, createdAt]
+
+    Announcement:
+      type: object
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        message:
+          type: string
+        type:
+          type: string
+        isActive:
+          type: boolean
+        publishedAt:
+          type: string
+        expiresAt:
+          type: string
+          nullable: true
+      required: [id, title, message, type, isActive, publishedAt]
+
+    FeatureFlag:
+      type: object
+      properties:
+        id:
+          type: integer
+        key:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        isEnabled:
+          type: boolean
+        category:
+          type: string
+        updatedAt:
+          type: string
+      required: [id, key, name, isEnabled, category, updatedAt]

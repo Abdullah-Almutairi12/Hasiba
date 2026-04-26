@@ -679,3 +679,185 @@ export const ListAuditLogsResponseItem = zod.object({
   createdAt: zod.string(),
 });
 export const ListAuditLogsResponse = zod.array(ListAuditLogsResponseItem);
+
+/**
+ * @summary Admin dashboard KPIs
+ */
+export const GetAdminStatsResponse = zod.object({
+  openTickets: zod.number(),
+  criticalTickets: zod.number(),
+  resolvedToday: zod.number(),
+  activeUsers: zod.number(),
+  totalUsers: zod.number(),
+  activeAnnouncements: zod.number(),
+  enabledFeatures: zod.number(),
+  totalFeatures: zod.number(),
+});
+
+/**
+ * @summary System health and metrics
+ */
+export const GetAdminSystemHealthResponse = zod.object({
+  databaseOk: zod.boolean(),
+  databaseLatencyMs: zod.number(),
+  uptimeSeconds: zod.number(),
+  memoryUsedMb: zod.number(),
+  memoryTotalMb: zod.number(),
+  nodeVersion: zod.string(),
+  appVersion: zod.string(),
+  environment: zod.string(),
+  startedAt: zod.string(),
+});
+
+/**
+ * @summary List support tickets
+ */
+export const ListSupportTicketsQueryParams = zod.object({
+  status: zod.coerce.string().optional(),
+});
+
+export const ListSupportTicketsResponseItem = zod.object({
+  id: zod.number(),
+  subject: zod.string(),
+  message: zod.string(),
+  customerName: zod.string(),
+  customerEmail: zod.string(),
+  status: zod.string(),
+  priority: zod.string(),
+  category: zod.string(),
+  reply: zod.string().nullish(),
+  assignedToUserId: zod.number().nullish(),
+  createdAt: zod.string(),
+  resolvedAt: zod.string().nullish(),
+});
+export const ListSupportTicketsResponse = zod.array(
+  ListSupportTicketsResponseItem,
+);
+
+/**
+ * @summary Create a support ticket
+ */
+export const CreateSupportTicketBody = zod.object({
+  subject: zod.string(),
+  message: zod.string(),
+  customerName: zod.string(),
+  customerEmail: zod.string(),
+  priority: zod.string().optional(),
+  category: zod.string().optional(),
+});
+
+/**
+ * @summary Update support ticket
+ */
+export const UpdateSupportTicketParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const UpdateSupportTicketBody = zod.object({
+  status: zod.string().optional(),
+  reply: zod.string().optional(),
+  priority: zod.string().optional(),
+});
+
+export const UpdateSupportTicketResponse = zod.object({
+  id: zod.number(),
+  subject: zod.string(),
+  message: zod.string(),
+  customerName: zod.string(),
+  customerEmail: zod.string(),
+  status: zod.string(),
+  priority: zod.string(),
+  category: zod.string(),
+  reply: zod.string().nullish(),
+  assignedToUserId: zod.number().nullish(),
+  createdAt: zod.string(),
+  resolvedAt: zod.string().nullish(),
+});
+
+/**
+ * @summary List announcements
+ */
+export const ListAnnouncementsResponseItem = zod.object({
+  id: zod.number(),
+  title: zod.string(),
+  message: zod.string(),
+  type: zod.string(),
+  isActive: zod.boolean(),
+  publishedAt: zod.string(),
+  expiresAt: zod.string().nullish(),
+});
+export const ListAnnouncementsResponse = zod.array(
+  ListAnnouncementsResponseItem,
+);
+
+/**
+ * @summary Create announcement
+ */
+export const CreateAnnouncementBody = zod.object({
+  title: zod.string(),
+  message: zod.string(),
+  type: zod.string(),
+  expiresAt: zod.string().nullish(),
+});
+
+/**
+ * @summary Delete announcement
+ */
+export const DeleteAnnouncementParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const DeleteAnnouncementResponse = zod.object({
+  ok: zod.boolean(),
+});
+
+/**
+ * @summary List feature flags
+ */
+export const ListFeatureFlagsResponseItem = zod.object({
+  id: zod.number(),
+  key: zod.string(),
+  name: zod.string(),
+  description: zod.string().nullish(),
+  isEnabled: zod.boolean(),
+  category: zod.string(),
+  updatedAt: zod.string(),
+});
+export const ListFeatureFlagsResponse = zod.array(ListFeatureFlagsResponseItem);
+
+/**
+ * @summary Toggle feature flag
+ */
+export const UpdateFeatureFlagParams = zod.object({
+  key: zod.coerce.string(),
+});
+
+export const UpdateFeatureFlagBody = zod.object({
+  isEnabled: zod.boolean(),
+});
+
+export const UpdateFeatureFlagResponse = zod.object({
+  id: zod.number(),
+  key: zod.string(),
+  name: zod.string(),
+  description: zod.string().nullish(),
+  isEnabled: zod.boolean(),
+  category: zod.string(),
+  updatedAt: zod.string(),
+});
+
+/**
+ * @summary Active announcements visible to any logged-in user
+ */
+export const ListActiveAnnouncementsResponseItem = zod.object({
+  id: zod.number(),
+  title: zod.string(),
+  message: zod.string(),
+  type: zod.string(),
+  isActive: zod.boolean(),
+  publishedAt: zod.string(),
+  expiresAt: zod.string().nullish(),
+});
+export const ListActiveAnnouncementsResponse = zod.array(
+  ListActiveAnnouncementsResponseItem,
+);

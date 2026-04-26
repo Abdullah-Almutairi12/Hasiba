@@ -15,6 +15,7 @@ import securityRouter from "./security";
 import hrRouter from "./hr";
 import projectsRouter from "./projects";
 import marketingRouter from "./marketing";
+import adminRouter from "./admin";
 import { requireAuth } from "../middlewares/require-auth";
 
 const router: IRouter = Router();
@@ -40,5 +41,6 @@ router.use(securityRouter);
 router.use(hrRouter);
 router.use(projectsRouter);
 router.use(marketingRouter);
+router.use(adminRouter);
 
 export default router;

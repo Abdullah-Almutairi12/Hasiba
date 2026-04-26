@@ -470,6 +470,64 @@ export interface FraudAlert {
   severity: string;
 }
 
+export interface AdminStats {
+  openTickets: number;
+  criticalTickets: number;
+  resolvedToday: number;
+  activeUsers: number;
+  totalUsers: number;
+  activeAnnouncements: number;
+  enabledFeatures: number;
+  totalFeatures: number;
+}
+
+export interface AdminSystemHealth {
+  databaseOk: boolean;
+  databaseLatencyMs: number;
+  uptimeSeconds: number;
+  memoryUsedMb: number;
+  memoryTotalMb: number;
+  nodeVersion: string;
+  appVersion: string;
+  environment: string;
+  startedAt: string;
+}
+
+export interface SupportTicket {
+  id: number;
+  subject: string;
+  message: string;
+  customerName: string;
+  customerEmail: string;
+  status: string;
+  priority: string;
+  category: string;
+  reply?: string | null;
+  assignedToUserId?: number | null;
+  createdAt: string;
+  resolvedAt?: string | null;
+}
+
+export interface Announcement {
+  id: number;
+  title: string;
+  message: string;
+  type: string;
+  isActive: boolean;
+  publishedAt: string;
+  expiresAt?: string | null;
+}
+
+export interface FeatureFlag {
+  id: number;
+  key: string;
+  name: string;
+  description?: string | null;
+  isEnabled: boolean;
+  category: string;
+  updatedAt: string;
+}
+
 export type GetDashboardSalesChartParams = {
   period?: GetDashboardSalesChartPeriod;
 };
@@ -533,4 +591,38 @@ export type ListWarehousesParams = {
 
 export type ListAuditLogsParams = {
   limit?: number;
+};
+
+export type ListSupportTicketsParams = {
+  status?: string;
+};
+
+export type CreateSupportTicketBody = {
+  subject: string;
+  message: string;
+  customerName: string;
+  customerEmail: string;
+  priority?: string;
+  category?: string;
+};
+
+export type UpdateSupportTicketBody = {
+  status?: string;
+  reply?: string;
+  priority?: string;
+};
+
+export type CreateAnnouncementBody = {
+  title: string;
+  message: string;
+  type: string;
+  expiresAt?: string | null;
+};
+
+export type DeleteAnnouncement200 = {
+  ok: boolean;
+};
+
+export type UpdateFeatureFlagBody = {
+  isEnabled: boolean;
 };
