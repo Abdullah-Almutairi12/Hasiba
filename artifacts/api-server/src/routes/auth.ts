@@ -1,17 +1,34 @@
 import { Router } from "express";
 import bcrypt from "bcryptjs";
+import rateLimit from "express-rate-limit";
 import { db, usersTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 const router = Router();
 
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "محاولات كثيرة جداً، يرجى المحاولة لاحقاً" },
+});
+
+const signupLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "تم تجاوز الحد المسموح من إنشاء الحسابات، يرجى المحاولة لاحقاً" },
+});
+
 const LoginBody = z.object({
   email: z.string().email(),
   password: z.string().min(1),
 });
 
-router.post("/auth/login", async (req, res) => {
+router.post("/auth/login", loginLimiter, async (req, res) => {
   try {
     const parsed = LoginBody.safeParse(req.body);
     if (!parsed.success) {
@@ -43,7 +60,6 @@ router.post("/auth/login", async (req, res) => {
       .set({ lastLoginAt: new Date() })
       .where(eq(usersTable.id, user.id));
 
-    // Regenerate session ID to prevent session fixation attacks
     req.session.regenerate((regenErr) => {
       if (regenErr) {
         req.log.error({ err: regenErr }, "Session regenerate failed");
@@ -87,17 +103,13 @@ router.post("/auth/logout", (req, res) => {
   });
 });
 
-// Public signup is for the very first company owner. The role is fixed
-// server-side — clients cannot self-assign privileged roles. Additional
-// users (with elevated roles) must be created by an authenticated admin
-// through the user management flow.
 const SignupBody = z.object({
   name: z.string().min(2),
   email: z.string().email(),
   password: z.string().min(8),
 });
 
-router.post("/auth/signup", async (req, res) => {
+router.post("/auth/signup", signupLimiter, async (req, res) => {
   try {
     const parsed = SignupBody.safeParse(req.body);
     if (!parsed.success) {
@@ -116,21 +128,18 @@ router.post("/auth/signup", async (req, res) => {
       return res.status(409).json({ error: "البريد الإلكتروني مستخدم بالفعل" });
     }
 
-    const passwordHash = await bcrypt.hash(password, 10);
+    const passwordHash = await bcrypt.hash(password, 12);
     const [user] = await db
       .insert(usersTable)
       .values({
         name,
         email: normalizedEmail,
         passwordHash,
-        // Role is intentionally fixed for public signup. Do NOT trust
-        // anything from the request body here.
         role: "manager",
         isActive: true,
       })
       .returning();
 
-    // Regenerate session ID after signup to prevent session fixation
     req.session.regenerate((regenErr) => {
       if (regenErr) {
         req.log.error({ err: regenErr }, "Session regenerate failed");

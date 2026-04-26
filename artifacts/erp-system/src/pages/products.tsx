@@ -1,10 +1,12 @@
-import React, { useState } from "react";
+import { useState } from "react";
 import {
   useListProducts,
   useGetProductStats,
   useListProductCategories,
+  useDeleteProduct,
 } from "@workspace/api-client-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useQueryClient } from "@tanstack/react-query";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
@@ -17,12 +19,75 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Search, Plus, Package, AlertTriangle, DollarSign } from "lucide-react";
-import { motion } from "framer-motion";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Search, Plus, Package, AlertTriangle, DollarSign, Pencil, Trash2, Download } from "lucide-react";
+import { ProductFormDialog } from "@/components/product-form-dialog";
+import { useToast } from "@/hooks/use-toast";
+
+interface ProductFormState {
+  id: number;
+  name: string;
+  nameAr: string;
+  sku: string;
+  categoryId: number;
+  price: number;
+  costPrice: number;
+  stock: number;
+  minStock: number;
+  unit: string;
+}
+
+function exportProductsToCsv(rows: Array<{
+  nameAr: string;
+  name: string;
+  sku: string;
+  categoryName?: string | null;
+  price: number;
+  stock: number;
+  unit: string;
+}>) {
+  const header = ["الاسم العربي", "الاسم الإنجليزي", "SKU", "الفئة", "السعر", "المخزون", "الوحدة"];
+  const lines = [header.join(",")];
+  for (const r of rows) {
+    const values = [
+      r.nameAr,
+      r.name,
+      r.sku,
+      r.categoryName ?? "",
+      String(r.price),
+      String(r.stock),
+      r.unit,
+    ].map((v) => `"${String(v).replace(/"/g, '""')}"`);
+    lines.push(values.join(","));
+  }
+  const bom = "\ufeff";
+  const blob = new Blob([bom + lines.join("\n")], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `products-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
 export default function Products() {
   const [search, setSearch] = useState("");
   const [categoryId, setCategoryId] = useState<string>("all");
+  const [formOpen, setFormOpen] = useState(false);
+  const [editing, setEditing] = useState<ProductFormState | null>(null);
+  const [deleteId, setDeleteId] = useState<number | null>(null);
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const deleteMutation = useDeleteProduct();
 
   const { data: stats, isLoading: isLoadingStats } = useGetProductStats();
   const { data: categories } = useListProductCategories();
@@ -31,6 +96,21 @@ export default function Products() {
     category: categoryId === "all" ? undefined : categoryId,
   });
 
+  const handleDelete = async () => {
+    if (deleteId == null) return;
+    try {
+      await deleteMutation.mutateAsync({ id: deleteId });
+      await queryClient.invalidateQueries({ queryKey: ["/api/products"] });
+      await queryClient.invalidateQueries({ queryKey: ["/api/products/stats"] });
+      toast({ title: "تم حذف المنتج" });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "تعذر الحذف";
+      toast({ title: "خطأ", description: msg, variant: "destructive" });
+    } finally {
+      setDeleteId(null);
+    }
+  };
+
   return (
     <div className="space-y-6 pb-8 max-w-7xl mx-auto">
       <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
@@ -38,11 +118,54 @@ export default function Products() {
           <h1 className="text-3xl font-bold tracking-tight">المنتجات والمخزون</h1>
           <p className="text-muted-foreground">إدارة المنتجات، التتبع، وتنبيهات المخزون</p>
         </div>
-        <Button className="gap-2">
-          <Plus className="size-4" />
-          إضافة منتج
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            className="gap-2"
+            onClick={() => exportProductsToCsv(products ?? [])}
+            disabled={!products?.length}
+          >
+            <Download className="size-4" />
+            تصدير CSV
+          </Button>
+          <Button
+            className="gap-2"
+            onClick={() => {
+              setEditing(null);
+              setFormOpen(true);
+            }}
+          >
+            <Plus className="size-4" />
+            إضافة منتج
+          </Button>
+        </div>
       </div>
+
+      <ProductFormDialog
+        open={formOpen}
+        onOpenChange={(o) => {
+          setFormOpen(o);
+          if (!o) setEditing(null);
+        }}
+        initialData={editing}
+      />
+
+      <AlertDialog open={deleteId !== null} onOpenChange={(o) => !o && setDeleteId(null)}>
+        <AlertDialogContent dir="rtl">
+          <AlertDialogHeader>
+            <AlertDialogTitle>حذف المنتج</AlertDialogTitle>
+            <AlertDialogDescription>
+              سيتم حذف هذا المنتج نهائياً. هل أنت متأكد؟
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>إلغاء</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDelete} className="bg-red-600 hover:bg-red-700">
+              حذف
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <div className="grid gap-4 md:grid-cols-3">
         <Card>
@@ -137,6 +260,7 @@ export default function Products() {
                 <TableHead className="text-left">السعر</TableHead>
                 <TableHead className="text-center">المخزون</TableHead>
                 <TableHead className="text-center">الحالة</TableHead>
+                <TableHead className="text-center w-32">إجراءات</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -190,6 +314,40 @@ export default function Products() {
                       ) : (
                         <Badge variant="outline" className="bg-green-100 text-green-800 border-green-200 dark:bg-green-900/30 dark:text-green-400 dark:border-green-900/50">متوفر</Badge>
                       )}
+                    </TableCell>
+                    <TableCell className="text-center">
+                      <div className="flex items-center justify-center gap-1">
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          onClick={() => {
+                            setEditing({
+                              id: product.id,
+                              name: product.name,
+                              nameAr: product.nameAr ?? product.name,
+                              sku: product.sku,
+                              categoryId: product.categoryId ?? 0,
+                              price: product.price,
+                              costPrice: product.costPrice ?? 0,
+                              stock: product.stock,
+                              minStock: product.minStock ?? 0,
+                              unit: product.unit ?? "قطعة",
+                            });
+                            setFormOpen(true);
+                          }}
+                          title="تعديل"
+                        >
+                          <Pencil className="size-4" />
+                        </Button>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          onClick={() => setDeleteId(product.id)}
+                          title="حذف"
+                        >
+                          <Trash2 className="size-4 text-red-500" />
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))

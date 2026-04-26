@@ -18,9 +18,11 @@
     "cors": "^2",
     "drizzle-orm": "catalog:",
     "express": "^5",
+    "express-rate-limit": "^8.4.1",
     "express-session": "^1.19.0",
     "pino": "^9",
     "pino-http": "^10",
+    "qrcode": "^1.5.4",
     "zod": "catalog:"
   },
   "devDependencies": {
@@ -30,6 +32,7 @@
     "@types/express": "^5.0.6",
     "@types/express-session": "^1.19.0",
     "@types/node": "catalog:",
+    "@types/qrcode": "^1.5.6",
     "esbuild": "^0.27.3",
     "esbuild-plugin-pino": "^2.3.3",
     "pino-pretty": "^13",

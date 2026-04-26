@@ -1,12 +1,15 @@
+import { useState } from "react";
 import { useListBranches, useListWarehouses } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Building2, Warehouse, Plus, MapPin, Package, TrendingUp } from "lucide-react";
+import { BranchFormDialog } from "@/components/branch-form-dialog";
 
 export default function BranchesPage() {
   const { data: branches } = useListBranches();
   const { data: warehouses } = useListWarehouses();
+  const [createOpen, setCreateOpen] = useState(false);
 
   const branchList = branches ?? [];
   const warehouseList = warehouses ?? [];
@@ -25,12 +28,14 @@ export default function BranchesPage() {
             <Warehouse className="ms-2 size-4" />
             مستودع جديد
           </Button>
-          <Button>
+          <Button onClick={() => setCreateOpen(true)}>
             <Plus className="ms-2 size-4" />
             فرع جديد
           </Button>
         </div>
       </div>
+
+      <BranchFormDialog open={createOpen} onOpenChange={setCreateOpen} />
 
       {/* KPIs */}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-4">

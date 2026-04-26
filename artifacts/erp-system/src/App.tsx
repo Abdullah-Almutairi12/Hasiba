@@ -23,7 +23,9 @@ import OnboardingWizard from "@/pages/onboarding-wizard";
 import CreateCompany from "@/pages/create-company";
 import Login from "@/pages/login";
 import Welcome from "@/pages/welcome";
+import InvoicePrint from "@/pages/invoice-print";
 import ProtectedRoute from "@/components/protected-route";
+import { ErrorBoundary } from "@/components/error-boundary";
 
 const queryClient = new QueryClient();
 
@@ -61,6 +63,11 @@ function Router() {
 
       {/* Public marketing landing page */}
       <Route path="/welcome" component={Welcome} />
+
+      {/* Invoice print uses its own full-screen layout */}
+      <Route path="/invoices/:id/print">
+        <ProtectedRoute><InvoicePrint /></ProtectedRoute>
+      </Route>
 
       {/* Auth + Onboarding flows are full-screen (no app shell) */}
       <Route path="/login" component={Login} />
@@ -113,14 +120,16 @@ function Router() {
 
 function App() {
   return (
-    <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-          <Router />
-        </WouterRouter>
-        <Toaster />
-      </TooltipProvider>
-    </QueryClientProvider>
+    <ErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
+            <Router />
+          </WouterRouter>
+          <Toaster />
+        </TooltipProvider>
+      </QueryClientProvider>
+    </ErrorBoundary>
   );
 }
 
