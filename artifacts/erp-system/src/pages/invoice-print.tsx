@@ -122,7 +122,7 @@ export default function InvoicePrint() {
             <thead>
               <tr className="bg-gray-100 text-sm">
                 <th className="border p-3 text-right">البيان</th>
-                <th className="border p-3 text-left w-40">المبلغ (ر.س)</th>
+                <th className="border p-3 text-left w-40">المبلغ <RiyalSymbol className="opacity-60" /></th>
               </tr>
             </thead>
             <tbody>
@@ -167,7 +167,7 @@ export default function InvoicePrint() {
               </div>
               <div className="flex justify-between border-t pt-2 text-base font-bold">
                 <span>الإجمالي</span>
-                <span className="font-mono text-primary">{total.toFixed(2)} ر.س</span>
+                <span className="font-mono text-primary"><Money value={total} /></span>
               </div>
             </div>
           </div>

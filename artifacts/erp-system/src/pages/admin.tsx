@@ -937,7 +937,7 @@ function AiPredictionsPanel() {
       <Card>
         <CardHeader>
           <CardTitle className="text-base">توقع المبيعات (7 أيام)</CardTitle>
-          <CardDescription>إجمالي متوقع: {totalForecast.toLocaleString("ar-SA")} ر.س</CardDescription>
+          <CardDescription className="inline-flex items-center gap-1">إجمالي متوقع: <Money value={totalForecast} fractionDigits={0} /></CardDescription>
         </CardHeader>
         <CardContent>
           <div className="space-y-1 text-sm">
@@ -945,7 +945,7 @@ function AiPredictionsPanel() {
             {fc.map((d) => (
               <div key={d.date} className="flex items-center justify-between border-b py-1 last:border-0">
                 <span className="text-muted-foreground">{new Date(d.date).toLocaleDateString("ar-SA", { weekday: "short", day: "numeric", month: "short" })}</span>
-                <span className="font-mono font-semibold">{Number(d.predicted).toLocaleString("ar-SA")} ر.س</span>
+                <span className="font-mono font-semibold"><Money value={d.predicted} fractionDigits={0} /></span>
               </div>
             ))}
           </div>
@@ -990,7 +990,7 @@ function AiPredictionsPanel() {
                   <div className="font-medium">طلب #{a.orderId}</div>
                   <div className="text-xs text-muted-foreground">{a.reason}</div>
                 </div>
-                <span className="font-mono text-amber-700 dark:text-amber-400">{Number(a.amount).toFixed(2)} ر.س</span>
+                <span className="font-mono text-amber-700 dark:text-amber-400"><Money value={a.amount} /></span>
               </div>
             ))}
           </div>

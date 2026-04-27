@@ -209,7 +209,7 @@ export default function Products() {
                 <Skeleton className="h-8 w-20 mt-1" />
               ) : (
                 <h3 className="text-2xl font-bold">
-                  {new Intl.NumberFormat('ar-SA', { style: 'currency', currency: 'SAR' }).format(stats?.totalInventoryValue || 0)}
+                  <Money value={stats?.totalInventoryValue} />
                 </h3>
               )}
             </div>
@@ -299,7 +299,7 @@ export default function Products() {
                     <TableCell className="text-muted-foreground font-mono text-sm">{product.sku}</TableCell>
                     <TableCell>{product.categoryName}</TableCell>
                     <TableCell className="text-left font-semibold">
-                      {new Intl.NumberFormat('ar-SA', { style: 'currency', currency: 'SAR' }).format(product.price)}
+                      <Money value={product.price} />
                     </TableCell>
                     <TableCell className="text-center">
                       <span className={product.stock <= product.minStock ? "text-red-500 font-bold" : ""}>

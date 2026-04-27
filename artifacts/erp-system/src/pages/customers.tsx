@@ -96,7 +96,7 @@ export default function Customers() {
                     <TableCell className="text-muted-foreground">{customer.email || '---'}</TableCell>
                     <TableCell className="text-center font-bold">{customer.totalOrders}</TableCell>
                     <TableCell className="text-left font-bold text-primary">
-                      {new Intl.NumberFormat('ar-SA', { style: 'currency', currency: 'SAR' }).format(customer.totalSpent)}
+                      <Money value={customer.totalSpent} />
                     </TableCell>
                     <TableCell className="text-left text-sm text-muted-foreground">
                       {format(new Date(customer.createdAt), 'dd MMM yyyy', { locale: arSA })}

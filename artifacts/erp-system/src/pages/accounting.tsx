@@ -59,7 +59,7 @@ export default function Accounting() {
                 ) : (
                   <div>
                     <h3 className="text-2xl font-bold">
-                      {new Intl.NumberFormat('ar-SA', { style: 'currency', currency: 'SAR' }).format(summary?.netCashFlow || 0)}
+                      <Money value={summary?.netCashFlow} />
                     </h3>
                     <p className={`text-sm mt-1 flex items-center gap-1 ${summary?.cashFlowChange && summary.cashFlowChange > 0 ? "text-green-600" : "text-red-600"}`}>
                       {summary?.cashFlowChange && summary.cashFlowChange > 0 ? <ArrowUpRight className="size-4" /> : <ArrowDownRight className="size-4" />}
@@ -75,7 +75,7 @@ export default function Accounting() {
                 ) : (
                   <div>
                     <h3 className="text-2xl font-bold text-blue-600">
-                      {new Intl.NumberFormat('ar-SA', { style: 'currency', currency: 'SAR' }).format(summary?.receivables || 0)}
+                      <Money value={summary?.receivables} />
                     </h3>
                     <p className="text-sm text-muted-foreground mt-1">من {summary?.receivablesCount || 0} عملاء</p>
                   </div>
@@ -88,7 +88,7 @@ export default function Accounting() {
                 ) : (
                   <div>
                     <h3 className="text-2xl font-bold text-orange-600">
-                      {new Intl.NumberFormat('ar-SA', { style: 'currency', currency: 'SAR' }).format(summary?.payables || 0)}
+                      <Money value={summary?.payables} />
                     </h3>
                     <p className="text-sm text-muted-foreground mt-1">متوسط الدفع: {summary?.avgPaymentDays || 0} يوم</p>
                   </div>
@@ -187,7 +187,7 @@ export default function Accounting() {
                     <TableCell>{entry.debitAccount}</TableCell>
                     <TableCell>{entry.creditAccount}</TableCell>
                     <TableCell className="text-left font-bold text-primary">
-                      {new Intl.NumberFormat('ar-SA', { style: 'currency', currency: 'SAR' }).format(entry.amount)}
+                      <Money value={entry.amount} />
                     </TableCell>
                   </TableRow>
                 ))

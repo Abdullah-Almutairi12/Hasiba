@@ -506,10 +506,7 @@ export default function POS() {
                             </h3>
                             <div className="flex items-center justify-between">
                               <span className="text-base font-bold text-[#2563EB]">
-                                {fmtPrice(product.price)}{" "}
-                                <span className="text-[10px] font-normal text-neutral-400">
-                                  ر.س
-                                </span>
+                                <Money value={product.price} symbolClassName="opacity-60" />
                               </span>
                               {!outOfStock && (
                                 <div className="grid size-6 place-items-center rounded-full bg-neutral-100 text-neutral-400 transition-colors group-hover:bg-[#2563EB] group-hover:text-white">
@@ -586,7 +583,7 @@ export default function POS() {
                       />
                     </div>
                     <div className="flex items-center justify-between text-[10px] text-blue-100">
-                      <span>متاح: خصم {fmtPrice(loyaltyDiscount || 50)} ر.س</span>
+                      <span className="inline-flex items-center gap-1">متاح: خصم <Money value={loyaltyDiscount || 50} fractionDigits={0} /></span>
                       {cart.length > 0 && (
                         <span className="rounded-md bg-white/20 px-2 py-0.5 font-bold">
                           سيكسب {earnedPoints} نقطة
@@ -741,8 +738,7 @@ export default function POS() {
                   الإجمالي (شامل الضريبة)
                 </span>
                 <span className="font-mono text-2xl font-bold text-[#2563EB]">
-                  {fmtPrice(total)}{" "}
-                  <span className="text-xs font-normal text-neutral-500">ر.س</span>
+                  <Money value={total} symbolClassName="size-[0.6em] text-neutral-500" />
                 </span>
               </div>
             </div>
@@ -863,7 +859,7 @@ export default function POS() {
                     <div className="flex items-center justify-between border-b border-dashed border-neutral-300 pb-3 text-sm">
                       <span className="text-neutral-500">المبلغ المدفوع</span>
                       <span className="text-lg font-bold text-neutral-900">
-                        {fmtPrice(showSuccess.total)} ر.س
+                        <Money value={showSuccess.total} />
                       </span>
                     </div>
                     <div className="flex items-center justify-between text-sm">

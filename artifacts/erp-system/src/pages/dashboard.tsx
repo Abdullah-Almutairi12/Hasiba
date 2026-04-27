@@ -139,7 +139,7 @@ export default function Dashboard() {
               <CardTitle className="text-sm font-medium text-muted-foreground">إجمالي المبيعات</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{new Intl.NumberFormat('ar-SA', { style: 'currency', currency: 'SAR' }).format(summary?.totalSalesToday || 0)}</div>
+              <div className="text-2xl font-bold"><Money value={summary?.totalSalesToday} /></div>
               <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
                 <span className={summary?.totalSalesChange && summary.totalSalesChange > 0 ? "text-green-500" : "text-red-500"}>
                   {summary?.totalSalesChange && summary.totalSalesChange > 0 ? <ArrowUpRight className="size-3 inline" /> : <ArrowDownRight className="size-3 inline" />}
@@ -160,7 +160,7 @@ export default function Dashboard() {
               <CardTitle className="text-sm font-medium text-muted-foreground">إجمالي الربح</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-cyan-400">{new Intl.NumberFormat('ar-SA', { style: 'currency', currency: 'SAR' }).format(summary?.totalProfit || 0)}</div>
+              <div className="text-2xl font-bold text-cyan-400"><Money value={summary?.totalProfit} /></div>
               <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
                 <span className={summary?.profitChange && summary.profitChange > 0 ? "text-green-500" : "text-red-500"}>
                   {summary?.profitChange && summary.profitChange > 0 ? <ArrowUpRight className="size-3 inline" /> : <ArrowDownRight className="size-3 inline" />}
@@ -181,7 +181,7 @@ export default function Dashboard() {
               <CardTitle className="text-sm font-medium text-muted-foreground">قيمة المخزون</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{new Intl.NumberFormat('ar-SA', { style: 'currency', currency: 'SAR' }).format(summary?.inventoryValue || 0)}</div>
+              <div className="text-2xl font-bold"><Money value={summary?.inventoryValue} /></div>
               <p className="text-xs text-muted-foreground mt-1">
                 <span className="text-orange-400">{summary?.lowStockCount} منتج</span> قارب على النفاذ
               </p>
@@ -198,7 +198,7 @@ export default function Dashboard() {
               <CardTitle className="text-sm font-medium text-muted-foreground">صافي الربح</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-pink-400">{new Intl.NumberFormat('ar-SA', { style: 'currency', currency: 'SAR' }).format(summary?.netProfit || 0)}</div>
+              <div className="text-2xl font-bold text-pink-400"><Money value={summary?.netProfit} /></div>
               <p className="text-xs text-muted-foreground mt-1">
                 بعد خصم المصروفات والضرائب
               </p>

@@ -260,8 +260,7 @@ export default function Reports() {
               صافي الربح اليومي
             </p>
             <h3 className="text-2xl font-bold text-neutral-800">
-              {fmtSAR(insights?.netProfitToday ?? 12450)}{" "}
-              <span className="text-sm font-normal text-neutral-400">ر.س</span>
+              <Money value={insights?.netProfitToday ?? 12450} fractionDigits={0} symbolClassName="size-[0.5em] text-neutral-400" />
             </h3>
           </div>
 
@@ -498,8 +497,7 @@ export default function Reports() {
               </div>
               <div className="relative z-10">
                 <div className="mb-1 text-3xl font-bold">
-                  {fmtSAR(insights?.customerLifetimeValue ?? 4850)}{" "}
-                  <span className="text-sm font-normal text-blue-200">ر.س</span>
+                  <Money value={insights?.customerLifetimeValue ?? 4850} fractionDigits={0} symbolClassName="size-[0.5em] text-blue-200" />
                 </div>
                 <p className="mb-4 text-[10px] text-blue-200">
                   متوسط قيمة العميل خلال 12 شهر
@@ -514,7 +512,7 @@ export default function Reports() {
                   <div className="rounded-lg border border-white/5 bg-black/20 p-2">
                     <p className="mb-1 text-[9px] text-blue-300">تكلفة الاستحواذ</p>
                     <p className="text-sm font-bold">
-                      {insightsExt?.acquisitionCost ?? 120} ر.س
+                      <Money value={insightsExt?.acquisitionCost ?? 120} fractionDigits={0} />
                     </p>
                   </div>
                 </div>

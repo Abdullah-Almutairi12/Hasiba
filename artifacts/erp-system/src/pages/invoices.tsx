@@ -26,6 +26,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { formatRiyal } from "@/components/riyal";
 import {
   FileText, UploadCloud, CheckCircle2, Clock, AlertTriangle, AlertCircle,
   Camera, Sparkles, Trash2, Plus, Loader2, ScanLine,
@@ -218,7 +219,7 @@ export default function Invoices() {
   };
 
   const fmt = (n: number) =>
-    new Intl.NumberFormat("ar-SA", { style: "currency", currency: "SAR", maximumFractionDigits: 2 }).format(n);
+    formatRiyal(n);
 
   return (
     <div className="space-y-6 pb-8 max-w-7xl mx-auto">
