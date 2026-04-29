@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Money } from "@/components/riyal";
 import { useLocation } from "wouter";
 import {
   useGetAdminStats,

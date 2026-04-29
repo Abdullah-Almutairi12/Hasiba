@@ -1,4 +1,5 @@
 import React, { useMemo } from "react";
+import { Money } from "@/components/riyal";
 import { motion, type Variants } from "framer-motion";
 import {
   useGetDashboardSummary,
