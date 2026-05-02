@@ -6,7 +6,7 @@ import { db, invoicesTable, productsTable, journalEntriesTable, categoriesTable,
 import { eq, sql, desc, ilike } from "drizzle-orm";
 import { CreateInvoiceBody, UpdateInvoiceBody } from "@workspace/api-zod";
 import { extractInvoiceFromImage, type ExtractedInvoice } from "../lib/invoice-extractor";
-import { requireRole, financeGuard } from "../middlewares/require-role";
+import { requireRole, financeGuard, invoiceReadGuard } from "../middlewares/require-role";
 import { uploadBufferToPrivateObject } from "./storage";
 import { findOrCreateSupplier } from "./suppliers";
 import { recordAudit } from "../lib/audit";
@@ -57,7 +57,7 @@ function buildZatcaQrPayload(params: {
   return buf.toString("base64");
 }
 
-router.get("/invoices", async (req, res) => {
+router.get("/invoices", invoiceReadGuard, async (req, res) => {
   try {
     const { status } = req.query;
     const rows = await db
@@ -107,7 +107,7 @@ router.post("/invoices", financeGuard, async (req, res) => {
   }
 });
 
-router.get("/invoices/stats", async (req, res) => {
+router.get("/invoices/stats", invoiceReadGuard, async (req, res) => {
   try {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -132,7 +132,7 @@ router.get("/invoices/stats", async (req, res) => {
   }
 });
 
-router.get("/invoices/:id", async (req, res) => {
+router.get("/invoices/:id", invoiceReadGuard, async (req, res) => {
   try {
     const id = Number(req.params.id);
     const [invoice] = await db.select().from(invoicesTable).where(eq(invoicesTable.id, id));
@@ -150,7 +150,7 @@ router.get("/invoices/:id", async (req, res) => {
   }
 });
 
-router.get("/invoices/:id/zatca-qr", async (req, res) => {
+router.get("/invoices/:id/zatca-qr", invoiceReadGuard, async (req, res) => {
   try {
     const id = Number(req.params.id);
     const [invoice] = await db.select().from(invoicesTable).where(eq(invoicesTable.id, id));

@@ -71,3 +71,45 @@ export const analyticsReadGuard = requireRole(
   "marketing",
   "auditor",
 );
+
+// Read guards for sensitive datasets that contain financial / supplier
+// information. These are intentionally narrower than `requireAuth`:
+// the cashier and marketing roles, for example, must NOT read the supplier
+// ledger or supplier-side invoices.
+export const invoiceReadGuard = requireRole(
+  "owner",
+  "manager",
+  "accountant",
+  "inventory",
+  "auditor",
+);
+export const supplierReadGuard = requireRole(
+  "owner",
+  "manager",
+  "accountant",
+  "inventory",
+  "auditor",
+);
+// POS sessions / orders / summaries: operational + finance roles.
+// (Marketing & inventory have no business looking at till-level data.)
+export const posReadGuard = requireRole(
+  "owner",
+  "manager",
+  "accountant",
+  "sales",
+  "cashier",
+  "auditor",
+);
+// Audit log access: management + auditor (auditors must inspect the trail).
+export const auditReadGuard = requireRole("owner", "manager", "auditor");
+// Customer ledger access. Inventory has no business reason to see customer
+// PII, so they are excluded; everyone else who serves customers can read.
+export const customerReadGuard = requireRole(
+  "owner",
+  "manager",
+  "accountant",
+  "sales",
+  "cashier",
+  "marketing",
+  "auditor",
+);

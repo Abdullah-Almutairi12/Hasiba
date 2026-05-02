@@ -89,7 +89,8 @@ const ROLES = [
     icon: "cash-register",
     color: "green",
     requires2fa: false,
-    permissions: ["pos", "products.read"],
+    // Cashiers add walk-in customers from the POS; this matches Zoho/Odoo defaults.
+    permissions: ["pos", "products.read", "customers.create"],
   },
   {
     key: "inventory",
@@ -109,7 +110,7 @@ const ROLES = [
     icon: "megaphone",
     color: "pink",
     requires2fa: false,
-    permissions: ["marketing", "customers.read", "reports.read"],
+    permissions: ["marketing", "customers.read", "analytics.read", "exports.marketing"],
   },
   {
     key: "auditor",
@@ -118,6 +119,7 @@ const ROLES = [
     description: "الاطلاع فقط على جميع البيانات، سجل التدقيق، والتقارير",
     icon: "magnifying-glass-chart",
     color: "orange",
+    // Auditors get full read across the system + audit trail.
     requires2fa: false,
     permissions: ["read_only", "audit_logs", "reports.read", "exports.read"],
   },

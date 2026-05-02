@@ -2,11 +2,11 @@ import { Router } from "express";
 import { db, posSessionsTable, posOrdersTable, branchesTable, productsTable } from "@workspace/db";
 import { eq, gte, sql, desc } from "drizzle-orm";
 import { CreatePosSessionBody, CreatePosOrderBody } from "@workspace/api-zod";
-import { posGuard } from "../middlewares/require-role";
+import { posGuard, posReadGuard } from "../middlewares/require-role";
 
 const router = Router();
 
-router.get("/pos/sessions", async (req, res) => {
+router.get("/pos/sessions", posReadGuard, async (req, res) => {
   try {
     const sessions = await db
       .select({
@@ -70,7 +70,7 @@ router.post("/pos/sessions", posGuard, async (req, res) => {
   }
 });
 
-router.get("/pos/orders", async (req, res) => {
+router.get("/pos/orders", posReadGuard, async (req, res) => {
   try {
     const { sessionId, date } = req.query;
     let query = db.select().from(posOrdersTable);
@@ -173,7 +173,7 @@ router.post("/pos/orders", posGuard, async (req, res) => {
   }
 });
 
-router.get("/pos/summary", async (req, res) => {
+router.get("/pos/summary", posReadGuard, async (req, res) => {
   try {
     const today = new Date();
     today.setHours(0, 0, 0, 0);

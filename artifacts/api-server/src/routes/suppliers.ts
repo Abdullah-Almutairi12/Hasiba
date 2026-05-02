@@ -2,12 +2,18 @@ import { Router } from "express";
 import { z, ZodError } from "zod";
 import { db, suppliersTable, invoicesTable } from "@workspace/db";
 import { eq, ilike, or, sql, desc } from "drizzle-orm";
-import { requireRole } from "../middlewares/require-role";
+import { requireRole, supplierReadGuard } from "../middlewares/require-role";
 import { recordAudit } from "../lib/audit";
 
 const router = Router();
 // Suppliers are written by both finance (accounting) and inventory (purchasing).
 const supplierWriteGuard = requireRole("owner", "manager", "accountant", "inventory");
+
+// All supplier reads (list, detail, invoices history) are restricted to roles
+// that legitimately need supplier visibility — cashiers, sales, and marketing
+// must not see this list. Mount with explicit prefix so the middleware only
+// fires for /suppliers/* requests, not unrelated traffic that passes through.
+router.use("/suppliers", supplierReadGuard);
 
 const CreateSupplierBody = z.object({
   name: z.string().min(1),

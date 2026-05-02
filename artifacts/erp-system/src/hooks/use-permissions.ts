@@ -29,24 +29,31 @@ const GROUPS = {
   finance: ["owner", "manager", "accountant"],
   salesWrite: ["owner", "manager", "sales", "cashier"],
   pos: ["owner", "manager", "sales", "cashier"],
+  posRead: ["owner", "manager", "accountant", "sales", "cashier", "auditor"],
   inventory: ["owner", "manager", "inventory"],
   marketing: ["owner", "manager", "marketing"],
   reportRead: ["owner", "manager", "accountant", "auditor"],
   exports: ["owner", "manager", "accountant", "auditor", "inventory", "marketing"],
   analyticsRead: ["owner", "manager", "accountant", "marketing", "auditor"],
+  invoiceRead: ["owner", "manager", "accountant", "inventory", "auditor"],
+  supplierRead: ["owner", "manager", "accountant", "inventory", "auditor"],
+  auditRead: ["owner", "manager", "auditor"],
 } as const satisfies Record<string, readonly Role[]>;
 
 export type PermissionKey = keyof typeof GROUPS;
 
 // Per-page nav visibility. Each nav key is mapped to the set of roles allowed
 // to see it. Reads on these pages are filtered both here (UX) and on the
-// server (security).
+// server (security). These MUST stay in sync with the server-side guards in
+// `artifacts/api-server/src/middlewares/require-role.ts`.
 export const NAV_PERMISSIONS: Record<string, readonly Role[]> = {
   dashboard: ALL_ROLES, // every role gets a landing page
-  pos: ["owner", "manager", "sales", "cashier"],
+  // POS *page* visibility = posRead (accountant + auditor can view tills/sessions
+  // even though they cannot ring up sales). Write-side is enforced server-side.
+  pos: GROUPS.posRead,
   products: ALL_ROLES, // read-only for most; writes guarded server-side
-  invoices: ["owner", "manager", "accountant", "inventory", "auditor"],
-  customers: ["owner", "manager", "accountant", "sales", "marketing", "auditor"],
+  invoices: GROUPS.invoiceRead,
+  customers: ["owner", "manager", "accountant", "sales", "cashier", "marketing", "auditor"],
   accounting: ["owner", "manager", "accountant", "auditor"],
   reports: GROUPS.reportRead,
   projects: ALL_ROLES,

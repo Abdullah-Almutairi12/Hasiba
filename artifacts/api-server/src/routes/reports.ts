@@ -5,7 +5,11 @@ import { reportReadGuard } from "../middlewares/require-role";
 
 const router = Router();
 
-router.use(reportReadGuard);
+// Scope the guard to /reports/* paths only. Using router.use(guard) without a
+// path would block requests to OTHER routers mounted after this one in the
+// parent app — Express runs router-level middleware for every request that
+// enters the router, regardless of whether a route matches.
+router.use("/reports", reportReadGuard);
 
 router.get("/reports/sales", async (req, res) => {
   try {

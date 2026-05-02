@@ -93,9 +93,34 @@ OpenAI integration provisioned via Replit AI Integrations proxy (`AI_INTEGRATION
 - Session-based via `express-session` + `connect-pg-simple` (cookie name `hasba.sid`).
 - All routes after `/auth/*` and `/health` are protected by `requireAuth` (mounted in `routes/index.ts`).
 - Role-based authorization via `requireRole(...roles)` middleware. Role is stored in session (`req.session.role`) on login/signup.
-- Mutations for projects/marketing require `manager` or `accountant`. Reads for projects/marketing are open to any authenticated user.
-- `/users` endpoints are restricted to `manager`. The response uses an explicit safe-column projection — `passwordHash` is NEVER returned.
+- `passwordHash` is NEVER returned from the `/users` endpoints (explicit safe-column projection).
 - Validation errors (Zod) return 400 via the `handleRouteError` helper in `lib/handle-error.ts`.
+
+### 8-Role Permissions Model (Odoo/Zoho/SAP-style)
+
+Roles: `owner`, `manager`, `accountant`, `sales`, `cashier`, `inventory`, `marketing`, `auditor`. The catalogue served at `GET /users/roles` is the single source of truth for the UI.
+
+Server-side guards live in `artifacts/api-server/src/middlewares/require-role.ts`:
+
+| Guard | Allowed roles | Used for |
+|---|---|---|
+| `adminGuard` | owner, manager | branches, projects, /admin, user CRUD |
+| `financeGuard` | owner, manager, accountant | accounting writes, invoice writes |
+| `salesWriteGuard` | owner, manager, sales, cashier | customers writes |
+| `posGuard` | owner, manager, sales, cashier | POS writes |
+| `inventoryGuard` | owner, manager, inventory | products/warehouses writes |
+| `marketingGuard` | owner, manager, marketing | marketing writes |
+| `reportReadGuard` | owner, manager, accountant, auditor | reports module |
+| `analyticsReadGuard` | owner, manager, accountant, marketing, auditor | analytics |
+| `exportsGuard` | owner, manager, accountant, auditor, inventory, marketing | data exports |
+| `invoiceReadGuard` | owner, manager, accountant, inventory, auditor | GET /invoices/* |
+| `supplierReadGuard` | owner, manager, accountant, inventory, auditor | GET /suppliers/* |
+| `posReadGuard` | owner, manager, accountant, sales, cashier, auditor | GET /pos/* |
+| `auditReadGuard` | owner, manager, auditor | GET /security/audit-logs |
+
+Frontend mirror in `artifacts/erp-system/src/hooks/use-permissions.ts` (`NAV_PERMISSIONS` + `canSee()`). The sidebar in `components/layout.tsx` filters nav by role and the `/users` page exposes full CRUD with the 8-role catalogue.
+
+**Important pitfall (fixed):** `router.use(guard)` without a path prefix runs for every request that enters the router, regardless of route matching. When applying a router-level guard, always scope it: `router.use("/reports", reportReadGuard)`.
 
 ## Important Notes
 
