@@ -10,7 +10,6 @@ import {
   Settings,
   Building2,
   ShieldCheck,
-  UserCog,
   FolderKanban,
   Megaphone,
   Sun,
@@ -65,7 +64,6 @@ const financeNavItems = [
 ] as const;
 
 const operationsNavItems = [
-  { key: "hr", url: "/hr", icon: UserCog },
   { key: "projects", url: "/projects", icon: FolderKanban },
   { key: "marketing", url: "/marketing", icon: Megaphone },
 ] as const;

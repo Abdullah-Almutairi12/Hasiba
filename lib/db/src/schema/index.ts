@@ -10,7 +10,6 @@ export * from "./alerts";
 export * from "./users";
 export * from "./warehouses";
 export * from "./audit_logs";
-export * from "./hr";
 export * from "./projects";
 export * from "./marketing";
 export * from "./admin";

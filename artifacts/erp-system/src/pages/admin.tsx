@@ -733,7 +733,6 @@ function FeatureFlagsTab() {
     accounting: "المحاسبة",
     ai: "الذكاء الاصطناعي",
     communication: "التواصل والإشعارات",
-    hr: "الموارد البشرية",
     developer: "المطورون",
     security: "الأمان",
     general: "عام",

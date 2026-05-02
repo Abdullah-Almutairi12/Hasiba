@@ -16,7 +16,6 @@ import Customers from "@/pages/customers";
 import Branches from "@/pages/branches";
 import UsersPage from "@/pages/users";
 import Settings from "@/pages/settings";
-import HRPage from "@/pages/hr";
 import ProjectsPage from "@/pages/projects";
 import MarketingPage from "@/pages/marketing";
 import AdminPage from "@/pages/admin";
@@ -96,9 +95,6 @@ function Router() {
       </Route>
       <Route path="/branches">
         <Protected><Branches /></Protected>
-      </Route>
-      <Route path="/hr">
-        <Protected><HRPage /></Protected>
       </Route>
       <Route path="/projects">
         <Protected><ProjectsPage /></Protected>

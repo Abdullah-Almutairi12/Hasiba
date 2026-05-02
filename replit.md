@@ -31,11 +31,10 @@ Full-stack ERP system targeting Arabic/Saudi businesses, inspired by Odoo. Built
 9. **التسجيل والإعداد الموجّه** — Full-screen `/signup` (create company) and `/onboarding` (5-step wizard) flows
 10. **التقارير الذكية + كشف الاحتيال** — AI Copilot, predictive forecast, CLV, benchmarks, fraud detection table
 11. **POS Loyalty + ZATCA badge** — In-cart customer loyalty (points → discount) with combined effectiveDiscount sent to backend so UI total mirrors persisted total
-12. **الموارد البشرية (HR)** — `/hr` page with tabs for employees / attendance / payroll. Requires `manager` or `accountant` role.
-13. **المشاريع** — `/projects` page with Kanban board + list view, project budgets and progress
-14. **التسويق** — `/marketing` page with campaigns and leads pipeline, conversion tracking
-15. **صفحة البداية (Landing)** — `/welcome` public marketing landing page with hero, mockup preview, features grid, how-it-works section, dark CTA, and footer. CTAs link to `/signup` and `/login`. Auto-redirects authenticated users to `/`.
-16. **لوحة تحكم المدير (Admin Panel)** — `/admin` route, manager-only. Single-page tabs: نظرة عامة (KPIs + system health + announcements), الدعم الفني (CRUD support tickets, reply + status), الإعلانات (publish/expire/delete), الميزات (toggle feature flags grouped by category), السجلات (recent audit log entries). Backed by tables `support_tickets`, `announcements`, `feature_flags`. Endpoints under `/api/admin/*` gated by `requireRole("manager")`. Sidebar entry "لوحة الإدارة" appears only for managers.
+12. **المشاريع** — `/projects` page with Kanban board + list view, project budgets and progress
+13. **التسويق** — `/marketing` page with campaigns and leads pipeline, conversion tracking
+14. **صفحة البداية (Landing)** — `/welcome` public marketing landing page with hero, mockup preview, features grid, how-it-works section, dark CTA, and footer. CTAs link to `/signup` and `/login`. Auto-redirects authenticated users to `/`.
+15. **لوحة تحكم المدير (Admin Panel)** — `/admin` route, manager-only. Single-page tabs: نظرة عامة (KPIs + system health + announcements), الدعم الفني (CRUD support tickets, reply + status), الإعلانات (publish/expire/delete), الميزات (toggle feature flags grouped by category), السجلات (recent audit log entries). Backed by tables `support_tickets`, `announcements`, `feature_flags`. Endpoints under `/api/admin/*` gated by `requireRole("manager")`. Sidebar entry "لوحة الإدارة" appears only for managers.
 
 ## Artifacts
 
@@ -53,7 +52,6 @@ Full-stack ERP system targeting Arabic/Saudi businesses, inspired by Odoo. Built
 ## Database Tables
 
 Core: `branches`, `warehouses`, `categories`, `products`, `customers`, `pos_sessions`, `pos_orders`, `invoices`, `journal_entries`, `alerts`, `users`, `audit_logs`, `session`
-HR: `departments`, `employees`, `attendance`, `payroll`
 Projects: `projects`, `project_tasks`
 Marketing: `campaigns`, `leads`
 
@@ -64,7 +62,7 @@ Marketing: `campaigns`, `leads`
 - `useLanguage()` hook (`src/hooks/use-language.ts`) exposes `language`, `isRTL`, `setLanguage`, `toggleLanguage`, and `t`. It persists the choice to `localStorage` (`hasba.lang`) and updates `document.documentElement.lang/dir` on switch.
 - A language toggle button is in the layout header (next to the theme toggle) and on the login page top-right.
 - The sidebar `side` flips between `right` (RTL) and `left` (LTR) based on language.
-- Currently translated: layout (sidebar nav + groups, header), login page. Inner business pages (dashboard, hr, projects, marketing, etc.) intentionally remain in Arabic; t() keys can be added incrementally without further infrastructure changes.
+- Currently translated: layout (sidebar nav + groups, header), login page. Inner business pages (dashboard, projects, marketing, etc.) intentionally remain in Arabic; t() keys can be added incrementally without further infrastructure changes.
 
 ## Mobile Responsiveness
 
@@ -73,7 +71,7 @@ Marketing: `campaigns`, `leads`
 - Layout header padding/gap collapse on small screens (`px-3 sm:px-6`, `gap-2 sm:gap-4`).
 - Page content padding scales: `p-3 sm:p-4 md:p-6`.
 - shadcn `Table` already wraps in `overflow-auto`, so wide tables scroll horizontally inside their cards.
-- KPI grids in HR/Projects/Marketing collapse to 1 column below `sm` (`sm:grid-cols-2 lg:grid-cols-4`).
+- KPI grids in Projects/Marketing collapse to 1 column below `sm` (`sm:grid-cols-2 lg:grid-cols-4`).
 - Login page: brand panel hidden below `lg`, form padding collapses, header buttons wrap.
 
 ## AI Models (نماذج الذكاء الاصطناعي)
@@ -95,7 +93,7 @@ OpenAI integration provisioned via Replit AI Integrations proxy (`AI_INTEGRATION
 - Session-based via `express-session` + `connect-pg-simple` (cookie name `hasba.sid`).
 - All routes after `/auth/*` and `/health` are protected by `requireAuth` (mounted in `routes/index.ts`).
 - Role-based authorization via `requireRole(...roles)` middleware. Role is stored in session (`req.session.role`) on login/signup.
-- Sensitive HR endpoints require `manager` or `accountant`. Mutations for projects/marketing require `manager` or `accountant`. Reads for projects/marketing are open to any authenticated user.
+- Mutations for projects/marketing require `manager` or `accountant`. Reads for projects/marketing are open to any authenticated user.
 - `/users` endpoints are restricted to `manager`. The response uses an explicit safe-column projection — `passwordHash` is NEVER returned.
 - Validation errors (Zod) return 400 via the `handleRouteError` helper in `lib/handle-error.ts`.
 
