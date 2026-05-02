@@ -1,8 +1,11 @@
 import { Router } from "express";
 import { db, posOrdersTable, productsTable } from "@workspace/db";
 import { sql, gte } from "drizzle-orm";
+import { reportReadGuard } from "../middlewares/require-role";
 
 const router = Router();
+
+router.use(reportReadGuard);
 
 router.get("/reports/sales", async (req, res) => {
   try {

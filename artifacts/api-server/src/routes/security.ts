@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db, auditLogsTable } from "@workspace/db";
 import { desc } from "drizzle-orm";
-import { requireRole } from "../middlewares/require-role";
+import { adminGuard } from "../middlewares/require-role";
 
 const router = Router();
 
@@ -71,7 +71,7 @@ router.get("/security/checklist", async (_req, res) => {
   });
 });
 
-router.get("/security/audit-logs", requireRole("manager"), async (req, res) => {
+router.get("/security/audit-logs", adminGuard, async (req, res) => {
   try {
     const limit = Math.min(Number(req.query.limit) || 20, 100);
     const rows = await db

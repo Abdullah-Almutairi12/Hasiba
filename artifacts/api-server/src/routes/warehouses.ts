@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { db, warehousesTable, insertWarehouseSchema } from "@workspace/db";
 import { eq } from "drizzle-orm";
+import { inventoryGuard } from "../middlewares/require-role";
 
 const router = Router();
 
@@ -17,7 +18,7 @@ router.get("/warehouses", async (req, res) => {
   }
 });
 
-router.post("/warehouses", async (req, res) => {
+router.post("/warehouses", inventoryGuard, async (req, res) => {
   try {
     const parsed = insertWarehouseSchema.parse(req.body);
     const [created] = await db.insert(warehousesTable).values(parsed).returning();

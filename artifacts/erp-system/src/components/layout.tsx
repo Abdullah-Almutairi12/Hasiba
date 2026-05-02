@@ -23,6 +23,7 @@ import { Button } from "@/components/ui/button";
 import { useTheme, type ThemeMode } from "@/hooks/use-theme";
 import { useAuth } from "@/hooks/use-auth";
 import { useLanguage } from "@/hooks/use-language";
+import { usePermissions } from "@/hooks/use-permissions";
 import {
   Tooltip,
   TooltipContent,
@@ -71,45 +72,48 @@ const operationsNavItems = [
 const adminNavItems = [
   { key: "branches", url: "/branches", icon: Building2 },
   { key: "users", url: "/users", icon: Users },
-  { key: "admin", url: "/admin", icon: ShieldCheck, managerOnly: true },
+  { key: "admin", url: "/admin", icon: ShieldCheck },
   { key: "settings", url: "/settings", icon: Settings },
 ] as const;
 
 export function AppSidebar() {
   const [location] = useLocation();
   const { t, isRTL } = useLanguage();
-  const { user } = useAuth();
-  const isManager = user?.role === "manager";
+  const { canSee } = usePermissions();
 
   const renderGroup = (
     label: string,
-    items: ReadonlyArray<{ key: string; url: string; icon: React.ComponentType<{ className?: string }>; managerOnly?: boolean }>,
-  ) => (
-    <SidebarGroup>
-      <SidebarGroupLabel>{label}</SidebarGroupLabel>
-      <SidebarGroupContent>
-        <SidebarMenu>
-          {items.filter((i) => !i.managerOnly || isManager).map((item) => {
-            const title = t(`nav.${item.key}`);
-            return (
-              <SidebarMenuItem key={item.key}>
-                <SidebarMenuButton
-                  asChild
-                  isActive={location === item.url}
-                  tooltip={title}
-                >
-                  <Link href={item.url}>
-                    <item.icon />
-                    <span>{title}</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            );
-          })}
-        </SidebarMenu>
-      </SidebarGroupContent>
-    </SidebarGroup>
-  );
+    items: ReadonlyArray<{ key: string; url: string; icon: React.ComponentType<{ className?: string }> }>,
+  ) => {
+    const visible = items.filter((i) => canSee(i.key));
+    if (visible.length === 0) return null;
+    return (
+      <SidebarGroup>
+        <SidebarGroupLabel>{label}</SidebarGroupLabel>
+        <SidebarGroupContent>
+          <SidebarMenu>
+            {visible.map((item) => {
+              const title = t(`nav.${item.key}`);
+              return (
+                <SidebarMenuItem key={item.key}>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={location === item.url}
+                    tooltip={title}
+                  >
+                    <Link href={item.url}>
+                      <item.icon />
+                      <span>{title}</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              );
+            })}
+          </SidebarMenu>
+        </SidebarGroupContent>
+      </SidebarGroup>
+    );
+  };
 
   return (
     <Sidebar side={isRTL ? "right" : "left"} className={`${isRTL ? "border-l" : "border-r"} border-border bg-sidebar`}>

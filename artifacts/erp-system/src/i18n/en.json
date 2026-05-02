@@ -43,9 +43,13 @@
     "loggingOut": "Logging out..."
   },
   "roles": {
+    "owner": "Owner",
     "manager": "Manager",
     "accountant": "Accountant",
+    "sales": "Sales Rep",
     "cashier": "Cashier",
+    "inventory": "Inventory Manager",
+    "marketing": "Marketing",
     "auditor": "Auditor"
   },
   "login": {

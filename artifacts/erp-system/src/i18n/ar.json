@@ -43,10 +43,14 @@
     "loggingOut": "جاري الخروج..."
   },
   "roles": {
-    "manager": "مدير",
+    "owner": "المالك",
+    "manager": "مدير عام",
     "accountant": "محاسب",
+    "sales": "مندوب مبيعات",
     "cashier": "كاشير",
-    "auditor": "مراجع"
+    "inventory": "مدير مخزون",
+    "marketing": "اختصاصي تسويق",
+    "auditor": "مراقب / مدقق"
   },
   "login": {
     "tagline": "ERP & Accounting Suite",

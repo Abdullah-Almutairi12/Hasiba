@@ -6,7 +6,8 @@ import { requireRole } from "../middlewares/require-role";
 import { recordAudit } from "../lib/audit";
 
 const router = Router();
-const accountantOrManager = requireRole("manager", "accountant");
+// Suppliers are written by both finance (accounting) and inventory (purchasing).
+const supplierWriteGuard = requireRole("owner", "manager", "accountant", "inventory");
 
 const CreateSupplierBody = z.object({
   name: z.string().min(1),
@@ -51,7 +52,7 @@ router.get("/suppliers", async (req, res) => {
   }
 });
 
-router.post("/suppliers", accountantOrManager, async (req, res) => {
+router.post("/suppliers", supplierWriteGuard, async (req, res) => {
   try {
     const body = CreateSupplierBody.parse(req.body);
     const [created] = await db

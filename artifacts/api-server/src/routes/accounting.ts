@@ -1,11 +1,12 @@
 import { Router } from "express";
 import { db, journalEntriesTable } from "@workspace/db";
-import { sql, desc } from "drizzle-orm";
+import { desc } from "drizzle-orm";
 import { CreateJournalEntryBody } from "@workspace/api-zod";
+import { financeGuard, reportReadGuard } from "../middlewares/require-role";
 
 const router = Router();
 
-router.get("/accounting/journal-entries", async (req, res) => {
+router.get("/accounting/journal-entries", reportReadGuard, async (req, res) => {
   try {
     const entries = await db
       .select()
@@ -27,7 +28,7 @@ router.get("/accounting/journal-entries", async (req, res) => {
   }
 });
 
-router.post("/accounting/journal-entries", async (req, res) => {
+router.post("/accounting/journal-entries", financeGuard, async (req, res) => {
   try {
     const body = CreateJournalEntryBody.parse(req.body);
     const [entry] = await db
@@ -55,7 +56,7 @@ router.post("/accounting/journal-entries", async (req, res) => {
   }
 });
 
-router.get("/accounting/summary", async (req, res) => {
+router.get("/accounting/summary", reportReadGuard, async (req, res) => {
   try {
     res.json({
       netCashFlow: 142500,
@@ -71,7 +72,7 @@ router.get("/accounting/summary", async (req, res) => {
   }
 });
 
-router.get("/accounting/zatca-status", async (req, res) => {
+router.get("/accounting/zatca-status", reportReadGuard, async (req, res) => {
   try {
     res.json({
       connected: true,

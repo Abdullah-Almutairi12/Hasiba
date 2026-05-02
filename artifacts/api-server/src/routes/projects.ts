@@ -2,13 +2,13 @@ import { Router } from "express";
 import { db, projectsTable, projectTasksTable, customersTable } from "@workspace/db";
 import { desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
-import { requireRole } from "../middlewares/require-role";
+import { adminGuard } from "../middlewares/require-role";
 import { handleRouteError } from "../lib/handle-error";
 
 const router = Router();
 
-// Projects: any authenticated user can read. Only manager + accountant can mutate.
-const projWriteGuard = requireRole("manager", "accountant");
+// Projects: any authenticated user can read. Only owner + manager can mutate.
+const projWriteGuard = adminGuard;
 
 const IdParam = z.object({ id: z.coerce.number().int().positive() });
 

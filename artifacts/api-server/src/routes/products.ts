@@ -1,7 +1,8 @@
 import { Router } from "express";
 import { db, productsTable, categoriesTable } from "@workspace/db";
-import { eq, ilike, lte, sql, desc } from "drizzle-orm";
+import { eq, sql, desc } from "drizzle-orm";
 import { CreateProductBody, UpdateProductBody } from "@workspace/api-zod";
+import { inventoryGuard } from "../middlewares/require-role";
 
 const router = Router();
 
@@ -51,7 +52,7 @@ router.get("/products", async (req, res) => {
   }
 });
 
-router.post("/products", async (req, res) => {
+router.post("/products", inventoryGuard, async (req, res) => {
   try {
     const body = CreateProductBody.parse(req.body);
     const [product] = await db
@@ -167,7 +168,7 @@ router.get("/products/:id", async (req, res) => {
   }
 });
 
-router.patch("/products/:id", async (req, res) => {
+router.patch("/products/:id", inventoryGuard, async (req, res) => {
   try {
     const id = Number(req.params.id);
     const body = UpdateProductBody.parse(req.body);
@@ -199,7 +200,7 @@ router.patch("/products/:id", async (req, res) => {
   }
 });
 
-router.delete("/products/:id", async (req, res) => {
+router.delete("/products/:id", inventoryGuard, async (req, res) => {
   try {
     const id = Number(req.params.id);
     await db.update(productsTable).set({ isActive: false }).where(eq(productsTable.id, id));

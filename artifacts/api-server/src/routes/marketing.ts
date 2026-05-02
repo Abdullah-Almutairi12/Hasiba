@@ -2,13 +2,13 @@ import { Router } from "express";
 import { db, campaignsTable, leadsTable } from "@workspace/db";
 import { desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
-import { requireRole } from "../middlewares/require-role";
+import { marketingGuard } from "../middlewares/require-role";
 import { handleRouteError } from "../lib/handle-error";
 
 const router = Router();
 
-// Marketing: any authenticated user can read. Manager + accountant can mutate.
-const mktWriteGuard = requireRole("manager", "accountant");
+// Marketing: any authenticated user can read. Marketing role + admins can mutate.
+const mktWriteGuard = marketingGuard;
 
 router.get("/marketing/campaigns", async (req, res) => {
   try {

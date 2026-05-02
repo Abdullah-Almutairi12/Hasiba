@@ -3,7 +3,7 @@ import { z } from "zod";
 import rateLimit from "express-rate-limit";
 import { db, aiModelsTable } from "@workspace/db";
 import { desc, eq } from "drizzle-orm";
-import { requireRole } from "../middlewares/require-role";
+import { adminGuard, analyticsReadGuard, ownerOnly } from "../middlewares/require-role";
 import {
   trainSalesForecast,
   trainCustomerChurn,
@@ -17,8 +17,11 @@ import {
 import { askAssistant } from "../lib/ai-assistant";
 
 const router = Router();
-const adminOnly = requireRole("manager");
-const managerOrAccountant = requireRole("manager", "accountant");
+const adminOnly = adminGuard;
+// Read-only AI analytics open to roles that already see company-wide reports.
+const analyticsRead = analyticsReadGuard;
+// Training and the assistant can be expensive — owner only.
+const trainingGuard = ownerOnly;
 
 // Limit OpenAI-backed assistant to prevent runaway costs / abuse.
 // 30 requests / 15 minutes per IP, plus a global ceiling.
@@ -57,7 +60,7 @@ router.get("/ai/models", adminOnly, async (req, res) => {
   }
 });
 
-router.post("/ai/models/:key/train", adminOnly, async (req, res) => {
+router.post("/ai/models/:key/train", trainingGuard, async (req, res) => {
   const key = String(req.params.key);
   try {
     await db.update(aiModelsTable).set({ status: "training" }).where(eq(aiModelsTable.key, key));
@@ -105,7 +108,7 @@ router.post("/ai/models/:key/train", adminOnly, async (req, res) => {
   }
 });
 
-router.post("/ai/models/train-all", adminOnly, async (req, res) => {
+router.post("/ai/models/train-all", trainingGuard, async (req, res) => {
   const results: Record<string, { ok: boolean; accuracy?: number; error?: string }> = {};
   const trainers = [
     { key: "sales_forecast", fn: trainSalesForecast },
@@ -130,7 +133,7 @@ router.post("/ai/models/train-all", adminOnly, async (req, res) => {
 });
 
 // ============== Predictions (manager / accountant only — company-wide analytics) ==============
-router.get("/ai/predict/sales-forecast", managerOrAccountant, async (req, res) => {
+router.get("/ai/predict/sales-forecast", analyticsRead, async (req, res) => {
   try {
     const data = await predictSalesNext7Days();
     res.json({ forecast: data });
@@ -140,7 +143,7 @@ router.get("/ai/predict/sales-forecast", managerOrAccountant, async (req, res) =
   }
 });
 
-router.get("/ai/predict/at-risk-customers", managerOrAccountant, async (req, res) => {
+router.get("/ai/predict/at-risk-customers", analyticsRead, async (req, res) => {
   try {
     const limit = Math.min(Number(req.query.limit) || 20, 100);
     const data = await predictAtRiskCustomers(limit);
@@ -159,7 +162,7 @@ router.get("/ai/predict/at-risk-customers", managerOrAccountant, async (req, res
   }
 });
 
-router.get("/ai/predict/fraud-anomalies", managerOrAccountant, async (req, res) => {
+router.get("/ai/predict/fraud-anomalies", analyticsRead, async (req, res) => {
   try {
     const limit = Math.min(Number(req.query.limit) || 20, 100);
     const data = await detectAnomalousOrders(limit);
@@ -189,7 +192,7 @@ router.get("/ai/predict/fraud-anomalies", managerOrAccountant, async (req, res) 
   }
 });
 
-router.get("/ai/predict/recommendations", managerOrAccountant, async (req, res) => {
+router.get("/ai/predict/recommendations", analyticsRead, async (req, res) => {
   try {
     const limit = Math.min(Number(req.query.limit) || 10, 50);
     const data = await getTopRecommendations(limit);

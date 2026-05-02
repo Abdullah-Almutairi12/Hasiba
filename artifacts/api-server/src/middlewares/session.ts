@@ -49,6 +49,14 @@ export const sessionMiddleware = session({
 declare module "express-session" {
   interface SessionData {
     userId?: number;
-    role?: "manager" | "accountant" | "cashier" | "auditor";
+    role?:
+      | "owner"
+      | "manager"
+      | "accountant"
+      | "sales"
+      | "cashier"
+      | "inventory"
+      | "marketing"
+      | "auditor";
   }
 }

@@ -2,6 +2,7 @@ import { Router } from "express";
 import { db, branchesTable } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import { CreateBranchBody } from "@workspace/api-zod";
+import { adminGuard } from "../middlewares/require-role";
 
 const router = Router();
 
@@ -19,7 +20,7 @@ router.get("/branches", async (req, res) => {
   }
 });
 
-router.post("/branches", async (req, res) => {
+router.post("/branches", adminGuard, async (req, res) => {
   try {
     const body = CreateBranchBody.parse(req.body);
     const [branch] = await db

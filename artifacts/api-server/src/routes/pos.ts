@@ -2,6 +2,7 @@ import { Router } from "express";
 import { db, posSessionsTable, posOrdersTable, branchesTable, productsTable } from "@workspace/db";
 import { eq, gte, sql, desc } from "drizzle-orm";
 import { CreatePosSessionBody, CreatePosOrderBody } from "@workspace/api-zod";
+import { posGuard } from "../middlewares/require-role";
 
 const router = Router();
 
@@ -39,7 +40,7 @@ router.get("/pos/sessions", async (req, res) => {
   }
 });
 
-router.post("/pos/sessions", async (req, res) => {
+router.post("/pos/sessions", posGuard, async (req, res) => {
   try {
     const body = CreatePosSessionBody.parse(req.body);
     const sessionNumber = `WRD-${Date.now()}`;
@@ -100,7 +101,7 @@ router.get("/pos/orders", async (req, res) => {
   }
 });
 
-router.post("/pos/orders", async (req, res) => {
+router.post("/pos/orders", posGuard, async (req, res) => {
   try {
     const body = CreatePosOrderBody.parse(req.body);
 

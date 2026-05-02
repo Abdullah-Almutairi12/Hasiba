@@ -4,16 +4,13 @@ import PDFDocument from "pdfkit";
 import { db, posOrdersTable, productsTable, invoicesTable, suppliersTable, journalEntriesTable } from "@workspace/db";
 import { sql, desc, gte } from "drizzle-orm";
 import { recordAudit } from "../lib/audit";
-import { requireRole } from "../middlewares/require-role";
+import { exportsGuard } from "../middlewares/require-role";
 
 const router = Router();
 // Financial exports include profit, balances, and journal entries — restrict to
-// management roles. Unauthenticated access is already blocked by the global
-// requireAuth wired in routes/index.ts.
-// Restrict financial exports to roles that already have read access to the
-// underlying ledger / supplier data. "auditor" is included because audits
-// frequently need raw exports.
-const exportRoles = requireRole("manager", "accountant", "auditor");
+// roles that already have read access to the underlying ledger / supplier data.
+// Inventory and marketing also legitimately need to export their own modules.
+const exportRoles = exportsGuard;
 router.use("/exports/:type.xlsx", exportRoles);
 router.use("/exports/:type.pdf", exportRoles);
 

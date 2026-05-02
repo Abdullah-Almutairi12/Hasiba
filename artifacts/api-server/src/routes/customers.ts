@@ -2,6 +2,7 @@ import { Router } from "express";
 import { db, customersTable } from "@workspace/db";
 import { ilike, or, sql, desc } from "drizzle-orm";
 import { CreateCustomerBody } from "@workspace/api-zod";
+import { salesWriteGuard } from "../middlewares/require-role";
 
 const router = Router();
 
@@ -34,7 +35,7 @@ router.get("/customers", async (req, res) => {
   }
 });
 
-router.post("/customers", async (req, res) => {
+router.post("/customers", salesWriteGuard, async (req, res) => {
   try {
     const body = CreateCustomerBody.parse(req.body);
     const [customer] = await db

@@ -1,6 +1,21 @@
 import type { Request, Response, NextFunction } from "express";
 
-export type Role = "manager" | "accountant" | "cashier" | "auditor";
+export const ALL_ROLES = [
+  "owner",
+  "manager",
+  "accountant",
+  "sales",
+  "cashier",
+  "inventory",
+  "marketing",
+  "auditor",
+] as const;
+
+export type Role = (typeof ALL_ROLES)[number];
+
+export function isRole(value: unknown): value is Role {
+  return typeof value === "string" && (ALL_ROLES as readonly string[]).includes(value);
+}
 
 export function requireRole(...roles: Role[]) {
   return (req: Request, res: Response, next: NextFunction): void => {
@@ -16,3 +31,43 @@ export function requireRole(...roles: Role[]) {
     next();
   };
 }
+
+// Named role groups (Odoo / Zoho / SAP hybrid).
+// owner  = founder / super-admin (system + financial god-mode).
+// manager = branch / department admin (cannot delete owner-level data).
+// accountant = full finance: ledger, invoices, exports.
+// sales = quotes, customers write, but no finance.
+// cashier = POS only (own till + branch reads).
+// inventory = stock, purchases, warehouses.
+// marketing = campaigns, segments, reads sales.
+// auditor = read-only across the system + audit trail.
+
+export const adminGuard = requireRole("owner", "manager");
+export const ownerOnly = requireRole("owner");
+export const financeGuard = requireRole("owner", "manager", "accountant");
+export const salesWriteGuard = requireRole("owner", "manager", "sales", "cashier");
+export const posGuard = requireRole("owner", "manager", "sales", "cashier");
+export const inventoryGuard = requireRole("owner", "manager", "inventory");
+export const marketingGuard = requireRole("owner", "manager", "marketing");
+export const reportReadGuard = requireRole(
+  "owner",
+  "manager",
+  "accountant",
+  "auditor",
+);
+export const exportsGuard = requireRole(
+  "owner",
+  "manager",
+  "accountant",
+  "auditor",
+  "inventory",
+  "marketing",
+);
+// Permission to read company-wide analytics / forecasts.
+export const analyticsReadGuard = requireRole(
+  "owner",
+  "manager",
+  "accountant",
+  "marketing",
+  "auditor",
+);

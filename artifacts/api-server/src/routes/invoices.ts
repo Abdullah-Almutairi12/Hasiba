@@ -6,7 +6,7 @@ import { db, invoicesTable, productsTable, journalEntriesTable, categoriesTable,
 import { eq, sql, desc, ilike } from "drizzle-orm";
 import { CreateInvoiceBody, UpdateInvoiceBody } from "@workspace/api-zod";
 import { extractInvoiceFromImage, type ExtractedInvoice } from "../lib/invoice-extractor";
-import { requireRole } from "../middlewares/require-role";
+import { requireRole, financeGuard } from "../middlewares/require-role";
 import { uploadBufferToPrivateObject } from "./storage";
 import { findOrCreateSupplier } from "./suppliers";
 import { recordAudit } from "../lib/audit";
@@ -80,7 +80,7 @@ router.get("/invoices", async (req, res) => {
   }
 });
 
-router.post("/invoices", async (req, res) => {
+router.post("/invoices", financeGuard, async (req, res) => {
   try {
     const body = CreateInvoiceBody.parse(req.body);
     const [invoice] = await db
@@ -195,7 +195,7 @@ router.get("/invoices/:id/zatca-qr", async (req, res) => {
   }
 });
 
-router.patch("/invoices/:id", async (req, res) => {
+router.patch("/invoices/:id", financeGuard, async (req, res) => {
   try {
     const id = Number(req.params.id);
     const body = UpdateInvoiceBody.parse(req.body);
@@ -255,7 +255,9 @@ const ScanBody = z.object({
     ),
 });
 
-const supplierInvoiceAgent = requireRole("manager", "accountant");
+// Both finance (accountant) and inventory (purchasing) staff legitimately scan
+// supplier invoices because the agent affects both books and stock.
+const supplierInvoiceAgent = requireRole("owner", "manager", "accountant", "inventory");
 
 // Override default 1mb JSON limit on the scan route only (allow up to 20mb for image uploads).
 const largeJsonBody = express.json({ limit: "20mb" });

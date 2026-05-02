@@ -9,11 +9,11 @@ import {
 } from "@workspace/db";
 import { eq, sql, desc, and, gt, or, isNull } from "drizzle-orm";
 import { z } from "zod";
-import { requireRole } from "../middlewares/require-role";
+import { adminGuard } from "../middlewares/require-role";
 
 const router = Router();
 
-const adminOnly = requireRole("manager");
+const adminOnly = adminGuard;
 
 const APP_VERSION = process.env["APP_VERSION"] ?? "1.0.0";
 const APP_STARTED_AT = new Date();
