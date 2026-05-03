@@ -411,6 +411,36 @@ export default function POS() {
                   <Input
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
+                    onKeyDown={async (e) => {
+                      if (e.key !== "Enter") return;
+                      const code = search.trim();
+                      if (!code) return;
+                      try {
+                        const r = await fetch(
+                          `/api/inventory/lookup?code=${encodeURIComponent(code)}`,
+                          { credentials: "include" },
+                        );
+                        if (r.ok) {
+                          const m = await r.json();
+                          addToCart({
+                            id: m.productId,
+                            nameAr: m.nameAr ?? m.sku,
+                            name: m.nameAr ?? m.sku,
+                            sku: m.sku,
+                            price: m.price ?? 0,
+                          });
+                          setSearch("");
+                        } else {
+                          toast({
+                            title: "لم يُعثر على المنتج",
+                            description: code,
+                            variant: "destructive",
+                          });
+                        }
+                      } catch {
+                        toast({ title: "تعذر الاتصال", variant: "destructive" });
+                      }
+                    }}
                     placeholder="بحث باسم المنتج، الباركود، أو SKU..."
                     className="h-12 rounded-xl border-neutral-200 bg-neutral-50 pe-4 ps-12 text-sm shadow-inner focus-visible:border-[#2563EB] focus-visible:ring-2 focus-visible:ring-blue-500/20"
                     autoFocus

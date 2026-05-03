@@ -22,6 +22,9 @@
     "projects": "Projects",
     "marketing": "Marketing",
     "branches": "Branches & Warehouses",
+    "transfers": "Stock Transfers",
+    "stocktake": "Stock Takes",
+    "reorder": "Reorder Rules",
     "admin": "Admin Panel",
     "users": "Users & Permissions",
     "settings": "Security & Settings"

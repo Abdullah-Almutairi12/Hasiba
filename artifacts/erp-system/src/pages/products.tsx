@@ -30,9 +30,114 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Search, Plus, Package, AlertTriangle, DollarSign, Pencil, Trash2, Download } from "lucide-react";
+import { Search, Plus, Package, AlertTriangle, DollarSign, Pencil, Trash2, Download, Warehouse } from "lucide-react";
 import { ProductFormDialog } from "@/components/product-form-dialog";
 import { useToast } from "@/hooks/use-toast";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { useQuery } from "@tanstack/react-query";
+
+interface BalanceRow {
+  warehouseId: number;
+  warehouseName: string;
+  quantity: number;
+  avgCost: number;
+}
+interface MoveRow {
+  id: number;
+  kind: string;
+  quantity: number;
+  unitCost: number;
+  fromWarehouseName: string | null;
+  toWarehouseName: string | null;
+  occurredAt: string;
+}
+
+function StockPanel({ productId, onClose }: { productId: number | null; onClose: () => void }) {
+  const open = productId != null;
+  const { data: balances } = useQuery({
+    queryKey: ["product-balances", productId],
+    enabled: open,
+    queryFn: async () =>
+      (await fetch(`/api/inventory/products/${productId}/balances`, { credentials: "include" }).then((r) =>
+        r.json(),
+      )) as BalanceRow[],
+  });
+  const { data: moves } = useQuery({
+    queryKey: ["product-moves", productId],
+    enabled: open,
+    queryFn: async () =>
+      (await fetch(`/api/inventory/moves?productId=${productId}&limit=20`, {
+        credentials: "include",
+      }).then((r) => r.json())) as MoveRow[],
+  });
+  return (
+    <Sheet open={open} onOpenChange={(o) => !o && onClose()}>
+      <SheetContent side="left" className="w-[460px] sm:max-w-none overflow-y-auto">
+        <SheetHeader>
+          <SheetTitle className="flex items-center gap-2">
+            <Warehouse className="size-5" /> الأرصدة لكل مستودع
+          </SheetTitle>
+        </SheetHeader>
+        <div className="mt-4 space-y-6">
+          <div>
+            <h4 className="font-semibold mb-2 text-sm">الأرصدة الحالية</h4>
+            {balances?.length ? (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>المستودع</TableHead>
+                    <TableHead className="text-center">الكمية</TableHead>
+                    <TableHead className="text-left">متوسط التكلفة</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {balances.map((b) => (
+                    <TableRow key={b.warehouseId}>
+                      <TableCell>{b.warehouseName}</TableCell>
+                      <TableCell className="text-center">{b.quantity}</TableCell>
+                      <TableCell className="text-left">
+                        <Money value={b.avgCost} />
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            ) : (
+              <p className="text-sm text-muted-foreground">لا يوجد رصيد</p>
+            )}
+          </div>
+          <div>
+            <h4 className="font-semibold mb-2 text-sm">آخر الحركات</h4>
+            {moves?.length ? (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>التاريخ</TableHead>
+                    <TableHead>النوع</TableHead>
+                    <TableHead className="text-center">الكمية</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {moves.map((m) => (
+                    <TableRow key={m.id}>
+                      <TableCell className="text-xs">
+                        {new Date(m.occurredAt).toLocaleDateString("ar")}
+                      </TableCell>
+                      <TableCell className="text-xs">{m.kind}</TableCell>
+                      <TableCell className="text-center">{m.quantity}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            ) : (
+              <p className="text-sm text-muted-foreground">لا توجد حركات</p>
+            )}
+          </div>
+        </div>
+      </SheetContent>
+    </Sheet>
+  );
+}
 
 interface ProductFormState {
   id: number;
@@ -45,6 +150,9 @@ interface ProductFormState {
   stock: number;
   minStock: number;
   unit: string;
+  barcode: string | null;
+  trackingMode: "none" | "lot" | "serial";
+  costingMethod: "average" | "fifo" | "standard";
 }
 
 function exportProductsToCsv(rows: Array<{
@@ -86,6 +194,7 @@ export default function Products() {
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<ProductFormState | null>(null);
   const [deleteId, setDeleteId] = useState<number | null>(null);
+  const [panelProductId, setPanelProductId] = useState<number | null>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const deleteMutation = useDeleteProduct();
@@ -321,6 +430,14 @@ export default function Products() {
                         <Button
                           size="icon"
                           variant="ghost"
+                          onClick={() => setPanelProductId(product.id)}
+                          title="الأرصدة لكل مستودع"
+                        >
+                          <Warehouse className="size-4" />
+                        </Button>
+                        <Button
+                          size="icon"
+                          variant="ghost"
                           onClick={() => {
                             setEditing({
                               id: product.id,
@@ -333,6 +450,9 @@ export default function Products() {
                               stock: product.stock,
                               minStock: product.minStock ?? 0,
                               unit: product.unit ?? "قطعة",
+                              barcode: product.barcode ?? null,
+                              trackingMode: product.trackingMode,
+                              costingMethod: product.costingMethod,
                             });
                             setFormOpen(true);
                           }}
@@ -357,6 +477,7 @@ export default function Products() {
           </Table>
         </CardContent>
       </Card>
+      <StockPanel productId={panelProductId} onClose={() => setPanelProductId(null)} />
     </div>
   );
 }

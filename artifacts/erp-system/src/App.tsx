@@ -19,6 +19,9 @@ import Settings from "@/pages/settings";
 import ProjectsPage from "@/pages/projects";
 import MarketingPage from "@/pages/marketing";
 import AdminPage from "@/pages/admin";
+import TransfersPage from "@/pages/transfers";
+import StockTakePage from "@/pages/stocktake";
+import ReorderRulesPage from "@/pages/reorder-rules";
 import OnboardingWizard from "@/pages/onboarding-wizard";
 import CreateCompany from "@/pages/create-company";
 import Login from "@/pages/login";
@@ -95,6 +98,15 @@ function Router() {
       </Route>
       <Route path="/branches">
         <Protected><Branches /></Protected>
+      </Route>
+      <Route path="/inventory/transfers">
+        <Protected><TransfersPage /></Protected>
+      </Route>
+      <Route path="/inventory/stocktake">
+        <Protected><StockTakePage /></Protected>
+      </Route>
+      <Route path="/inventory/reorder">
+        <Protected><ReorderRulesPage /></Protected>
       </Route>
       <Route path="/projects">
         <Protected><ProjectsPage /></Protected>

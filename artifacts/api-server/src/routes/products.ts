@@ -3,6 +3,7 @@ import { db, productsTable, categoriesTable } from "@workspace/db";
 import { eq, sql, desc } from "drizzle-orm";
 import { CreateProductBody, UpdateProductBody } from "@workspace/api-zod";
 import { inventoryGuard } from "../middlewares/require-role";
+import { recordStockMove, getDefaultWarehouseId } from "../lib/stock-engine";
 
 const router = Router();
 
@@ -25,6 +26,9 @@ router.get("/products", async (req, res) => {
         unit: productsTable.unit,
         imageUrl: productsTable.imageUrl,
         isActive: productsTable.isActive,
+        barcode: productsTable.barcode,
+        trackingMode: productsTable.trackingMode,
+        costingMethod: productsTable.costingMethod,
         createdAt: productsTable.createdAt,
       })
       .from(productsTable)
@@ -43,6 +47,7 @@ router.get("/products", async (req, res) => {
         ...p,
         price: Number(p.price),
         costPrice: Number(p.costPrice),
+        stock: Number(p.stock),
         createdAt: p.createdAt.toISOString(),
       }))
     );
@@ -55,21 +60,44 @@ router.get("/products", async (req, res) => {
 router.post("/products", inventoryGuard, async (req, res) => {
   try {
     const body = CreateProductBody.parse(req.body);
-    const [product] = await db
-      .insert(productsTable)
-      .values({
-        name: body.name,
-        nameAr: body.nameAr,
-        sku: body.sku,
-        categoryId: body.categoryId,
-        price: String(body.price),
-        costPrice: String(body.costPrice),
-        stock: body.stock,
-        minStock: body.minStock,
-        unit: body.unit,
-        imageUrl: body.imageUrl ?? null,
-      })
-      .returning();
+    const product = await db.transaction(async (tx) => {
+      const [created] = await tx
+        .insert(productsTable)
+        .values({
+          name: body.name,
+          nameAr: body.nameAr,
+          sku: body.sku,
+          categoryId: body.categoryId,
+          price: String(body.price),
+          costPrice: String(body.costPrice),
+          stock: "0",
+          minStock: body.minStock,
+          unit: body.unit,
+          imageUrl: body.imageUrl ?? null,
+          barcode: body.barcode ?? null,
+          trackingMode: body.trackingMode ?? "none",
+          costingMethod: body.costingMethod ?? "average",
+        })
+        .returning();
+      // Initial stock is recorded as a real receipt move so quants and the
+      // ledger stay in sync. Direct writes to products.stock are not allowed.
+      if (body.stock && body.stock > 0) {
+        const wh = await getDefaultWarehouseId(tx);
+        await recordStockMove(tx, {
+          productId: created.id,
+          quantity: body.stock,
+          unitCost: Number(body.costPrice ?? 0),
+          kind: "receipt",
+          toWarehouseId: wh,
+          sourceType: "product_create",
+          sourceRef: `PROD-${created.id}`,
+          createdBy: req.session?.userId ?? null,
+          notes: "رصيد افتتاحي",
+        });
+        created.stock = String(body.stock);
+      }
+      return created;
+    });
 
     const category = await db.select().from(categoriesTable).where(eq(categoriesTable.id, product.categoryId)).limit(1);
 
@@ -77,6 +105,7 @@ router.post("/products", inventoryGuard, async (req, res) => {
       ...product,
       price: Number(product.price),
       costPrice: Number(product.costPrice),
+      stock: Number(product.stock),
       categoryName: category[0]?.nameAr ?? "",
       createdAt: product.createdAt.toISOString(),
     });
@@ -148,6 +177,9 @@ router.get("/products/:id", async (req, res) => {
         unit: productsTable.unit,
         imageUrl: productsTable.imageUrl,
         isActive: productsTable.isActive,
+        barcode: productsTable.barcode,
+        trackingMode: productsTable.trackingMode,
+        costingMethod: productsTable.costingMethod,
         createdAt: productsTable.createdAt,
       })
       .from(productsTable)
@@ -160,6 +192,7 @@ router.get("/products/:id", async (req, res) => {
       ...product,
       price: Number(product.price),
       costPrice: Number(product.costPrice),
+      stock: Number(product.stock),
       createdAt: product.createdAt.toISOString(),
     });
   } catch (err) {
@@ -178,9 +211,13 @@ router.patch("/products/:id", inventoryGuard, async (req, res) => {
     if (body.nameAr !== undefined) updateData.nameAr = body.nameAr;
     if (body.price !== undefined) updateData.price = String(body.price);
     if (body.costPrice !== undefined) updateData.costPrice = String(body.costPrice);
-    if (body.stock !== undefined) updateData.stock = body.stock;
+    // body.stock is intentionally ignored. Stock changes go through the
+    // /api/inventory/moves adjustment endpoint so they hit the ledger.
     if (body.minStock !== undefined) updateData.minStock = body.minStock;
     if (body.isActive !== undefined) updateData.isActive = body.isActive;
+    if (body.barcode !== undefined) updateData.barcode = body.barcode;
+    if (body.trackingMode !== undefined) updateData.trackingMode = body.trackingMode;
+    if (body.costingMethod !== undefined) updateData.costingMethod = body.costingMethod;
 
     const [updated] = await db.update(productsTable).set(updateData).where(eq(productsTable.id, id)).returning();
     if (!updated) return res.status(404).json({ error: "Not found" });
@@ -191,6 +228,7 @@ router.patch("/products/:id", inventoryGuard, async (req, res) => {
       ...updated,
       price: Number(updated.price),
       costPrice: Number(updated.costPrice),
+      stock: Number(updated.stock),
       categoryName: category[0]?.nameAr ?? "",
       createdAt: updated.createdAt.toISOString(),
     });

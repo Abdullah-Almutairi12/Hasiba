@@ -1,18 +1,43 @@
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useListBranches, useListWarehouses } from "@workspace/api-client-react";
+import { apiGet } from "@/hooks/use-api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { Building2, Warehouse, Plus, MapPin, Package, TrendingUp } from "lucide-react";
 import { BranchFormDialog } from "@/components/branch-form-dialog";
+
+interface WarehouseSummaryRow {
+  warehouse_id: number;
+  warehouse_name: string;
+  branch_id: number | null;
+  sku_count: number;
+  total_qty: number;
+  total_value: number;
+}
 
 export default function BranchesPage() {
   const { data: branches } = useListBranches();
   const { data: warehouses } = useListWarehouses();
+  const { data: stockSummary = [] } = useQuery<WarehouseSummaryRow[]>({
+    queryKey: ["/inventory/warehouse-summary"],
+    queryFn: () => apiGet("/inventory/warehouse-summary"),
+  });
   const [createOpen, setCreateOpen] = useState(false);
 
   const branchList = branches ?? [];
   const warehouseList = warehouses ?? [];
+  const summaryByWh = new Map(stockSummary.map((r) => [r.warehouse_id, r]));
+  const fmtMoney = (n: number) => n.toLocaleString("ar-SA", { maximumFractionDigits: 2 });
 
   return (
     <div className="space-y-6">
@@ -96,6 +121,62 @@ export default function BranchesPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Warehouse stock summary */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Warehouse className="size-5" /> رصيد المخزون لكل مستودع
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>المستودع</TableHead>
+                <TableHead>الفرع</TableHead>
+                <TableHead>عدد الأصناف</TableHead>
+                <TableHead>إجمالي الكمية</TableHead>
+                <TableHead>قيمة المخزون</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {warehouseList.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={5} className="py-8 text-center text-muted-foreground">
+                    لا توجد مستودعات
+                  </TableCell>
+                </TableRow>
+              ) : (
+                warehouseList.map((w) => {
+                  const s = summaryByWh.get(w.id);
+                  const branch = branchList.find((b) => b.id === w.branchId);
+                  return (
+                    <TableRow key={w.id}>
+                      <TableCell className="font-medium">
+                        {w.nameAr}
+                        {w.isDefault && (
+                          <Badge variant="outline" className="mx-2 h-5 text-xs">
+                            افتراضي
+                          </Badge>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        {branch?.nameAr ?? "—"}
+                      </TableCell>
+                      <TableCell>{s?.sku_count ?? 0}</TableCell>
+                      <TableCell>{fmtMoney(s?.total_qty ?? 0)}</TableCell>
+                      <TableCell className="font-mono">
+                        {fmtMoney(s?.total_value ?? 0)} ر.س
+                      </TableCell>
+                    </TableRow>
+                  );
+                })
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
 
       {/* Branch Cards */}
       <div>

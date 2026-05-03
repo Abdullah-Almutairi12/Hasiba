@@ -1,5 +1,6 @@
 import { Router } from "express";
-import { db, posSessionsTable, posOrdersTable, branchesTable, productsTable } from "@workspace/db";
+import { db, posSessionsTable, posOrdersTable, branchesTable, productsTable, warehousesTable } from "@workspace/db";
+import { recordStockMove } from "../lib/stock-engine";
 import { eq, gte, sql, desc } from "drizzle-orm";
 import { CreatePosSessionBody, CreatePosOrderBody } from "@workspace/api-zod";
 import { posGuard, posReadGuard } from "../middlewares/require-role";
@@ -113,6 +114,32 @@ router.post("/pos/orders", posGuard, async (req, res) => {
     // update, and GL postings all succeed-or-rollback together. Any failure in
     // posting the journal entry now rolls back the order + stock changes too.
     const result = await db.transaction(async (tx) => {
+      // Resolve the session's branch and the warehouse to issue stock from.
+      // Prefer the default warehouse for that branch; fall back to the global
+      // default. We refuse to sell when no warehouse is configured rather
+      // than silently bypassing the ledger.
+      const [session] = await tx
+        .select({ branchId: posSessionsTable.branchId })
+        .from(posSessionsTable)
+        .where(eq(posSessionsTable.id, body.sessionId))
+        .limit(1);
+      if (!session) throw new Error("جلسة نقطة البيع غير موجودة");
+      const [branchWh] = await tx
+        .select({ id: warehousesTable.id })
+        .from(warehousesTable)
+        .where(eq(warehousesTable.branchId, session.branchId))
+        .orderBy(desc(warehousesTable.isDefault))
+        .limit(1);
+      const [globalWh] = branchWh
+        ? [branchWh]
+        : await tx
+            .select({ id: warehousesTable.id })
+            .from(warehousesTable)
+            .where(eq(warehousesTable.isDefault, true))
+            .limit(1);
+      const issueWarehouseId = (branchWh ?? globalWh)?.id;
+      if (!issueWarehouseId) throw new Error("لم يتم تعريف مستودع للفرع");
+
       const orderItems: Array<{
         productId: number;
         productName: string;
@@ -133,9 +160,24 @@ router.post("/pos/orders", posGuard, async (req, res) => {
         if (!product) continue;
 
         const unitPrice = Number(product.price);
-        const costPrice = Number(product.costPrice ?? 0);
         const lineTotal = unitPrice * item.quantity;
         subtotal += lineTotal;
+
+        // Issue inventory through the engine. Pass no unitCost so the engine
+        // applies the product's costing method (FIFO consumes layers, average
+        // reads the warehouse avg, standard uses product.costPrice). The cost
+        // it returns is the actual COGS for this line.
+        const moveResult = await recordStockMove(tx, {
+          productId: product.id,
+          quantity: item.quantity,
+          kind: "issue",
+          fromWarehouseId: issueWarehouseId,
+          sourceType: "pos_order",
+          sourceRef: orderNumber,
+          createdBy: req.session?.userId ?? null,
+          skipJournal: true,
+        });
+        const costPrice = moveResult.unitCost;
         totalCost += costPrice * item.quantity;
 
         orderItems.push({
@@ -146,11 +188,6 @@ router.post("/pos/orders", posGuard, async (req, res) => {
           costPrice,
           total: lineTotal,
         });
-
-        await tx
-          .update(productsTable)
-          .set({ stock: sql`${productsTable.stock} - ${item.quantity}` })
-          .where(eq(productsTable.id, item.productId));
       }
 
       const tax = (subtotal - discount) * 0.15;

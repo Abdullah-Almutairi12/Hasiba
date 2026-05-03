@@ -1768,9 +1768,18 @@ components:
           nullable: true
         isActive:
           type: boolean
+        barcode:
+          type: string
+          nullable: true
+        trackingMode:
+          type: string
+          enum: [none, lot, serial]
+        costingMethod:
+          type: string
+          enum: [average, fifo, standard]
         createdAt:
           type: string
-      required: [id, name, nameAr, sku, categoryId, categoryName, price, costPrice, stock, minStock, unit, isActive, createdAt]
+      required: [id, name, nameAr, sku, categoryId, categoryName, price, costPrice, stock, minStock, unit, isActive, trackingMode, costingMethod, createdAt]
 
     CreateProductBody:
       type: object
@@ -1796,6 +1805,15 @@ components:
         imageUrl:
           type: string
           nullable: true
+        barcode:
+          type: string
+          nullable: true
+        trackingMode:
+          type: string
+          enum: [none, lot, serial]
+        costingMethod:
+          type: string
+          enum: [average, fifo, standard]
       required: [name, nameAr, sku, categoryId, price, costPrice, stock, minStock, unit]
 
     UpdateProductBody:
@@ -1815,6 +1833,15 @@ components:
           type: integer
         isActive:
           type: boolean
+        barcode:
+          type: string
+          nullable: true
+        trackingMode:
+          type: string
+          enum: [none, lot, serial]
+        costingMethod:
+          type: string
+          enum: [average, fifo, standard]
 
     Category:
       type: object

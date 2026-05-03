@@ -35,6 +35,9 @@ interface ProductFormDialogProps {
     stock: number;
     minStock: number;
     unit: string;
+    barcode?: string | null;
+    trackingMode?: "none" | "lot" | "serial";
+    costingMethod?: "average" | "fifo" | "standard";
   } | null;
 }
 
@@ -48,6 +51,9 @@ const emptyForm = {
   stock: "",
   minStock: "",
   unit: "قطعة",
+  barcode: "",
+  trackingMode: "none" as "none" | "lot" | "serial",
+  costingMethod: "average" as "average" | "fifo" | "standard",
 };
 
 export function ProductFormDialog({ open, onOpenChange, initialData }: ProductFormDialogProps) {
@@ -72,6 +78,9 @@ export function ProductFormDialog({ open, onOpenChange, initialData }: ProductFo
         stock: String(initialData.stock),
         minStock: String(initialData.minStock),
         unit: initialData.unit,
+        barcode: initialData.barcode ?? "",
+        trackingMode: initialData.trackingMode ?? "none",
+        costingMethod: initialData.costingMethod ?? "average",
       });
     } else {
       setForm(emptyForm);
@@ -95,6 +104,9 @@ export function ProductFormDialog({ open, onOpenChange, initialData }: ProductFo
       stock: Number(form.stock) || 0,
       minStock: Number(form.minStock) || 0,
       unit: form.unit,
+      barcode: form.barcode || null,
+      trackingMode: form.trackingMode,
+      costingMethod: form.costingMethod,
     };
     try {
       if (isEdit && initialData) {
@@ -193,15 +205,20 @@ export function ProductFormDialog({ open, onOpenChange, initialData }: ProductFo
                 onChange={(e) => setForm({ ...form, costPrice: e.target.value })}
               />
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="stock">الكمية المتوفرة</Label>
-              <Input
-                id="stock"
-                type="number"
-                value={form.stock}
-                onChange={(e) => setForm({ ...form, stock: e.target.value })}
-              />
-            </div>
+            {!isEdit && (
+              <div className="space-y-2">
+                <Label htmlFor="stock">الرصيد الافتتاحي</Label>
+                <Input
+                  id="stock"
+                  type="number"
+                  value={form.stock}
+                  onChange={(e) => setForm({ ...form, stock: e.target.value })}
+                />
+                <p className="text-xs text-muted-foreground">
+                  يُسجَّل كحركة استلام في دفتر المخزون. للتعديل لاحقاً استخدم حركات/تحويلات المخزون.
+                </p>
+              </div>
+            )}
             <div className="space-y-2">
               <Label htmlFor="minStock">حد التنبيه</Label>
               <Input
@@ -211,13 +228,50 @@ export function ProductFormDialog({ open, onOpenChange, initialData }: ProductFo
                 onChange={(e) => setForm({ ...form, minStock: e.target.value })}
               />
             </div>
-            <div className="space-y-2 col-span-2">
+            <div className="space-y-2">
               <Label htmlFor="unit">وحدة القياس</Label>
               <Input
                 id="unit"
                 value={form.unit}
                 onChange={(e) => setForm({ ...form, unit: e.target.value })}
               />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="barcode">الباركود</Label>
+              <Input
+                id="barcode"
+                value={form.barcode}
+                onChange={(e) => setForm({ ...form, barcode: e.target.value })}
+                dir="ltr"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="trackingMode">وضع التتبع</Label>
+              <Select
+                value={form.trackingMode}
+                onValueChange={(v) => setForm({ ...form, trackingMode: v as "none" | "lot" | "serial" })}
+              >
+                <SelectTrigger id="trackingMode"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">بدون</SelectItem>
+                  <SelectItem value="lot">تشغيلات (Lot)</SelectItem>
+                  <SelectItem value="serial">أرقام تسلسلية (Serial)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="costingMethod">طريقة احتساب التكلفة</Label>
+              <Select
+                value={form.costingMethod}
+                onValueChange={(v) => setForm({ ...form, costingMethod: v as "average" | "fifo" | "standard" })}
+              >
+                <SelectTrigger id="costingMethod"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="average">المتوسط المرجح</SelectItem>
+                  <SelectItem value="fifo">FIFO</SelectItem>
+                  <SelectItem value="standard">تكلفة معيارية</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </div>
           <DialogFooter>

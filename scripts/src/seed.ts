@@ -116,7 +116,7 @@ async function seedProducts(categoryIds: number[]) {
         categoryId: categoryIds[it.catIdx],
         price: String(it.price),
         costPrice: String(it.cost),
-        stock: it.stock,
+        stock: String(it.stock),
         minStock: 10,
         unit: "piece",
         isActive: true,

@@ -104,6 +104,9 @@ export const ListProductsResponseItem = zod.object({
   unit: zod.string(),
   imageUrl: zod.string().nullish(),
   isActive: zod.boolean(),
+  barcode: zod.string().nullish(),
+  trackingMode: zod.enum(["none", "lot", "serial"]),
+  costingMethod: zod.enum(["average", "fifo", "standard"]),
   createdAt: zod.string(),
 });
 export const ListProductsResponse = zod.array(ListProductsResponseItem);
@@ -122,6 +125,9 @@ export const CreateProductBody = zod.object({
   minStock: zod.number(),
   unit: zod.string(),
   imageUrl: zod.string().nullish(),
+  barcode: zod.string().nullish(),
+  trackingMode: zod.enum(["none", "lot", "serial"]).optional(),
+  costingMethod: zod.enum(["average", "fifo", "standard"]).optional(),
 });
 
 export const GetProductParams = zod.object({
@@ -142,6 +148,9 @@ export const GetProductResponse = zod.object({
   unit: zod.string(),
   imageUrl: zod.string().nullish(),
   isActive: zod.boolean(),
+  barcode: zod.string().nullish(),
+  trackingMode: zod.enum(["none", "lot", "serial"]),
+  costingMethod: zod.enum(["average", "fifo", "standard"]),
   createdAt: zod.string(),
 });
 
@@ -157,6 +166,9 @@ export const UpdateProductBody = zod.object({
   stock: zod.number().optional(),
   minStock: zod.number().optional(),
   isActive: zod.boolean().optional(),
+  barcode: zod.string().nullish(),
+  trackingMode: zod.enum(["none", "lot", "serial"]).optional(),
+  costingMethod: zod.enum(["average", "fifo", "standard"]).optional(),
 });
 
 export const UpdateProductResponse = zod.object({
@@ -173,6 +185,9 @@ export const UpdateProductResponse = zod.object({
   unit: zod.string(),
   imageUrl: zod.string().nullish(),
   isActive: zod.boolean(),
+  barcode: zod.string().nullish(),
+  trackingMode: zod.enum(["none", "lot", "serial"]),
+  costingMethod: zod.enum(["average", "fifo", "standard"]),
   createdAt: zod.string(),
 });
 

@@ -65,6 +65,24 @@ export interface BranchPerformance {
   status: BranchPerformanceStatus;
 }
 
+export type ProductTrackingMode =
+  (typeof ProductTrackingMode)[keyof typeof ProductTrackingMode];
+
+export const ProductTrackingMode = {
+  none: "none",
+  lot: "lot",
+  serial: "serial",
+} as const;
+
+export type ProductCostingMethod =
+  (typeof ProductCostingMethod)[keyof typeof ProductCostingMethod];
+
+export const ProductCostingMethod = {
+  average: "average",
+  fifo: "fifo",
+  standard: "standard",
+} as const;
+
 export interface Product {
   id: number;
   name: string;
@@ -79,8 +97,29 @@ export interface Product {
   unit: string;
   imageUrl?: string | null;
   isActive: boolean;
+  barcode?: string | null;
+  trackingMode: ProductTrackingMode;
+  costingMethod: ProductCostingMethod;
   createdAt: string;
 }
+
+export type CreateProductBodyTrackingMode =
+  (typeof CreateProductBodyTrackingMode)[keyof typeof CreateProductBodyTrackingMode];
+
+export const CreateProductBodyTrackingMode = {
+  none: "none",
+  lot: "lot",
+  serial: "serial",
+} as const;
+
+export type CreateProductBodyCostingMethod =
+  (typeof CreateProductBodyCostingMethod)[keyof typeof CreateProductBodyCostingMethod];
+
+export const CreateProductBodyCostingMethod = {
+  average: "average",
+  fifo: "fifo",
+  standard: "standard",
+} as const;
 
 export interface CreateProductBody {
   name: string;
@@ -93,7 +132,28 @@ export interface CreateProductBody {
   minStock: number;
   unit: string;
   imageUrl?: string | null;
+  barcode?: string | null;
+  trackingMode?: CreateProductBodyTrackingMode;
+  costingMethod?: CreateProductBodyCostingMethod;
 }
+
+export type UpdateProductBodyTrackingMode =
+  (typeof UpdateProductBodyTrackingMode)[keyof typeof UpdateProductBodyTrackingMode];
+
+export const UpdateProductBodyTrackingMode = {
+  none: "none",
+  lot: "lot",
+  serial: "serial",
+} as const;
+
+export type UpdateProductBodyCostingMethod =
+  (typeof UpdateProductBodyCostingMethod)[keyof typeof UpdateProductBodyCostingMethod];
+
+export const UpdateProductBodyCostingMethod = {
+  average: "average",
+  fifo: "fifo",
+  standard: "standard",
+} as const;
 
 export interface UpdateProductBody {
   name?: string;
@@ -103,6 +163,9 @@ export interface UpdateProductBody {
   stock?: number;
   minStock?: number;
   isActive?: boolean;
+  barcode?: string | null;
+  trackingMode?: UpdateProductBodyTrackingMode;
+  costingMethod?: UpdateProductBodyCostingMethod;
 }
 
 export interface Category {

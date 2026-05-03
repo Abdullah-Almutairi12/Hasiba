@@ -12,6 +12,9 @@ import {
   ShieldCheck,
   FolderKanban,
   Megaphone,
+  ArrowLeftRight,
+  ClipboardList,
+  TrendingDown,
   Sun,
   Moon,
   Monitor,
@@ -65,6 +68,9 @@ const financeNavItems = [
 ] as const;
 
 const operationsNavItems = [
+  { key: "transfers", url: "/inventory/transfers", icon: ArrowLeftRight },
+  { key: "stocktake", url: "/inventory/stocktake", icon: ClipboardList },
+  { key: "reorder", url: "/inventory/reorder", icon: TrendingDown },
   { key: "projects", url: "/projects", icon: FolderKanban },
   { key: "marketing", url: "/marketing", icon: Megaphone },
 ] as const;

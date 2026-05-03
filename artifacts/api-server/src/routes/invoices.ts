@@ -11,6 +11,7 @@ import { requireRole, financeGuard, invoiceReadGuard } from "../middlewares/requ
 import { uploadBufferToPrivateObject } from "./storage";
 import { findOrCreateSupplier } from "./suppliers";
 import { recordAudit } from "../lib/audit";
+import { recordStockMove, getDefaultWarehouseId } from "../lib/stock-engine";
 
 // Postgres unique-violation SQLSTATE.
 // Drizzle wraps pg errors and may surface the original on `.cause`,
@@ -454,8 +455,13 @@ router.post("/invoices/from-scan", supplierInvoiceAgent, async (req, res) => {
         }
       }
 
-      // 2) Inventory: match-or-create per line item.
-      if (body.addToInventory) {
+      // 2) Inventory: match-or-create per line item, then post a stock receipt
+      //    move into the default warehouse via the stock engine. The engine
+      //    refreshes products.stock as the SUM of quants, so we never write
+      //    that column directly here. We pass skipJournal=true because the
+      //    supplier-invoice journal below already debits Inventory.
+      const defaultWarehouseId = body.addToInventory ? await getDefaultWarehouseId(tx) : null;
+      if (body.addToInventory && defaultWarehouseId) {
         let autoSeq = 0;
         for (const item of body.items) {
           if (item.quantity <= 0) continue;
@@ -474,18 +480,7 @@ router.post("/invoices/from-scan", supplierInvoiceAgent, async (req, res) => {
             }
           }
 
-          if (matchedId) {
-            await tx
-              .update(productsTable)
-              .set({ stock: sql`${productsTable.stock} + ${Math.round(item.quantity)}` })
-              .where(eq(productsTable.id, matchedId));
-            inventoryUpdates.push({
-              productId: matchedId,
-              productName: matchedName,
-              quantityAdded: Math.round(item.quantity),
-              matched: true,
-            });
-          } else {
+          if (!matchedId) {
             if (defaultCategoryId === null) continue;
             autoSeq += 1;
             const [created] = await tx
@@ -496,20 +491,42 @@ router.post("/invoices/from-scan", supplierInvoiceAgent, async (req, res) => {
                 sku: `AUTO-${invoice.id}-${autoSeq}`,
                 price: String((item.unitPrice * 1.3).toFixed(2)),
                 costPrice: String(item.unitPrice.toFixed(2)),
-                stock: Math.round(item.quantity),
+                stock: "0",
                 minStock: 5,
                 categoryId: defaultCategoryId,
                 unit: "piece",
               })
               .returning({ id: productsTable.id });
-            if (created) {
-              newProducts.push({
-                productId: created.id,
-                name: item.description,
-                quantityAdded: Math.round(item.quantity),
-              });
-            }
+            if (!created) continue;
+            matchedId = created.id;
+            newProducts.push({
+              productId: created.id,
+              name: item.description,
+              quantityAdded: Math.round(item.quantity),
+            });
+          } else {
+            inventoryUpdates.push({
+              productId: matchedId,
+              productName: matchedName,
+              quantityAdded: Math.round(item.quantity),
+              matched: true,
+            });
           }
+
+          await recordStockMove(tx, {
+            productId: matchedId,
+            quantity: item.quantity,
+            unitCost: item.unitPrice,
+            kind: "receipt",
+            toWarehouseId: defaultWarehouseId,
+            sourceType: "supplier_invoice",
+            sourceId: invoice.id,
+            sourceRef: invoice.invoiceNumber,
+            createdBy: req.session?.userId ?? null,
+            notes: `استلام من فاتورة المورد ${invoice.invoiceNumber}`,
+            // Avoid double-posting Inventory: the journal below already debits it.
+            skipJournal: true,
+          });
         }
       }
 

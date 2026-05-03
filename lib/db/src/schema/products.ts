@@ -11,11 +11,16 @@ export const productsTable = pgTable("products", {
   categoryId: integer("category_id").notNull().references(() => categoriesTable.id),
   price: numeric("price", { precision: 10, scale: 2 }).notNull(),
   costPrice: numeric("cost_price", { precision: 10, scale: 2 }).notNull(),
-  stock: integer("stock").notNull().default(0),
+  stock: numeric("stock", { precision: 18, scale: 4 }).notNull().default("0"),
   minStock: integer("min_stock").notNull().default(5),
   unit: text("unit").notNull().default("piece"),
   imageUrl: text("image_url"),
   isActive: boolean("is_active").notNull().default(true),
+  // Inventory ledger fields (Task #2)
+  barcode: text("barcode"),
+  trackingMode: text("tracking_mode").notNull().default("none"), // none | lot | serial
+  costingMethod: text("costing_method").notNull().default("average"), // fifo | average | standard
+  isVariantParent: boolean("is_variant_parent").notNull().default(false),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
