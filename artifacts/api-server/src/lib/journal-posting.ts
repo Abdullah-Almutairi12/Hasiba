@@ -56,7 +56,7 @@ async function resolveAccount(
 async function resolvePeriodId(
   tx: DbOrTx,
   d: Date,
-): Promise<number | null> {
+): Promise<number> {
   const dateStr = d.toISOString().slice(0, 10);
   const [p] = await tx
     .select({ id: fiscalPeriodsTable.id, status: fiscalPeriodsTable.status })
@@ -68,7 +68,13 @@ async function resolvePeriodId(
       ),
     )
     .limit(1);
-  if (!p) return null;
+  if (!p) {
+    // Fail closed: never allow a posted/draft entry that has no governing
+    // fiscal period — it would be a permanent gap in closing controls.
+    throw new Error(
+      `لا توجد فترة مالية مفتوحة تغطي تاريخ ${dateStr}. يجب إنشاء السنة/الفترة المالية أولاً.`,
+    );
+  }
   if (p.status === "closed" || p.status === "locked") {
     throw new Error(`الفترة المالية مغلقة لتاريخ ${dateStr}`);
   }

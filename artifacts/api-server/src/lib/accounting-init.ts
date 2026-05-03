@@ -18,6 +18,11 @@ type PgPool = typeof pool;
  */
 export async function initAccounting(): Promise<void> {
   // 1) Migrate legacy journal_entries table out of the way if present.
+  // Renaming the table in PostgreSQL does NOT rename its owned sequence,
+  // primary-key constraint, or indexes. If we just rename, the next
+  // `CREATE TABLE journal_entries (id serial PRIMARY KEY, ...)` will collide
+  // on `journal_entries_id_seq` and `journal_entries_pkey`. So we rename
+  // every owned object alongside the table, all inside a single block.
   await pool.query(`
     DO $$
     BEGIN
@@ -26,6 +31,42 @@ export async function initAccounting(): Promise<void> {
         WHERE table_name = 'journal_entries' AND column_name = 'debit_account'
       ) THEN
         ALTER TABLE journal_entries RENAME TO journal_entries_legacy;
+        BEGIN
+          ALTER SEQUENCE journal_entries_id_seq RENAME TO journal_entries_legacy_id_seq;
+        EXCEPTION WHEN undefined_object THEN NULL; END;
+        BEGIN
+          ALTER INDEX journal_entries_pkey RENAME TO journal_entries_legacy_pkey;
+        EXCEPTION WHEN undefined_object THEN NULL; END;
+        -- Rename any other auto-generated indexes/constraints starting with
+        -- the old table name so the new table can be created cleanly.
+        DECLARE
+          r record;
+        BEGIN
+          FOR r IN
+            SELECT indexname FROM pg_indexes
+             WHERE tablename = 'journal_entries_legacy'
+               AND indexname LIKE 'journal\\_entries\\_%' ESCAPE '\\'
+               AND indexname NOT LIKE 'journal\\_entries\\_legacy\\_%' ESCAPE '\\'
+          LOOP
+            EXECUTE format(
+              'ALTER INDEX %I RENAME TO %I',
+              r.indexname,
+              replace(r.indexname, 'journal_entries_', 'journal_entries_legacy_')
+            );
+          END LOOP;
+          FOR r IN
+            SELECT conname FROM pg_constraint
+             WHERE conrelid = 'journal_entries_legacy'::regclass
+               AND conname LIKE 'journal\\_entries\\_%' ESCAPE '\\'
+               AND conname NOT LIKE 'journal\\_entries\\_legacy\\_%' ESCAPE '\\'
+          LOOP
+            EXECUTE format(
+              'ALTER TABLE journal_entries_legacy RENAME CONSTRAINT %I TO %I',
+              r.conname,
+              replace(r.conname, 'journal_entries_', 'journal_entries_legacy_')
+            );
+          END LOOP;
+        END;
       END IF;
     END$$;
   `);
