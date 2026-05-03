@@ -19,6 +19,7 @@ import {
   Receipt,
   Target,
   UserCog,
+  Factory,
   Sun,
   Moon,
   Monitor,
@@ -75,6 +76,7 @@ const financeNavItems = [
 
 const operationsNavItems = [
   { key: "procurement", url: "/procurement", icon: ShoppingBag },
+  { key: "manufacturing", url: "/manufacturing", icon: Factory },
   { key: "transfers", url: "/inventory/transfers", icon: ArrowLeftRight },
   { key: "stocktake", url: "/inventory/stocktake", icon: ClipboardList },
   { key: "reorder", url: "/inventory/reorder", icon: TrendingDown },

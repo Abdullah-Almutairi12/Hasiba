@@ -429,11 +429,17 @@ export async function recordStockMove(
     );
   }
 
-  // Refresh products.stock cache (sum across all warehouses).
+  // Refresh products.stock cache. Scrap warehouses (is_scrap=true) hold
+  // physically-tracked but written-off goods — exclude them so the cached
+  // stock matches the GL inventory balance.
   await tx.execute(sql`
     UPDATE products
        SET stock = COALESCE((
-         SELECT SUM(quantity)::numeric FROM stock_quants WHERE product_id = ${input.productId}
+         SELECT SUM(q.quantity)::numeric
+           FROM stock_quants q
+           JOIN warehouses w ON w.id = q.warehouse_id
+          WHERE q.product_id = ${input.productId}
+            AND w.is_scrap = false
        ), 0)
      WHERE id = ${input.productId}
   `);
@@ -564,7 +570,13 @@ export async function completeTransfer(
   }
 
   await tx.execute(sql`
-    UPDATE products SET stock = COALESCE((SELECT SUM(quantity)::numeric FROM stock_quants WHERE product_id = ${m.product_id}), 0)
+    UPDATE products SET stock = COALESCE((
+      SELECT SUM(q.quantity)::numeric
+        FROM stock_quants q
+        JOIN warehouses w ON w.id = q.warehouse_id
+       WHERE q.product_id = ${m.product_id}
+         AND w.is_scrap = false
+    ), 0)
      WHERE id = ${m.product_id}
   `);
 }

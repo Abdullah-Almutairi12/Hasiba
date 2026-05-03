@@ -9,6 +9,7 @@ import { initInventory } from "./lib/inventory-init";
 import { initProcurement } from "./lib/procurement-init";
 import { initSales } from "./lib/sales-init";
 import { initHr } from "./lib/hr-init";
+import { initManufacturing } from "./lib/manufacturing-init";
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 
@@ -24,6 +25,7 @@ const accountingReady = initAccounting()
   .then(() => initProcurement())
   .then(() => initSales())
   .then(() => initHr())
+  .then(() => initManufacturing())
   .catch((err) => {
     accountingInitError = err;
     logger.error({ err }, "Failed to initialize accounting/inventory/procurement subsystem");

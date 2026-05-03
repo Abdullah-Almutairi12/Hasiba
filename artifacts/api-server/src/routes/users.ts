@@ -123,6 +123,16 @@ const ROLES = [
     permissions: ["hr", "employees", "leaves", "attendance", "payroll.read"],
   },
   {
+    key: "production",
+    name: "Production / Manufacturing",
+    nameAr: "إنتاج / تصنيع",
+    description: "أوامر الإنتاج، قوائم المواد، مراكز العمل، فحوصات الجودة",
+    icon: "factory",
+    color: "indigo",
+    requires2fa: false,
+    permissions: ["manufacturing", "products.read", "inventory.read"],
+  },
+  {
     key: "auditor",
     name: "Auditor",
     nameAr: "مراقب / مدقق",

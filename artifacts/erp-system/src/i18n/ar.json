@@ -26,6 +26,7 @@
     "stocktake": "جرد المخزون",
     "reorder": "قواعد إعادة الطلب",
     "procurement": "دورة المشتريات",
+    "manufacturing": "التصنيع (MRP)",
     "sales": "دورة المبيعات",
     "crm": "إدارة العلاقات",
     "users": "المستخدمون والصلاحيات",
@@ -58,7 +59,8 @@
     "inventory": "مدير مخزون",
     "marketing": "اختصاصي تسويق",
     "auditor": "مراقب / مدقق",
-    "hr": "موظف موارد بشرية"
+    "hr": "موظف موارد بشرية",
+    "production": "موظف إنتاج"
   },
   "login": {
     "tagline": "ERP & Accounting Suite",

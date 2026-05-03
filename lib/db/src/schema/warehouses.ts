@@ -8,6 +8,7 @@ export const warehousesTable = pgTable("warehouses", {
   name: text("name").notNull(),
   nameAr: text("name_ar").notNull(),
   isDefault: boolean("is_default").notNull().default(false),
+  isScrap: boolean("is_scrap").notNull().default(false),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

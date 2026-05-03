@@ -26,6 +26,7 @@ import ReorderRulesPage from "@/pages/reorder-rules";
 import ProcurementPage from "@/pages/procurement";
 import SalesPage from "@/pages/sales";
 import CrmPage from "@/pages/crm";
+import ManufacturingPage from "@/pages/manufacturing";
 import OnboardingWizard from "@/pages/onboarding-wizard";
 import CreateCompany from "@/pages/create-company";
 import Login from "@/pages/login";
@@ -120,6 +121,9 @@ function Router() {
       </Route>
       <Route path="/crm">
         <Protected><CrmPage /></Protected>
+      </Route>
+      <Route path="/manufacturing">
+        <Protected><ManufacturingPage /></Protected>
       </Route>
       <Route path="/projects">
         <Protected><ProjectsPage /></Protected>

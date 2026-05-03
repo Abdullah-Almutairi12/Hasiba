@@ -25,6 +25,7 @@ import crmRouter from "./crm";
 import storageRouter from "./storage";
 import exportsRouter from "./exports";
 import hrRouter, { hrPublicRouter } from "./hr";
+import manufacturingRouter from "./manufacturing";
 import { requireAuth } from "../middlewares/require-auth";
 
 const router: IRouter = Router();
@@ -62,5 +63,6 @@ router.use(crmRouter);
 router.use(storageRouter);
 router.use(exportsRouter);
 router.use(hrRouter);
+router.use(manufacturingRouter);
 
 export default router;

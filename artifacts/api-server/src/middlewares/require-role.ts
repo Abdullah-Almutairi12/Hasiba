@@ -10,6 +10,7 @@ export const ALL_ROLES = [
   "marketing",
   "auditor",
   "hr",
+  "production",
 ] as const;
 
 export type Role = (typeof ALL_ROLES)[number];
@@ -80,6 +81,7 @@ export const inventoryReadGuard = requireRole(
   "inventory",
   "accountant",
   "auditor",
+  "production",
 );
 // Identity-only lookups (barcode → product/price) usable from the POS.
 export const inventoryLookupGuard = requireRole(
@@ -145,6 +147,10 @@ export const posReadGuard = requireRole(
 );
 // Audit log access: management + auditor (auditors must inspect the trail).
 export const auditReadGuard = requireRole("owner", "manager", "auditor");
+// Manufacturing (MRP) write guard: owners, managers, and the dedicated
+// production role can create BoMs, work orders, run consumption/production,
+// QC and scrap. Reads use inventoryReadGuard since MRP data exposes cost.
+export const productionGuard = requireRole("owner", "manager", "production");
 // Customer ledger access. Inventory has no business reason to see customer
 // PII, so they are excluded; everyone else who serves customers can read.
 export const customerReadGuard = requireRole(

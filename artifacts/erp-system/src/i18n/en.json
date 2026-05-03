@@ -26,6 +26,7 @@
     "stocktake": "Stock Takes",
     "reorder": "Reorder Rules",
     "procurement": "Procurement (P2P)",
+    "manufacturing": "Manufacturing (MRP)",
     "sales": "Sales (Q2C)",
     "crm": "CRM Pipeline",
     "admin": "Admin Panel",
@@ -58,7 +59,8 @@
     "inventory": "Inventory Manager",
     "marketing": "Marketing",
     "auditor": "Auditor",
-    "hr": "HR Specialist"
+    "hr": "HR Specialist",
+    "production": "Production Worker"
   },
   "login": {
     "tagline": "ERP & Accounting Suite",

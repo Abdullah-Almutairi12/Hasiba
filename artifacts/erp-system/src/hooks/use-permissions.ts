@@ -9,7 +9,8 @@ export type Role =
   | "inventory"
   | "marketing"
   | "auditor"
-  | "hr";
+  | "hr"
+  | "production";
 
 export const ALL_ROLES: Role[] = [
   "owner",
@@ -21,6 +22,7 @@ export const ALL_ROLES: Role[] = [
   "marketing",
   "auditor",
   "hr",
+  "production",
 ];
 
 // Mirror of server-side groups in `artifacts/api-server/src/middlewares/require-role.ts`.
@@ -47,6 +49,10 @@ const GROUPS = {
   // HR write guard: owners, managers, and the dedicated HR role.
   hr: ["owner", "manager", "hr"],
   hrRead: ["owner", "manager", "hr", "accountant", "auditor"],
+  // Manufacturing (MRP) write guard — mirrors server-side `productionGuard`.
+  production: ["owner", "manager", "production"],
+  // Manufacturing read guard mirrors server-side inventoryReadGuard.
+  productionRead: ["owner", "manager", "inventory", "accountant", "auditor", "production"],
 } as const satisfies Record<string, readonly Role[]>;
 
 export type PermissionKey = keyof typeof GROUPS;
@@ -80,6 +86,7 @@ export const NAV_PERMISSIONS: Record<string, readonly Role[]> = {
   users: GROUPS.admin,
   admin: GROUPS.admin,
   hr: GROUPS.hrRead,
+  manufacturing: GROUPS.productionRead,
   settings: ALL_ROLES,
 };
 
