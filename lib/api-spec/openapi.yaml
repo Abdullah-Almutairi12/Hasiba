@@ -2459,6 +2459,10 @@ components:
           type: number
         cardSales:
           type: number
+        transferSales:
+          type: number
+        stcSales:
+          type: number
         deferredSales:
           type: number
       required: [totalSales, ordersCount, avgOrderValue, topProduct, cashSales, cardSales]

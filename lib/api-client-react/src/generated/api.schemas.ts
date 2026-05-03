@@ -495,6 +495,8 @@ export interface PosSummary {
   topProduct: string;
   cashSales: number;
   cardSales: number;
+  transferSales?: number;
+  stcSales?: number;
   deferredSales?: number;
 }
 

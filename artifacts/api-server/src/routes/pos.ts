@@ -17,7 +17,7 @@ import {
 import { nextRef } from "../lib/sales-engine";
 import { buildZatcaQrBase64 } from "../lib/zatca-qr";
 import { recordStockMove } from "../lib/stock-engine";
-import { eq, gte, sql, desc } from "drizzle-orm";
+import { eq, gte, sql, desc, inArray } from "drizzle-orm";
 import { CreatePosSessionBody, CreatePosOrderBody } from "@workspace/api-zod";
 import { posGuard, posReadGuard } from "../middlewares/require-role";
 import { postJournalEntry } from "../lib/journal-posting";
@@ -121,7 +121,7 @@ router.get("/pos/orders", posReadGuard, async (req, res) => {
       ? await db
           .select()
           .from(posOrderPaymentsTable)
-          .where(sql`${posOrderPaymentsTable.orderId} in ${ids}`)
+          .where(inArray(posOrderPaymentsTable.orderId, ids))
       : [];
     const payByOrder = new Map<number, Array<{ method: string; amount: number; reference: string | null; payerName: string | null }>>();
     for (const p of payRows) {
@@ -651,7 +651,19 @@ router.get("/pos/summary", posReadGuard, async (req, res) => {
           select sum(pp.amount::numeric)
             from ${posOrderPaymentsTable} pp
             join ${posOrdersTable} po on po.id = pp.order_id
-           where po.created_at >= ${today} and pp.method in ('card','transfer','stc')
+           where po.created_at >= ${today} and pp.method = 'card'
+        ), 0)`,
+        transferSales: sql<number>`coalesce((
+          select sum(pp.amount::numeric)
+            from ${posOrderPaymentsTable} pp
+            join ${posOrdersTable} po on po.id = pp.order_id
+           where po.created_at >= ${today} and pp.method = 'transfer'
+        ), 0)`,
+        stcSales: sql<number>`coalesce((
+          select sum(pp.amount::numeric)
+            from ${posOrderPaymentsTable} pp
+            join ${posOrdersTable} po on po.id = pp.order_id
+           where po.created_at >= ${today} and pp.method = 'stc'
         ), 0)`,
         deferredSales: sql<number>`coalesce((
           select sum(pp.amount::numeric)
@@ -673,6 +685,8 @@ router.get("/pos/summary", posReadGuard, async (req, res) => {
       topProduct: "لاتيه وسط",
       cashSales: Number(summary.cashSales),
       cardSales: Number(summary.cardSales),
+      transferSales: Number(summary.transferSales),
+      stcSales: Number(summary.stcSales),
       deferredSales: Number(summary.deferredSales),
     });
   } catch (err) {

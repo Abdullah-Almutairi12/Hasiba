@@ -336,6 +336,8 @@ export const GetPosSummaryResponse = zod.object({
   topProduct: zod.string(),
   cashSales: zod.number(),
   cardSales: zod.number(),
+  transferSales: zod.number().optional(),
+  stcSales: zod.number().optional(),
   deferredSales: zod.number().optional(),
 });
 
