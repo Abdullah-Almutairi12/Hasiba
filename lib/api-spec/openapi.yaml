@@ -2050,6 +2050,8 @@ components:
         createdBy: { type: integer, nullable: true }
         createdByName: { type: string, nullable: true }
         postedAt: { type: string, nullable: true }
+        reversedAt: { type: string, nullable: true }
+        reversalOf: { type: integer, nullable: true }
         createdAt: { type: string }
         totalAmount: { type: number }
       required: [id, entryNumber, entryDate, description, currencyCode, exchangeRate, status, source, createdAt, totalAmount]

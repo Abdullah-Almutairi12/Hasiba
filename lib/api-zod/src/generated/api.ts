@@ -397,6 +397,8 @@ export const ListJournalEntriesResponseItem = zod.object({
   createdBy: zod.number().nullish(),
   createdByName: zod.string().nullish(),
   postedAt: zod.string().nullish(),
+  reversedAt: zod.string().nullish(),
+  reversalOf: zod.number().nullish(),
   createdAt: zod.string(),
   totalAmount: zod.number(),
 });

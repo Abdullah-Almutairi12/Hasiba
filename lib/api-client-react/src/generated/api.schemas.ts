@@ -285,6 +285,8 @@ export interface JournalEntry {
   createdBy?: number | null;
   createdByName?: string | null;
   postedAt?: string | null;
+  reversedAt?: string | null;
+  reversalOf?: number | null;
   createdAt: string;
   totalAmount: number;
 }

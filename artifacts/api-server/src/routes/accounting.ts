@@ -286,6 +286,8 @@ router.get("/accounting/journal-entries", reportReadGuard, async (req, res) => {
         createdBy: journalEntriesTable.createdBy,
         createdByName: usersTable.name,
         postedAt: journalEntriesTable.postedAt,
+        reversedAt: journalEntriesTable.reversedAt,
+        reversalOf: journalEntriesTable.reversalOf,
         createdAt: journalEntriesTable.createdAt,
         totalDebit: sql<string>`coalesce(sum(${journalEntryLinesTable.debit}::numeric),0)`,
       })
@@ -319,6 +321,7 @@ router.get("/accounting/journal-entries", reportReadGuard, async (req, res) => {
         exchangeRate: Number(e.exchangeRate),
         totalAmount: Number(e.totalDebit),
         postedAt: e.postedAt?.toISOString() ?? null,
+        reversedAt: e.reversedAt?.toISOString() ?? null,
         createdAt: e.createdAt.toISOString(),
       })),
     );

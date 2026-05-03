@@ -285,9 +285,15 @@ function JournalTab() {
                     <Money value={e.totalAmount} />
                   </TableCell>
                   <TableCell>
-                    <Badge variant={STATUS_VARIANTS[e.status] ?? "secondary"}>
-                      {STATUS_LABELS[e.status] ?? e.status}
-                    </Badge>
+                    {e.reversedAt ? (
+                      <Badge variant="destructive">معكوس</Badge>
+                    ) : e.reversalOf ? (
+                      <Badge variant="outline">قيد عكسي</Badge>
+                    ) : (
+                      <Badge variant={STATUS_VARIANTS[e.status] ?? "secondary"}>
+                        {STATUS_LABELS[e.status] ?? e.status}
+                      </Badge>
+                    )}
                   </TableCell>
                   <TableCell className="flex gap-1">
                     {e.status === "draft" && (
@@ -299,7 +305,7 @@ function JournalTab() {
                         ترحيل
                       </Button>
                     )}
-                    {e.status === "posted" && (
+                    {e.status === "posted" && !e.reversedAt && !e.reversalOf && (
                       <Button
                         size="sm"
                         variant="ghost"

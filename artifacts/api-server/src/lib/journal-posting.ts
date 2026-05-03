@@ -221,7 +221,11 @@ export async function getRateForDate(
 
 /**
  * Reverse a posted entry by creating a balancing reverse entry.
- * Original entry is marked as "reversed" and linked.
+ * The original stays `posted` (with `reversedAt`/`reversedBy` metadata)
+ * so reports include both the original and its reversal — net effect is
+ * zero. Changing the original to status='reversed' would cause reports
+ * (which filter on status='posted') to drop the original while keeping
+ * the reversal, producing the negative of the original transaction.
  */
 export async function reverseJournalEntry(
   tx: DbOrTx,
@@ -283,7 +287,7 @@ export async function reverseJournalEntry(
 
   await tx
     .update(journalEntriesTable)
-    .set({ status: "reversed", reversedBy: userId, reversedAt: new Date() })
+    .set({ reversedBy: userId, reversedAt: new Date() })
     .where(eq(journalEntriesTable.id, orig.id));
 
   return { id: rev.id, entryNumber: rev.entryNumber };
