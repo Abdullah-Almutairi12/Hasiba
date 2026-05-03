@@ -624,6 +624,14 @@ router.post(
       res.status(400).json({ error: err.message });
       return;
     }
+    const msg = err instanceof Error ? err.message : "";
+    if (
+      /لا يمكن إصدار مخزون|الكمية المتاحة|رصيد|stock|insufficient/i.test(msg)
+    ) {
+      req.log.warn({ err }, "POS order rejected — stock issue");
+      res.status(400).json({ error: msg || "لا يوجد رصيد كافٍ في المخزون" });
+      return;
+    }
     req.log.error({ err }, "Error creating POS order");
     res.status(500).json({ error: "Internal server error" });
   }
