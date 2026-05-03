@@ -82,20 +82,19 @@ async function resolvePeriodId(
 }
 
 async function nextEntryNumber(tx: DbOrTx, year: number): Promise<string> {
-  const prefix = `JE-${year}-`;
-  const [last] = await tx
-    .select({ entryNumber: journalEntriesTable.entryNumber })
-    .from(journalEntriesTable)
-    .where(sql`${journalEntriesTable.entryNumber} LIKE ${prefix + "%"}`)
-    .orderBy(desc(journalEntriesTable.id))
-    .limit(1);
-  let seq = 1;
-  if (last) {
-    const tail = last.entryNumber.slice(prefix.length);
-    const n = parseInt(tail, 10);
-    if (!Number.isNaN(n)) seq = n + 1;
-  }
-  return `${prefix}${String(seq).padStart(5, "0")}`;
+  // Use a per-year PostgreSQL sequence so concurrent posts cannot collide.
+  // The sequence is created lazily on first use; nextval is atomic and
+  // never returns the same value to two sessions.
+  const seqName = `journal_entries_seq_${year}`;
+  await tx.execute(
+    sql.raw(`CREATE SEQUENCE IF NOT EXISTS ${seqName} MINVALUE 1 START 1`),
+  );
+  const r = await tx.execute(sql.raw(`SELECT nextval('${seqName}')::bigint AS n`));
+  // node-postgres returns rows on .rows; drizzle wraps but exposes them too.
+  const rows = (r as unknown as { rows?: Array<{ n: string | number }> }).rows
+    ?? (r as unknown as Array<{ n: string | number }>);
+  const seq = Number(rows?.[0]?.n ?? 1);
+  return `JE-${year}-${String(seq).padStart(5, "0")}`;
 }
 
 /**
