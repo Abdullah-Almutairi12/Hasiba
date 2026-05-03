@@ -1,7 +1,7 @@
 import { Router } from "express";
 import ExcelJS from "exceljs";
 import PDFDocument from "pdfkit";
-import { db, posOrdersTable, productsTable, invoicesTable, suppliersTable, journalEntriesTable } from "@workspace/db";
+import { db, posOrdersTable, productsTable, invoicesTable, suppliersTable, journalEntriesTable, journalEntryLinesTable, accountsTable } from "@workspace/db";
 import { sql, desc, gte } from "drizzle-orm";
 import { recordAudit } from "../lib/audit";
 import { exportsGuard } from "../middlewares/require-role";
@@ -91,28 +91,42 @@ async function fetchReportRows(type: ReportType): Promise<{ headers: string[]; r
       };
     }
     case "journal": {
+      const { eq } = await import("drizzle-orm");
       const rows = await db
         .select({
-          date: journalEntriesTable.date,
+          entryNumber: journalEntriesTable.entryNumber,
+          entryDate: journalEntriesTable.entryDate,
           description: journalEntriesTable.description,
-          debitAccount: journalEntriesTable.debitAccount,
-          creditAccount: journalEntriesTable.creditAccount,
-          amount: journalEntriesTable.amount,
+          accountCode: accountsTable.code,
+          accountName: accountsTable.nameAr,
+          debit: journalEntryLinesTable.debit,
+          credit: journalEntryLinesTable.credit,
           reference: journalEntriesTable.reference,
+          status: journalEntriesTable.status,
         })
-        .from(journalEntriesTable)
-        .orderBy(desc(journalEntriesTable.date))
-        .limit(1000);
+        .from(journalEntryLinesTable)
+        .innerJoin(
+          journalEntriesTable,
+          eq(journalEntriesTable.id, journalEntryLinesTable.entryId),
+        )
+        .innerJoin(
+          accountsTable,
+          eq(accountsTable.id, journalEntryLinesTable.accountId),
+        )
+        .orderBy(desc(journalEntriesTable.entryDate), desc(journalEntriesTable.id))
+        .limit(2000);
       return {
         title: "دفتر اليومية",
-        headers: ["التاريخ", "البيان", "مدين", "دائن", "المبلغ", "المرجع"],
+        headers: ["التاريخ", "رقم القيد", "البيان", "الحساب", "مدين", "دائن", "المرجع", "الحالة"],
         rows: rows.map((r) => [
-          r.date.toISOString().slice(0, 10),
+          r.entryDate,
+          r.entryNumber,
           r.description,
-          r.debitAccount,
-          r.creditAccount,
-          Number(r.amount),
+          `${r.accountCode} - ${r.accountName}`,
+          Number(r.debit),
+          Number(r.credit),
           r.reference ?? "-",
+          r.status,
         ]),
       };
     }

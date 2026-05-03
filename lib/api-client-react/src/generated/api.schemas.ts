@@ -261,24 +261,312 @@ export interface InvoiceStats {
   accuracyRate: number;
 }
 
+export type JournalEntryStatus =
+  (typeof JournalEntryStatus)[keyof typeof JournalEntryStatus];
+
+export const JournalEntryStatus = {
+  draft: "draft",
+  posted: "posted",
+  reversed: "reversed",
+} as const;
+
 export interface JournalEntry {
   id: number;
+  entryNumber: string;
+  entryDate: string;
+  periodId?: number | null;
   description: string;
-  debitAccount: string;
-  creditAccount: string;
-  amount: number;
-  date: string;
   reference?: string | null;
-  isAutomatic: boolean;
+  currencyCode: string;
+  exchangeRate: number;
+  status: JournalEntryStatus;
+  source: string;
+  sourceRef?: string | null;
+  createdBy?: number | null;
+  createdByName?: string | null;
+  postedAt?: string | null;
+  createdAt: string;
+  totalAmount: number;
 }
 
+export interface JournalEntryLineInput {
+  accountId: number;
+  description?: string | null;
+  debit?: number;
+  credit?: number;
+}
+
+export type CreateJournalEntryBodyStatus =
+  (typeof CreateJournalEntryBodyStatus)[keyof typeof CreateJournalEntryBodyStatus];
+
+export const CreateJournalEntryBodyStatus = {
+  draft: "draft",
+  posted: "posted",
+} as const;
+
 export interface CreateJournalEntryBody {
+  entryDate: string;
   description: string;
-  debitAccount: string;
-  creditAccount: string;
-  amount: number;
-  date: string;
   reference?: string | null;
+  currencyCode?: string;
+  exchangeRate?: number;
+  status?: CreateJournalEntryBodyStatus;
+  lines: JournalEntryLineInput[];
+}
+
+export interface JournalEntryDetailLine {
+  id: number;
+  lineNumber: number;
+  accountId: number;
+  accountCode?: string | null;
+  accountName?: string | null;
+  description?: string | null;
+  debit: number;
+  credit: number;
+  baseDebit: number;
+  baseCredit: number;
+}
+
+export interface JournalEntryDetail {
+  id: number;
+  entryNumber: string;
+  entryDate: string;
+  description: string;
+  reference?: string | null;
+  currencyCode: string;
+  exchangeRate: number;
+  status: string;
+  source: string;
+  sourceRef?: string | null;
+  postedAt?: string | null;
+  createdAt: string;
+  lines: JournalEntryDetailLine[];
+}
+
+export type AccountType = (typeof AccountType)[keyof typeof AccountType];
+
+export const AccountType = {
+  asset: "asset",
+  liability: "liability",
+  equity: "equity",
+  revenue: "revenue",
+  expense: "expense",
+} as const;
+
+export interface Account {
+  id: number;
+  code: string;
+  name: string;
+  nameAr: string;
+  type: AccountType;
+  parentId?: number | null;
+  isGroup: boolean;
+  currencyCode: string;
+  isActive: boolean;
+  description?: string | null;
+  systemKey?: string | null;
+  createdAt: string;
+}
+
+export type CreateAccountBodyType =
+  (typeof CreateAccountBodyType)[keyof typeof CreateAccountBodyType];
+
+export const CreateAccountBodyType = {
+  asset: "asset",
+  liability: "liability",
+  equity: "equity",
+  revenue: "revenue",
+  expense: "expense",
+} as const;
+
+export interface CreateAccountBody {
+  code: string;
+  name: string;
+  nameAr: string;
+  type: CreateAccountBodyType;
+  parentId?: number | null;
+  isGroup?: boolean;
+  currencyCode?: string;
+  description?: string | null;
+  systemKey?: string | null;
+}
+
+export interface Currency {
+  code: string;
+  name: string;
+  nameAr: string;
+  symbol: string;
+  decimals: number;
+  isBase: boolean;
+  isActive: boolean;
+  createdAt: string;
+}
+
+export interface ExchangeRate {
+  id: number;
+  fromCurrency: string;
+  toCurrency: string;
+  rate: number;
+  rateDate: string;
+  createdAt: string;
+}
+
+export interface CreateExchangeRateBody {
+  fromCurrency: string;
+  toCurrency?: string;
+  rate: number;
+  rateDate: string;
+}
+
+export type FiscalPeriodStatus =
+  (typeof FiscalPeriodStatus)[keyof typeof FiscalPeriodStatus];
+
+export const FiscalPeriodStatus = {
+  open: "open",
+  closed: "closed",
+  locked: "locked",
+} as const;
+
+export interface FiscalPeriod {
+  id: number;
+  fiscalYearId: number;
+  name: string;
+  startDate: string;
+  endDate: string;
+  status: FiscalPeriodStatus;
+  closedAt?: string | null;
+  createdAt: string;
+}
+
+export interface FiscalYear {
+  id: number;
+  name: string;
+  startDate: string;
+  endDate: string;
+  status: string;
+  closedAt?: string | null;
+  createdAt: string;
+  periods: FiscalPeriod[];
+}
+
+export interface BankAccount {
+  id: number;
+  name: string;
+  bankName: string;
+  accountNumber: string;
+  iban?: string | null;
+  currencyCode: string;
+  glAccountId: number;
+  glAccountCode?: string | null;
+  glAccountName?: string | null;
+  openingBalance: number;
+  isActive: boolean;
+  createdAt: string;
+}
+
+export interface CreateBankAccountBody {
+  name: string;
+  bankName: string;
+  accountNumber: string;
+  iban?: string | null;
+  currencyCode?: string;
+  glAccountId: number;
+  openingBalance?: number;
+}
+
+export interface TrialBalanceRow {
+  accountId: number;
+  code: string;
+  name: string;
+  nameAr: string;
+  type: string;
+  debit: number;
+  credit: number;
+}
+
+export interface TrialBalance {
+  from?: string | null;
+  to?: string | null;
+  accounts: TrialBalanceRow[];
+  totalDebit: number;
+  totalCredit: number;
+  isBalanced: boolean;
+}
+
+export interface PLRow {
+  accountId: number;
+  code: string;
+  name: string;
+  nameAr: string;
+  amount: number;
+}
+
+export interface ProfitLoss {
+  from?: string | null;
+  to?: string | null;
+  revenue: PLRow[];
+  expenses: PLRow[];
+  totalRevenue: number;
+  totalExpense: number;
+  netIncome: number;
+}
+
+export interface BalanceSheet {
+  asOf?: string | null;
+  assets: PLRow[];
+  liabilities: PLRow[];
+  equity: PLRow[];
+  totalAssets: number;
+  totalLiabilities: number;
+  totalEquity: number;
+  netIncome: number;
+  isBalanced: boolean;
+}
+
+export interface CashFlowSourceRow {
+  source: string;
+  inflow: number;
+  outflow: number;
+  net: number;
+}
+
+export interface CashFlow {
+  from?: string | null;
+  to?: string | null;
+  inflow: number;
+  outflow: number;
+  net: number;
+  bySource: CashFlowSourceRow[];
+}
+
+export interface GLLine {
+  id: number;
+  entryId: number;
+  entryNumber: string;
+  entryDate: string;
+  description: string;
+  reference?: string | null;
+  debit: number;
+  credit: number;
+  balance: number;
+}
+
+export type GeneralLedgerAccount = {
+  id: number;
+  code: string;
+  name: string;
+  nameAr: string;
+  type: string;
+};
+
+export interface GeneralLedger {
+  account: GeneralLedgerAccount;
+  from?: string | null;
+  to?: string | null;
+  lines: GLLine[];
+  totalDebit: number;
+  totalCredit: number;
+  closingBalance: number;
 }
 
 export interface AccountingSummary {
@@ -601,6 +889,58 @@ export const ListInvoicesStatus = {
   failed: "failed",
   needs_review: "needs_review",
 } as const;
+
+export type ListJournalEntriesParams = {
+  status?: string;
+  source?: string;
+  from?: string;
+  to?: string;
+  accountId?: number;
+  limit?: number;
+};
+
+export type CreateJournalEntry201 = {
+  id: number;
+  entryNumber: string;
+};
+
+export type PostJournalEntry200 = {
+  id: number;
+  status: string;
+};
+
+export type ReverseJournalEntryBody = {
+  reason?: string;
+};
+
+export type ReverseJournalEntry200 = {
+  id: number;
+  entryNumber: string;
+};
+
+export type GetTrialBalanceParams = {
+  from?: string;
+  to?: string;
+};
+
+export type GetProfitLossParams = {
+  from?: string;
+  to?: string;
+};
+
+export type GetBalanceSheetParams = {
+  asOf?: string;
+};
+
+export type GetCashFlowParams = {
+  from?: string;
+  to?: string;
+};
+
+export type GetGeneralLedgerParams = {
+  from?: string;
+  to?: string;
+};
 
 export type GetSalesReportParams = {
   period?: GetSalesReportPeriod;

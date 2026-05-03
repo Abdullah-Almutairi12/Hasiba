@@ -2,7 +2,8 @@ import express, { Router } from "express";
 import { z, ZodError } from "zod";
 import rateLimit from "express-rate-limit";
 import QRCode from "qrcode";
-import { db, invoicesTable, productsTable, journalEntriesTable, categoriesTable, suppliersTable } from "@workspace/db";
+import { db, invoicesTable, productsTable, categoriesTable, suppliersTable } from "@workspace/db";
+import { postJournalEntry } from "../lib/journal-posting";
 import { eq, sql, desc, ilike } from "drizzle-orm";
 import { CreateInvoiceBody, UpdateInvoiceBody } from "@workspace/api-zod";
 import { extractInvoiceFromImage, type ExtractedInvoice } from "../lib/invoice-extractor";
@@ -512,53 +513,46 @@ router.post("/invoices/from-scan", supplierInvoiceAgent, async (req, res) => {
         }
       }
 
-      // 3) Double-entry journal: Dr Inventory + Dr VAT-Inputs / Cr Suppliers.
+      // 3) Double-entry journal posting via the new posting engine.
+      // Dr Inventory (subtotal) + Dr VAT-Input (vat) / Cr Accounts Payable (total)
       const journalRefs: number[] = [];
       if (body.postToAccounting && body.total > 0) {
         const ref = `INV-${invoice.invoiceNumber}`;
         const desc = `فاتورة مورد — ${body.supplierName}`;
         const date = body.invoiceDate ? new Date(body.invoiceDate) : new Date();
-
-        const entries: Array<typeof journalEntriesTable.$inferInsert> = [];
+        const lines: Array<{
+          systemKey: string;
+          debit?: number;
+          credit?: number;
+          description?: string;
+        }> = [];
         if (body.subtotal > 0) {
-          entries.push({
-            description: `${desc} (مخزون)`,
-            debitAccount: "المخزون",
-            creditAccount: "الموردون",
-            amount: String(body.subtotal),
-            reference: ref,
-            isAutomatic: true,
-            date,
-          });
+          lines.push({ systemKey: "inventory", debit: body.subtotal, description: "بضاعة مشتراة" });
         }
         if (body.vat > 0) {
-          entries.push({
-            description: `${desc} (ضريبة القيمة المضافة)`,
-            debitAccount: "ضريبة القيمة المضافة - مدخلات",
-            creditAccount: "الموردون",
-            amount: String(body.vat),
-            reference: ref,
-            isAutomatic: true,
-            date,
-          });
+          lines.push({ systemKey: "vat_input", debit: body.vat, description: "ضريبة المدخلات" });
         }
-        if (entries.length === 0) {
-          entries.push({
+        // If neither subtotal nor vat were supplied, post entire amount to inventory.
+        if (lines.length === 0) {
+          lines.push({ systemKey: "inventory", debit: body.total });
+        }
+        lines.push({ systemKey: "ap", credit: body.total, description: body.supplierName });
+        // Strict posting — any failure aborts the entire invoice transaction
+        // so we never persist a supplier invoice without its ledger postings.
+        const result = await postJournalEntry(
+          tx,
+          {
+            entryDate: date,
             description: desc,
-            debitAccount: "المخزون",
-            creditAccount: "الموردون",
-            amount: String(body.total),
             reference: ref,
-            isAutomatic: true,
-            date,
-          });
-        }
-        // Bulk insert all journal lines in a single round-trip.
-        const inserted = await tx
-          .insert(journalEntriesTable)
-          .values(entries)
-          .returning({ id: journalEntriesTable.id });
-        journalRefs.push(...inserted.map((r) => r.id));
+            source: "supplier_invoice",
+            sourceRef: ref,
+            createdBy: req.session?.userId ?? null,
+            status: "posted",
+          },
+          lines,
+        );
+        journalRefs.push(result.id);
       }
 
       return {

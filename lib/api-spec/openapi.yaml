@@ -416,6 +416,25 @@ paths:
       operationId: listJournalEntries
       tags: [accounting]
       summary: List journal entries
+      parameters:
+        - name: status
+          in: query
+          schema: { type: string }
+        - name: source
+          in: query
+          schema: { type: string }
+        - name: from
+          in: query
+          schema: { type: string }
+        - name: to
+          in: query
+          schema: { type: string }
+        - name: accountId
+          in: query
+          schema: { type: integer }
+        - name: limit
+          in: query
+          schema: { type: integer }
       responses:
         "200":
           description: Journal entries
@@ -441,7 +460,332 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/JournalEntry"
+                type: object
+                properties:
+                  id: { type: integer }
+                  entryNumber: { type: string }
+                required: [id, entryNumber]
+
+  /accounting/journal-entries/{id}:
+    get:
+      operationId: getJournalEntry
+      tags: [accounting]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Journal entry detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JournalEntryDetail"
+
+  /accounting/journal-entries/{id}/post:
+    post:
+      operationId: postJournalEntry
+      tags: [accounting]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Posted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: integer }
+                  status: { type: string }
+                required: [id, status]
+
+  /accounting/journal-entries/{id}/reverse:
+    post:
+      operationId: reverseJournalEntry
+      tags: [accounting]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason: { type: string }
+      responses:
+        "200":
+          description: Reversed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: integer }
+                  entryNumber: { type: string }
+                required: [id, entryNumber]
+
+  /accounting/accounts:
+    get:
+      operationId: listAccounts
+      tags: [accounting]
+      summary: List chart of accounts
+      responses:
+        "200":
+          description: Accounts
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Account" }
+    post:
+      operationId: createAccount
+      tags: [accounting]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAccountBody"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Account" }
+
+  /accounting/accounts/{id}:
+    patch:
+      operationId: updateAccount
+      tags: [accounting]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAccountBody"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Account" }
+
+  /accounting/currencies:
+    get:
+      operationId: listCurrencies
+      tags: [accounting]
+      responses:
+        "200":
+          description: Currencies
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Currency" }
+
+  /accounting/exchange-rates:
+    get:
+      operationId: listExchangeRates
+      tags: [accounting]
+      responses:
+        "200":
+          description: Exchange rates
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ExchangeRate" }
+    post:
+      operationId: createExchangeRate
+      tags: [accounting]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateExchangeRateBody" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ExchangeRate" }
+
+  /accounting/fiscal-years:
+    get:
+      operationId: listFiscalYears
+      tags: [accounting]
+      responses:
+        "200":
+          description: Fiscal years with periods
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/FiscalYear" }
+
+  /accounting/fiscal-periods/{id}/close:
+    post:
+      operationId: closeFiscalPeriod
+      tags: [accounting]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Period closed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FiscalPeriod" }
+
+  /accounting/fiscal-periods/{id}/reopen:
+    post:
+      operationId: reopenFiscalPeriod
+      tags: [accounting]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Period reopened
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FiscalPeriod" }
+
+  /accounting/bank-accounts:
+    get:
+      operationId: listBankAccounts
+      tags: [accounting]
+      responses:
+        "200":
+          description: Bank accounts
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/BankAccount" }
+    post:
+      operationId: createBankAccount
+      tags: [accounting]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateBankAccountBody" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BankAccount" }
+
+  /reports/trial-balance:
+    get:
+      operationId: getTrialBalance
+      tags: [reports]
+      parameters:
+        - name: from
+          in: query
+          schema: { type: string }
+        - name: to
+          in: query
+          schema: { type: string }
+      responses:
+        "200":
+          description: Trial balance
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TrialBalance" }
+
+  /reports/profit-loss:
+    get:
+      operationId: getProfitLoss
+      tags: [reports]
+      parameters:
+        - name: from
+          in: query
+          schema: { type: string }
+        - name: to
+          in: query
+          schema: { type: string }
+      responses:
+        "200":
+          description: Profit and loss
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProfitLoss" }
+
+  /reports/balance-sheet:
+    get:
+      operationId: getBalanceSheet
+      tags: [reports]
+      parameters:
+        - name: asOf
+          in: query
+          schema: { type: string }
+      responses:
+        "200":
+          description: Balance sheet
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BalanceSheet" }
+
+  /reports/cash-flow:
+    get:
+      operationId: getCashFlow
+      tags: [reports]
+      parameters:
+        - name: from
+          in: query
+          schema: { type: string }
+        - name: to
+          in: query
+          schema: { type: string }
+      responses:
+        "200":
+          description: Cash flow
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CashFlow" }
+
+  /reports/general-ledger/{accountId}:
+    get:
+      operationId: getGeneralLedger
+      tags: [reports]
+      parameters:
+        - name: accountId
+          in: path
+          required: true
+          schema: { type: integer }
+        - name: from
+          in: query
+          schema: { type: string }
+        - name: to
+          in: query
+          schema: { type: string }
+      responses:
+        "200":
+          description: General ledger
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GeneralLedger" }
 
   /accounting/summary:
     get:
@@ -1634,42 +1978,334 @@ components:
     JournalEntry:
       type: object
       properties:
-        id:
-          type: integer
-        description:
-          type: string
-        debitAccount:
-          type: string
-        creditAccount:
-          type: string
-        amount:
-          type: number
-        date:
-          type: string
-        reference:
-          type: string
-          nullable: true
-        isAutomatic:
-          type: boolean
-      required: [id, description, debitAccount, creditAccount, amount, date, isAutomatic]
+        id: { type: integer }
+        entryNumber: { type: string }
+        entryDate: { type: string }
+        periodId: { type: integer, nullable: true }
+        description: { type: string }
+        reference: { type: string, nullable: true }
+        currencyCode: { type: string }
+        exchangeRate: { type: number }
+        status: { type: string, enum: [draft, posted, reversed] }
+        source: { type: string }
+        sourceRef: { type: string, nullable: true }
+        createdBy: { type: integer, nullable: true }
+        createdByName: { type: string, nullable: true }
+        postedAt: { type: string, nullable: true }
+        createdAt: { type: string }
+        totalAmount: { type: number }
+      required: [id, entryNumber, entryDate, description, currencyCode, exchangeRate, status, source, createdAt, totalAmount]
+
+    JournalEntryLineInput:
+      type: object
+      properties:
+        accountId: { type: integer }
+        description: { type: string, nullable: true }
+        debit: { type: number }
+        credit: { type: number }
+      required: [accountId]
 
     CreateJournalEntryBody:
       type: object
       properties:
-        description:
-          type: string
-        debitAccount:
-          type: string
-        creditAccount:
-          type: string
-        amount:
-          type: number
-        date:
-          type: string
-        reference:
-          type: string
-          nullable: true
-      required: [description, debitAccount, creditAccount, amount, date]
+        entryDate: { type: string }
+        description: { type: string }
+        reference: { type: string, nullable: true }
+        currencyCode: { type: string }
+        exchangeRate: { type: number }
+        status: { type: string, enum: [draft, posted] }
+        lines:
+          type: array
+          items:
+            $ref: "#/components/schemas/JournalEntryLineInput"
+      required: [entryDate, description, lines]
+
+    JournalEntryDetailLine:
+      type: object
+      properties:
+        id: { type: integer }
+        lineNumber: { type: integer }
+        accountId: { type: integer }
+        accountCode: { type: string, nullable: true }
+        accountName: { type: string, nullable: true }
+        description: { type: string, nullable: true }
+        debit: { type: number }
+        credit: { type: number }
+        baseDebit: { type: number }
+        baseCredit: { type: number }
+      required: [id, lineNumber, accountId, debit, credit, baseDebit, baseCredit]
+
+    JournalEntryDetail:
+      type: object
+      properties:
+        id: { type: integer }
+        entryNumber: { type: string }
+        entryDate: { type: string }
+        description: { type: string }
+        reference: { type: string, nullable: true }
+        currencyCode: { type: string }
+        exchangeRate: { type: number }
+        status: { type: string }
+        source: { type: string }
+        sourceRef: { type: string, nullable: true }
+        postedAt: { type: string, nullable: true }
+        createdAt: { type: string }
+        lines:
+          type: array
+          items:
+            $ref: "#/components/schemas/JournalEntryDetailLine"
+      required: [id, entryNumber, entryDate, description, currencyCode, exchangeRate, status, source, createdAt, lines]
+
+    Account:
+      type: object
+      properties:
+        id: { type: integer }
+        code: { type: string }
+        name: { type: string }
+        nameAr: { type: string }
+        type: { type: string, enum: [asset, liability, equity, revenue, expense] }
+        parentId: { type: integer, nullable: true }
+        isGroup: { type: boolean }
+        currencyCode: { type: string }
+        isActive: { type: boolean }
+        description: { type: string, nullable: true }
+        systemKey: { type: string, nullable: true }
+        createdAt: { type: string }
+      required: [id, code, name, nameAr, type, isGroup, currencyCode, isActive, createdAt]
+
+    CreateAccountBody:
+      type: object
+      properties:
+        code: { type: string }
+        name: { type: string }
+        nameAr: { type: string }
+        type: { type: string, enum: [asset, liability, equity, revenue, expense] }
+        parentId: { type: integer, nullable: true }
+        isGroup: { type: boolean }
+        currencyCode: { type: string }
+        description: { type: string, nullable: true }
+        systemKey: { type: string, nullable: true }
+      required: [code, name, nameAr, type]
+
+    Currency:
+      type: object
+      properties:
+        code: { type: string }
+        name: { type: string }
+        nameAr: { type: string }
+        symbol: { type: string }
+        decimals: { type: integer }
+        isBase: { type: boolean }
+        isActive: { type: boolean }
+        createdAt: { type: string }
+      required: [code, name, nameAr, symbol, decimals, isBase, isActive, createdAt]
+
+    ExchangeRate:
+      type: object
+      properties:
+        id: { type: integer }
+        fromCurrency: { type: string }
+        toCurrency: { type: string }
+        rate: { type: number }
+        rateDate: { type: string }
+        createdAt: { type: string }
+      required: [id, fromCurrency, toCurrency, rate, rateDate, createdAt]
+
+    CreateExchangeRateBody:
+      type: object
+      properties:
+        fromCurrency: { type: string }
+        toCurrency: { type: string }
+        rate: { type: number }
+        rateDate: { type: string }
+      required: [fromCurrency, rate, rateDate]
+
+    FiscalPeriod:
+      type: object
+      properties:
+        id: { type: integer }
+        fiscalYearId: { type: integer }
+        name: { type: string }
+        startDate: { type: string }
+        endDate: { type: string }
+        status: { type: string, enum: [open, closed, locked] }
+        closedAt: { type: string, nullable: true }
+        createdAt: { type: string }
+      required: [id, fiscalYearId, name, startDate, endDate, status, createdAt]
+
+    FiscalYear:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        startDate: { type: string }
+        endDate: { type: string }
+        status: { type: string }
+        closedAt: { type: string, nullable: true }
+        createdAt: { type: string }
+        periods:
+          type: array
+          items:
+            $ref: "#/components/schemas/FiscalPeriod"
+      required: [id, name, startDate, endDate, status, createdAt, periods]
+
+    BankAccount:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        bankName: { type: string }
+        accountNumber: { type: string }
+        iban: { type: string, nullable: true }
+        currencyCode: { type: string }
+        glAccountId: { type: integer }
+        glAccountCode: { type: string, nullable: true }
+        glAccountName: { type: string, nullable: true }
+        openingBalance: { type: number }
+        isActive: { type: boolean }
+        createdAt: { type: string }
+      required: [id, name, bankName, accountNumber, currencyCode, glAccountId, openingBalance, isActive, createdAt]
+
+    CreateBankAccountBody:
+      type: object
+      properties:
+        name: { type: string }
+        bankName: { type: string }
+        accountNumber: { type: string }
+        iban: { type: string, nullable: true }
+        currencyCode: { type: string }
+        glAccountId: { type: integer }
+        openingBalance: { type: number }
+      required: [name, bankName, accountNumber, glAccountId]
+
+    TrialBalanceRow:
+      type: object
+      properties:
+        accountId: { type: integer }
+        code: { type: string }
+        name: { type: string }
+        nameAr: { type: string }
+        type: { type: string }
+        debit: { type: number }
+        credit: { type: number }
+      required: [accountId, code, name, nameAr, type, debit, credit]
+
+    TrialBalance:
+      type: object
+      properties:
+        from: { type: string, nullable: true }
+        to: { type: string, nullable: true }
+        accounts:
+          type: array
+          items: { $ref: "#/components/schemas/TrialBalanceRow" }
+        totalDebit: { type: number }
+        totalCredit: { type: number }
+        isBalanced: { type: boolean }
+      required: [accounts, totalDebit, totalCredit, isBalanced]
+
+    PLRow:
+      type: object
+      properties:
+        accountId: { type: integer }
+        code: { type: string }
+        name: { type: string }
+        nameAr: { type: string }
+        amount: { type: number }
+      required: [accountId, code, name, nameAr, amount]
+
+    ProfitLoss:
+      type: object
+      properties:
+        from: { type: string, nullable: true }
+        to: { type: string, nullable: true }
+        revenue:
+          type: array
+          items: { $ref: "#/components/schemas/PLRow" }
+        expenses:
+          type: array
+          items: { $ref: "#/components/schemas/PLRow" }
+        totalRevenue: { type: number }
+        totalExpense: { type: number }
+        netIncome: { type: number }
+      required: [revenue, expenses, totalRevenue, totalExpense, netIncome]
+
+    BalanceSheet:
+      type: object
+      properties:
+        asOf: { type: string, nullable: true }
+        assets:
+          type: array
+          items: { $ref: "#/components/schemas/PLRow" }
+        liabilities:
+          type: array
+          items: { $ref: "#/components/schemas/PLRow" }
+        equity:
+          type: array
+          items: { $ref: "#/components/schemas/PLRow" }
+        totalAssets: { type: number }
+        totalLiabilities: { type: number }
+        totalEquity: { type: number }
+        netIncome: { type: number }
+        isBalanced: { type: boolean }
+      required: [assets, liabilities, equity, totalAssets, totalLiabilities, totalEquity, netIncome, isBalanced]
+
+    CashFlowSourceRow:
+      type: object
+      properties:
+        source: { type: string }
+        inflow: { type: number }
+        outflow: { type: number }
+        net: { type: number }
+      required: [source, inflow, outflow, net]
+
+    CashFlow:
+      type: object
+      properties:
+        from: { type: string, nullable: true }
+        to: { type: string, nullable: true }
+        inflow: { type: number }
+        outflow: { type: number }
+        net: { type: number }
+        bySource:
+          type: array
+          items: { $ref: "#/components/schemas/CashFlowSourceRow" }
+      required: [inflow, outflow, net, bySource]
+
+    GLLine:
+      type: object
+      properties:
+        id: { type: integer }
+        entryId: { type: integer }
+        entryNumber: { type: string }
+        entryDate: { type: string }
+        description: { type: string }
+        reference: { type: string, nullable: true }
+        debit: { type: number }
+        credit: { type: number }
+        balance: { type: number }
+      required: [id, entryId, entryNumber, entryDate, description, debit, credit, balance]
+
+    GeneralLedger:
+      type: object
+      properties:
+        account:
+          type: object
+          properties:
+            id: { type: integer }
+            code: { type: string }
+            name: { type: string }
+            nameAr: { type: string }
+            type: { type: string }
+          required: [id, code, name, nameAr, type]
+        from: { type: string, nullable: true }
+        to: { type: string, nullable: true }
+        lines:
+          type: array
+          items: { $ref: "#/components/schemas/GLLine" }
+        totalDebit: { type: number }
+        totalCredit: { type: number }
+        closingBalance: { type: number }
+      required: [account, lines, totalDebit, totalCredit, closingBalance]
 
     AccountingSummary:
       type: object

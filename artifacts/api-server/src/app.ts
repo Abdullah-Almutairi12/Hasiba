@@ -4,6 +4,11 @@ import pinoHttp from "pino-http";
 import router from "./routes";
 import { logger } from "./lib/logger";
 import { sessionMiddleware } from "./middlewares/session";
+import { initAccounting } from "./lib/accounting-init";
+
+initAccounting().catch((err) => {
+  logger.error({ err }, "Failed to initialize accounting subsystem");
+});
 
 const app: Express = express();
 
