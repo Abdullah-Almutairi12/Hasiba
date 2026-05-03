@@ -30,6 +30,13 @@ import { requireFinancialLimit } from "../lib/workflow-engine";
 
 const router = Router();
 
+class ValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ValidationError";
+  }
+}
+
 router.get("/pos/sessions", posReadGuard, async (req, res) => {
   try {
     const sessions = await db
@@ -109,6 +116,20 @@ router.get("/pos/orders", posReadGuard, async (req, res) => {
       .orderBy(desc(posOrdersTable.createdAt))
       .limit(50);
 
+    const ids = orders.map((o) => o.id);
+    const payRows = ids.length
+      ? await db
+          .select()
+          .from(posOrderPaymentsTable)
+          .where(sql`${posOrderPaymentsTable.orderId} in ${ids}`)
+      : [];
+    const payByOrder = new Map<number, Array<{ method: string; amount: number; reference: string | null; payerName: string | null }>>();
+    for (const p of payRows) {
+      const list = payByOrder.get(p.orderId) ?? [];
+      list.push({ method: p.method, amount: Number(p.amount), reference: p.reference ?? null, payerName: p.payerName ?? null });
+      payByOrder.set(p.orderId, list);
+    }
+
     res.json(
       orders.map((o) => ({
         ...o,
@@ -116,6 +137,7 @@ router.get("/pos/orders", posReadGuard, async (req, res) => {
         tax: Number(o.tax),
         discount: Number(o.discount),
         total: Number(o.total),
+        payments: payByOrder.get(o.id) ?? [],
         createdAt: o.createdAt.toISOString(),
       }))
     );
@@ -240,15 +262,15 @@ router.post(
       // total — refusing the sale rather than silently posting an
       // unbalanced receipt.
       const EPS = 0.01;
-      type Tender = { method: "cash" | "card" | "transfer" | "stc"; amount: number; reference?: string | null; payerName?: string | null };
+      type Tender = { method: "cash" | "card" | "transfer" | "stc" | "deferred"; amount: number; reference?: string | null; payerName?: string | null };
       let tenderedPayments: Tender[];
       if (body.payments && body.payments.length > 0) {
         const sum = body.payments.reduce((a, p) => a + Number(p.amount), 0);
         if (Math.abs(sum - total) > EPS) {
-          throw new Error(`مجموع الدفعات (${sum.toFixed(2)}) لا يساوي إجمالي الفاتورة (${total.toFixed(2)})`);
+          throw new ValidationError(`مجموع الدفعات (${sum.toFixed(2)}) لا يساوي إجمالي الفاتورة (${total.toFixed(2)})`);
         }
         for (const p of body.payments) {
-          if (Number(p.amount) <= 0) throw new Error("قيمة الدفعة يجب أن تكون أكبر من صفر");
+          if (Number(p.amount) <= 0) throw new ValidationError("قيمة الدفعة يجب أن تكون أكبر من صفر");
         }
         tenderedPayments = body.payments.map((p) => ({
           method: p.method,
@@ -257,11 +279,22 @@ router.post(
           payerName: p.payerName ?? null,
         }));
       } else {
-        if (!body.paymentMethod) throw new Error("طريقة الدفع مطلوبة");
+        if (!body.paymentMethod) throw new ValidationError("طريقة الدفع مطلوبة");
         tenderedPayments = [{ method: body.paymentMethod, amount: total, reference: null, payerName: null }];
       }
       const isSplit = tenderedPayments.length > 1;
       const headerPaymentMethod = isSplit ? "split" : tenderedPayments[0].method;
+      const settledTotalUpfront = +tenderedPayments
+        .filter((p) => p.method !== "deferred")
+        .reduce((a, p) => a + p.amount, 0)
+        .toFixed(2);
+      const deferredTotal = +(total - settledTotalUpfront).toFixed(2);
+      const invoiceStatus =
+        deferredTotal <= 0.005
+          ? "paid"
+          : settledTotalUpfront <= 0.005
+            ? "open"
+            : "partially_paid";
 
       const [created] = await tx
         .insert(posOrdersTable)
@@ -407,14 +440,14 @@ router.post(
           soId: posSo.id,
           customerId: invoiceCustomerId,
           customerName: invoiceCustomerName ?? "عميل نقدي",
-          status: "paid",
+          status: invoiceStatus,
           invoiceDate: todayStr,
           dueDate: todayStr,
           subtotal: String(subtotal),
           discount: String(discount),
           vat: String(tax),
           total: String(total),
-          amountPaid: String(total),
+          amountPaid: String(settledTotalUpfront),
           zatcaQr,
           source: "pos",
           sourceRef: orderNumber,
@@ -473,46 +506,53 @@ router.post(
       // line per accounting bucket (cash vs bank). 'card' / 'transfer'
       // / 'stc' all settle through the bank account.
       const cashKeyFor = (m: Tender["method"]) => (m === "cash" ? "cash" : "bank");
+      // 'deferred' tenders represent credit sales — the AR row created by
+      // the invoice JE stays open for that portion. Only settled tenders
+      // (cash/bank) drive the receipt JE and customer_receipts.
+      const settledPayments = tenderedPayments.filter((p) => p.method !== "deferred");
       const bucketTotals: Record<string, number> = {};
-      for (const p of tenderedPayments) {
+      for (const p of settledPayments) {
         const k = cashKeyFor(p.method);
         bucketTotals[k] = (bucketTotals[k] ?? 0) + p.amount;
       }
-      // Snap monetary amounts to 2 decimals and absorb any sub-cent drift
-      // into the last bucket so debits exactly equal the AR credit.
-      const totalRounded = +total.toFixed(2);
+      const settledTotal = +settledPayments.reduce((a, p) => a + p.amount, 0).toFixed(2);
       const bucketEntries = Object.entries(bucketTotals).map(
         ([k, v]) => [k, +v.toFixed(2)] as [string, number],
       );
+      // Absorb any sub-cent drift so debits exactly equal the AR credit.
       const bucketSum = +bucketEntries.reduce((a, [, v]) => a + v, 0).toFixed(2);
-      const drift = +(totalRounded - bucketSum).toFixed(2);
+      const drift = +(settledTotal - bucketSum).toFixed(2);
       if (Math.abs(drift) > 0 && bucketEntries.length > 0) {
         const last = bucketEntries[bucketEntries.length - 1];
         last[1] = +(last[1] + drift).toFixed(2);
       }
-      const rcptJe = await postJournalEntry(
-        tx,
-        {
-          entryDate: new Date(),
-          description: isSplit
-            ? `سند قبض POS مقسم — ${orderNumber}`
-            : `سند قبض POS ${orderNumber}`,
-          reference: orderNumber,
-          source: "payment",
-          sourceRef: orderNumber,
-          createdBy: req.session?.userId ?? null,
-          status: "posted",
-        },
-        [
-          ...bucketEntries.map(([systemKey, amount]) => ({
-            systemKey,
-            debit: amount,
-            description: `قبض ${orderNumber} — ${systemKey === "cash" ? "كاش" : "شبكة/تحويل"}`,
-          })),
-          { systemKey: "ar", credit: totalRounded, description: "تسوية ذمم — POS" },
-        ],
-      );
-      for (const p of tenderedPayments) {
+      let rcptJeId: number | null = null;
+      if (settledTotal > 0 && bucketEntries.length > 0) {
+        const rcptJe = await postJournalEntry(
+          tx,
+          {
+            entryDate: new Date(),
+            description: isSplit
+              ? `سند قبض POS مقسم — ${orderNumber}`
+              : `سند قبض POS ${orderNumber}`,
+            reference: orderNumber,
+            source: "payment",
+            sourceRef: orderNumber,
+            createdBy: req.session?.userId ?? null,
+            status: "posted",
+          },
+          [
+            ...bucketEntries.map(([systemKey, amount]) => ({
+              systemKey,
+              debit: amount,
+              description: `قبض ${orderNumber} — ${systemKey === "cash" ? "كاش" : "شبكة/تحويل"}`,
+            })),
+            { systemKey: "ar", credit: settledTotal, description: "تسوية ذمم — POS" },
+          ],
+        );
+        rcptJeId = rcptJe.id;
+      }
+      for (const p of settledPayments) {
         const rctRef = await nextRef(tx, "RCT");
         const [posReceipt] = await tx
           .insert(customerReceiptsTable)
@@ -523,7 +563,7 @@ router.post(
             receiptDate: todayStr,
             amount: String(p.amount),
             paymentMethod: p.method,
-            journalEntryId: rcptJe.id,
+            journalEntryId: rcptJeId,
             createdBy: req.session?.userId ?? null,
           })
           .returning();
@@ -553,7 +593,19 @@ router.post(
         );
       }
 
-      return { order: created, total, subtotal, tax, orderItems };
+      return {
+        order: created,
+        total,
+        subtotal,
+        tax,
+        orderItems,
+        payments: tenderedPayments.map((p) => ({
+          method: p.method,
+          amount: p.amount,
+          reference: p.reference ?? null,
+          payerName: p.payerName ?? null,
+        })),
+      };
     });
 
     res.status(201).json({
@@ -563,9 +615,15 @@ router.post(
       tax: result.tax,
       discount,
       total: result.total,
+      payments: result.payments,
       createdAt: result.order.createdAt.toISOString(),
     });
   } catch (err) {
+    if (err instanceof ValidationError) {
+      req.log.warn({ err }, "POS order validation failed");
+      res.status(400).json({ error: err.message });
+      return;
+    }
     req.log.error({ err }, "Error creating POS order");
     res.status(500).json({ error: "Internal server error" });
   }
@@ -580,18 +638,27 @@ router.get("/pos/summary", posReadGuard, async (req, res) => {
       .select({
         totalSales: sql<number>`coalesce(sum(${posOrdersTable.total}::numeric), 0)`,
         ordersCount: sql<number>`count(*)`,
+        // Per-tender bucketing reads from pos_order_payments which now has
+        // one row per tender for every order (legacy single-method orders
+        // included), so we don't need to fall back to pos_orders.payment_method.
         cashSales: sql<number>`coalesce((
-          select sum(amount::numeric)
+          select sum(pp.amount::numeric)
             from ${posOrderPaymentsTable} pp
             join ${posOrdersTable} po on po.id = pp.order_id
            where po.created_at >= ${today} and pp.method = 'cash'
-        ), 0) + coalesce(sum(${posOrdersTable.total}::numeric) filter (where ${posOrdersTable.paymentMethod} = 'cash'), 0)`,
+        ), 0)`,
         cardSales: sql<number>`coalesce((
-          select sum(amount::numeric)
+          select sum(pp.amount::numeric)
             from ${posOrderPaymentsTable} pp
             join ${posOrdersTable} po on po.id = pp.order_id
            where po.created_at >= ${today} and pp.method in ('card','transfer','stc')
-        ), 0) + coalesce(sum(${posOrdersTable.total}::numeric) filter (where ${posOrdersTable.paymentMethod} in ('card','transfer')), 0)`,
+        ), 0)`,
+        deferredSales: sql<number>`coalesce((
+          select sum(pp.amount::numeric)
+            from ${posOrderPaymentsTable} pp
+            join ${posOrdersTable} po on po.id = pp.order_id
+           where po.created_at >= ${today} and pp.method = 'deferred'
+        ), 0)`,
       })
       .from(posOrdersTable)
       .where(gte(posOrdersTable.createdAt, today));
@@ -606,6 +673,7 @@ router.get("/pos/summary", posReadGuard, async (req, res) => {
       topProduct: "لاتيه وسط",
       cashSales: Number(summary.cashSales),
       cardSales: Number(summary.cardSales),
+      deferredSales: Number(summary.deferredSales),
     });
   } catch (err) {
     req.log.error({ err }, "Error fetching POS summary");

@@ -9,6 +9,7 @@ import {
   useListPosSessions,
   useGetZatcaStatus,
 } from "@workspace/api-client-react";
+import type { CreatePosOrderBody, PosOrder } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
@@ -76,10 +77,12 @@ export default function POS() {
     total: number;
     method: string;
     uuid: string;
+    payments?: Array<{ method: string; amount: number; reference?: string | null; payerName?: string | null }>;
   } | null>(null);
 
-  type SplitMethod = "cash" | "card" | "transfer" | "stc";
-  type SplitRow = { method: SplitMethod; amount: string; reference: string };
+  type SplitMethod = "cash" | "card" | "transfer" | "stc" | "deferred";
+  type SplitRow = { method: SplitMethod; amount: string; reference: string; payerName: string };
+  type SplitPayment = { method: SplitMethod; amount: number; reference?: string | null; payerName?: string | null };
   const [splitOpen, setSplitOpen] = useState(false);
   const [splitRows, setSplitRows] = useState<SplitRow[]>([]);
 
@@ -176,7 +179,7 @@ export default function POS() {
   };
 
   const submitOrder = (
-    payments: Array<{ method: SplitMethod; amount: number; reference?: string }> | null,
+    payments: SplitPayment[] | null,
     successMethodLabel: string,
   ) => {
     if (!activeSession) {
@@ -185,33 +188,40 @@ export default function POS() {
     }
     if (cart.length === 0) return;
 
-    const data: any = {
+    const data: CreatePosOrderBody = {
       sessionId: activeSession.id,
       items: cart.map((item) => ({
         productId: item.product.id,
         quantity: item.quantity,
       })),
       discount: effectiveDiscount,
+      ...(payments && payments.length > 0
+        ? {
+            payments: payments.map((p) => ({
+              method: p.method,
+              amount: p.amount,
+              reference: p.reference || null,
+              payerName: p.payerName || null,
+            })),
+          }
+        : {
+            paymentMethod: (paymentMethod === "cash" ? "cash" : "card") as
+              | "cash"
+              | "card",
+          }),
     };
-    if (payments && payments.length > 0) {
-      data.payments = payments.map((p) => ({
-        method: p.method,
-        amount: p.amount,
-        reference: p.reference || null,
-      }));
-    } else {
-      data.paymentMethod = paymentMethod === "cash" ? "cash" : "card";
-    }
 
     createOrder.mutate(
       { data },
       {
-        onSuccess: (resp: any) => {
+        onSuccess: (resp) => {
+          const order = resp as PosOrder & { invoiceNo?: string; uuid?: string };
           setShowSuccess({
-            invoiceNo: resp?.invoiceNo || resp?.orderNumber || `INV-${Date.now()}`,
+            invoiceNo: order.invoiceNo ?? order.orderNumber ?? `INV-${Date.now()}`,
             total,
             method: successMethodLabel,
-            uuid: resp?.uuid || crypto.randomUUID(),
+            uuid: order.uuid ?? crypto.randomUUID(),
+            payments: order.payments ?? undefined,
           });
           if (customer) {
             setCustomer({
@@ -224,10 +234,15 @@ export default function POS() {
           setSplitOpen(false);
           setSplitRows([]);
         },
-        onError: (err: any) => {
+        onError: (err) => {
+          const e = err as {
+            response?: { data?: { error?: string } };
+            message?: string;
+          };
           toast({
             title: "تعذر إتمام الدفع",
-            description: err?.response?.data?.error || err?.message || "حدث خطأ غير متوقع",
+            description:
+              e?.response?.data?.error ?? e?.message ?? "حدث خطأ غير متوقع",
             variant: "destructive",
           });
         },
@@ -247,8 +262,8 @@ export default function POS() {
     // Pre-seed two rows split 50/50 between cash and card.
     const half = +(total / 2).toFixed(2);
     setSplitRows([
-      { method: "cash", amount: String(half), reference: "" },
-      { method: "card", amount: String(+(total - half).toFixed(2)), reference: "" },
+      { method: "cash", amount: String(half), reference: "", payerName: "" },
+      { method: "card", amount: String(+(total - half).toFixed(2)), reference: "", payerName: "" },
     ]);
     setSplitOpen(true);
   };
@@ -267,6 +282,7 @@ export default function POS() {
         method: r.method,
         amount: Number(r.amount),
         reference: r.reference || undefined,
+        payerName: r.payerName || undefined,
       })),
       `مقسّم — ${splitRows.length} دفعات`,
     );
@@ -959,60 +975,80 @@ export default function POS() {
                     key={idx}
                     className="flex items-center gap-2 rounded-lg border border-neutral-200 p-2"
                   >
-                    <select
-                      value={row.method}
-                      onChange={(e) => {
-                        const v = e.target.value as SplitMethod;
-                        setSplitRows((rows) =>
-                          rows.map((r, i) => (i === idx ? { ...r, method: v } : r))
-                        );
-                      }}
-                      className="rounded-md border border-neutral-300 bg-white px-2 py-1.5 text-sm"
-                    >
-                      <option value="cash">كاش</option>
-                      <option value="card">شبكة</option>
-                      <option value="transfer">تحويل</option>
-                      <option value="stc">STC Pay</option>
-                    </select>
-                    <Input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      value={row.amount}
-                      onChange={(e) =>
-                        setSplitRows((rows) =>
-                          rows.map((r, i) =>
-                            i === idx ? { ...r, amount: e.target.value } : r
-                          )
-                        )
-                      }
-                      placeholder="المبلغ"
-                      className="flex-1 text-right"
-                    />
-                    <Input
-                      type="text"
-                      value={row.reference}
-                      onChange={(e) =>
-                        setSplitRows((rows) =>
-                          rows.map((r, i) =>
-                            i === idx ? { ...r, reference: e.target.value } : r
-                          )
-                        )
-                      }
-                      placeholder="مرجع (اختياري)"
-                      className="flex-1 text-right text-xs"
-                    />
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setSplitRows((rows) => rows.filter((_, i) => i !== idx))
-                      }
-                      disabled={splitRows.length <= 2}
-                      className="grid size-8 place-items-center rounded-md text-red-500 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-30"
-                      title="حذف الدفعة"
-                    >
-                      <Trash2 className="size-4" />
-                    </button>
+                    <div className="flex flex-1 flex-col gap-2">
+                      <div className="flex items-center gap-2">
+                        <select
+                          value={row.method}
+                          onChange={(e) => {
+                            const v = e.target.value as SplitMethod;
+                            setSplitRows((rows) =>
+                              rows.map((r, i) => (i === idx ? { ...r, method: v } : r))
+                            );
+                          }}
+                          className="rounded-md border border-neutral-300 bg-white px-2 py-1.5 text-sm"
+                        >
+                          <option value="cash">كاش</option>
+                          <option value="card">شبكة</option>
+                          <option value="transfer">تحويل</option>
+                          <option value="stc">STC Pay</option>
+                          <option value="deferred">آجل</option>
+                        </select>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={row.amount}
+                          onChange={(e) =>
+                            setSplitRows((rows) =>
+                              rows.map((r, i) =>
+                                i === idx ? { ...r, amount: e.target.value } : r
+                              )
+                            )
+                          }
+                          placeholder="المبلغ"
+                          className="flex-1 text-right"
+                        />
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setSplitRows((rows) => rows.filter((_, i) => i !== idx))
+                          }
+                          disabled={splitRows.length <= 2}
+                          className="grid size-8 place-items-center rounded-md text-red-500 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-30"
+                          title="حذف الدفعة"
+                        >
+                          <Trash2 className="size-4" />
+                        </button>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Input
+                          type="text"
+                          value={row.reference}
+                          onChange={(e) =>
+                            setSplitRows((rows) =>
+                              rows.map((r, i) =>
+                                i === idx ? { ...r, reference: e.target.value } : r
+                              )
+                            )
+                          }
+                          placeholder="مرجع (اختياري)"
+                          className="flex-1 text-right text-xs"
+                        />
+                        <Input
+                          type="text"
+                          value={row.payerName}
+                          onChange={(e) =>
+                            setSplitRows((rows) =>
+                              rows.map((r, i) =>
+                                i === idx ? { ...r, payerName: e.target.value } : r
+                              )
+                            )
+                          }
+                          placeholder={row.method === "deferred" ? "اسم العميل (آجل)" : "اسم الدافع (اختياري)"}
+                          className="flex-1 text-right text-xs"
+                        />
+                      </div>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -1025,7 +1061,7 @@ export default function POS() {
                   onClick={() =>
                     setSplitRows((rows) => [
                       ...rows,
-                      { method: "cash", amount: String(splitRemaining > 0 ? splitRemaining : 0), reference: "" },
+                      { method: "cash", amount: String(splitRemaining > 0 ? splitRemaining : 0), reference: "", payerName: "" },
                     ])
                   }
                 >
@@ -1125,6 +1161,25 @@ export default function POS() {
                         {showSuccess.method}
                       </span>
                     </div>
+                    {showSuccess.payments && showSuccess.payments.length > 1 && (
+                      <div className="rounded-md bg-white p-2 text-xs">
+                        <div className="mb-1 font-semibold text-neutral-600">تفاصيل الدفعات</div>
+                        <ul className="space-y-1">
+                          {showSuccess.payments.map((p, i) => (
+                            <li key={i} className="flex items-center justify-between">
+                              <span className="text-neutral-500">
+                                {methodLabels[p.method] ?? (p.method === "deferred" ? "آجل" : p.method)}
+                                {p.payerName ? ` — ${p.payerName}` : ""}
+                                {p.reference ? ` (${p.reference})` : ""}
+                              </span>
+                              <span className="font-mono font-bold text-neutral-900">
+                                <Money value={p.amount} />
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
                     <div className="flex items-center justify-between text-sm">
                       <span className="text-neutral-500">حالة ZATCA</span>
                       <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-bold text-emerald-700">

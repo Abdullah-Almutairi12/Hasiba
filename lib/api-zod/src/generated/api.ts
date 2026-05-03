@@ -269,11 +269,18 @@ export const ListPosOrdersResponseItem = zod.object({
   tax: zod.number(),
   discount: zod.number(),
   total: zod.number(),
-  paymentMethod: zod.enum(["cash", "card", "transfer", "split"]),
+  paymentMethod: zod.enum([
+    "cash",
+    "card",
+    "transfer",
+    "stc",
+    "deferred",
+    "split",
+  ]),
   payments: zod
     .array(
       zod.object({
-        method: zod.enum(["cash", "card", "transfer", "stc"]),
+        method: zod.enum(["cash", "card", "transfer", "stc", "deferred"]),
         amount: zod.number(),
         reference: zod.string().nullish(),
         payerName: zod.string().nullish(),
@@ -305,7 +312,7 @@ export const CreatePosOrderBody = zod.object({
   payments: zod
     .array(
       zod.object({
-        method: zod.enum(["cash", "card", "transfer", "stc"]),
+        method: zod.enum(["cash", "card", "transfer", "stc", "deferred"]),
         amount: zod.number(),
         reference: zod.string().nullish(),
         payerName: zod.string().nullish(),
@@ -329,6 +336,7 @@ export const GetPosSummaryResponse = zod.object({
   topProduct: zod.string(),
   cashSales: zod.number(),
   cardSales: zod.number(),
+  deferredSales: zod.number().optional(),
 });
 
 /**

@@ -425,6 +425,8 @@ export const PosOrderPaymentMethod = {
   cash: "cash",
   card: "card",
   transfer: "transfer",
+  stc: "stc",
+  deferred: "deferred",
   split: "split",
 } as const;
 
@@ -493,6 +495,7 @@ export interface PosSummary {
   topProduct: string;
   cashSales: number;
   cardSales: number;
+  deferredSales?: number;
 }
 
 export type InvoiceStatus = (typeof InvoiceStatus)[keyof typeof InvoiceStatus];

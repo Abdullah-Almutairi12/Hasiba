@@ -2370,7 +2370,7 @@ components:
           type: number
         paymentMethod:
           type: string
-          enum: [cash, card, transfer, split]
+          enum: [cash, card, transfer, stc, deferred, split]
         payments:
           type: array
           items:
@@ -2387,7 +2387,7 @@ components:
       properties:
         method:
           type: string
-          enum: [cash, card, transfer, stc]
+          enum: [cash, card, transfer, stc, deferred]
         amount:
           type: number
         reference:
@@ -2458,6 +2458,8 @@ components:
         cashSales:
           type: number
         cardSales:
+          type: number
+        deferredSales:
           type: number
       required: [totalSales, ordersCount, avgOrderValue, topProduct, cashSales, cardSales]
 
