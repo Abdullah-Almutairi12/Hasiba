@@ -269,7 +269,17 @@ export const ListPosOrdersResponseItem = zod.object({
   tax: zod.number(),
   discount: zod.number(),
   total: zod.number(),
-  paymentMethod: zod.enum(["cash", "card", "transfer"]),
+  paymentMethod: zod.enum(["cash", "card", "transfer", "split"]),
+  payments: zod
+    .array(
+      zod.object({
+        method: zod.enum(["cash", "card", "transfer", "stc"]),
+        amount: zod.number(),
+        reference: zod.string().nullish(),
+        payerName: zod.string().nullish(),
+      }),
+    )
+    .optional(),
   customerId: zod.number().nullish(),
   createdAt: zod.string(),
 });
@@ -286,7 +296,25 @@ export const CreatePosOrderBody = zod.object({
       quantity: zod.number(),
     }),
   ),
-  paymentMethod: zod.enum(["cash", "card", "transfer"]),
+  paymentMethod: zod
+    .enum(["cash", "card", "transfer"])
+    .optional()
+    .describe(
+      "Single payment method. Required if `payments` is omitted; ignored when `payments` is provided.",
+    ),
+  payments: zod
+    .array(
+      zod.object({
+        method: zod.enum(["cash", "card", "transfer", "stc"]),
+        amount: zod.number(),
+        reference: zod.string().nullish(),
+        payerName: zod.string().nullish(),
+      }),
+    )
+    .optional()
+    .describe(
+      "Split-bill payments. When provided, must sum to the order total and overrides `paymentMethod`.",
+    ),
   discount: zod.number().optional(),
   customerId: zod.number().nullish(),
 });

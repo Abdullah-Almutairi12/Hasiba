@@ -428,5 +428,23 @@ export async function initSales(): Promise<void> {
       ON sales_email_outbox (kind, ref_id);
   `);
 
+  // Split-bill payments per POS order (one row per tendered method).
+  // The legacy `pos_orders.payment_method` column stays for backward
+  // compatibility ('cash' / 'card' / 'transfer' / 'split'); accurate
+  // method-level totals come from this table.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS pos_order_payments (
+      id serial PRIMARY KEY,
+      order_id integer NOT NULL REFERENCES pos_orders(id) ON DELETE CASCADE,
+      method text NOT NULL,
+      amount numeric(10,2) NOT NULL,
+      reference text,
+      payer_name text,
+      created_at timestamp NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS pos_order_payments_order_idx
+      ON pos_order_payments (order_id);
+  `);
+
   logger.info("Sales / CRM subsystem initialized");
 }

@@ -2370,13 +2370,33 @@ components:
           type: number
         paymentMethod:
           type: string
-          enum: [cash, card, transfer]
+          enum: [cash, card, transfer, split]
+        payments:
+          type: array
+          items:
+            $ref: "#/components/schemas/PosOrderPayment"
         customerId:
           type: integer
           nullable: true
         createdAt:
           type: string
       required: [id, orderNumber, sessionId, items, subtotal, tax, discount, total, paymentMethod, createdAt]
+
+    PosOrderPayment:
+      type: object
+      properties:
+        method:
+          type: string
+          enum: [cash, card, transfer, stc]
+        amount:
+          type: number
+        reference:
+          type: string
+          nullable: true
+        payerName:
+          type: string
+          nullable: true
+      required: [method, amount]
 
     OrderItem:
       type: object
@@ -2411,12 +2431,18 @@ components:
         paymentMethod:
           type: string
           enum: [cash, card, transfer]
+          description: Single payment method. Required if `payments` is omitted; ignored when `payments` is provided.
+        payments:
+          type: array
+          description: Split-bill payments. When provided, must sum to the order total and overrides `paymentMethod`.
+          items:
+            $ref: "#/components/schemas/PosOrderPayment"
         discount:
           type: number
         customerId:
           type: integer
           nullable: true
-      required: [sessionId, items, paymentMethod]
+      required: [sessionId, items]
 
     PosSummary:
       type: object

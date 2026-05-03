@@ -15,6 +15,13 @@ import { Card } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
   Search,
   ShoppingCart,
   Trash2,
@@ -70,6 +77,11 @@ export default function POS() {
     method: string;
     uuid: string;
   } | null>(null);
+
+  type SplitMethod = "cash" | "card" | "transfer" | "stc";
+  type SplitRow = { method: SplitMethod; amount: string; reference: string };
+  const [splitOpen, setSplitOpen] = useState(false);
+  const [splitRows, setSplitRows] = useState<SplitRow[]>([]);
 
   useEffect(() => {
     const t = setInterval(() => {
@@ -155,39 +167,51 @@ export default function POS() {
   const total = Math.max(0, subtotal - effectiveDiscount) + tax;
   const earnedPoints = Math.floor(total / 10);
 
-  const handleCheckout = () => {
+  const methodLabels: Record<string, string> = {
+    card: "شبكة",
+    cash: "كاش",
+    stc: "STC Pay",
+    transfer: "تحويل",
+    gift: "بطاقة هدية",
+  };
+
+  const submitOrder = (
+    payments: Array<{ method: SplitMethod; amount: number; reference?: string }> | null,
+    successMethodLabel: string,
+  ) => {
     if (!activeSession) {
       toast({ title: "لا يوجد جلسة بيع مفتوحة", variant: "destructive" });
       return;
     }
     if (cart.length === 0) return;
 
+    const data: any = {
+      sessionId: activeSession.id,
+      items: cart.map((item) => ({
+        productId: item.product.id,
+        quantity: item.quantity,
+      })),
+      discount: effectiveDiscount,
+    };
+    if (payments && payments.length > 0) {
+      data.payments = payments.map((p) => ({
+        method: p.method,
+        amount: p.amount,
+        reference: p.reference || null,
+      }));
+    } else {
+      data.paymentMethod = paymentMethod === "cash" ? "cash" : "card";
+    }
+
     createOrder.mutate(
+      { data },
       {
-        data: {
-          sessionId: activeSession.id,
-          paymentMethod:
-            paymentMethod === "cash" ? "cash" : "card",
-          items: cart.map((item) => ({
-            productId: item.product.id,
-            quantity: item.quantity,
-          })),
-          discount: effectiveDiscount,
-        },
-      },
-      {
-        onSuccess: (data: any) => {
-          const methodLabels: Record<string, string> = {
-            card: "شبكة",
-            cash: "كاش",
-            stc: "STC Pay",
-            gift: "بطاقة هدية",
-          };
+        onSuccess: (resp: any) => {
           setShowSuccess({
-            invoiceNo: data?.invoiceNo || `INV-${Date.now()}`,
+            invoiceNo: resp?.invoiceNo || resp?.orderNumber || `INV-${Date.now()}`,
             total,
-            method: methodLabels[paymentMethod] || "بطاقة",
-            uuid: data?.uuid || crypto.randomUUID(),
+            method: successMethodLabel,
+            uuid: resp?.uuid || crypto.randomUUID(),
           });
           if (customer) {
             setCustomer({
@@ -197,8 +221,54 @@ export default function POS() {
           }
           setCart([]);
           setDiscount(0);
+          setSplitOpen(false);
+          setSplitRows([]);
+        },
+        onError: (err: any) => {
+          toast({
+            title: "تعذر إتمام الدفع",
+            description: err?.response?.data?.error || err?.message || "حدث خطأ غير متوقع",
+            variant: "destructive",
+          });
         },
       }
+    );
+  };
+
+  const handleCheckout = () => {
+    submitOrder(null, methodLabels[paymentMethod] || "بطاقة");
+  };
+
+  const openSplitDialog = () => {
+    if (cart.length === 0) {
+      toast({ title: "السلة فارغة", variant: "destructive" });
+      return;
+    }
+    // Pre-seed two rows split 50/50 between cash and card.
+    const half = +(total / 2).toFixed(2);
+    setSplitRows([
+      { method: "cash", amount: String(half), reference: "" },
+      { method: "card", amount: String(+(total - half).toFixed(2)), reference: "" },
+    ]);
+    setSplitOpen(true);
+  };
+
+  const splitSum = splitRows.reduce((a, r) => a + (Number(r.amount) || 0), 0);
+  const splitRemaining = +(total - splitSum).toFixed(2);
+  const splitValid =
+    splitRows.length >= 2 &&
+    Math.abs(splitRemaining) < 0.01 &&
+    splitRows.every((r) => Number(r.amount) > 0);
+
+  const confirmSplit = () => {
+    if (!splitValid) return;
+    submitOrder(
+      splitRows.map((r) => ({
+        method: r.method,
+        amount: Number(r.amount),
+        reference: r.reference || undefined,
+      })),
+      `مقسّم — ${splitRows.length} دفعات`,
     );
   };
 
@@ -825,7 +895,12 @@ export default function POS() {
                 {!createOrder.isPending && <ArrowLeft className="size-4" />}
               </Button>
               <div className="flex gap-2">
-                <button className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-blue-200 bg-white py-2.5 text-sm font-bold text-[#1D4ED8] transition-colors hover:bg-blue-50">
+                <button
+                  type="button"
+                  onClick={openSplitDialog}
+                  disabled={cart.length === 0 || createOrder.isPending}
+                  className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-blue-200 bg-white py-2.5 text-sm font-bold text-[#1D4ED8] transition-colors hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50"
+                >
                   <ArrowRight className="size-3.5" />
                   <span>تقسيم الفاتورة</span>
                 </button>
@@ -845,6 +920,156 @@ export default function POS() {
             </div>
           </div>
         </div>
+
+        {/* Split-Bill Dialog */}
+        <Dialog open={splitOpen} onOpenChange={setSplitOpen}>
+          <DialogContent dir="rtl" className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle className="text-right">تقسيم الفاتورة على عدة طرق دفع</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3">
+              <div className="rounded-lg bg-neutral-50 p-3 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-neutral-500">إجمالي الفاتورة</span>
+                  <span className="font-mono font-bold">{fmtPrice(total)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-neutral-500">المجموع المُدخل</span>
+                  <span className="font-mono">{fmtPrice(splitSum)}</span>
+                </div>
+                <div className="mt-1 flex justify-between border-t border-dashed border-neutral-300 pt-1">
+                  <span className="font-semibold">المتبقي</span>
+                  <span
+                    className={`font-mono font-bold ${
+                      Math.abs(splitRemaining) < 0.01
+                        ? "text-emerald-600"
+                        : splitRemaining > 0
+                        ? "text-orange-600"
+                        : "text-red-600"
+                    }`}
+                  >
+                    {fmtPrice(splitRemaining)}
+                  </span>
+                </div>
+              </div>
+
+              <div className="space-y-2 max-h-72 overflow-y-auto">
+                {splitRows.map((row, idx) => (
+                  <div
+                    key={idx}
+                    className="flex items-center gap-2 rounded-lg border border-neutral-200 p-2"
+                  >
+                    <select
+                      value={row.method}
+                      onChange={(e) => {
+                        const v = e.target.value as SplitMethod;
+                        setSplitRows((rows) =>
+                          rows.map((r, i) => (i === idx ? { ...r, method: v } : r))
+                        );
+                      }}
+                      className="rounded-md border border-neutral-300 bg-white px-2 py-1.5 text-sm"
+                    >
+                      <option value="cash">كاش</option>
+                      <option value="card">شبكة</option>
+                      <option value="transfer">تحويل</option>
+                      <option value="stc">STC Pay</option>
+                    </select>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={row.amount}
+                      onChange={(e) =>
+                        setSplitRows((rows) =>
+                          rows.map((r, i) =>
+                            i === idx ? { ...r, amount: e.target.value } : r
+                          )
+                        )
+                      }
+                      placeholder="المبلغ"
+                      className="flex-1 text-right"
+                    />
+                    <Input
+                      type="text"
+                      value={row.reference}
+                      onChange={(e) =>
+                        setSplitRows((rows) =>
+                          rows.map((r, i) =>
+                            i === idx ? { ...r, reference: e.target.value } : r
+                          )
+                        )
+                      }
+                      placeholder="مرجع (اختياري)"
+                      className="flex-1 text-right text-xs"
+                    />
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setSplitRows((rows) => rows.filter((_, i) => i !== idx))
+                      }
+                      disabled={splitRows.length <= 2}
+                      className="grid size-8 place-items-center rounded-md text-red-500 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-30"
+                      title="حذف الدفعة"
+                    >
+                      <Trash2 className="size-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="flex-1 gap-2"
+                  onClick={() =>
+                    setSplitRows((rows) => [
+                      ...rows,
+                      { method: "cash", amount: String(splitRemaining > 0 ? splitRemaining : 0), reference: "" },
+                    ])
+                  }
+                >
+                  <Plus className="size-4" />
+                  <span>إضافة دفعة</span>
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="gap-2"
+                  onClick={() => {
+                    if (splitRows.length === 0) return;
+                    const remaining = total - splitRows.slice(0, -1).reduce((a, r) => a + (Number(r.amount) || 0), 0);
+                    setSplitRows((rows) =>
+                      rows.map((r, i) =>
+                        i === rows.length - 1 ? { ...r, amount: String(+remaining.toFixed(2)) } : r
+                      )
+                    );
+                  }}
+                >
+                  توزيع المتبقي
+                </Button>
+              </div>
+            </div>
+            <DialogFooter className="gap-2 sm:justify-start">
+              <Button
+                type="button"
+                onClick={confirmSplit}
+                disabled={!splitValid || createOrder.isPending}
+                className="flex-1 bg-[#2563EB] hover:bg-[#1D4ED8]"
+              >
+                {createOrder.isPending ? "جاري الدفع..." : `تأكيد الدفع المقسّم (${fmtPrice(total)})`}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setSplitOpen(false)}
+                disabled={createOrder.isPending}
+              >
+                إلغاء
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         {/* Success Modal */}
         <AnimatePresence>

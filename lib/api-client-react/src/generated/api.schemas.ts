@@ -425,6 +425,7 @@ export const PosOrderPaymentMethod = {
   cash: "cash",
   card: "card",
   transfer: "transfer",
+  split: "split",
 } as const;
 
 export interface OrderItem {
@@ -433,6 +434,13 @@ export interface OrderItem {
   quantity: number;
   unitPrice: number;
   total: number;
+}
+
+export interface PosOrderPayment {
+  method: PosOrderPaymentMethod;
+  amount: number;
+  reference?: string | null;
+  payerName?: string | null;
 }
 
 export interface PosOrder {
@@ -445,6 +453,7 @@ export interface PosOrder {
   discount: number;
   total: number;
   paymentMethod: PosOrderPaymentMethod;
+  payments?: PosOrderPayment[];
   customerId?: number | null;
   createdAt: string;
 }
@@ -454,6 +463,9 @@ export type CreatePosOrderBodyItemsItem = {
   quantity: number;
 };
 
+/**
+ * Single payment method. Required if `payments` is omitted; ignored when `payments` is provided.
+ */
 export type CreatePosOrderBodyPaymentMethod =
   (typeof CreatePosOrderBodyPaymentMethod)[keyof typeof CreatePosOrderBodyPaymentMethod];
 
@@ -466,7 +478,10 @@ export const CreatePosOrderBodyPaymentMethod = {
 export interface CreatePosOrderBody {
   sessionId: number;
   items: CreatePosOrderBodyItemsItem[];
-  paymentMethod: CreatePosOrderBodyPaymentMethod;
+  /** Single payment method. Required if `payments` is omitted; ignored when `payments` is provided. */
+  paymentMethod?: CreatePosOrderBodyPaymentMethod;
+  /** Split-bill payments. When provided, must sum to the order total and overrides `paymentMethod`. */
+  payments?: PosOrderPayment[];
   discount?: number;
   customerId?: number | null;
 }

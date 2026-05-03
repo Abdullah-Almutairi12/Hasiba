@@ -24,6 +24,7 @@ import { postJournalEntry } from "../lib/journal-posting";
 import {
   customerReceiptsTable,
   customerReceiptAllocationsTable,
+  posOrderPaymentsTable,
 } from "@workspace/db";
 import { requireFinancialLimit } from "../lib/workflow-engine";
 
@@ -232,6 +233,36 @@ router.post(
       const tax = (subtotal - discount) * 0.15;
       const total = subtotal - discount + tax;
 
+      // Resolve the tendered payments. The split-bill flow sends a
+      // `payments[]` array (one row per method); the legacy single-method
+      // flow sends `paymentMethod`. We normalise both into a single
+      // `tenderedPayments` list and validate the sum matches the order
+      // total — refusing the sale rather than silently posting an
+      // unbalanced receipt.
+      const EPS = 0.01;
+      type Tender = { method: "cash" | "card" | "transfer" | "stc"; amount: number; reference?: string | null; payerName?: string | null };
+      let tenderedPayments: Tender[];
+      if (body.payments && body.payments.length > 0) {
+        const sum = body.payments.reduce((a, p) => a + Number(p.amount), 0);
+        if (Math.abs(sum - total) > EPS) {
+          throw new Error(`مجموع الدفعات (${sum.toFixed(2)}) لا يساوي إجمالي الفاتورة (${total.toFixed(2)})`);
+        }
+        for (const p of body.payments) {
+          if (Number(p.amount) <= 0) throw new Error("قيمة الدفعة يجب أن تكون أكبر من صفر");
+        }
+        tenderedPayments = body.payments.map((p) => ({
+          method: p.method,
+          amount: Number(p.amount),
+          reference: p.reference ?? null,
+          payerName: p.payerName ?? null,
+        }));
+      } else {
+        if (!body.paymentMethod) throw new Error("طريقة الدفع مطلوبة");
+        tenderedPayments = [{ method: body.paymentMethod, amount: total, reference: null, payerName: null }];
+      }
+      const isSplit = tenderedPayments.length > 1;
+      const headerPaymentMethod = isSplit ? "split" : tenderedPayments[0].method;
+
       const [created] = await tx
         .insert(posOrdersTable)
         .values({
@@ -242,10 +273,21 @@ router.post(
           tax: String(tax),
           discount: String(discount),
           total: String(total),
-          paymentMethod: body.paymentMethod,
+          paymentMethod: headerPaymentMethod,
           customerId: body.customerId ?? null,
         })
         .returning();
+
+      // Persist each tendered payment for accurate per-method reporting.
+      for (const p of tenderedPayments) {
+        await tx.insert(posOrderPaymentsTable).values({
+          orderId: created.id,
+          method: p.method,
+          amount: String(p.amount),
+          reference: p.reference,
+          payerName: p.payerName,
+        });
+      }
 
       await tx
         .update(posSessionsTable)
@@ -261,7 +303,6 @@ router.post(
       // every sale (POS, online, manual) shares one ledger and one A/R view.
       // Walk-in tickets (no customer entered) are routed to the system
       // "POS-WALKIN" customer seeded in sales-init.
-      const cashKey = body.paymentMethod === "cash" ? "cash" : "bank";
       const netRevenue = +(subtotal - discount).toFixed(2);
       let invoiceCustomerId = body.customerId ?? null;
       let invoiceCustomerName: string | null = null;
@@ -425,51 +466,73 @@ router.post(
         invLines,
       );
 
-      // Immediate receipt + allocation against the invoice we just posted —
-      // POS pays in full at the till. JE: Dr Cash/Bank / Cr AR.
-      const rctRef = await nextRef(tx, "RCT");
-      const [posReceipt] = await tx
-        .insert(customerReceiptsTable)
-        .values({
-          reference: rctRef,
-          customerId: invoiceCustomerId,
-          customerName: invoiceCustomerName ?? "عميل نقدي",
-          receiptDate: todayStr,
-          amount: String(total),
-          // Map POS payment methods (cash | card | transfer) directly onto
-          // the unified receipt domain (cash | bank | card | transfer | stc)
-          // so the new sales-receipt ledger / filters / reports stay
-          // consistent with manually-entered receipts. Previously this
-          // wrote 'bank_transfer' which is outside the receipt enum.
-          paymentMethod: body.paymentMethod,
-          createdBy: req.session?.userId ?? null,
-        })
-        .returning();
-      await tx.insert(customerReceiptAllocationsTable).values({
-        receiptId: posReceipt.id,
-        invoiceId: posInvoice.id,
-        amount: String(total),
-      });
+      // Immediate receipt(s) + allocation against the invoice we just
+      // posted — POS pays in full at the till. For split-bill orders we
+      // create one customer receipt per tender (so per-method ledgers
+      // stay accurate) and one combined journal entry with one debit
+      // line per accounting bucket (cash vs bank). 'card' / 'transfer'
+      // / 'stc' all settle through the bank account.
+      const cashKeyFor = (m: Tender["method"]) => (m === "cash" ? "cash" : "bank");
+      const bucketTotals: Record<string, number> = {};
+      for (const p of tenderedPayments) {
+        const k = cashKeyFor(p.method);
+        bucketTotals[k] = (bucketTotals[k] ?? 0) + p.amount;
+      }
+      // Snap monetary amounts to 2 decimals and absorb any sub-cent drift
+      // into the last bucket so debits exactly equal the AR credit.
+      const totalRounded = +total.toFixed(2);
+      const bucketEntries = Object.entries(bucketTotals).map(
+        ([k, v]) => [k, +v.toFixed(2)] as [string, number],
+      );
+      const bucketSum = +bucketEntries.reduce((a, [, v]) => a + v, 0).toFixed(2);
+      const drift = +(totalRounded - bucketSum).toFixed(2);
+      if (Math.abs(drift) > 0 && bucketEntries.length > 0) {
+        const last = bucketEntries[bucketEntries.length - 1];
+        last[1] = +(last[1] + drift).toFixed(2);
+      }
       const rcptJe = await postJournalEntry(
         tx,
         {
           entryDate: new Date(),
-          description: `سند قبض POS ${rctRef}`,
-          reference: rctRef,
+          description: isSplit
+            ? `سند قبض POS مقسم — ${orderNumber}`
+            : `سند قبض POS ${orderNumber}`,
+          reference: orderNumber,
           source: "payment",
           sourceRef: orderNumber,
           createdBy: req.session?.userId ?? null,
           status: "posted",
         },
         [
-          { systemKey: cashKey, debit: total, description: `قبض ${orderNumber}` },
-          { systemKey: "ar", credit: total, description: "تسوية ذمم — POS" },
+          ...bucketEntries.map(([systemKey, amount]) => ({
+            systemKey,
+            debit: amount,
+            description: `قبض ${orderNumber} — ${systemKey === "cash" ? "كاش" : "شبكة/تحويل"}`,
+          })),
+          { systemKey: "ar", credit: totalRounded, description: "تسوية ذمم — POS" },
         ],
       );
-      await tx
-        .update(customerReceiptsTable)
-        .set({ journalEntryId: rcptJe.id })
-        .where(eq(customerReceiptsTable.id, posReceipt.id));
+      for (const p of tenderedPayments) {
+        const rctRef = await nextRef(tx, "RCT");
+        const [posReceipt] = await tx
+          .insert(customerReceiptsTable)
+          .values({
+            reference: rctRef,
+            customerId: invoiceCustomerId,
+            customerName: invoiceCustomerName ?? "عميل نقدي",
+            receiptDate: todayStr,
+            amount: String(p.amount),
+            paymentMethod: p.method,
+            journalEntryId: rcptJe.id,
+            createdBy: req.session?.userId ?? null,
+          })
+          .returning();
+        await tx.insert(customerReceiptAllocationsTable).values({
+          receiptId: posReceipt.id,
+          invoiceId: posInvoice.id,
+          amount: String(p.amount),
+        });
+      }
 
       if (totalCost > 0) {
         await postJournalEntry(
@@ -517,8 +580,18 @@ router.get("/pos/summary", posReadGuard, async (req, res) => {
       .select({
         totalSales: sql<number>`coalesce(sum(${posOrdersTable.total}::numeric), 0)`,
         ordersCount: sql<number>`count(*)`,
-        cashSales: sql<number>`coalesce(sum(${posOrdersTable.total}::numeric) filter (where ${posOrdersTable.paymentMethod} = 'cash'), 0)`,
-        cardSales: sql<number>`coalesce(sum(${posOrdersTable.total}::numeric) filter (where ${posOrdersTable.paymentMethod} = 'card'), 0)`,
+        cashSales: sql<number>`coalesce((
+          select sum(amount::numeric)
+            from ${posOrderPaymentsTable} pp
+            join ${posOrdersTable} po on po.id = pp.order_id
+           where po.created_at >= ${today} and pp.method = 'cash'
+        ), 0) + coalesce(sum(${posOrdersTable.total}::numeric) filter (where ${posOrdersTable.paymentMethod} = 'cash'), 0)`,
+        cardSales: sql<number>`coalesce((
+          select sum(amount::numeric)
+            from ${posOrderPaymentsTable} pp
+            join ${posOrdersTable} po on po.id = pp.order_id
+           where po.created_at >= ${today} and pp.method in ('card','transfer','stc')
+        ), 0) + coalesce(sum(${posOrdersTable.total}::numeric) filter (where ${posOrdersTable.paymentMethod} in ('card','transfer')), 0)`,
       })
       .from(posOrdersTable)
       .where(gte(posOrdersTable.createdAt, today));

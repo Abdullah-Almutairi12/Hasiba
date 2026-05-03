@@ -35,6 +35,17 @@ export const insertPosSessionSchema = createInsertSchema(posSessionsTable).omit(
 export type InsertPosSession = z.infer<typeof insertPosSessionSchema>;
 export type PosSession = typeof posSessionsTable.$inferSelect;
 
+export const posOrderPaymentsTable = pgTable("pos_order_payments", {
+  id: serial("id").primaryKey(),
+  orderId: integer("order_id").notNull().references(() => posOrdersTable.id, { onDelete: "cascade" }),
+  method: text("method").notNull(),
+  amount: numeric("amount", { precision: 10, scale: 2 }).notNull(),
+  reference: text("reference"),
+  payerName: text("payer_name"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
 export const insertPosOrderSchema = createInsertSchema(posOrdersTable).omit({ id: true, createdAt: true });
 export type InsertPosOrder = z.infer<typeof insertPosOrderSchema>;
 export type PosOrder = typeof posOrdersTable.$inferSelect;
+export type PosOrderPayment = typeof posOrderPaymentsTable.$inferSelect;
