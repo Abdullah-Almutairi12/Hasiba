@@ -13,7 +13,7 @@ import {
   bankStatementLinesTable,
   usersTable,
 } from "@workspace/db";
-import { and, asc, desc, eq, gte, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, lte, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import {
   financeGuard,
@@ -157,9 +157,19 @@ router.patch("/accounting/accounts/:id", financeGuard, async (req, res) => {
   try {
     const id = Number(req.params.id);
     const body = createAccountBody.partial().parse(req.body);
+    const updates: Partial<typeof accountsTable.$inferInsert> = {};
+    if (body.code !== undefined) updates.code = body.code;
+    if (body.name !== undefined) updates.name = body.name;
+    if (body.nameAr !== undefined) updates.nameAr = body.nameAr;
+    if (body.type !== undefined) updates.type = body.type;
+    if (body.parentId !== undefined) updates.parentId = body.parentId;
+    if (body.isGroup !== undefined) updates.isGroup = body.isGroup;
+    if (body.currencyCode !== undefined) updates.currencyCode = body.currencyCode;
+    if (body.description !== undefined) updates.description = body.description;
+    if (body.systemKey !== undefined) updates.systemKey = body.systemKey;
     const [row] = await db
       .update(accountsTable)
-      .set(body as any)
+      .set(updates)
       .where(eq(accountsTable.id, id))
       .returning();
     if (!row) return res.status(404).json({ error: "الحساب غير موجود" });
@@ -254,7 +264,7 @@ router.get("/accounting/journal-entries", reportReadGuard, async (req, res) => {
     const to = req.query.to as string | undefined;
     const limit = Math.min(Number(req.query.limit ?? 100), 500);
 
-    const wheres = [] as any[];
+    const wheres: SQL[] = [];
     if (status) wheres.push(eq(journalEntriesTable.status, status));
     if (source) wheres.push(eq(journalEntriesTable.source, source));
     if (from) wheres.push(gte(journalEntriesTable.entryDate, from));
@@ -711,6 +721,58 @@ router.post(
       if (!matchedLineId)
         return res.status(400).json({ error: "matchedLineId مطلوب" });
       const userId = req.session?.userId ?? null;
+
+      // Load the bank statement line + parent statement + bank account so we
+      // can validate that the candidate JE line belongs to the right GL
+      // account and matches the amount within a small tolerance.
+      const [stmtLine] = await db
+        .select()
+        .from(bankStatementLinesTable)
+        .where(eq(bankStatementLinesTable.id, id))
+        .limit(1);
+      if (!stmtLine) return res.status(404).json({ error: "السطر غير موجود" });
+
+      const [stmt] = await db
+        .select()
+        .from(bankStatementsTable)
+        .where(eq(bankStatementsTable.id, stmtLine.statementId))
+        .limit(1);
+      if (!stmt) return res.status(400).json({ error: "كشف الحساب غير صالح" });
+      const [bank] = await db
+        .select()
+        .from(bankAccountsTable)
+        .where(eq(bankAccountsTable.id, stmt.bankAccountId))
+        .limit(1);
+      if (!bank) return res.status(400).json({ error: "الحساب البنكي غير صالح" });
+
+      const [candidate] = await db
+        .select({
+          id: journalEntryLinesTable.id,
+          accountId: journalEntryLinesTable.accountId,
+          debit: journalEntryLinesTable.debit,
+          credit: journalEntryLinesTable.credit,
+          status: journalEntriesTable.status,
+        })
+        .from(journalEntryLinesTable)
+        .innerJoin(journalEntriesTable, eq(journalEntriesTable.id, journalEntryLinesTable.entryId))
+        .where(eq(journalEntryLinesTable.id, matchedLineId))
+        .limit(1);
+      if (!candidate)
+        return res.status(404).json({ error: "قيد المطابقة غير موجود" });
+      if (candidate.status !== "posted")
+        return res.status(400).json({ error: "لا يمكن المطابقة بقيد غير مرحَّل" });
+      if (candidate.accountId !== bank.glAccountId)
+        return res
+          .status(400)
+          .json({ error: "حساب القيد لا يطابق الحساب البنكي" });
+
+      const candidateNet = Number(candidate.debit) - Number(candidate.credit);
+      const stmtAmount = Number(stmtLine.amount);
+      if (Math.abs(candidateNet - stmtAmount) > 0.01)
+        return res.status(400).json({
+          error: `المبلغ غير متطابق: قيد ${candidateNet} ≠ كشف ${stmtAmount}`,
+        });
+
       const [row] = await db
         .update(bankStatementLinesTable)
         .set({

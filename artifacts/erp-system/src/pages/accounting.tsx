@@ -13,6 +13,7 @@ import {
   useReopenFiscalPeriod,
   useCreateJournalEntry,
   useGetTrialBalance,
+  useListBankAccounts,
   type Account,
   type JournalEntry,
 } from "@workspace/api-client-react";
@@ -101,11 +102,12 @@ export default function Accounting() {
     <div className="space-y-6 pb-8 max-w-7xl mx-auto">
       <SummaryCards />
       <Tabs defaultValue="journal" dir="rtl" className="w-full">
-        <TabsList className="grid grid-cols-5 w-full max-w-3xl">
+        <TabsList className="grid grid-cols-6 w-full max-w-4xl">
           <TabsTrigger value="journal">دفتر اليومية</TabsTrigger>
           <TabsTrigger value="new">قيد جديد</TabsTrigger>
           <TabsTrigger value="coa">دليل الحسابات</TabsTrigger>
           <TabsTrigger value="periods">الفترات المالية</TabsTrigger>
+          <TabsTrigger value="bank">التسوية البنكية</TabsTrigger>
           <TabsTrigger value="zatca">زاتكا</TabsTrigger>
         </TabsList>
         <TabsContent value="journal" className="mt-4">
@@ -119,6 +121,9 @@ export default function Accounting() {
         </TabsContent>
         <TabsContent value="periods" className="mt-4">
           <FiscalPeriodsTab />
+        </TabsContent>
+        <TabsContent value="bank" className="mt-4">
+          <BankReconciliationTab />
         </TabsContent>
         <TabsContent value="zatca" className="mt-4">
           <ZatcaTab />
@@ -708,6 +713,243 @@ function FiscalPeriodsTab() {
           </CardContent>
         </Card>
       ))}
+    </div>
+  );
+}
+
+function BankReconciliationTab() {
+  const { data: banks, isLoading: banksLoading } = useListBankAccounts();
+  const [bankId, setBankId] = useState<number | null>(null);
+  const [statementId, setStatementId] = useState<number | null>(null);
+  const [recon, setRecon] = useState<any>(null);
+  const [csvText, setCsvText] = useState("");
+  const [csvDate, setCsvDate] = useState(new Date().toISOString().slice(0, 10));
+  const [opening, setOpening] = useState("0");
+  const [closing, setClosing] = useState("0");
+  const [busy, setBusy] = useState(false);
+  const apiBase = (import.meta.env.BASE_URL || "/").replace(/\/$/, "") + "/api";
+
+  React.useEffect(() => {
+    if (!bankId && banks && banks.length > 0) setBankId(banks[0].id);
+  }, [banks, bankId]);
+
+  async function loadReconciliation(sid: number) {
+    setStatementId(sid);
+    const res = await fetch(`${apiBase}/accounting/bank-statements/${sid}/reconciliation`, {
+      credentials: "include",
+    });
+    if (!res.ok) {
+      toast.error("تعذر تحميل التسوية");
+      return;
+    }
+    setRecon(await res.json());
+  }
+
+  // Parse CSV: tx_date,description,reference,amount  (header optional, comma-separated)
+  function parseCsv(text: string) {
+    const rows: Array<{ txDate: string; description: string; reference: string | null; amount: number }> = [];
+    for (const raw of text.split(/\r?\n/)) {
+      const line = raw.trim();
+      if (!line) continue;
+      const cols = line.split(",").map((c) => c.trim());
+      // skip a header row
+      if (cols[0].toLowerCase().includes("date")) continue;
+      const amt = Number(cols[3] ?? cols[2] ?? 0);
+      if (!cols[0] || isNaN(amt)) continue;
+      rows.push({
+        txDate: cols[0],
+        description: cols[1] ?? "",
+        reference: cols[2] && isNaN(Number(cols[2])) ? cols[2] : null,
+        amount: amt,
+      });
+    }
+    return rows;
+  }
+
+  async function importCsv() {
+    if (!bankId) {
+      toast.error("اختر حساباً بنكياً أولاً");
+      return;
+    }
+    const lines = parseCsv(csvText);
+    if (lines.length === 0) {
+      toast.error("لا توجد بيانات صالحة في الملف");
+      return;
+    }
+    setBusy(true);
+    try {
+      const body = {
+        bankAccountId: bankId,
+        statementDate: csvDate,
+        startingBalance: Number(opening),
+        endingBalance: Number(closing),
+        fileName: "csv-import",
+        lines,
+      };
+      const res = await fetch(`${apiBase}/accounting/bank-statements`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error ?? "فشل الاستيراد");
+      toast.success(`تم استيراد ${lines.length} عملية`);
+      setCsvText("");
+      await loadReconciliation(data.id);
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function matchLine(stmtLineId: number, candidateLineId: number) {
+    const res = await fetch(`${apiBase}/accounting/bank-statement-lines/${stmtLineId}/match`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ matchedLineId: candidateLineId }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      toast.error(data?.error ?? "فشلت المطابقة");
+      return;
+    }
+    toast.success("تمت المطابقة");
+    if (statementId) await loadReconciliation(statementId);
+  }
+
+  if (banksLoading) return <Skeleton className="h-48 w-full" />;
+  if (!banks || banks.length === 0) {
+    return (
+      <Card>
+        <CardContent className="p-6 text-center text-muted-foreground">
+          لا توجد حسابات بنكية بعد. أضف حساباً من شاشة دليل الحسابات.
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader>
+          <CardTitle>استيراد كشف حساب بنكي (CSV)</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+            <div>
+              <Label>الحساب البنكي</Label>
+              <Select
+                value={bankId ? String(bankId) : ""}
+                onValueChange={(v) => setBankId(Number(v))}
+              >
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {banks.map((b: any) => (
+                    <SelectItem key={b.id} value={String(b.id)}>{b.name} ({b.bankName})</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>تاريخ الكشف</Label>
+              <Input type="date" value={csvDate} onChange={(e) => setCsvDate(e.target.value)} />
+            </div>
+            <div>
+              <Label>الرصيد الافتتاحي</Label>
+              <Input type="number" value={opening} onChange={(e) => setOpening(e.target.value)} />
+            </div>
+            <div>
+              <Label>الرصيد الختامي</Label>
+              <Input type="number" value={closing} onChange={(e) => setClosing(e.target.value)} />
+            </div>
+          </div>
+          <div>
+            <Label>محتوى CSV (date,description,reference,amount)</Label>
+            <Textarea
+              rows={6}
+              value={csvText}
+              onChange={(e) => setCsvText(e.target.value)}
+              placeholder="2026-04-01,تحويل عميل أ,REF001,5000&#10;2026-04-02,أتعاب,REF002,-1200"
+              className="font-mono text-xs"
+            />
+          </div>
+          <Button onClick={importCsv} disabled={busy}>
+            <BookOpen className="h-4 w-4 ml-1" /> استيراد ومطابقة
+          </Button>
+        </CardContent>
+      </Card>
+
+      {recon && (
+        <Card>
+          <CardHeader>
+            <CardTitle>
+              التسوية البنكية — {recon.statement?.statementDate}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="grid grid-cols-2 gap-4 text-sm">
+              <div>الرصيد الافتتاحي: <Money value={recon.statement.startingBalance} /></div>
+              <div>الرصيد الختامي: <Money value={recon.statement.endingBalance} /></div>
+            </div>
+            <div>
+              <h4 className="font-semibold mb-2">سطور كشف البنك</h4>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>التاريخ</TableHead>
+                    <TableHead>الوصف</TableHead>
+                    <TableHead>المبلغ</TableHead>
+                    <TableHead>الحالة</TableHead>
+                    <TableHead>مطابقة</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {(recon.lines ?? []).map((l: any) => {
+                    const matchOptions = (recon.candidates ?? []).filter(
+                      (c: any) => Math.abs(c.netAmount - l.amount) < 0.01,
+                    );
+                    return (
+                      <TableRow key={l.id}>
+                        <TableCell>{l.txDate}</TableCell>
+                        <TableCell>{l.description}</TableCell>
+                        <TableCell>
+                          <Money value={l.amount} />
+                        </TableCell>
+                        <TableCell>
+                          {l.reconciledAt ? (
+                            <Badge>مطابق</Badge>
+                          ) : (
+                            <Badge variant="secondary">معلق</Badge>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {!l.reconciledAt && matchOptions.length > 0 ? (
+                            <Select onValueChange={(v) => matchLine(l.id, Number(v))}>
+                              <SelectTrigger className="w-48"><SelectValue placeholder="اختر قيداً..." /></SelectTrigger>
+                              <SelectContent>
+                                {matchOptions.map((c: any) => (
+                                  <SelectItem key={c.id} value={String(c.id)}>
+                                    {c.entryNumber} — {c.entryDate}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          ) : !l.reconciledAt ? (
+                            <span className="text-xs text-muted-foreground">لا يوجد قيد مطابق</span>
+                          ) : null}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

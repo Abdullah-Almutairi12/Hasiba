@@ -2,7 +2,7 @@ import { Router } from "express";
 import ExcelJS from "exceljs";
 import PDFDocument from "pdfkit";
 import { db, posOrdersTable, productsTable, invoicesTable, suppliersTable, journalEntriesTable, journalEntryLinesTable, accountsTable } from "@workspace/db";
-import { sql, desc, gte } from "drizzle-orm";
+import { sql, desc, gte, and, eq, lte } from "drizzle-orm";
 import { recordAudit } from "../lib/audit";
 import { exportsGuard } from "../middlewares/require-role";
 
@@ -14,9 +14,55 @@ const exportRoles = exportsGuard;
 router.use("/exports/:type.xlsx", exportRoles);
 router.use("/exports/:type.pdf", exportRoles);
 
-type ReportType = "sales" | "products" | "invoices" | "suppliers" | "journal";
+type ReportType =
+  | "sales"
+  | "products"
+  | "invoices"
+  | "suppliers"
+  | "journal"
+  | "trial-balance"
+  | "profit-loss"
+  | "balance-sheet"
+  | "cash-flow";
 
-async function fetchReportRows(type: ReportType): Promise<{ headers: string[]; rows: Array<Array<string | number>>; title: string }> {
+const ALL_REPORT_TYPES: ReportType[] = [
+  "sales",
+  "products",
+  "invoices",
+  "suppliers",
+  "journal",
+  "trial-balance",
+  "profit-loss",
+  "balance-sheet",
+  "cash-flow",
+];
+
+// Aggregate posted-only line totals per account, optionally filtered by date
+// range. Used by the four financial-statement exports below.
+async function postedAccountTotals(from?: string, to?: string) {
+  const wheres = [eq(journalEntriesTable.status, "posted")];
+  if (from) wheres.push(gte(journalEntriesTable.entryDate, from));
+  if (to) wheres.push(lte(journalEntriesTable.entryDate, to));
+  return db
+    .select({
+      accountId: accountsTable.id,
+      code: accountsTable.code,
+      nameAr: accountsTable.nameAr,
+      type: accountsTable.type,
+      debit: sql<string>`coalesce(sum(${journalEntryLinesTable.baseDebit}::numeric),0)`,
+      credit: sql<string>`coalesce(sum(${journalEntryLinesTable.baseCredit}::numeric),0)`,
+    })
+    .from(accountsTable)
+    .innerJoin(journalEntryLinesTable, eq(journalEntryLinesTable.accountId, accountsTable.id))
+    .innerJoin(journalEntriesTable, eq(journalEntriesTable.id, journalEntryLinesTable.entryId))
+    .where(and(...wheres))
+    .groupBy(accountsTable.id, accountsTable.code, accountsTable.nameAr, accountsTable.type);
+}
+
+async function fetchReportRows(
+  type: ReportType,
+  q: { from?: string; to?: string } = {},
+): Promise<{ headers: string[]; rows: Array<Array<string | number>>; title: string }> {
   switch (type) {
     case "sales": {
       const start = new Date();
@@ -130,16 +176,118 @@ async function fetchReportRows(type: ReportType): Promise<{ headers: string[]; r
         ]),
       };
     }
+    case "trial-balance": {
+      const totals = await postedAccountTotals(q.from, q.to);
+      const range = `${q.from ?? "البداية"} → ${q.to ?? "حتى الآن"}`;
+      return {
+        title: `ميزان المراجعة (${range})`,
+        headers: ["الكود", "الحساب", "النوع", "مدين", "دائن"],
+        rows: totals.map((r) => [r.code, r.nameAr, r.type, Number(r.debit), Number(r.credit)]),
+      };
+    }
+    case "profit-loss": {
+      const totals = await postedAccountTotals(q.from, q.to);
+      const range = `${q.from ?? "البداية"} → ${q.to ?? "حتى الآن"}`;
+      const out: Array<Array<string | number>> = [];
+      let totalRev = 0;
+      let totalExp = 0;
+      for (const r of totals) {
+        if (r.type === "revenue") {
+          const v = Number(r.credit) - Number(r.debit);
+          if (v !== 0) out.push([r.code, r.nameAr, "إيراد", v]);
+          totalRev += v;
+        } else if (r.type === "expense") {
+          const v = Number(r.debit) - Number(r.credit);
+          if (v !== 0) out.push([r.code, r.nameAr, "مصروف", v]);
+          totalExp += v;
+        }
+      }
+      out.push(["", "إجمالي الإيرادات", "", totalRev]);
+      out.push(["", "إجمالي المصروفات", "", totalExp]);
+      out.push(["", "صافي الربح", "", totalRev - totalExp]);
+      return {
+        title: `قائمة الدخل (${range})`,
+        headers: ["الكود", "الحساب", "النوع", "المبلغ"],
+        rows: out,
+      };
+    }
+    case "balance-sheet": {
+      const totals = await postedAccountTotals(undefined, q.to);
+      const out: Array<Array<string | number>> = [];
+      let assets = 0;
+      let liabilities = 0;
+      let equity = 0;
+      for (const r of totals) {
+        if (r.type === "asset") {
+          const v = Number(r.debit) - Number(r.credit);
+          if (v !== 0) out.push([r.code, r.nameAr, "أصول", v]);
+          assets += v;
+        } else if (r.type === "liability") {
+          const v = Number(r.credit) - Number(r.debit);
+          if (v !== 0) out.push([r.code, r.nameAr, "خصوم", v]);
+          liabilities += v;
+        } else if (r.type === "equity") {
+          const v = Number(r.credit) - Number(r.debit);
+          if (v !== 0) out.push([r.code, r.nameAr, "حقوق ملكية", v]);
+          equity += v;
+        }
+      }
+      out.push(["", "إجمالي الأصول", "", assets]);
+      out.push(["", "إجمالي الخصوم", "", liabilities]);
+      out.push(["", "حقوق الملكية", "", equity]);
+      out.push(["", "الخصوم + حقوق الملكية", "", liabilities + equity]);
+      return {
+        title: `الميزانية العمومية (${q.to ?? "حتى الآن"})`,
+        headers: ["الكود", "الحساب", "النوع", "الرصيد"],
+        rows: out,
+      };
+    }
+    case "cash-flow": {
+      // MVP: cash-flow approximated from movement on cash + bank accounts.
+      const wheres = [eq(journalEntriesTable.status, "posted")];
+      if (q.from) wheres.push(gte(journalEntriesTable.entryDate, q.from));
+      if (q.to) wheres.push(lte(journalEntriesTable.entryDate, q.to));
+      const lines = await db
+        .select({
+          accountCode: accountsTable.code,
+          accountName: accountsTable.nameAr,
+          systemKey: accountsTable.systemKey,
+          entryDate: journalEntriesTable.entryDate,
+          entryNumber: journalEntriesTable.entryNumber,
+          description: journalEntriesTable.description,
+          debit: journalEntryLinesTable.baseDebit,
+          credit: journalEntryLinesTable.baseCredit,
+        })
+        .from(journalEntryLinesTable)
+        .innerJoin(journalEntriesTable, eq(journalEntriesTable.id, journalEntryLinesTable.entryId))
+        .innerJoin(accountsTable, eq(accountsTable.id, journalEntryLinesTable.accountId))
+        .where(and(...wheres, sql`${accountsTable.systemKey} IN ('cash','bank')`))
+        .orderBy(journalEntriesTable.entryDate);
+      let net = 0;
+      const out: Array<Array<string | number>> = lines.map((l) => {
+        const v = Number(l.debit) - Number(l.credit);
+        net += v;
+        return [l.entryDate, l.entryNumber, l.description, l.accountCode, l.accountName, v];
+      });
+      out.push(["", "", "صافي تغير النقد", "", "", net]);
+      return {
+        title: `قائمة التدفقات النقدية (${q.from ?? "البداية"} → ${q.to ?? "حتى الآن"})`,
+        headers: ["التاريخ", "رقم القيد", "البيان", "الكود", "الحساب", "صافي"],
+        rows: out,
+      };
+    }
   }
 }
 
 router.get("/exports/:type.xlsx", async (req, res) => {
   const type = req.params.type as ReportType;
-  if (!["sales", "products", "invoices", "suppliers", "journal"].includes(type)) {
+  if (!ALL_REPORT_TYPES.includes(type)) {
     return res.status(400).json({ error: "نوع التقرير غير مدعوم" });
   }
+  const from = req.query.from as string | undefined;
+  const to = req.query.to as string | undefined;
   try {
-    const { title, headers, rows } = await fetchReportRows(type);
+    const { title, headers, rows } = await fetchReportRows(type, { from, to });
     const wb = new ExcelJS.Workbook();
     wb.creator = "حاسبة.AI";
     wb.created = new Date();
@@ -176,11 +324,13 @@ router.get("/exports/:type.xlsx", async (req, res) => {
 
 router.get("/exports/:type.pdf", async (req, res) => {
   const type = req.params.type as ReportType;
-  if (!["sales", "products", "invoices", "suppliers", "journal"].includes(type)) {
+  if (!ALL_REPORT_TYPES.includes(type)) {
     return res.status(400).json({ error: "نوع التقرير غير مدعوم" });
   }
+  const from = req.query.from as string | undefined;
+  const to = req.query.to as string | undefined;
   try {
-    const { title, headers, rows } = await fetchReportRows(type);
+    const { title, headers, rows } = await fetchReportRows(type, { from, to });
 
     const doc = new PDFDocument({ size: "A4", margin: 36, layout: "landscape", info: { Title: title } });
     res.setHeader("Content-Type", "application/pdf");

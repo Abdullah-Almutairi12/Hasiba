@@ -1,6 +1,8 @@
 import { pool } from "@workspace/db";
 import { logger } from "./logger";
 
+type PgPool = typeof pool;
+
 /**
  * Boot-time initialization of the accounting subsystem.
  *
@@ -271,6 +273,21 @@ export async function initAccounting(): Promise<void> {
   }
 
   // 5) Seed current fiscal year and monthly periods.
+  // Ensure UNIQUE(name) exists before relying on ON CONFLICT (legacy DBs may
+  // lack it from the original drizzle schema).
+  await pool.query(`
+    DO $$ BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'fiscal_years_name_uniq'
+      ) THEN
+        -- Drop any duplicate fiscal_years rows by name, keeping the lowest id.
+        DELETE FROM fiscal_years a
+          USING fiscal_years b
+         WHERE a.name = b.name AND a.id > b.id;
+        ALTER TABLE fiscal_years ADD CONSTRAINT fiscal_years_name_uniq UNIQUE (name);
+      END IF;
+    END $$;
+  `).catch((e) => logger.warn({ err: e }, "fiscal_years UNIQUE install skipped"));
   const year = new Date().getFullYear();
   await pool.query(
     `INSERT INTO fiscal_years (name, start_date, end_date)
@@ -317,5 +334,163 @@ export async function initAccounting(): Promise<void> {
     }
   }
 
+  // 6) Migrate legacy journal entries (free-text debit/credit/amount rows)
+  // into balanced new headers + 2-line entries, posted, source='legacy'.
+  await migrateLegacyJournalEntries(pool);
+
+  // 7) Database-level integrity guards.
+  await pool.query(`
+    DO $$ BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'journal_entries_status_chk'
+      ) THEN
+        ALTER TABLE journal_entries
+          ADD CONSTRAINT journal_entries_status_chk
+          CHECK (status IN ('draft','posted','reversed'));
+      END IF;
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'fiscal_periods_status_chk'
+      ) THEN
+        ALTER TABLE fiscal_periods
+          ADD CONSTRAINT fiscal_periods_status_chk
+          CHECK (status IN ('open','closed','locked'));
+      END IF;
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'accounts_type_chk'
+      ) THEN
+        ALTER TABLE accounts
+          ADD CONSTRAINT accounts_type_chk
+          CHECK (type IN ('asset','liability','equity','revenue','expense'));
+      END IF;
+    END $$;
+  `).catch((e) => logger.warn({ err: e }, "Constraint install skipped"));
+
+  // Trigger: prevent journal_entry_lines from referencing a group account.
+  await pool.query(`
+    CREATE OR REPLACE FUNCTION reject_postings_to_group_accounts()
+    RETURNS trigger AS $$
+    DECLARE is_grp boolean;
+    BEGIN
+      SELECT is_group INTO is_grp FROM accounts WHERE id = NEW.account_id;
+      IF is_grp THEN
+        RAISE EXCEPTION 'لا يمكن الترحيل على حساب مجموعة (account_id=%)', NEW.account_id;
+      END IF;
+      RETURN NEW;
+    END $$ LANGUAGE plpgsql;
+
+    DROP TRIGGER IF EXISTS jel_no_group_post ON journal_entry_lines;
+    CREATE TRIGGER jel_no_group_post
+      BEFORE INSERT OR UPDATE ON journal_entry_lines
+      FOR EACH ROW EXECUTE FUNCTION reject_postings_to_group_accounts();
+  `).catch((e) => logger.warn({ err: e }, "Group-account trigger skipped"));
+
   logger.info("Accounting subsystem initialized");
+}
+
+// Find or create an account row whose Arabic name matches `nameAr`.
+// Used by legacy migration since old data only carried Arabic names.
+async function findOrCreateAccountByNameAr(
+  pool: PgPool,
+  nameAr: string,
+  fallbackType: "asset" | "liability" | "equity" | "revenue" | "expense" = "asset",
+): Promise<number> {
+  const { rows } = await pool.query(
+    `SELECT id FROM accounts WHERE name_ar = $1 LIMIT 1`,
+    [nameAr],
+  );
+  if (rows[0]) return rows[0].id;
+
+  const { rows: maxRows } = await pool.query(
+    `SELECT max(code) AS m FROM accounts WHERE code LIKE '9%'`,
+  );
+  const nextCode = String(Number(maxRows[0]?.m ?? 9000) + 1);
+  const { rows: ins } = await pool.query(
+    `INSERT INTO accounts (code, name, name_ar, type, currency_code, description)
+     VALUES ($1, $2, $3, $4, 'SAR', 'تم إنشاؤه من بيانات قديمة')
+     RETURNING id`,
+    [nextCode, nameAr, nameAr, fallbackType],
+  );
+  return ins[0].id;
+}
+
+async function migrateLegacyJournalEntries(pool: PgPool): Promise<void> {
+  // Skip if legacy table absent.
+  const { rows: tbl } = await pool.query(
+    `SELECT 1 FROM information_schema.tables WHERE table_name = 'journal_entries_legacy'`,
+  );
+  if (tbl.length === 0) return;
+
+  // Skip if anything from a previous migration run is already present.
+  const { rows: already } = await pool.query(
+    `SELECT 1 FROM journal_entries WHERE source = 'legacy_migration' LIMIT 1`,
+  );
+  if (already.length > 0) return;
+
+  const { rows: legacy } = await pool.query(
+    `SELECT id, description, debit_account, credit_account, amount,
+            date, reference, is_automatic
+       FROM journal_entries_legacy ORDER BY id`,
+  );
+  if (legacy.length === 0) return;
+
+  // Heuristic type mapping for stub accounts created from Arabic names.
+  const typeFromName = (
+    n: string,
+  ): "asset" | "liability" | "equity" | "revenue" | "expense" => {
+    if (/(إيراد|مبيعات|دخل)/.test(n)) return "revenue";
+    if (/(مصاري|مصروف|تكلفة|تكاليف|أجور|رواتب|كهرباء)/.test(n)) return "expense";
+    if (/(دائن|ذمم دائنة|قرض|التزام|ضريبة|مستحق)/.test(n)) return "liability";
+    if (/(رأس مال|حقوق)/.test(n)) return "equity";
+    return "asset";
+  };
+
+  let migrated = 0;
+  for (const r of legacy) {
+    const debitAccountId = await findOrCreateAccountByNameAr(
+      pool,
+      String(r.debit_account).trim(),
+      typeFromName(String(r.debit_account)),
+    );
+    const creditAccountId = await findOrCreateAccountByNameAr(
+      pool,
+      String(r.credit_account).trim(),
+      typeFromName(String(r.credit_account)),
+    );
+
+    const entryDate = new Date(r.date).toISOString().slice(0, 10);
+    const year = new Date(r.date).getUTCFullYear();
+    const { rows: pRow } = await pool.query(
+      `SELECT id FROM fiscal_periods
+        WHERE start_date <= $1 AND end_date >= $1 LIMIT 1`,
+      [entryDate],
+    );
+    const periodId = pRow[0]?.id ?? null;
+    const entryNumber = `LEG-${year}-${String(r.id).padStart(5, "0")}`;
+    const amount = String(r.amount);
+
+    const { rows: header } = await pool.query(
+      `INSERT INTO journal_entries
+         (entry_number, entry_date, period_id, description, reference,
+          currency_code, exchange_rate, status, source, source_ref,
+          posted_at)
+       VALUES ($1, $2, $3, $4, $5, 'SAR', 1, 'posted', 'legacy_migration', $6, now())
+       ON CONFLICT (entry_number) DO NOTHING
+       RETURNING id`,
+      [entryNumber, entryDate, periodId, r.description, r.reference ?? null, String(r.id)],
+    );
+    const entryId = header[0]?.id;
+    if (!entryId) continue;
+
+    await pool.query(
+      `INSERT INTO journal_entry_lines
+         (entry_id, line_number, account_id, debit, credit,
+          base_debit, base_credit, description)
+       VALUES
+         ($1, 1, $2, $3, 0, $3, 0, $5),
+         ($1, 2, $4, 0, $3, 0, $3, $5)`,
+      [entryId, debitAccountId, amount, creditAccountId, r.description],
+    );
+    migrated++;
+  }
+  logger.info({ migrated }, "Migrated legacy journal entries");
 }

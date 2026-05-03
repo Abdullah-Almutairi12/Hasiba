@@ -6,11 +6,19 @@ import { logger } from "./lib/logger";
 import { sessionMiddleware } from "./middlewares/session";
 import { initAccounting } from "./lib/accounting-init";
 
-initAccounting().catch((err) => {
+const app: Express = express();
+
+// Block requests until the accounting subsystem (tables + seed + legacy
+// migration) has finished. The previous fire-and-forget call could let HTTP
+// requests hit incomplete schema during boot.
+const accountingReady = initAccounting().catch((err) => {
   logger.error({ err }, "Failed to initialize accounting subsystem");
 });
 
-const app: Express = express();
+app.use(async (_req, _res, next) => {
+  await accountingReady;
+  next();
+});
 
 app.set("trust proxy", 1);
 

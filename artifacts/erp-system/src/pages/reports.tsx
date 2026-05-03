@@ -148,6 +148,68 @@ function fraudIcon(type?: string) {
   return Ban;
 }
 
+function FinancialStatementsSection() {
+  const today = new Date().toISOString().slice(0, 10);
+  const yearStart = `${new Date().getFullYear()}-01-01`;
+  const [from, setFrom] = useState(yearStart);
+  const [to, setTo] = useState(today);
+  const apiBase = (import.meta.env.BASE_URL || "/").replace(/\/$/, "") + "/api";
+  const reports: Array<{ key: string; label: string }> = [
+    { key: "trial-balance", label: "ميزان المراجعة" },
+    { key: "profit-loss", label: "قائمة الدخل" },
+    { key: "balance-sheet", label: "الميزانية العمومية" },
+    { key: "cash-flow", label: "قائمة التدفقات النقدية" },
+  ];
+  const buildUrl = (key: string, ext: "xlsx" | "pdf") =>
+    `${apiBase}/exports/${key}.${ext}?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`;
+  return (
+    <div className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm">
+      <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-bold text-neutral-800">القوائم المالية الرسمية</h3>
+          <p className="mt-1 text-xs text-neutral-500">
+            تقارير محاسبية مبنية من القيود المرحَّلة فقط — قابلة للتصدير Excel / PDF.
+          </p>
+        </div>
+        <div className="flex items-end gap-2">
+          <div>
+            <label className="block text-[10px] font-medium text-neutral-500">من</label>
+            <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="h-9 w-36" />
+          </div>
+          <div>
+            <label className="block text-[10px] font-medium text-neutral-500">إلى</label>
+            <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="h-9 w-36" />
+          </div>
+        </div>
+      </div>
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
+        {reports.map((r) => (
+          <div key={r.key} className="rounded-xl border border-neutral-100 p-4">
+            <p className="text-sm font-bold text-neutral-800">{r.label}</p>
+            <p className="mt-1 text-[10px] text-neutral-400">
+              {r.key === "balance-sheet" ? `حتى ${to}` : `${from} → ${to}`}
+            </p>
+            <div className="mt-3 flex gap-2">
+              <a
+                href={buildUrl(r.key, "xlsx")}
+                className="flex-1 rounded-lg bg-emerald-600 px-3 py-1.5 text-center text-xs font-medium text-white hover:bg-emerald-700"
+              >
+                Excel
+              </a>
+              <a
+                href={buildUrl(r.key, "pdf")}
+                className="flex-1 rounded-lg bg-red-600 px-3 py-1.5 text-center text-xs font-medium text-white hover:bg-red-700"
+              >
+                PDF
+              </a>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function Reports() {
   const [chartPeriod] = useState<"weekly" | "monthly" | "yearly">("monthly");
   const [chartTab, setChartTab] = useState<"sales" | "inventory">("sales");
@@ -216,6 +278,8 @@ export default function Reports() {
       </header>
 
       <div className="flex-1 space-y-6 overflow-y-auto p-6">
+        <FinancialStatementsSection />
+
         {/* AI Copilot widget */}
         <div className="relative overflow-hidden rounded-2xl bg-gradient-to-l from-[#1E40AF] to-[#1D4ED8] p-6 text-white shadow-xl shadow-blue-900/20">
           <div className="absolute -right-10 -top-10 size-40 rounded-full bg-blue-400/30 blur-3xl" />
