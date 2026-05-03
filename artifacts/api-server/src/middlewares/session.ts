@@ -57,6 +57,7 @@ declare module "express-session" {
       | "cashier"
       | "inventory"
       | "marketing"
-      | "auditor";
+      | "auditor"
+      | "hr";
   }
 }

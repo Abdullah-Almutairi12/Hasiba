@@ -15,6 +15,7 @@ import Reports from "@/pages/reports";
 import Customers from "@/pages/customers";
 import Branches from "@/pages/branches";
 import UsersPage from "@/pages/users";
+import HrPage from "@/pages/hr";
 import Settings from "@/pages/settings";
 import ProjectsPage from "@/pages/projects";
 import MarketingPage from "@/pages/marketing";
@@ -128,6 +129,9 @@ function Router() {
       </Route>
       <Route path="/users">
         <Protected><UsersPage /></Protected>
+      </Route>
+      <Route path="/hr">
+        <Protected><HrPage /></Protected>
       </Route>
       <Route path="/admin">
         <Protected><AdminPage /></Protected>

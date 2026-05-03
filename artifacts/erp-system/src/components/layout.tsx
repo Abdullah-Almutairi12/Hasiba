@@ -18,6 +18,7 @@ import {
   ShoppingBag,
   Receipt,
   Target,
+  UserCog,
   Sun,
   Moon,
   Monitor,
@@ -83,6 +84,7 @@ const operationsNavItems = [
 
 const adminNavItems = [
   { key: "branches", url: "/branches", icon: Building2 },
+  { key: "hr", url: "/hr", icon: UserCog },
   { key: "users", url: "/users", icon: Users },
   { key: "admin", url: "/admin", icon: ShieldCheck },
   { key: "settings", url: "/settings", icon: Settings },

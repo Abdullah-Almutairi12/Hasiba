@@ -24,6 +24,7 @@ import salesRouter from "./sales";
 import crmRouter from "./crm";
 import storageRouter from "./storage";
 import exportsRouter from "./exports";
+import hrRouter, { hrPublicRouter } from "./hr";
 import { requireAuth } from "../middlewares/require-auth";
 
 const router: IRouter = Router();
@@ -31,6 +32,8 @@ const router: IRouter = Router();
 // Public routes (no auth required)
 router.use(healthRouter);
 router.use(authRouter);
+// HR device webhook is API-key authenticated and must bypass session auth.
+router.use(hrPublicRouter);
 
 // All business routes require an authenticated session
 router.use(requireAuth);
@@ -58,5 +61,6 @@ router.use(salesRouter);
 router.use(crmRouter);
 router.use(storageRouter);
 router.use(exportsRouter);
+router.use(hrRouter);
 
 export default router;

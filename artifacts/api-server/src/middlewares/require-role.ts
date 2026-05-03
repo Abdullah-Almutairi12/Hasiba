@@ -9,6 +9,7 @@ export const ALL_ROLES = [
   "inventory",
   "marketing",
   "auditor",
+  "hr",
 ] as const;
 
 export type Role = (typeof ALL_ROLES)[number];
@@ -45,6 +46,16 @@ export function requireRole(...roles: Role[]) {
 export const adminGuard = requireRole("owner", "manager");
 export const ownerOnly = requireRole("owner");
 export const financeGuard = requireRole("owner", "manager", "accountant");
+// HR write guard: owners, managers, and the dedicated HR role.
+export const hrGuard = requireRole("owner", "manager", "hr");
+// HR read guard: PII-bearing data (employees, contracts, loans, attendance,
+// expiry alerts, Saudization). Auditor + accountant get read-only because they
+// need it for compliance / payroll review. Sales / cashier / inventory /
+// marketing must NOT see HR PII.
+export const hrReadGuard = requireRole("owner", "manager", "hr", "accountant", "auditor");
+// Payroll read guard: same as hrReadGuard — payroll runs/lines/WPS contain
+// salary data which is sensitive PII.
+export const payrollReadGuard = requireRole("owner", "manager", "hr", "accountant", "auditor");
 // Back-office sales writes (quotes, sales orders, deliveries, invoices,
 // credit notes, CRM opportunities). Cashiers are intentionally EXCLUDED:
 // they own the till (posGuard) but must not be able to mutate B2B

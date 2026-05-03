@@ -113,6 +113,16 @@ const ROLES = [
     permissions: ["marketing", "customers.read", "analytics.read", "exports.marketing"],
   },
   {
+    key: "hr",
+    name: "HR Specialist",
+    nameAr: "موظف موارد بشرية",
+    description: "إدارة الموظفين، العقود، الإجازات، والحضور",
+    icon: "users",
+    color: "teal",
+    requires2fa: false,
+    permissions: ["hr", "employees", "leaves", "attendance", "payroll.read"],
+  },
+  {
     key: "auditor",
     name: "Auditor",
     nameAr: "مراقب / مدقق",
