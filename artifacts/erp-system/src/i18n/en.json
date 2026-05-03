@@ -26,6 +26,8 @@
     "stocktake": "Stock Takes",
     "reorder": "Reorder Rules",
     "procurement": "Procurement (P2P)",
+    "sales": "Sales (Q2C)",
+    "crm": "CRM Pipeline",
     "admin": "Admin Panel",
     "users": "Users & Permissions",
     "settings": "Security & Settings"

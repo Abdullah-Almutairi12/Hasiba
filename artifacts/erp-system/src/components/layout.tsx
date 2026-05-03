@@ -16,6 +16,8 @@ import {
   ClipboardList,
   TrendingDown,
   ShoppingBag,
+  Receipt,
+  Target,
   Sun,
   Moon,
   Monitor,
@@ -59,6 +61,8 @@ const mainNavItems = [
   { key: "dashboard", url: "/", icon: LayoutDashboard },
   { key: "pos", url: "/pos", icon: ShoppingCart },
   { key: "products", url: "/products", icon: Package },
+  { key: "sales", url: "/sales", icon: Receipt },
+  { key: "crm", url: "/crm", icon: Target },
   { key: "invoices", url: "/invoices", icon: FileText },
   { key: "customers", url: "/customers", icon: Users },
 ] as const;

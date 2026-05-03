@@ -45,7 +45,11 @@ export function requireRole(...roles: Role[]) {
 export const adminGuard = requireRole("owner", "manager");
 export const ownerOnly = requireRole("owner");
 export const financeGuard = requireRole("owner", "manager", "accountant");
-export const salesWriteGuard = requireRole("owner", "manager", "sales", "cashier");
+// Back-office sales writes (quotes, sales orders, deliveries, invoices,
+// credit notes, CRM opportunities). Cashiers are intentionally EXCLUDED:
+// they own the till (posGuard) but must not be able to mutate B2B
+// quotations, SOs, DOs, or CRM pipeline. Use posGuard for till routes.
+export const salesWriteGuard = requireRole("owner", "manager", "sales");
 export const posGuard = requireRole("owner", "manager", "sales", "cashier");
 export const inventoryGuard = requireRole("owner", "manager", "inventory");
 // Procurement (P2P) — owners/managers, accountants (3-way match + payments)

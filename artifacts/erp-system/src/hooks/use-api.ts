@@ -25,6 +25,18 @@ export async function apiPost<T>(path: string, body: unknown): Promise<T> {
   return (await res.json()) as T;
 }
 
+export async function apiDelete<T>(path: string): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: "DELETE",
+    credentials: "include",
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data?.error ?? `HTTP ${res.status}`);
+  }
+  return (await res.json()) as T;
+}
+
 export function useApiQuery<T>(path: string, options?: { enabled?: boolean }) {
   return useQuery<T>({
     queryKey: [path],

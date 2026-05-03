@@ -9,6 +9,14 @@ export const customersTable = pgTable("customers", {
   email: text("email"),
   totalOrders: integer("total_orders").notNull().default(0),
   totalSpent: numeric("total_spent", { precision: 10, scale: 2 }).notNull().default("0"),
+  // Q2C extensions (Task #4)
+  segment: text("segment").notNull().default("retail"), // retail | wholesale | vip | distributor
+  defaultPricelistId: integer("default_pricelist_id"),
+  paymentTermsDays: integer("payment_terms_days").notNull().default(0),
+  creditLimit: numeric("credit_limit", { precision: 18, scale: 2 }).notNull().default("0"),
+  taxNumber: text("tax_number"),
+  billingAddress: text("billing_address"),
+  shippingAddress: text("shipping_address"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

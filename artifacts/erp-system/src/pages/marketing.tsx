@@ -126,6 +126,51 @@ function StatCard({
   );
 }
 
+function LeadRow({ lead: l }: { lead: Lead }) {
+  const convert = useApiMutation<{ stageId?: number }, { id: number }>(
+    `/crm/leads/${l.id}/convert`,
+    ["/marketing/leads", "/crm/opportunities", "/crm/pipeline"],
+  );
+  return (
+    <TableRow data-testid={`row-lead-${l.id}`}>
+      <TableCell>
+        <div className="font-medium">{l.fullName}</div>
+        {l.email && <div className="text-[11px] text-muted-foreground" dir="ltr">{l.email}</div>}
+      </TableCell>
+      <TableCell className="text-muted-foreground">{l.company ?? "—"}</TableCell>
+      <TableCell className="text-muted-foreground">{l.campaignName ?? l.source}</TableCell>
+      <TableCell className="text-center">
+        <div className="inline-flex h-7 min-w-12 items-center justify-center rounded-full bg-primary/10 px-2 text-xs font-bold text-primary">
+          {l.score}
+        </div>
+      </TableCell>
+      <TableCell className="text-left font-bold">{SAR(l.estimatedValue)}</TableCell>
+      <TableCell className="text-center">
+        <Badge className={leadStatus[l.status]?.cls ?? ""}>
+          {leadStatus[l.status]?.label ?? l.status}
+        </Badge>
+      </TableCell>
+      <TableCell className="text-center">
+        {l.status === "qualified" || l.status === "won" || l.status === "proposal" ? (
+          <Badge variant="outline" className="text-[10px]">تم التحويل</Badge>
+        ) : (
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 gap-1 text-xs"
+            disabled={convert.isPending}
+            onClick={() => convert.mutate({})}
+            data-testid={`btn-convert-lead-${l.id}`}
+          >
+            <Target className="size-3" />
+            تحويل لفرصة
+          </Button>
+        )}
+      </TableCell>
+    </TableRow>
+  );
+}
+
 function NewLeadDialog() {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ fullName: "", company: "", email: "", phone: "", estimatedValue: "" });
@@ -335,46 +380,25 @@ export default function MarketingPage() {
                     <TableHead className="text-center">النقاط</TableHead>
                     <TableHead className="text-left">القيمة المتوقعة</TableHead>
                     <TableHead className="text-center">الحالة</TableHead>
+                    <TableHead className="text-center">إجراء</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {leadsLoading ? (
                     Array.from({ length: 5 }).map((_, i) => (
                       <TableRow key={i}>
-                        <TableCell colSpan={6}><Skeleton className="h-5 w-full" /></TableCell>
+                        <TableCell colSpan={7}><Skeleton className="h-5 w-full" /></TableCell>
                       </TableRow>
                     ))
                   ) : (leads ?? []).length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={6} className="h-32 text-center text-muted-foreground">
+                      <TableCell colSpan={7} className="h-32 text-center text-muted-foreground">
                         لا يوجد عملاء محتملون.
                       </TableCell>
                     </TableRow>
                   ) : (
                     leads!.map((l) => (
-                      <TableRow key={l.id} data-testid={`row-lead-${l.id}`}>
-                        <TableCell>
-                          <div className="font-medium">{l.fullName}</div>
-                          {l.email && (
-                            <div className="text-[11px] text-muted-foreground" dir="ltr">{l.email}</div>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-muted-foreground">{l.company ?? "—"}</TableCell>
-                        <TableCell className="text-muted-foreground">
-                          {l.campaignName ?? l.source}
-                        </TableCell>
-                        <TableCell className="text-center">
-                          <div className="inline-flex h-7 min-w-12 items-center justify-center rounded-full bg-primary/10 px-2 text-xs font-bold text-primary">
-                            {l.score}
-                          </div>
-                        </TableCell>
-                        <TableCell className="text-left font-bold">{SAR(l.estimatedValue)}</TableCell>
-                        <TableCell className="text-center">
-                          <Badge className={leadStatus[l.status]?.cls ?? ""}>
-                            {leadStatus[l.status]?.label ?? l.status}
-                          </Badge>
-                        </TableCell>
-                      </TableRow>
+                      <LeadRow key={l.id} lead={l} />
                     ))
                   )}
                 </TableBody>

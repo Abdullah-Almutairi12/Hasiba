@@ -27,7 +27,9 @@ const GROUPS = {
   admin: ["owner", "manager"],
   ownerOnly: ["owner"],
   finance: ["owner", "manager", "accountant"],
-  salesWrite: ["owner", "manager", "sales", "cashier"],
+  // Mirror server: cashier owns the till (pos) but cannot mutate B2B sales
+  // documents (quotations, sales orders, deliveries, credit notes, CRM).
+  salesWrite: ["owner", "manager", "sales"],
   pos: ["owner", "manager", "sales", "cashier"],
   posRead: ["owner", "manager", "accountant", "sales", "cashier", "auditor"],
   inventory: ["owner", "manager", "inventory"],
@@ -68,6 +70,8 @@ export const NAV_PERMISSIONS: Record<string, readonly Role[]> = {
   // a Purchase Requisition (server-side `procurementGuard` still gates
   // PO/GRN/payment-run actions for non-procurement roles).
   procurement: ALL_ROLES,
+  sales: ["owner", "manager", "accountant", "sales", "cashier", "auditor"],
+  crm: ["owner", "manager", "sales", "marketing", "auditor"],
   users: GROUPS.admin,
   admin: GROUPS.admin,
   settings: ALL_ROLES,

@@ -1,0 +1,2323 @@
+import { Router } from "express";
+import { z } from "zod";
+import {
+  db,
+  customersTable,
+  productsTable,
+  warehousesTable,
+  pricelistsTable,
+  pricelistItemsTable,
+  discountRulesTable,
+  commissionPlansTable,
+  salesRepAssignmentsTable,
+  quotationsTable,
+  quotationLinesTable,
+  salesOrdersTable,
+  salesOrderLinesTable,
+  deliveryOrdersTable,
+  deliveryOrderLinesTable,
+  customerInvoicesTable,
+  journalEntriesTable,
+  customerInvoiceLinesTable,
+  customerReceiptsTable,
+  customerReceiptAllocationsTable,
+  creditNotesTable,
+  creditNoteLinesTable,
+  usersTable,
+} from "@workspace/db";
+import { and, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
+import { handleRouteError } from "../lib/handle-error";
+import {
+  adminGuard,
+  financeGuard,
+  salesWriteGuard,
+  customerReadGuard,
+  reportReadGuard,
+} from "../middlewares/require-role";
+import {
+  computeTotals,
+  nextRef,
+  resolveCustomerPricelist,
+  resolvePrice,
+  applyDiscountRules,
+  applyLineDiscountRules,
+} from "../lib/sales-engine";
+import { postJournalEntry } from "../lib/journal-posting";
+import { buildZatcaQrBase64 } from "../lib/zatca-qr";
+import { recordStockMove, getDefaultWarehouseId } from "../lib/stock-engine";
+import { sendMail, isMailerConfigured } from "../lib/mailer";
+import { warehousesTable as _warehousesTable } from "@workspace/db";
+
+const router = Router();
+
+// ===================================================================
+// Pricelists
+// ===================================================================
+router.get("/sales/pricelists", customerReadGuard, async (req, res) => {
+  try {
+    const rows = await db.select().from(pricelistsTable).orderBy(desc(pricelistsTable.isDefault));
+    res.json(rows);
+  } catch (err) {
+    req.log.error({ err }, "list pricelists");
+    handleRouteError(err, res);
+  }
+});
+
+router.post("/sales/pricelists", adminGuard, async (req, res) => {
+  try {
+    const Body = z.object({
+      name: z.string().min(1),
+      nameAr: z.string().min(1),
+      currencyCode: z.string().default("SAR"),
+      segment: z.string().nullable().optional(),
+      startDate: z.string().nullable().optional(),
+      endDate: z.string().nullable().optional(),
+      isActive: z.boolean().default(true),
+      isDefault: z.boolean().default(false),
+    });
+    const body = Body.parse(req.body);
+    const [row] = await db.insert(pricelistsTable).values(body).returning();
+    res.status(201).json(row);
+  } catch (err) {
+    req.log.error({ err }, "create pricelist");
+    handleRouteError(err, res);
+  }
+});
+
+router.get("/sales/pricelists/:id/items", customerReadGuard, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const items = await db
+      .select({
+        id: pricelistItemsTable.id,
+        pricelistId: pricelistItemsTable.pricelistId,
+        productId: pricelistItemsTable.productId,
+        productName: productsTable.nameAr,
+        sku: productsTable.sku,
+        minQuantity: pricelistItemsTable.minQuantity,
+        unitPrice: pricelistItemsTable.unitPrice,
+        discountPct: pricelistItemsTable.discountPct,
+      })
+      .from(pricelistItemsTable)
+      .leftJoin(productsTable, eq(productsTable.id, pricelistItemsTable.productId))
+      .where(eq(pricelistItemsTable.pricelistId, id));
+    res.json(items.map((i) => ({
+      ...i,
+      minQuantity: Number(i.minQuantity),
+      unitPrice: Number(i.unitPrice),
+      discountPct: i.discountPct == null ? null : Number(i.discountPct),
+    })));
+  } catch (err) {
+    req.log.error({ err }, "pricelist items");
+    handleRouteError(err, res);
+  }
+});
+
+router.post("/sales/pricelists/:id/items", adminGuard, async (req, res) => {
+  try {
+    const Body = z.object({
+      productId: z.number().int().nullable().optional(),
+      minQuantity: z.number().min(0).default(1),
+      unitPrice: z.number().min(0).default(0),
+      discountPct: z.number().min(0).max(100).nullable().optional(),
+    });
+    const body = Body.parse(req.body);
+    const [row] = await db
+      .insert(pricelistItemsTable)
+      .values({
+        pricelistId: Number(req.params.id),
+        productId: body.productId ?? null,
+        minQuantity: String(body.minQuantity),
+        unitPrice: String(body.unitPrice),
+        discountPct: body.discountPct == null ? null : String(body.discountPct),
+      })
+      .returning();
+    res.status(201).json(row);
+  } catch (err) {
+    req.log.error({ err }, "add pricelist item");
+    handleRouteError(err, res);
+  }
+});
+
+router.delete("/sales/pricelists/items/:id", adminGuard, async (req, res) => {
+  try {
+    await db.delete(pricelistItemsTable).where(eq(pricelistItemsTable.id, Number(req.params.id)));
+    res.json({ ok: true });
+  } catch (err) {
+    handleRouteError(err, res);
+  }
+});
+
+// ===================================================================
+// Discount rules
+// ===================================================================
+router.get("/sales/discount-rules", customerReadGuard, async (req, res) => {
+  try {
+    const rows = await db.select().from(discountRulesTable);
+    res.json(rows.map((r) => ({ ...r, value: Number(r.value) })));
+  } catch (err) {
+    handleRouteError(err, res);
+  }
+});
+
+router.post("/sales/discount-rules", adminGuard, async (req, res) => {
+  try {
+    const Body = z.object({
+      name: z.string().min(1),
+      nameAr: z.string().min(1),
+      kind: z.enum(["percent", "fixed"]).default("percent"),
+      value: z.number().min(0).default(0),
+      scope: z.enum(["line", "order"]).default("line"),
+      reasonCode: z.string().min(1),
+      accountSystemKey: z.string().default("sales_discount"),
+      isActive: z.boolean().default(true),
+    });
+    const b = Body.parse(req.body);
+    const [row] = await db
+      .insert(discountRulesTable)
+      .values({ ...b, value: String(b.value) })
+      .returning();
+    res.status(201).json(row);
+  } catch (err) {
+    handleRouteError(err, res);
+  }
+});
+
+// ===================================================================
+// Commission plans + assignments
+// ===================================================================
+router.get("/sales/commission-plans", reportReadGuard, async (req, res) => {
+  try {
+    const rows = await db.select().from(commissionPlansTable);
+    res.json(rows.map((r) => ({
+      ...r,
+      rate: Number(r.rate),
+      quota: Number(r.quota),
+      bonusRate: Number(r.bonusRate),
+    })));
+  } catch (err) {
+    handleRouteError(err, res);
+  }
+});
+
+router.post("/sales/commission-plans", adminGuard, async (req, res) => {
+  try {
+    const Body = z.object({
+      name: z.string().min(1),
+      rate: z.number().min(0).max(100).default(0),
+      quota: z.number().min(0).default(0),
+      bonusRate: z.number().min(0).max(100).default(0),
+      isActive: z.boolean().default(true),
+    });
+    const b = Body.parse(req.body);
+    const [row] = await db
+      .insert(commissionPlansTable)
+      .values({
+        name: b.name,
+        rate: String(b.rate),
+        quota: String(b.quota),
+        bonusRate: String(b.bonusRate),
+        isActive: b.isActive,
+      })
+      .returning();
+    res.status(201).json(row);
+  } catch (err) {
+    handleRouteError(err, res);
+  }
+});
+
+router.post("/sales/commission-plans/:id/assign", adminGuard, async (req, res) => {
+  try {
+    const Body = z.object({
+      userId: z.number().int(),
+      effectiveFrom: z.string(),
+      effectiveTo: z.string().nullable().optional(),
+    });
+    const b = Body.parse(req.body);
+    const [row] = await db
+      .insert(salesRepAssignmentsTable)
+      .values({
+        userId: b.userId,
+        planId: Number(req.params.id),
+        effectiveFrom: b.effectiveFrom,
+        effectiveTo: b.effectiveTo ?? null,
+      })
+      .returning();
+    res.status(201).json(row);
+  } catch (err) {
+    handleRouteError(err, res);
+  }
+});
+
+// Commission report — net revenue per rep over a period
+router.get("/sales/commission-report", reportReadGuard, async (req, res) => {
+  try {
+    const Q = z.object({
+      from: z.string(),
+      to: z.string(),
+    });
+    const { from, to } = Q.parse(req.query);
+    // net revenue = subtotal - discount on paid customer invoices in window
+    const rows = await db
+      .select({
+        repId: customerInvoicesTable.salesRepId,
+        repName: usersTable.name,
+        netRevenue: sql<number>`coalesce(sum(${customerInvoicesTable.subtotal}::numeric - ${customerInvoicesTable.discount}::numeric), 0)`,
+        invoiceCount: sql<number>`count(*)::int`,
+      })
+      .from(customerInvoicesTable)
+      .leftJoin(usersTable, eq(usersTable.id, customerInvoicesTable.salesRepId))
+      .where(
+        and(
+          gte(customerInvoicesTable.invoiceDate, from),
+          lte(customerInvoicesTable.invoiceDate, to),
+          inArray(customerInvoicesTable.status, ["open", "partially_paid", "paid"]),
+        ),
+      )
+      .groupBy(customerInvoicesTable.salesRepId, usersTable.name);
+
+    const plans = await db.select().from(commissionPlansTable).where(eq(commissionPlansTable.isActive, true));
+    const assignments = await db.select().from(salesRepAssignmentsTable);
+    const planById = new Map(plans.map((p) => [p.id, p]));
+    function planFor(userId: number | null): typeof plans[number] | null {
+      if (!userId) return null;
+      const a = assignments.find((x) => x.userId === userId);
+      if (!a) return plans[0] ?? null;
+      return planById.get(a.planId) ?? null;
+    }
+
+    const out = rows.map((r) => {
+      const net = Number(r.netRevenue);
+      const plan = planFor(r.repId ?? null);
+      const baseRate = Number(plan?.rate ?? 0);
+      const quota = Number(plan?.quota ?? 0);
+      const bonusRate = Number(plan?.bonusRate ?? 0);
+      const baseComm = (net * baseRate) / 100;
+      const bonusComm = net > quota && quota > 0 ? ((net - quota) * bonusRate) / 100 : 0;
+      return {
+        repId: r.repId,
+        repName: r.repName ?? "غير محدد",
+        invoiceCount: r.invoiceCount,
+        netRevenue: net,
+        planName: plan?.name ?? null,
+        baseRate,
+        bonusRate,
+        commission: +(baseComm + bonusComm).toFixed(2),
+      };
+    });
+    res.json({ from, to, rows: out, total: +out.reduce((a, x) => a + x.commission, 0).toFixed(2) });
+  } catch (err) {
+    handleRouteError(err, res);
+  }
+});
+
+// ===================================================================
+// Quotations
+// ===================================================================
+const QuoteLineBody = z.object({
+  productId: z.number().int().nullable().optional(),
+  description: z.string().min(1),
+  quantity: z.number().positive(),
+  unitPrice: z.number().min(0).optional(),
+  discountPct: z.number().min(0).max(100).default(0),
+  taxRate: z.number().min(0).max(100).default(15),
+});
+
+const QuoteBody = z.object({
+  customerId: z.number().int(),
+  pricelistId: z.number().int().nullable().optional(),
+  salesRepId: z.number().int().nullable().optional(),
+  branchId: z.number().int().nullable().optional(),
+  quoteDate: z.string().optional(),
+  validUntil: z.string().nullable().optional(),
+  notes: z.string().nullable().optional(),
+  orderDiscount: z.number().min(0).default(0),
+  lines: z.array(QuoteLineBody).min(1),
+});
+
+router.get("/sales/quotations", customerReadGuard, async (req, res) => {
+  try {
+    const { status, customerId } = req.query;
+    const rows = await db
+      .select()
+      .from(quotationsTable)
+      .where(
+        and(
+          status ? eq(quotationsTable.status, String(status)) : sql`true`,
+          customerId ? eq(quotationsTable.customerId, Number(customerId)) : sql`true`,
+        ),
+      )
+      .orderBy(desc(quotationsTable.createdAt))
+      .limit(200);
+    res.json(rows.map(serializeMoneyDoc));
+  } catch (err) {
+    handleRouteError(err, res);
+  }
+});
+
+router.get("/sales/quotations/:id", customerReadGuard, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const [head] = await db.select().from(quotationsTable).where(eq(quotationsTable.id, id));
+    if (!head) { res.status(404).json({ error: "Not found" }); return; }
+    const lines = await db.select().from(quotationLinesTable).where(eq(quotationLinesTable.quotationId, id));
+    res.json({ ...serializeMoneyDoc(head), lines: lines.map(serializeLine) });
+  } catch (err) {
+    handleRouteError(err, res);
+  }
+});
+
+router.post("/sales/quotations", salesWriteGuard, async (req, res) => {
+  try {
+    const body = QuoteBody.parse(req.body);
+    const result = await db.transaction(async (tx) => {
+      const [customer] = await tx.select().from(customersTable).where(eq(customersTable.id, body.customerId));
+      if (!customer) throw new Error("العميل غير موجود");
+      const pricelistId = body.pricelistId ?? (await resolveCustomerPricelist(tx, customer.id));
+
+      // Resolve unit prices via pricelist when missing.
+      const enriched = [] as Parameters<typeof computeTotals>[0];
+      for (const ln of body.lines) {
+        let unitPrice = ln.unitPrice;
+        if ((unitPrice == null || unitPrice === 0) && ln.productId) {
+          unitPrice = (await resolvePrice(tx, {
+            productId: ln.productId,
+            pricelistId,
+            quantity: ln.quantity,
+          })).unitPrice;
+        }
+        enriched.push({
+          productId: ln.productId ?? null,
+          description: ln.description,
+          quantity: ln.quantity,
+          unitPrice: unitPrice ?? 0,
+          discountPct: ln.discountPct,
+          taxRate: ln.taxRate,
+        });
+      }
+      // Apply active line- then order-scope discount rules on top of the
+      // user-entered order discount so the same promo/loyalty pricing flows
+      // quote→SO→invoice with consistent reason-code → GL bucket mapping.
+      const lineRules = await applyLineDiscountRules(tx, enriched);
+      const baseNetPre = enriched.reduce(
+        (a, l) => a + l.quantity * l.unitPrice * (1 - (l.discountPct ?? 0) / 100),
+        0,
+      );
+      const ruleResult = await applyDiscountRules(tx, {
+        baseNet: Math.max(0, baseNetPre - body.orderDiscount),
+        scope: "order",
+      });
+      const totals = computeTotals(
+        enriched,
+        body.orderDiscount + ruleResult.discountAmount,
+      );
+      // Persist the rule snapshot so SO/invoice derived from this quote
+      // can post per-rule discount accounts without re-running the engine.
+      const appliedDiscounts = [
+        ...lineRules.applied.map((r) => ({ ...r, scope: "line" as const })),
+        ...ruleResult.applied.map((r) => ({ ...r, scope: "order" as const })),
+      ];
+      const reference = await nextRef(tx, "QUO");
+
+      const [quote] = await tx
+        .insert(quotationsTable)
+        .values({
+          reference,
+          customerId: customer.id,
+          customerName: customer.name,
+          pricelistId: pricelistId ?? null,
+          salesRepId: body.salesRepId ?? req.session?.userId ?? null,
+          branchId: body.branchId ?? null,
+          status: "draft",
+          quoteDate: body.quoteDate ?? new Date().toISOString().slice(0, 10),
+          validUntil: body.validUntil ?? null,
+          subtotal: String(totals.subtotal),
+          discount: String(totals.discount),
+          vat: String(totals.vat),
+          total: String(totals.total),
+          notes: body.notes ?? null,
+          appliedDiscounts: appliedDiscounts.length ? appliedDiscounts : null,
+          createdBy: req.session?.userId ?? null,
+        })
+        .returning();
+
+      for (const ln of totals.lines) {
+        await tx.insert(quotationLinesTable).values({
+          quotationId: quote.id,
+          productId: (ln.productId as number | null) ?? null,
+          description: ln.description,
+          quantity: String(ln.quantity),
+          unitPrice: String(ln.unitPrice),
+          discountPct: String(ln.discountPct),
+          taxRate: String(ln.taxRate),
+          lineTotal: String(ln.lineTotal),
+        });
+      }
+      return quote;
+    });
+    res.status(201).json(serializeMoneyDoc(result));
+  } catch (err) {
+    req.log.error({ err }, "create quotation");
+    handleRouteError(err, res);
+  }
+});
+
+router.post("/sales/quotations/:id/transition", salesWriteGuard, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const Body = z.object({
+      to: z.enum(["sent", "accepted", "rejected", "expired"]),
+      reason: z.string().optional(),
+    });
+    const { to, reason } = Body.parse(req.body);
+    const [q] = await db.select().from(quotationsTable).where(eq(quotationsTable.id, id));
+    if (!q) { res.status(404).json({ error: "Not found" }); return; }
+
+    const allowed: Record<string, string[]> = {
+      draft: ["sent", "expired"],
+      sent: ["accepted", "rejected", "expired"],
+      accepted: [],
+      rejected: [],
+      expired: [],
+    };
+    if (!allowed[q.status]?.includes(to)) {
+      { res.status(409).json({ error: `لا يمكن الانتقال من ${q.status} إلى ${to}` }); return; }
+    }
+    const patch: Partial<typeof quotationsTable.$inferInsert> = { status: to };
+    const now = new Date();
+    if (to === "sent") patch.sentAt = now;
+    if (to === "accepted") patch.acceptedAt = now;
+    if (to === "rejected") {
+      patch.rejectedAt = now;
+      patch.rejectionReason = reason ?? null;
+    }
+    const [updated] = await db.update(quotationsTable).set(patch).where(eq(quotationsTable.id, id)).returning();
+    res.json(serializeMoneyDoc(updated));
+  } catch (err) {
+    handleRouteError(err, res);
+  }
+});
+
+// Convert an accepted quotation to a Sales Order.
+router.post("/sales/quotations/:id/convert", salesWriteGuard, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const so = await db.transaction(async (tx) => {
+      const [q] = await tx.select().from(quotationsTable).where(eq(quotationsTable.id, id));
+      if (!q) throw new Error("عرض السعر غير موجود");
+      if (q.status !== "accepted") throw new Error("يجب قبول العرض قبل التحويل");
+      // Refuse double conversion
+      const [already] = await tx
+        .select({ id: salesOrdersTable.id })
+        .from(salesOrdersTable)
+        .where(eq(salesOrdersTable.quotationId, id))
+        .limit(1);
+      if (already) throw new Error("تم بالفعل تحويل العرض إلى أمر بيع");
+      const lines = await tx
+        .select()
+        .from(quotationLinesTable)
+        .where(eq(quotationLinesTable.quotationId, id));
+      const reference = await nextRef(tx, "SO");
+      const [created] = await tx
+        .insert(salesOrdersTable)
+        .values({
+          reference,
+          quotationId: q.id,
+          customerId: q.customerId,
+          customerName: q.customerName,
+          pricelistId: q.pricelistId,
+          salesRepId: q.salesRepId,
+          branchId: q.branchId,
+          warehouseId: await getDefaultWarehouseId(tx).catch(() => null),
+          status: "confirmed",
+          orderDate: new Date().toISOString().slice(0, 10),
+          subtotal: q.subtotal,
+          discount: q.discount,
+          vat: q.vat,
+          total: q.total,
+          notes: q.notes,
+          source: "quote",
+          appliedDiscounts: q.appliedDiscounts,
+          createdBy: req.session?.userId ?? null,
+        })
+        .returning();
+      for (const ln of lines) {
+        await tx.insert(salesOrderLinesTable).values({
+          soId: created.id,
+          productId: ln.productId,
+          description: ln.description,
+          quantity: ln.quantity,
+          unitPrice: ln.unitPrice,
+          discountPct: ln.discountPct,
+          taxRate: ln.taxRate,
+          lineTotal: ln.lineTotal,
+        });
+      }
+      return created;
+    });
+    res.status(201).json(serializeMoneyDoc(so));
+  } catch (err) {
+    req.log.error({ err }, "convert quotation");
+    handleRouteError(err, res);
+  }
+});
+
+// ===================================================================
+// Sales Orders
+// ===================================================================
+const SoBody = z.object({
+  customerId: z.number().int(),
+  pricelistId: z.number().int().nullable().optional(),
+  salesRepId: z.number().int().nullable().optional(),
+  branchId: z.number().int().nullable().optional(),
+  warehouseId: z.number().int().nullable().optional(),
+  orderDate: z.string().optional(),
+  expectedDate: z.string().nullable().optional(),
+  notes: z.string().nullable().optional(),
+  orderDiscount: z.number().min(0).default(0),
+  status: z.enum(["draft", "confirmed"]).optional(),
+  lines: z.array(QuoteLineBody).min(1),
+});
+
+router.get("/sales/orders", customerReadGuard, async (req, res) => {
+  try {
+    const { status, customerId } = req.query;
+    const rows = await db
+      .select()
+      .from(salesOrdersTable)
+      .where(
+        and(
+          status ? eq(salesOrdersTable.status, String(status)) : sql`true`,
+          customerId ? eq(salesOrdersTable.customerId, Number(customerId)) : sql`true`,
+        ),
+      )
+      .orderBy(desc(salesOrdersTable.createdAt))
+      .limit(200);
+    res.json(rows.map(serializeMoneyDoc));
+  } catch (err) {
+    handleRouteError(err, res);
+  }
+});
+
+router.get("/sales/orders/:id", customerReadGuard, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const [head] = await db.select().from(salesOrdersTable).where(eq(salesOrdersTable.id, id));
+    if (!head) { res.status(404).json({ error: "Not found" }); return; }
+    const lines = await db.select().from(salesOrderLinesTable).where(eq(salesOrderLinesTable.soId, id));
+    res.json({ ...serializeMoneyDoc(head), lines: lines.map(serializeLine) });
+  } catch (err) {
+    handleRouteError(err, res);
+  }
+});
+
+router.post("/sales/orders", salesWriteGuard, async (req, res) => {
+  try {
+    const body = SoBody.parse(req.body);
+    const result = await db.transaction(async (tx) => {
+      const [customer] = await tx.select().from(customersTable).where(eq(customersTable.id, body.customerId));
+      if (!customer) throw new Error("العميل غير موجود");
+      const pricelistId = body.pricelistId ?? (await resolveCustomerPricelist(tx, customer.id));
+
+      const enriched = [] as Parameters<typeof computeTotals>[0];
+      for (const ln of body.lines) {
+        let unitPrice = ln.unitPrice;
+        if ((unitPrice == null || unitPrice === 0) && ln.productId) {
+          unitPrice = (await resolvePrice(tx, {
+            productId: ln.productId,
+            pricelistId,
+            quantity: ln.quantity,
+          })).unitPrice;
+        }
+        enriched.push({
+          productId: ln.productId ?? null,
+          description: ln.description,
+          quantity: ln.quantity,
+          unitPrice: unitPrice ?? 0,
+          discountPct: ln.discountPct,
+          taxRate: ln.taxRate,
+        });
+      }
+      const lineRules = await applyLineDiscountRules(tx, enriched);
+      const baseNetPre = enriched.reduce(
+        (a, l) => a + l.quantity * l.unitPrice * (1 - (l.discountPct ?? 0) / 100),
+        0,
+      );
+      const ruleResult = await applyDiscountRules(tx, {
+        baseNet: Math.max(0, baseNetPre - body.orderDiscount),
+        scope: "order",
+      });
+      const totals = computeTotals(
+        enriched,
+        body.orderDiscount + ruleResult.discountAmount,
+      );
+      const appliedDiscounts = [
+        ...lineRules.applied.map((r) => ({ ...r, scope: "line" as const })),
+        ...ruleResult.applied.map((r) => ({ ...r, scope: "order" as const })),
+      ];
+      const reference = await nextRef(tx, "SO");
+
+      const [so] = await tx
+        .insert(salesOrdersTable)
+        .values({
+          reference,
+          customerId: customer.id,
+          customerName: customer.name,
+          pricelistId: pricelistId ?? null,
+          salesRepId: body.salesRepId ?? req.session?.userId ?? null,
+          branchId: body.branchId ?? null,
+          warehouseId: body.warehouseId ?? (await getDefaultWarehouseId(tx).catch(() => null)),
+          status: body.status === "draft" ? "draft" : "confirmed",
+          orderDate: body.orderDate ?? new Date().toISOString().slice(0, 10),
+          expectedDate: body.expectedDate ?? null,
+          subtotal: String(totals.subtotal),
+          discount: String(totals.discount),
+          vat: String(totals.vat),
+          total: String(totals.total),
+          notes: body.notes ?? null,
+          source: "manual",
+          appliedDiscounts: appliedDiscounts.length ? appliedDiscounts : null,
+          createdBy: req.session?.userId ?? null,
+        })
+        .returning();
+
+      for (const ln of totals.lines) {
+        await tx.insert(salesOrderLinesTable).values({
+          soId: so.id,
+          productId: (ln.productId as number | null) ?? null,
+          description: ln.description,
+          quantity: String(ln.quantity),
+          unitPrice: String(ln.unitPrice),
+          discountPct: String(ln.discountPct),
+          taxRate: String(ln.taxRate),
+          lineTotal: String(ln.lineTotal),
+        });
+      }
+      return so;
+    });
+    res.status(201).json(serializeMoneyDoc(result));
+  } catch (err) {
+    req.log.error({ err }, "create SO");
+    handleRouteError(err, res);
+  }
+});
+
+// Sales order state machine. Allowed transitions:
+//   draft → confirmed | cancelled
+//   confirmed → partially_delivered | fully_delivered | invoiced (when no
+//     delivery is needed) | cancelled
+//   partially_delivered → fully_delivered | invoiced
+//   fully_delivered → invoiced
+//   invoiced → done
+// Most automatic transitions (after delivery / invoicing) are still driven
+// by the DO and invoice routes; this endpoint exposes the manual ones the
+// UI needs (confirm a draft, mark an invoiced SO as done).
+const SO_ALLOWED: Record<string, string[]> = {
+  draft: ["confirmed", "cancelled"],
+  confirmed: ["partially_delivered", "fully_delivered", "invoiced", "cancelled"],
+  partially_delivered: ["fully_delivered", "invoiced"],
+  fully_delivered: ["invoiced"],
+  invoiced: ["done"],
+};
+router.post("/sales/orders/:id/transition", salesWriteGuard, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const Body = z.object({ to: z.string() });
+    const { to } = Body.parse(req.body);
+    const [so] = await db.select().from(salesOrdersTable).where(eq(salesOrdersTable.id, id));
+    if (!so) { res.status(404).json({ error: "Not found" }); return; }
+    const allowed = SO_ALLOWED[so.status] ?? [];
+    if (!allowed.includes(to)) {
+      res.status(409).json({ error: `لا يمكن الانتقال من ${so.status} إلى ${to}` });
+      return;
+    }
+    const [updated] = await db
+      .update(salesOrdersTable)
+      .set({ status: to })
+      .where(eq(salesOrdersTable.id, id))
+      .returning();
+    res.json(serializeMoneyDoc(updated));
+  } catch (err) {
+    handleRouteError(err, res);
+  }
+});
+
+router.post("/sales/orders/:id/cancel", salesWriteGuard, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const [so] = await db.select().from(salesOrdersTable).where(eq(salesOrdersTable.id, id));
+    if (!so) { res.status(404).json({ error: "Not found" }); return; }
+    if (!["draft", "confirmed"].includes(so.status))
+      { res.status(409).json({ error: "لا يمكن إلغاء أمر بيع به تسليمات أو فواتير" }); return; }
+    const [updated] = await db
+      .update(salesOrdersTable)
+      .set({ status: "cancelled" })
+      .where(eq(salesOrdersTable.id, id))
+      .returning();
+    res.json(serializeMoneyDoc(updated));
+  } catch (err) {
+    handleRouteError(err, res);
+  }
+});
+
+// ===================================================================
+// Delivery Orders (DO) — issue stock against an SO
+// ===================================================================
+const DoBody = z.object({
+  soId: z.number().int(),
+  warehouseId: z.number().int().optional(),
+  deliveryDate: z.string().optional(),
+  notes: z.string().nullable().optional(),
+  // Initial status. Default 'delivered' (atomic pick+ship — issues stock and
+  // bumps the SO immediately). Use 'draft' (held — picker reservation only)
+  // or 'ready' (picked, awaiting handover) to use a multi-step pipeline; the
+  // /sales/deliveries/:id/transition route then advances them and only
+  // issues stock when reaching 'delivered'.
+  status: z.enum(["draft", "ready", "delivered"]).optional(),
+  // Optional partial: when omitted, deliver all remaining quantities.
+  lines: z
+    .array(
+      z.object({
+        soLineId: z.number().int(),
+        quantity: z.number().positive(),
+      }),
+    )
+    .optional(),
+});
+
+router.get("/sales/deliveries", customerReadGuard, async (req, res) => {
+  try {
+    const { soId } = req.query;
+    const rows = await db
+      .select()
+      .from(deliveryOrdersTable)
+      .where(soId ? eq(deliveryOrdersTable.soId, Number(soId)) : sql`true`)
+      .orderBy(desc(deliveryOrdersTable.createdAt))
+      .limit(200);
+    res.json(rows);
+  } catch (err) {
+    handleRouteError(err, res);
+  }
+});
+
+router.post("/sales/deliveries", salesWriteGuard, async (req, res) => {
+  try {
+    const body = DoBody.parse(req.body);
+    const result = await db.transaction(async (tx) => {
+      const [so] = await tx.select().from(salesOrdersTable).where(eq(salesOrdersTable.id, body.soId));
+      if (!so) throw new Error("أمر البيع غير موجود");
+      if (!["confirmed", "partially_delivered"].includes(so.status))
+        throw new Error(`لا يمكن التسليم على أمر بحالة ${so.status}`);
+      const soLines = await tx.select().from(salesOrderLinesTable).where(eq(salesOrderLinesTable.soId, so.id));
+      // Build the delivery list.
+      const wantedById = new Map<number, number>();
+      if (body.lines && body.lines.length > 0) {
+        for (const l of body.lines) wantedById.set(l.soLineId, l.quantity);
+      } else {
+        for (const sl of soLines) {
+          const remaining = Number(sl.quantity) - Number(sl.deliveredQty);
+          if (remaining > 0) wantedById.set(sl.id, remaining);
+        }
+      }
+      if (wantedById.size === 0) throw new Error("لا توجد كميات قابلة للتسليم");
+
+      const warehouseId = body.warehouseId ?? so.warehouseId ?? (await getDefaultWarehouseId(tx));
+      const reference = await nextRef(tx, "DO");
+      const initialStatus = body.status ?? "delivered";
+      const [doc] = await tx
+        .insert(deliveryOrdersTable)
+        .values({
+          reference,
+          soId: so.id,
+          warehouseId,
+          status: initialStatus,
+          deliveryDate: body.deliveryDate ?? new Date().toISOString().slice(0, 10),
+          notes: body.notes ?? null,
+          createdBy: req.session?.userId ?? null,
+          deliveredAt: initialStatus === "delivered" ? new Date() : null,
+        })
+        .returning();
+
+      let allDelivered = true;
+      for (const sl of soLines) {
+        const want = wantedById.get(sl.id);
+        if (!want) {
+          if (Number(sl.quantity) - Number(sl.deliveredQty) > 0) allDelivered = false;
+          continue;
+        }
+        const remaining = Number(sl.quantity) - Number(sl.deliveredQty);
+        if (want > remaining + 1e-6) throw new Error("الكمية المطلوب تسليمها تتجاوز المتبقي");
+        await tx.insert(deliveryOrderLinesTable).values({
+          doId: doc.id,
+          soLineId: sl.id,
+          productId: sl.productId,
+          description: sl.description,
+          quantity: String(want),
+        });
+        // Only issue stock + bump SO fulfilment when this DO is going out
+        // the door. Draft/ready DOs are picker artifacts and must not move
+        // stock until they advance to 'delivered' via the transition route.
+        if (initialStatus === "delivered") {
+          if (sl.productId) {
+            await recordStockMove(tx, {
+              productId: sl.productId,
+              quantity: want,
+              kind: "issue",
+              fromWarehouseId: warehouseId,
+              sourceType: "delivery_order",
+              sourceRef: reference,
+              createdBy: req.session?.userId ?? null,
+              skipJournal: true,
+            });
+          }
+          await tx
+            .update(salesOrderLinesTable)
+            .set({
+              deliveredQty: sql`${salesOrderLinesTable.deliveredQty}::numeric + ${want}`,
+            })
+            .where(eq(salesOrderLinesTable.id, sl.id));
+        }
+        if (Number(sl.quantity) - (Number(sl.deliveredQty) + want) > 1e-6) allDelivered = false;
+      }
+
+      if (initialStatus === "delivered") {
+        const newStatus = allDelivered ? "fully_delivered" : "partially_delivered";
+        await tx.update(salesOrdersTable).set({ status: newStatus }).where(eq(salesOrdersTable.id, so.id));
+      }
+
+      return doc;
+    });
+    res.status(201).json(result);
+  } catch (err) {
+    req.log.error({ err }, "create delivery");
+    handleRouteError(err, res);
+  }
+});
+
+// Delivery order state machine: draft → ready → delivered | cancelled.
+// Stock is moved + SO fulfilment counters are bumped only when transitioning
+// into 'delivered'; cancelling a DO that already shipped is not allowed (a
+// credit note with restock is the documented reverse path).
+const DO_ALLOWED: Record<string, string[]> = {
+  draft: ["ready", "cancelled"],
+  ready: ["delivered", "cancelled"],
+};
+router.post("/sales/deliveries/:id/transition", salesWriteGuard, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const Body = z.object({ to: z.enum(["ready", "delivered", "cancelled"]) });
+    const { to } = Body.parse(req.body);
+    const result = await db.transaction(async (tx) => {
+      const [doc] = await tx.select().from(deliveryOrdersTable).where(eq(deliveryOrdersTable.id, id));
+      if (!doc) throw new Error("Not found");
+      const allowed = DO_ALLOWED[doc.status] ?? [];
+      if (!allowed.includes(to)) throw new Error(`لا يمكن الانتقال من ${doc.status} إلى ${to}`);
+
+      if (to === "delivered") {
+        // Materialise the stock move + SO line bump now.
+        const lines = await tx
+          .select()
+          .from(deliveryOrderLinesTable)
+          .where(eq(deliveryOrderLinesTable.doId, doc.id));
+        for (const ln of lines) {
+          if (ln.productId) {
+            await recordStockMove(tx, {
+              productId: ln.productId,
+              quantity: Number(ln.quantity),
+              kind: "issue",
+              fromWarehouseId: doc.warehouseId,
+              sourceType: "delivery_order",
+              sourceRef: doc.reference,
+              createdBy: req.session?.userId ?? null,
+              skipJournal: true,
+            });
+          }
+          if (ln.soLineId) {
+            await tx
+              .update(salesOrderLinesTable)
+              .set({
+                deliveredQty: sql`${salesOrderLinesTable.deliveredQty}::numeric + ${Number(ln.quantity)}`,
+              })
+              .where(eq(salesOrderLinesTable.id, ln.soLineId));
+          }
+        }
+        const soLines = await tx
+          .select()
+          .from(salesOrderLinesTable)
+          .where(eq(salesOrderLinesTable.soId, doc.soId));
+        const allDelivered = soLines.every((l) => Number(l.quantity) - Number(l.deliveredQty) <= 1e-6);
+        await tx
+          .update(salesOrdersTable)
+          .set({ status: allDelivered ? "fully_delivered" : "partially_delivered" })
+          .where(eq(salesOrdersTable.id, doc.soId));
+      }
+
+      const [updated] = await tx
+        .update(deliveryOrdersTable)
+        .set({
+          status: to,
+          deliveredAt: to === "delivered" ? new Date() : doc.deliveredAt,
+        })
+        .where(eq(deliveryOrdersTable.id, id))
+        .returning();
+      return updated;
+    });
+    res.json(result);
+  } catch (err) {
+    handleRouteError(err, res);
+  }
+});
+
+// ===================================================================
+// Customer Invoices (AR)
+// ===================================================================
+const InvoiceBody = z.object({
+  customerId: z.number().int().optional(),
+  soId: z.number().int().nullable().optional(),
+  invoiceDate: z.string().optional(),
+  dueDate: z.string().nullable().optional(),
+  notes: z.string().nullable().optional(),
+  // Optional override lines; when omitted and soId is given, invoice the
+  // SO's remaining-to-invoice quantities.
+  orderDiscount: z.number().min(0).default(0),
+  lines: z.array(QuoteLineBody).optional(),
+});
+
+router.get("/sales/invoices", customerReadGuard, async (req, res) => {
+  try {
+    const { status, customerId } = req.query;
+    const rows = await db
+      .select()
+      .from(customerInvoicesTable)
+      .where(
+        and(
+          status ? eq(customerInvoicesTable.status, String(status)) : sql`true`,
+          customerId ? eq(customerInvoicesTable.customerId, Number(customerId)) : sql`true`,
+        ),
+      )
+      .orderBy(desc(customerInvoicesTable.createdAt))
+      .limit(200);
+    res.json(rows.map(serializeMoneyDoc));
+  } catch (err) {
+    handleRouteError(err, res);
+  }
+});
+
+router.get("/sales/invoices/:id", customerReadGuard, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const [head] = await db.select().from(customerInvoicesTable).where(eq(customerInvoicesTable.id, id));
+    if (!head) { res.status(404).json({ error: "Not found" }); return; }
+    const lines = await db.select().from(customerInvoiceLinesTable).where(eq(customerInvoiceLinesTable.invoiceId, id));
+    res.json({ ...serializeMoneyDoc(head), lines: lines.map(serializeLine) });
+  } catch (err) {
+    handleRouteError(err, res);
+  }
+});
+
+router.post("/sales/invoices", financeGuard, async (req, res) => {
+  try {
+    const body = InvoiceBody.parse(req.body);
+    const result = await db.transaction(async (tx) => {
+      let customerId = body.customerId;
+      let so: typeof salesOrdersTable.$inferSelect | undefined;
+      let soLines: typeof salesOrderLinesTable.$inferSelect[] = [];
+      if (body.soId) {
+        const [foundSo] = await tx.select().from(salesOrdersTable).where(eq(salesOrdersTable.id, body.soId));
+        if (!foundSo) throw new Error("أمر البيع غير موجود");
+        so = foundSo;
+        soLines = await tx.select().from(salesOrderLinesTable).where(eq(salesOrderLinesTable.soId, foundSo.id));
+        customerId = foundSo.customerId;
+      }
+      if (!customerId) throw new Error("يجب تحديد العميل أو أمر البيع");
+      const [customer] = await tx.select().from(customersTable).where(eq(customersTable.id, customerId));
+      if (!customer) throw new Error("العميل غير موجود");
+
+      let enriched: Parameters<typeof computeTotals>[0] = [];
+      const soLineByIdx: number[] = [];
+      if (body.lines && body.lines.length > 0) {
+        // When both `soId` AND custom `lines` are supplied, every line must
+        // be traceable to an SO line (matched by productId), and the
+        // cumulative requested qty per SO line must NOT exceed
+        // (deliveredQty − invoicedQty). Without this check a caller could
+        // raise AR for undelivered or over-quantity items while still
+        // pretending the invoice is linked to the sales order — breaking
+        // the Quote→SO→DO→Invoice integrity flagged by code review.
+        const soRemainingByLine = new Map<number, number>(
+          soLines.map((sl) => [sl.id, Number(sl.deliveredQty) - Number(sl.invoicedQty)]),
+        );
+        const soLinesByProduct = new Map<number, typeof soLines[number][]>();
+        if (so) {
+          for (const sl of soLines) {
+            if (sl.productId == null) continue;
+            const arr = soLinesByProduct.get(sl.productId) ?? [];
+            arr.push(sl);
+            soLinesByProduct.set(sl.productId, arr);
+          }
+        }
+        for (const ln of body.lines) {
+          let unitPrice = ln.unitPrice ?? 0;
+          if ((unitPrice == null || unitPrice === 0) && ln.productId) {
+            unitPrice = (await resolvePrice(tx, {
+              productId: ln.productId,
+              pricelistId: so?.pricelistId ?? null,
+              quantity: ln.quantity,
+            })).unitPrice;
+          }
+          let matchedSoLineId = 0;
+          if (so) {
+            if (ln.productId == null)
+              throw new Error("بنود فاتورة مرتبطة بأمر بيع تتطلب productId لكل بند");
+            const candidates = soLinesByProduct.get(ln.productId) ?? [];
+            // Pick the first SO line for this product with remaining
+            // delivered-but-unbilled capacity ≥ requested qty.
+            const pick = candidates.find(
+              (sl) => (soRemainingByLine.get(sl.id) ?? 0) + 1e-6 >= ln.quantity,
+            );
+            if (!pick) {
+              const available = candidates.reduce(
+                (a, sl) => a + (soRemainingByLine.get(sl.id) ?? 0),
+                0,
+              );
+              throw new Error(
+                `الكمية المطلوبة (${ln.quantity}) للمنتج تتجاوز المتبقي المسلَّم القابل للتفويتر (${available.toFixed(2)}) في أمر البيع ${so.reference}`,
+              );
+            }
+            matchedSoLineId = pick.id;
+            soRemainingByLine.set(
+              pick.id,
+              (soRemainingByLine.get(pick.id) ?? 0) - ln.quantity,
+            );
+          }
+          enriched.push({
+            productId: ln.productId ?? null,
+            description: ln.description,
+            quantity: ln.quantity,
+            unitPrice,
+            discountPct: ln.discountPct,
+            taxRate: ln.taxRate,
+          });
+          soLineByIdx.push(matchedSoLineId);
+        }
+      } else if (so) {
+        // Cap by deliveredQty - invoicedQty so we never invoice ahead of
+        // what physically left the warehouse. This keeps the SO statuses
+        // (partially_delivered / fully_delivered) financially meaningful
+        // and prevents AR being raised against undelivered stock.
+        for (const sl of soLines) {
+          const deliveredRemaining = Number(sl.deliveredQty) - Number(sl.invoicedQty);
+          if (deliveredRemaining <= 1e-6) continue;
+          enriched.push({
+            productId: sl.productId,
+            description: sl.description,
+            quantity: deliveredRemaining,
+            unitPrice: Number(sl.unitPrice),
+            discountPct: Number(sl.discountPct),
+            taxRate: Number(sl.taxRate),
+          });
+          soLineByIdx.push(sl.id);
+        }
+        if (enriched.length === 0)
+          throw new Error("لا توجد كميات مسلمة قابلة للتفويتر — يجب التسليم أولاً");
+      } else {
+        throw new Error("يجب إدخال البنود");
+      }
+
+      // When invoicing FROM a sales order we must reuse the prices/discounts
+      // already locked in at SO time, not re-run the discount engines (which
+      // would double-apply line rules and re-stack any current order promo,
+      // making the invoice diverge from the accepted SO). For ad-hoc
+      // invoices (no soId) we still apply rules so promos take effect.
+      const fromSo = !!body.soId;
+      const lineRules = fromSo
+        ? { applied: [] as Awaited<ReturnType<typeof applyLineDiscountRules>>["applied"] }
+        : await applyLineDiscountRules(tx, enriched);
+      const baseNetPre = enriched.reduce(
+        (a, l) => a + l.quantity * l.unitPrice * (1 - (l.discountPct ?? 0) / 100),
+        0,
+      );
+      const ruleResult = fromSo
+        ? { discountAmount: 0, applied: [] as Awaited<ReturnType<typeof applyDiscountRules>>["applied"] }
+        : await applyDiscountRules(tx, {
+            baseNet: Math.max(0, baseNetPre - body.orderDiscount),
+            scope: "order",
+          });
+      const totals = computeTotals(
+        enriched,
+        body.orderDiscount + ruleResult.discountAmount,
+      );
+      // For SO-derived invoices we re-use the rule snapshot the SO froze at
+      // creation time (carried over from the quote when applicable) and
+      // scale each rule's amount proportionally to the share of the SO
+      // being invoiced. Without this, partial invoicing would post the
+      // rule's full discount to its GL bucket on the first invoice and
+      // nothing on later ones; full invoicing without scaling would book
+      // the entire historical discount even if some lines were dropped.
+      type SnapRule = {
+        id: number; name: string; reasonCode: string | null;
+        accountSystemKey: string; amount: number; scope?: string;
+      };
+      let allAppliedRules: SnapRule[] = [
+        ...lineRules.applied,
+        ...ruleResult.applied,
+      ];
+      if (fromSo && so) {
+        const snap = (so.appliedDiscounts as SnapRule[] | null) ?? [];
+        const soSubtotal = Number(so.subtotal);
+        const ratio = soSubtotal > 0 ? totals.subtotal / soSubtotal : 0;
+        allAppliedRules = snap.map((r) => ({
+          ...r,
+          amount: +(r.amount * ratio).toFixed(2),
+        }));
+      }
+      const reference = await nextRef(tx, "SINV");
+      const dueDays = customer.paymentTermsDays ?? 0;
+      const invoiceDate = body.invoiceDate ?? new Date().toISOString().slice(0, 10);
+      const dueDate =
+        body.dueDate ??
+        new Date(new Date(invoiceDate).getTime() + dueDays * 86_400_000).toISOString().slice(0, 10);
+
+      const zatcaQr = buildZatcaQrBase64({
+        timestamp: new Date(invoiceDate),
+        totalWithVat: totals.total,
+        vatAmount: totals.vat,
+      });
+      const [inv] = await tx
+        .insert(customerInvoicesTable)
+        .values({
+          reference,
+          soId: so?.id ?? null,
+          customerId: customer.id,
+          customerName: customer.name,
+          branchId: so?.branchId ?? null,
+          salesRepId: so?.salesRepId ?? req.session?.userId ?? null,
+          status: "open",
+          invoiceDate,
+          dueDate,
+          subtotal: String(totals.subtotal),
+          discount: String(totals.discount),
+          vat: String(totals.vat),
+          total: String(totals.total),
+          notes: body.notes ?? null,
+          zatcaQr,
+          source: so ? "so" : "manual",
+          sourceRef: so?.reference ?? null,
+          appliedDiscounts: allAppliedRules.length ? allAppliedRules : null,
+          createdBy: req.session?.userId ?? null,
+        })
+        .returning();
+
+      for (let i = 0; i < totals.lines.length; i++) {
+        const ln = totals.lines[i];
+        await tx.insert(customerInvoiceLinesTable).values({
+          invoiceId: inv.id,
+          soLineId: soLineByIdx[i] || null,
+          productId: (ln.productId as number | null) ?? null,
+          description: ln.description,
+          quantity: String(ln.quantity),
+          unitPrice: String(ln.unitPrice),
+          discountPct: String(ln.discountPct),
+          taxRate: String(ln.taxRate),
+          lineTotal: String(ln.lineTotal),
+        });
+        if (soLineByIdx[i]) {
+          await tx
+            .update(salesOrderLinesTable)
+            .set({ invoicedQty: sql`${salesOrderLinesTable.invoicedQty}::numeric + ${ln.quantity}` })
+            .where(eq(salesOrderLinesTable.id, soLineByIdx[i]));
+        }
+      }
+
+      // ====== Post journal entry ======
+      // Dr AR (total)  / Cr Sales Revenue (net)  / Cr VAT Output (vat)
+      // Plus optional Dr Sales Discount if order-level discount > 0.
+      const lines: Array<{ systemKey: string; debit?: number; credit?: number; description?: string }> = [
+        { systemKey: "ar", debit: totals.total, description: `فاتورة عميل ${reference}` },
+      ];
+      // Split the discount across its sources so each lands in the right
+      // GL bucket: applied rules (line + order scope) → their configured
+      // accountSystemKey, remainder (manually-entered line discountPct +
+      // user-entered order discount) → sales_discount.
+      const ruleDiscountSum = allAppliedRules.reduce((a, r) => a + r.amount, 0);
+      const flatDiscount = +(totals.discount - ruleDiscountSum).toFixed(2);
+      if (flatDiscount > 0)
+        lines.push({ systemKey: "sales_discount", debit: flatDiscount, description: "خصم مبيعات" });
+      for (const r of allAppliedRules)
+        lines.push({
+          systemKey: r.accountSystemKey,
+          debit: r.amount,
+          description: `خصم: ${r.name} (${r.reasonCode})`,
+        });
+      if (totals.subtotal > 0)
+        lines.push({ systemKey: "sales_revenue", credit: totals.subtotal, description: "إيرادات مبيعات" });
+      if (totals.vat > 0)
+        lines.push({ systemKey: "vat_output", credit: totals.vat, description: "ضريبة القيمة المضافة 15%" });
+      // Re-balance: AR = subtotal - discount + vat; we debited total but
+      // we credited the gross subtotal & vat then debited the discount.
+      // total = subtotal - discount + vat → AR(debit) + sales_discount(debit) = sales_revenue(credit) + vat(credit)
+      await postJournalEntry(
+        tx,
+        {
+          entryDate: invoiceDate,
+          description: `فاتورة عميل — ${reference}`,
+          reference,
+          source: "manual",
+          sourceRef: reference,
+          createdBy: req.session?.userId ?? null,
+          status: "posted",
+        },
+        lines,
+      );
+
+      // Update customer aggregates.
+      await tx
+        .update(customersTable)
+        .set({
+          totalOrders: sql`${customersTable.totalOrders} + 1`,
+          totalSpent: sql`${customersTable.totalSpent}::numeric + ${totals.total}`,
+        })
+        .where(eq(customersTable.id, customer.id));
+
+      // Mark SO as invoiced if all lines fully invoiced.
+      if (so) {
+        const updated = await tx
+          .select({ qty: salesOrderLinesTable.quantity, inv: salesOrderLinesTable.invoicedQty })
+          .from(salesOrderLinesTable)
+          .where(eq(salesOrderLinesTable.soId, so.id));
+        const allInvoiced = updated.every((l) => Number(l.qty) - Number(l.inv) <= 1e-6);
+        if (allInvoiced)
+          await tx.update(salesOrdersTable).set({ status: "invoiced" }).where(eq(salesOrdersTable.id, so.id));
+      }
+
+      return inv;
+    });
+    res.status(201).json(serializeMoneyDoc(result));
+  } catch (err) {
+    req.log.error({ err }, "create customer invoice");
+    handleRouteError(err, res);
+  }
+});
+
+// ===================================================================
+// Customer Receipts
+// ===================================================================
+const ReceiptBody = z.object({
+  customerId: z.number().int(),
+  receiptDate: z.string().optional(),
+  amount: z.number().positive(),
+  paymentMethod: z.enum(["cash", "bank", "card", "transfer", "stc"]).default("cash"),
+  bankRef: z.string().nullable().optional(),
+  // Allocation: list of {invoiceId, amount}. Sum must equal amount.
+  allocations: z
+    .array(z.object({ invoiceId: z.number().int(), amount: z.number().positive() }))
+    .min(1),
+});
+
+router.get("/sales/receipts", financeGuard, async (req, res) => {
+  try {
+    const { customerId } = req.query;
+    const rows = await db
+      .select()
+      .from(customerReceiptsTable)
+      .where(customerId ? eq(customerReceiptsTable.customerId, Number(customerId)) : sql`true`)
+      .orderBy(desc(customerReceiptsTable.createdAt))
+      .limit(200);
+    res.json(rows.map((r) => ({ ...r, amount: Number(r.amount) })));
+  } catch (err) {
+    handleRouteError(err, res);
+  }
+});
+
+router.post("/sales/receipts", financeGuard, async (req, res) => {
+  try {
+    const body = ReceiptBody.parse(req.body);
+    const allocSum = body.allocations.reduce((a, x) => a + x.amount, 0);
+    if (Math.abs(allocSum - body.amount) > 0.01)
+      { res.status(400).json({ error: "مجموع التوزيع يجب أن يساوي مبلغ السند" }); return; }
+
+    const result = await db.transaction(async (tx) => {
+      const [customer] = await tx.select().from(customersTable).where(eq(customersTable.id, body.customerId));
+      if (!customer) throw new Error("العميل غير موجود");
+
+      const reference = await nextRef(tx, "RCT");
+      const receiptDate = body.receiptDate ?? new Date().toISOString().slice(0, 10);
+      const [receipt] = await tx
+        .insert(customerReceiptsTable)
+        .values({
+          reference,
+          customerId: customer.id,
+          customerName: customer.name,
+          receiptDate,
+          amount: String(body.amount),
+          paymentMethod: body.paymentMethod,
+          bankRef: body.bankRef ?? null,
+          createdBy: req.session?.userId ?? null,
+        })
+        .returning();
+
+      // Allocate to invoices and update each invoice's amount_paid + status.
+      for (const a of body.allocations) {
+        const [inv] = await tx.select().from(customerInvoicesTable).where(eq(customerInvoicesTable.id, a.invoiceId));
+        if (!inv) throw new Error(`الفاتورة ${a.invoiceId} غير موجودة`);
+        if (inv.customerId !== customer.id) throw new Error("الفاتورة لعميل مختلف");
+        // Subtract issued/applied credit notes from the gross outstanding
+        // before validating: collecting the original gross after a partial
+        // credit would over-settle AR.
+        const [{ creditsSum }] = await tx
+          .select({
+            creditsSum: sql<number>`coalesce(sum(${creditNotesTable.total}::numeric), 0)`,
+          })
+          .from(creditNotesTable)
+          .where(
+            and(
+              eq(creditNotesTable.invoiceId, inv.id),
+              inArray(creditNotesTable.status, ["issued", "applied"]),
+            ),
+          );
+        const due = Number(inv.total) - Number(inv.amountPaid) - Number(creditsSum);
+        if (due <= 0.01) throw new Error(`الفاتورة ${inv.reference} مسواة بالكامل (دفعات + إشعارات دائنة)`);
+        if (a.amount > due + 0.01) throw new Error(`المبلغ يتجاوز المستحق على الفاتورة ${inv.reference}`);
+        await tx.insert(customerReceiptAllocationsTable).values({
+          receiptId: receipt.id,
+          invoiceId: inv.id,
+          amount: String(a.amount),
+        });
+        const newPaid = Number(inv.amountPaid) + a.amount;
+        // Status reflects (paid + credits) vs. total so a fully-credited+paid
+        // invoice flips to "paid" even when amount_paid alone < total.
+        const settled = newPaid + Number(creditsSum);
+        const newStatus =
+          Number(inv.total) - settled <= 0.01
+            ? "paid"
+            : newPaid > 0
+              ? "partially_paid"
+              : inv.status;
+        await tx
+          .update(customerInvoicesTable)
+          .set({ amountPaid: String(newPaid), status: newStatus })
+          .where(eq(customerInvoicesTable.id, inv.id));
+      }
+
+      // Post the receipt journal: Dr cash/bank / Cr AR
+      const cashKey = body.paymentMethod === "cash" ? "cash" : "bank";
+      const je = await postJournalEntry(
+        tx,
+        {
+          entryDate: receiptDate,
+          description: `سند قبض ${reference}`,
+          reference,
+          source: "payment",
+          sourceRef: reference,
+          createdBy: req.session?.userId ?? null,
+          status: "posted",
+        },
+        [
+          { systemKey: cashKey, debit: body.amount, description: `قبض من ${customer.name}` },
+          { systemKey: "ar", credit: body.amount, description: "تسوية ذمم مدينة" },
+        ],
+      );
+      await tx
+        .update(customerReceiptsTable)
+        .set({ journalEntryId: je.id })
+        .where(eq(customerReceiptsTable.id, receipt.id));
+
+      return receipt;
+    });
+    res.status(201).json({ ...result, amount: Number(result.amount) });
+  } catch (err) {
+    req.log.error({ err }, "create receipt");
+    handleRouteError(err, res);
+  }
+});
+
+// ===================================================================
+// Credit Notes (returns)
+// ===================================================================
+const CreditNoteBody = z.object({
+  invoiceId: z.number().int().nullable().optional(),
+  customerId: z.number().int(),
+  noteDate: z.string().optional(),
+  reason: z.string().nullable().optional(),
+  restock: z.boolean().default(true),
+  warehouseId: z.number().int().nullable().optional(),
+  lines: z
+    .array(
+      z.object({
+        invoiceLineId: z.number().int().nullable().optional(),
+        productId: z.number().int().nullable().optional(),
+        description: z.string().min(1),
+        quantity: z.number().positive(),
+        unitPrice: z.number().min(0),
+        taxRate: z.number().min(0).max(100).default(15),
+      }),
+    )
+    .min(1),
+});
+
+router.get("/sales/credit-notes", customerReadGuard, async (req, res) => {
+  try {
+    const { customerId } = req.query;
+    const rows = await db
+      .select()
+      .from(creditNotesTable)
+      .where(customerId ? eq(creditNotesTable.customerId, Number(customerId)) : sql`true`)
+      .orderBy(desc(creditNotesTable.createdAt))
+      .limit(200);
+    res.json(rows.map(serializeMoneyDoc));
+  } catch (err) {
+    handleRouteError(err, res);
+  }
+});
+
+router.post("/sales/credit-notes", salesWriteGuard, async (req, res) => {
+  try {
+    const body = CreditNoteBody.parse(req.body);
+    const result = await db.transaction(async (tx) => {
+      const [customer] = await tx.select().from(customersTable).where(eq(customersTable.id, body.customerId));
+      if (!customer) throw new Error("العميل غير موجود");
+
+      // ============== Source-document validation ==============
+      // When the credit note is tied to an invoice we MUST verify that:
+      //   1. the invoice belongs to the same customer (no cross-customer credit),
+      //   2. each cited invoiceLineId actually lives on that invoice, and
+      //   3. the returned quantity does not exceed (invoiced − already-credited),
+      //      and the line amount does not exceed the original line value.
+      // Without these checks a finance user could over-credit AR or restock
+      // inventory for goods that were never sold — a critical accounting +
+      // stock-integrity hole flagged by the prior code review.
+      if (body.invoiceId != null) {
+        const [srcInv] = await tx
+          .select()
+          .from(customerInvoicesTable)
+          .where(eq(customerInvoicesTable.id, body.invoiceId));
+        if (!srcInv) throw new Error("الفاتورة المصدر غير موجودة");
+        if (srcInv.customerId !== body.customerId)
+          throw new Error("الفاتورة المصدر تخص عميلاً آخر");
+
+        const invLines = await tx
+          .select()
+          .from(customerInvoiceLinesTable)
+          .where(eq(customerInvoiceLinesTable.invoiceId, body.invoiceId));
+        const invLineById = new Map(invLines.map((l) => [l.id, l]));
+
+        // Already-credited (issued/applied) qty + amount per invoice line.
+        const priorCredits = await tx
+          .select({
+            invoiceLineId: creditNoteLinesTable.invoiceLineId,
+            qty: sql<number>`coalesce(sum(${creditNoteLinesTable.quantity}::numeric), 0)`,
+            amt: sql<number>`coalesce(sum(${creditNoteLinesTable.lineTotal}::numeric), 0)`,
+          })
+          .from(creditNoteLinesTable)
+          .innerJoin(creditNotesTable, eq(creditNotesTable.id, creditNoteLinesTable.noteId))
+          .where(
+            and(
+              eq(creditNotesTable.invoiceId, body.invoiceId),
+              inArray(creditNotesTable.status, ["issued", "applied"]),
+            ),
+          )
+          .groupBy(creditNoteLinesTable.invoiceLineId);
+        const priorByLine = new Map(
+          priorCredits
+            .filter((p) => p.invoiceLineId != null)
+            .map((p) => [p.invoiceLineId as number, { qty: Number(p.qty), amt: Number(p.amt) }]),
+        );
+
+        for (const ln of body.lines) {
+          if (ln.invoiceLineId == null) continue;
+          const il = invLineById.get(ln.invoiceLineId);
+          if (!il) throw new Error(`بند ${ln.invoiceLineId} لا يخص الفاتورة المصدر`);
+          const prior = priorByLine.get(ln.invoiceLineId) ?? { qty: 0, amt: 0 };
+          const remainingQty = Number(il.quantity) - prior.qty;
+          if (ln.quantity > remainingQty + 1e-6)
+            throw new Error(
+              `الكمية المرتجعة (${ln.quantity}) تتجاوز المتبقي القابل للإرجاع (${remainingQty}) للبند "${il.description}"`,
+            );
+          const remainingAmt = Number(il.lineTotal) - prior.amt;
+          const lineAmt = ln.quantity * ln.unitPrice * (1 + (ln.taxRate ?? 0) / 100);
+          if (lineAmt > remainingAmt + 0.01)
+            throw new Error(
+              `قيمة الإرجاع للبند "${il.description}" تتجاوز المتبقي (${remainingAmt.toFixed(2)})`,
+            );
+        }
+      } else {
+        // Free-form credit note (no source invoice): forbid invoiceLineId
+        // references entirely so we never decrement an SO line we don't own.
+        if (body.lines.some((l) => l.invoiceLineId != null))
+          throw new Error("لا يمكن ربط بنود بفاتورة عند عدم اختيار فاتورة مصدر");
+      }
+      // =========================================================
+
+      const totalsLines = body.lines.map((ln) => ({
+        productId: ln.productId ?? null,
+        description: ln.description,
+        quantity: ln.quantity,
+        unitPrice: ln.unitPrice,
+        discountPct: 0,
+        taxRate: ln.taxRate,
+      }));
+      const totals = computeTotals(totalsLines, 0);
+      const reference = await nextRef(tx, "CN");
+      const noteDate = body.noteDate ?? new Date().toISOString().slice(0, 10);
+
+      const warehouseId =
+        body.warehouseId ?? (body.restock ? await getDefaultWarehouseId(tx).catch(() => null) : null);
+
+      const [note] = await tx
+        .insert(creditNotesTable)
+        .values({
+          reference,
+          invoiceId: body.invoiceId ?? null,
+          customerId: customer.id,
+          customerName: customer.name,
+          noteDate,
+          reason: body.reason ?? null,
+          restock: body.restock,
+          warehouseId,
+          subtotal: String(totals.subtotal),
+          vat: String(totals.vat),
+          total: String(totals.total),
+          status: "issued",
+          createdBy: req.session?.userId ?? null,
+        })
+        .returning();
+
+      for (let i = 0; i < totals.lines.length; i++) {
+        const ln = totals.lines[i];
+        const inputLine = body.lines[i];
+        await tx.insert(creditNoteLinesTable).values({
+          noteId: note.id,
+          invoiceLineId: inputLine?.invoiceLineId ?? null,
+          productId: (ln.productId as number | null) ?? null,
+          description: ln.description,
+          quantity: String(ln.quantity),
+          unitPrice: String(ln.unitPrice),
+          taxRate: String(ln.taxRate),
+          lineTotal: String(ln.lineTotal),
+        });
+        // Restock through inventory ledger when requested.
+        if (body.restock && ln.productId && warehouseId) {
+          await recordStockMove(tx, {
+            productId: ln.productId as number,
+            quantity: ln.quantity,
+            kind: "receipt",
+            toWarehouseId: warehouseId,
+            sourceType: "credit_note",
+            sourceRef: reference,
+            createdBy: req.session?.userId ?? null,
+            skipJournal: true,
+          });
+        }
+      }
+
+      // ====== Post offsetting JE ======
+      // Dr Sales Returns (subtotal) / Dr VAT Output (vat) / Cr AR (total)
+      // If the credit note is applied to an invoice, AR is credited; if it is
+      // a refund (no invoice), use cash. We handle the AR case here.
+      const lines: Array<{ systemKey: string; debit?: number; credit?: number; description?: string }> = [
+        { systemKey: "sales_returns", debit: totals.subtotal, description: "مردودات مبيعات" },
+      ];
+      if (totals.vat > 0)
+        lines.push({ systemKey: "vat_output", debit: totals.vat, description: "عكس ضريبة 15%" });
+      if (totals.total > 0)
+        lines.push({ systemKey: "ar", credit: totals.total, description: "تسوية ذمم مدينة (إشعار دائن)" });
+
+      const je = await postJournalEntry(
+        tx,
+        {
+          entryDate: noteDate,
+          description: `إشعار دائن ${reference}`,
+          reference,
+          source: "manual",
+          sourceRef: reference,
+          createdBy: req.session?.userId ?? null,
+          status: "posted",
+        },
+        lines,
+      );
+      await tx
+        .update(creditNotesTable)
+        .set({ journalEntryId: je.id })
+        .where(eq(creditNotesTable.id, note.id));
+
+      // Apply against the source invoice WITHOUT mutating amount_paid (that
+      // field tracks real cash receipts only — touching it would make a
+      // fully-paid invoice show amount_paid > total and corrupt aging /
+      // collections reporting). Instead the credit note's own row + JE
+      // already reduced the customer's AR balance via Cr AR; here we just
+      // recompute the invoice status against (paid + credits) and reverse
+      // the SO/DO fulfilment so the returned qty becomes deliverable +
+      // invoiceable again.
+      if (body.invoiceId) {
+        const [inv] = await tx
+          .select()
+          .from(customerInvoicesTable)
+          .where(eq(customerInvoicesTable.id, body.invoiceId));
+        if (inv) {
+          const [{ creditsSum }] = await tx
+            .select({
+              creditsSum: sql<number>`coalesce(sum(${creditNotesTable.total}::numeric), 0)`,
+            })
+            .from(creditNotesTable)
+            .where(
+              and(
+                eq(creditNotesTable.invoiceId, inv.id),
+                inArray(creditNotesTable.status, ["issued", "applied"]),
+              ),
+            );
+          const settled = Number(inv.amountPaid) + Number(creditsSum);
+          const fullySettled = Number(inv.total) - settled <= 0.01;
+          if (fullySettled && inv.status !== "paid") {
+            await tx
+              .update(customerInvoicesTable)
+              .set({ status: "paid" })
+              .where(eq(customerInvoicesTable.id, inv.id));
+          }
+
+          // Walk each credit-note line; if it carries an invoiceLineId,
+          // decrement the parent SO line's invoicedQty by the returned qty
+          // so the remaining balance becomes invoiceable again. When the
+          // credit note also restocks the goods, decrement deliveredQty too
+          // (the goods physically came back, so the SO should reopen on
+          // both fulfilment + billing axes).
+          const cnLines = await tx
+            .select()
+            .from(creditNoteLinesTable)
+            .where(eq(creditNoteLinesTable.noteId, note.id));
+          const touchedSoIds = new Set<number>();
+          for (const cn of cnLines) {
+            if (!cn.invoiceLineId) continue;
+            const [il] = await tx
+              .select()
+              .from(customerInvoiceLinesTable)
+              .where(eq(customerInvoiceLinesTable.id, cn.invoiceLineId));
+            if (!il?.soLineId) continue;
+            const update: Record<string, unknown> = {
+              invoicedQty: sql`GREATEST(0, ${salesOrderLinesTable.invoicedQty}::numeric - ${Number(cn.quantity)})`,
+            };
+            if (body.restock) {
+              update.deliveredQty = sql`GREATEST(0, ${salesOrderLinesTable.deliveredQty}::numeric - ${Number(cn.quantity)})`;
+            }
+            await tx
+              .update(salesOrderLinesTable)
+              .set(update)
+              .where(eq(salesOrderLinesTable.id, il.soLineId));
+            const [sl] = await tx
+              .select({ soId: salesOrderLinesTable.soId })
+              .from(salesOrderLinesTable)
+              .where(eq(salesOrderLinesTable.id, il.soLineId));
+            if (sl?.soId) touchedSoIds.add(sl.soId);
+          }
+          // Recompute SO status from (deliveredQty, invoicedQty) so an
+          // "invoiced" SO falls back to partially_delivered/confirmed when
+          // any line now has an unbilled or undelivered balance again.
+          for (const soId of touchedSoIds) {
+            const sLines = await tx
+              .select({
+                qty: salesOrderLinesTable.quantity,
+                inv: salesOrderLinesTable.invoicedQty,
+                del: salesOrderLinesTable.deliveredQty,
+              })
+              .from(salesOrderLinesTable)
+              .where(eq(salesOrderLinesTable.soId, soId));
+            const allInvoiced = sLines.every((l) => Number(l.qty) - Number(l.inv) <= 1e-6);
+            const allDelivered = sLines.every((l) => Number(l.qty) - Number(l.del) <= 1e-6);
+            const anyDelivered = sLines.some((l) => Number(l.del) > 0);
+            const next = allInvoiced && allDelivered
+              ? "invoiced"
+              : allDelivered
+                ? "fully_delivered"
+                : anyDelivered
+                  ? "partially_delivered"
+                  : "confirmed";
+            await tx
+              .update(salesOrdersTable)
+              .set({ status: next })
+              .where(eq(salesOrdersTable.id, soId));
+          }
+        }
+      }
+
+      return note;
+    });
+    res.status(201).json(serializeMoneyDoc(result));
+  } catch (err) {
+    req.log.error({ err }, "create credit note");
+    handleRouteError(err, res);
+  }
+});
+
+// Cancel an outstanding credit note. Posts a reversing JE (mirror of the
+// original lines) and reverses any SO fulfilment counter adjustments the
+// original credit note made. Refuses to cancel a note already cancelled.
+// Applied notes can still be cancelled — the JE reversal restores AR and
+// the SO recompute below puts the SO back in the right state.
+router.post("/sales/credit-notes/:id/cancel", salesWriteGuard, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const result = await db.transaction(async (tx) => {
+      const [note] = await tx.select().from(creditNotesTable).where(eq(creditNotesTable.id, id));
+      if (!note) throw new Error("Not found");
+      if (note.status === "cancelled") throw new Error("الإشعار ملغى مسبقاً");
+
+      // Reverse the original JE.
+      if (note.journalEntryId) {
+        const reverseRef = `${note.reference}-REV`;
+        const reverseLines: Array<{ systemKey: string; debit?: number; credit?: number; description?: string }> = [
+          { systemKey: "sales_returns", credit: Number(note.subtotal), description: "إلغاء مردودات مبيعات" },
+        ];
+        if (Number(note.vat) > 0)
+          reverseLines.push({ systemKey: "vat_output", credit: Number(note.vat), description: "إلغاء عكس ضريبة 15%" });
+        if (Number(note.total) > 0)
+          reverseLines.push({ systemKey: "ar", debit: Number(note.total), description: "إعادة فتح ذمم مدينة" });
+        await postJournalEntry(
+          tx,
+          {
+            entryDate: new Date().toISOString().slice(0, 10),
+            description: `إلغاء إشعار دائن ${note.reference}`,
+            reference: reverseRef,
+            source: "manual",
+            sourceRef: reverseRef,
+            createdBy: req.session?.userId ?? null,
+            status: "posted",
+          },
+          reverseLines,
+        );
+      }
+
+      // Reverse the inventory impact of the original credit note. When the
+      // original CN was issued with restock=true we posted a `receipt` move
+      // that put the goods back into the warehouse; cancelling the CN must
+      // remove them again, otherwise stock balances stay inflated and the
+      // returns workflow corrupts inventory. We post a compensating
+      // `delivery` move per CN line, sourced to the cancellation ref so
+      // the audit trail is explicit.
+      const cnLines = await tx
+        .select()
+        .from(creditNoteLinesTable)
+        .where(eq(creditNoteLinesTable.noteId, note.id));
+      if (note.restock && note.warehouseId) {
+        const cancelRef = `${note.reference}-CXL`;
+        for (const cn of cnLines) {
+          if (!cn.productId) continue;
+          await recordStockMove(tx, {
+            productId: cn.productId,
+            quantity: Number(cn.quantity),
+            kind: "issue",
+            fromWarehouseId: note.warehouseId,
+            sourceType: "credit_note_cancel",
+            sourceRef: cancelRef,
+            createdBy: req.session?.userId ?? null,
+            skipJournal: true,
+          });
+        }
+      }
+
+      const touchedSoIds = new Set<number>();
+      for (const cn of cnLines) {
+        if (!cn.invoiceLineId) continue;
+        const [il] = await tx
+          .select()
+          .from(customerInvoiceLinesTable)
+          .where(eq(customerInvoiceLinesTable.id, cn.invoiceLineId));
+        if (!il?.soLineId) continue;
+        const update: Record<string, unknown> = {
+          invoicedQty: sql`${salesOrderLinesTable.invoicedQty}::numeric + ${Number(cn.quantity)}`,
+        };
+        if (note.restock) {
+          update.deliveredQty = sql`${salesOrderLinesTable.deliveredQty}::numeric + ${Number(cn.quantity)}`;
+        }
+        await tx
+          .update(salesOrderLinesTable)
+          .set(update)
+          .where(eq(salesOrderLinesTable.id, il.soLineId));
+        const [sl] = await tx
+          .select({ soId: salesOrderLinesTable.soId })
+          .from(salesOrderLinesTable)
+          .where(eq(salesOrderLinesTable.id, il.soLineId));
+        if (sl?.soId) touchedSoIds.add(sl.soId);
+      }
+      for (const soId of touchedSoIds) {
+        const sLines = await tx
+          .select({
+            qty: salesOrderLinesTable.quantity,
+            inv: salesOrderLinesTable.invoicedQty,
+            del: salesOrderLinesTable.deliveredQty,
+          })
+          .from(salesOrderLinesTable)
+          .where(eq(salesOrderLinesTable.soId, soId));
+        const allInvoiced = sLines.every((l) => Number(l.qty) - Number(l.inv) <= 1e-6);
+        const allDelivered = sLines.every((l) => Number(l.qty) - Number(l.del) <= 1e-6);
+        const next = allInvoiced && allDelivered ? "invoiced" : allDelivered ? "fully_delivered" : "partially_delivered";
+        await tx.update(salesOrdersTable).set({ status: next }).where(eq(salesOrdersTable.id, soId));
+      }
+
+      const [updated] = await tx
+        .update(creditNotesTable)
+        .set({ status: "cancelled" })
+        .where(eq(creditNotesTable.id, id))
+        .returning();
+
+      // Recompute the source invoice status after this CN is removed from
+      // the (paid + credits) settlement equation. A previously fully-paid
+      // invoice could now be partially_paid or open; without this it would
+      // wrongly continue to display as paid in aging / collections.
+      if (note.invoiceId) {
+        const [inv] = await tx
+          .select()
+          .from(customerInvoicesTable)
+          .where(eq(customerInvoicesTable.id, note.invoiceId));
+        if (inv) {
+          const [{ creditsSum }] = await tx
+            .select({
+              creditsSum: sql<number>`coalesce(sum(${creditNotesTable.total}::numeric), 0)`,
+            })
+            .from(creditNotesTable)
+            .where(
+              and(
+                eq(creditNotesTable.invoiceId, inv.id),
+                inArray(creditNotesTable.status, ["issued", "applied"]),
+              ),
+            );
+          const settled = Number(inv.amountPaid) + Number(creditsSum);
+          const nextStatus =
+            Number(inv.total) - settled <= 0.01
+              ? "paid"
+              : Number(inv.amountPaid) > 0
+                ? "partially_paid"
+                : "open";
+          if (nextStatus !== inv.status) {
+            await tx
+              .update(customerInvoicesTable)
+              .set({ status: nextStatus })
+              .where(eq(customerInvoicesTable.id, inv.id));
+          }
+        }
+      }
+
+      return updated;
+    });
+    res.json(serializeMoneyDoc(result));
+  } catch (err) {
+    req.log.error({ err }, "cancel credit note");
+    handleRouteError(err, res);
+  }
+});
+
+// ===================================================================
+// Reports — AR aging + sales by rep + top customers
+// ===================================================================
+router.get("/sales/reports/ar-aging", reportReadGuard, async (req, res) => {
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    // Subtract issued/applied credit notes from each invoice's outstanding so
+    // partially-credited invoices don't keep appearing at their gross AR.
+    const rows = await db
+      .select({
+        customerId: customerInvoicesTable.customerId,
+        customerName: customerInvoicesTable.customerName,
+        reference: customerInvoicesTable.reference,
+        invoiceDate: customerInvoicesTable.invoiceDate,
+        dueDate: customerInvoicesTable.dueDate,
+        total: customerInvoicesTable.total,
+        amountPaid: customerInvoicesTable.amountPaid,
+        creditsApplied: sql<number>`coalesce((
+          select sum(cn.total::numeric) from credit_notes cn
+          where cn.invoice_id = ${customerInvoicesTable.id}
+            and cn.status in ('issued','applied')
+        ), 0)`,
+      })
+      .from(customerInvoicesTable)
+      .where(inArray(customerInvoicesTable.status, ["open", "partially_paid"]));
+
+    const buckets = { current: 0, d30: 0, d60: 0, d90: 0, over90: 0 };
+    const perCustomer = new Map<number, { customerName: string; total: number; current: number; d30: number; d60: number; d90: number; over90: number }>();
+    for (const r of rows) {
+      const due = Number(r.total) - Number(r.amountPaid) - Number(r.creditsApplied);
+      if (due <= 0) continue;
+      const dueDate = r.dueDate ?? r.invoiceDate;
+      const ageDays = Math.floor((Date.parse(today) - Date.parse(dueDate)) / 86_400_000);
+      const bucket =
+        ageDays <= 0 ? "current" : ageDays <= 30 ? "d30" : ageDays <= 60 ? "d60" : ageDays <= 90 ? "d90" : "over90";
+      buckets[bucket] += due;
+      const cust = perCustomer.get(r.customerId) ?? {
+        customerName: r.customerName,
+        total: 0,
+        current: 0,
+        d30: 0,
+        d60: 0,
+        d90: 0,
+        over90: 0,
+      };
+      cust[bucket] += due;
+      cust.total += due;
+      perCustomer.set(r.customerId, cust);
+    }
+
+    res.json({
+      asOf: today,
+      buckets,
+      total: +Object.values(buckets).reduce((a, b) => a + b, 0).toFixed(2),
+      customers: Array.from(perCustomer.entries()).map(([customerId, v]) => ({
+        customerId,
+        ...v,
+      })),
+    });
+  } catch (err) {
+    handleRouteError(err, res);
+  }
+});
+
+router.get("/sales/reports/summary", reportReadGuard, async (req, res) => {
+  try {
+    const today = new Date();
+    const monthStart = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().slice(0, 10);
+
+    const [quotes] = await db
+      .select({
+        totalCount: sql<number>`count(*)::int`,
+        totalValue: sql<number>`coalesce(sum(${quotationsTable.total}::numeric), 0)`,
+        accepted: sql<number>`count(*) filter (where ${quotationsTable.status} = 'accepted')::int`,
+      })
+      .from(quotationsTable)
+      .where(gte(quotationsTable.quoteDate, monthStart));
+
+    const [orders] = await db
+      .select({
+        totalCount: sql<number>`count(*)::int`,
+        totalValue: sql<number>`coalesce(sum(${salesOrdersTable.total}::numeric), 0)`,
+      })
+      .from(salesOrdersTable)
+      .where(gte(salesOrdersTable.orderDate, monthStart));
+
+    const [invoices] = await db
+      .select({
+        outstanding: sql<number>`coalesce(sum(
+          ${customerInvoicesTable.total}::numeric
+          - ${customerInvoicesTable.amountPaid}::numeric
+          - coalesce((
+              select sum(cn.total::numeric) from credit_notes cn
+              where cn.invoice_id = ${customerInvoicesTable.id}
+                and cn.status in ('issued','applied')
+            ), 0)
+        ) filter (where ${customerInvoicesTable.status} in ('open','partially_paid')), 0)`,
+        thisMonth: sql<number>`coalesce(sum(${customerInvoicesTable.total}::numeric) filter (where ${customerInvoicesTable.invoiceDate} >= ${monthStart}), 0)`,
+      })
+      .from(customerInvoicesTable);
+
+    res.json({
+      monthStart,
+      quotations: { count: quotes.totalCount, value: Number(quotes.totalValue), accepted: quotes.accepted },
+      salesOrders: { count: orders.totalCount, value: Number(orders.totalValue) },
+      invoices: { outstanding: Number(invoices.outstanding), thisMonth: Number(invoices.thisMonth) },
+    });
+  } catch (err) {
+    handleRouteError(err, res);
+  }
+});
+
+// ===================================================================
+// Quotation: send by email
+// Marks the quotation as 'sent', stamps sent_at, and (when wired to a real
+// MTA) would dispatch the PDF to the customer's email. We keep the wiring
+// pluggable so the route stays useful before SMTP/integrations are configured.
+// ===================================================================
+router.post("/sales/quotations/:id/send", salesWriteGuard, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const Body = z.object({ to: z.string().email().optional(), subject: z.string().optional() });
+    const body = Body.parse(req.body ?? {});
+    const [q] = await db.select().from(quotationsTable).where(eq(quotationsTable.id, id));
+    if (!q) { res.status(404).json({ error: "العرض غير موجود" }); return; }
+    if (q.status !== "draft" && q.status !== "sent") {
+      res.status(409).json({ error: `لا يمكن إرسال عرض في حالة ${q.status}` });
+      return;
+    }
+    const [customer] = await db.select().from(customersTable).where(eq(customersTable.id, q.customerId));
+    const recipient = body.to ?? customer?.email ?? null;
+    if (!recipient) { res.status(400).json({ error: "لا يوجد بريد إلكتروني للعميل" }); return; }
+    const subject = body.subject ?? `عرض سعر ${q.reference}`;
+    const emailBody =
+      `السلام عليكم،\n\nنرفق لكم عرض السعر ${q.reference} بإجمالي ${q.total} ر.س ` +
+      `يسري حتى ${q.validUntil ?? "—"}.\n\nمع التحية.`;
+
+    // Attempt real dispatch first (SMTP via nodemailer when SMTP_* env vars
+    // are configured). Only flip the quotation to status='sent' when the
+    // mail is actually accepted by the provider — otherwise we honestly
+    // queue it and surface a clear reason to the caller so the user-visible
+    // "send by email" action never lies about delivery.
+    const dispatch = await sendMail({ to: recipient, subject, body: emailBody });
+    const outboxStatus = dispatch.sent ? "sent" : "queued";
+    const errorMsg = dispatch.sent ? null : dispatch.reason;
+
+    const result = await db.transaction(async (tx) => {
+      const inserted = await tx.execute(sql`
+        INSERT INTO sales_email_outbox
+          (kind, ref_id, reference, recipient, subject, body, status, error,
+           created_by, sent_at)
+        VALUES ('quotation', ${q.id}, ${q.reference}, ${recipient}, ${subject},
+                ${emailBody}, ${outboxStatus}, ${errorMsg},
+                ${req.session?.userId ?? null},
+                ${dispatch.sent ? sql`now()` : sql`null`})
+        RETURNING id, status, sent_at, error;
+      `);
+      const rows = (inserted as unknown as { rows?: Array<Record<string, unknown>> }).rows
+        ?? (inserted as unknown as Array<Record<string, unknown>>);
+      // Only mark the quotation as "sent" once the email actually went out.
+      // A queued (undelivered) row keeps the quote in its prior state so
+      // ops can see it still needs dispatch.
+      const [updated] = dispatch.sent
+        ? await tx
+            .update(quotationsTable)
+            .set({ status: "sent", sentAt: new Date() })
+            .where(eq(quotationsTable.id, id))
+            .returning()
+        : await tx.select().from(quotationsTable).where(eq(quotationsTable.id, id));
+      req.log.info(
+        {
+          quotationId: id,
+          recipient,
+          outboxId: rows?.[0]?.id,
+          subject,
+          dispatched: dispatch.sent,
+          reason: dispatch.sent ? undefined : dispatch.reason,
+        },
+        "quotation.send",
+      );
+      return { outbox: rows?.[0], quotation: updated };
+    });
+    res.json({
+      ok: dispatch.sent,
+      dispatched: dispatch.sent,
+      sentTo: recipient,
+      outboxId: result.outbox?.id,
+      outboxStatus,
+      reason: dispatch.sent ? undefined : dispatch.reason,
+      mailerConfigured: isMailerConfigured(),
+      quotation: serializeMoneyDoc(result.quotation),
+    });
+  } catch (err) {
+    handleRouteError(err, res);
+  }
+});
+
+// ===================================================================
+// Commission posting
+// Computes commissions from invoices in [from, to] (same logic as the
+// commission-report) and posts a single journal entry per period:
+//   Dr commission_expense / Cr commission_payable.
+// Idempotent on (period, source='commission_run').
+// ===================================================================
+router.post("/sales/commissions/post", financeGuard, async (req, res) => {
+  try {
+    const Body = z.object({ from: z.string(), to: z.string() });
+    const { from, to } = Body.parse(req.body);
+    const periodRef = `COMM-${from}_${to}`;
+
+    const result = await db.transaction(async (tx) => {
+      // Idempotency: if a posted JE already exists for this period (matched
+      // by reference + sourceRef), return the existing total instead of
+      // re-posting commission expense / payable. This protects against
+      // accidental double-clicks and replayed requests corrupting GL.
+      const [existing] = await tx
+        .select({ id: journalEntriesTable.id })
+        .from(journalEntriesTable)
+        .where(
+          and(
+            eq(journalEntriesTable.reference, periodRef),
+            eq(journalEntriesTable.sourceRef, periodRef),
+          ),
+        )
+        .limit(1);
+      if (existing) {
+        return { total: 0, posted: false, alreadyPosted: true, breakdown: [] };
+      }
+
+      const rows = await tx
+        .select({
+          repId: customerInvoicesTable.salesRepId,
+          netRevenue: sql<number>`coalesce(sum(${customerInvoicesTable.subtotal}::numeric - ${customerInvoicesTable.discount}::numeric), 0)`,
+        })
+        .from(customerInvoicesTable)
+        .where(
+          and(
+            gte(customerInvoicesTable.invoiceDate, from),
+            lte(customerInvoicesTable.invoiceDate, to),
+            inArray(customerInvoicesTable.status, ["open", "partially_paid", "paid"]),
+          ),
+        )
+        .groupBy(customerInvoicesTable.salesRepId);
+
+      const plans = await tx.select().from(commissionPlansTable).where(eq(commissionPlansTable.isActive, true));
+      const assignments = await tx.select().from(salesRepAssignmentsTable);
+      const planById = new Map(plans.map((p) => [p.id, p]));
+      const planForUser = (userId: number | null) => {
+        if (!userId) return null;
+        const a = assignments.find((x) => x.userId === userId);
+        if (!a) return plans[0] ?? null;
+        return planById.get(a.planId) ?? null;
+      };
+
+      let total = 0;
+      const breakdown: Array<{ repId: number | null; commission: number }> = [];
+      for (const r of rows) {
+        const plan = planForUser(r.repId ?? null);
+        if (!plan) continue;
+        const net = Number(r.netRevenue);
+        const baseRate = Number(plan.rate);
+        const quota = Number(plan.quota);
+        const bonusRate = Number(plan.bonusRate);
+        const c = (net * baseRate) / 100 + (net > quota && quota > 0 ? ((net - quota) * bonusRate) / 100 : 0);
+        const rounded = +c.toFixed(2);
+        if (rounded > 0) {
+          total += rounded;
+          breakdown.push({ repId: r.repId, commission: rounded });
+        }
+      }
+      total = +total.toFixed(2);
+      if (total === 0) return { total: 0, posted: false, breakdown };
+
+      await postJournalEntry(
+        tx,
+        {
+          entryDate: to,
+          description: `عمولات مبيعات ${from} → ${to}`,
+          reference: periodRef,
+          source: "manual",
+          sourceRef: periodRef,
+          createdBy: req.session?.userId ?? null,
+          status: "posted",
+        },
+        [
+          { systemKey: "commission_expense", debit: total, description: "عمولات مندوبي المبيعات" },
+          { systemKey: "commission_payable", credit: total, description: "مستحقات عمولات" },
+        ],
+      );
+      return { total, posted: true, breakdown };
+    });
+    res.json(result);
+  } catch (err) {
+    handleRouteError(err, res);
+  }
+});
+
+// ===================================================================
+// Reports: sales by rep / customer / product, top customers
+// ===================================================================
+router.get("/sales/reports/by-rep", reportReadGuard, async (req, res) => {
+  try {
+    const { from, to } = z.object({ from: z.string(), to: z.string() }).parse(req.query);
+    const rows = await db
+      .select({
+        repId: customerInvoicesTable.salesRepId,
+        repName: usersTable.name,
+        invoices: sql<number>`count(*)::int`,
+        revenue: sql<number>`coalesce(sum(${customerInvoicesTable.subtotal}::numeric - ${customerInvoicesTable.discount}::numeric), 0)`,
+        collected: sql<number>`coalesce(sum(${customerInvoicesTable.amountPaid}::numeric), 0)`,
+      })
+      .from(customerInvoicesTable)
+      .leftJoin(usersTable, eq(usersTable.id, customerInvoicesTable.salesRepId))
+      .where(
+        and(
+          gte(customerInvoicesTable.invoiceDate, from),
+          lte(customerInvoicesTable.invoiceDate, to),
+          inArray(customerInvoicesTable.status, ["open", "partially_paid", "paid"]),
+        ),
+      )
+      .groupBy(customerInvoicesTable.salesRepId, usersTable.name)
+      .orderBy(sql`revenue desc`);
+    res.json(rows.map((r) => ({ ...r, repName: r.repName ?? "غير محدد", revenue: Number(r.revenue), collected: Number(r.collected) })));
+  } catch (err) {
+    handleRouteError(err, res);
+  }
+});
+
+router.get("/sales/reports/by-customer", reportReadGuard, async (req, res) => {
+  try {
+    const { from, to, limit } = z
+      .object({ from: z.string(), to: z.string(), limit: z.string().optional() })
+      .parse(req.query);
+    const cap = Math.min(500, Number(limit ?? 100));
+    const rows = await db
+      .select({
+        customerId: customerInvoicesTable.customerId,
+        customerName: customerInvoicesTable.customerName,
+        invoices: sql<number>`count(*)::int`,
+        revenue: sql<number>`coalesce(sum(${customerInvoicesTable.subtotal}::numeric - ${customerInvoicesTable.discount}::numeric), 0)`,
+        collected: sql<number>`coalesce(sum(${customerInvoicesTable.amountPaid}::numeric), 0)`,
+        outstanding: sql<number>`coalesce(sum(${customerInvoicesTable.total}::numeric - ${customerInvoicesTable.amountPaid}::numeric), 0)`,
+      })
+      .from(customerInvoicesTable)
+      .where(
+        and(
+          gte(customerInvoicesTable.invoiceDate, from),
+          lte(customerInvoicesTable.invoiceDate, to),
+          inArray(customerInvoicesTable.status, ["open", "partially_paid", "paid"]),
+        ),
+      )
+      .groupBy(customerInvoicesTable.customerId, customerInvoicesTable.customerName)
+      .orderBy(sql`revenue desc`)
+      .limit(cap);
+    res.json(rows.map((r) => ({ ...r, revenue: Number(r.revenue), collected: Number(r.collected), outstanding: Number(r.outstanding) })));
+  } catch (err) {
+    handleRouteError(err, res);
+  }
+});
+
+router.get("/sales/reports/by-product", reportReadGuard, async (req, res) => {
+  try {
+    const { from, to, limit } = z
+      .object({ from: z.string(), to: z.string(), limit: z.string().optional() })
+      .parse(req.query);
+    const cap = Math.min(500, Number(limit ?? 100));
+    const rows = await db
+      .select({
+        productId: customerInvoiceLinesTable.productId,
+        description: customerInvoiceLinesTable.description,
+        quantity: sql<number>`coalesce(sum(${customerInvoiceLinesTable.quantity}::numeric), 0)`,
+        revenue: sql<number>`coalesce(sum(${customerInvoiceLinesTable.lineTotal}::numeric), 0)`,
+        invoices: sql<number>`count(distinct ${customerInvoicesTable.id})::int`,
+      })
+      .from(customerInvoiceLinesTable)
+      .innerJoin(customerInvoicesTable, eq(customerInvoicesTable.id, customerInvoiceLinesTable.invoiceId))
+      .where(
+        and(
+          gte(customerInvoicesTable.invoiceDate, from),
+          lte(customerInvoicesTable.invoiceDate, to),
+          inArray(customerInvoicesTable.status, ["open", "partially_paid", "paid"]),
+        ),
+      )
+      .groupBy(customerInvoiceLinesTable.productId, customerInvoiceLinesTable.description)
+      .orderBy(sql`revenue desc`)
+      .limit(cap);
+    res.json(rows.map((r) => ({ ...r, quantity: Number(r.quantity), revenue: Number(r.revenue) })));
+  } catch (err) {
+    handleRouteError(err, res);
+  }
+});
+
+// ===================================================================
+// Helpers
+// ===================================================================
+type MoneyDoc = Record<string, unknown>;
+function serializeMoneyDoc<T extends MoneyDoc | null | undefined>(doc: T): MoneyDoc | T {
+  if (!doc) return doc;
+  const out: MoneyDoc = { ...doc };
+  for (const k of ["subtotal", "discount", "vat", "total", "amountPaid", "amount"]) {
+    if (out[k] != null) out[k] = Number(out[k] as string | number);
+  }
+  for (const k of ["createdAt", "deliveredAt", "sentAt", "acceptedAt", "rejectedAt", "closedAt"]) {
+    const v = out[k];
+    if (v instanceof Date) out[k] = v.toISOString();
+  }
+  return out;
+}
+
+function serializeLine<T extends Record<string, unknown>>(ln: T): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...ln };
+  for (const k of ["quantity", "deliveredQty", "invoicedQty", "unitPrice", "discountPct", "taxRate", "lineTotal"]) {
+    if (out[k] != null) out[k] = Number(out[k] as string | number);
+  }
+  return out;
+}
+
+export default router;

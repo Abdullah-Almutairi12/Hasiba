@@ -16,3 +16,4 @@ export * from "./admin";
 export * from "./ai-models";
 export * from "./inventory";
 export * from "./procurement";
+export * from "./sales";

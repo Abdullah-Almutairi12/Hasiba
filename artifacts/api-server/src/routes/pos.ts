@@ -1,10 +1,30 @@
 import { Router } from "express";
-import { db, posSessionsTable, posOrdersTable, branchesTable, productsTable, warehousesTable } from "@workspace/db";
+import {
+  db,
+  posSessionsTable,
+  posOrdersTable,
+  branchesTable,
+  productsTable,
+  warehousesTable,
+  customersTable,
+  customerInvoicesTable,
+  customerInvoiceLinesTable,
+  salesOrdersTable,
+  salesOrderLinesTable,
+  deliveryOrdersTable,
+  deliveryOrderLinesTable,
+} from "@workspace/db";
+import { nextRef } from "../lib/sales-engine";
+import { buildZatcaQrBase64 } from "../lib/zatca-qr";
 import { recordStockMove } from "../lib/stock-engine";
 import { eq, gte, sql, desc } from "drizzle-orm";
 import { CreatePosSessionBody, CreatePosOrderBody } from "@workspace/api-zod";
 import { posGuard, posReadGuard } from "../middlewares/require-role";
 import { postJournalEntry } from "../lib/journal-posting";
+import {
+  customerReceiptsTable,
+  customerReceiptAllocationsTable,
+} from "@workspace/db";
 
 const router = Router();
 
@@ -216,36 +236,221 @@ router.post("/pos/orders", posGuard, async (req, res) => {
         })
         .where(eq(posSessionsTable.id, body.sessionId));
 
-      // ===== Post the sale to the General Ledger (strict — failure aborts) =====
-      // Dr Cash/Bank (total) / Cr Sales Revenue (subtotal-discount) / Cr VAT Output (tax)
-      // Plus a separate cost-of-sale entry: Dr COGS / Cr Inventory if cost is known.
+      // ===== Bridge to the unified Q2C ledger =====
+      // POS is a cash-and-carry checkout — we still must produce the same
+      // SO/Invoice/Receipt artefacts that the back-office sales flow does so
+      // every sale (POS, online, manual) shares one ledger and one A/R view.
+      // Walk-in tickets (no customer entered) are routed to the system
+      // "POS-WALKIN" customer seeded in sales-init.
       const cashKey = body.paymentMethod === "cash" ? "cash" : "bank";
-      const netRevenue = subtotal - discount;
-      const saleLines: Array<{
+      const netRevenue = +(subtotal - discount).toFixed(2);
+      let invoiceCustomerId = body.customerId ?? null;
+      let invoiceCustomerName: string | null = null;
+      if (invoiceCustomerId) {
+        const [c] = await tx
+          .select({ name: customersTable.name })
+          .from(customersTable)
+          .where(eq(customersTable.id, invoiceCustomerId))
+          .limit(1);
+        invoiceCustomerName = c?.name ?? null;
+      }
+      if (!invoiceCustomerId) {
+        const [walkin] = await tx
+          .select({ id: customersTable.id, name: customersTable.name })
+          .from(customersTable)
+          .where(eq(customersTable.taxNumber, "POS-WALKIN"))
+          .limit(1);
+        if (!walkin) throw new Error("نظام: لا يوجد عميل POS-WALKIN — إعادة تشغيل مطلوبة");
+        invoiceCustomerId = walkin.id;
+        invoiceCustomerName = walkin.name;
+      }
+
+      // Materialise an auto-confirmed SO + DO so POS sales appear in the
+      // unified Q2C reporting alongside back-office orders. The SO/DO are
+      // already fully fulfilled and invoiced (cash-and-carry), so we just
+      // pre-fill quantities and statuses; no extra GL is needed because the
+      // inventory issue + invoice + receipt JEs below already cover it.
+      const todayStr = new Date().toISOString().slice(0, 10);
+      const soRef = await nextRef(tx, "POS-SO");
+      const [posSo] = await tx
+        .insert(salesOrdersTable)
+        .values({
+          reference: soRef,
+          customerId: invoiceCustomerId,
+          customerName: invoiceCustomerName ?? "عميل نقدي",
+          warehouseId: issueWarehouseId,
+          status: "invoiced",
+          orderDate: todayStr,
+          subtotal: String(subtotal),
+          discount: String(discount),
+          vat: String(tax),
+          total: String(total),
+          notes: `POS ${orderNumber}`,
+          source: "pos",
+          createdBy: req.session?.userId ?? null,
+        })
+        .returning();
+      const soLineByItemIdx: number[] = [];
+      for (const li of orderItems) {
+        const [sl] = await tx
+          .insert(salesOrderLinesTable)
+          .values({
+            soId: posSo.id,
+            productId: li.productId,
+            description: li.productName,
+            quantity: String(li.quantity),
+            unitPrice: String(li.unitPrice),
+            discountPct: "0",
+            taxRate: "15",
+            lineTotal: String(li.total),
+            deliveredQty: String(li.quantity),
+            invoicedQty: String(li.quantity),
+          })
+          .returning({ id: salesOrderLinesTable.id });
+        soLineByItemIdx.push(sl.id);
+      }
+      const doRef = await nextRef(tx, "POS-DO");
+      const [posDo] = await tx
+        .insert(deliveryOrdersTable)
+        .values({
+          reference: doRef,
+          soId: posSo.id,
+          status: "delivered",
+          deliveryDate: todayStr,
+          warehouseId: issueWarehouseId,
+          deliveredAt: new Date(),
+          notes: `POS ${orderNumber}`,
+          createdBy: req.session?.userId ?? null,
+        })
+        .returning();
+      for (let i = 0; i < orderItems.length; i++) {
+        const li = orderItems[i];
+        await tx.insert(deliveryOrderLinesTable).values({
+          doId: posDo.id,
+          soLineId: soLineByItemIdx[i],
+          productId: li.productId,
+          description: li.productName,
+          quantity: String(li.quantity),
+        });
+      }
+
+      const invRef = await nextRef(tx, "PINV");
+      const zatcaQr = buildZatcaQrBase64({
+        timestamp: new Date(),
+        totalWithVat: total,
+        vatAmount: tax,
+      });
+      const [posInvoice] = await tx
+        .insert(customerInvoicesTable)
+        .values({
+          reference: invRef,
+          soId: posSo.id,
+          customerId: invoiceCustomerId,
+          customerName: invoiceCustomerName ?? "عميل نقدي",
+          status: "paid",
+          invoiceDate: todayStr,
+          dueDate: todayStr,
+          subtotal: String(subtotal),
+          discount: String(discount),
+          vat: String(tax),
+          total: String(total),
+          amountPaid: String(total),
+          zatcaQr,
+          source: "pos",
+          sourceRef: orderNumber,
+          createdBy: req.session?.userId ?? null,
+        })
+        .returning();
+      for (let i = 0; i < orderItems.length; i++) {
+        const li = orderItems[i];
+        await tx.insert(customerInvoiceLinesTable).values({
+          invoiceId: posInvoice.id,
+          soLineId: soLineByItemIdx[i],
+          productId: li.productId,
+          description: li.productName,
+          quantity: String(li.quantity),
+          unitPrice: String(li.unitPrice),
+          discountPct: "0",
+          taxRate: "15",
+          lineTotal: String(li.total),
+        });
+      }
+
+      // Invoice JE — same shape as the back-office invoice route:
+      //   Dr AR (total) / Cr Sales Revenue (net) / Cr VAT Output (tax)
+      const invLines: Array<{
         systemKey: string;
         debit?: number;
         credit?: number;
         description?: string;
       }> = [
-        { systemKey: cashKey, debit: total, description: `قبض ${orderNumber}` },
+        { systemKey: "ar", debit: total, description: `فاتورة POS ${invRef}` },
       ];
-      if (netRevenue > 0)
-        saleLines.push({ systemKey: "sales_revenue", credit: netRevenue, description: "إيرادات مبيعات" });
+      if (discount > 0)
+        invLines.push({ systemKey: "sales_discount", debit: discount, description: "خصم POS" });
+      if (subtotal > 0)
+        invLines.push({ systemKey: "sales_revenue", credit: subtotal, description: "إيرادات POS" });
       if (tax > 0)
-        saleLines.push({ systemKey: "vat_output", credit: tax, description: "ضريبة مخرجات 15%" });
+        invLines.push({ systemKey: "vat_output", credit: tax, description: "ضريبة 15%" });
       await postJournalEntry(
         tx,
         {
           entryDate: new Date(),
-          description: `بيع نقطة بيع — ${orderNumber}`,
-          reference: orderNumber,
+          description: `فاتورة POS — ${invRef}`,
+          reference: invRef,
           source: "pos",
           sourceRef: orderNumber,
           createdBy: req.session?.userId ?? null,
           status: "posted",
         },
-        saleLines,
+        invLines,
       );
+
+      // Immediate receipt + allocation against the invoice we just posted —
+      // POS pays in full at the till. JE: Dr Cash/Bank / Cr AR.
+      const rctRef = await nextRef(tx, "RCT");
+      const [posReceipt] = await tx
+        .insert(customerReceiptsTable)
+        .values({
+          reference: rctRef,
+          customerId: invoiceCustomerId,
+          customerName: invoiceCustomerName ?? "عميل نقدي",
+          receiptDate: todayStr,
+          amount: String(total),
+          // Map POS payment methods (cash | card | transfer) directly onto
+          // the unified receipt domain (cash | bank | card | transfer | stc)
+          // so the new sales-receipt ledger / filters / reports stay
+          // consistent with manually-entered receipts. Previously this
+          // wrote 'bank_transfer' which is outside the receipt enum.
+          paymentMethod: body.paymentMethod,
+          createdBy: req.session?.userId ?? null,
+        })
+        .returning();
+      await tx.insert(customerReceiptAllocationsTable).values({
+        receiptId: posReceipt.id,
+        invoiceId: posInvoice.id,
+        amount: String(total),
+      });
+      const rcptJe = await postJournalEntry(
+        tx,
+        {
+          entryDate: new Date(),
+          description: `سند قبض POS ${rctRef}`,
+          reference: rctRef,
+          source: "payment",
+          sourceRef: orderNumber,
+          createdBy: req.session?.userId ?? null,
+          status: "posted",
+        },
+        [
+          { systemKey: cashKey, debit: total, description: `قبض ${orderNumber}` },
+          { systemKey: "ar", credit: total, description: "تسوية ذمم — POS" },
+        ],
+      );
+      await tx
+        .update(customerReceiptsTable)
+        .set({ journalEntryId: rcptJe.id })
+        .where(eq(customerReceiptsTable.id, posReceipt.id));
 
       if (totalCost > 0) {
         await postJournalEntry(
