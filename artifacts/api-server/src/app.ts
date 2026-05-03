@@ -9,14 +9,21 @@ import { initAccounting } from "./lib/accounting-init";
 const app: Express = express();
 
 // Block requests until the accounting subsystem (tables + seed + legacy
-// migration) has finished. The previous fire-and-forget call could let HTTP
-// requests hit incomplete schema during boot.
+// migration) has finished. We fail closed: if init throws, every request
+// returns 503 until the process is restarted, instead of silently serving
+// queries against an incomplete schema.
+let accountingInitError: unknown = null;
 const accountingReady = initAccounting().catch((err) => {
+  accountingInitError = err;
   logger.error({ err }, "Failed to initialize accounting subsystem");
 });
 
-app.use(async (_req, _res, next) => {
+app.use(async (_req, res, next) => {
   await accountingReady;
+  if (accountingInitError) {
+    res.status(503).json({ error: "Accounting subsystem failed to initialize" });
+    return;
+  }
   next();
 });
 

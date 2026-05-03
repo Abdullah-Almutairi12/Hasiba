@@ -574,59 +574,131 @@ function NewEntryTab() {
   );
 }
 
+function CoaTreeRow({
+  node,
+  depth,
+}: {
+  node: AccountTreeNode;
+  depth: number;
+}) {
+  const [open, setOpen] = useState(true);
+  const hasChildren = node.children.length > 0;
+  return (
+    <>
+      <TableRow>
+        <TableCell className="font-mono text-xs">{node.code}</TableCell>
+        <TableCell
+          style={{ paddingInlineStart: 12 + depth * 18 }}
+          className={node.isGroup ? "font-semibold" : ""}
+        >
+          {hasChildren ? (
+            <button
+              type="button"
+              onClick={() => setOpen((v) => !v)}
+              className="me-1 inline-flex h-4 w-4 items-center justify-center text-muted-foreground"
+              aria-label={open ? "طي" : "توسيع"}
+            >
+              {open ? "▾" : "▸"}
+            </button>
+          ) : (
+            <span className="me-1 inline-block h-4 w-4" />
+          )}
+          {node.nameAr}
+        </TableCell>
+        <TableCell>{node.currencyCode}</TableCell>
+        <TableCell className="font-mono text-xs text-muted-foreground">
+          {node.systemKey ?? "—"}
+        </TableCell>
+      </TableRow>
+      {open &&
+        node.children.map((c) => (
+          <CoaTreeRow key={c.id} node={c} depth={depth + 1} />
+        ))}
+    </>
+  );
+}
+
+type AccountTreeNode = Account & { children: AccountTreeNode[] };
+
 function ChartOfAccountsTab() {
   const { data: accounts, isLoading } = useListAccounts();
+  // Build a parent_id-based tree, grouped by the five top-level account types.
+  const byType = useMemo(() => {
+    const result: Record<
+      "asset" | "liability" | "equity" | "revenue" | "expense",
+      AccountTreeNode[]
+    > = { asset: [], liability: [], equity: [], revenue: [], expense: [] };
+    if (!accounts) return result;
+    const map = new Map<number, AccountTreeNode>();
+    for (const a of accounts) map.set(a.id, { ...a, children: [] });
+    for (const node of map.values()) {
+      if (node.parentId && map.has(node.parentId)) {
+        map.get(node.parentId)!.children.push(node);
+      }
+    }
+    // Roots = accounts whose parent is missing or not in the same type.
+    for (const node of map.values()) {
+      const parent = node.parentId ? map.get(node.parentId) : undefined;
+      if (!parent) result[node.type].push(node);
+    }
+    const sortRec = (n: AccountTreeNode) => {
+      n.children.sort((a, b) => a.code.localeCompare(b.code));
+      n.children.forEach(sortRec);
+    };
+    for (const k of Object.keys(result) as (keyof typeof result)[]) {
+      result[k].sort((a, b) => a.code.localeCompare(b.code));
+      result[k].forEach(sortRec);
+    }
+    return result;
+  }, [accounts]);
+
+  if (isLoading) {
+    return (
+      <Card>
+        <CardHeader><CardTitle>دليل الحسابات</CardTitle></CardHeader>
+        <CardContent><Skeleton className="h-48 w-full" /></CardContent>
+      </Card>
+    );
+  }
+
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>دليل الحسابات</CardTitle>
-      </CardHeader>
-      <CardContent>
-        {isLoading ? (
-          <Skeleton className="h-48 w-full" />
-        ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>الكود</TableHead>
-                <TableHead>الاسم</TableHead>
-                <TableHead>النوع</TableHead>
-                <TableHead>العملة</TableHead>
-                <TableHead>المفتاح النظامي</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {(accounts ?? []).map((a: Account) => (
-                <TableRow key={a.id}>
-                  <TableCell className="font-mono">{a.code}</TableCell>
-                  <TableCell
-                    className={a.isGroup ? "font-semibold" : ""}
-                    style={
-                      !a.isGroup
-                        ? { paddingInlineStart: 16 }
-                        : undefined
-                    }
-                  >
-                    {a.nameAr}
-                  </TableCell>
-                  <TableCell>
-                    <span
-                      className={`text-xs px-2 py-0.5 rounded ${ACCOUNT_TYPE_COLORS[a.type]}`}
-                    >
-                      {ACCOUNT_TYPE_LABELS[a.type]}
-                    </span>
-                  </TableCell>
-                  <TableCell>{a.currencyCode}</TableCell>
-                  <TableCell className="font-mono text-xs text-muted-foreground">
-                    {a.systemKey ?? "—"}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        )}
-      </CardContent>
-    </Card>
+    <div className="space-y-4">
+      {(Object.keys(byType) as (keyof typeof byType)[]).map((t) => (
+        <Card key={t}>
+          <CardHeader className="flex flex-row items-center justify-between py-3">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <span className={`text-xs px-2 py-0.5 rounded ${ACCOUNT_TYPE_COLORS[t]}`}>
+                {ACCOUNT_TYPE_LABELS[t]}
+              </span>
+              <span className="text-muted-foreground">
+                ({byType[t].length} حساب رئيسي)
+              </span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="pt-0">
+            {byType[t].length === 0 ? (
+              <p className="text-xs text-muted-foreground py-2">لا توجد حسابات.</p>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-24">الكود</TableHead>
+                    <TableHead>الاسم</TableHead>
+                    <TableHead className="w-20">العملة</TableHead>
+                    <TableHead className="w-32">المفتاح النظامي</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {byType[t].map((node) => (
+                    <CoaTreeRow key={node.id} node={node} depth={0} />
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </CardContent>
+        </Card>
+      ))}
+    </div>
   );
 }
 

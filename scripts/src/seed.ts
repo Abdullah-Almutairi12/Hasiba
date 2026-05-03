@@ -266,8 +266,13 @@ async function seedAlerts() {
 }
 
 async function seedJournalEntries() {
-  console.log("→ إضافة قيود محاسبية...");
-  const rows = [];
+  // The original journal_entries table has been redesigned for double-entry
+  // accounting (header + balanced lines, posted via the booking helper). The
+  // legacy free-text rows live in `journal_entries_legacy` and are migrated
+  // automatically by the API server's accounting initialization. We seed
+  // them here directly via raw SQL so a fresh `pnpm seed` populates the
+  // legacy table; the API will then migrate them on first boot.
+  console.log("→ إضافة قيود محاسبية تجريبية (legacy)...");
   const accounts = [
     { d: "النقدية", c: "إيرادات المبيعات" },
     { d: "حسابات العملاء", c: "إيرادات المبيعات" },
@@ -276,19 +281,31 @@ async function seedJournalEntries() {
     { d: "مصاريف الكهرباء", c: "النقدية" },
     { d: "ضريبة القيمة المضافة", c: "النقدية" },
   ];
+  // Ensure the legacy table exists; mirrors the columns the API migrator reads.
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS journal_entries_legacy (
+      id serial PRIMARY KEY,
+      description text NOT NULL,
+      debit_account text NOT NULL,
+      credit_account text NOT NULL,
+      amount numeric(10,2) NOT NULL,
+      date timestamp NOT NULL DEFAULT now(),
+      reference text,
+      is_automatic boolean NOT NULL DEFAULT false,
+      created_at timestamp NOT NULL DEFAULT now()
+    )
+  `);
   for (let i = 0; i < 25; i++) {
     const a = pick(accounts);
-    rows.push({
-      description: `قيد ${i + 1} - ${a.d}`,
-      debitAccount: a.d,
-      creditAccount: a.c,
-      amount: String(rand(500, 25000)),
-      date: daysAgo(rand(0, 60)),
-      reference: `JE-${2026000 + i}`,
-      isAutomatic: i % 3 === 0,
-    });
+    await db.execute(sql`
+      INSERT INTO journal_entries_legacy
+        (description, debit_account, credit_account, amount, date, reference, is_automatic)
+      VALUES
+        (${`قيد ${i + 1} - ${a.d}`}, ${a.d}, ${a.c},
+         ${String(rand(500, 25000))}, ${daysAgo(rand(0, 60))},
+         ${`JE-${2026000 + i}`}, ${i % 3 === 0})
+    `);
   }
-  await db.insert(journalEntriesTable).values(rows);
 }
 
 async function seedAuditLogs() {

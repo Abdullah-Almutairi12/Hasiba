@@ -334,6 +334,17 @@ export async function initAccounting(): Promise<void> {
     }
   }
 
+  // 6a) Seed a default bank account row tied to the seeded `bank` GL account
+  // so the Bank Reconciliation tab is usable on a fresh install.
+  await pool.query(`
+    INSERT INTO bank_accounts (name, bank_name, account_number, iban, currency_code, gl_account_id)
+    SELECT 'الحساب البنكي الرئيسي', 'البنك الأهلي السعودي', '0000000000', 'SA0000000000000000000000', 'SAR', a.id
+      FROM accounts a
+     WHERE a.system_key = 'bank'
+       AND NOT EXISTS (SELECT 1 FROM bank_accounts)
+     LIMIT 1
+  `).catch((e) => logger.warn({ err: e }, "Default bank account seed skipped"));
+
   // 6) Migrate legacy journal entries (free-text debit/credit/amount rows)
   // into balanced new headers + 2-line entries, posted, source='legacy'.
   await migrateLegacyJournalEntries(pool);
