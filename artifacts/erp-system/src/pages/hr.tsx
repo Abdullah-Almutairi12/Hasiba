@@ -31,6 +31,7 @@ import {
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { usePermissions } from "@/hooks/use-permissions";
+import { ApprovalActions } from "@/components/approval-actions";
 import {
   UserCog,
   UserPlus,
@@ -116,6 +117,22 @@ interface LeaveRequest {
   days: number;
   reason: string | null;
   status: string;
+}
+
+interface ExpenseClaim {
+  id: number;
+  reference: string;
+  employeeId: number;
+  claimDate: string;
+  currency: string;
+  amount: string;
+  category: string | null;
+  description: string | null;
+  receiptUrl: string | null;
+  status: string;
+  approvedAt: string | null;
+  rejectionReason: string | null;
+  createdAt: string;
 }
 
 interface PayrollPeriod {
@@ -225,6 +242,10 @@ export default function HrPage() {
   const leaveReqsQ = useQuery<LeaveRequest[]>({
     queryKey: ["hr", "leave-requests"],
     queryFn: () => api<LeaveRequest[]>("/hr/leave-requests"),
+  });
+  const expenseClaimsQ = useQuery<ExpenseClaim[]>({
+    queryKey: ["hr", "expense-claims"],
+    queryFn: () => api<ExpenseClaim[]>("/hr/expense-claims"),
   });
   const periodsQ = useQuery<PayrollPeriod[]>({
     queryKey: ["hr", "payroll-periods"],
@@ -410,6 +431,17 @@ export default function HrPage() {
     onSuccess: () => {
       toast({ title: "تم تحديث الطلب" });
       refreshAll();
+    },
+    onError: (e: Error) => toast({ title: "خطأ", description: e.message, variant: "destructive" }),
+  });
+
+  const createExpenseClaim = useMutation({
+    mutationFn: (b: Record<string, unknown>) =>
+      api("/hr/expense-claims", { method: "POST", body: JSON.stringify(b) }),
+    onSuccess: () => {
+      toast({ title: "تم إنشاء مطالبة المصروف" });
+      refreshAll();
+      setExpenseOpen(false);
     },
     onError: (e: Error) => toast({ title: "خطأ", description: e.message, variant: "destructive" }),
   });
@@ -712,6 +744,17 @@ export default function HrPage() {
     reason: "",
   });
 
+  const [expenseOpen, setExpenseOpen] = useState(false);
+  const [expenseForm, setExpenseForm] = useState({
+    employeeId: "",
+    claimDate: new Date().toISOString().slice(0, 10),
+    currency: "SAR",
+    amount: "",
+    category: "",
+    description: "",
+    receiptUrl: "",
+  });
+
   const [newPeriod, setNewPeriod] = useState({
     year: new Date().getFullYear(),
     month: new Date().getMonth() + 1,
@@ -763,12 +806,13 @@ export default function HrPage() {
       </div>
 
       <Tabs defaultValue="employees" className="space-y-4">
-        <TabsList className="grid w-full grid-cols-3 md:grid-cols-12">
+        <TabsList className="flex w-full flex-wrap gap-1">
           <TabsTrigger value="employees">الموظفون</TabsTrigger>
           <TabsTrigger value="departments">الإدارات</TabsTrigger>
           <TabsTrigger value="orgchart">الهيكل التنظيمي</TabsTrigger>
           <TabsTrigger value="contracts">العقود</TabsTrigger>
           <TabsTrigger value="leaves">الإجازات</TabsTrigger>
+          <TabsTrigger value="expenses">مطالبات المصروفات</TabsTrigger>
           <TabsTrigger value="attendance">الحضور</TabsTrigger>
           <TabsTrigger value="settings">الورديات والبدلات</TabsTrigger>
           <TabsTrigger value="payroll">الرواتب</TabsTrigger>
@@ -1340,9 +1384,152 @@ export default function HrPage() {
                             </Button>
                           </div>
                         )}
+                        {r.status === "pending_approval" && (
+                          <ApprovalActions docType="leave_request" recordId={r.id} compact />
+                        )}
                       </TableCell>
                     </TableRow>
                   ))}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ----- Expense Claims ----- */}
+        <TabsContent value="expenses">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle>مطالبات المصروفات</CardTitle>
+              {canWrite && (
+                <Dialog open={expenseOpen} onOpenChange={setExpenseOpen}>
+                  <DialogTrigger asChild>
+                    <Button size="sm">
+                      <Wallet className="ml-2 h-4 w-4" /> مطالبة جديدة
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>مطالبة مصروف</DialogTitle>
+                    </DialogHeader>
+                    <div className="grid grid-cols-2 gap-4 py-2">
+                      <Field label="الموظف" className="col-span-2">
+                        <Select
+                          value={expenseForm.employeeId}
+                          onValueChange={(v) => setExpenseForm({ ...expenseForm, employeeId: v })}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="اختر..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {(employeesQ.data ?? []).map((e) => (
+                              <SelectItem key={e.id} value={String(e.id)}>
+                                {e.nameAr}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </Field>
+                      <Field label="التاريخ">
+                        <Input
+                          type="date"
+                          value={expenseForm.claimDate}
+                          onChange={(e) => setExpenseForm({ ...expenseForm, claimDate: e.target.value })}
+                        />
+                      </Field>
+                      <Field label="العملة">
+                        <Input
+                          value={expenseForm.currency}
+                          onChange={(e) => setExpenseForm({ ...expenseForm, currency: e.target.value })}
+                        />
+                      </Field>
+                      <Field label="المبلغ">
+                        <Input
+                          type="number"
+                          step="0.01"
+                          value={expenseForm.amount}
+                          onChange={(e) => setExpenseForm({ ...expenseForm, amount: e.target.value })}
+                        />
+                      </Field>
+                      <Field label="التصنيف">
+                        <Input
+                          value={expenseForm.category}
+                          onChange={(e) => setExpenseForm({ ...expenseForm, category: e.target.value })}
+                        />
+                      </Field>
+                      <Field label="رابط الإيصال" className="col-span-2">
+                        <Input
+                          value={expenseForm.receiptUrl}
+                          onChange={(e) => setExpenseForm({ ...expenseForm, receiptUrl: e.target.value })}
+                        />
+                      </Field>
+                      <Field label="الوصف" className="col-span-2">
+                        <Input
+                          value={expenseForm.description}
+                          onChange={(e) => setExpenseForm({ ...expenseForm, description: e.target.value })}
+                        />
+                      </Field>
+                    </div>
+                    <DialogFooter>
+                      <Button
+                        onClick={() => {
+                          if (!expenseForm.employeeId || !expenseForm.amount) {
+                            toast({ title: "بيانات ناقصة", variant: "destructive" });
+                            return;
+                          }
+                          createExpenseClaim.mutate({
+                            employeeId: Number(expenseForm.employeeId),
+                            claimDate: expenseForm.claimDate,
+                            currency: expenseForm.currency || "SAR",
+                            amount: Number(expenseForm.amount),
+                            category: expenseForm.category || null,
+                            description: expenseForm.description || null,
+                            receiptUrl: expenseForm.receiptUrl || null,
+                          });
+                        }}
+                        disabled={createExpenseClaim.isPending}
+                      >
+                        إرسال المطالبة
+                      </Button>
+                    </DialogFooter>
+                  </DialogContent>
+                </Dialog>
+              )}
+            </CardHeader>
+            <CardContent>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>الرقم</TableHead>
+                    <TableHead>الموظف</TableHead>
+                    <TableHead>التاريخ</TableHead>
+                    <TableHead>التصنيف</TableHead>
+                    <TableHead>المبلغ</TableHead>
+                    <TableHead>الحالة</TableHead>
+                    <TableHead>الإجراءات</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {(expenseClaimsQ.data ?? []).map((c) => {
+                    const emp = (employeesQ.data ?? []).find((e) => e.id === c.employeeId);
+                    return (
+                      <TableRow key={c.id}>
+                        <TableCell className="font-mono text-xs">{c.reference}</TableCell>
+                        <TableCell>{emp?.nameAr ?? `#${c.employeeId}`}</TableCell>
+                        <TableCell>{c.claimDate}</TableCell>
+                        <TableCell>{c.category ?? "—"}</TableCell>
+                        <TableCell>{fmtMoney(Number(c.amount))}</TableCell>
+                        <TableCell>
+                          <StatusBadge status={c.status} />
+                        </TableCell>
+                        <TableCell>
+                          {(c.status === "pending_approval" || c.status === "pending") && (
+                            <ApprovalActions docType="expense_claim" recordId={c.id} compact />
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
                 </TableBody>
               </Table>
             </CardContent>

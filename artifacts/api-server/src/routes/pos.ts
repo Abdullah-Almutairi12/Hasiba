@@ -25,6 +25,7 @@ import {
   customerReceiptsTable,
   customerReceiptAllocationsTable,
 } from "@workspace/db";
+import { requireFinancialLimit } from "../lib/workflow-engine";
 
 const router = Router();
 
@@ -123,7 +124,25 @@ router.get("/pos/orders", posReadGuard, async (req, res) => {
   }
 });
 
-router.post("/pos/orders", posGuard, async (req, res) => {
+router.post(
+  "/pos/orders",
+  posGuard,
+  // Cashier discount cap — admins set per-role percentage caps in the
+  // workflow tab as `pos.discount_pct` (matches workflow-init seed). We
+  // compute the discount as a percentage of the order subtotal (lines
+  // total before discount) so caps line up with the seeded
+  // cashier=5%/sales=10%/manager=20% defaults.
+  requireFinancialLimit("pos.discount_pct", (req) => {
+    const lines = (req.body?.lines ?? []) as Array<{ quantity?: number; unitPrice?: number }>;
+    const subtotal = lines.reduce(
+      (s, l) => s + Number(l.quantity ?? 0) * Number(l.unitPrice ?? 0),
+      0,
+    );
+    const discount = Number(req.body?.discount ?? 0);
+    if (subtotal <= 0 || discount <= 0) return 0;
+    return (discount / subtotal) * 100;
+  }),
+  async (req, res) => {
   try {
     const body = CreatePosOrderBody.parse(req.body);
 

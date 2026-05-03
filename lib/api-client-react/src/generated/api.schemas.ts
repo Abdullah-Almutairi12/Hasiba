@@ -5,6 +5,215 @@
  * حاسبة.AI - ERP System API
  * OpenAPI spec version: 0.1.0
  */
+export interface ApprovalStep {
+  id?: number;
+  ruleId?: number;
+  sequence: number;
+  approverRole: string;
+  approverUserId?: number | null;
+  minAmount: number;
+}
+
+export type ApprovalRuleMode =
+  (typeof ApprovalRuleMode)[keyof typeof ApprovalRuleMode];
+
+export const ApprovalRuleMode = {
+  sequential: "sequential",
+  parallel: "parallel",
+} as const;
+
+export interface ApprovalRule {
+  id: number;
+  name: string;
+  docType: string;
+  branchId?: number | null;
+  minAmount: number;
+  maxAmount?: number | null;
+  mode: ApprovalRuleMode;
+  isActive: boolean;
+  createdAt: string;
+  steps: ApprovalStep[];
+}
+
+export type ApprovalRuleInputMode =
+  (typeof ApprovalRuleInputMode)[keyof typeof ApprovalRuleInputMode];
+
+export const ApprovalRuleInputMode = {
+  sequential: "sequential",
+  parallel: "parallel",
+} as const;
+
+export type ApprovalRuleInputStepsItem = {
+  sequence: number;
+  approverRole: string;
+  approverUserId?: number | null;
+  minAmount: number;
+};
+
+export interface ApprovalRuleInput {
+  name: string;
+  docType: string;
+  branchId?: number | null;
+  minAmount?: number;
+  maxAmount?: number | null;
+  mode?: ApprovalRuleInputMode;
+  isActive?: boolean;
+  steps: ApprovalRuleInputStepsItem[];
+}
+
+export type ApprovalRulePatchMode =
+  (typeof ApprovalRulePatchMode)[keyof typeof ApprovalRulePatchMode];
+
+export const ApprovalRulePatchMode = {
+  sequential: "sequential",
+  parallel: "parallel",
+} as const;
+
+export type ApprovalRulePatchStepsItem = {
+  sequence: number;
+  approverRole: string;
+  approverUserId?: number | null;
+  minAmount: number;
+};
+
+/**
+ * Partial update payload for an approval rule. All fields optional.
+ */
+export interface ApprovalRulePatch {
+  name?: string;
+  docType?: string;
+  branchId?: number | null;
+  minAmount?: number;
+  maxAmount?: number | null;
+  mode?: ApprovalRulePatchMode;
+  isActive?: boolean;
+  steps?: ApprovalRulePatchStepsItem[];
+}
+
+export interface ApprovalRequest {
+  id: number;
+  ruleId?: number | null;
+  docType: string;
+  recordId: number;
+  recordRef?: string | null;
+  branchId?: number | null;
+  amount: number;
+  submittedByUserId?: number | null;
+  submittedByName?: string | null;
+  status: string;
+  currentStep: number;
+  notes?: string | null;
+  createdAt: string;
+  decidedAt?: string | null;
+}
+
+export interface ApprovalAction {
+  id: number;
+  requestId: number;
+  stepSequence: number;
+  approverUserId?: number | null;
+  approverName?: string | null;
+  action: string;
+  comment?: string | null;
+  actedAt: string;
+}
+
+export type ApprovalRequestDetail = ApprovalRequest & {
+  steps: ApprovalStep[];
+  actions: ApprovalAction[];
+};
+
+export interface ApproverDelegation {
+  id: number;
+  fromUserId: number;
+  toUserId: number;
+  fromDate: string;
+  toDate: string;
+  reason?: string | null;
+  createdAt: string;
+}
+
+export interface FinancialLimit {
+  id: number;
+  role: string;
+  actionKey: string;
+  maxValue?: number | null;
+  description?: string | null;
+  updatedAt: string;
+}
+
+export type AutomationRuleTrigger = { [key: string]: unknown };
+
+export type AutomationRuleConditionsItem = { [key: string]: unknown };
+
+export type AutomationRuleActionsItem = { [key: string]: unknown };
+
+export interface AutomationRule {
+  id: number;
+  name: string;
+  description?: string | null;
+  trigger: AutomationRuleTrigger;
+  conditions: AutomationRuleConditionsItem[];
+  actions: AutomationRuleActionsItem[];
+  isActive: boolean;
+  lastRunAt?: string | null;
+  createdAt: string;
+}
+
+export type AutomationRuleInputTrigger = { [key: string]: unknown };
+
+export type AutomationRuleInputConditionsItem = { [key: string]: unknown };
+
+export type AutomationRuleInputActionsItem = { [key: string]: unknown };
+
+export interface AutomationRuleInput {
+  name: string;
+  description?: string | null;
+  trigger: AutomationRuleInputTrigger;
+  conditions?: AutomationRuleInputConditionsItem[];
+  actions?: AutomationRuleInputActionsItem[];
+  isActive?: boolean;
+}
+
+export type AutomationRulePatchTrigger = { [key: string]: unknown };
+
+export type AutomationRulePatchConditionsItem = { [key: string]: unknown };
+
+export type AutomationRulePatchActionsItem = { [key: string]: unknown };
+
+/**
+ * Partial update payload for an automation rule. All fields optional.
+ */
+export interface AutomationRulePatch {
+  name?: string;
+  description?: string | null;
+  trigger?: AutomationRulePatchTrigger;
+  conditions?: AutomationRulePatchConditionsItem[];
+  actions?: AutomationRulePatchActionsItem[];
+  isActive?: boolean;
+}
+
+export interface AutomationRun {
+  id: number;
+  ruleId: number;
+  triggeredAt: string;
+  status: string;
+  matchedRecords: number;
+  actionsExecuted: number;
+  error?: string | null;
+}
+
+export interface InboxItem {
+  id: number;
+  userId: number;
+  type: string;
+  title: string;
+  message: string;
+  link?: string | null;
+  isRead: boolean;
+  createdAt: string;
+}
+
 export interface HealthStatus {
   status: string;
 }
@@ -1213,4 +1422,102 @@ export type AskAiAssistant200 = {
 export type GetSupplier200 = {
   supplier: Supplier;
   recentInvoices: Invoice[];
+};
+
+export type CreateApprovalRule201 = {
+  id: number;
+};
+
+export type UpdateApprovalRule200 = {
+  ok: boolean;
+};
+
+export type DeleteApprovalRule200 = {
+  ok: boolean;
+};
+
+export type ListApprovalRequestsParams = {
+  status?: string;
+  docType?: string;
+};
+
+export type ActOnApprovalRequestBodyAction =
+  (typeof ActOnApprovalRequestBodyAction)[keyof typeof ActOnApprovalRequestBodyAction];
+
+export const ActOnApprovalRequestBodyAction = {
+  approve: "approve",
+  reject: "reject",
+  request_changes: "request_changes",
+  comment: "comment",
+} as const;
+
+export type ActOnApprovalRequestBody = {
+  action: ActOnApprovalRequestBodyAction;
+  comment?: string | null;
+};
+
+export type ActOnApprovalRequest200 = {
+  status: string;
+  finished: boolean;
+};
+
+export type CreateDelegationBody = {
+  fromUserId: number;
+  toUserId: number;
+  fromDate: string;
+  toDate: string;
+  reason?: string | null;
+};
+
+export type CreateDelegation201 = {
+  id: number;
+};
+
+export type DeleteDelegation200 = {
+  ok: boolean;
+};
+
+export type UpsertFinancialLimitBody = {
+  role: string;
+  actionKey: string;
+  maxValue: number | null;
+  description?: string | null;
+};
+
+export type UpsertFinancialLimit200 = {
+  ok: boolean;
+};
+
+export type CreateAutomationRule201 = {
+  id: number;
+};
+
+export type UpdateAutomationRule200 = {
+  ok: boolean;
+};
+
+export type DeleteAutomationRule200 = {
+  ok: boolean;
+};
+
+export type ListAutomationRunsParams = {
+  ruleId?: number;
+};
+
+export type ListInboxParams = {
+  unread?: string;
+};
+
+export type MarkInboxRead200 = {
+  ok: boolean;
+};
+
+export type MarkAllInboxRead200 = {
+  ok: boolean;
+};
+
+export type ListApproverCandidates200Item = {
+  id: number;
+  name: string;
+  role: string;
 };

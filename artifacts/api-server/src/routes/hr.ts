@@ -22,8 +22,9 @@ import {
   payslipsTable,
   branchesTable,
   usersTable,
+  approvalRequestsTable,
 } from "@workspace/db";
-import { and, asc, desc, eq, sql, gte, lte, or, isNotNull, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, sql, gte, lte, or, isNotNull, inArray, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import {
   adminGuard,
@@ -34,8 +35,100 @@ import {
 } from "../middlewares/require-role";
 import { handleRouteError } from "../lib/handle-error";
 import { postJournalEntry } from "../lib/journal-posting";
+import { logger } from "../lib/logger";
+import {
+  submitForApproval,
+  registerOnApprove,
+  registerOnReject,
+  triggerEvent,
+} from "../lib/workflow-engine";
 
 const router = Router();
+
+// ---------------------------------------------------------------------------
+// Workflow-engine integration: Leave Request.
+//   * On create, the leave request is submitted to the engine. Configurable
+//     approval rules (doc_type=leave_request) override the legacy /decide
+//     endpoint when matched. The amount used for thresholding is the
+//     number of leave days, so admins can wire e.g. ">5 days needs CEO".
+//   * onApprove: mark request approved, move days from pending → used.
+//   * onReject: mark rejected, release pending balance.
+// ---------------------------------------------------------------------------
+async function applyLeaveDecision(
+  recordId: number,
+  decision: "approved" | "rejected",
+  approverUserId: number | null,
+): Promise<void> {
+  const [lr] = await db.select().from(leaveRequestsTable).where(eq(leaveRequestsTable.id, recordId));
+  if (!lr || lr.status !== "pending") return;
+  const year = new Date(lr.startDate).getFullYear();
+  const balance = await ensureLeaveBalance(lr.employeeId, lr.leaveTypeId, year);
+  const days = num(lr.days);
+  if (decision === "approved") {
+    await db
+      .update(leaveBalancesTable)
+      .set({
+        pending: String(Math.max(0, num(balance.pending) - days)),
+        used: String(num(balance.used) + days),
+        updatedAt: new Date(),
+      })
+      .where(eq(leaveBalancesTable.id, balance.id));
+    await db
+      .update(leaveRequestsTable)
+      .set({ status: "approved", approvedBy: approverUserId, approvedAt: new Date() })
+      .where(eq(leaveRequestsTable.id, recordId));
+    void triggerEvent("state_changed", "leave_request", { id: recordId, days }, "approved");
+  } else {
+    await db
+      .update(leaveBalancesTable)
+      .set({ pending: String(Math.max(0, num(balance.pending) - days)), updatedAt: new Date() })
+      .where(eq(leaveBalancesTable.id, balance.id));
+    await db
+      .update(leaveRequestsTable)
+      .set({ status: "rejected", approvedBy: approverUserId, approvedAt: new Date() })
+      .where(eq(leaveRequestsTable.id, recordId));
+  }
+}
+registerOnApprove("leave_request", async (recordId) => {
+  // Errors propagate so actOnApproval can roll the request back to
+  // pending if the leave-balance update or status flip fails.
+  await applyLeaveDecision(recordId, "approved", null);
+});
+registerOnReject("leave_request", async (recordId) => {
+  await applyLeaveDecision(recordId, "rejected", null);
+});
+
+// ---------------------------------------------------------------------------
+// Workflow-engine integration: Expense Claim.
+//   * Submitted on POST /hr/expense-claims; engine routes to approver(s)
+//     based on doc_type=expense_claim rules and the claim amount.
+//   * onApprove flips status to approved (JE posting is intentionally out
+//     of scope — Task #7 marks JE as optional for expense claims).
+//   * onReject flips status to rejected.
+// ---------------------------------------------------------------------------
+registerOnApprove("expense_claim", async (recordId) => {
+  // Rethrow on failure: actOnApproval rolls the request back to pending
+  // and surfaces the error so workflow + document state stay consistent.
+  try {
+    await db.execute(
+      sql`UPDATE expense_claims SET status = 'approved', approved_at = now() WHERE id = ${recordId} AND status IN ('pending','pending_approval')`,
+    );
+    void triggerEvent("state_changed", "expense_claim", { id: recordId }, "approved");
+  } catch (err) {
+    logger.error({ err, recordId }, "expense_claim onApprove failed");
+    throw err;
+  }
+});
+registerOnReject("expense_claim", async (recordId) => {
+  try {
+    await db.execute(
+      sql`UPDATE expense_claims SET status = 'rejected', approved_at = now() WHERE id = ${recordId} AND status IN ('pending','pending_approval')`,
+    );
+  } catch (err) {
+    logger.error({ err, recordId }, "expense_claim onReject failed");
+    throw err;
+  }
+});
 
 // =========================================================================
 // Helpers
@@ -330,6 +423,15 @@ router.patch("/hr/employees/:id", hrGuard, async (req, res) => {
       .where(eq(employeesTable.id, id))
       .returning();
     if (!row) return res.status(404).json({ error: "الموظف غير موجود" });
+    // Automation hook: rules with trigger.type='record_updated' on the
+    // 'employee' entity can react to changes (e.g. notify HR when an
+    // employee's department or status changes).
+    void triggerEvent("record_updated", "employee", {
+      id: row.id,
+      changedKeys: Object.keys(update),
+      branchId: row.branchId,
+      status: row.status,
+    });
     return res.json({ ...row, createdAt: row.createdAt.toISOString() });
   } catch (err) {
     return handleRouteError(err, res);
@@ -594,11 +696,56 @@ router.post("/hr/leave-requests", hrGuard, async (req, res) => {
       .set({ pending: String(num(balance.pending) + days), updatedAt: new Date() })
       .where(eq(leaveBalancesTable.id, balance.id));
 
+    // Workflow-engine submission — synchronous. The amount is the leave
+    // duration in days so admins can configure rules like ">5 days requires
+    // manager, >15 days requires CEO". When no rule matches the request
+    // stays in 'pending' (legacy /decide flow). When a rule matches we lock
+    // the row to 'pending_approval' and surface the approvalRequestId to
+    // the client.
+    let approvalRequestId: number | undefined;
+    let pendingApproval = false;
+    try {
+      const [empBranch] = await db
+        .select({ branchId: employeesTable.branchId })
+        .from(employeesTable)
+        .where(eq(employeesTable.id, body.employeeId));
+      const submission = await submitForApproval({
+        docType: "leave_request",
+        recordId: row.id,
+        recordRef: reference,
+        amount: days,
+        branchId: empBranch?.branchId ?? null,
+        submittedByUserId: req.session?.userId ?? null,
+        submittedByName: (req.session as { userName?: string } | undefined)?.userName ?? null,
+      });
+      if (submission.required) {
+        await db
+          .update(leaveRequestsTable)
+          .set({ status: "pending_approval" })
+          .where(eq(leaveRequestsTable.id, row.id));
+        approvalRequestId = submission.requestId;
+        pendingApproval = true;
+      }
+    } catch (err) {
+      req.log.error({ err }, "leave_request submitForApproval failed");
+    }
+
+    // Automation hook: rules on 'leave_request' record_created can fan
+    // out notifications to HR or trigger calendar webhooks.
+    void triggerEvent("record_created", "leave_request", {
+      id: row.id,
+      employeeId: row.employeeId,
+      leaveTypeId: row.leaveTypeId,
+      days,
+    });
     return res.status(201).json({
       ...row,
+      status: pendingApproval ? "pending_approval" : row.status,
       days: num(row.days),
       approvedAt: row.approvedAt?.toISOString() ?? null,
       createdAt: row.createdAt.toISOString(),
+      pendingApproval,
+      approvalRequestId,
     });
   } catch (err) {
     req.log.error({ err }, "create leave req");
@@ -615,6 +762,28 @@ router.post("/hr/leave-requests/:id/decide", hrGuard, async (req, res) => {
     const [lr] = await db.select().from(leaveRequestsTable).where(eq(leaveRequestsTable.id, id)).limit(1);
     if (!lr) return res.status(404).json({ error: "الطلب غير موجود" });
     if (lr.status !== "pending") return res.status(400).json({ error: "لا يمكن تعديل طلب تمت معالجته" });
+
+    // If the workflow engine has an active approval chain on this leave
+    // request, the legacy /decide endpoint is locked out — approvals must
+    // flow through the engine's /workflow/approval-requests/:id/act so
+    // delegations, audit trail, and notifications fire correctly.
+    const [openReq] = await db
+      .select({ id: approvalRequestsTable.id })
+      .from(approvalRequestsTable)
+      .where(
+        and(
+          eq(approvalRequestsTable.docType, "leave_request"),
+          eq(approvalRequestsTable.recordId, id),
+          inArray(approvalRequestsTable.status, ["pending", "changes_requested"]),
+        ),
+      )
+      .limit(1);
+    if (openReq) {
+      return res.status(409).json({
+        error: "هذا الطلب يخضع لسلسلة اعتماد نشطة. استخدم صندوق الموافقات.",
+        approvalRequestId: openReq.id,
+      });
+    }
 
     const year = new Date(lr.startDate).getFullYear();
     const balance = await ensureLeaveBalance(lr.employeeId, lr.leaveTypeId, year);
@@ -654,6 +823,120 @@ router.post("/hr/leave-requests/:id/decide", hrGuard, async (req, res) => {
     }
   } catch (err) {
     return handleRouteError(err, res);
+  }
+});
+
+// =========================================================================
+// Expense Claims (employee reimbursements)
+// =========================================================================
+const ExpenseClaimBody = z.object({
+  employeeId: z.number().int().positive(),
+  claimDate: z.string(),
+  amount: z.number().positive(),
+  currency: z.string().default("SAR"),
+  category: z.string().nullable().optional(),
+  description: z.string().nullable().optional(),
+  receiptUrl: z.string().url().nullable().optional(),
+});
+
+router.get("/hr/expense-claims", hrReadGuard, async (req, res) => {
+  try {
+    const employeeId = req.query.employeeId ? Number(req.query.employeeId) : null;
+    const status = req.query.status ? String(req.query.status) : null;
+    const filters: string[] = [];
+    if (employeeId) filters.push(`employee_id = ${employeeId}`);
+    if (status) filters.push(`status = '${status.replace(/'/g, "''")}'`);
+    const where = filters.length ? `WHERE ${filters.join(" AND ")}` : "";
+    const result = await db.execute(sql.raw(`
+      SELECT id, reference, employee_id AS "employeeId", claim_date AS "claimDate",
+             currency, amount, category, description, receipt_url AS "receiptUrl",
+             status, approved_at AS "approvedAt", rejection_reason AS "rejectionReason",
+             created_at AS "createdAt"
+        FROM expense_claims ${where}
+        ORDER BY created_at DESC LIMIT 200
+    `));
+    res.json(result.rows);
+  } catch (err) {
+    handleRouteError(err, res);
+  }
+});
+
+router.post("/hr/expense-claims", hrGuard, async (req, res) => {
+  try {
+    const body = ExpenseClaimBody.parse(req.body);
+    const reference = await nextRef("EXP", new Date().getFullYear());
+    const userId = req.session?.userId ?? null;
+    const result = await db.execute(sql`
+      INSERT INTO expense_claims
+        (reference, employee_id, claim_date, currency, amount, category,
+         description, receipt_url, created_by)
+      VALUES (${reference}, ${body.employeeId}, ${body.claimDate}::date,
+              ${body.currency}, ${body.amount}, ${body.category ?? null},
+              ${body.description ?? null}, ${body.receiptUrl ?? null}, ${userId})
+      RETURNING id
+    `);
+    const newId = Number((result.rows[0] as { id: number }).id);
+
+    // Submit to workflow engine — synchronous. Amount drives threshold
+    // rules (e.g. >5,000 → manager, >25,000 → CFO). When a rule matches
+    // we lock the row to 'pending_approval' and return the approval
+    // request id so the client can deep-link to the inbox.
+    let approvalRequestId: number | undefined;
+    let status = "pending";
+    try {
+      const [empBranch] = await db
+        .select({ branchId: employeesTable.branchId })
+        .from(employeesTable)
+        .where(eq(employeesTable.id, body.employeeId));
+      const submission = await submitForApproval({
+        docType: "expense_claim",
+        recordId: newId,
+        recordRef: reference,
+        amount: body.amount,
+        branchId: empBranch?.branchId ?? null,
+        submittedByUserId: userId,
+        submittedByName: (req.session as { userName?: string } | undefined)?.userName ?? null,
+      });
+      if (submission.required) {
+        await db.execute(
+          sql`UPDATE expense_claims SET status = 'pending_approval' WHERE id = ${newId}`,
+        );
+        approvalRequestId = submission.requestId;
+        status = "pending_approval";
+      }
+    } catch (err) {
+      req.log.error({ err }, "expense_claim submitForApproval failed");
+    }
+
+    void triggerEvent("record_created", "expense_claim", {
+      id: newId,
+      employeeId: body.employeeId,
+      amount: body.amount,
+      category: body.category ?? null,
+    });
+    res.status(201).json({ id: newId, reference, status, approvalRequestId });
+  } catch (err) {
+    handleRouteError(err, res);
+  }
+});
+
+router.get("/hr/expense-claims/:id", hrReadGuard, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const result = await db.execute(sql`
+      SELECT id, reference, employee_id AS "employeeId", claim_date AS "claimDate",
+             currency, amount, category, description, receipt_url AS "receiptUrl",
+             status, approved_at AS "approvedAt", rejection_reason AS "rejectionReason",
+             created_at AS "createdAt"
+        FROM expense_claims WHERE id = ${id} LIMIT 1
+    `);
+    if (result.rows.length === 0) {
+      res.status(404).json({ error: "Not found" });
+      return;
+    }
+    res.json(result.rows[0]);
+  } catch (err) {
+    handleRouteError(err, res);
   }
 });
 

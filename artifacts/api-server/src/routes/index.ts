@@ -26,6 +26,7 @@ import storageRouter from "./storage";
 import exportsRouter from "./exports";
 import hrRouter, { hrPublicRouter } from "./hr";
 import manufacturingRouter from "./manufacturing";
+import workflowRouter from "./workflow";
 import { requireAuth } from "../middlewares/require-auth";
 
 const router: IRouter = Router();
@@ -64,5 +65,6 @@ router.use(storageRouter);
 router.use(exportsRouter);
 router.use(hrRouter);
 router.use(manufacturingRouter);
+router.use(workflowRouter);
 
 export default router;

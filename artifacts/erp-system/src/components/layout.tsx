@@ -45,6 +45,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { WorkflowInboxBell } from "@/components/workflow-inbox-bell";
 import {
   Sidebar,
   SidebarContent,
@@ -289,6 +290,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           <header className="sticky top-0 z-10 flex h-16 shrink-0 items-center gap-2 border-b border-border/50 bg-background/95 px-3 backdrop-blur supports-[backdrop-filter]:bg-background/60 sm:gap-4 sm:px-6">
             <SidebarTrigger />
             <div className="flex flex-1 items-center justify-end gap-1 sm:gap-2">
+              <WorkflowInboxBell />
               <LanguageToggle />
               <ThemeToggle />
               <UserMenu />

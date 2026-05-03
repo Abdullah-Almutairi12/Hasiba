@@ -19,3 +19,4 @@ export * from "./procurement";
 export * from "./sales";
 export * from "./hr";
 export * from "./manufacturing";
+export * from "./workflow";

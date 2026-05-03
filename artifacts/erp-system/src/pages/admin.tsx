@@ -79,7 +79,9 @@ import {
   Cpu,
   Loader2,
   Send,
+  Workflow,
 } from "lucide-react";
+import { WorkflowTab } from "@/components/workflow-tab";
 
 function AccessDenied() {
   return (
@@ -1171,7 +1173,7 @@ export default function AdminPage() {
   const { isRTL } = useLanguage();
   const [, setLocation] = useLocation();
 
-  if (user && user.role !== "manager") {
+  if (user && user.role !== "manager" && user.role !== "owner") {
     return <AccessDenied />;
   }
 
@@ -1218,6 +1220,9 @@ export default function AdminPage() {
             <Sparkles className="me-2 size-4" />
             المساعد الذكي
           </TabsTrigger>
+          <TabsTrigger value="workflow" data-testid="tab-workflow">
+            <Workflow className="me-1 size-4" /> سير العمل
+          </TabsTrigger>
           <TabsTrigger value="audit" data-testid="tab-audit">
             <History className="me-2 size-4" />
             السجلات
@@ -1230,6 +1235,7 @@ export default function AdminPage() {
         <TabsContent value="features"><FeatureFlagsTab /></TabsContent>
         <TabsContent value="ai"><AiModelsTab /></TabsContent>
         <TabsContent value="assistant"><AssistantTab /></TabsContent>
+        <TabsContent value="workflow"><WorkflowTab /></TabsContent>
         <TabsContent value="audit"><AuditTab /></TabsContent>
       </Tabs>
       {/* hint icon used for tone palette */}

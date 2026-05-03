@@ -47,8 +47,373 @@ import { buildZatcaQrBase64 } from "../lib/zatca-qr";
 import { recordStockMove, getDefaultWarehouseId } from "../lib/stock-engine";
 import { sendMail, isMailerConfigured } from "../lib/mailer";
 import { warehousesTable as _warehousesTable } from "@workspace/db";
+import {
+  submitForApproval,
+  registerOnApprove,
+  registerOnReject,
+  requireFinancialLimit,
+  triggerEvent,
+} from "../lib/workflow-engine";
+import { logger } from "../lib/logger";
 
 const router = Router();
+
+// ---------------------------------------------------------------------------
+// Workflow-engine integration: Sales Order confirm transition.
+//   * When /sales/orders/:id/transition moves a draft → confirmed and the
+//     workflow rule matches, we lock the SO into "pending_approval" and the
+//     engine handles the approval chain.
+//   * On approve we run finalizeSalesOrderConfirm (idempotent — accepts
+//     both draft and pending_approval as input).
+//   * On reject we revert to draft so the submitter can edit and resubmit.
+// ---------------------------------------------------------------------------
+async function finalizeSalesOrderConfirm(id: number): Promise<void> {
+  const [so] = await db.select().from(salesOrdersTable).where(eq(salesOrdersTable.id, id));
+  if (!so) return;
+  if (so.status !== "draft" && so.status !== "pending_approval") return;
+  await db.update(salesOrdersTable).set({ status: "confirmed" }).where(eq(salesOrdersTable.id, id));
+  void triggerEvent("state_changed", "sales_order", { id, total: Number(so.total) }, "confirmed");
+}
+registerOnApprove("sales_order", async (recordId) => {
+  await finalizeSalesOrderConfirm(recordId);
+});
+registerOnReject("sales_order", async (recordId) => {
+  try {
+    await db
+      .update(salesOrdersTable)
+      .set({ status: "draft" })
+      .where(eq(salesOrdersTable.id, recordId));
+  } catch (err) {
+    logger.error({ err, recordId }, "SO onReject revert failed");
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Workflow-engine integration: Credit Note posting + cancellation.
+//   * Posting (doc_type=credit_note): when an admin configures a posting
+//     approval rule, the CN row + lines are persisted in status='draft'
+//     but no JE / inventory restock / invoice settlement happens. After
+//     approval, finalizeCreditNoteIssue runs and the CN flips to
+//     status='issued'.
+//   * Cancellation (doc_type=credit_note_cancel): destructive AR action
+//     that can be gated separately. On approve we run the reversal JE +
+//     inventory + SO recompute and set status='cancelled'.
+// ---------------------------------------------------------------------------
+// On approve we run the same finalize helper used by the route, so the
+// reversal JE + stock compensation + invoice status recompute fire
+// automatically once the chain completes (no second manual click).
+async function finalizeCreditNoteCancellation(
+  id: number,
+  sessionUserId: number | null,
+): Promise<typeof creditNotesTable.$inferSelect> {
+  return await db.transaction(async (tx) => {
+    const [note] = await tx.select().from(creditNotesTable).where(eq(creditNotesTable.id, id));
+    if (!note) throw new Error("Not found");
+    if (note.status === "cancelled") throw new Error("الإشعار ملغى مسبقاً");
+
+    if (note.journalEntryId) {
+      const reverseRef = `${note.reference}-REV`;
+      const reverseLines: Array<{ systemKey: string; debit?: number; credit?: number; description?: string }> = [
+        { systemKey: "sales_returns", credit: Number(note.subtotal), description: "إلغاء مردودات مبيعات" },
+      ];
+      if (Number(note.vat) > 0)
+        reverseLines.push({ systemKey: "vat_output", credit: Number(note.vat), description: "إلغاء عكس ضريبة 15%" });
+      if (Number(note.total) > 0)
+        reverseLines.push({ systemKey: "ar", debit: Number(note.total), description: "إعادة فتح ذمم مدينة" });
+      await postJournalEntry(
+        tx,
+        {
+          entryDate: new Date().toISOString().slice(0, 10),
+          description: `إلغاء إشعار دائن ${note.reference}`,
+          reference: reverseRef,
+          source: "manual",
+          sourceRef: reverseRef,
+          createdBy: sessionUserId,
+          status: "posted",
+        },
+        reverseLines,
+      );
+    }
+
+    const cnLines = await tx
+      .select()
+      .from(creditNoteLinesTable)
+      .where(eq(creditNoteLinesTable.noteId, note.id));
+    if (note.restock && note.warehouseId) {
+      const cancelRef = `${note.reference}-CXL`;
+      for (const cn of cnLines) {
+        if (!cn.productId) continue;
+        await recordStockMove(tx, {
+          productId: cn.productId,
+          quantity: Number(cn.quantity),
+          kind: "issue",
+          fromWarehouseId: note.warehouseId,
+          sourceType: "credit_note_cancel",
+          sourceRef: cancelRef,
+          createdBy: sessionUserId,
+          skipJournal: true,
+        });
+      }
+    }
+
+    const touchedSoIds = new Set<number>();
+    for (const cn of cnLines) {
+      if (!cn.invoiceLineId) continue;
+      const [il] = await tx
+        .select()
+        .from(customerInvoiceLinesTable)
+        .where(eq(customerInvoiceLinesTable.id, cn.invoiceLineId));
+      if (!il?.soLineId) continue;
+      const update: Record<string, unknown> = {
+        invoicedQty: sql`${salesOrderLinesTable.invoicedQty}::numeric + ${Number(cn.quantity)}`,
+      };
+      if (note.restock) {
+        update.deliveredQty = sql`${salesOrderLinesTable.deliveredQty}::numeric + ${Number(cn.quantity)}`;
+      }
+      await tx
+        .update(salesOrderLinesTable)
+        .set(update)
+        .where(eq(salesOrderLinesTable.id, il.soLineId));
+      const [sl] = await tx
+        .select({ soId: salesOrderLinesTable.soId })
+        .from(salesOrderLinesTable)
+        .where(eq(salesOrderLinesTable.id, il.soLineId));
+      if (sl?.soId) touchedSoIds.add(sl.soId);
+    }
+    for (const soId of touchedSoIds) {
+      const sLines = await tx
+        .select({
+          qty: salesOrderLinesTable.quantity,
+          inv: salesOrderLinesTable.invoicedQty,
+          del: salesOrderLinesTable.deliveredQty,
+        })
+        .from(salesOrderLinesTable)
+        .where(eq(salesOrderLinesTable.soId, soId));
+      const allInvoiced = sLines.every((l) => Number(l.qty) - Number(l.inv) <= 1e-6);
+      const allDelivered = sLines.every((l) => Number(l.qty) - Number(l.del) <= 1e-6);
+      const next = allInvoiced && allDelivered ? "invoiced" : allDelivered ? "fully_delivered" : "partially_delivered";
+      await tx.update(salesOrdersTable).set({ status: next }).where(eq(salesOrdersTable.id, soId));
+    }
+
+    const [updated] = await tx
+      .update(creditNotesTable)
+      .set({ status: "cancelled" })
+      .where(eq(creditNotesTable.id, id))
+      .returning();
+
+    if (note.invoiceId) {
+      const [inv] = await tx
+        .select()
+        .from(customerInvoicesTable)
+        .where(eq(customerInvoicesTable.id, note.invoiceId));
+      if (inv) {
+        const [{ creditsSum }] = await tx
+          .select({
+            creditsSum: sql<number>`coalesce(sum(${creditNotesTable.total}::numeric), 0)`,
+          })
+          .from(creditNotesTable)
+          .where(
+            and(
+              eq(creditNotesTable.invoiceId, inv.id),
+              inArray(creditNotesTable.status, ["issued", "applied"]),
+            ),
+          );
+        const settled = Number(inv.amountPaid) + Number(creditsSum);
+        const nextStatus =
+          Number(inv.total) - settled <= 0.01
+            ? "paid"
+            : Number(inv.amountPaid) > 0
+              ? "partially_paid"
+              : "open";
+        if (nextStatus !== inv.status) {
+          await tx
+            .update(customerInvoicesTable)
+            .set({ status: nextStatus })
+            .where(eq(customerInvoicesTable.id, inv.id));
+        }
+      }
+    }
+    void triggerEvent("state_changed", "credit_note", { id, total: Number(updated.total) }, "cancelled");
+    return updated;
+  });
+}
+registerOnApprove("credit_note_cancel", async (recordId) => {
+  // Rethrow on failure: actOnApproval rolls the request back to pending
+  // and surfaces the error so workflow + document state stay consistent.
+  try {
+    await finalizeCreditNoteCancellation(recordId, null);
+  } catch (err) {
+    logger.error({ err, recordId }, "credit_note_cancel onApprove finalize failed");
+    throw err;
+  }
+});
+
+// ---------------------------------------------------------------------------
+// CN posting finalize: runs the JE + invoice settlement + SO line decrements
+// for a draft credit note. Used both inline (no posting approval needed) and
+// from the registerOnApprove("credit_note") handler when the admin has
+// configured a credit_note approval rule.
+// ---------------------------------------------------------------------------
+async function finalizeCreditNoteIssue(
+  noteId: number,
+  sessionUserId: number | null,
+): Promise<typeof creditNotesTable.$inferSelect> {
+  return await db.transaction(async (tx) => {
+    const [note] = await tx.select().from(creditNotesTable).where(eq(creditNotesTable.id, noteId));
+    if (!note) throw new Error("الإشعار الدائن غير موجود");
+    if (note.status !== "draft" && note.status !== "pending_approval") {
+      throw new Error(`لا يمكن ترحيل إشعار في حالة ${note.status}`);
+    }
+    const cnLines = await tx
+      .select()
+      .from(creditNoteLinesTable)
+      .where(eq(creditNoteLinesTable.noteId, noteId));
+    // Restock — only if the CN was created with restock=true and a warehouse.
+    if (note.restock && note.warehouseId) {
+      for (const cn of cnLines) {
+        if (!cn.productId) continue;
+        await recordStockMove(tx, {
+          productId: cn.productId,
+          quantity: Number(cn.quantity),
+          kind: "receipt",
+          toWarehouseId: note.warehouseId,
+          sourceType: "credit_note",
+          sourceRef: note.reference,
+          createdBy: sessionUserId,
+          skipJournal: true,
+        });
+      }
+    }
+    // Post offsetting JE.
+    const lines: Array<{ systemKey: string; debit?: number; credit?: number; description?: string }> = [
+      { systemKey: "sales_returns", debit: Number(note.subtotal), description: "مردودات مبيعات" },
+    ];
+    if (Number(note.vat) > 0)
+      lines.push({ systemKey: "vat_output", debit: Number(note.vat), description: "عكس ضريبة 15%" });
+    if (Number(note.total) > 0)
+      lines.push({ systemKey: "ar", credit: Number(note.total), description: "تسوية ذمم مدينة (إشعار دائن)" });
+    const je = await postJournalEntry(
+      tx,
+      {
+        entryDate: note.noteDate,
+        description: `إشعار دائن ${note.reference}`,
+        reference: note.reference,
+        source: "manual",
+        sourceRef: note.reference,
+        createdBy: sessionUserId,
+        status: "posted",
+      },
+      lines,
+    );
+    await tx
+      .update(creditNotesTable)
+      .set({ journalEntryId: je.id, status: "issued" })
+      .where(eq(creditNotesTable.id, noteId));
+    // Invoice + SO settlement.
+    if (note.invoiceId) {
+      const [inv] = await tx
+        .select()
+        .from(customerInvoicesTable)
+        .where(eq(customerInvoicesTable.id, note.invoiceId));
+      if (inv) {
+        const [{ creditsSum }] = await tx
+          .select({
+            creditsSum: sql<number>`coalesce(sum(${creditNotesTable.total}::numeric), 0)`,
+          })
+          .from(creditNotesTable)
+          .where(
+            and(
+              eq(creditNotesTable.invoiceId, inv.id),
+              inArray(creditNotesTable.status, ["issued", "applied"]),
+            ),
+          );
+        const settled = Number(inv.amountPaid) + Number(creditsSum);
+        const fullySettled = Number(inv.total) - settled <= 0.01;
+        if (fullySettled && inv.status !== "paid") {
+          await tx
+            .update(customerInvoicesTable)
+            .set({ status: "paid" })
+            .where(eq(customerInvoicesTable.id, inv.id));
+        }
+        const touchedSoIds = new Set<number>();
+        for (const cn of cnLines) {
+          if (!cn.invoiceLineId) continue;
+          const [il] = await tx
+            .select()
+            .from(customerInvoiceLinesTable)
+            .where(eq(customerInvoiceLinesTable.id, cn.invoiceLineId));
+          if (!il?.soLineId) continue;
+          const update: Record<string, unknown> = {
+            invoicedQty: sql`GREATEST(0, ${salesOrderLinesTable.invoicedQty}::numeric - ${Number(cn.quantity)})`,
+          };
+          if (note.restock) {
+            update.deliveredQty = sql`GREATEST(0, ${salesOrderLinesTable.deliveredQty}::numeric - ${Number(cn.quantity)})`;
+          }
+          await tx
+            .update(salesOrderLinesTable)
+            .set(update)
+            .where(eq(salesOrderLinesTable.id, il.soLineId));
+          const [sl] = await tx
+            .select({ soId: salesOrderLinesTable.soId })
+            .from(salesOrderLinesTable)
+            .where(eq(salesOrderLinesTable.id, il.soLineId));
+          if (sl?.soId) touchedSoIds.add(sl.soId);
+        }
+        for (const soId of touchedSoIds) {
+          const sLines = await tx
+            .select({
+              qty: salesOrderLinesTable.quantity,
+              inv: salesOrderLinesTable.invoicedQty,
+              del: salesOrderLinesTable.deliveredQty,
+            })
+            .from(salesOrderLinesTable)
+            .where(eq(salesOrderLinesTable.soId, soId));
+          const allInvoiced = sLines.every((l) => Number(l.qty) - Number(l.inv) <= 1e-6);
+          const allDelivered = sLines.every((l) => Number(l.qty) - Number(l.del) <= 1e-6);
+          const anyDelivered = sLines.some((l) => Number(l.del) > 0);
+          const next = allInvoiced && allDelivered
+            ? "invoiced"
+            : allDelivered
+              ? "fully_delivered"
+              : anyDelivered
+                ? "partially_delivered"
+                : "confirmed";
+          await tx
+            .update(salesOrdersTable)
+            .set({ status: next })
+            .where(eq(salesOrdersTable.id, soId));
+        }
+      }
+    }
+    const [updated] = await tx
+      .select()
+      .from(creditNotesTable)
+      .where(eq(creditNotesTable.id, noteId));
+    void triggerEvent("state_changed", "credit_note", { id: noteId, total: Number(updated.total) }, "issued");
+    return updated;
+  });
+}
+registerOnApprove("credit_note", async (recordId) => {
+  try {
+    await finalizeCreditNoteIssue(recordId, null);
+  } catch (err) {
+    logger.error({ err, recordId }, "credit_note onApprove finalize failed");
+    throw err;
+  }
+});
+registerOnReject("credit_note", async (recordId) => {
+  // Rejected posting → leave the row as a permanent draft so users can
+  // see why it was filed but it has no AR/inventory side effects. Mark
+  // explicitly cancelled so it doesn't appear in "draft" lists forever.
+  try {
+    await db
+      .update(creditNotesTable)
+      .set({ status: "cancelled" })
+      .where(eq(creditNotesTable.id, recordId));
+  } catch (err) {
+    logger.error({ err, recordId }, "credit_note onReject finalize failed");
+  }
+});
 
 // ===================================================================
 // Pricelists
@@ -695,6 +1060,14 @@ router.post("/sales/orders", salesWriteGuard, async (req, res) => {
       }
       return so;
     });
+    // Automation hook: rules with trigger.type='record_created' on the
+    // 'sales_order' entity can auto-notify, post webhooks, etc.
+    void triggerEvent("record_created", "sales_order", {
+      id: result.id,
+      total: Number(result.total),
+      customerId: result.customerId,
+      branchId: result.branchId,
+    });
     res.status(201).json(serializeMoneyDoc(result));
   } catch (err) {
     req.log.error({ err }, "create SO");
@@ -726,6 +1099,70 @@ router.post("/sales/orders/:id/transition", salesWriteGuard, async (req, res) =>
     const { to } = Body.parse(req.body);
     const [so] = await db.select().from(salesOrdersTable).where(eq(salesOrdersTable.id, id));
     if (!so) { res.status(404).json({ error: "Not found" }); return; }
+    // Workflow-engine hook for the draft → confirmed transition.
+    //   1. Always invoke the engine so admin-configured sales_order rules
+    //      apply uniformly. The engine returns {required:false} when no
+    //      rule matches (free pass-through).
+    //   2. Additionally, when the customer's credit limit would be
+    //      exceeded by this SO and no rule is otherwise configured, we
+    //      synthesize a forced approval routed to the manager role so a
+    //      finance approver still has to sign off. This satisfies the
+    //      "above credit limit needs approval" classic ERP pattern even
+    //      without explicit matrix configuration.
+    if (to === "confirmed" && so.status === "draft") {
+      // Credit-limit gate: if the SO would push (open AR + this total)
+      // above the customer's credit limit (>0), force a manager-level
+      // approval even when the admin has not configured a sales_order
+      // rule. Customers with creditLimit == 0 are treated as unlimited.
+      let forceRoles: string[] | undefined;
+      let forceReason: string | undefined;
+      const [cust] = await db
+        .select({ creditLimit: customersTable.creditLimit })
+        .from(customersTable)
+        .where(eq(customersTable.id, so.customerId));
+      const limit = Number(cust?.creditLimit ?? 0);
+      if (limit > 0) {
+        const [{ openAr }] = await db
+          .select({
+            openAr: sql<number>`coalesce(sum(${customerInvoicesTable.total}::numeric - ${customerInvoicesTable.amountPaid}::numeric), 0)`,
+          })
+          .from(customerInvoicesTable)
+          .where(
+            and(
+              eq(customerInvoicesTable.customerId, so.customerId),
+              inArray(customerInvoicesTable.status, ["open", "partially_paid"]),
+            ),
+          );
+        if (Number(openAr) + Number(so.total) > limit) {
+          forceRoles = ["manager"];
+          forceReason = `تجاوز سقف الائتمان: ${limit}`;
+        }
+      }
+      const submission = await submitForApproval({
+        docType: "sales_order",
+        recordId: id,
+        recordRef: so.reference,
+        amount: Number(so.total),
+        branchId: so.branchId,
+        submittedByUserId: req.session?.userId ?? null,
+        submittedByName: (req.session as { userName?: string } | undefined)?.userName ?? null,
+        forceRoles,
+        forceReason,
+      });
+      if (submission.required) {
+        await db
+          .update(salesOrdersTable)
+          .set({ status: "pending_approval" })
+          .where(eq(salesOrdersTable.id, id));
+        res.status(202).json({
+          ok: false,
+          pendingApproval: true,
+          approvalRequestId: submission.requestId,
+          message: "أمر البيع بانتظار الاعتماد",
+        });
+        return;
+      }
+    }
     const allowed = SO_ALLOWED[so.status] ?? [];
     if (!allowed.includes(to)) {
       res.status(409).json({ error: `لا يمكن الانتقال من ${so.status} إلى ${to}` });
@@ -1469,7 +1906,23 @@ router.get("/sales/credit-notes", customerReadGuard, async (req, res) => {
   }
 });
 
-router.post("/sales/credit-notes", salesWriteGuard, async (req, res) => {
+router.post(
+  "/sales/credit-notes",
+  salesWriteGuard,
+  // Pre-flight financial-limit check: estimate the gross total from the
+  // body (sum of quantity * unitPrice * (1+vat)). Cashiers/sales reps with
+  // an `ar.credit_note` cap configured in the workflow tab cannot exceed
+  // it without an admin re-issuing the note.
+  // Limit key matches workflow-init seed (sales.credit_note_amount).
+  requireFinancialLimit("sales.credit_note_amount", (req) => {
+    const lines = (req.body?.lines ?? []) as Array<{
+      quantity?: number; unitPrice?: number; taxRate?: number;
+    }>;
+    return lines.reduce((s, l) =>
+      s + Number(l.quantity ?? 0) * Number(l.unitPrice ?? 0) * (1 + Number(l.taxRate ?? 0) / 100),
+    0);
+  }),
+  async (req, res) => {
   try {
     const body = CreditNoteBody.parse(req.body);
     const result = await db.transaction(async (tx) => {
@@ -1562,6 +2015,9 @@ router.post("/sales/credit-notes", salesWriteGuard, async (req, res) => {
       const warehouseId =
         body.warehouseId ?? (body.restock ? await getDefaultWarehouseId(tx).catch(() => null) : null);
 
+      // Insert header + lines as a draft. The JE / inventory restock /
+      // invoice settlement are deferred to finalizeCreditNoteIssue so a
+      // posting approval rule (doc_type=credit_note) can gate them.
       const [note] = await tx
         .insert(creditNotesTable)
         .values({
@@ -1576,7 +2032,7 @@ router.post("/sales/credit-notes", salesWriteGuard, async (req, res) => {
           subtotal: String(totals.subtotal),
           vat: String(totals.vat),
           total: String(totals.total),
-          status: "issued",
+          status: "draft",
           createdBy: req.session?.userId ?? null,
         })
         .returning();
@@ -1594,152 +2050,45 @@ router.post("/sales/credit-notes", salesWriteGuard, async (req, res) => {
           taxRate: String(ln.taxRate),
           lineTotal: String(ln.lineTotal),
         });
-        // Restock through inventory ledger when requested.
-        if (body.restock && ln.productId && warehouseId) {
-          await recordStockMove(tx, {
-            productId: ln.productId as number,
-            quantity: ln.quantity,
-            kind: "receipt",
-            toWarehouseId: warehouseId,
-            sourceType: "credit_note",
-            sourceRef: reference,
-            createdBy: req.session?.userId ?? null,
-            skipJournal: true,
-          });
-        }
       }
-
-      // ====== Post offsetting JE ======
-      // Dr Sales Returns (subtotal) / Dr VAT Output (vat) / Cr AR (total)
-      // If the credit note is applied to an invoice, AR is credited; if it is
-      // a refund (no invoice), use cash. We handle the AR case here.
-      const lines: Array<{ systemKey: string; debit?: number; credit?: number; description?: string }> = [
-        { systemKey: "sales_returns", debit: totals.subtotal, description: "مردودات مبيعات" },
-      ];
-      if (totals.vat > 0)
-        lines.push({ systemKey: "vat_output", debit: totals.vat, description: "عكس ضريبة 15%" });
-      if (totals.total > 0)
-        lines.push({ systemKey: "ar", credit: totals.total, description: "تسوية ذمم مدينة (إشعار دائن)" });
-
-      const je = await postJournalEntry(
-        tx,
-        {
-          entryDate: noteDate,
-          description: `إشعار دائن ${reference}`,
-          reference,
-          source: "manual",
-          sourceRef: reference,
-          createdBy: req.session?.userId ?? null,
-          status: "posted",
-        },
-        lines,
-      );
-      await tx
-        .update(creditNotesTable)
-        .set({ journalEntryId: je.id })
-        .where(eq(creditNotesTable.id, note.id));
-
-      // Apply against the source invoice WITHOUT mutating amount_paid (that
-      // field tracks real cash receipts only — touching it would make a
-      // fully-paid invoice show amount_paid > total and corrupt aging /
-      // collections reporting). Instead the credit note's own row + JE
-      // already reduced the customer's AR balance via Cr AR; here we just
-      // recompute the invoice status against (paid + credits) and reverse
-      // the SO/DO fulfilment so the returned qty becomes deliverable +
-      // invoiceable again.
-      if (body.invoiceId) {
-        const [inv] = await tx
-          .select()
-          .from(customerInvoicesTable)
-          .where(eq(customerInvoicesTable.id, body.invoiceId));
-        if (inv) {
-          const [{ creditsSum }] = await tx
-            .select({
-              creditsSum: sql<number>`coalesce(sum(${creditNotesTable.total}::numeric), 0)`,
-            })
-            .from(creditNotesTable)
-            .where(
-              and(
-                eq(creditNotesTable.invoiceId, inv.id),
-                inArray(creditNotesTable.status, ["issued", "applied"]),
-              ),
-            );
-          const settled = Number(inv.amountPaid) + Number(creditsSum);
-          const fullySettled = Number(inv.total) - settled <= 0.01;
-          if (fullySettled && inv.status !== "paid") {
-            await tx
-              .update(customerInvoicesTable)
-              .set({ status: "paid" })
-              .where(eq(customerInvoicesTable.id, inv.id));
-          }
-
-          // Walk each credit-note line; if it carries an invoiceLineId,
-          // decrement the parent SO line's invoicedQty by the returned qty
-          // so the remaining balance becomes invoiceable again. When the
-          // credit note also restocks the goods, decrement deliveredQty too
-          // (the goods physically came back, so the SO should reopen on
-          // both fulfilment + billing axes).
-          const cnLines = await tx
-            .select()
-            .from(creditNoteLinesTable)
-            .where(eq(creditNoteLinesTable.noteId, note.id));
-          const touchedSoIds = new Set<number>();
-          for (const cn of cnLines) {
-            if (!cn.invoiceLineId) continue;
-            const [il] = await tx
-              .select()
-              .from(customerInvoiceLinesTable)
-              .where(eq(customerInvoiceLinesTable.id, cn.invoiceLineId));
-            if (!il?.soLineId) continue;
-            const update: Record<string, unknown> = {
-              invoicedQty: sql`GREATEST(0, ${salesOrderLinesTable.invoicedQty}::numeric - ${Number(cn.quantity)})`,
-            };
-            if (body.restock) {
-              update.deliveredQty = sql`GREATEST(0, ${salesOrderLinesTable.deliveredQty}::numeric - ${Number(cn.quantity)})`;
-            }
-            await tx
-              .update(salesOrderLinesTable)
-              .set(update)
-              .where(eq(salesOrderLinesTable.id, il.soLineId));
-            const [sl] = await tx
-              .select({ soId: salesOrderLinesTable.soId })
-              .from(salesOrderLinesTable)
-              .where(eq(salesOrderLinesTable.id, il.soLineId));
-            if (sl?.soId) touchedSoIds.add(sl.soId);
-          }
-          // Recompute SO status from (deliveredQty, invoicedQty) so an
-          // "invoiced" SO falls back to partially_delivered/confirmed when
-          // any line now has an unbilled or undelivered balance again.
-          for (const soId of touchedSoIds) {
-            const sLines = await tx
-              .select({
-                qty: salesOrderLinesTable.quantity,
-                inv: salesOrderLinesTable.invoicedQty,
-                del: salesOrderLinesTable.deliveredQty,
-              })
-              .from(salesOrderLinesTable)
-              .where(eq(salesOrderLinesTable.soId, soId));
-            const allInvoiced = sLines.every((l) => Number(l.qty) - Number(l.inv) <= 1e-6);
-            const allDelivered = sLines.every((l) => Number(l.qty) - Number(l.del) <= 1e-6);
-            const anyDelivered = sLines.some((l) => Number(l.del) > 0);
-            const next = allInvoiced && allDelivered
-              ? "invoiced"
-              : allDelivered
-                ? "fully_delivered"
-                : anyDelivered
-                  ? "partially_delivered"
-                  : "confirmed";
-            await tx
-              .update(salesOrdersTable)
-              .set({ status: next })
-              .where(eq(salesOrdersTable.id, soId));
-          }
-        }
-      }
-
       return note;
     });
-    res.status(201).json(serializeMoneyDoc(result));
+    // Workflow-engine gate: posting approval. If a credit_note rule
+    // matches, lock the row to pending_approval and return 202 — the
+    // registered onApprove handler will run finalizeCreditNoteIssue.
+    const submission = await submitForApproval({
+      docType: "credit_note",
+      recordId: result.id,
+      recordRef: result.reference,
+      amount: Number(result.total),
+      submittedByUserId: req.session?.userId ?? null,
+      submittedByName: (req.session as { userName?: string } | undefined)?.userName ?? null,
+    });
+    if (submission.required) {
+      await db
+        .update(creditNotesTable)
+        .set({ status: "pending_approval" })
+        .where(eq(creditNotesTable.id, result.id));
+      void triggerEvent("record_created", "credit_note", { id: result.id, total: Number(result.total) });
+      res.status(202).json({
+        ok: false,
+        pendingApproval: true,
+        approvalRequestId: submission.requestId,
+        id: result.id,
+        reference: result.reference,
+        message: "إشعار دائن بانتظار الاعتماد",
+      });
+      return;
+    }
+    // No approval required → finalize inline. The legacy issuance block
+    // below was relocated into finalizeCreditNoteIssue() so both paths
+    // (inline + onApprove) run identical logic.
+    const issued = await finalizeCreditNoteIssue(result.id, req.session?.userId ?? null);
+    void triggerEvent("record_created", "credit_note", { id: issued.id, total: Number(issued.total) });
+    res.status(201).json(serializeMoneyDoc(issued));
+    return;
+
+    // (legacy inline issuance block removed — see finalizeCreditNoteIssue)
   } catch (err) {
     req.log.error({ err }, "create credit note");
     handleRouteError(err, res);
@@ -1754,148 +2103,35 @@ router.post("/sales/credit-notes", salesWriteGuard, async (req, res) => {
 router.post("/sales/credit-notes/:id/cancel", salesWriteGuard, async (req, res) => {
   try {
     const id = Number(req.params.id);
-    const result = await db.transaction(async (tx) => {
-      const [note] = await tx.select().from(creditNotesTable).where(eq(creditNotesTable.id, id));
-      if (!note) throw new Error("Not found");
-      if (note.status === "cancelled") throw new Error("الإشعار ملغى مسبقاً");
-
-      // Reverse the original JE.
-      if (note.journalEntryId) {
-        const reverseRef = `${note.reference}-REV`;
-        const reverseLines: Array<{ systemKey: string; debit?: number; credit?: number; description?: string }> = [
-          { systemKey: "sales_returns", credit: Number(note.subtotal), description: "إلغاء مردودات مبيعات" },
-        ];
-        if (Number(note.vat) > 0)
-          reverseLines.push({ systemKey: "vat_output", credit: Number(note.vat), description: "إلغاء عكس ضريبة 15%" });
-        if (Number(note.total) > 0)
-          reverseLines.push({ systemKey: "ar", debit: Number(note.total), description: "إعادة فتح ذمم مدينة" });
-        await postJournalEntry(
-          tx,
-          {
-            entryDate: new Date().toISOString().slice(0, 10),
-            description: `إلغاء إشعار دائن ${note.reference}`,
-            reference: reverseRef,
-            source: "manual",
-            sourceRef: reverseRef,
-            createdBy: req.session?.userId ?? null,
-            status: "posted",
-          },
-          reverseLines,
-        );
-      }
-
-      // Reverse the inventory impact of the original credit note. When the
-      // original CN was issued with restock=true we posted a `receipt` move
-      // that put the goods back into the warehouse; cancelling the CN must
-      // remove them again, otherwise stock balances stay inflated and the
-      // returns workflow corrupts inventory. We post a compensating
-      // `delivery` move per CN line, sourced to the cancellation ref so
-      // the audit trail is explicit.
-      const cnLines = await tx
-        .select()
-        .from(creditNoteLinesTable)
-        .where(eq(creditNoteLinesTable.noteId, note.id));
-      if (note.restock && note.warehouseId) {
-        const cancelRef = `${note.reference}-CXL`;
-        for (const cn of cnLines) {
-          if (!cn.productId) continue;
-          await recordStockMove(tx, {
-            productId: cn.productId,
-            quantity: Number(cn.quantity),
-            kind: "issue",
-            fromWarehouseId: note.warehouseId,
-            sourceType: "credit_note_cancel",
-            sourceRef: cancelRef,
-            createdBy: req.session?.userId ?? null,
-            skipJournal: true,
+    // Workflow-engine gate: cancellation reverses AR + inventory, so admins
+    // can require approval on any credit_note rule. Once the chain
+    // completes, the registered onApprove handler flips status to
+    // cancelled. Reversing JEs are still posted only inside this route.
+    {
+      const [pre] = await db.select().from(creditNotesTable).where(eq(creditNotesTable.id, id));
+      if (pre) {
+        const submission = await submitForApproval({
+          docType: "credit_note_cancel",
+          recordId: id,
+          recordRef: pre.reference,
+          amount: Number(pre.total),
+          submittedByUserId: req.session?.userId ?? null,
+          submittedByName: (req.session as { userName?: string } | undefined)?.userName ?? null,
+        });
+        if (submission.required) {
+          res.status(202).json({
+            ok: false,
+            pendingApproval: true,
+            approvalRequestId: submission.requestId,
+            message: "إلغاء الإشعار الدائن بانتظار الاعتماد",
           });
+          return;
         }
       }
-
-      const touchedSoIds = new Set<number>();
-      for (const cn of cnLines) {
-        if (!cn.invoiceLineId) continue;
-        const [il] = await tx
-          .select()
-          .from(customerInvoiceLinesTable)
-          .where(eq(customerInvoiceLinesTable.id, cn.invoiceLineId));
-        if (!il?.soLineId) continue;
-        const update: Record<string, unknown> = {
-          invoicedQty: sql`${salesOrderLinesTable.invoicedQty}::numeric + ${Number(cn.quantity)}`,
-        };
-        if (note.restock) {
-          update.deliveredQty = sql`${salesOrderLinesTable.deliveredQty}::numeric + ${Number(cn.quantity)}`;
-        }
-        await tx
-          .update(salesOrderLinesTable)
-          .set(update)
-          .where(eq(salesOrderLinesTable.id, il.soLineId));
-        const [sl] = await tx
-          .select({ soId: salesOrderLinesTable.soId })
-          .from(salesOrderLinesTable)
-          .where(eq(salesOrderLinesTable.id, il.soLineId));
-        if (sl?.soId) touchedSoIds.add(sl.soId);
-      }
-      for (const soId of touchedSoIds) {
-        const sLines = await tx
-          .select({
-            qty: salesOrderLinesTable.quantity,
-            inv: salesOrderLinesTable.invoicedQty,
-            del: salesOrderLinesTable.deliveredQty,
-          })
-          .from(salesOrderLinesTable)
-          .where(eq(salesOrderLinesTable.soId, soId));
-        const allInvoiced = sLines.every((l) => Number(l.qty) - Number(l.inv) <= 1e-6);
-        const allDelivered = sLines.every((l) => Number(l.qty) - Number(l.del) <= 1e-6);
-        const next = allInvoiced && allDelivered ? "invoiced" : allDelivered ? "fully_delivered" : "partially_delivered";
-        await tx.update(salesOrdersTable).set({ status: next }).where(eq(salesOrdersTable.id, soId));
-      }
-
-      const [updated] = await tx
-        .update(creditNotesTable)
-        .set({ status: "cancelled" })
-        .where(eq(creditNotesTable.id, id))
-        .returning();
-
-      // Recompute the source invoice status after this CN is removed from
-      // the (paid + credits) settlement equation. A previously fully-paid
-      // invoice could now be partially_paid or open; without this it would
-      // wrongly continue to display as paid in aging / collections.
-      if (note.invoiceId) {
-        const [inv] = await tx
-          .select()
-          .from(customerInvoicesTable)
-          .where(eq(customerInvoicesTable.id, note.invoiceId));
-        if (inv) {
-          const [{ creditsSum }] = await tx
-            .select({
-              creditsSum: sql<number>`coalesce(sum(${creditNotesTable.total}::numeric), 0)`,
-            })
-            .from(creditNotesTable)
-            .where(
-              and(
-                eq(creditNotesTable.invoiceId, inv.id),
-                inArray(creditNotesTable.status, ["issued", "applied"]),
-              ),
-            );
-          const settled = Number(inv.amountPaid) + Number(creditsSum);
-          const nextStatus =
-            Number(inv.total) - settled <= 0.01
-              ? "paid"
-              : Number(inv.amountPaid) > 0
-                ? "partially_paid"
-                : "open";
-          if (nextStatus !== inv.status) {
-            await tx
-              .update(customerInvoicesTable)
-              .set({ status: nextStatus })
-              .where(eq(customerInvoicesTable.id, inv.id));
-          }
-        }
-      }
-
-      return updated;
-    });
+    }
+    // Delegated to shared finalize helper so /cancel and the
+    // workflow-engine onApprove path always run identical logic.
+    const result = await finalizeCreditNoteCancellation(id, req.session?.userId ?? null);
     res.json(serializeMoneyDoc(result));
   } catch (err) {
     req.log.error({ err }, "cancel credit note");

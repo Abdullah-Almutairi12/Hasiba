@@ -30,6 +30,14 @@ import {
 import { recordAudit } from "../lib/audit";
 import { postJournalEntry } from "../lib/journal-posting";
 import { recordStockMove, getDefaultWarehouseId, getOrCreateLot } from "../lib/stock-engine";
+import {
+  submitForApproval,
+  registerOnReject,
+  registerOnApprove,
+  triggerEvent,
+  requireFinancialLimit,
+} from "../lib/workflow-engine";
+import { logger } from "../lib/logger";
 
 const router = Router();
 
@@ -614,6 +622,15 @@ router.post("/procurement/purchase-orders", async (req, res) => {
       return po;
     });
     void recordAudit(req, { action: "create", entity: "purchase_order", details: out.reference });
+    // Automation hook: rules with trigger.type='record_created' on the
+    // 'purchase_order' entity are evaluated against the new row so admins
+    // can auto-notify on big-ticket POs, kick off webhooks, etc.
+    void triggerEvent("record_created", "purchase_order", {
+      id: out.id,
+      total: Number(out.total),
+      supplierId: out.supplierId,
+      currencyCode: out.currencyCode,
+    });
     res.status(201).json(out); return;
   } catch (err) {
     req.log.error({ err }, "create PO failed");
@@ -676,12 +693,232 @@ router.get("/procurement/purchase-orders/:id", async (req, res) => {
   }
 });
 
+// Core PO confirm transition. Extracted so both the HTTP route and the
+// workflow-engine onApprove handler can run the exact same finalization
+// (status -> confirmed, blanket-agreement consumption, audit, event).
+async function finalizePurchaseOrderConfirm(
+  id: number,
+  actor: { userId: number | null; reference?: string },
+): Promise<void> {
+  const [po] = await db.select().from(purchaseOrdersTable).where(eq(purchaseOrdersTable.id, id));
+  if (!po) throw httpErr(404, "not found");
+  if (po.status !== "draft" && po.status !== "pending_approval") return; // idempotent
+  await db.transaction(async (tx) => {
+    await tx
+      .update(purchaseOrdersTable)
+      .set({
+        status: "confirmed",
+        approvedAt: new Date(),
+        approvedBy: actor.userId,
+      })
+      .where(eq(purchaseOrdersTable.id, id));
+    if (po.agreementId) {
+      const [ag] = await tx
+        .select()
+        .from(blanketAgreementsTable)
+        .where(eq(blanketAgreementsTable.id, po.agreementId));
+      if (ag && ag.status === "active") {
+        const committed = Number(ag.totalCommittedValue);
+        const released = Number(ag.releasedValue);
+        const newReleased = released + Number(po.total);
+        if (newReleased > committed + 0.01) {
+          throw httpErr(409, `هذا الأمر يتجاوز الرصيد المتبقي على الاتفاقية ${ag.reference}.`);
+        }
+        await tx
+          .update(blanketAgreementsTable)
+          .set({ releasedValue: newReleased.toFixed(2) })
+          .where(eq(blanketAgreementsTable.id, ag.id));
+        const lines = await tx
+          .select()
+          .from(purchaseOrderLinesTable)
+          .where(eq(purchaseOrderLinesTable.poId, id));
+        for (const ln of lines) {
+          if (!ln.productId) continue;
+          await tx
+            .update(blanketAgreementItemsTable)
+            .set({
+              releasedQty: sql`${blanketAgreementItemsTable.releasedQty} + ${Number(ln.quantity)}`,
+            })
+            .where(
+              and(
+                eq(blanketAgreementItemsTable.agreementId, ag.id),
+                eq(blanketAgreementItemsTable.productId, ln.productId),
+              ),
+            );
+        }
+      }
+    }
+  });
+  void triggerEvent("state_changed", "purchase_order", { id, total: Number(po.total) }, "confirmed");
+}
+
+// Workflow-engine handler: when an approval chain completes, finalize the
+// PO confirm transition (status, agreement consumption, event) atomically
+// without requiring the submitter to re-confirm. Failures propagate so the
+// engine can roll the request back to pending and keep workflow + record
+// state consistent.
+registerOnApprove("purchase_order", async (recordId) => {
+  await finalizePurchaseOrderConfirm(recordId, { userId: null });
+});
+
+// On reject / changes-requested, unlock the PO so the submitter can edit
+// and resubmit. Without this the document would stay stuck in
+// "pending_approval" forever.
+registerOnReject("purchase_order", async (recordId) => {
+  try {
+    await db
+      .update(purchaseOrdersTable)
+      .set({ status: "draft" })
+      .where(eq(purchaseOrdersTable.id, recordId));
+  } catch (err) {
+    logger.error({ err, recordId }, "PO onReject revert failed");
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Workflow-engine integration: Payment Run execute.
+//   * /procurement/payment-runs/:id/execute opens an approval chain when a
+//     rule matches; the run is locked into "pending_approval" and a 202 is
+//     returned.
+//   * On approve we *finalize* the run by invoking the same
+//     finalizePaymentRunExecute helper used by the route, so the JE is
+//     posted, supplier balances and invoices are updated automatically.
+//   * On reject we revert to draft so the submitter can adjust + re-submit.
+// ---------------------------------------------------------------------------
+async function finalizePaymentRunExecute(
+  id: number,
+  sessionUserId: number | null,
+): Promise<{ journalEntryId: number; total: number }> {
+  return await db.transaction(async (tx) => {
+    const [run] = await tx.select().from(paymentRunsTable).where(eq(paymentRunsTable.id, id));
+    if (!run) throw httpErr(404, "not found");
+    if (run.status !== "draft" && run.status !== "pending_approval")
+      throw httpErr(409, "الدفع تم تنفيذه مسبقاً.");
+    const lines = await tx.select().from(paymentRunLinesTable).where(eq(paymentRunLinesTable.runId, id));
+    if (lines.length === 0) throw httpErr(409, "لا توجد بنود في هذه الدفعة.");
+    const invIds = lines.map((l) => l.invoiceId).filter((x): x is number => x != null);
+    if (invIds.length > 0) {
+      const invs = await tx.select().from(invoicesTable).where(inArray(invoicesTable.id, invIds));
+      for (const inv of invs) {
+        if (inv.status === "paid" || inv.status === "failed") {
+          throw httpErr(
+            409,
+            `الفاتورة #${inv.id} لم تعد قابلة للدفع (الحالة: ${inv.status}). أعد فتح الدفعة.`,
+          );
+        }
+      }
+    }
+    const cashKey = run.paymentMethod === "cash" ? "cash" : "bank";
+    const total = lines.reduce((s, l) => s + Number(l.amount), 0);
+    const journalLines: Array<{
+      systemKey: string; debit?: number; credit?: number; description?: string;
+    }> = lines.map((l) => ({
+      systemKey: "ap",
+      debit: Number(l.amount),
+      description: `سداد للمورد #${l.supplierId}`,
+    }));
+    journalLines.push({
+      systemKey: cashKey,
+      credit: total,
+      description: `دفعة ${run.reference}`,
+    });
+    const je = await postJournalEntry(
+      tx,
+      {
+        entryDate: new Date(run.paymentDate),
+        description: `دفعة موردين — ${run.reference}`,
+        reference: run.reference,
+        source: "payment",
+        sourceRef: run.reference,
+        createdBy: sessionUserId,
+        status: "posted",
+      },
+      journalLines,
+    );
+    for (const ln of lines) {
+      await tx
+        .update(suppliersTable)
+        .set({ balance: sql`${suppliersTable.balance} - ${Number(ln.amount)}` })
+        .where(eq(suppliersTable.id, ln.supplierId));
+      await tx
+        .update(paymentRunLinesTable)
+        .set({ journalEntryId: je.id })
+        .where(eq(paymentRunLinesTable.id, ln.id));
+      if (ln.invoiceId) {
+        await tx
+          .update(invoicesTable)
+          .set({ status: "paid" })
+          .where(eq(invoicesTable.id, ln.invoiceId));
+      }
+    }
+    await tx
+      .update(paymentRunsTable)
+      .set({ status: "executed", executedAt: new Date() })
+      .where(eq(paymentRunsTable.id, id));
+    return { journalEntryId: je.id, total };
+  });
+}
+registerOnApprove("payment_run", async (recordId) => {
+  // Rethrow on failure: actOnApproval rolls the request back to pending
+  // and surfaces the error so workflow + document state stay consistent.
+  // Logging is kept for observability.
+  try {
+    await finalizePaymentRunExecute(recordId, null);
+    void triggerEvent("state_changed", "payment_run", { id: recordId }, "executed");
+  } catch (err) {
+    logger.error({ err, recordId }, "payment_run onApprove finalize failed");
+    throw err;
+  }
+});
+registerOnReject("payment_run", async (recordId) => {
+  try {
+    await db
+      .update(paymentRunsTable)
+      .set({ status: "draft" })
+      .where(eq(paymentRunsTable.id, recordId));
+  } catch (err) {
+    logger.error({ err, recordId }, "payment_run onReject revert failed");
+  }
+});
+
 router.post("/procurement/purchase-orders/:id/confirm", async (req, res) => {
   try {
     const id = Number(req.params.id);
     const [po] = await db.select().from(purchaseOrdersTable).where(eq(purchaseOrdersTable.id, id));
     if (!po) { res.status(404).json({ error: "not found" }); return; }
     if (po.status !== "draft") { res.status(409).json({ error: "أمر الشراء ليس بحالة مسودة." }); return; }
+    // Workflow-engine hook: if a configurable approval rule matches, queue
+    // the confirm and respond 202. The registered onApprove handler will
+    // run finalizePurchaseOrderConfirm when the chain completes.
+    const submission = await submitForApproval({
+      docType: "purchase_order",
+      recordId: id,
+      recordRef: po.reference,
+      amount: Number(po.total),
+      branchId: null,
+      submittedByUserId: req.session?.userId ?? null,
+      submittedByName: (req.session as { userName?: string } | undefined)?.userName ?? null,
+    });
+    if (submission.required) {
+      // Lock the document into a real "pending_approval" business state so
+      // it can't be re-confirmed or further edited while the chain is open.
+      // The onApprove handler accepts both draft and pending_approval as
+      // input, and the onReject handler reverts back to draft.
+      await db
+        .update(purchaseOrdersTable)
+        .set({ status: "pending_approval" })
+        .where(eq(purchaseOrdersTable.id, id));
+      res.status(202).json({
+        ok: false,
+        pendingApproval: true,
+        approvalRequestId: submission.requestId,
+        message: "أمر الشراء بانتظار الاعتماد",
+      });
+      return;
+    }
+    // Legacy hard-coded threshold gate (only applies when no configurable
+    // workflow rule matched). Once an admin configures an approval rule for
+    // purchase_order, the engine takes over end-to-end.
     if (po.requiresApproval && !po.approvedAt) {
       res.status(409).json({
         error: `أمر الشراء يتطلب اعتماد المدير (تجاوز ${PO_APPROVAL_THRESHOLD} ر.س).`,
@@ -1165,7 +1402,17 @@ router.get("/procurement/payment-runs", financeGuard, async (req, res) => {
   }
 });
 
-router.post("/procurement/payment-runs", financeGuard, async (req, res) => {
+router.post(
+  "/procurement/payment-runs",
+  financeGuard,
+  // Pre-flight financial-limit cap per role for AP payment runs. The
+  // workflow tab exposes this as `ap.payment_amount`. Value = sum of body
+  // line amounts; admins with no cap configured are unaffected.
+  requireFinancialLimit("ap.payment_amount", (req) => {
+    const lines = (req.body?.lines ?? []) as Array<{ amount?: number }>;
+    return lines.reduce((s, l) => s + Number(l.amount ?? 0), 0);
+  }),
+  async (req, res) => {
   let body: z.infer<typeof CreatePaymentRunBody>;
   try {
     body = CreatePaymentRunBody.parse(req.body);
@@ -1267,82 +1514,55 @@ router.post("/procurement/payment-runs", financeGuard, async (req, res) => {
 router.post("/procurement/payment-runs/:id/execute", financeGuard, async (req, res) => {
   try {
     const id = Number(req.params.id);
-    const result = await db.transaction(async (tx) => {
-      const [run] = await tx.select().from(paymentRunsTable).where(eq(paymentRunsTable.id, id));
-      if (!run) throw httpErr(404, "not found");
-      if (run.status !== "draft") throw httpErr(409, "الدفع تم تنفيذه مسبقاً.");
-      const lines = await tx.select().from(paymentRunLinesTable).where(eq(paymentRunLinesTable.runId, id));
-      if (lines.length === 0) throw httpErr(409, "لا توجد بنود في هذه الدفعة.");
-      // Re-validate invoice eligibility at execute time to defend against
-      // race conditions where another run was executed first.
-      const invIds = lines.map((l) => l.invoiceId).filter((x): x is number => x != null);
-      if (invIds.length > 0) {
-        const invs = await tx.select().from(invoicesTable).where(inArray(invoicesTable.id, invIds));
-        for (const inv of invs) {
-          if (inv.status === "paid" || inv.status === "failed") {
-            throw httpErr(
-              409,
-              `الفاتورة #${inv.id} لم تعد قابلة للدفع (الحالة: ${inv.status}). أعد فتح الدفعة.`,
-            );
-          }
-        }
-      }
-
-      const cashKey = run.paymentMethod === "cash" ? "cash" : "bank";
-      const total = lines.reduce((s, l) => s + Number(l.amount), 0);
-
-      // Single balanced journal: Dr AP (each supplier sub-line) / Cr Cash|Bank.
-      const journalLines: Array<{
-        systemKey: string; debit?: number; credit?: number; description?: string;
-      }> = lines.map((l) => ({
-        systemKey: "ap",
-        debit: Number(l.amount),
-        description: `سداد للمورد #${l.supplierId}`,
-      }));
-      journalLines.push({
-        systemKey: cashKey,
-        credit: total,
-        description: `دفعة ${run.reference}`,
+    // Strict gate: only a "draft" run may be acted on from this route.
+    //   * draft → submit to workflow engine; if a rule matches the run is
+    //     locked into "pending_approval" and 202 is returned. The
+    //     onApprove("payment_run") handler is the ONLY caller allowed to
+    //     finalize a pending_approval run (it invokes the helper with no
+    //     status check bypass — the helper itself enforces the same
+    //     "draft|pending_approval" precondition).
+    //   * pending_approval → reject the manual call (would otherwise let
+    //     a finance user execute without waiting for the chain).
+    //   * executed/cancelled → 409.
+    const [pre] = await db.select().from(paymentRunsTable).where(eq(paymentRunsTable.id, id));
+    if (!pre) { res.status(404).json({ error: "not found" }); return; }
+    if (pre.status === "pending_approval") {
+      res.status(202).json({
+        ok: false,
+        pendingApproval: true,
+        message: "تنفيذ الدفعة بانتظار الاعتماد — لا يمكن التنفيذ يدوياً قبل اكتمال سلسلة الاعتماد.",
       });
-      const je = await postJournalEntry(
-        tx,
-        {
-          entryDate: new Date(run.paymentDate),
-          description: `دفعة موردين — ${run.reference}`,
-          reference: run.reference,
-          source: "payment",
-          sourceRef: run.reference,
-          createdBy: req.session?.userId ?? null,
-          status: "posted",
-        },
-        journalLines,
-      );
-
-      // Decrement supplier balances + tie payment lines back to the journal,
-      // and mark any directly-linked supplier invoice as paid so AP aging
-      // and the open-invoice list reflect the new state.
-      for (const ln of lines) {
-        await tx
-          .update(suppliersTable)
-          .set({ balance: sql`${suppliersTable.balance} - ${Number(ln.amount)}` })
-          .where(eq(suppliersTable.id, ln.supplierId));
-        await tx
-          .update(paymentRunLinesTable)
-          .set({ journalEntryId: je.id })
-          .where(eq(paymentRunLinesTable.id, ln.id));
-        if (ln.invoiceId) {
-          await tx
-            .update(invoicesTable)
-            .set({ status: "paid" })
-            .where(eq(invoicesTable.id, ln.invoiceId));
-        }
-      }
-      await tx
-        .update(paymentRunsTable)
-        .set({ status: "executed", executedAt: new Date() })
-        .where(eq(paymentRunsTable.id, id));
-      return { journalEntryId: je.id, total };
+      return;
+    }
+    if (pre.status !== "draft") {
+      res.status(409).json({ error: `حالة الدفعة (${pre.status}) لا تسمح بالتنفيذ.` });
+      return;
+    }
+    const submission = await submitForApproval({
+      docType: "payment_run",
+      recordId: id,
+      recordRef: pre.reference,
+      amount: Number(pre.totalAmount),
+      submittedByUserId: req.session?.userId ?? null,
+      submittedByName: (req.session as { userName?: string } | undefined)?.userName ?? null,
     });
+    if (submission.required) {
+      await db
+        .update(paymentRunsTable)
+        .set({ status: "pending_approval" })
+        .where(eq(paymentRunsTable.id, id));
+      res.status(202).json({
+        ok: false,
+        pendingApproval: true,
+        approvalRequestId: submission.requestId,
+        message: "تنفيذ الدفعة بانتظار الاعتماد",
+      });
+      return;
+    }
+    // No rule matched → finalize inline. Delegated to the shared helper
+    // so /execute and the workflow-engine onApprove path always run
+    // identical logic.
+    const result = await finalizePaymentRunExecute(id, req.session?.userId ?? null);
     void recordAudit(req, {
       action: "execute", entity: "payment_run",
       details: `JE#${result.journalEntryId} بإجمالي ${result.total.toFixed(2)}`,

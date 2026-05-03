@@ -19,15 +19,27 @@ import type {
 import type {
   Account,
   AccountingSummary,
+  ActOnApprovalRequest200,
+  ActOnApprovalRequestBody,
   AdminStats,
   AdminSystemHealth,
   AiModel,
   AiReportSummary,
   Alert,
   Announcement,
+  ApprovalRequest,
+  ApprovalRequestDetail,
+  ApprovalRule,
+  ApprovalRuleInput,
+  ApprovalRulePatch,
+  ApproverDelegation,
   AskAiAssistant200,
   AskAiAssistantBody,
   AuditLog,
+  AutomationRule,
+  AutomationRuleInput,
+  AutomationRulePatch,
+  AutomationRun,
   BalanceSheet,
   BankAccount,
   BankReconciliationView,
@@ -39,9 +51,13 @@ import type {
   Category,
   CreateAccountBody,
   CreateAnnouncementBody,
+  CreateApprovalRule201,
+  CreateAutomationRule201,
   CreateBankAccountBody,
   CreateBranchBody,
   CreateCustomerBody,
+  CreateDelegation201,
+  CreateDelegationBody,
   CreateExchangeRateBody,
   CreateInvoiceBody,
   CreateJournalEntry201,
@@ -57,8 +73,12 @@ import type {
   Customer,
   DashboardSummary,
   DeleteAnnouncement200,
+  DeleteApprovalRule200,
+  DeleteAutomationRule200,
+  DeleteDelegation200,
   ExchangeRate,
   FeatureFlag,
+  FinancialLimit,
   FiscalPeriod,
   FiscalYear,
   FraudAlert,
@@ -80,18 +100,25 @@ import type {
   GetTrialBalanceParams,
   HealthStatus,
   ImportBankStatementBody,
+  InboxItem,
   Invoice,
   InvoiceStats,
   JournalEntry,
   JournalEntryDetail,
+  ListApprovalRequestsParams,
+  ListApproverCandidates200Item,
   ListAuditLogsParams,
+  ListAutomationRunsParams,
   ListCustomersParams,
+  ListInboxParams,
   ListInvoicesParams,
   ListJournalEntriesParams,
   ListPosOrdersParams,
   ListProductsParams,
   ListSupportTicketsParams,
   ListWarehousesParams,
+  MarkAllInboxRead200,
+  MarkInboxRead200,
   MatchBankStatementLineBody,
   PosOrder,
   PosSession,
@@ -113,10 +140,14 @@ import type {
   TrainAiModel200,
   TrainAllAiModels200,
   TrialBalance,
+  UpdateApprovalRule200,
+  UpdateAutomationRule200,
   UpdateFeatureFlagBody,
   UpdateInvoiceBody,
   UpdateProductBody,
   UpdateSupportTicketBody,
+  UpsertFinancialLimit200,
+  UpsertFinancialLimitBody,
   User,
   Warehouse,
   ZatcaStatus,
@@ -7364,6 +7395,1665 @@ export function useExportPdf<
   },
 ): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getExportPdfQueryOptions(type, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary List approval rules with their steps
+ */
+export const getListApprovalRulesUrl = () => {
+  return `/api/workflow/approval-rules`;
+};
+
+export const listApprovalRules = async (
+  options?: RequestInit,
+): Promise<ApprovalRule[]> => {
+  return customFetch<ApprovalRule[]>(getListApprovalRulesUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListApprovalRulesQueryKey = () => {
+  return [`/api/workflow/approval-rules`] as const;
+};
+
+export const getListApprovalRulesQueryOptions = <
+  TData = Awaited<ReturnType<typeof listApprovalRules>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listApprovalRules>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListApprovalRulesQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listApprovalRules>>
+  > = ({ signal }) => listApprovalRules({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listApprovalRules>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListApprovalRulesQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listApprovalRules>>
+>;
+export type ListApprovalRulesQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List approval rules with their steps
+ */
+
+export function useListApprovalRules<
+  TData = Awaited<ReturnType<typeof listApprovalRules>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listApprovalRules>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListApprovalRulesQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+export const getCreateApprovalRuleUrl = () => {
+  return `/api/workflow/approval-rules`;
+};
+
+export const createApprovalRule = async (
+  approvalRuleInput: ApprovalRuleInput,
+  options?: RequestInit,
+): Promise<CreateApprovalRule201> => {
+  return customFetch<CreateApprovalRule201>(getCreateApprovalRuleUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(approvalRuleInput),
+  });
+};
+
+export const getCreateApprovalRuleMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createApprovalRule>>,
+    TError,
+    { data: BodyType<ApprovalRuleInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof createApprovalRule>>,
+  TError,
+  { data: BodyType<ApprovalRuleInput> },
+  TContext
+> => {
+  const mutationKey = ["createApprovalRule"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof createApprovalRule>>,
+    { data: BodyType<ApprovalRuleInput> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return createApprovalRule(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CreateApprovalRuleMutationResult = NonNullable<
+  Awaited<ReturnType<typeof createApprovalRule>>
+>;
+export type CreateApprovalRuleMutationBody = BodyType<ApprovalRuleInput>;
+export type CreateApprovalRuleMutationError = ErrorType<unknown>;
+
+export const useCreateApprovalRule = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createApprovalRule>>,
+    TError,
+    { data: BodyType<ApprovalRuleInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof createApprovalRule>>,
+  TError,
+  { data: BodyType<ApprovalRuleInput> },
+  TContext
+> => {
+  return useMutation(getCreateApprovalRuleMutationOptions(options));
+};
+
+export const getUpdateApprovalRuleUrl = (id: number) => {
+  return `/api/workflow/approval-rules/${id}`;
+};
+
+export const updateApprovalRule = async (
+  id: number,
+  approvalRulePatch: ApprovalRulePatch,
+  options?: RequestInit,
+): Promise<UpdateApprovalRule200> => {
+  return customFetch<UpdateApprovalRule200>(getUpdateApprovalRuleUrl(id), {
+    ...options,
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(approvalRulePatch),
+  });
+};
+
+export const getUpdateApprovalRuleMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateApprovalRule>>,
+    TError,
+    { id: number; data: BodyType<ApprovalRulePatch> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateApprovalRule>>,
+  TError,
+  { id: number; data: BodyType<ApprovalRulePatch> },
+  TContext
+> => {
+  const mutationKey = ["updateApprovalRule"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateApprovalRule>>,
+    { id: number; data: BodyType<ApprovalRulePatch> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return updateApprovalRule(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateApprovalRuleMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updateApprovalRule>>
+>;
+export type UpdateApprovalRuleMutationBody = BodyType<ApprovalRulePatch>;
+export type UpdateApprovalRuleMutationError = ErrorType<unknown>;
+
+export const useUpdateApprovalRule = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateApprovalRule>>,
+    TError,
+    { id: number; data: BodyType<ApprovalRulePatch> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof updateApprovalRule>>,
+  TError,
+  { id: number; data: BodyType<ApprovalRulePatch> },
+  TContext
+> => {
+  return useMutation(getUpdateApprovalRuleMutationOptions(options));
+};
+
+export const getDeleteApprovalRuleUrl = (id: number) => {
+  return `/api/workflow/approval-rules/${id}`;
+};
+
+export const deleteApprovalRule = async (
+  id: number,
+  options?: RequestInit,
+): Promise<DeleteApprovalRule200> => {
+  return customFetch<DeleteApprovalRule200>(getDeleteApprovalRuleUrl(id), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getDeleteApprovalRuleMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteApprovalRule>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof deleteApprovalRule>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  const mutationKey = ["deleteApprovalRule"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof deleteApprovalRule>>,
+    { id: number }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return deleteApprovalRule(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DeleteApprovalRuleMutationResult = NonNullable<
+  Awaited<ReturnType<typeof deleteApprovalRule>>
+>;
+
+export type DeleteApprovalRuleMutationError = ErrorType<unknown>;
+
+export const useDeleteApprovalRule = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteApprovalRule>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof deleteApprovalRule>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  return useMutation(getDeleteApprovalRuleMutationOptions(options));
+};
+
+export const getListApprovalRequestsUrl = (
+  params?: ListApprovalRequestsParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/workflow/approval-requests?${stringifiedParams}`
+    : `/api/workflow/approval-requests`;
+};
+
+export const listApprovalRequests = async (
+  params?: ListApprovalRequestsParams,
+  options?: RequestInit,
+): Promise<ApprovalRequest[]> => {
+  return customFetch<ApprovalRequest[]>(getListApprovalRequestsUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListApprovalRequestsQueryKey = (
+  params?: ListApprovalRequestsParams,
+) => {
+  return [
+    `/api/workflow/approval-requests`,
+    ...(params ? [params] : []),
+  ] as const;
+};
+
+export const getListApprovalRequestsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listApprovalRequests>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListApprovalRequestsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listApprovalRequests>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getListApprovalRequestsQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listApprovalRequests>>
+  > = ({ signal }) =>
+    listApprovalRequests(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listApprovalRequests>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListApprovalRequestsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listApprovalRequests>>
+>;
+export type ListApprovalRequestsQueryError = ErrorType<unknown>;
+
+export function useListApprovalRequests<
+  TData = Awaited<ReturnType<typeof listApprovalRequests>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListApprovalRequestsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listApprovalRequests>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListApprovalRequestsQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+export const getGetApprovalRequestUrl = (id: number) => {
+  return `/api/workflow/approval-requests/${id}`;
+};
+
+export const getApprovalRequest = async (
+  id: number,
+  options?: RequestInit,
+): Promise<ApprovalRequestDetail> => {
+  return customFetch<ApprovalRequestDetail>(getGetApprovalRequestUrl(id), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetApprovalRequestQueryKey = (id: number) => {
+  return [`/api/workflow/approval-requests/${id}`] as const;
+};
+
+export const getGetApprovalRequestQueryOptions = <
+  TData = Awaited<ReturnType<typeof getApprovalRequest>>,
+  TError = ErrorType<unknown>,
+>(
+  id: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getApprovalRequest>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetApprovalRequestQueryKey(id);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getApprovalRequest>>
+  > = ({ signal }) => getApprovalRequest(id, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getApprovalRequest>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetApprovalRequestQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getApprovalRequest>>
+>;
+export type GetApprovalRequestQueryError = ErrorType<unknown>;
+
+export function useGetApprovalRequest<
+  TData = Awaited<ReturnType<typeof getApprovalRequest>>,
+  TError = ErrorType<unknown>,
+>(
+  id: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getApprovalRequest>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetApprovalRequestQueryOptions(id, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+export const getActOnApprovalRequestUrl = (id: number) => {
+  return `/api/workflow/approval-requests/${id}/act`;
+};
+
+export const actOnApprovalRequest = async (
+  id: number,
+  actOnApprovalRequestBody: ActOnApprovalRequestBody,
+  options?: RequestInit,
+): Promise<ActOnApprovalRequest200> => {
+  return customFetch<ActOnApprovalRequest200>(getActOnApprovalRequestUrl(id), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(actOnApprovalRequestBody),
+  });
+};
+
+export const getActOnApprovalRequestMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof actOnApprovalRequest>>,
+    TError,
+    { id: number; data: BodyType<ActOnApprovalRequestBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof actOnApprovalRequest>>,
+  TError,
+  { id: number; data: BodyType<ActOnApprovalRequestBody> },
+  TContext
+> => {
+  const mutationKey = ["actOnApprovalRequest"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof actOnApprovalRequest>>,
+    { id: number; data: BodyType<ActOnApprovalRequestBody> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return actOnApprovalRequest(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ActOnApprovalRequestMutationResult = NonNullable<
+  Awaited<ReturnType<typeof actOnApprovalRequest>>
+>;
+export type ActOnApprovalRequestMutationBody =
+  BodyType<ActOnApprovalRequestBody>;
+export type ActOnApprovalRequestMutationError = ErrorType<unknown>;
+
+export const useActOnApprovalRequest = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof actOnApprovalRequest>>,
+    TError,
+    { id: number; data: BodyType<ActOnApprovalRequestBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof actOnApprovalRequest>>,
+  TError,
+  { id: number; data: BodyType<ActOnApprovalRequestBody> },
+  TContext
+> => {
+  return useMutation(getActOnApprovalRequestMutationOptions(options));
+};
+
+export const getListDelegationsUrl = () => {
+  return `/api/workflow/delegations`;
+};
+
+export const listDelegations = async (
+  options?: RequestInit,
+): Promise<ApproverDelegation[]> => {
+  return customFetch<ApproverDelegation[]>(getListDelegationsUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListDelegationsQueryKey = () => {
+  return [`/api/workflow/delegations`] as const;
+};
+
+export const getListDelegationsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listDelegations>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listDelegations>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListDelegationsQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof listDelegations>>> = ({
+    signal,
+  }) => listDelegations({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listDelegations>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListDelegationsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listDelegations>>
+>;
+export type ListDelegationsQueryError = ErrorType<unknown>;
+
+export function useListDelegations<
+  TData = Awaited<ReturnType<typeof listDelegations>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listDelegations>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListDelegationsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+export const getCreateDelegationUrl = () => {
+  return `/api/workflow/delegations`;
+};
+
+export const createDelegation = async (
+  createDelegationBody: CreateDelegationBody,
+  options?: RequestInit,
+): Promise<CreateDelegation201> => {
+  return customFetch<CreateDelegation201>(getCreateDelegationUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(createDelegationBody),
+  });
+};
+
+export const getCreateDelegationMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createDelegation>>,
+    TError,
+    { data: BodyType<CreateDelegationBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof createDelegation>>,
+  TError,
+  { data: BodyType<CreateDelegationBody> },
+  TContext
+> => {
+  const mutationKey = ["createDelegation"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof createDelegation>>,
+    { data: BodyType<CreateDelegationBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return createDelegation(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CreateDelegationMutationResult = NonNullable<
+  Awaited<ReturnType<typeof createDelegation>>
+>;
+export type CreateDelegationMutationBody = BodyType<CreateDelegationBody>;
+export type CreateDelegationMutationError = ErrorType<unknown>;
+
+export const useCreateDelegation = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createDelegation>>,
+    TError,
+    { data: BodyType<CreateDelegationBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof createDelegation>>,
+  TError,
+  { data: BodyType<CreateDelegationBody> },
+  TContext
+> => {
+  return useMutation(getCreateDelegationMutationOptions(options));
+};
+
+export const getDeleteDelegationUrl = (id: number) => {
+  return `/api/workflow/delegations/${id}`;
+};
+
+export const deleteDelegation = async (
+  id: number,
+  options?: RequestInit,
+): Promise<DeleteDelegation200> => {
+  return customFetch<DeleteDelegation200>(getDeleteDelegationUrl(id), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getDeleteDelegationMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteDelegation>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof deleteDelegation>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  const mutationKey = ["deleteDelegation"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof deleteDelegation>>,
+    { id: number }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return deleteDelegation(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DeleteDelegationMutationResult = NonNullable<
+  Awaited<ReturnType<typeof deleteDelegation>>
+>;
+
+export type DeleteDelegationMutationError = ErrorType<unknown>;
+
+export const useDeleteDelegation = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteDelegation>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof deleteDelegation>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  return useMutation(getDeleteDelegationMutationOptions(options));
+};
+
+export const getListFinancialLimitsUrl = () => {
+  return `/api/workflow/financial-limits`;
+};
+
+export const listFinancialLimits = async (
+  options?: RequestInit,
+): Promise<FinancialLimit[]> => {
+  return customFetch<FinancialLimit[]>(getListFinancialLimitsUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListFinancialLimitsQueryKey = () => {
+  return [`/api/workflow/financial-limits`] as const;
+};
+
+export const getListFinancialLimitsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listFinancialLimits>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listFinancialLimits>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListFinancialLimitsQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listFinancialLimits>>
+  > = ({ signal }) => listFinancialLimits({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listFinancialLimits>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListFinancialLimitsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listFinancialLimits>>
+>;
+export type ListFinancialLimitsQueryError = ErrorType<unknown>;
+
+export function useListFinancialLimits<
+  TData = Awaited<ReturnType<typeof listFinancialLimits>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listFinancialLimits>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListFinancialLimitsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+export const getUpsertFinancialLimitUrl = () => {
+  return `/api/workflow/financial-limits`;
+};
+
+export const upsertFinancialLimit = async (
+  upsertFinancialLimitBody: UpsertFinancialLimitBody,
+  options?: RequestInit,
+): Promise<UpsertFinancialLimit200> => {
+  return customFetch<UpsertFinancialLimit200>(getUpsertFinancialLimitUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(upsertFinancialLimitBody),
+  });
+};
+
+export const getUpsertFinancialLimitMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof upsertFinancialLimit>>,
+    TError,
+    { data: BodyType<UpsertFinancialLimitBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof upsertFinancialLimit>>,
+  TError,
+  { data: BodyType<UpsertFinancialLimitBody> },
+  TContext
+> => {
+  const mutationKey = ["upsertFinancialLimit"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof upsertFinancialLimit>>,
+    { data: BodyType<UpsertFinancialLimitBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return upsertFinancialLimit(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpsertFinancialLimitMutationResult = NonNullable<
+  Awaited<ReturnType<typeof upsertFinancialLimit>>
+>;
+export type UpsertFinancialLimitMutationBody =
+  BodyType<UpsertFinancialLimitBody>;
+export type UpsertFinancialLimitMutationError = ErrorType<unknown>;
+
+export const useUpsertFinancialLimit = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof upsertFinancialLimit>>,
+    TError,
+    { data: BodyType<UpsertFinancialLimitBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof upsertFinancialLimit>>,
+  TError,
+  { data: BodyType<UpsertFinancialLimitBody> },
+  TContext
+> => {
+  return useMutation(getUpsertFinancialLimitMutationOptions(options));
+};
+
+export const getListAutomationRulesUrl = () => {
+  return `/api/workflow/automation-rules`;
+};
+
+export const listAutomationRules = async (
+  options?: RequestInit,
+): Promise<AutomationRule[]> => {
+  return customFetch<AutomationRule[]>(getListAutomationRulesUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListAutomationRulesQueryKey = () => {
+  return [`/api/workflow/automation-rules`] as const;
+};
+
+export const getListAutomationRulesQueryOptions = <
+  TData = Awaited<ReturnType<typeof listAutomationRules>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listAutomationRules>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListAutomationRulesQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listAutomationRules>>
+  > = ({ signal }) => listAutomationRules({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listAutomationRules>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListAutomationRulesQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listAutomationRules>>
+>;
+export type ListAutomationRulesQueryError = ErrorType<unknown>;
+
+export function useListAutomationRules<
+  TData = Awaited<ReturnType<typeof listAutomationRules>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listAutomationRules>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListAutomationRulesQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+export const getCreateAutomationRuleUrl = () => {
+  return `/api/workflow/automation-rules`;
+};
+
+export const createAutomationRule = async (
+  automationRuleInput: AutomationRuleInput,
+  options?: RequestInit,
+): Promise<CreateAutomationRule201> => {
+  return customFetch<CreateAutomationRule201>(getCreateAutomationRuleUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(automationRuleInput),
+  });
+};
+
+export const getCreateAutomationRuleMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createAutomationRule>>,
+    TError,
+    { data: BodyType<AutomationRuleInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof createAutomationRule>>,
+  TError,
+  { data: BodyType<AutomationRuleInput> },
+  TContext
+> => {
+  const mutationKey = ["createAutomationRule"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof createAutomationRule>>,
+    { data: BodyType<AutomationRuleInput> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return createAutomationRule(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CreateAutomationRuleMutationResult = NonNullable<
+  Awaited<ReturnType<typeof createAutomationRule>>
+>;
+export type CreateAutomationRuleMutationBody = BodyType<AutomationRuleInput>;
+export type CreateAutomationRuleMutationError = ErrorType<unknown>;
+
+export const useCreateAutomationRule = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createAutomationRule>>,
+    TError,
+    { data: BodyType<AutomationRuleInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof createAutomationRule>>,
+  TError,
+  { data: BodyType<AutomationRuleInput> },
+  TContext
+> => {
+  return useMutation(getCreateAutomationRuleMutationOptions(options));
+};
+
+export const getUpdateAutomationRuleUrl = (id: number) => {
+  return `/api/workflow/automation-rules/${id}`;
+};
+
+export const updateAutomationRule = async (
+  id: number,
+  automationRulePatch: AutomationRulePatch,
+  options?: RequestInit,
+): Promise<UpdateAutomationRule200> => {
+  return customFetch<UpdateAutomationRule200>(getUpdateAutomationRuleUrl(id), {
+    ...options,
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(automationRulePatch),
+  });
+};
+
+export const getUpdateAutomationRuleMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateAutomationRule>>,
+    TError,
+    { id: number; data: BodyType<AutomationRulePatch> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateAutomationRule>>,
+  TError,
+  { id: number; data: BodyType<AutomationRulePatch> },
+  TContext
+> => {
+  const mutationKey = ["updateAutomationRule"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateAutomationRule>>,
+    { id: number; data: BodyType<AutomationRulePatch> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return updateAutomationRule(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateAutomationRuleMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updateAutomationRule>>
+>;
+export type UpdateAutomationRuleMutationBody = BodyType<AutomationRulePatch>;
+export type UpdateAutomationRuleMutationError = ErrorType<unknown>;
+
+export const useUpdateAutomationRule = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateAutomationRule>>,
+    TError,
+    { id: number; data: BodyType<AutomationRulePatch> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof updateAutomationRule>>,
+  TError,
+  { id: number; data: BodyType<AutomationRulePatch> },
+  TContext
+> => {
+  return useMutation(getUpdateAutomationRuleMutationOptions(options));
+};
+
+export const getDeleteAutomationRuleUrl = (id: number) => {
+  return `/api/workflow/automation-rules/${id}`;
+};
+
+export const deleteAutomationRule = async (
+  id: number,
+  options?: RequestInit,
+): Promise<DeleteAutomationRule200> => {
+  return customFetch<DeleteAutomationRule200>(getDeleteAutomationRuleUrl(id), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getDeleteAutomationRuleMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteAutomationRule>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof deleteAutomationRule>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  const mutationKey = ["deleteAutomationRule"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof deleteAutomationRule>>,
+    { id: number }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return deleteAutomationRule(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DeleteAutomationRuleMutationResult = NonNullable<
+  Awaited<ReturnType<typeof deleteAutomationRule>>
+>;
+
+export type DeleteAutomationRuleMutationError = ErrorType<unknown>;
+
+export const useDeleteAutomationRule = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteAutomationRule>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof deleteAutomationRule>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  return useMutation(getDeleteAutomationRuleMutationOptions(options));
+};
+
+export const getListAutomationRunsUrl = (params?: ListAutomationRunsParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/workflow/automation-runs?${stringifiedParams}`
+    : `/api/workflow/automation-runs`;
+};
+
+export const listAutomationRuns = async (
+  params?: ListAutomationRunsParams,
+  options?: RequestInit,
+): Promise<AutomationRun[]> => {
+  return customFetch<AutomationRun[]>(getListAutomationRunsUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListAutomationRunsQueryKey = (
+  params?: ListAutomationRunsParams,
+) => {
+  return [
+    `/api/workflow/automation-runs`,
+    ...(params ? [params] : []),
+  ] as const;
+};
+
+export const getListAutomationRunsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listAutomationRuns>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListAutomationRunsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listAutomationRuns>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getListAutomationRunsQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listAutomationRuns>>
+  > = ({ signal }) => listAutomationRuns(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listAutomationRuns>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListAutomationRunsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listAutomationRuns>>
+>;
+export type ListAutomationRunsQueryError = ErrorType<unknown>;
+
+export function useListAutomationRuns<
+  TData = Awaited<ReturnType<typeof listAutomationRuns>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListAutomationRunsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listAutomationRuns>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListAutomationRunsQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+export const getListInboxUrl = (params?: ListInboxParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/workflow/inbox?${stringifiedParams}`
+    : `/api/workflow/inbox`;
+};
+
+export const listInbox = async (
+  params?: ListInboxParams,
+  options?: RequestInit,
+): Promise<InboxItem[]> => {
+  return customFetch<InboxItem[]>(getListInboxUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListInboxQueryKey = (params?: ListInboxParams) => {
+  return [`/api/workflow/inbox`, ...(params ? [params] : [])] as const;
+};
+
+export const getListInboxQueryOptions = <
+  TData = Awaited<ReturnType<typeof listInbox>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListInboxParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listInbox>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListInboxQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof listInbox>>> = ({
+    signal,
+  }) => listInbox(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listInbox>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListInboxQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listInbox>>
+>;
+export type ListInboxQueryError = ErrorType<unknown>;
+
+export function useListInbox<
+  TData = Awaited<ReturnType<typeof listInbox>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListInboxParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listInbox>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListInboxQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+export const getMarkInboxReadUrl = (id: number) => {
+  return `/api/workflow/inbox/${id}/read`;
+};
+
+export const markInboxRead = async (
+  id: number,
+  options?: RequestInit,
+): Promise<MarkInboxRead200> => {
+  return customFetch<MarkInboxRead200>(getMarkInboxReadUrl(id), {
+    ...options,
+    method: "PATCH",
+  });
+};
+
+export const getMarkInboxReadMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof markInboxRead>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof markInboxRead>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  const mutationKey = ["markInboxRead"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof markInboxRead>>,
+    { id: number }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return markInboxRead(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type MarkInboxReadMutationResult = NonNullable<
+  Awaited<ReturnType<typeof markInboxRead>>
+>;
+
+export type MarkInboxReadMutationError = ErrorType<unknown>;
+
+export const useMarkInboxRead = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof markInboxRead>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof markInboxRead>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  return useMutation(getMarkInboxReadMutationOptions(options));
+};
+
+export const getMarkAllInboxReadUrl = () => {
+  return `/api/workflow/inbox/mark-all-read`;
+};
+
+export const markAllInboxRead = async (
+  options?: RequestInit,
+): Promise<MarkAllInboxRead200> => {
+  return customFetch<MarkAllInboxRead200>(getMarkAllInboxReadUrl(), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getMarkAllInboxReadMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof markAllInboxRead>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof markAllInboxRead>>,
+  TError,
+  void,
+  TContext
+> => {
+  const mutationKey = ["markAllInboxRead"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof markAllInboxRead>>,
+    void
+  > = () => {
+    return markAllInboxRead(requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type MarkAllInboxReadMutationResult = NonNullable<
+  Awaited<ReturnType<typeof markAllInboxRead>>
+>;
+
+export type MarkAllInboxReadMutationError = ErrorType<unknown>;
+
+export const useMarkAllInboxRead = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof markAllInboxRead>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof markAllInboxRead>>,
+  TError,
+  void,
+  TContext
+> => {
+  return useMutation(getMarkAllInboxReadMutationOptions(options));
+};
+
+export const getListApproverCandidatesUrl = () => {
+  return `/api/workflow/approver-candidates`;
+};
+
+export const listApproverCandidates = async (
+  options?: RequestInit,
+): Promise<ListApproverCandidates200Item[]> => {
+  return customFetch<ListApproverCandidates200Item[]>(
+    getListApproverCandidatesUrl(),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getListApproverCandidatesQueryKey = () => {
+  return [`/api/workflow/approver-candidates`] as const;
+};
+
+export const getListApproverCandidatesQueryOptions = <
+  TData = Awaited<ReturnType<typeof listApproverCandidates>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listApproverCandidates>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getListApproverCandidatesQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listApproverCandidates>>
+  > = ({ signal }) => listApproverCandidates({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listApproverCandidates>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListApproverCandidatesQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listApproverCandidates>>
+>;
+export type ListApproverCandidatesQueryError = ErrorType<unknown>;
+
+export function useListApproverCandidates<
+  TData = Awaited<ReturnType<typeof listApproverCandidates>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listApproverCandidates>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListApproverCandidatesQueryOptions(options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;

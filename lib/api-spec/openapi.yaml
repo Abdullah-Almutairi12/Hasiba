@@ -1655,8 +1655,448 @@ paths:
                 type: string
                 format: binary
 
+  /workflow/approval-rules:
+    get:
+      tags: [Workflow]
+      operationId: listApprovalRules
+      summary: List approval rules with their steps
+      responses:
+        "200":
+          description: list
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/ApprovalRule" } }
+    post:
+      tags: [Workflow]
+      operationId: createApprovalRule
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ApprovalRuleInput" }
+      responses:
+        "201": { description: created, content: { application/json: { schema: { type: object, properties: { id: { type: integer } }, required: [id] } } } }
+  /workflow/approval-rules/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: integer }
+    patch:
+      tags: [Workflow]
+      operationId: updateApprovalRule
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ApprovalRulePatch" }
+      responses:
+        "200": { description: ok, content: { application/json: { schema: { type: object, properties: { ok: { type: boolean } }, required: [ok] } } } }
+    delete:
+      tags: [Workflow]
+      operationId: deleteApprovalRule
+      responses:
+        "200": { description: ok, content: { application/json: { schema: { type: object, properties: { ok: { type: boolean } }, required: [ok] } } } }
+
+  /workflow/approval-requests:
+    get:
+      tags: [Workflow]
+      operationId: listApprovalRequests
+      parameters:
+        - { name: status, in: query, schema: { type: string } }
+        - { name: docType, in: query, schema: { type: string } }
+      responses:
+        "200":
+          description: list
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/ApprovalRequest" } }
+  /workflow/approval-requests/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: integer } }
+    get:
+      tags: [Workflow]
+      operationId: getApprovalRequest
+      responses:
+        "200":
+          description: detail
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApprovalRequestDetail" }
+  /workflow/approval-requests/{id}/act:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: integer } }
+    post:
+      tags: [Workflow]
+      operationId: actOnApprovalRequest
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                action: { type: string, enum: [approve, reject, request_changes, comment] }
+                comment: { type: string, nullable: true }
+              required: [action]
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string }
+                  finished: { type: boolean }
+                required: [status, finished]
+
+  /workflow/delegations:
+    get:
+      tags: [Workflow]
+      operationId: listDelegations
+      responses:
+        "200":
+          description: list
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/ApproverDelegation" } }
+    post:
+      tags: [Workflow]
+      operationId: createDelegation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                fromUserId: { type: integer }
+                toUserId: { type: integer }
+                fromDate: { type: string }
+                toDate: { type: string }
+                reason: { type: string, nullable: true }
+              required: [fromUserId, toUserId, fromDate, toDate]
+      responses:
+        "201":
+          description: created
+          content: { application/json: { schema: { type: object, properties: { id: { type: integer } }, required: [id] } } }
+  /workflow/delegations/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: integer } }
+    delete:
+      tags: [Workflow]
+      operationId: deleteDelegation
+      responses:
+        "200": { description: ok, content: { application/json: { schema: { type: object, properties: { ok: { type: boolean } }, required: [ok] } } } }
+
+  /workflow/financial-limits:
+    get:
+      tags: [Workflow]
+      operationId: listFinancialLimits
+      responses:
+        "200":
+          description: list
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/FinancialLimit" } }
+    post:
+      tags: [Workflow]
+      operationId: upsertFinancialLimit
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                role: { type: string }
+                actionKey: { type: string }
+                maxValue: { type: number, nullable: true }
+                description: { type: string, nullable: true }
+              required: [role, actionKey, maxValue]
+      responses:
+        "200": { description: ok, content: { application/json: { schema: { type: object, properties: { ok: { type: boolean } }, required: [ok] } } } }
+
+  /workflow/automation-rules:
+    get:
+      tags: [Workflow]
+      operationId: listAutomationRules
+      responses:
+        "200":
+          description: list
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/AutomationRule" } }
+    post:
+      tags: [Workflow]
+      operationId: createAutomationRule
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AutomationRuleInput" }
+      responses:
+        "201": { description: created, content: { application/json: { schema: { type: object, properties: { id: { type: integer } }, required: [id] } } } }
+  /workflow/automation-rules/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: integer } }
+    patch:
+      tags: [Workflow]
+      operationId: updateAutomationRule
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/AutomationRulePatch" } } }
+      responses:
+        "200": { description: ok, content: { application/json: { schema: { type: object, properties: { ok: { type: boolean } }, required: [ok] } } } }
+    delete:
+      tags: [Workflow]
+      operationId: deleteAutomationRule
+      responses:
+        "200": { description: ok, content: { application/json: { schema: { type: object, properties: { ok: { type: boolean } }, required: [ok] } } } }
+  /workflow/automation-runs:
+    get:
+      tags: [Workflow]
+      operationId: listAutomationRuns
+      parameters:
+        - { name: ruleId, in: query, schema: { type: integer } }
+      responses:
+        "200":
+          description: list
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/AutomationRun" } }
+
+  /workflow/inbox:
+    get:
+      tags: [Workflow]
+      operationId: listInbox
+      parameters:
+        - { name: unread, in: query, schema: { type: string } }
+      responses:
+        "200":
+          description: list
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/InboxItem" } }
+  /workflow/inbox/{id}/read:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: integer } }
+    patch:
+      tags: [Workflow]
+      operationId: markInboxRead
+      responses:
+        "200": { description: ok, content: { application/json: { schema: { type: object, properties: { ok: { type: boolean } }, required: [ok] } } } }
+  /workflow/inbox/mark-all-read:
+    post:
+      tags: [Workflow]
+      operationId: markAllInboxRead
+      responses:
+        "200": { description: ok, content: { application/json: { schema: { type: object, properties: { ok: { type: boolean } }, required: [ok] } } } }
+
+  /workflow/approver-candidates:
+    get:
+      tags: [Workflow]
+      operationId: listApproverCandidates
+      responses:
+        "200":
+          description: list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id: { type: integer }
+                    name: { type: string }
+                    role: { type: string }
+                  required: [id, name, role]
+
 components:
   schemas:
+    ApprovalStep:
+      type: object
+      properties:
+        id: { type: integer }
+        ruleId: { type: integer }
+        sequence: { type: integer }
+        approverRole: { type: string }
+        approverUserId: { type: integer, nullable: true }
+        minAmount: { type: number }
+      required: [sequence, approverRole, minAmount]
+    ApprovalRule:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        docType: { type: string }
+        branchId: { type: integer, nullable: true }
+        minAmount: { type: number }
+        maxAmount: { type: number, nullable: true }
+        mode: { type: string, enum: [sequential, parallel] }
+        isActive: { type: boolean }
+        createdAt: { type: string }
+        steps: { type: array, items: { $ref: "#/components/schemas/ApprovalStep" } }
+      required: [id, name, docType, minAmount, mode, isActive, createdAt, steps]
+    ApprovalRuleInput:
+      type: object
+      properties:
+        name: { type: string }
+        docType: { type: string }
+        branchId: { type: integer, nullable: true }
+        minAmount: { type: number }
+        maxAmount: { type: number, nullable: true }
+        mode: { type: string, enum: [sequential, parallel] }
+        isActive: { type: boolean }
+        steps:
+          type: array
+          items:
+            type: object
+            properties:
+              sequence: { type: integer }
+              approverRole: { type: string }
+              approverUserId: { type: integer, nullable: true }
+              minAmount: { type: number }
+            required: [sequence, approverRole, minAmount]
+      required: [name, docType, steps]
+    ApprovalRulePatch:
+      type: object
+      description: Partial update payload for an approval rule. All fields optional.
+      properties:
+        name: { type: string }
+        docType: { type: string }
+        branchId: { type: integer, nullable: true }
+        minAmount: { type: number }
+        maxAmount: { type: number, nullable: true }
+        mode: { type: string, enum: [sequential, parallel] }
+        isActive: { type: boolean }
+        steps:
+          type: array
+          items:
+            type: object
+            properties:
+              sequence: { type: integer }
+              approverRole: { type: string }
+              approverUserId: { type: integer, nullable: true }
+              minAmount: { type: number }
+            required: [sequence, approverRole, minAmount]
+    ApprovalRequest:
+      type: object
+      properties:
+        id: { type: integer }
+        ruleId: { type: integer, nullable: true }
+        docType: { type: string }
+        recordId: { type: integer }
+        recordRef: { type: string, nullable: true }
+        branchId: { type: integer, nullable: true }
+        amount: { type: number }
+        submittedByUserId: { type: integer, nullable: true }
+        submittedByName: { type: string, nullable: true }
+        status: { type: string }
+        currentStep: { type: integer }
+        notes: { type: string, nullable: true }
+        createdAt: { type: string }
+        decidedAt: { type: string, nullable: true }
+      required: [id, docType, recordId, amount, status, currentStep, createdAt]
+    ApprovalAction:
+      type: object
+      properties:
+        id: { type: integer }
+        requestId: { type: integer }
+        stepSequence: { type: integer }
+        approverUserId: { type: integer, nullable: true }
+        approverName: { type: string, nullable: true }
+        action: { type: string }
+        comment: { type: string, nullable: true }
+        actedAt: { type: string }
+      required: [id, requestId, stepSequence, action, actedAt]
+    ApprovalRequestDetail:
+      allOf:
+        - $ref: "#/components/schemas/ApprovalRequest"
+        - type: object
+          properties:
+            steps: { type: array, items: { $ref: "#/components/schemas/ApprovalStep" } }
+            actions: { type: array, items: { $ref: "#/components/schemas/ApprovalAction" } }
+          required: [steps, actions]
+    ApproverDelegation:
+      type: object
+      properties:
+        id: { type: integer }
+        fromUserId: { type: integer }
+        toUserId: { type: integer }
+        fromDate: { type: string }
+        toDate: { type: string }
+        reason: { type: string, nullable: true }
+        createdAt: { type: string }
+      required: [id, fromUserId, toUserId, fromDate, toDate, createdAt]
+    FinancialLimit:
+      type: object
+      properties:
+        id: { type: integer }
+        role: { type: string }
+        actionKey: { type: string }
+        maxValue: { type: number, nullable: true }
+        description: { type: string, nullable: true }
+        updatedAt: { type: string }
+      required: [id, role, actionKey, updatedAt]
+    AutomationRule:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        description: { type: string, nullable: true }
+        trigger: { type: object, additionalProperties: true }
+        conditions: { type: array, items: { type: object, additionalProperties: true } }
+        actions: { type: array, items: { type: object, additionalProperties: true } }
+        isActive: { type: boolean }
+        lastRunAt: { type: string, nullable: true }
+        createdAt: { type: string }
+      required: [id, name, trigger, conditions, actions, isActive, createdAt]
+    AutomationRuleInput:
+      type: object
+      properties:
+        name: { type: string }
+        description: { type: string, nullable: true }
+        trigger: { type: object, additionalProperties: true }
+        conditions: { type: array, items: { type: object, additionalProperties: true } }
+        actions: { type: array, items: { type: object, additionalProperties: true } }
+        isActive: { type: boolean }
+      required: [name, trigger]
+    AutomationRulePatch:
+      type: object
+      description: Partial update payload for an automation rule. All fields optional.
+      properties:
+        name: { type: string }
+        description: { type: string, nullable: true }
+        trigger: { type: object, additionalProperties: true }
+        conditions: { type: array, items: { type: object, additionalProperties: true } }
+        actions: { type: array, items: { type: object, additionalProperties: true } }
+        isActive: { type: boolean }
+    AutomationRun:
+      type: object
+      properties:
+        id: { type: integer }
+        ruleId: { type: integer }
+        triggeredAt: { type: string }
+        status: { type: string }
+        matchedRecords: { type: integer }
+        actionsExecuted: { type: integer }
+        error: { type: string, nullable: true }
+      required: [id, ruleId, triggeredAt, status, matchedRecords, actionsExecuted]
+    InboxItem:
+      type: object
+      properties:
+        id: { type: integer }
+        userId: { type: integer }
+        type: { type: string }
+        title: { type: string }
+        message: { type: string }
+        link: { type: string, nullable: true }
+        isRead: { type: boolean }
+        createdAt: { type: string }
+      required: [id, userId, type, title, message, isRead, createdAt]
+
     HealthStatus:
       type: object
       properties:

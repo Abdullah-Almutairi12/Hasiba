@@ -30,6 +30,7 @@ import { useApiQuery, useApiMutation, apiPost, apiDelete } from "@/hooks/use-api
 import { useToast } from "@/hooks/use-toast";
 import { useListCustomers, useListProducts } from "@workspace/api-client-react";
 import { usePermissions } from "@/hooks/use-permissions";
+import { ApprovalActions } from "@/components/approval-actions";
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
@@ -391,6 +392,9 @@ function SoActions({ so, onChange }: { so: SalesOrder; onChange: () => void }) {
       {so.status === "invoiced" && (
         <Button size="sm" variant="outline" onClick={() => transition("done")}>إنهاء</Button>
       )}
+      {so.status === "pending_approval" && (
+        <ApprovalActions docType="sales_order" recordId={so.id} compact />
+      )}
     </div>
   );
 }
@@ -524,6 +528,12 @@ function CreditNotesTab() {
             { header: "الإجمالي", cell: (r) => <Money value={r.total} /> },
             { header: "السبب", cell: (r) => r.reason ?? "—" },
             { header: "الحالة", cell: (r) => <StatusBadge status={r.status} /> },
+            {
+              header: "اعتماد",
+              cell: (r) => r.status === "pending_approval"
+                ? <ApprovalActions docType="credit_note" recordId={r.id} compact />
+                : null,
+            },
           ]}
           emptyText="لا توجد إشعارات دائنة"
         />

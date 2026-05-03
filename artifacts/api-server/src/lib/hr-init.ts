@@ -350,4 +350,31 @@ export async function initHr(): Promise<void> {
     SELECT 'Standard 8h', 'الدوام الاعتيادي', '09:00', '17:00', 60, '0,1,2,3,4'
      WHERE NOT EXISTS (SELECT 1 FROM shifts);
   `);
+
+  // 6) Expense claims (employee reimbursement requests). The workflow
+  //    engine routes these via doc_type=expense_claim. JE posting on
+  //    approval is intentionally out of scope (per Task #7 spec, JE is
+  //    optional); status flips to approved/rejected and admins post the
+  //    JE manually if needed.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS expense_claims (
+      id serial PRIMARY KEY,
+      reference text NOT NULL UNIQUE,
+      employee_id integer NOT NULL REFERENCES employees(id),
+      claim_date date NOT NULL,
+      currency text NOT NULL DEFAULT 'SAR',
+      amount numeric(18,2) NOT NULL,
+      category text,
+      description text,
+      receipt_url text,
+      status text NOT NULL DEFAULT 'pending', -- pending | approved | rejected | paid
+      approved_by integer REFERENCES users(id),
+      approved_at timestamp,
+      rejection_reason text,
+      created_by integer REFERENCES users(id),
+      created_at timestamp NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS expense_claims_emp_idx ON expense_claims (employee_id);
+    CREATE INDEX IF NOT EXISTS expense_claims_status_idx ON expense_claims (status);
+  `);
 }

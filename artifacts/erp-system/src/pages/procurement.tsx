@@ -10,6 +10,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { ApprovalActions } from "@/components/approval-actions";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger,
 } from "@/components/ui/dialog";
@@ -392,6 +393,9 @@ function POsTab({ onSelectPO }: { onSelectPO: (po: PO) => void }) {
                     <Button size="sm" variant="ghost" className="text-rose-600"
                       onClick={() => action.mutate({ id: r.id, op: "cancel" })}>إلغاء</Button>
                   )}
+                  {r.status === "pending_approval" && (
+                    <ApprovalActions docType="purchase_order" recordId={r.id} compact />
+                  )}
                 </TableCell>
               </TableRow>
             ))}
@@ -692,10 +696,14 @@ function PaymentRunsTab() {
                 <TableCell>{fmt(r.totalAmount)}</TableCell>
                 <TableCell><StatusBadge status={r.status} /></TableCell>
                 <TableCell>{r.paymentDate}</TableCell>
-                <TableCell>
+                <TableCell className="space-x-1 space-x-reverse">
                   {r.status === "draft" && (
                     <Button size="sm" onClick={() => exec.mutate(r.id)}>تنفيذ</Button>
                   )}
+                  {/* Surfaces approve / reject / request_changes inline when
+                      this run is locked to pending_approval. Approvers don't
+                      need to leave the page to act on it. */}
+                  <ApprovalActions docType="payment_run" recordId={r.id} compact />
                 </TableCell>
               </TableRow>
             ))}

@@ -1576,3 +1576,333 @@ export const ExportXlsxParams = zod.object({
 export const ExportPdfParams = zod.object({
   type: zod.enum(["sales", "products", "invoices", "suppliers", "journal"]),
 });
+
+/**
+ * @summary List approval rules with their steps
+ */
+export const ListApprovalRulesResponseItem = zod.object({
+  id: zod.number(),
+  name: zod.string(),
+  docType: zod.string(),
+  branchId: zod.number().nullish(),
+  minAmount: zod.number(),
+  maxAmount: zod.number().nullish(),
+  mode: zod.enum(["sequential", "parallel"]),
+  isActive: zod.boolean(),
+  createdAt: zod.string(),
+  steps: zod.array(
+    zod.object({
+      id: zod.number().optional(),
+      ruleId: zod.number().optional(),
+      sequence: zod.number(),
+      approverRole: zod.string(),
+      approverUserId: zod.number().nullish(),
+      minAmount: zod.number(),
+    }),
+  ),
+});
+export const ListApprovalRulesResponse = zod.array(
+  ListApprovalRulesResponseItem,
+);
+
+export const CreateApprovalRuleBody = zod.object({
+  name: zod.string(),
+  docType: zod.string(),
+  branchId: zod.number().nullish(),
+  minAmount: zod.number().optional(),
+  maxAmount: zod.number().nullish(),
+  mode: zod.enum(["sequential", "parallel"]).optional(),
+  isActive: zod.boolean().optional(),
+  steps: zod.array(
+    zod.object({
+      sequence: zod.number(),
+      approverRole: zod.string(),
+      approverUserId: zod.number().nullish(),
+      minAmount: zod.number(),
+    }),
+  ),
+});
+
+export const UpdateApprovalRuleParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const UpdateApprovalRuleBody = zod
+  .object({
+    name: zod.string().optional(),
+    docType: zod.string().optional(),
+    branchId: zod.number().nullish(),
+    minAmount: zod.number().optional(),
+    maxAmount: zod.number().nullish(),
+    mode: zod.enum(["sequential", "parallel"]).optional(),
+    isActive: zod.boolean().optional(),
+    steps: zod
+      .array(
+        zod.object({
+          sequence: zod.number(),
+          approverRole: zod.string(),
+          approverUserId: zod.number().nullish(),
+          minAmount: zod.number(),
+        }),
+      )
+      .optional(),
+  })
+  .describe(
+    "Partial update payload for an approval rule. All fields optional.",
+  );
+
+export const UpdateApprovalRuleResponse = zod.object({
+  ok: zod.boolean(),
+});
+
+export const DeleteApprovalRuleParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const DeleteApprovalRuleResponse = zod.object({
+  ok: zod.boolean(),
+});
+
+export const ListApprovalRequestsQueryParams = zod.object({
+  status: zod.coerce.string().optional(),
+  docType: zod.coerce.string().optional(),
+});
+
+export const ListApprovalRequestsResponseItem = zod.object({
+  id: zod.number(),
+  ruleId: zod.number().nullish(),
+  docType: zod.string(),
+  recordId: zod.number(),
+  recordRef: zod.string().nullish(),
+  branchId: zod.number().nullish(),
+  amount: zod.number(),
+  submittedByUserId: zod.number().nullish(),
+  submittedByName: zod.string().nullish(),
+  status: zod.string(),
+  currentStep: zod.number(),
+  notes: zod.string().nullish(),
+  createdAt: zod.string(),
+  decidedAt: zod.string().nullish(),
+});
+export const ListApprovalRequestsResponse = zod.array(
+  ListApprovalRequestsResponseItem,
+);
+
+export const GetApprovalRequestParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const GetApprovalRequestResponse = zod
+  .object({
+    id: zod.number(),
+    ruleId: zod.number().nullish(),
+    docType: zod.string(),
+    recordId: zod.number(),
+    recordRef: zod.string().nullish(),
+    branchId: zod.number().nullish(),
+    amount: zod.number(),
+    submittedByUserId: zod.number().nullish(),
+    submittedByName: zod.string().nullish(),
+    status: zod.string(),
+    currentStep: zod.number(),
+    notes: zod.string().nullish(),
+    createdAt: zod.string(),
+    decidedAt: zod.string().nullish(),
+  })
+  .and(
+    zod.object({
+      steps: zod.array(
+        zod.object({
+          id: zod.number().optional(),
+          ruleId: zod.number().optional(),
+          sequence: zod.number(),
+          approverRole: zod.string(),
+          approverUserId: zod.number().nullish(),
+          minAmount: zod.number(),
+        }),
+      ),
+      actions: zod.array(
+        zod.object({
+          id: zod.number(),
+          requestId: zod.number(),
+          stepSequence: zod.number(),
+          approverUserId: zod.number().nullish(),
+          approverName: zod.string().nullish(),
+          action: zod.string(),
+          comment: zod.string().nullish(),
+          actedAt: zod.string(),
+        }),
+      ),
+    }),
+  );
+
+export const ActOnApprovalRequestParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const ActOnApprovalRequestBody = zod.object({
+  action: zod.enum(["approve", "reject", "request_changes", "comment"]),
+  comment: zod.string().nullish(),
+});
+
+export const ActOnApprovalRequestResponse = zod.object({
+  status: zod.string(),
+  finished: zod.boolean(),
+});
+
+export const ListDelegationsResponseItem = zod.object({
+  id: zod.number(),
+  fromUserId: zod.number(),
+  toUserId: zod.number(),
+  fromDate: zod.string(),
+  toDate: zod.string(),
+  reason: zod.string().nullish(),
+  createdAt: zod.string(),
+});
+export const ListDelegationsResponse = zod.array(ListDelegationsResponseItem);
+
+export const CreateDelegationBody = zod.object({
+  fromUserId: zod.number(),
+  toUserId: zod.number(),
+  fromDate: zod.string(),
+  toDate: zod.string(),
+  reason: zod.string().nullish(),
+});
+
+export const DeleteDelegationParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const DeleteDelegationResponse = zod.object({
+  ok: zod.boolean(),
+});
+
+export const ListFinancialLimitsResponseItem = zod.object({
+  id: zod.number(),
+  role: zod.string(),
+  actionKey: zod.string(),
+  maxValue: zod.number().nullish(),
+  description: zod.string().nullish(),
+  updatedAt: zod.string(),
+});
+export const ListFinancialLimitsResponse = zod.array(
+  ListFinancialLimitsResponseItem,
+);
+
+export const UpsertFinancialLimitBody = zod.object({
+  role: zod.string(),
+  actionKey: zod.string(),
+  maxValue: zod.number().nullable(),
+  description: zod.string().nullish(),
+});
+
+export const UpsertFinancialLimitResponse = zod.object({
+  ok: zod.boolean(),
+});
+
+export const ListAutomationRulesResponseItem = zod.object({
+  id: zod.number(),
+  name: zod.string(),
+  description: zod.string().nullish(),
+  trigger: zod.record(zod.string(), zod.unknown()),
+  conditions: zod.array(zod.record(zod.string(), zod.unknown())),
+  actions: zod.array(zod.record(zod.string(), zod.unknown())),
+  isActive: zod.boolean(),
+  lastRunAt: zod.string().nullish(),
+  createdAt: zod.string(),
+});
+export const ListAutomationRulesResponse = zod.array(
+  ListAutomationRulesResponseItem,
+);
+
+export const CreateAutomationRuleBody = zod.object({
+  name: zod.string(),
+  description: zod.string().nullish(),
+  trigger: zod.record(zod.string(), zod.unknown()),
+  conditions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+  actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+  isActive: zod.boolean().optional(),
+});
+
+export const UpdateAutomationRuleParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const UpdateAutomationRuleBody = zod
+  .object({
+    name: zod.string().optional(),
+    description: zod.string().nullish(),
+    trigger: zod.record(zod.string(), zod.unknown()).optional(),
+    conditions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+    actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+    isActive: zod.boolean().optional(),
+  })
+  .describe(
+    "Partial update payload for an automation rule. All fields optional.",
+  );
+
+export const UpdateAutomationRuleResponse = zod.object({
+  ok: zod.boolean(),
+});
+
+export const DeleteAutomationRuleParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const DeleteAutomationRuleResponse = zod.object({
+  ok: zod.boolean(),
+});
+
+export const ListAutomationRunsQueryParams = zod.object({
+  ruleId: zod.coerce.number().optional(),
+});
+
+export const ListAutomationRunsResponseItem = zod.object({
+  id: zod.number(),
+  ruleId: zod.number(),
+  triggeredAt: zod.string(),
+  status: zod.string(),
+  matchedRecords: zod.number(),
+  actionsExecuted: zod.number(),
+  error: zod.string().nullish(),
+});
+export const ListAutomationRunsResponse = zod.array(
+  ListAutomationRunsResponseItem,
+);
+
+export const ListInboxQueryParams = zod.object({
+  unread: zod.coerce.string().optional(),
+});
+
+export const ListInboxResponseItem = zod.object({
+  id: zod.number(),
+  userId: zod.number(),
+  type: zod.string(),
+  title: zod.string(),
+  message: zod.string(),
+  link: zod.string().nullish(),
+  isRead: zod.boolean(),
+  createdAt: zod.string(),
+});
+export const ListInboxResponse = zod.array(ListInboxResponseItem);
+
+export const MarkInboxReadParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const MarkInboxReadResponse = zod.object({
+  ok: zod.boolean(),
+});
+
+export const MarkAllInboxReadResponse = zod.object({
+  ok: zod.boolean(),
+});
+
+export const ListApproverCandidatesResponseItem = zod.object({
+  id: zod.number(),
+  name: zod.string(),
+  role: zod.string(),
+});
+export const ListApproverCandidatesResponse = zod.array(
+  ListApproverCandidatesResponseItem,
+);
