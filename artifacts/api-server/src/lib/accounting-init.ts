@@ -386,6 +386,15 @@ export async function initAccounting(): Promise<void> {
      LIMIT 1
   `).catch((e) => logger.warn({ err: e }, "Default bank account seed skipped"));
 
+  // 6b) Enforce one-to-one reconciliation: a single GL line cannot be
+  // matched against multiple bank statement lines. Partial unique index so
+  // multiple NULLs are still allowed.
+  await pool.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS bank_statement_lines_matched_unique
+      ON bank_statement_lines (matched_line_id)
+      WHERE matched_line_id IS NOT NULL
+  `).catch((e) => logger.warn({ err: e }, "matched_line_id unique index skipped"));
+
   // 6) Migrate legacy journal entries (free-text debit/credit/amount rows)
   // into balanced new headers + 2-line entries, posted, source='legacy'.
   await migrateLegacyJournalEntries(pool);

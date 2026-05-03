@@ -679,6 +679,11 @@ router.get(
               and(
                 eq(journalEntryLinesTable.accountId, bank.glAccountId),
                 eq(journalEntriesTable.status, "posted"),
+                // Exclude lines already matched on any statement line.
+                sql`NOT EXISTS (
+                  SELECT 1 FROM bank_statement_lines bsl
+                   WHERE bsl.matched_line_id = ${journalEntryLinesTable.id}
+                )`,
               ),
             )
             .orderBy(desc(journalEntriesTable.entryDate))

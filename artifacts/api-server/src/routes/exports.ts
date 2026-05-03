@@ -217,6 +217,8 @@ async function fetchReportRows(
       let assets = 0;
       let liabilities = 0;
       let equity = 0;
+      let revenue = 0;
+      let expense = 0;
       for (const r of totals) {
         if (r.type === "asset") {
           const v = Number(r.debit) - Number(r.credit);
@@ -230,12 +232,21 @@ async function fetchReportRows(
           const v = Number(r.credit) - Number(r.debit);
           if (v !== 0) out.push([r.code, r.nameAr, "حقوق ملكية", v]);
           equity += v;
+        } else if (r.type === "revenue") {
+          revenue += Number(r.credit) - Number(r.debit);
+        } else if (r.type === "expense") {
+          expense += Number(r.debit) - Number(r.credit);
         }
       }
+      // Match /reports/balance-sheet: roll the period's net income into
+      // equity so the sheet ties out before year-end close.
+      const netIncome = revenue - expense;
+      out.push(["NI", "صافي الدخل (الحالي)", "حقوق ملكية", netIncome]);
+      const totalEquity = equity + netIncome;
       out.push(["", "إجمالي الأصول", "", assets]);
       out.push(["", "إجمالي الخصوم", "", liabilities]);
-      out.push(["", "حقوق الملكية", "", equity]);
-      out.push(["", "الخصوم + حقوق الملكية", "", liabilities + equity]);
+      out.push(["", "حقوق الملكية (شامل صافي الدخل)", "", totalEquity]);
+      out.push(["", "الخصوم + حقوق الملكية", "", liabilities + totalEquity]);
       return {
         title: `الميزانية العمومية (${q.to ?? "حتى الآن"})`,
         headers: ["الكود", "الحساب", "النوع", "الرصيد"],
