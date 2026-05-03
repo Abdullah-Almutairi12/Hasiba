@@ -48,6 +48,14 @@ export const financeGuard = requireRole("owner", "manager", "accountant");
 export const salesWriteGuard = requireRole("owner", "manager", "sales", "cashier");
 export const posGuard = requireRole("owner", "manager", "sales", "cashier");
 export const inventoryGuard = requireRole("owner", "manager", "inventory");
+// Procurement (P2P) — owners/managers, accountants (3-way match + payments)
+// and inventory (purchasing + receipts).
+export const procurementGuard = requireRole(
+  "owner",
+  "manager",
+  "accountant",
+  "inventory",
+);
 // Read access to cost-bearing inventory data (quants, moves, lots, takes).
 // Sales / cashier are intentionally excluded — they must not see avg_cost
 // or unit_cost. Use inventoryLookupGuard for non-cost POS lookups.

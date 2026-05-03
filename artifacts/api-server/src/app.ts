@@ -6,6 +6,7 @@ import { logger } from "./lib/logger";
 import { sessionMiddleware } from "./middlewares/session";
 import { initAccounting } from "./lib/accounting-init";
 import { initInventory } from "./lib/inventory-init";
+import { initProcurement } from "./lib/procurement-init";
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 
@@ -18,9 +19,10 @@ const app: Express = express();
 let accountingInitError: unknown = null;
 const accountingReady = initAccounting()
   .then(() => initInventory())
+  .then(() => initProcurement())
   .catch((err) => {
     accountingInitError = err;
-    logger.error({ err }, "Failed to initialize accounting/inventory subsystem");
+    logger.error({ err }, "Failed to initialize accounting/inventory/procurement subsystem");
   });
 
 app.use(async (_req, res, next) => {

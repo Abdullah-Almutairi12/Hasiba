@@ -38,7 +38,19 @@ type ExtractedItem = {
   quantity: number;
   unitPrice: number;
   total: number;
+  /** Optional PO line linkage for 3-way match. */
+  poLineId?: number | null;
 };
+
+type PoSuggestion = {
+  id: number; reference: string; supplierId: number; supplierName: string;
+  status: string; total: number;
+};
+type PoLine = {
+  id: number; description: string; quantity: string;
+  receivedQty: string; billedQty: string; unitPrice: string;
+};
+type PoDetail = PoSuggestion & { lines: PoLine[] };
 
 type Extracted = {
   supplierName: string;
@@ -91,6 +103,9 @@ export default function Invoices() {
   const [scanning, setScanning] = useState(false);
   const [committing, setCommitting] = useState(false);
   const [extracted, setExtracted] = useState<Extracted | null>(null);
+  const [poSuggestions, setPoSuggestions] = useState<PoSuggestion[]>([]);
+  const [selectedPoId, setSelectedPoId] = useState<number | null>(null);
+  const [selectedPoDetail, setSelectedPoDetail] = useState<PoDetail | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const qc = useQueryClient();
@@ -105,6 +120,47 @@ export default function Invoices() {
     setExtracted(null);
     setScanning(false);
     setCommitting(false);
+    setPoSuggestions([]);
+    setSelectedPoId(null);
+    setSelectedPoDetail(null);
+  }
+
+  // Fetch open PO suggestions for the detected supplier so the user can
+  // link this scanned invoice to a Purchase Order (3-way match).
+  async function loadPoSuggestions(supplierName: string) {
+    if (!supplierName.trim()) { setPoSuggestions([]); return; }
+    try {
+      const res = await fetch(
+        `${API_BASE}/procurement/po-suggestions?supplierName=${encodeURIComponent(supplierName)}`,
+        { credentials: "include" },
+      );
+      if (!res.ok) return;
+      const data = await res.json();
+      setPoSuggestions(Array.isArray(data) ? data : []);
+    } catch { /* non-blocking */ }
+  }
+
+  async function pickPo(poId: number | null) {
+    setSelectedPoId(poId);
+    setSelectedPoDetail(null);
+    if (!poId || !extracted) return;
+    try {
+      const res = await fetch(`${API_BASE}/procurement/purchase-orders/${poId}`, { credentials: "include" });
+      if (!res.ok) return;
+      const data: PoDetail = await res.json();
+      setSelectedPoDetail(data);
+      // Best-effort auto-map by description (case-insensitive substring).
+      const items = extracted.items.map((it) => {
+        if (it.poLineId) return it;
+        const match = data.lines.find((ln) => {
+          const d = ln.description.toLowerCase();
+          const q = it.description.toLowerCase().trim();
+          return q && (d.includes(q) || q.includes(d));
+        });
+        return match ? { ...it, poLineId: match.id } : it;
+      });
+      setExtracted({ ...extracted, items });
+    } catch { /* non-blocking */ }
   }
 
   function openScanner() {
@@ -131,6 +187,7 @@ export default function Invoices() {
       const data: Extracted = await res.json();
       setExtracted(data);
       toast.success(`تم استخراج البيانات (ثقة ${Math.round(data.confidence * 100)}%)`);
+      void loadPoSuggestions(data.supplierName);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "فشل تحليل الفاتورة");
     } finally {
@@ -160,10 +217,19 @@ export default function Invoices() {
           vat: extracted.vat,
           total: extracted.total,
           confidence: extracted.confidence,
-          items: extracted.items,
+          items: extracted.items.map((it) => ({
+            description: it.description,
+            quantity: it.quantity,
+            unitPrice: it.unitPrice,
+            total: it.total,
+            poLineId: it.poLineId ?? null,
+          })),
           fileUrl: extracted.fileUrl ?? null,
-          addToInventory: true,
+          // When linked to a PO, defer inventory effects to the GRN flow
+          // (server posts to GR-IR clearing instead of debiting Inventory).
+          addToInventory: !selectedPoId,
           postToAccounting: true,
+          poId: selectedPoId,
         }),
       });
       const data = await res.json();
@@ -474,6 +540,7 @@ export default function Invoices() {
                   <Input
                     value={extracted.supplierName}
                     onChange={(e) => setExtracted({ ...extracted, supplierName: e.target.value })}
+                    onBlur={(e) => loadPoSuggestions(e.target.value)}
                     data-testid="input-supplier-name"
                   />
                 </div>
@@ -503,6 +570,35 @@ export default function Invoices() {
                 </div>
               </div>
 
+              {/* PO matching (3-way): link the scanned invoice to an open PO so the
+                  server validates received-but-unbilled quantities and price tolerance. */}
+              <div className="rounded-md border bg-muted/30 p-3 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <Label className="text-sm">ربط بأمر شراء (مطابقة ثلاثية)</Label>
+                  <select
+                    className="border rounded h-9 px-2 text-sm bg-background"
+                    value={selectedPoId ?? ""}
+                    onChange={(e) => pickPo(e.target.value ? Number(e.target.value) : null)}
+                    data-testid="select-po"
+                  >
+                    <option value="">— بدون ربط (سيُضاف للمخزون مباشرة) —</option>
+                    {poSuggestions.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.reference} • {p.supplierName} • {formatRiyal(Number(p.total))}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                {selectedPoId && !selectedPoDetail && (
+                  <div className="text-xs text-muted-foreground">جارٍ تحميل بنود أمر الشراء…</div>
+                )}
+                {selectedPoDetail && (
+                  <div className="text-xs text-muted-foreground">
+                    تم تحميل {selectedPoDetail.lines.length} بنداً من {selectedPoDetail.reference}. اختر سطر أمر الشراء لكل بند أدناه.
+                  </div>
+                )}
+              </div>
+
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <Label>البنود</Label>
@@ -518,12 +614,13 @@ export default function Invoices() {
                         <TableHead className="w-20">الكمية</TableHead>
                         <TableHead className="w-28">سعر الوحدة</TableHead>
                         <TableHead className="w-28">الإجمالي</TableHead>
+                        {selectedPoDetail && <TableHead className="w-44">سطر أمر الشراء</TableHead>}
                         <TableHead className="w-10"></TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {extracted.items.length === 0 && (
-                        <TableRow><TableCell colSpan={5} className="text-center text-sm text-muted-foreground py-6">لا توجد بنود</TableCell></TableRow>
+                        <TableRow><TableCell colSpan={selectedPoDetail ? 6 : 5} className="text-center text-sm text-muted-foreground py-6">لا توجد بنود</TableCell></TableRow>
                       )}
                       {extracted.items.map((it, idx) => (
                         <TableRow key={idx}>
@@ -539,6 +636,26 @@ export default function Invoices() {
                           <TableCell>
                             <Input type="number" min={0} step="0.01" value={it.total} onChange={(e) => updateItem(idx, { total: Number(e.target.value) || 0 })} className="h-8" />
                           </TableCell>
+                          {selectedPoDetail && (
+                            <TableCell>
+                              <select
+                                className="border rounded h-8 px-1 text-xs bg-background w-full"
+                                value={it.poLineId ?? ""}
+                                onChange={(e) => updateItem(idx, { poLineId: e.target.value ? Number(e.target.value) : null })}
+                                data-testid={`select-po-line-${idx}`}
+                              >
+                                <option value="">— لا ربط —</option>
+                                {selectedPoDetail.lines.map((ln) => {
+                                  const remaining = Number(ln.receivedQty) - Number(ln.billedQty);
+                                  return (
+                                    <option key={ln.id} value={ln.id} disabled={remaining <= 0}>
+                                      {ln.description.slice(0, 40)} • متاح للفوترة {remaining}
+                                    </option>
+                                  );
+                                })}
+                              </select>
+                            </TableCell>
+                          )}
                           <TableCell>
                             <Button type="button" size="icon" variant="ghost" onClick={() => removeItem(idx)}>
                               <Trash2 className="size-4 text-destructive" />

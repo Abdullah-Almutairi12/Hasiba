@@ -22,6 +22,12 @@ const CreateSupplierBody = z.object({
   phone: z.string().optional().nullable(),
   address: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
+  // Procurement defaults — drive PO/RFQ defaults so users don't have to
+  // re-enter currency/tax/terms each time they buy from a supplier.
+  paymentTermsDays: z.coerce.number().int().min(0).optional(),
+  defaultCurrency: z.string().min(3).max(3).optional(),
+  leadTimeDays: z.coerce.number().int().min(0).optional(),
+  defaultTax: z.coerce.number().min(0).max(100).optional(),
 });
 
 router.get("/suppliers", async (req, res) => {
@@ -37,6 +43,10 @@ router.get("/suppliers", async (req, res) => {
         phone: suppliersTable.phone,
         address: suppliersTable.address,
         balance: suppliersTable.balance,
+        paymentTermsDays: suppliersTable.paymentTermsDays,
+        defaultCurrency: suppliersTable.defaultCurrency,
+        leadTimeDays: suppliersTable.leadTimeDays,
+        defaultTax: suppliersTable.defaultTax,
         invoicesCount: sql<number>`(select count(*) from ${invoicesTable} where ${invoicesTable.supplierId} = ${suppliersTable.id})`,
         createdAt: suppliersTable.createdAt,
       })
@@ -70,6 +80,10 @@ router.post("/suppliers", supplierWriteGuard, async (req, res) => {
         phone: body.phone || null,
         address: body.address || null,
         notes: body.notes || null,
+        ...(body.paymentTermsDays != null ? { paymentTermsDays: body.paymentTermsDays } : {}),
+        ...(body.defaultCurrency ? { defaultCurrency: body.defaultCurrency } : {}),
+        ...(body.leadTimeDays != null ? { leadTimeDays: body.leadTimeDays } : {}),
+        ...(body.defaultTax != null ? { defaultTax: String(body.defaultTax) } : {}),
       })
       .returning();
     void recordAudit(req, { action: "create", entity: "supplier", details: `أُضيف المورد ${body.name}` });

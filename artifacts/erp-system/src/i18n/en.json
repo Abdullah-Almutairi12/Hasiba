@@ -25,6 +25,7 @@
     "transfers": "Stock Transfers",
     "stocktake": "Stock Takes",
     "reorder": "Reorder Rules",
+    "procurement": "Procurement (P2P)",
     "admin": "Admin Panel",
     "users": "Users & Permissions",
     "settings": "Security & Settings"

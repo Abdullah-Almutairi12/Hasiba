@@ -1,4 +1,4 @@
-import { pgTable, serial, text, numeric, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, numeric, integer, timestamp } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -13,6 +13,11 @@ export const suppliersTable = pgTable("suppliers", {
   phone: text("phone"),
   address: text("address"),
   balance: numeric("balance", { precision: 12, scale: 2 }).notNull().default("0"),
+  // Procurement extensions (added & backfilled in procurement-init).
+  paymentTermsDays: integer("payment_terms_days").notNull().default(30),
+  defaultCurrency: text("default_currency").notNull().default("SAR"),
+  leadTimeDays: integer("lead_time_days").notNull().default(7),
+  defaultTax: numeric("default_tax", { precision: 5, scale: 2 }).notNull().default("15"),
   notes: text("notes"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });

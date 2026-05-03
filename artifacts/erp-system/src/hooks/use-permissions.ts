@@ -37,6 +37,8 @@ const GROUPS = {
   analyticsRead: ["owner", "manager", "accountant", "marketing", "auditor"],
   invoiceRead: ["owner", "manager", "accountant", "inventory", "auditor"],
   supplierRead: ["owner", "manager", "accountant", "inventory", "auditor"],
+  // Mirror server-side procurementGuard: who may write POs/GRNs/payment runs.
+  procurement: ["owner", "manager", "accountant", "inventory"],
   auditRead: ["owner", "manager", "auditor"],
 } as const satisfies Record<string, readonly Role[]>;
 
@@ -62,6 +64,10 @@ export const NAV_PERMISSIONS: Record<string, readonly Role[]> = {
   transfers: ["owner", "manager", "inventory", "auditor"],
   stocktake: ["owner", "manager", "inventory", "accountant", "auditor"],
   reorder: ["owner", "manager", "inventory", "accountant"],
+  // Procurement is open to all authenticated roles: any user can create
+  // a Purchase Requisition (server-side `procurementGuard` still gates
+  // PO/GRN/payment-run actions for non-procurement roles).
+  procurement: ALL_ROLES,
   users: GROUPS.admin,
   admin: GROUPS.admin,
   settings: ALL_ROLES,

@@ -14,6 +14,7 @@ export const invoicesTable = pgTable("invoices", {
   fileUrl: text("file_url"),
   invoiceDate: timestamp("invoice_date"),
   dueDate: timestamp("due_date"),
+  poId: integer("po_id"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

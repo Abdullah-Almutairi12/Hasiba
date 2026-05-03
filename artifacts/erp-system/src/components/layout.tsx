@@ -15,6 +15,7 @@ import {
   ArrowLeftRight,
   ClipboardList,
   TrendingDown,
+  ShoppingBag,
   Sun,
   Moon,
   Monitor,
@@ -68,6 +69,7 @@ const financeNavItems = [
 ] as const;
 
 const operationsNavItems = [
+  { key: "procurement", url: "/procurement", icon: ShoppingBag },
   { key: "transfers", url: "/inventory/transfers", icon: ArrowLeftRight },
   { key: "stocktake", url: "/inventory/stocktake", icon: ClipboardList },
   { key: "reorder", url: "/inventory/reorder", icon: TrendingDown },

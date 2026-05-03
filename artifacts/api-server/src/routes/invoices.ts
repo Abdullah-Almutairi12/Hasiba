@@ -2,7 +2,11 @@ import express, { Router } from "express";
 import { z, ZodError } from "zod";
 import rateLimit from "express-rate-limit";
 import QRCode from "qrcode";
-import { db, invoicesTable, productsTable, categoriesTable, suppliersTable } from "@workspace/db";
+import {
+  db, invoicesTable, productsTable, categoriesTable, suppliersTable,
+  purchaseOrdersTable, purchaseOrderLinesTable,
+} from "@workspace/db";
+import { inArray } from "drizzle-orm";
 import { postJournalEntry } from "../lib/journal-posting";
 import { eq, sql, desc, ilike } from "drizzle-orm";
 import { CreateInvoiceBody, UpdateInvoiceBody } from "@workspace/api-zod";
@@ -314,6 +318,7 @@ const CommitItem = z.object({
   unitPrice: z.coerce.number().min(0).default(0),
   total: z.coerce.number().min(0).default(0),
   productId: z.coerce.number().int().nullable().optional(), // existing product to update
+  poLineId: z.coerce.number().int().positive().nullable().optional(), // 3-way match link
 });
 
 const CommitBody = z.object({
@@ -346,6 +351,11 @@ const CommitBody = z.object({
     .optional(),
   addToInventory: z.boolean().default(true),
   postToAccounting: z.boolean().default(true),
+  // Optional 3-way match link: when set, the invoice is tied to this PO and
+  // the journal posts to GR-IR (debited against the receipt-time credit)
+  // instead of debiting Inventory again. The goods-receipt has already
+  // moved stock, so addToInventory should be false in this flow.
+  poId: z.coerce.number().int().positive().nullable().optional(),
 });
 
 router.post("/invoices/from-scan", supplierInvoiceAgent, async (req, res) => {
@@ -363,6 +373,70 @@ router.post("/invoices/from-scan", supplierInvoiceAgent, async (req, res) => {
   for (const [field, val] of [["invoiceDate", body.invoiceDate], ["dueDate", body.dueDate]] as const) {
     if (val && Number.isNaN(Date.parse(val))) {
       return res.status(400).json({ error: `حقل ${field} غير صالح. استخدم صيغة YYYY-MM-DD.` });
+    }
+  }
+
+  // 3-way match enforcement: if poId is provided, validate every linked
+  // line against the PO before opening the transaction so we can return a
+  // clear 4xx without burning a transaction.
+  const PRICE_TOLERANCE_PCT = Number(process.env.PO_INVOICE_PRICE_TOLERANCE_PCT ?? "5");
+  let poLinesById: Map<number, { id: number; poId: number; quantity: string; receivedQty: string; billedQty: string; unitPrice: string }> | null = null;
+  if (body.poId) {
+    // Force addToInventory=false on PO-linked invoices: the linked GRN
+    // already moved stock; allowing addToInventory=true here would
+    // double-count inventory and post the wrong leg of the journal.
+    body.addToInventory = false;
+    const [po] = await db.select().from(purchaseOrdersTable).where(eq(purchaseOrdersTable.id, body.poId));
+    if (!po) {
+      return res.status(400).json({ error: "أمر الشراء المحدد غير موجود." });
+    }
+    if (!["confirmed", "partially_received", "fully_received"].includes(po.status)) {
+      return res.status(409).json({ error: `لا يمكن مطابقة فاتورة مع أمر شراء بحالة "${po.status}".` });
+    }
+    const linkedLineIds = body.items.map((it) => it.poLineId).filter((v): v is number => !!v);
+    // 3-way match must be enforced: when a PO is linked, EVERY invoice
+    // item must reference a PO line. A partial linkage would let the
+    // server post a hybrid invoice that matches some lines while
+    // bypassing the match for others (and posting them straight to GR-IR).
+    if (linkedLineIds.length === 0) {
+      return res.status(400).json({
+        error: "عند ربط الفاتورة بأمر شراء يجب تحديد سطر أمر الشراء لكل بند.",
+      });
+    }
+    const itemsWithoutLink = body.items.filter((it) => !it.poLineId).length;
+    if (itemsWithoutLink > 0) {
+      return res.status(400).json({
+        error: `يوجد ${itemsWithoutLink} بند(بنود) بلا ربط بسطر أمر شراء. يجب ربط جميع البنود لتفعيل المطابقة الثلاثية.`,
+      });
+    }
+    {
+      const poLines = await db
+        .select()
+        .from(purchaseOrderLinesTable)
+        .where(inArray(purchaseOrderLinesTable.id, linkedLineIds));
+      poLinesById = new Map(poLines.map((l) => [l.id, l]));
+      for (const item of body.items) {
+        if (!item.poLineId) continue;
+        const ln = poLinesById.get(item.poLineId);
+        if (!ln || ln.poId !== body.poId) {
+          return res.status(400).json({ error: `بند الفاتورة يشير إلى سطر أمر شراء غير صالح (#${item.poLineId}).` });
+        }
+        const remainingToBill = Number(ln.receivedQty) - Number(ln.billedQty);
+        if (item.quantity > remainingToBill + 1e-6) {
+          return res.status(409).json({
+            error: `الكمية المُفوترة (${item.quantity}) للسطر #${ln.id} تتجاوز الكمية المستلمة غير المُفوترة (${remainingToBill}).`,
+          });
+        }
+        const expectedPrice = Number(ln.unitPrice);
+        if (expectedPrice > 0) {
+          const diffPct = Math.abs(item.unitPrice - expectedPrice) / expectedPrice * 100;
+          if (diffPct > PRICE_TOLERANCE_PCT) {
+            return res.status(409).json({
+              error: `سعر الفاتورة للسطر #${ln.id} يتجاوز نسبة التفاوت المسموحة (${PRICE_TOLERANCE_PCT}%).`,
+            });
+          }
+        }
+      }
     }
   }
 
@@ -419,9 +493,40 @@ router.post("/invoices/from-scan", supplierInvoiceAgent, async (req, res) => {
           fileUrl: body.fileUrl || null,
           invoiceDate: body.invoiceDate ? new Date(body.invoiceDate) : null,
           dueDate: body.dueDate ? new Date(body.dueDate) : null,
+          poId: body.poId ?? null,
         })
         .returning();
       if (!invoice) throw new Error("Failed to create invoice");
+
+      // 3-way match: the resolved invoice supplier must match the PO
+      // supplier — otherwise we'd be increasing one supplier's AP while
+      // releasing GR-IR booked against another supplier's GRN.
+      if (body.poId) {
+        const [linkedPo] = await tx
+          .select({ supplierId: purchaseOrdersTable.supplierId, reference: purchaseOrdersTable.reference })
+          .from(purchaseOrdersTable)
+          .where(eq(purchaseOrdersTable.id, body.poId));
+        if (!linkedPo) {
+          throw new Error("PO disappeared mid-transaction");
+        }
+        if (supplierId !== linkedPo.supplierId) {
+          throw Object.assign(new Error(
+            `مورد الفاتورة لا يطابق مورد أمر الشراء ${linkedPo.reference}.`,
+          ), { httpStatus: 409 });
+        }
+      }
+
+      // 3-way match: bump billed_qty on each linked PO line. The pre-flight
+      // checks above already validated quantities and price tolerance.
+      if (body.poId && poLinesById) {
+        for (const item of body.items) {
+          if (!item.poLineId) continue;
+          await tx
+            .update(purchaseOrderLinesTable)
+            .set({ billedQty: sql`${purchaseOrderLinesTable.billedQty} + ${item.quantity}` })
+            .where(eq(purchaseOrderLinesTable.id, item.poLineId));
+        }
+      }
 
       // Increase the supplier's outstanding payable balance.
       if (supplierId) {
@@ -543,15 +648,27 @@ router.post("/invoices/from-scan", supplierInvoiceAgent, async (req, res) => {
           credit?: number;
           description?: string;
         }> = [];
+        // 3-way match path: if the invoice is linked to a PO, the goods
+        // receipt already debited Inventory & credited GR-IR — so here we
+        // debit GR-IR (clearing it) instead of Inventory again.
         if (body.subtotal > 0) {
-          lines.push({ systemKey: "inventory", debit: body.subtotal, description: "بضاعة مشتراة" });
+          lines.push({
+            systemKey: body.poId ? "gr_ir" : "inventory",
+            debit: body.subtotal,
+            description: body.poId ? "تسوية حساب استلام بضاعة" : "بضاعة مشتراة",
+          });
         }
         if (body.vat > 0) {
           lines.push({ systemKey: "vat_input", debit: body.vat, description: "ضريبة المدخلات" });
         }
-        // If neither subtotal nor vat were supplied, post entire amount to inventory.
+        // If neither subtotal nor vat were supplied, post entire amount.
+        // PO-linked invoices must clear GR-IR (the GRN already debited
+        // Inventory); only non-PO scans fall back to Inventory.
         if (lines.length === 0) {
-          lines.push({ systemKey: "inventory", debit: body.total });
+          lines.push({
+            systemKey: body.poId ? "gr_ir" : "inventory",
+            debit: body.total,
+          });
         }
         lines.push({ systemKey: "ap", credit: body.total, description: body.supplierName });
         // Strict posting — any failure aborts the entire invoice transaction
@@ -599,6 +716,13 @@ router.post("/invoices/from-scan", supplierInvoiceAgent, async (req, res) => {
       return res.status(409).json({
         error: `الفاتورة رقم ${body.invoiceNumber} موجودة مسبقاً.`,
       });
+    }
+    // Tagged business-rule errors (e.g. supplier mismatch on PO link)
+    // surface as 4xx instead of opaque 500s.
+    const tagged = err as { httpStatus?: number };
+    if (typeof tagged?.httpStatus === "number" && tagged.httpStatus >= 400 && tagged.httpStatus < 500) {
+      const msg = err instanceof Error ? err.message : "Bad request";
+      return res.status(tagged.httpStatus).json({ error: msg });
     }
     req.log.error({ err }, "Commit scanned invoice failed");
     const msg = err instanceof Error ? err.message : "فشل حفظ الفاتورة";

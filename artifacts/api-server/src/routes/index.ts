@@ -19,6 +19,7 @@ import marketingRouter from "./marketing";
 import adminRouter from "./admin";
 import aiRouter from "./ai";
 import suppliersRouter from "./suppliers";
+import procurementRouter from "./procurement";
 import storageRouter from "./storage";
 import exportsRouter from "./exports";
 import { requireAuth } from "../middlewares/require-auth";
@@ -50,6 +51,7 @@ router.use(marketingRouter);
 router.use(adminRouter);
 router.use(aiRouter);
 router.use(suppliersRouter);
+router.use(procurementRouter);
 router.use(storageRouter);
 router.use(exportsRouter);
 
