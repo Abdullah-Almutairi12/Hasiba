@@ -4,15 +4,10 @@ import PDFDocument from "pdfkit";
 import { db, posOrdersTable, productsTable, invoicesTable, suppliersTable, journalEntriesTable, journalEntryLinesTable, accountsTable } from "@workspace/db";
 import { sql, desc, gte, and, eq, lte } from "drizzle-orm";
 import { recordAudit } from "../lib/audit";
-import { exportsGuard } from "../middlewares/require-role";
+import { exportsGuard, reportReadGuard } from "../middlewares/require-role";
+import type { Request, Response, NextFunction } from "express";
 
 const router = Router();
-// Financial exports include profit, balances, and journal entries — restrict to
-// roles that already have read access to the underlying ledger / supplier data.
-// Inventory and marketing also legitimately need to export their own modules.
-const exportRoles = exportsGuard;
-router.use("/exports/:type.xlsx", exportRoles);
-router.use("/exports/:type.pdf", exportRoles);
 
 type ReportType =
   | "sales"
@@ -36,6 +31,27 @@ const ALL_REPORT_TYPES: ReportType[] = [
   "balance-sheet",
   "cash-flow",
 ];
+
+// Financial statement exports leak ledger data and must follow the same
+// access policy as the JSON `/reports/*` endpoints (reportReadGuard).
+// Operational exports (sales, products, invoices, suppliers) keep the
+// broader exportsGuard so inventory/marketing can export their own modules.
+const FINANCIAL_EXPORT_TYPES = new Set<ReportType>([
+  "journal",
+  "trial-balance",
+  "profit-loss",
+  "balance-sheet",
+  "cash-flow",
+]);
+
+function exportAuthByType(req: Request, res: Response, next: NextFunction) {
+  const type = req.params.type as ReportType;
+  const guard = FINANCIAL_EXPORT_TYPES.has(type) ? reportReadGuard : exportsGuard;
+  return guard(req, res, next);
+}
+
+router.use("/exports/:type.xlsx", exportAuthByType);
+router.use("/exports/:type.pdf", exportAuthByType);
 
 // Aggregate posted-only line totals per account, optionally filtered by date
 // range. Used by the four financial-statement exports below.

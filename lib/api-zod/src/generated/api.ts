@@ -651,6 +651,86 @@ export const CreateBankAccountBody = zod.object({
   openingBalance: zod.number().optional(),
 });
 
+/**
+ * @summary Import a bank statement (CSV-parsed lines from the client)
+ */
+export const ImportBankStatementBody = zod.object({
+  bankAccountId: zod.number(),
+  statementDate: zod.string(),
+  startingBalance: zod.number(),
+  endingBalance: zod.number(),
+  fileName: zod.string().nullish(),
+  lines: zod.array(
+    zod.object({
+      txDate: zod.string(),
+      description: zod.string(),
+      reference: zod.string().nullish(),
+      amount: zod.number(),
+    }),
+  ),
+});
+
+export const GetBankReconciliationParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const GetBankReconciliationResponse = zod.object({
+  statement: zod.object({
+    id: zod.number(),
+    bankAccountId: zod.number(),
+    statementDate: zod.string(),
+    startingBalance: zod.number(),
+    endingBalance: zod.number(),
+    fileName: zod.string().nullish(),
+    importedAt: zod.string(),
+  }),
+  lines: zod.array(
+    zod.object({
+      id: zod.number(),
+      statementId: zod.number(),
+      txDate: zod.string(),
+      description: zod.string(),
+      reference: zod.string().nullish(),
+      amount: zod.number(),
+      matchedLineId: zod.number().nullish(),
+      reconciledAt: zod.string().nullish(),
+      reconciledBy: zod.number().nullish(),
+    }),
+  ),
+  candidates: zod.array(
+    zod.object({
+      id: zod.number(),
+      entryId: zod.number(),
+      entryNumber: zod.string(),
+      entryDate: zod.string(),
+      description: zod.string().nullish(),
+      debit: zod.number(),
+      credit: zod.number(),
+      netAmount: zod.number(),
+    }),
+  ),
+});
+
+export const MatchBankStatementLineParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const MatchBankStatementLineBody = zod.object({
+  matchedLineId: zod.number(),
+});
+
+export const MatchBankStatementLineResponse = zod.object({
+  id: zod.number(),
+  statementId: zod.number(),
+  txDate: zod.string(),
+  description: zod.string(),
+  reference: zod.string().nullish(),
+  amount: zod.number(),
+  matchedLineId: zod.number().nullish(),
+  reconciledAt: zod.string().nullish(),
+  reconciledBy: zod.number().nullish(),
+});
+
 export const GetTrialBalanceQueryParams = zod.object({
   from: zod.coerce.string().optional(),
   to: zod.coerce.string().optional(),

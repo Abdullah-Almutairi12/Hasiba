@@ -30,6 +30,9 @@ import type {
   AuditLog,
   BalanceSheet,
   BankAccount,
+  BankReconciliationView,
+  BankStatement,
+  BankStatementLine,
   Branch,
   BranchPerformance,
   CashFlow,
@@ -76,6 +79,7 @@ import type {
   GetSupplier200,
   GetTrialBalanceParams,
   HealthStatus,
+  ImportBankStatementBody,
   Invoice,
   InvoiceStats,
   JournalEntry,
@@ -88,6 +92,7 @@ import type {
   ListProductsParams,
   ListSupportTicketsParams,
   ListWarehousesParams,
+  MatchBankStatementLineBody,
   PosOrder,
   PosSession,
   PosSummary,
@@ -3174,6 +3179,255 @@ export const useCreateBankAccount = <
   TContext
 > => {
   return useMutation(getCreateBankAccountMutationOptions(options));
+};
+
+/**
+ * @summary Import a bank statement (CSV-parsed lines from the client)
+ */
+export const getImportBankStatementUrl = () => {
+  return `/api/accounting/bank-statements`;
+};
+
+export const importBankStatement = async (
+  importBankStatementBody: ImportBankStatementBody,
+  options?: RequestInit,
+): Promise<BankStatement> => {
+  return customFetch<BankStatement>(getImportBankStatementUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(importBankStatementBody),
+  });
+};
+
+export const getImportBankStatementMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof importBankStatement>>,
+    TError,
+    { data: BodyType<ImportBankStatementBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof importBankStatement>>,
+  TError,
+  { data: BodyType<ImportBankStatementBody> },
+  TContext
+> => {
+  const mutationKey = ["importBankStatement"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof importBankStatement>>,
+    { data: BodyType<ImportBankStatementBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return importBankStatement(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ImportBankStatementMutationResult = NonNullable<
+  Awaited<ReturnType<typeof importBankStatement>>
+>;
+export type ImportBankStatementMutationBody = BodyType<ImportBankStatementBody>;
+export type ImportBankStatementMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Import a bank statement (CSV-parsed lines from the client)
+ */
+export const useImportBankStatement = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof importBankStatement>>,
+    TError,
+    { data: BodyType<ImportBankStatementBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof importBankStatement>>,
+  TError,
+  { data: BodyType<ImportBankStatementBody> },
+  TContext
+> => {
+  return useMutation(getImportBankStatementMutationOptions(options));
+};
+
+export const getGetBankReconciliationUrl = (id: number) => {
+  return `/api/accounting/bank-statements/${id}/reconciliation`;
+};
+
+export const getBankReconciliation = async (
+  id: number,
+  options?: RequestInit,
+): Promise<BankReconciliationView> => {
+  return customFetch<BankReconciliationView>(getGetBankReconciliationUrl(id), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetBankReconciliationQueryKey = (id: number) => {
+  return [`/api/accounting/bank-statements/${id}/reconciliation`] as const;
+};
+
+export const getGetBankReconciliationQueryOptions = <
+  TData = Awaited<ReturnType<typeof getBankReconciliation>>,
+  TError = ErrorType<unknown>,
+>(
+  id: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getBankReconciliation>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetBankReconciliationQueryKey(id);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getBankReconciliation>>
+  > = ({ signal }) => getBankReconciliation(id, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getBankReconciliation>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetBankReconciliationQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getBankReconciliation>>
+>;
+export type GetBankReconciliationQueryError = ErrorType<unknown>;
+
+export function useGetBankReconciliation<
+  TData = Awaited<ReturnType<typeof getBankReconciliation>>,
+  TError = ErrorType<unknown>,
+>(
+  id: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getBankReconciliation>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetBankReconciliationQueryOptions(id, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+export const getMatchBankStatementLineUrl = (id: number) => {
+  return `/api/accounting/bank-statement-lines/${id}/match`;
+};
+
+export const matchBankStatementLine = async (
+  id: number,
+  matchBankStatementLineBody: MatchBankStatementLineBody,
+  options?: RequestInit,
+): Promise<BankStatementLine> => {
+  return customFetch<BankStatementLine>(getMatchBankStatementLineUrl(id), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(matchBankStatementLineBody),
+  });
+};
+
+export const getMatchBankStatementLineMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof matchBankStatementLine>>,
+    TError,
+    { id: number; data: BodyType<MatchBankStatementLineBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof matchBankStatementLine>>,
+  TError,
+  { id: number; data: BodyType<MatchBankStatementLineBody> },
+  TContext
+> => {
+  const mutationKey = ["matchBankStatementLine"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof matchBankStatementLine>>,
+    { id: number; data: BodyType<MatchBankStatementLineBody> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return matchBankStatementLine(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type MatchBankStatementLineMutationResult = NonNullable<
+  Awaited<ReturnType<typeof matchBankStatementLine>>
+>;
+export type MatchBankStatementLineMutationBody =
+  BodyType<MatchBankStatementLineBody>;
+export type MatchBankStatementLineMutationError = ErrorType<unknown>;
+
+export const useMatchBankStatementLine = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof matchBankStatementLine>>,
+    TError,
+    { id: number; data: BodyType<MatchBankStatementLineBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof matchBankStatementLine>>,
+  TError,
+  { id: number; data: BodyType<MatchBankStatementLineBody> },
+  TContext
+> => {
+  return useMutation(getMatchBankStatementLineMutationOptions(options));
 };
 
 export const getGetTrialBalanceUrl = (params?: GetTrialBalanceParams) => {

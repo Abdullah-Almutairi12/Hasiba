@@ -474,6 +474,61 @@ export interface CreateBankAccountBody {
   openingBalance?: number;
 }
 
+export interface BankStatement {
+  id: number;
+  bankAccountId: number;
+  statementDate: string;
+  startingBalance: number;
+  endingBalance: number;
+  fileName?: string | null;
+  importedAt: string;
+}
+
+export interface BankStatementLine {
+  id: number;
+  statementId: number;
+  txDate: string;
+  description: string;
+  reference?: string | null;
+  amount: number;
+  matchedLineId?: number | null;
+  reconciledAt?: string | null;
+  reconciledBy?: number | null;
+}
+
+export type ImportBankStatementBodyLinesItem = {
+  txDate: string;
+  description: string;
+  reference?: string | null;
+  amount: number;
+};
+
+export interface ImportBankStatementBody {
+  bankAccountId: number;
+  statementDate: string;
+  startingBalance: number;
+  endingBalance: number;
+  fileName?: string | null;
+  lines: ImportBankStatementBodyLinesItem[];
+}
+
+export interface BankReconciliationCandidate {
+  id: number;
+  entryId: number;
+  entryNumber: string;
+  entryDate: string;
+  description?: string | null;
+  debit: number;
+  credit: number;
+  netAmount: number;
+}
+
+export interface BankReconciliationView {
+  statement: BankStatement;
+  lines: BankStatementLine[];
+  candidates: BankReconciliationCandidate[];
+}
+
 export interface TrialBalanceRow {
   accountId: number;
   code: string;
@@ -916,6 +971,10 @@ export type ReverseJournalEntryBody = {
 export type ReverseJournalEntry200 = {
   id: number;
   entryNumber: string;
+};
+
+export type MatchBankStatementLineBody = {
+  matchedLineId: number;
 };
 
 export type GetTrialBalanceParams = {

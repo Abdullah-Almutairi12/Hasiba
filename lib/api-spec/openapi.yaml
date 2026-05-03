@@ -696,6 +696,64 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/BankAccount" }
 
+  /accounting/bank-statements:
+    post:
+      operationId: importBankStatement
+      tags: [accounting]
+      summary: Import a bank statement (CSV-parsed lines from the client)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ImportBankStatementBody" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BankStatement" }
+
+  /accounting/bank-statements/{id}/reconciliation:
+    get:
+      operationId: getBankReconciliation
+      tags: [accounting]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Statement with lines and matchable journal entry candidates
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BankReconciliationView" }
+
+  /accounting/bank-statement-lines/{id}/match:
+    post:
+      operationId: matchBankStatementLine
+      tags: [accounting]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [matchedLineId]
+              properties:
+                matchedLineId: { type: integer }
+      responses:
+        "200":
+          description: Matched bank statement line
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BankStatementLine" }
+
   /reports/trial-balance:
     get:
       operationId: getTrialBalance
@@ -2177,6 +2235,77 @@ components:
         glAccountId: { type: integer }
         openingBalance: { type: number }
       required: [name, bankName, accountNumber, glAccountId]
+
+    BankStatement:
+      type: object
+      properties:
+        id: { type: integer }
+        bankAccountId: { type: integer }
+        statementDate: { type: string }
+        startingBalance: { type: number }
+        endingBalance: { type: number }
+        fileName: { type: string, nullable: true }
+        importedAt: { type: string }
+      required: [id, bankAccountId, statementDate, startingBalance, endingBalance, importedAt]
+
+    BankStatementLine:
+      type: object
+      properties:
+        id: { type: integer }
+        statementId: { type: integer }
+        txDate: { type: string }
+        description: { type: string }
+        reference: { type: string, nullable: true }
+        amount: { type: number }
+        matchedLineId: { type: integer, nullable: true }
+        reconciledAt: { type: string, nullable: true }
+        reconciledBy: { type: integer, nullable: true }
+      required: [id, statementId, txDate, description, amount]
+
+    ImportBankStatementBody:
+      type: object
+      required: [bankAccountId, statementDate, startingBalance, endingBalance, lines]
+      properties:
+        bankAccountId: { type: integer }
+        statementDate: { type: string }
+        startingBalance: { type: number }
+        endingBalance: { type: number }
+        fileName: { type: string, nullable: true }
+        lines:
+          type: array
+          items:
+            type: object
+            required: [txDate, description, amount]
+            properties:
+              txDate: { type: string }
+              description: { type: string }
+              reference: { type: string, nullable: true }
+              amount: { type: number }
+
+    BankReconciliationCandidate:
+      type: object
+      required: [id, entryId, entryNumber, entryDate, debit, credit, netAmount]
+      properties:
+        id: { type: integer }
+        entryId: { type: integer }
+        entryNumber: { type: string }
+        entryDate: { type: string }
+        description: { type: string, nullable: true }
+        debit: { type: number }
+        credit: { type: number }
+        netAmount: { type: number }
+
+    BankReconciliationView:
+      type: object
+      required: [statement, lines, candidates]
+      properties:
+        statement: { $ref: "#/components/schemas/BankStatement" }
+        lines:
+          type: array
+          items: { $ref: "#/components/schemas/BankStatementLine" }
+        candidates:
+          type: array
+          items: { $ref: "#/components/schemas/BankReconciliationCandidate" }
 
     TrialBalanceRow:
       type: object
