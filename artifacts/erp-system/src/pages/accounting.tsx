@@ -16,7 +16,36 @@ import {
   useListBankAccounts,
   type Account,
   type JournalEntry,
+  type Currency,
+  type FiscalYear,
+  type FiscalPeriod,
+  type BankAccount,
 } from "@workspace/api-client-react";
+
+type ApiError = { response?: { data?: { error?: string } }; message?: string };
+function apiErrorMessage(e: unknown, fallback: string): string {
+  const err = e as ApiError;
+  return err?.response?.data?.error ?? err?.message ?? fallback;
+}
+
+type ReconciliationLine = {
+  id: number;
+  txDate: string;
+  description: string;
+  amount: number;
+  reconciledAt: string | null;
+};
+type ReconciliationCandidate = {
+  id: number;
+  entryNumber: string;
+  entryDate: string;
+  netAmount: number;
+};
+type ReconciliationView = {
+  statement: { statementDate: string; startingBalance: number; endingBalance: number };
+  lines: ReconciliationLine[];
+  candidates: ReconciliationCandidate[];
+};
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -204,8 +233,7 @@ function JournalTab() {
         toast.success("تم ترحيل القيد");
         qc.invalidateQueries();
       },
-      onError: (e: any) =>
-        toast.error(e?.response?.data?.error ?? "تعذر الترحيل"),
+      onError: (e: unknown) => toast.error(apiErrorMessage(e, "تعذر الترحيل")),
     },
   });
   const reverse = useReverseJournalEntry({
@@ -214,8 +242,7 @@ function JournalTab() {
         toast.success("تم عكس القيد");
         qc.invalidateQueries();
       },
-      onError: (e: any) =>
-        toast.error(e?.response?.data?.error ?? "تعذر العكس"),
+      onError: (e: unknown) => toast.error(apiErrorMessage(e, "تعذر العكس")),
     },
   });
   return (
@@ -326,8 +353,7 @@ function NewEntryTab() {
         setDescription("");
         setReference("");
       },
-      onError: (e: any) =>
-        toast.error(e?.response?.data?.error ?? "تعذر الإنشاء"),
+      onError: (e: unknown) => toast.error(apiErrorMessage(e, "تعذر الإنشاء")),
     },
   });
   const [entryDate, setEntryDate] = useState(
@@ -425,7 +451,7 @@ function NewEntryTab() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {(currencies ?? []).map((c: any) => (
+                {(currencies ?? []).map((c: Currency) => (
                   <SelectItem key={c.code} value={c.code}>
                     {c.symbol} {c.nameAr}
                   </SelectItem>
@@ -711,8 +737,7 @@ function FiscalPeriodsTab() {
         toast.success("تم إقفال الفترة");
         qc.invalidateQueries();
       },
-      onError: (e: any) =>
-        toast.error(e?.response?.data?.error ?? "تعذر الإقفال"),
+      onError: (e: unknown) => toast.error(apiErrorMessage(e, "تعذر الإقفال")),
     },
   });
   const reopen = useReopenFiscalPeriod({
@@ -721,14 +746,13 @@ function FiscalPeriodsTab() {
         toast.success("تم إعادة فتح الفترة");
         qc.invalidateQueries();
       },
-      onError: (e: any) =>
-        toast.error(e?.response?.data?.error ?? "تعذر إعادة الفتح"),
+      onError: (e: unknown) => toast.error(apiErrorMessage(e, "تعذر إعادة الفتح")),
     },
   });
   if (isLoading) return <Skeleton className="h-48 w-full" />;
   return (
     <div className="space-y-4">
-      {(years ?? []).map((y: any) => (
+      {(years ?? []).map((y: FiscalYear) => (
         <Card key={y.id}>
           <CardHeader>
             <CardTitle>
@@ -747,7 +771,7 @@ function FiscalPeriodsTab() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {(y.periods ?? []).map((p: any) => (
+                {(y.periods ?? []).map((p: FiscalPeriod) => (
                   <TableRow key={p.id}>
                     <TableCell>{p.name}</TableCell>
                     <TableCell>{p.startDate}</TableCell>
@@ -793,7 +817,7 @@ function BankReconciliationTab() {
   const { data: banks, isLoading: banksLoading } = useListBankAccounts();
   const [bankId, setBankId] = useState<number | null>(null);
   const [statementId, setStatementId] = useState<number | null>(null);
-  const [recon, setRecon] = useState<any>(null);
+  const [recon, setRecon] = useState<ReconciliationView | null>(null);
   const [csvText, setCsvText] = useState("");
   const [csvDate, setCsvDate] = useState(new Date().toISOString().slice(0, 10));
   const [opening, setOpening] = useState("0");
@@ -869,8 +893,8 @@ function BankReconciliationTab() {
       toast.success(`تم استيراد ${lines.length} عملية`);
       setCsvText("");
       await loadReconciliation(data.id);
-    } catch (e: any) {
-      toast.error(e.message);
+    } catch (e: unknown) {
+      toast.error(apiErrorMessage(e, "فشل الاستيراد"));
     } finally {
       setBusy(false);
     }
@@ -919,7 +943,7 @@ function BankReconciliationTab() {
               >
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {banks.map((b: any) => (
+                  {banks.map((b: BankAccount) => (
                     <SelectItem key={b.id} value={String(b.id)}>{b.name} ({b.bankName})</SelectItem>
                   ))}
                 </SelectContent>
@@ -979,9 +1003,10 @@ function BankReconciliationTab() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {(recon.lines ?? []).map((l: any) => {
+                  {(recon.lines ?? []).map((l: ReconciliationLine) => {
                     const matchOptions = (recon.candidates ?? []).filter(
-                      (c: any) => Math.abs(c.netAmount - l.amount) < 0.01,
+                      (c: ReconciliationCandidate) =>
+                        Math.abs(c.netAmount - l.amount) < 0.01,
                     );
                     return (
                       <TableRow key={l.id}>
@@ -1002,7 +1027,7 @@ function BankReconciliationTab() {
                             <Select onValueChange={(v) => matchLine(l.id, Number(v))}>
                               <SelectTrigger className="w-48"><SelectValue placeholder="اختر قيداً..." /></SelectTrigger>
                               <SelectContent>
-                                {matchOptions.map((c: any) => (
+                                {matchOptions.map((c: ReconciliationCandidate) => (
                                   <SelectItem key={c.id} value={String(c.id)}>
                                     {c.entryNumber} — {c.entryDate}
                                   </SelectItem>

@@ -27,9 +27,8 @@ async function getAccountBalances(
   from?: string,
   to?: string,
 ): Promise<AccountBalance[]> {
-  // Two-step: (1) load accounts, (2) sum lines from POSTED entries only.
-  // The previous LEFT JOIN-with-status-in-ON pattern was wrong: it kept rows
-  // for lines whose header was draft/reversed and counted them in totals.
+  // Load accounts, then sum lines from POSTED entries only so draft and
+  // reversed headers never contribute to balances.
   const accounts = await db
     .select()
     .from(accountsTable)
