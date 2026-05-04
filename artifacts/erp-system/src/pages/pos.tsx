@@ -1161,7 +1161,7 @@ export default function POS() {
                         {showSuccess.method}
                       </span>
                     </div>
-                    {showSuccess.payments && showSuccess.payments.length > 1 && (
+                    {showSuccess.payments && showSuccess.payments.length >= 1 && (
                       <div className="rounded-md bg-white p-2 text-xs">
                         <div className="mb-1 font-semibold text-neutral-600">تفاصيل الدفعات</div>
                         <ul className="space-y-1">
@@ -1204,7 +1204,7 @@ export default function POS() {
 
                   <div className="grid grid-cols-2 gap-3">
                     <Button
-                      onClick={() => setShowSuccess(null)}
+                      onClick={() => window.print()}
                       className="h-11 bg-[#2563EB] text-sm font-bold text-white hover:bg-[#1D4ED8]"
                     >
                       طباعة فاتورة
