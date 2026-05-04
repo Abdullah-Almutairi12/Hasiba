@@ -445,7 +445,67 @@ export async function initAccounting(): Promise<void> {
       FOR EACH ROW EXECUTE FUNCTION reject_postings_to_group_accounts();
   `).catch((e) => logger.warn({ err: e }, "Group-account trigger skipped"));
 
+  // Heal per-year journal entry sequences after data restores or imports.
+  // Drizzle/db restores reseed the underlying tables but not the
+  // `journal_entries_seq_<year>` sequences we use to mint entry numbers
+  // (JE-YYYY-NNNNN). If the sequence's last_value is below the highest
+  // existing entry number for that year, the very next post will collide
+  // on the unique entry_number index and 500 the user. We bump each
+  // year's sequence to max(existing) + 1 so the next mint is always free.
+  await healJournalEntrySequences().catch((e) =>
+    logger.warn({ err: e }, "Journal entry sequence heal skipped"),
+  );
+
   logger.info("Accounting subsystem initialized");
+}
+
+/**
+ * Scan journal_entries.entry_number for every year present and bring the
+ * matching `journal_entries_seq_<year>` sequence up to max(seq) so the
+ * next nextval() can never collide on the unique entry_number constraint.
+ *
+ * Idempotent: a sequence that is already ahead is left untouched (setval
+ * with `is_called=true` to value=max means the *next* nextval returns
+ * max+1, exactly matching nextEntryNumber's expectation).
+ */
+async function healJournalEntrySequences(): Promise<void> {
+  const { rows } = await pool.query(
+    `
+    SELECT year, MAX(seq) AS max_seq
+      FROM (
+        SELECT substring(entry_number FROM '^JE-(\\d{4})-')::int AS year,
+               substring(entry_number FROM '^JE-\\d{4}-(\\d+)$')::bigint AS seq
+          FROM journal_entries
+         WHERE entry_number ~ '^JE-\\d{4}-\\d+$'
+      ) t
+     GROUP BY year
+    `,
+  );
+
+  for (const r of rows as Array<{ year: number; max_seq: string | number }>) {
+    const seqName = `journal_entries_seq_${r.year}`;
+    const maxSeq = Number(r.max_seq);
+    if (!Number.isFinite(maxSeq) || maxSeq < 1) continue;
+
+    await pool.query(
+      `CREATE SEQUENCE IF NOT EXISTS ${seqName} MINVALUE 1 START 1`,
+    );
+    // Only bump if the sequence is behind the highest existing value.
+    // Compare current last_value (or start_value if untouched) against max.
+    const { rows: cur } = await pool.query(
+      `SELECT last_value, is_called FROM ${seqName}`,
+    );
+    const lastValue = Number(cur[0]?.last_value ?? 0);
+    const isCalled = Boolean(cur[0]?.is_called);
+    const effective = isCalled ? lastValue : 0;
+    if (effective < maxSeq) {
+      await pool.query(`SELECT setval('${seqName}', $1, true)`, [maxSeq]);
+      logger.info(
+        { year: r.year, seqName, from: effective, to: maxSeq },
+        "Healed journal entry sequence",
+      );
+    }
+  }
 }
 
 // Find or create an account row whose Arabic name matches `nameAr`.
