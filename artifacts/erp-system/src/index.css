@@ -126,3 +126,22 @@
     @apply font-sans antialiased bg-background text-foreground;
   }
 }
+
+@media print {
+  body * { visibility: hidden !important; }
+  .pos-print-receipt, .pos-print-receipt * { visibility: visible !important; }
+  .pos-print-receipt {
+    position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    width: 100% !important;
+    max-width: 80mm;
+    margin: 0 auto !important;
+    background: white !important;
+    color: black !important;
+    box-shadow: none !important;
+    border: none !important;
+  }
+  .pos-print-receipt .print\:hidden { display: none !important; }
+}

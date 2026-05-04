@@ -40,7 +40,8 @@ export async function initPos(): Promise<void> {
       SELECT COALESCE(SUM(amount), 0) INTO v_paid_total
         FROM pos_order_payments WHERE order_id = v_order_id;
 
-      IF abs(v_paid_total - v_order_total) > 0.01 THEN
+      -- Both columns are numeric(10,2); exact equality is the right check.
+      IF v_paid_total <> v_order_total THEN
         RAISE EXCEPTION
           'مجموع دفعات الطلب % (%) لا يساوي إجمالي الفاتورة (%)',
           v_order_id, v_paid_total, v_order_total
@@ -78,13 +79,22 @@ export async function initPos(): Promise<void> {
         INTO v_paid_total, v_payment_count
         FROM pos_order_payments WHERE order_id = NEW.id;
 
-      -- Order with no payments yet (insert-only flow) is allowed; payments
-      -- will be inserted in the same tx and their trigger will validate.
-      IF v_payment_count = 0 THEN
+      -- Zero-total orders (e.g. fully comped) need no payments.
+      -- Any positive-total order must have at least one payment recorded
+      -- by COMMIT time; this closes the previous bypass where a header
+      -- could persist with no payments and skip the payments trigger.
+      IF NEW.total = 0 AND v_payment_count = 0 THEN
         RETURN NULL;
       END IF;
 
-      IF abs(v_paid_total - NEW.total) > 0.01 THEN
+      IF v_payment_count = 0 THEN
+        RAISE EXCEPTION
+          'الطلب % بإجمالي % لا يحتوي أي دفعات',
+          NEW.id, NEW.total
+        USING ERRCODE = 'check_violation';
+      END IF;
+
+      IF v_paid_total <> NEW.total THEN
         RAISE EXCEPTION
           'إجمالي الطلب % (%) لا يساوي مجموع الدفعات (%)',
           NEW.id, NEW.total, v_paid_total

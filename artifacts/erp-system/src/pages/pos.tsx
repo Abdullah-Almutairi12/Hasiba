@@ -1122,7 +1122,7 @@ export default function POS() {
                 animate={{ scale: 1, opacity: 1 }}
                 exit={{ scale: 0.9, opacity: 0 }}
                 onClick={(e) => e.stopPropagation()}
-                className="relative w-[420px] overflow-hidden rounded-3xl bg-white shadow-2xl"
+                className="pos-print-receipt relative w-[420px] overflow-hidden rounded-3xl bg-white shadow-2xl"
               >
                 <button
                   onClick={() => setShowSuccess(null)}
@@ -1205,7 +1205,7 @@ export default function POS() {
                   <div className="grid grid-cols-2 gap-3">
                     <Button
                       onClick={() => window.print()}
-                      className="h-11 bg-[#2563EB] text-sm font-bold text-white hover:bg-[#1D4ED8]"
+                      className="h-11 bg-[#2563EB] text-sm font-bold text-white hover:bg-[#1D4ED8] print:hidden"
                     >
                       طباعة فاتورة
                     </Button>
