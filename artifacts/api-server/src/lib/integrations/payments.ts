@@ -80,6 +80,95 @@ function hmacWebhook(rawBody: string, signature: string | undefined, ctx: Adapte
   return safeHmacEqual(Buffer.from(computed), Buffer.from(signature));
 }
 
+/**
+ * Provider-specific webhook verifier. Each gateway publishes a
+ * different signature scheme — the header name, the payload that
+ * gets signed, and the encoding of the signature all vary.
+ *
+ * - Moyasar: SHA-256 HMAC of raw body, hex, header `x-moyasar-signature`.
+ * - Tap: SHA-256 HMAC of raw body, hex, header `tap-signature` (or `hashstring`).
+ * - HyperPay/mada: a shared-secret token compared against header
+ *   `x-webhook-secret` (OPPWA does not sign payloads — they
+ *   recommend allow-listing IPs + a static shared token).
+ * - PayTabs: SHA-256 HMAC, hex, header `signature` (PayTabs canonical).
+ * - STC Pay: SHA-256 HMAC of raw body, base64, header `x-stc-signature`.
+ */
+function providerWebhookVerifier(
+  provider: string,
+): (rawBody: string, headers: Record<string, string | undefined>, ctx: AdapterContext) => boolean {
+  switch (provider) {
+    case "moyasar":
+      return (raw, h, ctx) => hmacWebhook(raw, h["x-moyasar-signature"], ctx);
+    case "tap":
+      return (raw, h, ctx) =>
+        hmacWebhook(raw, h["tap-signature"] ?? h["hashstring"], ctx);
+    case "hyperpay":
+    case "mada": {
+      return (_raw, h, ctx) => {
+        const secret = getWebhookSecret(ctx.gateway);
+        const token = h["x-webhook-secret"];
+        if (!secret || !token) return false;
+        return safeHmacEqual(Buffer.from(secret), Buffer.from(token));
+      };
+    }
+    case "paytabs":
+      return (raw, h, ctx) => hmacWebhook(raw, h["signature"], ctx);
+    case "stcpay":
+      return (raw, h, ctx) => {
+        const secret = getWebhookSecret(ctx.gateway);
+        const sig = h["x-stc-signature"];
+        if (!secret || !sig) return false;
+        const computed = createHmac("sha256", secret).update(raw).digest("base64");
+        return safeHmacEqual(Buffer.from(computed), Buffer.from(sig));
+      };
+    default:
+      return (raw, h, ctx) =>
+        hmacWebhook(raw, h["x-signature"] ?? h["signature"], ctx);
+  }
+}
+
+/**
+ * Map a provider's raw status string to one of three settlement
+ * verdicts we care about for ledger posting:
+ *   "settled"   → the funds are captured and may be posted to the GL
+ *   "authorized"→ a hold-only event; do NOT post to the GL
+ *   "ignore"    → all other transitions (pending, processing, etc.)
+ *
+ * Defaulting to "ignore" for unknown / missing statuses prevents
+ * the previously-reported false-positive ledger postings when a
+ * webhook payload omits a status field.
+ */
+function classifyWebhookStatus(provider: string, raw: string | undefined):
+  | "settled"
+  | "authorized"
+  | "failed"
+  | "ignore" {
+  if (!raw) return "ignore";
+  const s = raw.toLowerCase();
+  // Authorize-only events are gateway-specific. We never treat
+  // them as settled — capture must arrive as a separate event.
+  if (s === "authorized" || s === "auth_ok" || s === "authorised") return "authorized";
+  if (s === "failed" || s === "declined" || s === "void") return "failed";
+  switch (provider) {
+    case "moyasar":
+      return s === "paid" ? "settled" : "ignore";
+    case "tap":
+      return s === "captured" ? "settled" : "ignore";
+    case "hyperpay":
+    case "mada":
+      // OPPWA result codes "000.000.000" / "000.100.110" → success
+      return s.startsWith("000.000") || s.startsWith("000.100.1") ? "settled" : "ignore";
+    case "paytabs":
+      return s === "a" || s === "approved" || s === "completed" ? "settled" : "ignore";
+    case "stcpay":
+      return s === "paid" || s === "completed" ? "settled" : "ignore";
+    default:
+      return s === "captured" || s === "paid" || s === "succeeded" || s === "completed"
+        ? "settled"
+        : "ignore";
+  }
+}
+
 async function audited<T>(args: {
   ctx: AdapterContext;
   endpoint: string;
@@ -585,18 +674,11 @@ export async function refundIntent(args: {
   return { refundRef: out.refundRef, status: "refunded" };
 }
 
-const SETTLED_WEBHOOK_STATUSES = new Set([
-  "captured",
-  "paid",
-  "succeeded",
-  "completed",
-  "authorized",
-]);
-
 export async function handleWebhook(args: {
   gatewayId: number;
   rawBody: string;
   signature?: string;
+  headers?: Record<string, string | undefined>;
   parsed: Record<string, unknown>;
 }): Promise<{ ok: boolean; intentId?: number; status?: string; ledgerEntryId?: number | null }> {
   const t0 = Date.now();
@@ -634,7 +716,15 @@ export async function handleWebhook(args: {
     return { ok: false };
   }
 
-  const isValid = adapter.verifyWebhook(args.rawBody, args.signature, {
+  // Use the per-provider verifier (header name + signature
+  // encoding vary across the 6 supported gateways). The legacy
+  // `x-signature` header is still honoured by the verifier's
+  // default branch for back-compat with the previous adapter.
+  const headers = args.headers ?? {
+    "x-signature": args.signature,
+  };
+  const verifier = providerWebhookVerifier(gateway.provider);
+  const isValid = verifier(args.rawBody, headers, {
     gateway,
     secret: cred.secret,
   });
@@ -660,8 +750,19 @@ export async function handleWebhook(args: {
   const providerRef = (args.parsed.id ?? args.parsed.payment_id ?? args.parsed.tran_ref ?? args.parsed.providerRef) as
     | string
     | undefined;
-  const newStatus = String(args.parsed.status ?? "captured");
+  const rawStatus = args.parsed.status as string | undefined;
   if (!providerRef) return { ok: true };
+
+  // Classify the webhook before mutating anything. We never
+  // default to "captured" — a missing/unknown status maps to
+  // "ignore" so that ambiguous events neither flip our intent nor
+  // post to the GL. Authorize-only events update the intent
+  // status to "authorized" but explicitly skip ledger posting
+  // (capture must arrive as a separate event).
+  const verdict = classifyWebhookStatus(gateway.provider, rawStatus);
+  if (verdict === "ignore") return { ok: true };
+  const newStatus =
+    verdict === "settled" ? "captured" : verdict === "authorized" ? "authorized" : "failed";
 
   // Scope the update by BOTH providerRef AND gatewayId — provider
   // refs are not globally unique across gateways, and a webhook
@@ -679,7 +780,7 @@ export async function handleWebhook(args: {
     .returning({ id: paymentIntentsTable.id });
 
   let ledgerEntryId: number | null = null;
-  if (updated && SETTLED_WEBHOOK_STATUSES.has(newStatus)) {
+  if (updated && verdict === "settled") {
     try {
       const r = await postPaymentReceiptToLedger(updated.id);
       ledgerEntryId = r.entryId;

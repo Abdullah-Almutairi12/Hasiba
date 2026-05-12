@@ -343,12 +343,17 @@ integrationsPublicRouter.post(
     try {
       const gatewayId = Number(req.params.gatewayId);
       const rawBody = (req.body as Buffer).toString("utf8");
+      // Forward the full lower-cased header bag so each provider's
+      // verifier can pluck whichever signature header it expects.
+      const headers: Record<string, string | undefined> = {};
+      for (const [k, v] of Object.entries(req.headers)) {
+        headers[k.toLowerCase()] = Array.isArray(v) ? v[0] : (v as string | undefined);
+      }
       const signature =
-        (req.headers["x-signature"] as string | undefined) ??
-        (req.headers["x-moyasar-signature"] as string | undefined);
+        headers["x-signature"] ?? headers["x-moyasar-signature"];
       let parsed: Record<string, unknown> = {};
       try { parsed = JSON.parse(rawBody) as Record<string, unknown>; } catch { /* keep empty */ }
-      const out = await handleWebhook({ gatewayId, rawBody, signature, parsed });
+      const out = await handleWebhook({ gatewayId, rawBody, signature, headers, parsed });
       if (!out.ok) {
         res.status(401).json({ error: "Invalid signature" });
         return;
