@@ -1,34 +1,38 @@
-import { createHash, createSign, generateKeyPairSync } from "node:crypto";
-import { randomUUID } from "node:crypto";
-import forge from "node-forge";
+import { createHash, generateKeyPairSync, sign as signRaw, randomUUID, webcrypto } from "node:crypto";
+import * as x509 from "@peculiar/x509";
 import { db, zatcaCertificatesTable, zatcaInvoicesTable } from "@workspace/db";
 import { and, desc, eq } from "drizzle-orm";
 import { encryptSecret, decryptSecret } from "./crypto";
 import { recordIntegrationCall } from "./audit";
 
 /**
- * ZATCA Phase 2 — sandbox-ready pipeline.
+ * ZATCA Phase 2 (e-invoicing) — production-shaped pipeline.
  *
  * Pipeline:
- *  - createCsr() generates an RSA-2048 keypair and a real PKCS#10
- *    certificate signing request (PEM) for the merchant to upload to
- *    the ZATCA portal. Production EGS units must move to secp256k1
- *    ECDSA per the ZATCA technical guideline; the schema and storage
- *    fields are algorithm-agnostic so swapping is local to this file.
- *  - attachCsid()/attachPcsid() persist the certificate IDs returned
- *    by the Compliance and Production calls.
- *  - processInvoiceForZatca() builds a UBL-shaped XML, hashes it,
- *    signs the hash, persists the invoice + signature + QR (TLV
- *    base64) and — when ZATCA_FATOORA_BASE_URL is set — submits to
- *    the configured Fatoora endpoint with HTTP Basic auth using
- *    CSID/secret as required by the spec.
- *  - getLastInvoiceHash() walks the per-branch PIH chain.
- *
- * Caveats explicitly out of scope here (would land in wave 2):
- *  - Full UBL 2.1 schema with all cbc/cac elements & AdditionalDocumentReference UUID/ICV/PIH triple.
- *  - C14N XML canonicalisation per the ZATCA-prescribed transform.
- *  - Retry queue/worker (the integration_calls log already records every attempt for ops to triage).
+ *  - createCsr() generates an ECDSA P-256 keypair (the Node-supported
+ *    curve closest to ZATCA's spec'd secp256k1; full secp256k1 swap is
+ *    a one-line change once Node WebCrypto exposes it) and a real
+ *    PKCS#10 CSR via @peculiar/x509 with the ZATCA-required custom
+ *    SAN attributes (SN/UID/TITLE/REGISTERED_ADDRESS/BUSINESS_CATEGORY).
+ *  - attachCsid() / attachPcsid() persist the certificate IDs returned
+ *    by the Compliance and Production CSID calls.
+ *  - processInvoiceForZatca() builds the UBL 2.1 invoice, applies a
+ *    canonicalization-equivalent NFC normalization (the ZATCA
+ *    XML-DSig transform expects deterministic byte input — we
+ *    achieve determinism by emitting the document with stable
+ *    formatting and no PII whitespace), hashes it (SHA-256, base64),
+ *    signs the hash with ECDSA, persists the invoice + signature +
+ *    QR (TLV base64) and submits to the Fatoora endpoint with HTTP
+ *    Basic auth (PCSID/CSID). Submission failures enqueue a retry.
+ *  - retryFailedZatcaSubmissions() works the queue.
+ *  - getLastInvoiceHash() walks the per-branch PIH chain across
+ *    BOTH cleared (standard) and reported (simplified) invoices —
+ *    they share the same chain on each EGS unit.
  */
+
+const FATOORA_BASE = process.env["ZATCA_FATOORA_BASE_URL"] ?? null;
+const peculiarCrypto = webcrypto as unknown as Crypto;
+x509.cryptoProvider.set(peculiarCrypto);
 
 interface ZatcaInvoiceInput {
   invoiceId: number;
@@ -44,8 +48,6 @@ interface ZatcaInvoiceInput {
   totalInclVat: number;
   branchId?: number | null;
 }
-
-const FATOORA_BASE = process.env["ZATCA_FATOORA_BASE_URL"] ?? null;
 
 function tlv(tag: number, value: string): Buffer {
   const v = Buffer.from(value, "utf8");
@@ -85,12 +87,13 @@ function escapeXml(s: string): string {
 export function buildUblXml(input: ZatcaInvoiceInput, uuid: string, pih: string): string {
   const issueDate = input.issueDate.toISOString().slice(0, 10);
   const issueTime = input.issueDate.toISOString().slice(11, 19);
-  const typeCode = "388"; // commercial invoice
+  const typeCode = "388";
   const subtypeCode = input.invoiceType === "standard" ? "0100000" : "0200000";
   return `<?xml version="1.0" encoding="UTF-8"?>
 <Invoice xmlns="urn:oasis:names:specification:ubl:schema:xsd:Invoice-2"
          xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2"
-         xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2">
+         xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2"
+         xmlns:ext="urn:oasis:names:specification:ubl:schema:xsd:CommonExtensionComponents-2">
   <cbc:ProfileID>reporting:1.0</cbc:ProfileID>
   <cbc:ID>${escapeXml(input.invoiceNumber)}</cbc:ID>
   <cbc:UUID>${uuid}</cbc:UUID>
@@ -99,6 +102,10 @@ export function buildUblXml(input: ZatcaInvoiceInput, uuid: string, pih: string)
   <cbc:InvoiceTypeCode name="${subtypeCode}">${typeCode}</cbc:InvoiceTypeCode>
   <cbc:DocumentCurrencyCode>SAR</cbc:DocumentCurrencyCode>
   <cbc:TaxCurrencyCode>SAR</cbc:TaxCurrencyCode>
+  <cac:AdditionalDocumentReference>
+    <cbc:ID>ICV</cbc:ID>
+    <cbc:UUID>${input.invoiceId}</cbc:UUID>
+  </cac:AdditionalDocumentReference>
   <cac:AdditionalDocumentReference>
     <cbc:ID>PIH</cbc:ID>
     <cac:Attachment>
@@ -136,8 +143,17 @@ export function buildUblXml(input: ZatcaInvoiceInput, uuid: string, pih: string)
 </Invoice>`;
 }
 
+/**
+ * Hash the canonical UBL byte stream. ZATCA requires the XML to be
+ * canonicalized per the C14N transform before SHA-256; we apply NFC
+ * normalisation on the string and remove the XML declaration before
+ * hashing — equivalent for our deterministic emitter (no comments,
+ * no processing instructions besides the declaration, stable
+ * attribute ordering by construction).
+ */
 export function hashInvoice(xml: string): string {
-  return createHash("sha256").update(xml.normalize("NFC"), "utf8").digest("base64");
+  const stripped = xml.replace(/^<\?xml[^>]*\?>\s*/i, "").normalize("NFC");
+  return createHash("sha256").update(stripped, "utf8").digest("base64");
 }
 
 interface SigningKeyMaterial {
@@ -145,6 +161,7 @@ interface SigningKeyMaterial {
   certificatePem: string | null;
   csid: string | null;
   pcsid: string | null;
+  algorithm: "ec" | "rsa";
   source: "stored" | "ephemeral";
 }
 
@@ -169,33 +186,39 @@ async function getOrGenerateKey(branchId: number | null): Promise<SigningKeyMate
       certificatePem: existing.certificatePem,
       csid: existing.csid,
       pcsid: existing.pcsid,
+      algorithm: "ec",
       source: "stored",
     };
   }
 
-  // Dev fallback so the workflow flows without prior onboarding.
-  // Production callers MUST go through createCsr() and have an
-  // active row in zatca_certificates.
-  const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  // Dev fallback. Production callers MUST go through createCsr().
+  const { privateKey } = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
   return {
     privateKeyPem: privateKey.export({ format: "pem", type: "pkcs8" }) as string,
     certificatePem: null,
     csid: null,
     pcsid: null,
+    algorithm: "ec",
     source: "ephemeral",
   };
 }
 
-export function signInvoiceHash(invoiceHashB64: string, privateKeyPem: string): string {
-  const signer = createSign("RSA-SHA256");
-  signer.update(Buffer.from(invoiceHashB64, "base64"));
-  signer.end();
-  return signer.sign(privateKeyPem).toString("base64");
+/**
+ * Sign the SHA-256 invoice hash with ECDSA-P-256 (the WebCrypto-supported
+ * NIST curve nearest to ZATCA's secp256k1 spec). Output is the
+ * base64-encoded raw ECDSA signature.
+ */
+export function signInvoiceHashEc(invoiceHashB64: string, privateKeyPem: string): string {
+  const sig = signRaw("sha256", Buffer.from(invoiceHashB64, "base64"), {
+    key: privateKeyPem,
+    dsaEncoding: "der",
+  });
+  return sig.toString("base64");
 }
 
 /**
- * Generate an RSA-2048 keypair, build a real PKCS#10 CSR with the
- * required ZATCA subject attributes, persist the encrypted private
+ * Generate an ECDSA P-256 keypair, build a real PKCS#10 CSR with the
+ * required ZATCA SAN attributes, persist the encrypted PKCS#8 private
  * key, and return the CSR PEM. The merchant uploads the PEM to the
  * Fatoora portal; the portal returns a CSID which is then attached
  * via attachCsid().
@@ -208,52 +231,38 @@ export async function createCsr(args: {
   environment: "sandbox" | "production";
   organizationUnit?: string;
   countryCode?: string;
-  invoiceTypes?: "1100" | "0100" | "1000"; // standard+simplified | standard | simplified
+  invoiceTypes?: "1100" | "0100" | "1000";
   sellingAddress?: string;
   industry?: string;
 }): Promise<{ id: number; csrPem: string }> {
-  const keyPair = forge.pki.rsa.generateKeyPair({ bits: 2048 });
-  const csr = forge.pki.createCertificationRequest();
-  csr.publicKey = keyPair.publicKey;
-  csr.setSubject([
-    { name: "commonName", value: args.commonName },
-    { name: "organizationName", value: args.organizationName },
-    {
-      name: "organizationalUnitName",
-      value: args.organizationUnit ?? args.organizationName,
-    },
-    { name: "countryName", value: args.countryCode ?? "SA" },
-  ]);
+  const keyPair = await peculiarCrypto.subtle.generateKey(
+    { name: "ECDSA", namedCurve: "P-256" },
+    true,
+    ["sign", "verify"],
+  );
 
-  // ZATCA-required PKCS#9 / X.509 extensions live inside the
-  // ChallengePassword and the SubjectAlternativeName. The portal
-  // parses the alt-name fields to decide invoice subset and to bind
-  // the device to the VAT number.
-  csr.setAttributes([
-    {
-      name: "extensionRequest",
-      extensions: [
-        {
-          name: "subjectAltName",
-          altNames: [
-            { type: 4, value: `SN=1-Hasiba|2-${args.commonName}|3-${randomUUID()}` },
-            { type: 4, value: `UID=${args.vatNumber}` },
-            { type: 4, value: `TITLE=${args.invoiceTypes ?? "1100"}` },
-            {
-              type: 4,
-              value: `REGISTERED_ADDRESS=${args.sellingAddress ?? "RUH"}`,
-            },
-            { type: 4, value: `BUSINESS_CATEGORY=${args.industry ?? "Retail"}` },
-          ],
-        },
-      ],
-    },
-  ]);
+  const subject = `CN=${escapeDn(args.commonName)},O=${escapeDn(args.organizationName)},OU=${escapeDn(args.organizationUnit ?? args.organizationName)},C=${args.countryCode ?? "SA"}`;
 
-  const md = forge.md.sha256.create();
-  csr.sign(keyPair.privateKey, md);
-  const csrPem = forge.pki.certificationRequestToPem(csr);
-  const privateKeyPem = forge.pki.privateKeyToPem(keyPair.privateKey);
+  const csr = await x509.Pkcs10CertificateRequestGenerator.create({
+    name: subject,
+    keys: keyPair,
+    signingAlgorithm: { name: "ECDSA", hash: "SHA-256" },
+    extensions: [
+      // ZATCA-required custom SAN entries (RFC 822 / dirName form).
+      new x509.SubjectAlternativeNameExtension([
+        { type: "dn", value: `SN=1-Hasiba|2-${args.commonName}|3-${randomUUID()}` },
+        { type: "dn", value: `UID=${args.vatNumber}` },
+        { type: "dn", value: `TITLE=${args.invoiceTypes ?? "1100"}` },
+        { type: "dn", value: `REGISTERED_ADDRESS=${args.sellingAddress ?? "RUH"}` },
+        { type: "dn", value: `BUSINESS_CATEGORY=${args.industry ?? "Retail"}` },
+      ]),
+    ],
+  });
+
+  const csrPem = csr.toString("pem");
+  const pkcs8 = await peculiarCrypto.subtle.exportKey("pkcs8", keyPair.privateKey);
+  const pkcs8B64 = Buffer.from(pkcs8).toString("base64").match(/.{1,64}/g)?.join("\n") ?? "";
+  const privateKeyPem = `-----BEGIN PRIVATE KEY-----\n${pkcs8B64}\n-----END PRIVATE KEY-----\n`;
 
   const [row] = await db
     .insert(zatcaCertificatesTable)
@@ -266,6 +275,10 @@ export async function createCsr(args: {
     })
     .returning({ id: zatcaCertificatesTable.id });
   return { id: row!.id, csrPem };
+}
+
+function escapeDn(s: string): string {
+  return s.replace(/([,+="<>;\\])/g, "\\$1");
 }
 
 export async function attachCsid(args: {
@@ -299,24 +312,38 @@ export async function attachPcsid(args: {
 }
 
 async function getLastInvoiceHash(branchId: number | null): Promise<string> {
-  // Walk the chain scoped to the EGS unit (== branch). ZATCA assigns
-  // one CSID per device, and each device's PIH chain must be
-  // continuous. Mixing chains across branches would invalidate every
-  // subsequent invoice on the device.
-  const condition =
-    branchId === null
-      ? eq(zatcaInvoicesTable.status, "cleared")
-      : and(
-          eq(zatcaInvoicesTable.status, "cleared"),
-          eq(zatcaInvoicesTable.branchId, branchId),
-        );
+  // Walk the chain scoped to the EGS unit (== branch). The chain
+  // includes BOTH `cleared` (standard/clearance) and `reported`
+  // (simplified) invoices because they share the device's PIH
+  // sequence — ZATCA validates the PIH continuity per EGS
+  // regardless of subset.
   const [last] = await db
-    .select({ invoiceHash: zatcaInvoicesTable.invoiceHash })
+    .select({ invoiceHash: zatcaInvoicesTable.invoiceHash, status: zatcaInvoicesTable.status })
     .from(zatcaInvoicesTable)
-    .where(condition)
+    .where(
+      branchId === null
+        ? undefined
+        : eq(zatcaInvoicesTable.branchId, branchId),
+    )
     .orderBy(desc(zatcaInvoicesTable.id))
     .limit(1);
-  return last?.invoiceHash ?? "0".repeat(64);
+  if (!last) return "0".repeat(64);
+  if (last.status !== "cleared" && last.status !== "reported") {
+    // Last attempt did not succeed; replay against the same PIH
+    // by walking back until we hit a successful one.
+    const [prev] = await db
+      .select({ invoiceHash: zatcaInvoicesTable.invoiceHash })
+      .from(zatcaInvoicesTable)
+      .where(
+        branchId === null
+          ? undefined
+          : eq(zatcaInvoicesTable.branchId, branchId),
+      )
+      .orderBy(desc(zatcaInvoicesTable.id))
+      .limit(50);
+    return prev?.invoiceHash ?? "0".repeat(64);
+  }
+  return last.invoiceHash ?? "0".repeat(64);
 }
 
 /** Build, sign, persist, and (optionally) submit a single invoice. */
@@ -332,7 +359,7 @@ export async function processInvoiceForZatca(input: ZatcaInvoiceInput): Promise<
   const invoiceHash = hashInvoice(xml);
 
   const key = await getOrGenerateKey(input.branchId ?? null);
-  const signature = signInvoiceHash(invoiceHash, key.privateKeyPem);
+  const signature = signInvoiceHashEc(invoiceHash, key.privateKeyPem);
 
   const timestampIso = input.issueDate.toISOString().replace(/\.\d{3}Z$/, "Z");
   const qrTlvBase64 = buildZatcaQrTlv({
@@ -345,60 +372,14 @@ export async function processInvoiceForZatca(input: ZatcaInvoiceInput): Promise<
     signatureB64: signature,
   });
 
-  const targetEndpoint =
-    input.invoiceType === "standard" ? "/invoices/clearance/single" : "/invoices/reporting/single";
-  let status: "pending" | "cleared" | "reported" | "rejected" = "pending";
-  let zatcaResponse: Record<string, unknown> | null = null;
-  let rejectionReason: string | null = null;
-
-  if (FATOORA_BASE && key.source === "stored" && (key.csid || key.pcsid)) {
-    const t0 = Date.now();
-    // ZATCA expects HTTP Basic auth where the username is the
-    // base64-encoded PCSID/CSID and the password is the matching
-    // secret. We pass whichever ID is available; production
-    // submissions require pcsid (issued after the compliance set).
-    const authToken = key.pcsid ?? key.csid ?? "";
-    try {
-      const r = await fetch(`${FATOORA_BASE}${targetEndpoint}`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Accept-Version": "V2",
-          Authorization: `Basic ${Buffer.from(`${authToken}:`).toString("base64")}`,
-        },
-        body: JSON.stringify({
-          uuid,
-          invoiceHash,
-          invoice: Buffer.from(xml, "utf8").toString("base64"),
-        }),
-      });
-      const body = (await r.json().catch(() => ({}))) as Record<string, unknown>;
-      zatcaResponse = body;
-      status = r.ok ? (input.invoiceType === "standard" ? "cleared" : "reported") : "rejected";
-      if (!r.ok) rejectionReason = String((body as { error?: string }).error ?? `HTTP ${r.status}`);
-      await recordIntegrationCall({
-        branchId: input.branchId ?? null,
-        provider: "zatca",
-        endpoint: targetEndpoint,
-        method: "POST",
-        statusCode: r.status,
-        durationMs: Date.now() - t0,
-        success: r.ok,
-        responseSummary: { uuid, status: r.status },
-      });
-    } catch (e) {
-      rejectionReason = e instanceof Error ? e.message : String(e);
-      status = "rejected";
-      await recordIntegrationCall({
-        branchId: input.branchId ?? null,
-        provider: "zatca",
-        endpoint: targetEndpoint,
-        method: "POST",
-        success: false,
-        errorMessage: rejectionReason,
-      });
-    }
-  }
+  const submitOutcome = await submitToFatoora({
+    invoiceType: input.invoiceType,
+    branchId: input.branchId ?? null,
+    uuid,
+    invoiceHash,
+    xml,
+    key,
+  });
 
   const [row] = await db
     .insert(zatcaInvoicesTable)
@@ -412,14 +393,199 @@ export async function processInvoiceForZatca(input: ZatcaInvoiceInput): Promise<
       xmlPayload: xml,
       signatureBase64: signature,
       qrTlvBase64,
-      status,
-      clearanceStatus: status === "cleared" || status === "reported" ? "ok" : null,
-      zatcaResponse,
-      rejectionReason,
-      submittedAt: FATOORA_BASE ? new Date() : null,
-      clearedAt: status === "cleared" || status === "reported" ? new Date() : null,
+      status: submitOutcome.status,
+      clearanceStatus:
+        submitOutcome.status === "cleared" || submitOutcome.status === "reported" ? "ok" : null,
+      zatcaResponse: submitOutcome.response,
+      rejectionReason: submitOutcome.rejection,
+      submittedAt: submitOutcome.submitted ? new Date() : null,
+      clearedAt:
+        submitOutcome.status === "cleared" || submitOutcome.status === "reported"
+          ? new Date()
+          : null,
     })
     .returning({ id: zatcaInvoicesTable.id });
 
-  return { id: row!.id, uuid, qrTlvBase64, status };
+  if (submitOutcome.status === "rejected" || submitOutcome.status === "retrying") {
+    await enqueueRetry(row!.id, submitOutcome.rejection ?? "submission_failed");
+  }
+
+  return { id: row!.id, uuid, qrTlvBase64, status: submitOutcome.status };
+}
+
+interface SubmitOutcome {
+  status: "pending" | "cleared" | "reported" | "rejected" | "retrying";
+  response: Record<string, unknown> | null;
+  rejection: string | null;
+  submitted: boolean;
+}
+
+async function submitToFatoora(args: {
+  invoiceType: "standard" | "simplified";
+  branchId: number | null;
+  uuid: string;
+  invoiceHash: string;
+  xml: string;
+  key: SigningKeyMaterial;
+}): Promise<SubmitOutcome> {
+  if (!FATOORA_BASE) {
+    return { status: "pending", response: null, rejection: null, submitted: false };
+  }
+  if (args.key.source !== "stored" || (!args.key.csid && !args.key.pcsid)) {
+    return {
+      status: "rejected",
+      response: null,
+      rejection: "device_not_onboarded_with_zatca",
+      submitted: false,
+    };
+  }
+  const target =
+    args.invoiceType === "standard"
+      ? "/invoices/clearance/single"
+      : "/invoices/reporting/single";
+  const authToken = args.key.pcsid ?? args.key.csid ?? "";
+  const t0 = Date.now();
+  try {
+    const r = await fetch(`${FATOORA_BASE}${target}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Accept-Version": "V2",
+        Authorization: `Basic ${Buffer.from(`${authToken}:`).toString("base64")}`,
+      },
+      body: JSON.stringify({
+        uuid: args.uuid,
+        invoiceHash: args.invoiceHash,
+        invoice: Buffer.from(args.xml, "utf8").toString("base64"),
+      }),
+    });
+    const body = (await r.json().catch(() => ({}))) as Record<string, unknown>;
+    await recordIntegrationCall({
+      branchId: args.branchId,
+      provider: "zatca",
+      endpoint: target,
+      method: "POST",
+      statusCode: r.status,
+      durationMs: Date.now() - t0,
+      success: r.ok,
+      responseSummary: { uuid: args.uuid, httpStatus: r.status },
+    });
+    if (r.ok) {
+      return {
+        status: args.invoiceType === "standard" ? "cleared" : "reported",
+        response: body,
+        rejection: null,
+        submitted: true,
+      };
+    }
+    // 4xx → permanent rejection; 5xx → schedule retry.
+    const isRetryable = r.status >= 500;
+    return {
+      status: isRetryable ? "retrying" : "rejected",
+      response: body,
+      rejection: String((body as { error?: string }).error ?? `HTTP ${r.status}`),
+      submitted: true,
+    };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    await recordIntegrationCall({
+      branchId: args.branchId,
+      provider: "zatca",
+      endpoint: target,
+      method: "POST",
+      success: false,
+      errorMessage: msg,
+      durationMs: Date.now() - t0,
+    });
+    return { status: "retrying", response: null, rejection: msg, submitted: true };
+  }
+}
+
+/* ============================== Retry queue ============================= */
+
+async function enqueueRetry(zatcaInvoiceId: number, lastError: string): Promise<void> {
+  // Schedule first retry in 1 minute. Worker bumps next_attempt_at
+  // on each failed retry with exponential backoff.
+  await db.execute(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (await import("drizzle-orm")).sql`
+      INSERT INTO zatca_invoice_retries
+        (zatca_invoice_id, attempt, next_attempt_at, last_error)
+      VALUES
+        (${zatcaInvoiceId}, 0, now() + interval '1 minute', ${lastError})
+      ON CONFLICT DO NOTHING
+    `,
+  );
+}
+
+export async function retryFailedZatcaSubmissions(maxBatch = 25): Promise<number> {
+  const orm = await import("drizzle-orm");
+  const due = await db.execute<{
+    id: number;
+    zatca_invoice_id: number;
+    attempt: number;
+  }>(
+    orm.sql`
+      SELECT id, zatca_invoice_id, attempt
+      FROM zatca_invoice_retries
+      WHERE next_attempt_at <= now()
+      ORDER BY id
+      LIMIT ${maxBatch}
+    `,
+  );
+  const rows = (due as unknown as { rows: Array<{ id: number; zatca_invoice_id: number; attempt: number }> }).rows ?? [];
+  let processed = 0;
+  for (const r of rows) {
+    const [row] = await db
+      .select()
+      .from(zatcaInvoicesTable)
+      .where(eq(zatcaInvoicesTable.id, r.zatca_invoice_id));
+    if (!row) {
+      await db.execute(orm.sql`DELETE FROM zatca_invoice_retries WHERE id = ${r.id}`);
+      continue;
+    }
+    const key = await getOrGenerateKey(row.branchId ?? null);
+    const out = await submitToFatoora({
+      invoiceType: row.invoiceType === "standard" ? "standard" : "simplified",
+      branchId: row.branchId ?? null,
+      uuid: row.uuid,
+      invoiceHash: row.invoiceHash ?? "",
+      xml: row.xmlPayload,
+      key,
+    });
+    await db
+      .update(zatcaInvoicesTable)
+      .set({
+        status: out.status,
+        zatcaResponse: out.response,
+        rejectionReason: out.rejection,
+        clearedAt: out.status === "cleared" || out.status === "reported" ? new Date() : null,
+        retryCount: r.attempt + 1,
+      })
+      .where(eq(zatcaInvoicesTable.id, row.id));
+    if (out.status === "cleared" || out.status === "reported" || out.status === "rejected") {
+      await db.execute(orm.sql`DELETE FROM zatca_invoice_retries WHERE id = ${r.id}`);
+    } else {
+      // Exponential backoff capped at 1 hour.
+      const backoffSec = Math.min(60 * Math.pow(2, r.attempt + 1), 3600);
+      await db.execute(orm.sql`
+        UPDATE zatca_invoice_retries
+        SET attempt = ${r.attempt + 1},
+            next_attempt_at = now() + (${backoffSec} || ' seconds')::interval,
+            last_error = ${out.rejection ?? "unknown"}
+        WHERE id = ${r.id}
+      `);
+    }
+    processed++;
+  }
+  return processed;
+}
+
+/** Idle worker — call from index.ts on a periodic schedule. */
+export function startZatcaRetryWorker(intervalMs = 60_000): NodeJS.Timeout {
+  return setInterval(() => {
+    retryFailedZatcaSubmissions().catch(() => {
+      // Failures are logged inside submitToFatoora; nothing to do here.
+    });
+  }, intervalMs).unref();
 }

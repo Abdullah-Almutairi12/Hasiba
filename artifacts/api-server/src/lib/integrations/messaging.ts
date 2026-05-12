@@ -4,19 +4,7 @@ import { getCredential, MissingCredentialError } from "./credentials";
 import { recordIntegrationCall } from "./audit";
 
 export type Channel = "whatsapp" | "sms";
-export type MessagingProvider =
-  | "whatsapp" // Meta Cloud API
-  | "unifonic"
-  | "mobily"
-  | "taqnyat";
-
-export class MessagingNotImplementedError extends Error {
-  readonly statusCode = 501;
-  constructor(provider: string) {
-    super(`Messaging provider "${provider}" has no live adapter wired yet.`);
-    this.name = "MessagingNotImplementedError";
-  }
-}
+export type MessagingProvider = "whatsapp" | "unifonic" | "mobily" | "taqnyat";
 
 export interface SendMessageRequest {
   branchId?: number | null;
@@ -34,10 +22,6 @@ export interface SendMessageResult {
   providerRef: string | null;
 }
 
-function renderTemplate(body: string, vars: Record<string, string>): string {
-  return body.replace(/\{\{(\w+)\}\}/g, (_, k) => vars[k] ?? `{{${k}}}`);
-}
-
 interface AdapterOutcome {
   providerRef: string | null;
   ok: boolean;
@@ -45,50 +29,48 @@ interface AdapterOutcome {
   statusCode: number;
 }
 
+function renderTemplate(body: string, vars: Record<string, string>): string {
+  return body.replace(/\{\{(\w+)\}\}/g, (_, k) => vars[k] ?? `{{${k}}}`);
+}
+
 async function sendWhatsApp(req: SendMessageRequest, secret: Record<string, string>): Promise<AdapterOutcome> {
   const phoneNumberId = secret.phoneNumberId;
   const accessToken = secret.accessToken;
   if (!phoneNumberId || !accessToken) throw new MissingCredentialError("whatsapp");
   const t0 = Date.now();
-  const r = await fetch(
-    `https://graph.facebook.com/v20.0/${phoneNumberId}/messages`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(
-        req.templateName
-          ? {
-              messaging_product: "whatsapp",
-              to: req.to,
-              type: "template",
-              template: {
-                name: req.templateName,
-                language: { code: "ar" },
-                components: req.variables
-                  ? [
-                      {
-                        type: "body",
-                        parameters: Object.values(req.variables).map((v) => ({
-                          type: "text",
-                          text: v,
-                        })),
-                      },
-                    ]
-                  : [],
-              },
-            }
-          : {
-              messaging_product: "whatsapp",
-              to: req.to,
-              type: "text",
-              text: { body: renderTemplate(req.body, req.variables ?? {}) },
+  const r = await fetch(`https://graph.facebook.com/v20.0/${phoneNumberId}/messages`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify(
+      req.templateName
+        ? {
+            messaging_product: "whatsapp",
+            to: req.to,
+            type: "template",
+            template: {
+              name: req.templateName,
+              language: { code: "ar" },
+              components: req.variables
+                ? [
+                    {
+                      type: "body",
+                      parameters: Object.values(req.variables).map((v) => ({
+                        type: "text",
+                        text: v,
+                      })),
+                    },
+                  ]
+                : [],
             },
-      ),
-    },
-  );
+          }
+        : {
+            messaging_product: "whatsapp",
+            to: req.to,
+            type: "text",
+            text: { body: renderTemplate(req.body, req.variables ?? {}) },
+          },
+    ),
+  });
   const body = (await r.json().catch(() => ({}))) as {
     messages?: Array<{ id: string }>;
     error?: { message: string };
@@ -96,7 +78,7 @@ async function sendWhatsApp(req: SendMessageRequest, secret: Record<string, stri
   await recordIntegrationCall({
     branchId: req.branchId ?? null,
     provider: "whatsapp",
-    endpoint: `/messages`,
+    endpoint: "/messages",
     method: "POST",
     statusCode: r.status,
     durationMs: Date.now() - t0,
@@ -129,9 +111,9 @@ async function sendUnifonic(req: SendMessageRequest, secret: Record<string, stri
   const body = (await r.json().catch(() => ({}))) as {
     success?: string;
     data?: { MessageID?: string };
-    errorCode?: string;
     message?: string;
   };
+  const ok = r.ok && body.success === "true";
   await recordIntegrationCall({
     branchId: req.branchId ?? null,
     provider: "unifonic",
@@ -139,15 +121,10 @@ async function sendUnifonic(req: SendMessageRequest, secret: Record<string, stri
     method: "POST",
     statusCode: r.status,
     durationMs: Date.now() - t0,
-    success: r.ok && body.success === "true",
+    success: ok,
     errorMessage: body.message,
   });
-  return {
-    ok: r.ok && body.success === "true",
-    providerRef: body.data?.MessageID ?? null,
-    error: body.message,
-    statusCode: r.status,
-  };
+  return { ok, providerRef: body.data?.MessageID ?? null, error: body.message, statusCode: r.status };
 }
 
 async function sendTaqnyat(req: SendMessageRequest, secret: Record<string, string>): Promise<AdapterOutcome> {
@@ -157,10 +134,7 @@ async function sendTaqnyat(req: SendMessageRequest, secret: Record<string, strin
   const t0 = Date.now();
   const r = await fetch("https://api.taqnyat.sa/v1/messages", {
     method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
+    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({
       recipients: [req.to],
       body: renderTemplate(req.body, req.variables ?? {}),
@@ -183,16 +157,53 @@ async function sendTaqnyat(req: SendMessageRequest, secret: Record<string, strin
     success: ok,
     errorMessage: ok ? null : body.message ?? `HTTP ${r.status}`,
   });
+  return { ok, providerRef: body.messageId ?? null, error: body.message, statusCode: r.status };
+}
+
+/**
+ * Mobily corporate SMS — uses the legacy form-encoded msgSend.php
+ * endpoint (the same one their dashboard exports as the "API"
+ * tab). Returns a numeric status code in the body; 1 = OK.
+ */
+async function sendMobily(req: SendMessageRequest, secret: Record<string, string>): Promise<AdapterOutcome> {
+  const username = secret.username;
+  const password = secret.password;
+  const sender = secret.sender ?? "Hasiba";
+  if (!username || !password) throw new MissingCredentialError("mobily");
+  const t0 = Date.now();
+  const params = new URLSearchParams({
+    mobile: username,
+    password,
+    sender,
+    numbers: req.to,
+    msg: renderTemplate(req.body, req.variables ?? {}),
+    applicationType: "68",
+    domainName: "www.mobily.ws",
+  });
+  const r = await fetch(`https://www.mobily.ws/api/msgSend.php?${params.toString()}`);
+  const text = await r.text().catch(() => "");
+  // Mobily returns "1" on success, anything else = error code.
+  const ok = r.ok && text.trim() === "1";
+  await recordIntegrationCall({
+    branchId: req.branchId ?? null,
+    provider: "mobily",
+    endpoint: "/api/msgSend.php",
+    method: "GET",
+    statusCode: r.status,
+    durationMs: Date.now() - t0,
+    success: ok,
+    errorMessage: ok ? null : `mobily code=${text.trim() || r.status}`,
+  });
   return {
     ok,
-    providerRef: body.messageId ?? null,
-    error: body.message,
+    providerRef: ok ? `mobily-${Date.now()}` : null,
+    error: ok ? undefined : `mobily code=${text.trim() || r.status}`,
     statusCode: r.status,
   };
 }
 
 export async function sendMessage(req: SendMessageRequest): Promise<SendMessageResult> {
-  // Persist as queued first so an adapter crash leaves a trace.
+  // Persist as queued first so a crash leaves a trace.
   const [queued] = await db
     .insert(outboundMessagesTable)
     .values({
@@ -210,28 +221,22 @@ export async function sendMessage(req: SendMessageRequest): Promise<SendMessageR
   const cred = await getCredential<Record<string, string>>(req.provider, {
     branchId: req.branchId ?? null,
   });
-  if (!cred) throw new MissingCredentialError(req.provider);
+  if (!cred) {
+    await db
+      .update(outboundMessagesTable)
+      .set({ status: "failed", errorMessage: "missing_credential" })
+      .where(eq(outboundMessagesTable.id, queued!.id));
+    throw new MissingCredentialError(req.provider);
+  }
 
   let outcome: AdapterOutcome;
   try {
     if (req.provider === "whatsapp") outcome = await sendWhatsApp(req, cred.secret);
     else if (req.provider === "unifonic") outcome = await sendUnifonic(req, cred.secret);
     else if (req.provider === "taqnyat") outcome = await sendTaqnyat(req, cred.secret);
-    else if (req.provider === "mobily") {
-      // Mobily B2B SMS uses a non-public partner contract; we don't
-      // ship a stub that pretends to succeed. Caller gets 501.
-      throw new MessagingNotImplementedError("mobily");
-    } else {
-      throw new MessagingNotImplementedError(req.provider);
-    }
+    else if (req.provider === "mobily") outcome = await sendMobily(req, cred.secret);
+    else throw new Error(`Unsupported messaging provider: ${req.provider}`);
   } catch (e) {
-    if (e instanceof MessagingNotImplementedError) {
-      await db
-        .update(outboundMessagesTable)
-        .set({ status: "failed", errorMessage: e.message })
-        .where(eq(outboundMessagesTable.id, queued!.id));
-      throw e;
-    }
     outcome = {
       ok: false,
       providerRef: null,
@@ -251,9 +256,5 @@ export async function sendMessage(req: SendMessageRequest): Promise<SendMessageR
     })
     .where(eq(outboundMessagesTable.id, queued!.id));
 
-  return {
-    id: queued!.id,
-    status: finalStatus,
-    providerRef: outcome.providerRef,
-  };
+  return { id: queued!.id, status: finalStatus, providerRef: outcome.providerRef };
 }

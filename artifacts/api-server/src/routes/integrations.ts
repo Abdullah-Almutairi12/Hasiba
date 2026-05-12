@@ -19,14 +19,9 @@ import {
 import { adminGuard, ownerOnly, requireRole } from "../middlewares/require-role";
 import { upsertCredential } from "../lib/integrations/credentials";
 import { encryptSecret } from "../lib/integrations/crypto";
-import {
-  createCheckout,
-  handleWebhook,
-  refundIntent,
-  NotImplementedError,
-} from "../lib/integrations/payments";
-import { createAwb, CarrierNotImplementedError } from "../lib/integrations/shipping";
-import { sendMessage, MessagingNotImplementedError } from "../lib/integrations/messaging";
+import { createCheckout, handleWebhook, refundIntent } from "../lib/integrations/payments";
+import { createAwb } from "../lib/integrations/shipping";
+import { sendMessage } from "../lib/integrations/messaging";
 import {
   createCsr,
   attachCsid,
@@ -55,18 +50,6 @@ const PROVIDERS = [
 ] as const;
 
 function handle(res: express.Response, err: unknown): void {
-  if (
-    err instanceof NotImplementedError ||
-    err instanceof CarrierNotImplementedError ||
-    err instanceof MessagingNotImplementedError
-  ) {
-    res.status(501).json({ error: err.message, code: "NOT_IMPLEMENTED" });
-    return;
-  }
-  return _handleInner(res, err);
-}
-
-function _handleInner(res: express.Response, err: unknown): void {
   if (err instanceof ZodError) {
     res.status(400).json({ error: "بيانات غير صالحة", details: err.issues });
     return;
