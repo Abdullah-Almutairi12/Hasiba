@@ -82,6 +82,8 @@ import {
   Workflow,
 } from "lucide-react";
 import { WorkflowTab } from "@/components/workflow-tab";
+import { IntegrationsTab } from "@/components/integrations-tab";
+import { Plug } from "lucide-react";
 
 function AccessDenied() {
   return (
@@ -1223,6 +1225,10 @@ export default function AdminPage() {
           <TabsTrigger value="workflow" data-testid="tab-workflow">
             <Workflow className="me-1 size-4" /> سير العمل
           </TabsTrigger>
+          <TabsTrigger value="integrations" data-testid="tab-integrations">
+            <Plug className="me-2 size-4" />
+            التكاملات
+          </TabsTrigger>
           <TabsTrigger value="audit" data-testid="tab-audit">
             <History className="me-2 size-4" />
             السجلات
@@ -1236,6 +1242,7 @@ export default function AdminPage() {
         <TabsContent value="ai"><AiModelsTab /></TabsContent>
         <TabsContent value="assistant"><AssistantTab /></TabsContent>
         <TabsContent value="workflow"><WorkflowTab /></TabsContent>
+        <TabsContent value="integrations"><IntegrationsTab /></TabsContent>
         <TabsContent value="audit"><AuditTab /></TabsContent>
       </Tabs>
       {/* hint icon used for tone palette */}

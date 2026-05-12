@@ -27,6 +27,7 @@ import exportsRouter from "./exports";
 import hrRouter, { hrPublicRouter } from "./hr";
 import manufacturingRouter from "./manufacturing";
 import workflowRouter from "./workflow";
+import integrationsRouter, { integrationsPublicRouter } from "./integrations";
 import { requireAuth } from "../middlewares/require-auth";
 
 const router: IRouter = Router();
@@ -36,6 +37,8 @@ router.use(healthRouter);
 router.use(authRouter);
 // HR device webhook is API-key authenticated and must bypass session auth.
 router.use(hrPublicRouter);
+// Payment provider webhooks verify HMAC and must bypass session auth.
+router.use(integrationsPublicRouter);
 
 // All business routes require an authenticated session
 router.use(requireAuth);
@@ -66,5 +69,6 @@ router.use(exportsRouter);
 router.use(hrRouter);
 router.use(manufacturingRouter);
 router.use(workflowRouter);
+router.use(integrationsRouter);
 
 export default router;
