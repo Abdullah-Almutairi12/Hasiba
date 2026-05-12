@@ -1,6 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { db, paymentGatewaysTable, paymentIntentsTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { getCredential, MissingCredentialError } from "./credentials";
 import { recordIntegrationCall } from "./audit";
 import { decryptSecret } from "./crypto";
@@ -660,10 +660,19 @@ export async function handleWebhook(args: {
   const newStatus = String(args.parsed.status ?? "captured");
   if (!providerRef) return { ok: true };
 
+  // Scope the update by BOTH providerRef AND gatewayId — provider
+  // refs are not globally unique across gateways, and a webhook
+  // delivered to the wrong gateway must never mutate a sibling
+  // gateway's intent (financial-integrity guard).
   const [updated] = await db
     .update(paymentIntentsTable)
     .set({ status: newStatus, updatedAt: new Date() })
-    .where(eq(paymentIntentsTable.providerRef, providerRef))
+    .where(
+      and(
+        eq(paymentIntentsTable.providerRef, providerRef),
+        eq(paymentIntentsTable.gatewayId, gateway.id),
+      ),
+    )
     .returning({ id: paymentIntentsTable.id });
 
   let ledgerEntryId: number | null = null;

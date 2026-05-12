@@ -84,7 +84,88 @@ function escapeXml(s: string): string {
     .replace(/'/g, "&apos;");
 }
 
-export function buildUblXml(input: ZatcaInvoiceInput, uuid: string, pih: string): string {
+/**
+ * Build the optional XAdES-style UBLExtensions block expected by
+ * ZATCA Phase 2. When `sig` is supplied this returns a fully
+ * populated <ext:UBLExtensions> envelope carrying the signed
+ * properties (cert digest, signing time, invoice hash, ECDSA
+ * signature value); when omitted it returns an empty string so the
+ * same emitter can be used for the pre-signing canonical form.
+ */
+function buildUblExtensions(sig?: {
+  invoiceHashB64: string;
+  signatureB64: string;
+  certBase64: string;
+  certDigestB64: string;
+  signingTimeIso: string;
+}): string {
+  if (!sig) return "";
+  return `  <ext:UBLExtensions>
+    <ext:UBLExtension>
+      <ext:ExtensionURI>urn:oasis:names:specification:ubl:dsig:enveloped:xades</ext:ExtensionURI>
+      <ext:ExtensionContent>
+        <sig:UBLDocumentSignatures xmlns:sig="urn:oasis:names:specification:ubl:schema:xsd:CommonSignatureComponents-2"
+                                   xmlns:sac="urn:oasis:names:specification:ubl:schema:xsd:SignatureAggregateComponents-2"
+                                   xmlns:sbc="urn:oasis:names:specification:ubl:schema:xsd:SignatureBasicComponents-2">
+          <sac:SignatureInformation>
+            <cbc:ID>urn:oasis:names:specification:ubl:signature:1</cbc:ID>
+            <sbc:ReferencedSignatureID>urn:oasis:names:specification:ubl:signature:Invoice</sbc:ReferencedSignatureID>
+            <ds:Signature xmlns:ds="http://www.w3.org/2000/09/xmldsig#" Id="signature">
+              <ds:SignedInfo>
+                <ds:CanonicalizationMethod Algorithm="http://www.w3.org/2006/12/xml-c14n11"/>
+                <ds:SignatureMethod Algorithm="http://www.w3.org/2001/04/xmldsig-more#ecdsa-sha256"/>
+                <ds:Reference URI="">
+                  <ds:Transforms>
+                    <ds:Transform Algorithm="http://www.w3.org/TR/1999/REC-xpath-19991116">
+                      <ds:XPath>not(//ancestor-or-self::ext:UBLExtensions)</ds:XPath>
+                    </ds:Transform>
+                  </ds:Transforms>
+                  <ds:DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"/>
+                  <ds:DigestValue>${sig.invoiceHashB64}</ds:DigestValue>
+                </ds:Reference>
+              </ds:SignedInfo>
+              <ds:SignatureValue>${sig.signatureB64}</ds:SignatureValue>
+              <ds:KeyInfo>
+                <ds:X509Data><ds:X509Certificate>${sig.certBase64}</ds:X509Certificate></ds:X509Data>
+              </ds:KeyInfo>
+              <ds:Object>
+                <xades:QualifyingProperties xmlns:xades="http://uri.etsi.org/01903/v1.3.2#" Target="signature">
+                  <xades:SignedProperties Id="xadesSignedProperties">
+                    <xades:SignedSignatureProperties>
+                      <xades:SigningTime>${sig.signingTimeIso}</xades:SigningTime>
+                      <xades:SigningCertificate>
+                        <xades:Cert>
+                          <xades:CertDigest>
+                            <ds:DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"/>
+                            <ds:DigestValue>${sig.certDigestB64}</ds:DigestValue>
+                          </xades:CertDigest>
+                        </xades:Cert>
+                      </xades:SigningCertificate>
+                    </xades:SignedSignatureProperties>
+                  </xades:SignedProperties>
+                </xades:QualifyingProperties>
+              </ds:Object>
+            </ds:Signature>
+          </sac:SignatureInformation>
+        </sig:UBLDocumentSignatures>
+      </ext:ExtensionContent>
+    </ext:UBLExtension>
+  </ext:UBLExtensions>
+`;
+}
+
+export function buildUblXml(
+  input: ZatcaInvoiceInput,
+  uuid: string,
+  pih: string,
+  sig?: {
+    invoiceHashB64: string;
+    signatureB64: string;
+    certBase64: string;
+    certDigestB64: string;
+    signingTimeIso: string;
+  },
+): string {
   const issueDate = input.issueDate.toISOString().slice(0, 10);
   const issueTime = input.issueDate.toISOString().slice(11, 19);
   const typeCode = "388";
@@ -94,7 +175,7 @@ export function buildUblXml(input: ZatcaInvoiceInput, uuid: string, pih: string)
          xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2"
          xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2"
          xmlns:ext="urn:oasis:names:specification:ubl:schema:xsd:CommonExtensionComponents-2">
-  <cbc:ProfileID>reporting:1.0</cbc:ProfileID>
+${buildUblExtensions(sig)}  <cbc:ProfileID>reporting:1.0</cbc:ProfileID>
   <cbc:ID>${escapeXml(input.invoiceNumber)}</cbc:ID>
   <cbc:UUID>${uuid}</cbc:UUID>
   <cbc:IssueDate>${issueDate}</cbc:IssueDate>
@@ -515,11 +596,32 @@ export async function processInvoiceForZatca(input: ZatcaInvoiceInput): Promise<
 }> {
   const uuid = randomUUID();
   const pih = await getLastInvoiceHash(input.branchId ?? null);
-  const xml = buildUblXml(input, uuid, pih);
-  const invoiceHash = hashInvoice(xml);
+  // Hash is computed over the canonical UNSIGNED form per ZATCA
+  // (XPath transform excludes UBLExtensions) — we then rebuild the
+  // XML with the XAdES <ds:Signature> envelope embedded for
+  // submission so the wire payload satisfies Phase 2's signed-doc
+  // shape.
+  const unsignedXml = buildUblXml(input, uuid, pih);
+  const invoiceHash = hashInvoice(unsignedXml);
 
   const key = await getOrGenerateKey(input.branchId ?? null);
   const signature = signInvoiceHashEc(invoiceHash, key.privateKeyPem);
+  const certBase64 = key.certificatePem
+    ? key.certificatePem
+        .replace(/-----(BEGIN|END) CERTIFICATE-----/g, "")
+        .replace(/\s+/g, "")
+    : "";
+  const certDigestB64 = certBase64
+    ? createHash("sha256").update(certBase64, "utf8").digest("base64")
+    : "";
+  const signingTimeIso = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
+  const xml = buildUblXml(input, uuid, pih, {
+    invoiceHashB64: invoiceHash,
+    signatureB64: signature,
+    certBase64,
+    certDigestB64,
+    signingTimeIso,
+  });
 
   const timestampIso = input.issueDate.toISOString().replace(/\.\d{3}Z$/, "Z");
   const qrTlvBase64 = buildZatcaQrTlv({

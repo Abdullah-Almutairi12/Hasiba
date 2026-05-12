@@ -45,6 +45,8 @@ import {
 import { postJournalEntry } from "../lib/journal-posting";
 import { buildZatcaQrBase64 } from "../lib/zatca-qr";
 import { processInvoiceForZatca } from "../lib/integrations/zatca-phase2";
+import { createAwb } from "../lib/integrations/shipping";
+import { sendMessage } from "../lib/integrations/messaging";
 import { recordStockMove, getDefaultWarehouseId } from "../lib/stock-engine";
 import { sendMail, isMailerConfigured } from "../lib/mailer";
 import { warehousesTable as _warehousesTable } from "@workspace/db";
@@ -1221,6 +1223,13 @@ const DoBody = z.object({
       }),
     )
     .optional(),
+  // Optional carrier dispatch — when carrierId is set we call the
+  // configured carrier adapter AFTER the DO transaction commits to
+  // create an AWB and persist the resulting shipment back to
+  // delivery_orders.shipment_id.
+  carrierId: z.number().int().positive().optional(),
+  shipmentWeightKg: z.number().positive().optional(),
+  shipmentToAddress: z.record(z.string(), z.unknown()).optional(),
 });
 
 router.get("/sales/deliveries", customerReadGuard, async (req, res) => {
@@ -1325,6 +1334,49 @@ router.post("/sales/deliveries", salesWriteGuard, async (req, res) => {
 
       return doc;
     });
+    // Post-commit carrier dispatch — fire-and-forget so the DO
+    // response isn't blocked on the carrier API. The shipment row
+    // is the audit trail; failures are logged with the DO id so an
+    // operator can retry.
+    if (body.carrierId) {
+      const carrierId = body.carrierId;
+      const doId = result.id;
+      const doRef = result.reference;
+      const weightKg = body.shipmentWeightKg ?? 1;
+      const fallbackAddress = {
+        name: "العميل",
+        phone: "",
+        line1: "",
+        city: "",
+        country: "SA",
+      };
+      const toAddress = {
+        ...fallbackAddress,
+        ...((body.shipmentToAddress ?? {}) as Record<string, string>),
+      } as {
+        name: string;
+        phone: string;
+        line1: string;
+        city: string;
+        country?: string;
+      };
+      void (async () => {
+        try {
+          const awb = await createAwb({
+            carrierId,
+            deliveryOrderRef: doRef,
+            weightKg,
+            toAddress,
+          });
+          await db
+            .update(deliveryOrdersTable)
+            .set({ carrierId, shipmentId: awb.shipmentId })
+            .where(eq(deliveryOrdersTable.id, doId));
+        } catch (e) {
+          req.log.warn({ err: e, doId, carrierId }, "carrier AWB creation failed");
+        }
+      })();
+    }
     res.status(201).json(result);
   } catch (err) {
     req.log.error({ err }, "create delivery");
@@ -1755,6 +1807,32 @@ router.post("/sales/invoices", financeGuard, async (req, res) => {
         "ZATCA auto-submit failed (queued for retry)",
       );
     });
+    // Module hook: notify the customer via WhatsApp/SMS that a new
+    // invoice was issued. Only fires when (a) a messaging provider
+    // is configured (sendMessage gracefully no-ops otherwise via
+    // MissingCredentialError) and (b) the customer has a phone.
+    // Fire-and-forget so the API response isn't blocked.
+    void (async () => {
+      try {
+        const [cust] = await db
+          .select({ phone: customersTable.phone, name: customersTable.name })
+          .from(customersTable)
+          .where(eq(customersTable.id, result.inv.customerId));
+        if (!cust?.phone) return;
+        await sendMessage({
+          channel: "whatsapp",
+          provider: "whatsapp",
+          to: cust.phone,
+          body: `مرحباً ${cust.name}، تم إصدار فاتورة جديدة برقم ${result.inv.reference} بقيمة ${result.inv.total} ر.س.`,
+          branchId: result.inv.branchId ?? null,
+        });
+      } catch (e) {
+        req.log.warn(
+          { err: e, invoiceId: result.inv.id },
+          "invoice notification dispatch failed",
+        );
+      }
+    })();
     res.status(201).json(serializeMoneyDoc(result.inv));
   } catch (err) {
     req.log.error({ err }, "create customer invoice");

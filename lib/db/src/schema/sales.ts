@@ -249,6 +249,11 @@ export const deliveryOrdersTable = pgTable("delivery_orders", {
   status: text("status").notNull().default("draft"),
   deliveryDate: date("delivery_date").notNull(),
   notes: text("notes"),
+  // Optional carrier selection — when set on creation we auto-call
+  // the carrier adapter to create an AWB and link the resulting
+  // shipment back via shipmentId.
+  carrierId: integer("carrier_id"),
+  shipmentId: integer("shipment_id"),
   createdBy: integer("created_by").references(() => usersTable.id),
   deliveredAt: timestamp("delivered_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),

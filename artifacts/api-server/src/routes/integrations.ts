@@ -250,6 +250,60 @@ router.post("/integrations/payments/checkout", adminGuard, async (req, res) => {
   }
 });
 
+// Customer-portal "Pay now" link — given an issued AR invoice,
+// create a checkout session against the company's default
+// gateway (or an explicit gatewayId) and return the hosted URL.
+router.post(
+  "/sales/invoices/:id/pay-link",
+  requireRole("owner", "manager", "accountant", "sales"),
+  async (req, res) => {
+    try {
+      const id = z.coerce.number().int().positive().parse(req.params.id);
+      const body = z
+        .object({
+          gatewayId: z.coerce.number().int().positive().optional(),
+          callbackUrl: z.string().url(),
+        })
+        .parse(req.body);
+      const [inv] = await db
+        .select()
+        .from(customerInvoicesTable)
+        .where(eq(customerInvoicesTable.id, id));
+      if (!inv) {
+        res.status(404).json({ error: "invoice_not_found" });
+        return;
+      }
+      let gatewayId = body.gatewayId;
+      if (!gatewayId) {
+        const [gw] = await db
+          .select({ id: paymentGatewaysTable.id })
+          .from(paymentGatewaysTable)
+          .where(eq(paymentGatewaysTable.isEnabled, true))
+          .orderBy(paymentGatewaysTable.id)
+          .limit(1);
+        if (!gw) {
+          res.status(409).json({ error: "no_active_payment_gateway" });
+          return;
+        }
+        gatewayId = gw.id;
+      }
+      const out = await createCheckout({
+        gatewayId,
+        amount: Number(inv.total),
+        currency: "SAR",
+        description: `Invoice ${inv.reference}`,
+        invoiceId: inv.id,
+        customerId: inv.customerId ?? undefined,
+        callbackUrl: body.callbackUrl,
+        metadata: { reference: inv.reference },
+      });
+      res.status(201).json(out);
+    } catch (err) {
+      handle(res, err);
+    }
+  },
+);
+
 const RefundBody = z.object({
   intentId: z.coerce.number().int().positive(),
   amount: z.coerce.number().positive().optional(),
