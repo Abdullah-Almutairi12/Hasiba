@@ -25,7 +25,13 @@ export async function postPaymentReceiptToLedger(intentId: number): Promise<{
     .from(paymentIntentsTable)
     .where(eq(paymentIntentsTable.id, intentId));
   if (!intent) return { entryId: null, skipped: "intent_not_found" };
-  if (intent.status !== "captured" && intent.status !== "authorized") {
+  // Provider webhooks deliver the captured event under several
+  // synonymous statuses (`captured` for Moyasar, `paid` for Tap and
+  // PayTabs, `succeeded` for Stripe-style payloads). Treat them all
+  // as a settled receipt so we don't drop GL entries for providers
+  // that don't speak Moyasar's vocabulary.
+  const SETTLED = new Set(["captured", "paid", "succeeded", "authorized"]);
+  if (!SETTLED.has(intent.status)) {
     return { entryId: null, skipped: `status_${intent.status}` };
   }
 
