@@ -21,10 +21,15 @@ export interface ResolvedCredential<T extends CredentialPayload = CredentialPayl
  */
 export async function getCredential<T extends CredentialPayload = CredentialPayload>(
   provider: string,
-  options: { branchId?: number | null; label?: string | null } = {},
+  options: {
+    branchId?: number | null;
+    label?: string | null;
+    environment?: "sandbox" | "production" | null;
+  } = {},
 ): Promise<ResolvedCredential<T> | null> {
   const branchId = options.branchId ?? null;
   const label = options.label ?? null;
+  const environment = options.environment ?? null;
 
   const rows = await db
     .select()
@@ -39,6 +44,13 @@ export async function getCredential<T extends CredentialPayload = CredentialPayl
         label === null
           ? isNull(externalCredentialsTable.label)
           : eq(externalCredentialsTable.label, label),
+        // Environment is a strong filter when the caller knows it
+        // (gateway/carrier/zatca all carry an environment column);
+        // otherwise we let any environment match for backwards
+        // compat with single-tenant deployments.
+        environment === null
+          ? undefined
+          : eq(externalCredentialsTable.environment, environment),
       ),
     )
     .limit(1);
@@ -55,6 +67,9 @@ export async function getCredential<T extends CredentialPayload = CredentialPayl
           eq(externalCredentialsTable.provider, provider),
           eq(externalCredentialsTable.isActive, true),
           isNull(externalCredentialsTable.branchId),
+          environment === null
+            ? undefined
+            : eq(externalCredentialsTable.environment, environment),
         ),
       )
       .limit(1);

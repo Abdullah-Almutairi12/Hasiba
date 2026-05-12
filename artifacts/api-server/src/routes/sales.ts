@@ -1819,11 +1819,34 @@ router.post("/sales/invoices", financeGuard, async (req, res) => {
           .from(customersTable)
           .where(eq(customersTable.id, result.inv.customerId));
         if (!cust?.phone) return;
+        // Compose a customer notification that bundles (a) a
+        // human-readable line, (b) the public pay-link the
+        // customer can tap to settle the invoice, and (c) the
+        // invoice PDF as a WhatsApp document attachment when a
+        // PDF URL is available. The portal hosts both the pay
+        // page and the rendered PDF under deterministic paths
+        // so we can build them from the invoice reference.
+        const baseUrl =
+          (process.env["PUBLIC_BASE_URL"] ?? "").replace(/\/$/, "") || "";
+        const payLink = baseUrl
+          ? `${baseUrl}/portal/invoices/${result.inv.id}/pay`
+          : null;
+        const pdfUrl = baseUrl
+          ? `${baseUrl}/portal/invoices/${result.inv.id}.pdf`
+          : undefined;
+        const lines = [
+          `مرحباً ${cust.name}،`,
+          `تم إصدار فاتورة جديدة برقم ${result.inv.reference} بقيمة ${result.inv.total} ر.س.`,
+        ];
+        if (payLink) lines.push(`للدفع: ${payLink}`);
         await sendMessage({
           channel: "whatsapp",
           provider: "whatsapp",
           to: cust.phone,
-          body: `مرحباً ${cust.name}، تم إصدار فاتورة جديدة برقم ${result.inv.reference} بقيمة ${result.inv.total} ر.س.`,
+          body: lines.join("\n"),
+          mediaUrl: pdfUrl,
+          mediaFilename: `invoice-${result.inv.reference}.pdf`,
+          mediaCaption: lines.join("\n"),
           branchId: result.inv.branchId ?? null,
         });
       } catch (e) {

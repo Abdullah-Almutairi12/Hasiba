@@ -514,6 +514,7 @@ export async function createCheckout(req: CheckoutRequest): Promise<CheckoutResu
 
   const cred = await getCredential<Record<string, string>>(gateway.provider, {
     branchId: gateway.branchId,
+    environment: gateway.environment === "production" ? "production" : "sandbox",
   });
   if (!cred) throw new MissingCredentialError(gateway.provider);
 
@@ -564,6 +565,7 @@ export async function refundIntent(args: {
 
   const cred = await getCredential<Record<string, string>>(gateway.provider, {
     branchId: gateway.branchId,
+    environment: gateway.environment === "production" ? "production" : "sandbox",
   });
   if (!cred) throw new MissingCredentialError(gateway.provider);
 
@@ -616,6 +618,7 @@ export async function handleWebhook(args: {
 
   const cred = await getCredential<Record<string, string>>(gateway.provider, {
     branchId: gateway.branchId,
+    environment: gateway.environment === "production" ? "production" : "sandbox",
   });
   const adapter = ADAPTERS[gateway.provider as PaymentProvider];
   if (!adapter || !cred) {

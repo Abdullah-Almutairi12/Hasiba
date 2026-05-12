@@ -30,7 +30,21 @@ import { recordIntegrationCall } from "./audit";
  *    they share the same chain on each EGS unit.
  */
 
-const FATOORA_BASE = process.env["ZATCA_FATOORA_BASE_URL"] ?? null;
+// Per ZATCA Phase 2 SDK, sandbox and production are distinct API
+// hostnames and merchants may flip between them per company. We
+// default to the official Fatoora hosts and let an env override
+// each one for self-hosted simulators.
+const FATOORA_BASE_SANDBOX =
+  process.env["ZATCA_FATOORA_BASE_URL_SANDBOX"] ??
+  process.env["ZATCA_FATOORA_BASE_URL"] ??
+  "https://gw-fatoora.zatca.gov.sa/e-invoicing/developer-portal";
+const FATOORA_BASE_PRODUCTION =
+  process.env["ZATCA_FATOORA_BASE_URL_PRODUCTION"] ??
+  process.env["ZATCA_FATOORA_BASE_URL"] ??
+  "https://gw-fatoora.zatca.gov.sa/e-invoicing/core";
+function fatooraBaseFor(env: "sandbox" | "production"): string {
+  return env === "production" ? FATOORA_BASE_PRODUCTION : FATOORA_BASE_SANDBOX;
+}
 const peculiarCrypto = webcrypto as unknown as Crypto;
 x509.cryptoProvider.set(peculiarCrypto);
 
@@ -301,7 +315,13 @@ async function getOrGenerateKey(branchId: number | null): Promise<SigningKeyMate
  * base64-encoded raw ECDSA signature.
  */
 export function signInvoiceHashEc(invoiceHashB64: string, privateKeyPem: string): string {
-  const sig = signRaw("sha256", Buffer.from(invoiceHashB64, "base64"), {
+  // ZATCA SDK signs the UTF-8 bytes of the **base64-encoded hash
+  // string** with ECDSA-SHA256 — passing the raw decoded hash
+  // here would produce SHA256(SHA256(canonicalXml)) and Fatoora
+  // would systematically reject the invoice. Sign the b64 string
+  // bytes; Node's "sha256" algorithm hashes them once before the
+  // ECDSA operation.
+  const sig = signRaw("sha256", Buffer.from(invoiceHashB64, "utf8"), {
     key: privateKeyPem,
     dsaEncoding: "der",
   });
@@ -690,7 +710,13 @@ async function submitToFatoora(args: {
   xml: string;
   key: SigningKeyMaterial;
 }): Promise<SubmitOutcome> {
-  if (!FATOORA_BASE) {
+  // Pick the Fatoora hostname per the certificate's environment
+  // (production PCSID → core API; sandbox CSID → developer-portal
+  // API). Falls back to the legacy global env if nothing matches.
+  const certEnv: "sandbox" | "production" =
+    args.key.pcsid && args.key.productionSecret ? "production" : "sandbox";
+  const baseUrl = fatooraBaseFor(certEnv);
+  if (!baseUrl) {
     return { status: "pending", response: null, rejection: null, submitted: false };
   }
   if (args.key.source !== "stored" || (!args.key.csid && !args.key.pcsid)) {
@@ -726,7 +752,7 @@ async function submitToFatoora(args: {
   }
   const t0 = Date.now();
   try {
-    const r = await fetch(`${FATOORA_BASE}${target}`, {
+    const r = await fetch(`${baseUrl}${target}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

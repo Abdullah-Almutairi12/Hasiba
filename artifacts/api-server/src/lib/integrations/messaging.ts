@@ -14,6 +14,13 @@ export interface SendMessageRequest {
   body: string;
   templateName?: string;
   variables?: Record<string, string>;
+  // Optional document attachment (e.g. invoice PDF, payment
+  // receipt). When supplied with a WhatsApp provider we send a
+  // document message instead of plain text so customers receive
+  // the actual invoice file alongside the textual notification.
+  mediaUrl?: string;
+  mediaFilename?: string;
+  mediaCaption?: string;
 }
 
 export interface SendMessageResult {
@@ -38,38 +45,54 @@ async function sendWhatsApp(req: SendMessageRequest, secret: Record<string, stri
   const accessToken = secret.accessToken;
   if (!phoneNumberId || !accessToken) throw new MissingCredentialError("whatsapp");
   const t0 = Date.now();
+  // Three message shapes: (1) document — when mediaUrl is set we
+  // ship the invoice PDF / receipt as a WhatsApp document with an
+  // optional caption that may contain the pay-link; (2) template
+  // — pre-approved business-initiated messages with variables;
+  // (3) plain text — agent-initiated freeform replies.
+  const payload: Record<string, unknown> = req.mediaUrl
+    ? {
+        messaging_product: "whatsapp",
+        to: req.to,
+        type: "document",
+        document: {
+          link: req.mediaUrl,
+          filename: req.mediaFilename ?? "invoice.pdf",
+          caption:
+            req.mediaCaption ?? renderTemplate(req.body, req.variables ?? {}),
+        },
+      }
+    : req.templateName
+      ? {
+          messaging_product: "whatsapp",
+          to: req.to,
+          type: "template",
+          template: {
+            name: req.templateName,
+            language: { code: "ar" },
+            components: req.variables
+              ? [
+                  {
+                    type: "body",
+                    parameters: Object.values(req.variables).map((v) => ({
+                      type: "text",
+                      text: v,
+                    })),
+                  },
+                ]
+              : [],
+          },
+        }
+      : {
+          messaging_product: "whatsapp",
+          to: req.to,
+          type: "text",
+          text: { body: renderTemplate(req.body, req.variables ?? {}) },
+        };
   const r = await fetch(`https://graph.facebook.com/v20.0/${phoneNumberId}/messages`, {
     method: "POST",
     headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
-    body: JSON.stringify(
-      req.templateName
-        ? {
-            messaging_product: "whatsapp",
-            to: req.to,
-            type: "template",
-            template: {
-              name: req.templateName,
-              language: { code: "ar" },
-              components: req.variables
-                ? [
-                    {
-                      type: "body",
-                      parameters: Object.values(req.variables).map((v) => ({
-                        type: "text",
-                        text: v,
-                      })),
-                    },
-                  ]
-                : [],
-            },
-          }
-        : {
-            messaging_product: "whatsapp",
-            to: req.to,
-            type: "text",
-            text: { body: renderTemplate(req.body, req.variables ?? {}) },
-          },
-    ),
+    body: JSON.stringify(payload),
   });
   const body = (await r.json().catch(() => ({}))) as {
     messages?: Array<{ id: string }>;

@@ -402,6 +402,7 @@ export async function createAwb(req: CreateAwbRequest): Promise<CreateAwbResult>
 
   const cred = await getCredential<Record<string, string>>(carrier.provider, {
     branchId: carrier.branchId,
+    environment: carrier.environment === "production" ? "production" : "sandbox",
   });
   if (!cred) throw new MissingCredentialError(carrier.provider);
 
@@ -448,6 +449,7 @@ export async function pollTracking(shipmentId: number): Promise<number> {
   if (!carrier) return 0;
   const cred = await getCredential<Record<string, string>>(carrier.provider, {
     branchId: carrier.branchId,
+    environment: carrier.environment === "production" ? "production" : "sandbox",
   });
   if (!cred) return 0;
   const adapter = CARRIERS[carrier.provider as CarrierProvider];
