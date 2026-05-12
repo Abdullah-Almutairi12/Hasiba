@@ -65,13 +65,13 @@ function handle(res: express.Response, err: unknown): void {
 // =============================================================
 router.get("/integrations/overview", adminGuard, async (_req, res) => {
   try {
-    const [creds] = await db
-      .select({
-        provider: externalCredentialsTable.provider,
-        cnt: sql<number>`count(*)`.as("cnt"),
-      })
-      .from(externalCredentialsTable)
-      .groupBy(externalCredentialsTable.provider);
+    // Total credential count — un-grouped so the overview card
+    // reflects every connector across all providers, not just
+    // the first provider that happens to come back from the
+    // grouped query.
+    const [credsTotal] = await db
+      .select({ cnt: sql<number>`count(*)`.as("cnt") })
+      .from(externalCredentialsTable);
 
     const credByProvider = await db
       .select({
@@ -98,7 +98,7 @@ router.get("/integrations/overview", adminGuard, async (_req, res) => {
     res.json({
       configuredProviders: credByProvider,
       counts: {
-        credentials: Number(creds?.cnt ?? 0),
+        credentials: Number(credsTotal?.cnt ?? 0),
         paymentGateways: Number(pgCount?.cnt ?? 0),
         shippingCarriers: Number(shCount?.cnt ?? 0),
         zatcaInvoices: Number(zCount?.cnt ?? 0),

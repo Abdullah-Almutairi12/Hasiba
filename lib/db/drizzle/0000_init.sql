@@ -808,6 +808,8 @@ CREATE TABLE "delivery_orders" (
 	"status" text DEFAULT 'draft' NOT NULL,
 	"delivery_date" date NOT NULL,
 	"notes" text,
+	"carrier_id" integer,
+	"shipment_id" integer,
 	"created_by" integer,
 	"delivered_at" timestamp,
 	"created_at" timestamp DEFAULT now() NOT NULL,
@@ -1642,15 +1644,28 @@ CREATE TABLE "zatca_certificates" (
 	"pcsid" text,
 	"certificate_pem" text,
 	"private_key_ciphertext" text,
+	"compliance_secret_ciphertext" text,
+	"compliance_request_id" text,
+	"production_secret_ciphertext" text,
 	"status" text DEFAULT 'pending_csr' NOT NULL,
 	"expires_at" timestamp,
 	"created_at" timestamp DEFAULT now() NOT NULL,
 	"updated_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
+CREATE TABLE "zatca_invoice_retries" (
+	"id" serial PRIMARY KEY NOT NULL,
+	"zatca_invoice_id" integer NOT NULL,
+	"attempt" integer DEFAULT 0 NOT NULL,
+	"next_attempt_at" timestamp DEFAULT now() NOT NULL,
+	"last_error" text,
+	"created_at" timestamp DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
 CREATE TABLE "zatca_invoices" (
 	"id" serial PRIMARY KEY NOT NULL,
 	"invoice_id" integer NOT NULL,
+	"branch_id" integer,
 	"invoice_type" text DEFAULT 'simplified' NOT NULL,
 	"uuid" text NOT NULL,
 	"pih" text,
@@ -1867,14 +1882,16 @@ ALTER TABLE "integration_calls" ADD CONSTRAINT "integration_calls_branch_id_bran
 ALTER TABLE "outbound_messages" ADD CONSTRAINT "outbound_messages_branch_id_branches_id_fk" FOREIGN KEY ("branch_id") REFERENCES "public"."branches"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "payment_gateways" ADD CONSTRAINT "payment_gateways_branch_id_branches_id_fk" FOREIGN KEY ("branch_id") REFERENCES "public"."branches"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "payment_intents" ADD CONSTRAINT "payment_intents_gateway_id_payment_gateways_id_fk" FOREIGN KEY ("gateway_id") REFERENCES "public"."payment_gateways"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "payment_intents" ADD CONSTRAINT "payment_intents_invoice_id_invoices_id_fk" FOREIGN KEY ("invoice_id") REFERENCES "public"."invoices"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "payment_intents" ADD CONSTRAINT "payment_intents_invoice_id_customer_invoices_id_fk" FOREIGN KEY ("invoice_id") REFERENCES "public"."customer_invoices"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "payment_intents" ADD CONSTRAINT "payment_intents_customer_id_customers_id_fk" FOREIGN KEY ("customer_id") REFERENCES "public"."customers"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "shipments" ADD CONSTRAINT "shipments_carrier_id_shipping_carriers_id_fk" FOREIGN KEY ("carrier_id") REFERENCES "public"."shipping_carriers"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "shipments" ADD CONSTRAINT "shipments_customer_id_customers_id_fk" FOREIGN KEY ("customer_id") REFERENCES "public"."customers"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "shipping_carriers" ADD CONSTRAINT "shipping_carriers_branch_id_branches_id_fk" FOREIGN KEY ("branch_id") REFERENCES "public"."branches"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "whatsapp_templates" ADD CONSTRAINT "whatsapp_templates_branch_id_branches_id_fk" FOREIGN KEY ("branch_id") REFERENCES "public"."branches"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "zatca_certificates" ADD CONSTRAINT "zatca_certificates_branch_id_branches_id_fk" FOREIGN KEY ("branch_id") REFERENCES "public"."branches"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "zatca_invoices" ADD CONSTRAINT "zatca_invoices_invoice_id_invoices_id_fk" FOREIGN KEY ("invoice_id") REFERENCES "public"."invoices"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "zatca_invoice_retries" ADD CONSTRAINT "zatca_invoice_retries_zatca_invoice_id_zatca_invoices_id_fk" FOREIGN KEY ("zatca_invoice_id") REFERENCES "public"."zatca_invoices"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "zatca_invoices" ADD CONSTRAINT "zatca_invoices_invoice_id_customer_invoices_id_fk" FOREIGN KEY ("invoice_id") REFERENCES "public"."customer_invoices"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "zatca_invoices" ADD CONSTRAINT "zatca_invoices_branch_id_branches_id_fk" FOREIGN KEY ("branch_id") REFERENCES "public"."branches"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "accounts_parent_idx" ON "accounts" USING btree ("parent_id");--> statement-breakpoint
 CREATE INDEX "accounts_type_idx" ON "accounts" USING btree ("type");--> statement-breakpoint
 CREATE INDEX "bsl_stmt_idx" ON "bank_statement_lines" USING btree ("statement_id");--> statement-breakpoint
@@ -1951,5 +1968,7 @@ CREATE UNIQUE INDEX "shipments_awb_idx" ON "shipments" USING btree ("awb_number"
 CREATE INDEX "shipments_status_idx" ON "shipments" USING btree ("status");--> statement-breakpoint
 CREATE UNIQUE INDEX "shipping_carriers_branch_provider_idx" ON "shipping_carriers" USING btree ("branch_id","provider");--> statement-breakpoint
 CREATE UNIQUE INDEX "whatsapp_templates_branch_name_lang_idx" ON "whatsapp_templates" USING btree ("branch_id","name","language_code");--> statement-breakpoint
+CREATE INDEX "zatca_retries_due_idx" ON "zatca_invoice_retries" USING btree ("next_attempt_at");--> statement-breakpoint
 CREATE UNIQUE INDEX "zatca_invoices_invoice_id_idx" ON "zatca_invoices" USING btree ("invoice_id");--> statement-breakpoint
-CREATE INDEX "zatca_invoices_status_idx" ON "zatca_invoices" USING btree ("status");
+CREATE INDEX "zatca_invoices_status_idx" ON "zatca_invoices" USING btree ("status");--> statement-breakpoint
+CREATE INDEX "zatca_invoices_branch_idx" ON "zatca_invoices" USING btree ("branch_id");

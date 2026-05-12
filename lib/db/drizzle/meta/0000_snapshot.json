@@ -1,5 +1,5 @@
 {
-  "id": "87a3e1c1-cb49-48a1-88d5-b6210ab0a228",
+  "id": "03b75c23-bc4c-4dc4-8c27-414258e69898",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -6748,6 +6748,18 @@
           "primaryKey": false,
           "notNull": false
         },
+        "carrier_id": {
+          "name": "carrier_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "shipment_id": {
+          "name": "shipment_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_by": {
           "name": "created_by",
           "type": "integer",
@@ -13384,10 +13396,10 @@
           "onDelete": "no action",
           "onUpdate": "no action"
         },
-        "payment_intents_invoice_id_invoices_id_fk": {
-          "name": "payment_intents_invoice_id_invoices_id_fk",
+        "payment_intents_invoice_id_customer_invoices_id_fk": {
+          "name": "payment_intents_invoice_id_customer_invoices_id_fk",
           "tableFrom": "payment_intents",
-          "tableTo": "invoices",
+          "tableTo": "customer_invoices",
           "columnsFrom": [
             "invoice_id"
           ],
@@ -13874,6 +13886,24 @@
           "primaryKey": false,
           "notNull": false
         },
+        "compliance_secret_ciphertext": {
+          "name": "compliance_secret_ciphertext",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "compliance_request_id": {
+          "name": "compliance_request_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "production_secret_ciphertext": {
+          "name": "production_secret_ciphertext",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "status": {
           "name": "status",
           "type": "text",
@@ -13924,6 +13954,88 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.zatca_invoice_retries": {
+      "name": "zatca_invoice_retries",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "zatca_invoice_id": {
+          "name": "zatca_invoice_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "attempt": {
+          "name": "attempt",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "next_attempt_at": {
+          "name": "next_attempt_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "last_error": {
+          "name": "last_error",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "zatca_retries_due_idx": {
+          "name": "zatca_retries_due_idx",
+          "columns": [
+            {
+              "expression": "next_attempt_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "zatca_invoice_retries_zatca_invoice_id_zatca_invoices_id_fk": {
+          "name": "zatca_invoice_retries_zatca_invoice_id_zatca_invoices_id_fk",
+          "tableFrom": "zatca_invoice_retries",
+          "tableTo": "zatca_invoices",
+          "columnsFrom": [
+            "zatca_invoice_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.zatca_invoices": {
       "name": "zatca_invoices",
       "schema": "",
@@ -13939,6 +14051,12 @@
           "type": "integer",
           "primaryKey": false,
           "notNull": true
+        },
+        "branch_id": {
+          "name": "branch_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
         },
         "invoice_type": {
           "name": "invoice_type",
@@ -14065,13 +14183,28 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "zatca_invoices_branch_idx": {
+          "name": "zatca_invoices_branch_idx",
+          "columns": [
+            {
+              "expression": "branch_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {
-        "zatca_invoices_invoice_id_invoices_id_fk": {
-          "name": "zatca_invoices_invoice_id_invoices_id_fk",
+        "zatca_invoices_invoice_id_customer_invoices_id_fk": {
+          "name": "zatca_invoices_invoice_id_customer_invoices_id_fk",
           "tableFrom": "zatca_invoices",
-          "tableTo": "invoices",
+          "tableTo": "customer_invoices",
           "columnsFrom": [
             "invoice_id"
           ],
@@ -14079,6 +14212,19 @@
             "id"
           ],
           "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "zatca_invoices_branch_id_branches_id_fk": {
+          "name": "zatca_invoices_branch_id_branches_id_fk",
+          "tableFrom": "zatca_invoices",
+          "tableTo": "branches",
+          "columnsFrom": [
+            "branch_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
           "onUpdate": "no action"
         }
       },
