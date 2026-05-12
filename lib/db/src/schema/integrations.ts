@@ -84,6 +84,13 @@ export const zatcaInvoicesTable = pgTable(
     invoiceId: integer("invoice_id")
       .notNull()
       .references(() => invoicesTable.id, { onDelete: "cascade" }),
+    // Branch the invoice was issued from. The PIH chain MUST be
+    // walked per branch (one EGS per branch), so this column is
+    // the scope key — null only for the very first invoice during
+    // bootstrap.
+    branchId: integer("branch_id").references(() => branchesTable.id, {
+      onDelete: "set null",
+    }),
     // standard => clearance, simplified => reporting
     invoiceType: text("invoice_type").notNull().default("simplified"),
     uuid: text("uuid").notNull(),
@@ -107,6 +114,7 @@ export const zatcaInvoicesTable = pgTable(
   (t) => [
     uniqueIndex("zatca_invoices_invoice_id_idx").on(t.invoiceId),
     index("zatca_invoices_status_idx").on(t.status),
+    index("zatca_invoices_branch_idx").on(t.branchId),
   ],
 );
 

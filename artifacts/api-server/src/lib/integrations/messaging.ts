@@ -10,6 +10,14 @@ export type MessagingProvider =
   | "mobily"
   | "taqnyat";
 
+export class MessagingNotImplementedError extends Error {
+  readonly statusCode = 501;
+  constructor(provider: string) {
+    super(`Messaging provider "${provider}" has no live adapter wired yet.`);
+    this.name = "MessagingNotImplementedError";
+  }
+}
+
 export interface SendMessageRequest {
   branchId?: number | null;
   channel: Channel;
@@ -30,12 +38,14 @@ function renderTemplate(body: string, vars: Record<string, string>): string {
   return body.replace(/\{\{(\w+)\}\}/g, (_, k) => vars[k] ?? `{{${k}}}`);
 }
 
-async function sendWhatsApp(req: SendMessageRequest, secret: Record<string, string>): Promise<{
+interface AdapterOutcome {
   providerRef: string | null;
   ok: boolean;
   error?: string;
   statusCode: number;
-}> {
+}
+
+async function sendWhatsApp(req: SendMessageRequest, secret: Record<string, string>): Promise<AdapterOutcome> {
   const phoneNumberId = secret.phoneNumberId;
   const accessToken = secret.accessToken;
   if (!phoneNumberId || !accessToken) throw new MissingCredentialError("whatsapp");
@@ -101,12 +111,7 @@ async function sendWhatsApp(req: SendMessageRequest, secret: Record<string, stri
   };
 }
 
-async function sendUnifonic(req: SendMessageRequest, secret: Record<string, string>): Promise<{
-  providerRef: string | null;
-  ok: boolean;
-  error?: string;
-  statusCode: number;
-}> {
+async function sendUnifonic(req: SendMessageRequest, secret: Record<string, string>): Promise<AdapterOutcome> {
   const appSid = secret.appSid;
   if (!appSid) throw new MissingCredentialError("unifonic");
   const senderId = secret.senderId ?? "Hasiba";
@@ -145,25 +150,44 @@ async function sendUnifonic(req: SendMessageRequest, secret: Record<string, stri
   };
 }
 
-async function sendStub(req: SendMessageRequest): Promise<{
-  providerRef: string | null;
-  ok: boolean;
-  error?: string;
-  statusCode: number;
-}> {
+async function sendTaqnyat(req: SendMessageRequest, secret: Record<string, string>): Promise<AdapterOutcome> {
+  const apiKey = secret.apiKey;
+  if (!apiKey) throw new MissingCredentialError("taqnyat");
+  const sender = secret.sender ?? "Hasiba";
+  const t0 = Date.now();
+  const r = await fetch("https://api.taqnyat.sa/v1/messages", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      recipients: [req.to],
+      body: renderTemplate(req.body, req.variables ?? {}),
+      sender,
+    }),
+  });
+  const body = (await r.json().catch(() => ({}))) as {
+    statusCode?: number;
+    messageId?: string;
+    message?: string;
+  };
+  const ok = r.ok && (body.statusCode === 200 || body.statusCode === undefined);
   await recordIntegrationCall({
     branchId: req.branchId ?? null,
-    provider: req.provider,
-    endpoint: "/sms",
+    provider: "taqnyat",
+    endpoint: "/v1/messages",
     method: "POST",
-    success: true,
-    statusCode: 200,
-    responseSummary: { stub: true, to: req.to },
+    statusCode: r.status,
+    durationMs: Date.now() - t0,
+    success: ok,
+    errorMessage: ok ? null : body.message ?? `HTTP ${r.status}`,
   });
   return {
-    ok: true,
-    providerRef: `stub-${req.provider}-${Date.now()}`,
-    statusCode: 200,
+    ok,
+    providerRef: body.messageId ?? null,
+    error: body.message,
+    statusCode: r.status,
   };
 }
 
@@ -186,19 +210,28 @@ export async function sendMessage(req: SendMessageRequest): Promise<SendMessageR
   const cred = await getCredential<Record<string, string>>(req.provider, {
     branchId: req.branchId ?? null,
   });
+  if (!cred) throw new MissingCredentialError(req.provider);
 
-  let outcome: { providerRef: string | null; ok: boolean; error?: string; statusCode: number };
+  let outcome: AdapterOutcome;
   try {
-    if (!cred) {
-      outcome = await sendStub(req);
-    } else if (req.provider === "whatsapp") {
-      outcome = await sendWhatsApp(req, cred.secret);
-    } else if (req.provider === "unifonic") {
-      outcome = await sendUnifonic(req, cred.secret);
+    if (req.provider === "whatsapp") outcome = await sendWhatsApp(req, cred.secret);
+    else if (req.provider === "unifonic") outcome = await sendUnifonic(req, cred.secret);
+    else if (req.provider === "taqnyat") outcome = await sendTaqnyat(req, cred.secret);
+    else if (req.provider === "mobily") {
+      // Mobily B2B SMS uses a non-public partner contract; we don't
+      // ship a stub that pretends to succeed. Caller gets 501.
+      throw new MessagingNotImplementedError("mobily");
     } else {
-      outcome = await sendStub(req);
+      throw new MessagingNotImplementedError(req.provider);
     }
   } catch (e) {
+    if (e instanceof MessagingNotImplementedError) {
+      await db
+        .update(outboundMessagesTable)
+        .set({ status: "failed", errorMessage: e.message })
+        .where(eq(outboundMessagesTable.id, queued!.id));
+      throw e;
+    }
     outcome = {
       ok: false,
       providerRef: null,

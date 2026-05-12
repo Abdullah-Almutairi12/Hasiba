@@ -5,6 +5,16 @@ import { recordIntegrationCall } from "./audit";
 
 export type CarrierProvider = "smsa" | "aramex" | "saee" | "naqel";
 
+export class CarrierNotImplementedError extends Error {
+  readonly statusCode = 501;
+  constructor(provider: string) {
+    super(
+      `Carrier "${provider}" has no live adapter yet — open the integrations dashboard and contact ops to onboard.`,
+    );
+    this.name = "CarrierNotImplementedError";
+  }
+}
+
 export interface CreateAwbRequest {
   carrierId: number;
   deliveryOrderRef?: string;
@@ -15,7 +25,7 @@ export interface CreateAwbRequest {
     line1: string;
     city: string;
     region?: string;
-    country?: string; // default SA
+    country?: string;
     postalCode?: string;
   };
   fromAddress?: Record<string, unknown>;
@@ -44,79 +54,77 @@ interface CarrierAdapter {
   }>>;
 }
 
-/* SMSA — REST stub. The real SMSA Express API uses passKey + custAccount */
+/** SMSA Express — live adapter against the public passKey API. */
 const smsaAdapter: CarrierAdapter = {
   async createAwb(req, ctx) {
     const passKey = ctx.secret.passKey;
     const cust = ctx.secret.customerAccount;
     if (!passKey || !cust) throw new MissingCredentialError("smsa.passKey");
     const t0 = Date.now();
-    // SMSA real endpoint: https://track.smsaexpress.com/SMSAExpressWebApi/api/...
-    // We hit the documented sandbox surface and gracefully degrade
-    // when network access is unavailable, so the workflow still works.
-    try {
-      const r = await fetch("https://track.smsaexpress.com/SMSAExpressWebApi/api/addshipment", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          passkey: passKey,
-          customerAccount: cust,
-          consigneeName: req.toAddress.name,
-          consigneeMobile: req.toAddress.phone,
-          consigneeAddress: req.toAddress.line1,
-          consigneeCity: req.toAddress.city,
-          weight: req.weightKg,
-          pieces: req.pieces ?? 1,
-          cod: req.cod ?? 0,
-        }),
-      });
-      const body = (await r.json().catch(() => ({}))) as { awb?: string; label?: string };
-      await recordIntegrationCall({
-        branchId: ctx.carrier.branchId,
-        provider: "smsa",
-        endpoint: "/addshipment",
-        method: "POST",
-        statusCode: r.status,
-        durationMs: Date.now() - t0,
-        success: r.ok,
-      });
-      if (!r.ok || !body.awb) throw new Error(`SMSA returned HTTP ${r.status}`);
-      return { awbNumber: body.awb, labelUrl: body.label ?? null, raw: body };
-    } catch (e) {
-      // Sandbox-friendly fallback: emit a synthetic AWB so QA can
-      // proceed without network. The shipment row clearly shows
-      // status=created and metadata.stub=true.
-      const awb = `SMSA-STUB-${Date.now()}`;
-      await recordIntegrationCall({
-        branchId: ctx.carrier.branchId,
-        provider: "smsa",
-        endpoint: "/addshipment",
-        method: "POST",
-        success: false,
-        errorMessage: e instanceof Error ? e.message : String(e),
-      });
-      return { awbNumber: awb, labelUrl: null, raw: { stub: true } };
+    const r = await fetch("https://track.smsaexpress.com/SMSAExpressWebApi/api/addshipment", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        passkey: passKey,
+        customerAccount: cust,
+        consigneeName: req.toAddress.name,
+        consigneeMobile: req.toAddress.phone,
+        consigneeAddress: req.toAddress.line1,
+        consigneeCity: req.toAddress.city,
+        weight: req.weightKg,
+        pieces: req.pieces ?? 1,
+        cod: req.cod ?? 0,
+      }),
+    });
+    const body = (await r.json().catch(() => ({}))) as {
+      awb?: string;
+      label?: string;
+      message?: string;
+    };
+    await recordIntegrationCall({
+      branchId: ctx.carrier.branchId,
+      provider: "smsa",
+      endpoint: "/addshipment",
+      method: "POST",
+      statusCode: r.status,
+      durationMs: Date.now() - t0,
+      success: r.ok,
+      errorMessage: r.ok ? null : body.message ?? `HTTP ${r.status}`,
+    });
+    if (!r.ok || !body.awb) {
+      throw new Error(body.message ?? `SMSA returned HTTP ${r.status}`);
     }
+    return { awbNumber: body.awb, labelUrl: body.label ?? null, raw: body };
   },
-  async fetchTracking() {
-    return [];
+  async fetchTracking(awb, ctx) {
+    const passKey = ctx.secret.passKey;
+    if (!passKey) return [];
+    const r = await fetch(
+      `https://track.smsaexpress.com/SMSAExpressWebApi/api/tracking?awb=${encodeURIComponent(awb)}&passkey=${encodeURIComponent(passKey)}`,
+    );
+    if (!r.ok) return [];
+    const body = (await r.json().catch(() => [])) as Array<{
+      Code?: string;
+      Description?: string;
+      Date?: string;
+    }>;
+    return body.map((e) => ({
+      code: String(e.Code ?? ""),
+      description: String(e.Description ?? ""),
+      at: String(e.Date ?? new Date().toISOString()),
+    }));
   },
 };
 
-function stubCarrier(provider: CarrierProvider): CarrierAdapter {
+/**
+ * Carriers we have not certified with yet. We deliberately throw a
+ * 501 instead of fabricating an AWB — printing a fake label would be
+ * a much worse failure mode than blocking the operation.
+ */
+function notLiveCarrier(provider: CarrierProvider): CarrierAdapter {
   return {
-    async createAwb(req, ctx) {
-      const awb = `${provider.toUpperCase()}-STUB-${Date.now()}`;
-      await recordIntegrationCall({
-        branchId: ctx.carrier.branchId,
-        provider,
-        endpoint: "/awb",
-        method: "POST",
-        success: true,
-        statusCode: 200,
-        responseSummary: { stub: true, weight: req.weightKg },
-      });
-      return { awbNumber: awb, labelUrl: null, raw: { stub: true } };
+    async createAwb() {
+      throw new CarrierNotImplementedError(provider);
     },
     async fetchTracking() {
       return [];
@@ -126,9 +134,9 @@ function stubCarrier(provider: CarrierProvider): CarrierAdapter {
 
 const CARRIERS: Record<CarrierProvider, CarrierAdapter> = {
   smsa: smsaAdapter,
-  aramex: stubCarrier("aramex"),
-  saee: stubCarrier("saee"),
-  naqel: stubCarrier("naqel"),
+  aramex: notLiveCarrier("aramex"),
+  saee: notLiveCarrier("saee"),
+  naqel: notLiveCarrier("naqel"),
 };
 
 export async function createAwb(req: CreateAwbRequest): Promise<CreateAwbResult> {
@@ -163,7 +171,10 @@ export async function createAwb(req: CreateAwbRequest): Promise<CreateAwbResult>
       cod: req.cod !== undefined ? String(req.cod) : null,
       fromAddress: req.fromAddress ?? null,
       toAddress: req.toAddress as unknown as Record<string, unknown>,
-      metadata: out.raw,
+      // raw response intentionally not stored — carriers often
+      // include customer PII; the integration_calls table keeps a
+      // redacted summary instead.
+      metadata: { stored: "redacted" },
     })
     .returning({ id: shipmentsTable.id });
 
@@ -172,4 +183,28 @@ export async function createAwb(req: CreateAwbRequest): Promise<CreateAwbResult>
     awbNumber: out.awbNumber,
     labelUrl: out.labelUrl,
   };
+}
+
+export async function pollTracking(shipmentId: number): Promise<number> {
+  const [shipment] = await db
+    .select()
+    .from(shipmentsTable)
+    .where(eq(shipmentsTable.id, shipmentId));
+  if (!shipment || !shipment.awbNumber) return 0;
+  const [carrier] = await db
+    .select()
+    .from(shippingCarriersTable)
+    .where(eq(shippingCarriersTable.id, shipment.carrierId));
+  if (!carrier) return 0;
+  const cred = await getCredential<Record<string, string>>(carrier.provider, {
+    branchId: carrier.branchId,
+  });
+  if (!cred) return 0;
+  const adapter = CARRIERS[carrier.provider as CarrierProvider];
+  const events = await adapter.fetchTracking(shipment.awbNumber, { secret: cred.secret });
+  await db
+    .update(shipmentsTable)
+    .set({ trackingHistory: events, updatedAt: new Date() })
+    .where(eq(shipmentsTable.id, shipmentId));
+  return events.length;
 }

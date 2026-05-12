@@ -1,4 +1,5 @@
 import express, { Router } from "express";
+import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { z, ZodError } from "zod";
 import { and, desc, eq, sql } from "drizzle-orm";
 import {
@@ -17,9 +18,15 @@ import {
 } from "@workspace/db";
 import { adminGuard, ownerOnly, requireRole } from "../middlewares/require-role";
 import { upsertCredential } from "../lib/integrations/credentials";
-import { createCheckout, handleWebhook } from "../lib/integrations/payments";
-import { createAwb } from "../lib/integrations/shipping";
-import { sendMessage } from "../lib/integrations/messaging";
+import { encryptSecret } from "../lib/integrations/crypto";
+import {
+  createCheckout,
+  handleWebhook,
+  refundIntent,
+  NotImplementedError,
+} from "../lib/integrations/payments";
+import { createAwb, CarrierNotImplementedError } from "../lib/integrations/shipping";
+import { sendMessage, MessagingNotImplementedError } from "../lib/integrations/messaging";
 import {
   createCsr,
   attachCsid,
@@ -48,6 +55,18 @@ const PROVIDERS = [
 ] as const;
 
 function handle(res: express.Response, err: unknown): void {
+  if (
+    err instanceof NotImplementedError ||
+    err instanceof CarrierNotImplementedError ||
+    err instanceof MessagingNotImplementedError
+  ) {
+    res.status(501).json({ error: err.message, code: "NOT_IMPLEMENTED" });
+    return;
+  }
+  return _handleInner(res, err);
+}
+
+function _handleInner(res: express.Response, err: unknown): void {
   if (err instanceof ZodError) {
     res.status(400).json({ error: "بيانات غير صالحة", details: err.issues });
     return;
@@ -210,7 +229,10 @@ router.post("/integrations/payment-gateways", adminGuard, async (req, res) => {
         environment: b.environment,
         bankAccountKey: b.bankAccountKey,
         clearingAccountKey: b.clearingAccountKey,
-        webhookSecret: b.webhookSecret ?? null,
+        // Stored as AES-GCM ciphertext of the HMAC secret. The
+        // value is decrypted on demand inside payments.ts when
+        // verifying provider webhooks; it is never returned.
+        webhookSecret: b.webhookSecret ? encryptSecret(b.webhookSecret) : null,
         isEnabled: b.isEnabled,
       })
       .returning();
@@ -242,6 +264,25 @@ router.post("/integrations/payments/checkout", adminGuard, async (req, res) => {
     handle(res, err);
   }
 });
+
+const RefundBody = z.object({
+  intentId: z.coerce.number().int().positive(),
+  amount: z.coerce.number().positive().optional(),
+});
+
+router.post(
+  "/integrations/payments/refund",
+  requireRole("owner", "manager", "accountant"),
+  async (req, res) => {
+    try {
+      const b = RefundBody.parse(req.body);
+      const out = await refundIntent(b);
+      res.json(out);
+    } catch (err) {
+      handle(res, err);
+    }
+  },
+);
 
 router.get("/integrations/payments/intents", adminGuard, async (_req, res) => {
   const rows = await db
@@ -367,7 +408,33 @@ const SendMessageBody = z.object({
   branchId: z.coerce.number().int().nullable().optional(),
 });
 
-router.post("/integrations/messages", adminGuard, async (req, res) => {
+// Per-role outbound messaging rate limit. Marketing/sales staff get
+// a tighter cap to prevent accidental blasts; managers and owners
+// get more headroom for operational broadcasts.
+const messagingLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) =>
+    req.session?.userId ? `msg:user:${req.session.userId}` : `msg:ip:${ipKeyGenerator(req.ip ?? "")}`,
+  max: (req) => {
+    const role = req.session?.role;
+    if (role === "owner" || role === "manager") return 1000;
+    if (role === "accountant") return 200;
+    if (role === "marketing" || role === "sales") return 100;
+    return 30;
+  },
+  message: {
+    error: "تجاوزت الحد المسموح به للرسائل في هذه الساعة",
+    code: "RATE_LIMITED",
+  },
+});
+
+router.post(
+  "/integrations/messages",
+  requireRole("owner", "manager", "marketing", "sales", "accountant"),
+  messagingLimiter,
+  async (req, res) => {
   try {
     const b = SendMessageBody.parse(req.body);
     const out = await sendMessage(b);

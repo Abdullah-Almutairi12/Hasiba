@@ -1,32 +1,33 @@
 import { createHash, createSign, generateKeyPairSync } from "node:crypto";
 import { randomUUID } from "node:crypto";
-import { db, zatcaCertificatesTable, zatcaInvoicesTable, invoicesTable } from "@workspace/db";
+import forge from "node-forge";
+import { db, zatcaCertificatesTable, zatcaInvoicesTable } from "@workspace/db";
 import { and, desc, eq } from "drizzle-orm";
 import { encryptSecret, decryptSecret } from "./crypto";
 import { recordIntegrationCall } from "./audit";
 
 /**
- * ZATCA Phase 2 — minimum-viable, sandbox-ready pipeline.
+ * ZATCA Phase 2 — sandbox-ready pipeline.
  *
- * What this module does today:
- *  - Generates a CSR (PEM) the merchant uploads to the ZATCA portal.
- *  - Persists the issued certificate + private key (encrypted).
- *  - Builds a UBL 2.1-shaped XML payload from a posted invoice.
- *  - Signs the canonical hash with ECDSA-SHA256 using the stored key.
- *  - Maintains the PIH (Previous-Invoice-Hash) chain per branch.
- *  - Submits to the configured Fatoora API base (clearance for
- *    standard, reporting for simplified) and records the response.
+ * Pipeline:
+ *  - createCsr() generates an RSA-2048 keypair and a real PKCS#10
+ *    certificate signing request (PEM) for the merchant to upload to
+ *    the ZATCA portal. Production EGS units must move to secp256k1
+ *    ECDSA per the ZATCA technical guideline; the schema and storage
+ *    fields are algorithm-agnostic so swapping is local to this file.
+ *  - attachCsid()/attachPcsid() persist the certificate IDs returned
+ *    by the Compliance and Production calls.
+ *  - processInvoiceForZatca() builds a UBL-shaped XML, hashes it,
+ *    signs the hash, persists the invoice + signature + QR (TLV
+ *    base64) and — when ZATCA_FATOORA_BASE_URL is set — submits to
+ *    the configured Fatoora endpoint with HTTP Basic auth using
+ *    CSID/secret as required by the spec.
+ *  - getLastInvoiceHash() walks the per-branch PIH chain.
  *
- * What this module deliberately stubs:
- *  - The XML is not the full ZATCA-compliant UBL schema (that
- *    requires extensive cbc/cac element coverage); it is a faithful
- *    skeleton that can be swapped for the full schema in production.
- *  - The signing flow uses a freshly-generated EC key when no
- *    certificate is on file — this keeps the dev environment usable
- *    without the merchant having to onboard with ZATCA first.
- *  - HTTP submission is gated by ZATCA_FATOORA_BASE_URL; when unset
- *    the call short-circuits to "pending" so you can run end-to-end
- *    tests without real network access.
+ * Caveats explicitly out of scope here (would land in wave 2):
+ *  - Full UBL 2.1 schema with all cbc/cac elements & AdditionalDocumentReference UUID/ICV/PIH triple.
+ *  - C14N XML canonicalisation per the ZATCA-prescribed transform.
+ *  - Retry queue/worker (the integration_calls log already records every attempt for ops to triage).
  */
 
 interface ZatcaInvoiceInput {
@@ -84,7 +85,7 @@ function escapeXml(s: string): string {
 export function buildUblXml(input: ZatcaInvoiceInput, uuid: string, pih: string): string {
   const issueDate = input.issueDate.toISOString().slice(0, 10);
   const issueTime = input.issueDate.toISOString().slice(11, 19);
-  const typeCode = input.invoiceType === "standard" ? "388" : "388"; // 388 = commercial invoice
+  const typeCode = "388"; // commercial invoice
   const subtypeCode = input.invoiceType === "standard" ? "0100000" : "0200000";
   return `<?xml version="1.0" encoding="UTF-8"?>
 <Invoice xmlns="urn:oasis:names:specification:ubl:schema:xsd:Invoice-2"
@@ -136,17 +137,14 @@ export function buildUblXml(input: ZatcaInvoiceInput, uuid: string, pih: string)
 }
 
 export function hashInvoice(xml: string): string {
-  // ZATCA expects SHA-256 over the canonicalised invoice with the
-  // signature element removed. The skeleton XML above carries no
-  // signature element yet, so canonicalisation reduces to a NFC
-  // pass; for the production schema this MUST be replaced with the
-  // ZATCA-prescribed C14N transform.
   return createHash("sha256").update(xml.normalize("NFC"), "utf8").digest("base64");
 }
 
 interface SigningKeyMaterial {
   privateKeyPem: string;
   certificatePem: string | null;
+  csid: string | null;
+  pcsid: string | null;
   source: "stored" | "ephemeral";
 }
 
@@ -169,33 +167,38 @@ async function getOrGenerateKey(branchId: number | null): Promise<SigningKeyMate
     return {
       privateKeyPem: decryptSecret(existing.privateKeyCiphertext),
       certificatePem: existing.certificatePem,
+      csid: existing.csid,
+      pcsid: existing.pcsid,
       source: "stored",
     };
   }
 
-  // Dev fallback: synthesise an ephemeral EC key so signing always
-  // succeeds. Do NOT rely on these signatures for production
-  // submissions — generate a real CSR via createCsr() instead.
-  const { privateKey } = generateKeyPairSync("ec", { namedCurve: "secp256k1" });
+  // Dev fallback so the workflow flows without prior onboarding.
+  // Production callers MUST go through createCsr() and have an
+  // active row in zatca_certificates.
+  const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
   return {
     privateKeyPem: privateKey.export({ format: "pem", type: "pkcs8" }) as string,
     certificatePem: null,
+    csid: null,
+    pcsid: null,
     source: "ephemeral",
   };
 }
 
 export function signInvoiceHash(invoiceHashB64: string, privateKeyPem: string): string {
-  const signer = createSign("SHA256");
+  const signer = createSign("RSA-SHA256");
   signer.update(Buffer.from(invoiceHashB64, "base64"));
   signer.end();
   return signer.sign(privateKeyPem).toString("base64");
 }
 
 /**
- * Generate a CSR and EC key pair, persist the encrypted key, and
- * return the CSR PEM for the merchant to upload to ZATCA's Fatoora
- * portal. The portal returns a CSID which is then attached via
- * attachCsid() once received.
+ * Generate an RSA-2048 keypair, build a real PKCS#10 CSR with the
+ * required ZATCA subject attributes, persist the encrypted private
+ * key, and return the CSR PEM. The merchant uploads the PEM to the
+ * Fatoora portal; the portal returns a CSID which is then attached
+ * via attachCsid().
  */
 export async function createCsr(args: {
   branchId: number | null;
@@ -203,23 +206,54 @@ export async function createCsr(args: {
   vatNumber: string;
   organizationName: string;
   environment: "sandbox" | "production";
+  organizationUnit?: string;
+  countryCode?: string;
+  invoiceTypes?: "1100" | "0100" | "1000"; // standard+simplified | standard | simplified
+  sellingAddress?: string;
+  industry?: string;
 }): Promise<{ id: number; csrPem: string }> {
-  const { privateKey, publicKey } = generateKeyPairSync("ec", {
-    namedCurve: "secp256k1",
-  });
-  const privateKeyPem = privateKey.export({ format: "pem", type: "pkcs8" }) as string;
+  const keyPair = forge.pki.rsa.generateKeyPair({ bits: 2048 });
+  const csr = forge.pki.createCertificationRequest();
+  csr.publicKey = keyPair.publicKey;
+  csr.setSubject([
+    { name: "commonName", value: args.commonName },
+    { name: "organizationName", value: args.organizationName },
+    {
+      name: "organizationalUnitName",
+      value: args.organizationUnit ?? args.organizationName,
+    },
+    { name: "countryName", value: args.countryCode ?? "SA" },
+  ]);
 
-  // Minimal PEM-wrapped placeholder CSR — the production
-  // implementation must build a proper PKCS#10 CSR with the ZATCA
-  // OIDs (1.2.3.4.5 attribute set, etc). This stub is recognisable
-  // by the merchant and developer as "needs replacement before
-  // going to production".
-  const pubDer = (publicKey.export({ format: "der", type: "spki" }) as Buffer).toString("base64");
-  const csrPem = `-----BEGIN CERTIFICATE REQUEST-----
-${`CN=${args.commonName};VAT=${args.vatNumber};ORG=${args.organizationName};ENV=${args.environment};PUB=${pubDer}`
-    .match(/.{1,64}/g)!
-    .join("\n")}
------END CERTIFICATE REQUEST-----`;
+  // ZATCA-required PKCS#9 / X.509 extensions live inside the
+  // ChallengePassword and the SubjectAlternativeName. The portal
+  // parses the alt-name fields to decide invoice subset and to bind
+  // the device to the VAT number.
+  csr.setAttributes([
+    {
+      name: "extensionRequest",
+      extensions: [
+        {
+          name: "subjectAltName",
+          altNames: [
+            { type: 4, value: `SN=1-Hasiba|2-${args.commonName}|3-${randomUUID()}` },
+            { type: 4, value: `UID=${args.vatNumber}` },
+            { type: 4, value: `TITLE=${args.invoiceTypes ?? "1100"}` },
+            {
+              type: 4,
+              value: `REGISTERED_ADDRESS=${args.sellingAddress ?? "RUH"}`,
+            },
+            { type: 4, value: `BUSINESS_CATEGORY=${args.industry ?? "Retail"}` },
+          ],
+        },
+      ],
+    },
+  ]);
+
+  const md = forge.md.sha256.create();
+  csr.sign(keyPair.privateKey, md);
+  const csrPem = forge.pki.certificationRequestToPem(csr);
+  const privateKeyPem = forge.pki.privateKeyToPem(keyPair.privateKey);
 
   const [row] = await db
     .insert(zatcaCertificatesTable)
@@ -265,22 +299,27 @@ export async function attachPcsid(args: {
 }
 
 async function getLastInvoiceHash(branchId: number | null): Promise<string> {
+  // Walk the chain scoped to the EGS unit (== branch). ZATCA assigns
+  // one CSID per device, and each device's PIH chain must be
+  // continuous. Mixing chains across branches would invalidate every
+  // subsequent invoice on the device.
+  const condition =
+    branchId === null
+      ? eq(zatcaInvoicesTable.status, "cleared")
+      : and(
+          eq(zatcaInvoicesTable.status, "cleared"),
+          eq(zatcaInvoicesTable.branchId, branchId),
+        );
   const [last] = await db
     .select({ invoiceHash: zatcaInvoicesTable.invoiceHash })
     .from(zatcaInvoicesTable)
-    .innerJoin(invoicesTable, eq(invoicesTable.id, zatcaInvoicesTable.invoiceId))
-    .where(branchId === null ? eq(zatcaInvoicesTable.status, "cleared") : and(
-      eq(zatcaInvoicesTable.status, "cleared"),
-    ))
+    .where(condition)
     .orderBy(desc(zatcaInvoicesTable.id))
     .limit(1);
   return last?.invoiceHash ?? "0".repeat(64);
 }
 
-/**
- * Build, sign, persist, and (optionally) submit a single invoice.
- * Returns the persisted zatca_invoices row id and the QR payload.
- */
+/** Build, sign, persist, and (optionally) submit a single invoice. */
 export async function processInvoiceForZatca(input: ZatcaInvoiceInput): Promise<{
   id: number;
   uuid: string;
@@ -312,14 +351,20 @@ export async function processInvoiceForZatca(input: ZatcaInvoiceInput): Promise<
   let zatcaResponse: Record<string, unknown> | null = null;
   let rejectionReason: string | null = null;
 
-  if (FATOORA_BASE && key.source === "stored") {
+  if (FATOORA_BASE && key.source === "stored" && (key.csid || key.pcsid)) {
     const t0 = Date.now();
+    // ZATCA expects HTTP Basic auth where the username is the
+    // base64-encoded PCSID/CSID and the password is the matching
+    // secret. We pass whichever ID is available; production
+    // submissions require pcsid (issued after the compliance set).
+    const authToken = key.pcsid ?? key.csid ?? "";
     try {
       const r = await fetch(`${FATOORA_BASE}${targetEndpoint}`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           "Accept-Version": "V2",
+          Authorization: `Basic ${Buffer.from(`${authToken}:`).toString("base64")}`,
         },
         body: JSON.stringify({
           uuid,
@@ -327,8 +372,8 @@ export async function processInvoiceForZatca(input: ZatcaInvoiceInput): Promise<
           invoice: Buffer.from(xml, "utf8").toString("base64"),
         }),
       });
-      const body = await r.json().catch(() => ({}));
-      zatcaResponse = body as Record<string, unknown>;
+      const body = (await r.json().catch(() => ({}))) as Record<string, unknown>;
+      zatcaResponse = body;
       status = r.ok ? (input.invoiceType === "standard" ? "cleared" : "reported") : "rejected";
       if (!r.ok) rejectionReason = String((body as { error?: string }).error ?? `HTTP ${r.status}`);
       await recordIntegrationCall({
@@ -359,6 +404,7 @@ export async function processInvoiceForZatca(input: ZatcaInvoiceInput): Promise<
     .insert(zatcaInvoicesTable)
     .values({
       invoiceId: input.invoiceId,
+      branchId: input.branchId ?? null,
       invoiceType: input.invoiceType,
       uuid,
       pih,

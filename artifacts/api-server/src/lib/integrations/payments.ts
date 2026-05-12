@@ -3,6 +3,8 @@ import { db, paymentGatewaysTable, paymentIntentsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { getCredential, MissingCredentialError } from "./credentials";
 import { recordIntegrationCall } from "./audit";
+import { decryptSecret } from "./crypto";
+import { postPaymentReceiptToLedger } from "./ledger";
 
 export type PaymentProvider =
   | "moyasar"
@@ -11,6 +13,16 @@ export type PaymentProvider =
   | "stcpay"
   | "mada"
   | "paytabs";
+
+export class NotImplementedError extends Error {
+  readonly statusCode = 501;
+  constructor(provider: string) {
+    super(
+      `Provider "${provider}" is registered but no live adapter is wired yet — onboard with the provider and update artifacts/api-server/src/lib/integrations/payments.ts.`,
+    );
+    this.name = "NotImplementedError";
+  }
+}
 
 export interface CheckoutRequest {
   gatewayId: number;
@@ -44,7 +56,36 @@ interface PaymentAdapter {
     status: CheckoutResult["status"];
     raw: Record<string, unknown>;
   }>;
+  refund(args: { providerRef: string; amount: number }, ctx: AdapterContext): Promise<{
+    refundRef: string;
+    raw: Record<string, unknown>;
+  }>;
   verifyWebhook(rawBody: string, signature: string | undefined, ctx: AdapterContext): boolean;
+}
+
+/**
+ * Decrypt the (possibly encrypted) webhook secret persisted on the
+ * payment_gateways row. Older rows that pre-date encryption are
+ * stored as plaintext; the helper falls back transparently.
+ */
+function getWebhookSecret(gw: typeof paymentGatewaysTable.$inferSelect): string | null {
+  if (!gw.webhookSecret) return null;
+  try {
+    return decryptSecret(gw.webhookSecret);
+  } catch {
+    // Backward compatibility for any rows written before encryption
+    // landed (none should exist in production yet).
+    return gw.webhookSecret;
+  }
+}
+
+function safeHmacEqual(a: Buffer, b: Buffer): boolean {
+  if (a.length !== b.length) return false;
+  try {
+    return timingSafeEqual(a, b);
+  } catch {
+    return false;
+  }
 }
 
 /* ------------------------------- Moyasar -------------------------------- */
@@ -94,64 +135,76 @@ const moyasarAdapter: PaymentAdapter = {
       raw: body as Record<string, unknown>,
     };
   },
+  async refund(args, ctx) {
+    const apiKey = ctx.secret.secretApiKey ?? ctx.secret.apiKey;
+    if (!apiKey) throw new MissingCredentialError("moyasar.secretApiKey");
+    const t0 = Date.now();
+    const r = await fetch(`https://api.moyasar.com/v1/payments/${args.providerRef}/refund`, {
+      method: "POST",
+      headers: {
+        Authorization: `Basic ${Buffer.from(`${apiKey}:`).toString("base64")}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ amount: Math.round(args.amount * 100) }),
+    });
+    const body = (await r.json().catch(() => ({}))) as { id?: string; message?: string };
+    await recordIntegrationCall({
+      branchId: ctx.gateway.branchId,
+      provider: "moyasar",
+      endpoint: `/payments/${args.providerRef}/refund`,
+      method: "POST",
+      statusCode: r.status,
+      durationMs: Date.now() - t0,
+      success: r.ok,
+      errorMessage: r.ok ? null : body.message ?? `HTTP ${r.status}`,
+    });
+    if (!r.ok) throw new Error(body.message ?? `Moyasar refund failed: HTTP ${r.status}`);
+    return { refundRef: body.id ?? args.providerRef, raw: body as Record<string, unknown> };
+  },
   verifyWebhook(rawBody, signature, ctx) {
-    const secret = ctx.gateway.webhookSecret;
+    const secret = getWebhookSecret(ctx.gateway);
     if (!secret || !signature) return false;
     const computed = createHmac("sha256", secret).update(rawBody).digest("hex");
-    const a = Buffer.from(computed);
-    const b = Buffer.from(signature);
-    return a.length === b.length && timingSafeEqual(a, b);
+    return safeHmacEqual(Buffer.from(computed), Buffer.from(signature));
   },
 };
 
-/* ----------------------------- Generic stub ----------------------------- */
-function stubAdapter(provider: PaymentProvider): PaymentAdapter {
+/* ----------------------------- Not-yet-live ----------------------------- */
+/**
+ * Adapters whose live provider integration has not been certified
+ * yet. Returning a fake-success URL would be dangerous (the merchant
+ * would think the customer paid). Instead we throw a 501 — the
+ * Integrations admin tab clearly says "حالياً معطّل" for these
+ * providers and the API surface refuses any checkout.
+ *
+ * The webhook receiver still works for these providers so that, once
+ * the real adapter lands, queued provider notifications can be
+ * back-filled without losing data.
+ */
+function notLiveAdapter(provider: PaymentProvider): PaymentAdapter {
   return {
-    async checkout(req, ctx) {
-      // Adapters that require live API credentials we don't have yet
-      // (Tap, HyperPay, STC Pay direct, Mada acquirer, PayTabs):
-      // record the intent locally and return a placeholder URL so the
-      // frontend can still flow end-to-end while integration is being
-      // certified with each acquirer.
-      await recordIntegrationCall({
-        branchId: ctx.gateway.branchId,
-        provider,
-        endpoint: "/checkout",
-        method: "POST",
-        success: true,
-        statusCode: 200,
-        responseSummary: { stub: true, amount: req.amount },
-      });
-      return {
-        providerRef: `stub-${provider}-${Date.now()}`,
-        checkoutUrl: `${req.callbackUrl}?stub=${provider}`,
-        status: "pending",
-        raw: { stub: true },
-      };
+    checkout() {
+      throw new NotImplementedError(provider);
+    },
+    refund() {
+      throw new NotImplementedError(provider);
     },
     verifyWebhook(rawBody, signature, ctx) {
-      const secret = ctx.gateway.webhookSecret;
+      const secret = getWebhookSecret(ctx.gateway);
       if (!secret || !signature) return false;
       const computed = createHmac("sha256", secret).update(rawBody).digest("hex");
-      const a = Buffer.from(computed);
-      const b = Buffer.from(signature);
-      if (a.length !== b.length) return false;
-      try {
-        return timingSafeEqual(a, b);
-      } catch {
-        return false;
-      }
+      return safeHmacEqual(Buffer.from(computed), Buffer.from(signature));
     },
   };
 }
 
 const ADAPTERS: Record<PaymentProvider, PaymentAdapter> = {
   moyasar: moyasarAdapter,
-  tap: stubAdapter("tap"),
-  hyperpay: stubAdapter("hyperpay"),
-  stcpay: stubAdapter("stcpay"),
-  mada: stubAdapter("mada"),
-  paytabs: stubAdapter("paytabs"),
+  tap: notLiveAdapter("tap"),
+  hyperpay: notLiveAdapter("hyperpay"),
+  stcpay: notLiveAdapter("stcpay"),
+  mada: notLiveAdapter("mada"),
+  paytabs: notLiveAdapter("paytabs"),
 };
 
 export async function createCheckout(req: CheckoutRequest): Promise<CheckoutResult> {
@@ -195,12 +248,50 @@ export async function createCheckout(req: CheckoutRequest): Promise<CheckoutResu
   };
 }
 
+export async function refundIntent(args: {
+  intentId: number;
+  amount?: number;
+}): Promise<{ refundRef: string; status: string }> {
+  const [intent] = await db
+    .select()
+    .from(paymentIntentsTable)
+    .where(eq(paymentIntentsTable.id, args.intentId));
+  if (!intent) throw new Error(`Payment intent #${args.intentId} not found`);
+  if (!intent.providerRef) throw new Error(`Intent #${intent.id} has no provider reference yet`);
+
+  const [gateway] = await db
+    .select()
+    .from(paymentGatewaysTable)
+    .where(eq(paymentGatewaysTable.id, intent.gatewayId));
+  if (!gateway) throw new Error("Gateway missing for intent");
+
+  const cred = await getCredential<Record<string, string>>(gateway.provider, {
+    branchId: gateway.branchId,
+  });
+  if (!cred) throw new MissingCredentialError(gateway.provider);
+
+  const adapter = ADAPTERS[gateway.provider as PaymentProvider];
+  if (!adapter) throw new Error(`Unsupported provider: ${gateway.provider}`);
+
+  const out = await adapter.refund(
+    { providerRef: intent.providerRef, amount: args.amount ?? Number(intent.amount) },
+    { gateway, secret: cred.secret },
+  );
+
+  await db
+    .update(paymentIntentsTable)
+    .set({ status: "refunded", updatedAt: new Date() })
+    .where(eq(paymentIntentsTable.id, intent.id));
+
+  return { refundRef: out.refundRef, status: "refunded" };
+}
+
 export async function handleWebhook(args: {
   gatewayId: number;
   rawBody: string;
   signature?: string;
   parsed: Record<string, unknown>;
-}): Promise<{ ok: boolean; intentId?: number; status?: string }> {
+}): Promise<{ ok: boolean; intentId?: number; status?: string; ledgerEntryId?: number | null }> {
   const [gateway] = await db
     .select()
     .from(paymentGatewaysTable)
@@ -231,5 +322,16 @@ export async function handleWebhook(args: {
     .where(eq(paymentIntentsTable.providerRef, providerRef))
     .returning({ id: paymentIntentsTable.id });
 
-  return { ok: true, intentId: updated?.id, status: newStatus };
+  let ledgerEntryId: number | null = null;
+  if (updated && (newStatus === "captured" || newStatus === "paid" || newStatus === "succeeded")) {
+    // Best-effort GL posting; never block the webhook ack on it.
+    try {
+      const r = await postPaymentReceiptToLedger(updated.id);
+      ledgerEntryId = r.entryId;
+    } catch {
+      ledgerEntryId = null;
+    }
+  }
+
+  return { ok: true, intentId: updated?.id, status: newStatus, ledgerEntryId };
 }
