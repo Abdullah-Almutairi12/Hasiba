@@ -1,7 +1,7 @@
 import { createHash, generateKeyPairSync, sign as signRaw, randomUUID, webcrypto } from "node:crypto";
 import * as x509 from "@peculiar/x509";
 import { db, zatcaCertificatesTable, zatcaInvoicesTable } from "@workspace/db";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { encryptSecret, decryptSecret } from "./crypto";
 import { recordIntegrationCall } from "./audit";
 
@@ -161,22 +161,25 @@ interface SigningKeyMaterial {
   certificatePem: string | null;
   csid: string | null;
   pcsid: string | null;
+  complianceSecret: string | null;
+  productionSecret: string | null;
   algorithm: "ec" | "rsa";
   source: "stored" | "ephemeral";
 }
 
 async function getOrGenerateKey(branchId: number | null): Promise<SigningKeyMaterial> {
+  // Each branch is its own EGS unit; certificates are scoped per
+  // branch. When branchId is null we ONLY look at certificates
+  // that were also issued without a branch (org-level fallback) —
+  // never reuse a sibling-branch's cert by accident.
+  const branchPredicate =
+    branchId === null
+      ? sql`${zatcaCertificatesTable.branchId} IS NULL`
+      : eq(zatcaCertificatesTable.branchId, branchId);
   const [existing] = await db
     .select()
     .from(zatcaCertificatesTable)
-    .where(
-      branchId === null
-        ? eq(zatcaCertificatesTable.status, "active")
-        : and(
-            eq(zatcaCertificatesTable.branchId, branchId),
-            eq(zatcaCertificatesTable.status, "active"),
-          ),
-    )
+    .where(and(branchPredicate, eq(zatcaCertificatesTable.status, "active")))
     .orderBy(desc(zatcaCertificatesTable.id))
     .limit(1);
 
@@ -186,6 +189,12 @@ async function getOrGenerateKey(branchId: number | null): Promise<SigningKeyMate
       certificatePem: existing.certificatePem,
       csid: existing.csid,
       pcsid: existing.pcsid,
+      complianceSecret: existing.complianceSecretCiphertext
+        ? decryptSecret(existing.complianceSecretCiphertext)
+        : null,
+      productionSecret: existing.productionSecretCiphertext
+        ? decryptSecret(existing.productionSecretCiphertext)
+        : null,
       algorithm: "ec",
       source: "stored",
     };
@@ -198,6 +207,8 @@ async function getOrGenerateKey(branchId: number | null): Promise<SigningKeyMate
     certificatePem: null,
     csid: null,
     pcsid: null,
+    complianceSecret: null,
+    productionSecret: null,
     algorithm: "ec",
     source: "ephemeral",
   };
@@ -592,7 +603,25 @@ async function submitToFatoora(args: {
     args.invoiceType === "standard"
       ? "/invoices/clearance/single"
       : "/invoices/reporting/single";
-  const authToken = args.key.pcsid ?? args.key.csid ?? "";
+  // Real Fatoora endpoints expect HTTP Basic credentials of the
+  // form base64("<binarySecurityToken>:<secret>"). Production
+  // calls use the PCSID + production secret; sandbox/compliance
+  // calls fall back to the compliance CSID + compliance secret.
+  const usingProduction = Boolean(args.key.pcsid && args.key.productionSecret);
+  const authToken = usingProduction
+    ? args.key.pcsid!
+    : args.key.csid ?? args.key.pcsid ?? "";
+  const authSecret = usingProduction
+    ? args.key.productionSecret!
+    : args.key.complianceSecret ?? "";
+  if (!authSecret) {
+    return {
+      status: "rejected",
+      response: null,
+      rejection: "missing_csid_or_pcsid_secret",
+      submitted: false,
+    };
+  }
   const t0 = Date.now();
   try {
     const r = await fetch(`${FATOORA_BASE}${target}`, {
@@ -600,7 +629,7 @@ async function submitToFatoora(args: {
       headers: {
         "Content-Type": "application/json",
         "Accept-Version": "V2",
-        Authorization: `Basic ${Buffer.from(`${authToken}:`).toString("base64")}`,
+        Authorization: `Basic ${Buffer.from(`${authToken}:${authSecret}`).toString("base64")}`,
       },
       body: JSON.stringify({
         uuid: args.uuid,

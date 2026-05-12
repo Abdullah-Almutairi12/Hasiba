@@ -1645,31 +1645,6 @@ router.post("/sales/invoices", financeGuard, async (req, res) => {
         })
         .returning();
 
-      // Module hook: auto-submit each issued AR invoice to ZATCA
-      // Phase 2. Standard B2B invoices follow the clearance path,
-      // simplified B2C follow reporting; we use clearance by default
-      // for back-office issuance. Fire-and-forget — failures land
-      // in the retry queue.
-      void processInvoiceForZatca({
-        invoiceId: inv.id,
-        invoiceNumber: reference,
-        issueDate: new Date(invoiceDate),
-        invoiceType: "standard",
-        sellerName: process.env["ZATCA_SELLER_NAME"] ?? "حاسبة AI",
-        sellerVat: process.env["ZATCA_VAT_NUMBER"] ?? "300000000000003",
-        buyerName: customer.name,
-        buyerVat: customer.taxNumber ?? null,
-        totalExclVat: Number(totals.subtotal.toFixed(2)),
-        vatAmount: Number(totals.vat.toFixed(2)),
-        totalInclVat: Number(totals.total.toFixed(2)),
-        branchId: so?.branchId ?? null,
-      }).catch((e: unknown) => {
-        req.log.warn(
-          { err: e, invoiceId: inv.id },
-          "ZATCA auto-submit failed (queued for retry)",
-        );
-      });
-
       for (let i = 0; i < totals.lines.length; i++) {
         const ln = totals.lines[i];
         await tx.insert(customerInvoiceLinesTable).values({
@@ -1752,9 +1727,35 @@ router.post("/sales/invoices", financeGuard, async (req, res) => {
           await tx.update(salesOrdersTable).set({ status: "invoiced" }).where(eq(salesOrdersTable.id, so.id));
       }
 
-      return inv;
+      return {
+        inv,
+        zatcaPayload: {
+          invoiceId: inv.id,
+          invoiceNumber: reference,
+          issueDate: new Date(invoiceDate),
+          invoiceType: "standard" as const,
+          sellerName: process.env["ZATCA_SELLER_NAME"] ?? "حاسبة AI",
+          sellerVat: process.env["ZATCA_VAT_NUMBER"] ?? "300000000000003",
+          buyerName: customer.name,
+          buyerVat: customer.taxNumber ?? null,
+          totalExclVat: Number(totals.subtotal.toFixed(2)),
+          vatAmount: Number(totals.vat.toFixed(2)),
+          totalInclVat: Number(totals.total.toFixed(2)),
+          branchId: so?.branchId ?? null,
+        },
+      };
     });
-    res.status(201).json(serializeMoneyDoc(result));
+    // Module hook: auto-submit the AR invoice to ZATCA Phase 2
+    // (standard / clearance path) AFTER the transaction has
+    // committed — otherwise the worker can race ahead and fail the
+    // FK against customer_invoices that aren't visible yet.
+    void processInvoiceForZatca(result.zatcaPayload).catch((e: unknown) => {
+      req.log.warn(
+        { err: e, invoiceId: result.inv.id },
+        "ZATCA auto-submit failed (queued for retry)",
+      );
+    });
+    res.status(201).json(serializeMoneyDoc(result.inv));
   } catch (err) {
     req.log.error({ err }, "create customer invoice");
     handleRouteError(err, res);
