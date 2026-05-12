@@ -348,15 +348,38 @@ export async function createCsr(args: {
   sellingAddress?: string;
   industry?: string;
 }): Promise<{ id: number; csrPem: string }> {
-  // ZATCA Phase 2 mandates secp256k1 ("K-256") for the EGS
-  // signing key. @peculiar/webcrypto exposes the curve under the
-  // K-256 alias; the rest of the SubtleCrypto pipeline (CSR
-  // signing, PKCS#8 export) is curve-agnostic.
-  const keyPair = await peculiarCrypto.subtle.generateKey(
-    { name: "ECDSA", namedCurve: "K-256" },
-    true,
-    ["sign", "verify"],
-  );
+  // ZATCA Phase 2 mandates secp256k1 for the EGS signing key.
+  // @peculiar/webcrypto exposes the curve under the "K-256" alias;
+  // however older Node runtimes (and some bundlers' WebCrypto
+  // shims) reject K-256 with NotSupportedError. We try the
+  // WebCrypto path first and fall back to Node's native crypto
+  // (which supports "secp256k1") + a PKCS#8/SPKI re-import so the
+  // downstream @peculiar/x509 CSR builder can keep using a
+  // standard CryptoKeyPair regardless of the runtime.
+  const ecdsaAlgo = { name: "ECDSA", namedCurve: "K-256" } as const;
+  let keyPair: { privateKey: CryptoKey; publicKey: CryptoKey };
+  try {
+    keyPair = await peculiarCrypto.subtle.generateKey(ecdsaAlgo, true, [
+      "sign",
+      "verify",
+    ]);
+  } catch {
+    const { privateKey: nodePriv, publicKey: nodePub } = generateKeyPairSync(
+      "ec",
+      { namedCurve: "secp256k1" },
+    );
+    const pkcs8Der = nodePriv.export({ format: "der", type: "pkcs8" });
+    const spkiDer = nodePub.export({ format: "der", type: "spki" });
+    const [importedPriv, importedPub] = await Promise.all([
+      peculiarCrypto.subtle.importKey("pkcs8", pkcs8Der, ecdsaAlgo, true, [
+        "sign",
+      ]),
+      peculiarCrypto.subtle.importKey("spki", spkiDer, ecdsaAlgo, true, [
+        "verify",
+      ]),
+    ]);
+    keyPair = { privateKey: importedPriv, publicKey: importedPub };
+  }
 
   const subject = `CN=${escapeDn(args.commonName)},O=${escapeDn(args.organizationName)},OU=${escapeDn(args.organizationUnit ?? args.organizationName)},C=${args.countryCode ?? "SA"}`;
 

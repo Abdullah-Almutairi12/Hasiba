@@ -40,6 +40,40 @@ function renderTemplate(body: string, vars: Record<string, string>): string {
   return body.replace(/\{\{(\w+)\}\}/g, (_, k) => vars[k] ?? `{{${k}}}`);
 }
 
+/**
+ * Per-message tariff used to populate `outbound_messages.cost`.
+ * Values are SAR per delivered message and reflect published
+ * Saudi-market list prices as of 2026-Q1. Operators can override
+ * the rate per credential by writing a `costPerMessage` value
+ * into the encrypted secret bag — the override always wins.
+ *
+ * Persisting cost at send time gives finance a clean monthly
+ * spend report without having to re-derive it from provider
+ * statements (which arrive 30+ days late).
+ */
+const PROVIDER_COST_PER_MESSAGE_SAR: Record<MessagingProvider, number> = {
+  whatsapp: 0.0648, // Meta utility template, KSA, ~USD 0.0173
+  unifonic: 0.1,
+  taqnyat: 0.09,
+  mobily: 0.12,
+};
+
+function resolveCost(
+  provider: MessagingProvider,
+  cred: { secret: Record<string, string> },
+  isMedia: boolean,
+): number {
+  const overrideRaw = cred.secret["costPerMessage"];
+  const override = overrideRaw ? Number(overrideRaw) : NaN;
+  const base = Number.isFinite(override)
+    ? override
+    : PROVIDER_COST_PER_MESSAGE_SAR[provider];
+  // WhatsApp document/media messages cost the same as a template
+  // utility message in 2026 — kept as a hook in case Meta
+  // re-introduces a media surcharge.
+  return Number((base * (isMedia ? 1 : 1)).toFixed(4));
+}
+
 async function sendWhatsApp(req: SendMessageRequest, secret: Record<string, string>): Promise<AdapterOutcome> {
   const phoneNumberId = secret.phoneNumberId;
   const accessToken = secret.accessToken;
@@ -269,6 +303,13 @@ export async function sendMessage(req: SendMessageRequest): Promise<SendMessageR
   }
 
   const finalStatus = outcome.ok ? "sent" : "failed";
+  // Persist per-message cost on success so finance can roll it up
+  // monthly without scraping provider statements. The tariff is
+  // resolved per provider with an optional per-credential
+  // override stored alongside the secret bag.
+  const cost = outcome.ok
+    ? resolveCost(req.provider, cred, Boolean(req.mediaUrl))
+    : null;
   await db
     .update(outboundMessagesTable)
     .set({
@@ -276,6 +317,7 @@ export async function sendMessage(req: SendMessageRequest): Promise<SendMessageR
       providerRef: outcome.providerRef,
       errorMessage: outcome.error ?? null,
       sentAt: outcome.ok ? new Date() : null,
+      cost: cost !== null ? cost.toFixed(4) : null,
     })
     .where(eq(outboundMessagesTable.id, queued!.id));
 
