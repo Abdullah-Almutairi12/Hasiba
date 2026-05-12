@@ -479,6 +479,12 @@ const SendMessageBody = z.object({
   templateName: z.string().optional(),
   variables: z.record(z.string(), z.string()).optional(),
   branchId: z.coerce.number().int().nullable().optional(),
+  // WhatsApp-only attachment fields. When mediaUrl is present
+  // the adapter sends a `document` message (used for invoice /
+  // payslip PDFs); SMS providers ignore these.
+  mediaUrl: z.string().url().optional(),
+  mediaFilename: z.string().min(1).max(255).optional(),
+  mediaCaption: z.string().min(1).max(1024).optional(),
 });
 
 // Per-role outbound messaging rate limit. Marketing/sales staff get

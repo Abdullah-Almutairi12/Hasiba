@@ -837,28 +837,29 @@ async function submitToFatoora(args: {
 
 /* ============================== Retry queue ============================= */
 
+type ZatcaRetryRow = {
+  id: number;
+  zatca_invoice_id: number;
+  attempt: number;
+  [k: string]: unknown;
+};
+
 async function enqueueRetry(zatcaInvoiceId: number, lastError: string): Promise<void> {
   // Schedule first retry in 1 minute. Worker bumps next_attempt_at
   // on each failed retry with exponential backoff.
-  await db.execute(
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (await import("drizzle-orm")).sql`
-      INSERT INTO zatca_invoice_retries
-        (zatca_invoice_id, attempt, next_attempt_at, last_error)
-      VALUES
-        (${zatcaInvoiceId}, 0, now() + interval '1 minute', ${lastError})
-      ON CONFLICT DO NOTHING
-    `,
-  );
+  const { sql } = await import("drizzle-orm");
+  await db.execute(sql`
+    INSERT INTO zatca_invoice_retries
+      (zatca_invoice_id, attempt, next_attempt_at, last_error)
+    VALUES
+      (${zatcaInvoiceId}, 0, now() + interval '1 minute', ${lastError})
+    ON CONFLICT DO NOTHING
+  `);
 }
 
 export async function retryFailedZatcaSubmissions(maxBatch = 25): Promise<number> {
   const orm = await import("drizzle-orm");
-  const due = await db.execute<{
-    id: number;
-    zatca_invoice_id: number;
-    attempt: number;
-  }>(
+  const due = await db.execute<ZatcaRetryRow>(
     orm.sql`
       SELECT id, zatca_invoice_id, attempt
       FROM zatca_invoice_retries
@@ -867,7 +868,9 @@ export async function retryFailedZatcaSubmissions(maxBatch = 25): Promise<number
       LIMIT ${maxBatch}
     `,
   );
-  const rows = (due as unknown as { rows: Array<{ id: number; zatca_invoice_id: number; attempt: number }> }).rows ?? [];
+  // node-postgres returns { rows }; the `pg` driver in drizzle
+  // exposes the same shape via its QueryResult type.
+  const rows: ZatcaRetryRow[] = (due as { rows?: ZatcaRetryRow[] }).rows ?? [];
   let processed = 0;
   for (const r of rows) {
     const [row] = await db

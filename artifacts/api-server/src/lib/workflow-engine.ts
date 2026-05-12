@@ -570,7 +570,8 @@ export function requireFinancialLimit(actionKey: string, getValue: (req: Request
 
 // ---------------------------------------------------------------------------
 // In-app notification helper. Also emits an email if the user has one and
-// SMTP is configured. WhatsApp adapter is a stub for task #12.
+// SMTP is configured. WhatsApp/SMS dispatch routes through the real
+// outbound messaging adapter (records spend, audit log, retry).
 // ---------------------------------------------------------------------------
 export interface NotifyInput {
   type: "approval" | "automation" | "system";
@@ -578,7 +579,7 @@ export interface NotifyInput {
   message: string;
   link?: string | null;
   payload?: unknown;
-  channel?: "inapp" | "email" | "whatsapp";
+  channel?: "inapp" | "email" | "whatsapp" | "sms";
 }
 
 export async function notify(userId: number, input: NotifyInput): Promise<void> {
@@ -604,9 +605,49 @@ export async function notify(userId: number, input: NotifyInput): Promise<void> 
       }).catch(() => {});
     }
   }
-  if (input.channel === "whatsapp") {
-    // stub adapter (task #12)
-    logger.info({ userId, title: input.title }, "[whatsapp-stub] notification");
+  if (input.channel === "whatsapp" || input.channel === "sms") {
+    // Real outbound dispatch via the integrations messaging
+    // adapter — picks up the company's stored WhatsApp /
+    // SMS credentials, records the call in `integration_calls`
+    // and persists the message + cost in `outbound_messages`.
+    // Fire-and-forget: a missing phone or missing credential
+    // must never break the in-app notification path.
+    try {
+      const [user] = await db
+        .select({ phone: usersTable.phone })
+        .from(usersTable)
+        .where(eq(usersTable.id, userId));
+      const phone = user?.phone?.trim();
+      if (!phone) {
+        logger.info(
+          { userId, title: input.title },
+          "outbound notification skipped: user has no phone",
+        );
+      } else {
+        const { sendMessage } = await import("./integrations/messaging");
+        const provider =
+          input.channel === "whatsapp"
+            ? ("whatsapp" as const)
+            : (((process.env.DEFAULT_SMS_PROVIDER as
+                | "unifonic"
+                | "mobily"
+                | "taqnyat"
+                | undefined) ?? "unifonic") as
+                | "unifonic"
+                | "mobily"
+                | "taqnyat");
+        await sendMessage({
+          channel: input.channel,
+          provider,
+          to: phone,
+          body: input.link
+            ? `${input.title}\n\n${input.message}\n${input.link}`
+            : `${input.title}\n\n${input.message}`,
+        });
+      }
+    } catch (err) {
+      logger.warn({ err, userId }, "outbound notification dispatch failed");
+    }
   }
 }
 
