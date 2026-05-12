@@ -118,6 +118,26 @@ export const zatcaInvoicesTable = pgTable(
   ],
 );
 
+/**
+ * Retry queue for ZATCA submissions that failed transiently
+ * (network errors or 5xx from Fatoora). Worked off by
+ * `startZatcaRetryWorker()` in the API server bootstrap.
+ */
+export const zatcaInvoiceRetriesTable = pgTable(
+  "zatca_invoice_retries",
+  {
+    id: serial("id").primaryKey(),
+    zatcaInvoiceId: integer("zatca_invoice_id")
+      .notNull()
+      .references(() => zatcaInvoicesTable.id, { onDelete: "cascade" }),
+    attempt: integer("attempt").notNull().default(0),
+    nextAttemptAt: timestamp("next_attempt_at").notNull().defaultNow(),
+    lastError: text("last_error"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [index("zatca_retries_due_idx").on(t.nextAttemptAt)],
+);
+
 // =============================================================
 // Payment gateways — registered providers + intents/receipts
 // =============================================================
