@@ -42,8 +42,72 @@ import {
   registerOnReject,
   triggerEvent,
 } from "../lib/workflow-engine";
+import { sendMessage } from "../lib/integrations/messaging";
 
 const router = Router();
+
+/**
+ * Module hook: notify each employee that their payslip is ready
+ * once the payroll run has been marked paid. Sends a short Arabic
+ * WhatsApp message with the run reference, period and net pay,
+ * plus a deep-link to the payslip PDF when PUBLIC_BASE_URL is
+ * configured. Fire-and-forget; per-employee failures are logged
+ * but never break the calling response.
+ */
+async function notifyEmployeesPayrollPaid(runId: number): Promise<void> {
+  try {
+    const [run] = await db
+      .select()
+      .from(payrollRunsTable)
+      .where(eq(payrollRunsTable.id, runId));
+    if (!run) return;
+    const [period] = await db
+      .select()
+      .from(payrollPeriodsTable)
+      .where(eq(payrollPeriodsTable.id, run.periodId));
+    const slips = await db
+      .select({
+        id: payslipsTable.id,
+        employeeId: payslipsTable.employeeId,
+        netPay: payrollLinesTable.netPay,
+        empName: employeesTable.nameAr,
+        phone: employeesTable.phone,
+      })
+      .from(payslipsTable)
+      .leftJoin(payrollLinesTable, eq(payrollLinesTable.id, payslipsTable.lineId))
+      .leftJoin(employeesTable, eq(employeesTable.id, payslipsTable.employeeId))
+      .where(eq(payslipsTable.runId, runId));
+    const baseUrl = (process.env["PUBLIC_BASE_URL"] ?? "").replace(/\/$/, "");
+    for (const s of slips) {
+      if (!s.phone) continue;
+      const lines = [
+        `مرحباً ${s.empName ?? ""}،`,
+        `تم صرف راتبك لشهر ${period?.name ?? run.reference}.`,
+        `صافي المستحق: ${s.netPay} ر.س.`,
+      ];
+      const pdfUrl = baseUrl
+        ? `${baseUrl}/portal/payslips/${s.id}.pdf`
+        : undefined;
+      if (pdfUrl) lines.push(`كشف الراتب: ${pdfUrl}`);
+      try {
+        await sendMessage({
+          channel: "whatsapp",
+          provider: "whatsapp",
+          to: s.phone,
+          body: lines.join("\n"),
+          mediaUrl: pdfUrl,
+          mediaFilename: `payslip-${s.id}.pdf`,
+          mediaCaption: lines.join("\n"),
+          branchId: run.branchId ?? null,
+        });
+      } catch (err) {
+        logger.warn({ err, payslipId: s.id }, "payslip notification failed");
+      }
+    }
+  } catch (err) {
+    logger.warn({ err, runId }, "payroll-paid notification dispatch failed");
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Workflow-engine integration: Leave Request.
@@ -1876,6 +1940,10 @@ router.post("/hr/payroll-runs/:id/mark-paid", financeGuard, async (req, res) => 
       .set({ status: "paid", paidAt: new Date(), paymentJournalId: payJeId })
       .where(eq(payrollRunsTable.id, id))
       .returning();
+    // Module hook: WhatsApp/SMS payslip notice to each employee in
+    // the run. Fire-and-forget so the API response is never blocked
+    // by per-employee delivery latency.
+    void notifyEmployeesPayrollPaid(updated.id);
     return res.json({ ok: true, journalEntryNumber: entryNumber, runId: updated.id });
   } catch (err) {
     req.log.error({ err }, "mark payroll paid");

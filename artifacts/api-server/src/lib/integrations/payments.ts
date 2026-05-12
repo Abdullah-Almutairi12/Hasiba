@@ -73,11 +73,54 @@ function safeHmacEqual(a: Buffer, b: Buffer): boolean {
   }
 }
 
+/**
+ * Normalise the signature value carried in a provider's webhook
+ * header before comparing it against the locally-computed HMAC.
+ *
+ * Real-world quirks this handles:
+ *   - Some providers prefix the value (`sha256=...`, `hmac-sha256=...`).
+ *   - Whitespace is sometimes added by intermediaries.
+ *   - Hex digests may arrive upper- or lower-case.
+ *
+ * Comparing raw UTF-8 bytes of two strings that *should* be the
+ * same hex/base64 digest is fragile — a single case mismatch or a
+ * stray prefix will silently flip the verifier to false. We always
+ * decode both sides to raw bytes of the expected encoding before
+ * the timing-safe compare.
+ */
+function normaliseSignatureHeader(raw: string): string {
+  const trimmed = raw.trim();
+  const eq = trimmed.indexOf("=");
+  if (eq > 0 && eq < 16 && /^[a-zA-Z0-9_-]+$/.test(trimmed.slice(0, eq))) {
+    return trimmed.slice(eq + 1);
+  }
+  return trimmed;
+}
+
+function hmacEqualEncoded(
+  computedBytes: Buffer,
+  providedHeader: string,
+  encoding: "hex" | "base64",
+): boolean {
+  const provided = normaliseSignatureHeader(providedHeader);
+  let providedBytes: Buffer;
+  try {
+    providedBytes =
+      encoding === "hex"
+        ? Buffer.from(provided.toLowerCase(), "hex")
+        : Buffer.from(provided, "base64");
+  } catch {
+    return false;
+  }
+  if (providedBytes.length !== computedBytes.length) return false;
+  return safeHmacEqual(computedBytes, providedBytes);
+}
+
 function hmacWebhook(rawBody: string, signature: string | undefined, ctx: AdapterContext): boolean {
   const secret = getWebhookSecret(ctx.gateway);
   if (!secret || !signature) return false;
-  const computed = createHmac("sha256", secret).update(rawBody).digest("hex");
-  return safeHmacEqual(Buffer.from(computed), Buffer.from(signature));
+  const computed = createHmac("sha256", secret).update(rawBody).digest();
+  return hmacEqualEncoded(computed, signature, "hex");
 }
 
 /**
@@ -106,9 +149,12 @@ function providerWebhookVerifier(
     case "mada": {
       return (_raw, h, ctx) => {
         const secret = getWebhookSecret(ctx.gateway);
-        const token = h["x-webhook-secret"];
+        const token = h["x-webhook-secret"]?.trim();
         if (!secret || !token) return false;
-        return safeHmacEqual(Buffer.from(secret), Buffer.from(token));
+        const a = Buffer.from(secret, "utf8");
+        const b = Buffer.from(token, "utf8");
+        if (a.length !== b.length) return false;
+        return safeHmacEqual(a, b);
       };
     }
     case "paytabs":
@@ -118,8 +164,8 @@ function providerWebhookVerifier(
         const secret = getWebhookSecret(ctx.gateway);
         const sig = h["x-stc-signature"];
         if (!secret || !sig) return false;
-        const computed = createHmac("sha256", secret).update(raw).digest("base64");
-        return safeHmacEqual(Buffer.from(computed), Buffer.from(sig));
+        const computed = createHmac("sha256", secret).update(raw).digest();
+        return hmacEqualEncoded(computed, sig, "base64");
       };
     default:
       return (raw, h, ctx) =>

@@ -38,8 +38,49 @@ import {
   requireFinancialLimit,
 } from "../lib/workflow-engine";
 import { logger } from "../lib/logger";
+import { sendMessage } from "../lib/integrations/messaging";
 
 const router = Router();
+
+/**
+ * Module hook: notify the supplier (WhatsApp first, falling back to
+ * SMS via the configured provider) that a purchase order has been
+ * confirmed. Fire-and-forget so the calling transaction is never
+ * blocked. No-ops gracefully when the supplier has no phone or no
+ * messaging credentials are configured.
+ */
+async function notifySupplierPoConfirmed(poId: number): Promise<void> {
+  try {
+    const [po] = await db
+      .select({
+        id: purchaseOrdersTable.id,
+        reference: purchaseOrdersTable.reference,
+        total: purchaseOrdersTable.total,
+        supplierId: purchaseOrdersTable.supplierId,
+      })
+      .from(purchaseOrdersTable)
+      .where(eq(purchaseOrdersTable.id, poId));
+    if (!po?.supplierId) return;
+    const [supplier] = await db
+      .select({ name: suppliersTable.name, phone: suppliersTable.phone })
+      .from(suppliersTable)
+      .where(eq(suppliersTable.id, po.supplierId));
+    if (!supplier?.phone) return;
+    const body = [
+      `مرحباً ${supplier.name}،`,
+      `تم اعتماد أمر الشراء رقم ${po.reference} بقيمة ${po.total} ر.س.`,
+      `يرجى تأكيد الاستلام والبدء بالتجهيز.`,
+    ].join("\n");
+    await sendMessage({
+      channel: "whatsapp",
+      provider: "whatsapp",
+      to: supplier.phone,
+      body,
+    });
+  } catch (err) {
+    logger.warn({ err, poId }, "supplier PO confirmation dispatch failed");
+  }
+}
 
 // Lightweight tagged HTTP error so business-rule violations bubble out of
 // transactions as 4xx instead of opaque 500s. Throw via `httpErr(409, ...)`
@@ -750,6 +791,10 @@ async function finalizePurchaseOrderConfirm(
     }
   });
   void triggerEvent("state_changed", "purchase_order", { id, total: Number(po.total) }, "confirmed");
+  // Module hook: WhatsApp/SMS supplier confirmation. Runs after the
+  // commit so the supplier never gets a notification for a PO that
+  // failed to persist.
+  void notifySupplierPoConfirmed(id);
 }
 
 // Workflow-engine handler: when an approval chain completes, finalize the

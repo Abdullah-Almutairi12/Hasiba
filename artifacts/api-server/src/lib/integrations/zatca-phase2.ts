@@ -296,7 +296,8 @@ async function getOrGenerateKey(branchId: number | null): Promise<SigningKeyMate
   }
 
   // Dev fallback. Production callers MUST go through createCsr().
-  const { privateKey } = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
+  // ZATCA Phase 2 mandates secp256k1 for the EGS keypair.
+  const { privateKey } = generateKeyPairSync("ec", { namedCurve: "secp256k1" });
   return {
     privateKeyPem: privateKey.export({ format: "pem", type: "pkcs8" }) as string,
     certificatePem: null,
@@ -347,8 +348,12 @@ export async function createCsr(args: {
   sellingAddress?: string;
   industry?: string;
 }): Promise<{ id: number; csrPem: string }> {
+  // ZATCA Phase 2 mandates secp256k1 ("K-256") for the EGS
+  // signing key. @peculiar/webcrypto exposes the curve under the
+  // K-256 alias; the rest of the SubtleCrypto pipeline (CSR
+  // signing, PKCS#8 export) is curve-agnostic.
   const keyPair = await peculiarCrypto.subtle.generateKey(
-    { name: "ECDSA", namedCurve: "P-256" },
+    { name: "ECDSA", namedCurve: "K-256" },
     true,
     ["sign", "verify"],
   );
