@@ -14,13 +14,13 @@ import {
   zatcaCertificatesTable,
   zatcaInvoicesTable,
   integrationCallsTable,
-  invoicesTable,
+  customerInvoicesTable,
 } from "@workspace/db";
 import { adminGuard, ownerOnly, requireRole } from "../middlewares/require-role";
 import { upsertCredential } from "../lib/integrations/credentials";
 import { encryptSecret } from "../lib/integrations/crypto";
 import { createCheckout, handleWebhook, refundIntent } from "../lib/integrations/payments";
-import { createAwb } from "../lib/integrations/shipping";
+import { createAwb, pollTracking } from "../lib/integrations/shipping";
 import { sendMessage } from "../lib/integrations/messaging";
 import {
   createCsr,
@@ -281,7 +281,8 @@ router.get("/integrations/payments/intents", adminGuard, async (_req, res) => {
 export const integrationsPublicRouter = Router();
 integrationsPublicRouter.post(
   "/integrations/payments/webhook/:gatewayId",
-  express.raw({ type: "*/*", limit: "1mb" }),
+  // Raw-body parser is registered globally in app.ts BEFORE express.json
+  // so req.body arrives as a Buffer of pristine bytes for HMAC.
   async (req, res) => {
     try {
       const gatewayId = Number(req.params.gatewayId);
@@ -368,6 +369,34 @@ router.post("/integrations/shipments", adminGuard, async (req, res) => {
     handle(res, err);
   }
 });
+
+router.get(
+  "/integrations/shipments/:id/tracking",
+  adminGuard,
+  async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const events = await pollTracking(id);
+      const [shipment] = await db
+        .select()
+        .from(shipmentsTable)
+        .where(eq(shipmentsTable.id, id));
+      if (!shipment) {
+        res.status(404).json({ error: "الشحنة غير موجودة" });
+        return;
+      }
+      res.json({
+        shipmentId: id,
+        awbNumber: shipment.awbNumber,
+        status: shipment.status,
+        eventsRefreshed: events,
+        history: shipment.trackingHistory,
+      });
+    } catch (err) {
+      handle(res, err);
+    }
+  },
+);
 
 router.get("/integrations/shipments", adminGuard, async (_req, res) => {
   const rows = await db
@@ -567,27 +596,32 @@ const SubmitInvoiceBody = z.object({
 router.post("/integrations/zatca/submit", requireRole("owner", "accountant"), async (req, res) => {
   try {
     const b = SubmitInvoiceBody.parse(req.body);
-    const [inv] = await db.select().from(invoicesTable).where(eq(invoicesTable.id, b.invoiceId));
+    // ZATCA must clear/report CUSTOMER tax invoices (sales side),
+    // not the AP/supplier invoices captured via the OCR scanner.
+    const [inv] = await db
+      .select()
+      .from(customerInvoicesTable)
+      .where(eq(customerInvoicesTable.id, b.invoiceId));
     if (!inv) {
       res.status(404).json({ error: "الفاتورة غير موجودة" });
       return;
     }
-    const total = Number(inv.amount);
-    const totalExcl = total / 1.15;
-    const vatAmount = total - totalExcl;
+    const subtotal = Number(inv.subtotal);
+    const vatAmount = Number(inv.vat);
+    const total = Number(inv.total);
     const out = await processInvoiceForZatca({
       invoiceId: inv.id,
-      invoiceNumber: inv.invoiceNumber,
-      issueDate: inv.invoiceDate ?? inv.createdAt,
+      invoiceNumber: inv.reference,
+      issueDate: new Date(inv.invoiceDate),
       invoiceType: b.invoiceType,
       sellerName: process.env["ZATCA_SELLER_NAME"] ?? "حاسبة AI",
       sellerVat: process.env["ZATCA_VAT_NUMBER"] ?? "300000000000003",
-      buyerName: b.buyerName ?? null,
+      buyerName: b.buyerName ?? inv.customerName,
       buyerVat: b.buyerVat ?? null,
-      totalExclVat: Number(totalExcl.toFixed(2)),
+      totalExclVat: Number(subtotal.toFixed(2)),
       vatAmount: Number(vatAmount.toFixed(2)),
       totalInclVat: total,
-      branchId: b.branchId ?? null,
+      branchId: b.branchId ?? inv.branchId ?? null,
     });
     res.status(201).json(out);
   } catch (err) {

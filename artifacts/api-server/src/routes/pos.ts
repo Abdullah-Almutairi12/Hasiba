@@ -16,6 +16,7 @@ import {
 } from "@workspace/db";
 import { nextRef } from "../lib/sales-engine";
 import { buildZatcaQrBase64 } from "../lib/zatca-qr";
+import { processInvoiceForZatca } from "../lib/integrations/zatca-phase2";
 import { recordStockMove } from "../lib/stock-engine";
 import { eq, gte, sql, desc, inArray } from "drizzle-orm";
 import { CreatePosSessionBody, CreatePosOrderBody } from "@workspace/api-zod";
@@ -599,6 +600,10 @@ router.post(
         subtotal,
         tax,
         orderItems,
+        invoiceId: posInvoice.id,
+        invoiceRef: invRef,
+        invoiceBranchId: posInvoice.branchId ?? null,
+        invoiceCustomerName: invoiceCustomerName ?? "عميل نقدي",
         payments: tenderedPayments.map((p) => ({
           method: p.method,
           amount: p.amount,
@@ -606,6 +611,30 @@ router.post(
           payerName: p.payerName ?? null,
         })),
       };
+    });
+
+    // Module hook: auto-submit the just-issued POS invoice to ZATCA
+    // (simplified / "reporting" subset). Fire-and-forget after the
+    // transaction commits so checkout is never blocked by Fatoora
+    // latency. Failures land in the retry queue.
+    void processInvoiceForZatca({
+      invoiceId: result.invoiceId,
+      invoiceNumber: result.invoiceRef,
+      issueDate: new Date(),
+      invoiceType: "simplified",
+      sellerName: process.env["ZATCA_SELLER_NAME"] ?? "حاسبة AI",
+      sellerVat: process.env["ZATCA_VAT_NUMBER"] ?? "300000000000003",
+      buyerName: result.invoiceCustomerName,
+      buyerVat: null,
+      totalExclVat: Number(result.subtotal.toFixed(2)),
+      vatAmount: Number(result.tax.toFixed(2)),
+      totalInclVat: Number(result.total.toFixed(2)),
+      branchId: result.invoiceBranchId,
+    }).catch((e: unknown) => {
+      req.log.warn(
+        { err: e, invoiceId: result.invoiceId },
+        "ZATCA auto-submit failed (queued for retry)",
+      );
     });
 
     res.status(201).json({

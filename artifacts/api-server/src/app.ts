@@ -91,6 +91,15 @@ app.use(
 // global one runs first, consumes the body, and rejects oversize payloads with 413.
 app.use("/api/invoices/scan", express.json({ limit: "20mb" }));
 
+// Payment provider webhooks must keep the RAW body bytes so that the
+// HMAC-SHA256 signature in the X-Signature header verifies. Mount
+// the raw parser BEFORE the global JSON parser so the JSON middleware
+// does not consume the stream first.
+app.use(
+  "/api/integrations/payments/webhook",
+  express.raw({ type: "*/*", limit: "1mb" }),
+);
+
 // Default JSON limit for everything else.
 app.use(express.json({ limit: "1mb" }));
 app.use(express.urlencoded({ extended: true, limit: "1mb" }));
