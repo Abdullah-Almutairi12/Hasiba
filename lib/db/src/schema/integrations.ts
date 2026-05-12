@@ -12,6 +12,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { branchesTable } from "./branches";
 import { invoicesTable } from "./invoices";
+import { customerInvoicesTable } from "./sales";
 import { customersTable } from "./customers";
 
 // =============================================================
@@ -70,6 +71,12 @@ export const zatcaCertificatesTable = pgTable("zatca_certificates", {
   certificatePem: text("certificate_pem"),
   // Encrypted ECDSA private key used to sign each invoice.
   privateKeyCiphertext: text("private_key_ciphertext"),
+  // Compliance/production secrets returned by ZATCA paired with
+  // the CSID/PCSID respectively. Used as the password half of
+  // HTTP Basic auth on follow-up calls (PCSID retrieval, renewal).
+  complianceSecretCiphertext: text("compliance_secret_ciphertext"),
+  complianceRequestId: text("compliance_request_id"),
+  productionSecretCiphertext: text("production_secret_ciphertext"),
   // Last-known status: pending_csr | compliance | active | revoked
   status: text("status").notNull().default("pending_csr"),
   expiresAt: timestamp("expires_at"),
@@ -83,7 +90,7 @@ export const zatcaInvoicesTable = pgTable(
     id: serial("id").primaryKey(),
     invoiceId: integer("invoice_id")
       .notNull()
-      .references(() => invoicesTable.id, { onDelete: "cascade" }),
+      .references(() => customerInvoicesTable.id, { onDelete: "cascade" }),
     // Branch the invoice was issued from. The PIH chain MUST be
     // walked per branch (one EGS per branch), so this column is
     // the scope key — null only for the very first invoice during
@@ -175,7 +182,7 @@ export const paymentIntentsTable = pgTable(
       .notNull()
       .references(() => paymentGatewaysTable.id),
     // Cross-reference to the source document the customer is paying.
-    invoiceId: integer("invoice_id").references(() => invoicesTable.id),
+    invoiceId: integer("invoice_id").references(() => customerInvoicesTable.id),
     customerId: integer("customer_id").references(() => customersTable.id),
     // Provider-side ID for reconciliation (e.g. moyasar payment id).
     providerRef: text("provider_ref"),

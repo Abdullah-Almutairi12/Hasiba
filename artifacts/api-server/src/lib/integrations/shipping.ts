@@ -451,10 +451,38 @@ export async function pollTracking(shipmentId: number): Promise<number> {
   });
   if (!cred) return 0;
   const adapter = CARRIERS[carrier.provider as CarrierProvider];
-  const events = await adapter.fetchTracking(shipment.awbNumber, {
-    secret: cred.secret,
-    carrier,
-  });
+  const startedAt = Date.now();
+  let events: Awaited<ReturnType<typeof adapter.fetchTracking>> = [];
+  try {
+    events = await adapter.fetchTracking(shipment.awbNumber, {
+      secret: cred.secret,
+      carrier,
+    });
+    await recordIntegrationCall({
+      provider: carrier.provider,
+      endpoint: "tracking",
+      method: "GET",
+      success: true,
+      requestSummary: { awb: shipment.awbNumber },
+      responseSummary: { events: events.length },
+      statusCode: 200,
+      durationMs: Date.now() - startedAt,
+      branchId: carrier.branchId,
+    });
+  } catch (err: unknown) {
+    await recordIntegrationCall({
+      provider: carrier.provider,
+      endpoint: "tracking",
+      method: "GET",
+      success: false,
+      requestSummary: { awb: shipment.awbNumber },
+      errorMessage: err instanceof Error ? err.message : String(err),
+      statusCode: 502,
+      durationMs: Date.now() - startedAt,
+      branchId: carrier.branchId,
+    });
+    throw err;
+  }
   await db
     .update(shipmentsTable)
     .set({ trackingHistory: events, updatedAt: new Date() })

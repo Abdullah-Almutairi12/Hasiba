@@ -1,7 +1,7 @@
 import { createHash, generateKeyPairSync, sign as signRaw, randomUUID, webcrypto } from "node:crypto";
 import * as x509 from "@peculiar/x509";
 import { db, zatcaCertificatesTable, zatcaInvoicesTable } from "@workspace/db";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { encryptSecret, decryptSecret } from "./crypto";
 import { recordIntegrationCall } from "./audit";
 
@@ -311,6 +311,147 @@ export async function attachPcsid(args: {
     .where(eq(zatcaCertificatesTable.id, args.certificateId));
 }
 
+/**
+ * Real CSID retrieval — POSTs the generated CSR to the ZATCA
+ * Compliance API and persists the issued binarySecurityToken
+ * (CSID) + secret onto the certificate row.
+ *
+ * Endpoint: POST {compliance_base}/compliance
+ * Headers : OTP, Accept-Version: V2
+ * Body    : { csr: <base64-of-pem-csr> }
+ * Returns : { binarySecurityToken, secret, requestID }
+ */
+export async function retrieveCsid(args: {
+  certificateId: number;
+  otp: string;
+}): Promise<{ csid: string; certificatePem: string; requestId: string }> {
+  const [cert] = await db
+    .select()
+    .from(zatcaCertificatesTable)
+    .where(eq(zatcaCertificatesTable.id, args.certificateId));
+  if (!cert) throw new Error("certificate_row_not_found");
+  if (!cert.csrPem) throw new Error("csr_missing");
+  const base = process.env["ZATCA_COMPLIANCE_BASE_URL"];
+  if (!base) throw new Error("ZATCA_COMPLIANCE_BASE_URL not configured");
+  const csrB64 = Buffer.from(cert.csrPem, "utf8").toString("base64");
+  const t0 = Date.now();
+  const r = await fetch(`${base}/compliance`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Accept-Version": "V2",
+      OTP: args.otp,
+    },
+    body: JSON.stringify({ csr: csrB64 }),
+  });
+  const body = (await r.json().catch(() => ({}))) as {
+    binarySecurityToken?: string;
+    secret?: string;
+    requestID?: string;
+    errors?: unknown;
+  };
+  await recordIntegrationCall({
+    branchId: cert.branchId,
+    provider: "zatca",
+    endpoint: "/compliance",
+    method: "POST",
+    statusCode: r.status,
+    durationMs: Date.now() - t0,
+    success: r.ok,
+    responseSummary: { requestID: body.requestID ?? null, httpStatus: r.status },
+  });
+  if (!r.ok || !body.binarySecurityToken || !body.secret) {
+    throw new Error(`csid_retrieval_failed: HTTP ${r.status}`);
+  }
+  // The binarySecurityToken is a base64 X.509 cert. Persist as
+  // PEM for downstream signing tooling, store the CSID secret
+  // (encrypted) for production-CSID retrieval.
+  const certPem =
+    `-----BEGIN CERTIFICATE-----\n` +
+    (Buffer.from(body.binarySecurityToken, "base64").toString("base64").match(/.{1,64}/g)?.join("\n") ?? "") +
+    `\n-----END CERTIFICATE-----\n`;
+  await db
+    .update(zatcaCertificatesTable)
+    .set({
+      csid: body.binarySecurityToken,
+      certificatePem: certPem,
+      complianceSecretCiphertext: encryptSecret(body.secret),
+      complianceRequestId: body.requestID ?? null,
+      status: "compliance",
+      updatedAt: new Date(),
+    })
+    .where(eq(zatcaCertificatesTable.id, args.certificateId));
+  return {
+    csid: body.binarySecurityToken,
+    certificatePem: certPem,
+    requestId: body.requestID ?? "",
+  };
+}
+
+/**
+ * Real PCSID retrieval — exchanges the compliance CSID for a
+ * production CSID after the seller has passed compliance checks.
+ *
+ * Endpoint: POST {production_base}/production/csids
+ * Auth    : Basic base64("<csid>:<secret>")
+ * Body    : { compliance_request_id }
+ */
+export async function retrievePcsid(args: {
+  certificateId: number;
+}): Promise<{ pcsid: string }> {
+  const [cert] = await db
+    .select()
+    .from(zatcaCertificatesTable)
+    .where(eq(zatcaCertificatesTable.id, args.certificateId));
+  if (!cert) throw new Error("certificate_row_not_found");
+  if (!cert.csid || !cert.complianceSecretCiphertext) {
+    throw new Error("csid_or_secret_missing — call retrieveCsid first");
+  }
+  const base = process.env["ZATCA_PRODUCTION_BASE_URL"];
+  if (!base) throw new Error("ZATCA_PRODUCTION_BASE_URL not configured");
+  const secret = decryptSecret(cert.complianceSecretCiphertext);
+  const auth = Buffer.from(`${cert.csid}:${secret}`).toString("base64");
+  const t0 = Date.now();
+  const r = await fetch(`${base}/production/csids`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Accept-Version": "V2",
+      Authorization: `Basic ${auth}`,
+    },
+    body: JSON.stringify({ compliance_request_id: cert.complianceRequestId ?? "" }),
+  });
+  const body = (await r.json().catch(() => ({}))) as {
+    binarySecurityToken?: string;
+    secret?: string;
+  };
+  await recordIntegrationCall({
+    branchId: cert.branchId,
+    provider: "zatca",
+    endpoint: "/production/csids",
+    method: "POST",
+    statusCode: r.status,
+    durationMs: Date.now() - t0,
+    success: r.ok,
+    responseSummary: { httpStatus: r.status },
+  });
+  if (!r.ok || !body.binarySecurityToken) {
+    throw new Error(`pcsid_retrieval_failed: HTTP ${r.status}`);
+  }
+  await db
+    .update(zatcaCertificatesTable)
+    .set({
+      pcsid: body.binarySecurityToken,
+      productionSecretCiphertext: body.secret
+        ? encryptSecret(body.secret)
+        : cert.productionSecretCiphertext,
+      status: "active",
+      updatedAt: new Date(),
+    })
+    .where(eq(zatcaCertificatesTable.id, args.certificateId));
+  return { pcsid: body.binarySecurityToken };
+}
+
 async function getLastInvoiceHash(branchId: number | null): Promise<string> {
   // Walk the chain scoped to the EGS unit (== branch). The chain
   // includes BOTH `cleared` (standard/clearance) and `reported`
@@ -329,19 +470,27 @@ async function getLastInvoiceHash(branchId: number | null): Promise<string> {
     .limit(1);
   if (!last) return "0".repeat(64);
   if (last.status !== "cleared" && last.status !== "reported") {
-    // Last attempt did not succeed; replay against the same PIH
-    // by walking back until we hit a successful one.
-    const [prev] = await db
-      .select({ invoiceHash: zatcaInvoicesTable.invoiceHash })
+    // Last attempt did not succeed — walk back through the chain
+    // and pick the most recent SUCCESSFUL hash (cleared|reported).
+    // ZATCA expects every new invoice to chain off the last accepted
+    // PIH, so failed rows must be skipped explicitly.
+    const rows = await db
+      .select({
+        invoiceHash: zatcaInvoicesTable.invoiceHash,
+        status: zatcaInvoicesTable.status,
+      })
       .from(zatcaInvoicesTable)
       .where(
-        branchId === null
-          ? undefined
-          : eq(zatcaInvoicesTable.branchId, branchId),
+        and(
+          branchId === null
+            ? undefined
+            : eq(zatcaInvoicesTable.branchId, branchId),
+          inArray(zatcaInvoicesTable.status, ["cleared", "reported"]),
+        ),
       )
       .orderBy(desc(zatcaInvoicesTable.id))
-      .limit(50);
-    return prev?.invoiceHash ?? "0".repeat(64);
+      .limit(1);
+    return rows[0]?.invoiceHash ?? "0".repeat(64);
   }
   return last.invoiceHash ?? "0".repeat(64);
 }

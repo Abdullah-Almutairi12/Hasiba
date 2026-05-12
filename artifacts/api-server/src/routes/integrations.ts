@@ -26,6 +26,8 @@ import {
   createCsr,
   attachCsid,
   attachPcsid,
+  retrieveCsid,
+  retrievePcsid,
   processInvoiceForZatca,
 } from "../lib/integrations/zatca-phase2";
 
@@ -552,6 +554,37 @@ router.post("/integrations/zatca/pcsid", ownerOnly, async (req, res) => {
       .parse(req.body);
     await attachPcsid(b);
     res.json({ ok: true });
+  } catch (err) {
+    handle(res, err);
+  }
+});
+
+// Real CSID retrieval — POSTs the stored CSR to the ZATCA
+// Compliance API using the OTP issued in the Fatoora portal.
+router.post("/integrations/zatca/csid/retrieve", ownerOnly, async (req, res) => {
+  try {
+    const b = z
+      .object({
+        certificateId: z.coerce.number().int().positive(),
+        otp: z.string().min(4),
+      })
+      .parse(req.body);
+    const out = await retrieveCsid(b);
+    res.status(201).json(out);
+  } catch (err) {
+    handle(res, err);
+  }
+});
+
+// Real PCSID retrieval — exchanges the compliance CSID for a
+// production CSID after the seller has passed compliance checks.
+router.post("/integrations/zatca/pcsid/retrieve", ownerOnly, async (req, res) => {
+  try {
+    const b = z
+      .object({ certificateId: z.coerce.number().int().positive() })
+      .parse(req.body);
+    const out = await retrievePcsid(b);
+    res.status(201).json(out);
   } catch (err) {
     handle(res, err);
   }

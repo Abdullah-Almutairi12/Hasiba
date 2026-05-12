@@ -44,6 +44,7 @@ import {
 } from "../lib/sales-engine";
 import { postJournalEntry } from "../lib/journal-posting";
 import { buildZatcaQrBase64 } from "../lib/zatca-qr";
+import { processInvoiceForZatca } from "../lib/integrations/zatca-phase2";
 import { recordStockMove, getDefaultWarehouseId } from "../lib/stock-engine";
 import { sendMail, isMailerConfigured } from "../lib/mailer";
 import { warehousesTable as _warehousesTable } from "@workspace/db";
@@ -1643,6 +1644,31 @@ router.post("/sales/invoices", financeGuard, async (req, res) => {
           createdBy: req.session?.userId ?? null,
         })
         .returning();
+
+      // Module hook: auto-submit each issued AR invoice to ZATCA
+      // Phase 2. Standard B2B invoices follow the clearance path,
+      // simplified B2C follow reporting; we use clearance by default
+      // for back-office issuance. Fire-and-forget — failures land
+      // in the retry queue.
+      void processInvoiceForZatca({
+        invoiceId: inv.id,
+        invoiceNumber: reference,
+        issueDate: new Date(invoiceDate),
+        invoiceType: "standard",
+        sellerName: process.env["ZATCA_SELLER_NAME"] ?? "حاسبة AI",
+        sellerVat: process.env["ZATCA_VAT_NUMBER"] ?? "300000000000003",
+        buyerName: customer.name,
+        buyerVat: customer.taxNumber ?? null,
+        totalExclVat: Number(totals.subtotal.toFixed(2)),
+        vatAmount: Number(totals.vat.toFixed(2)),
+        totalInclVat: Number(totals.total.toFixed(2)),
+        branchId: so?.branchId ?? null,
+      }).catch((e: unknown) => {
+        req.log.warn(
+          { err: e, invoiceId: inv.id },
+          "ZATCA auto-submit failed (queued for retry)",
+        );
+      });
 
       for (let i = 0; i < totals.lines.length; i++) {
         const ln = totals.lines[i];
