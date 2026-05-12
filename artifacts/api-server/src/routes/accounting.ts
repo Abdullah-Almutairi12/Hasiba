@@ -26,8 +26,96 @@ import {
   reverseJournalEntry,
   getRateForDate,
 } from "../lib/journal-posting";
+import {
+  submitForApproval,
+  registerOnApprove,
+  registerOnReject,
+} from "../lib/workflow-engine";
+import { logger } from "../lib/logger";
 
 const router = Router();
+
+// ---------------------------------------------------------------------------
+// Workflow-engine integration: Journal Entry posting.
+//   * /accounting/journal-entries/:id/post submits to the engine when an
+//     admin has configured a `journal_entry` rule. The amount used for
+//     threshold matching is the entry's total debit (== total credit, since
+//     we re-validate balance below). When a rule matches, the row is locked
+//     to 'pending_approval' and 202 + approvalRequestId is returned.
+//   * The registered onApprove handler is the ONLY caller allowed to
+//     finalize a pending_approval JE — it runs the same balance + period
+//     re-checks before flipping status to posted.
+//   * onReject reverts the row back to 'draft' so the user can edit and
+//     resubmit, without losing the underlying lines.
+// ---------------------------------------------------------------------------
+async function finalizeJournalEntryPost(
+  id: number,
+  userId: number | null,
+): Promise<{ id: number; status: string }> {
+  const [entry] = await db
+    .select()
+    .from(journalEntriesTable)
+    .where(eq(journalEntriesTable.id, id))
+    .limit(1);
+  if (!entry) throw new Error("القيد غير موجود");
+  if (entry.status !== "draft" && entry.status !== "pending_approval") {
+    throw new Error(`لا يمكن ترحيل قيد في حالة ${entry.status}`);
+  }
+  if (entry.periodId) {
+    const [period] = await db
+      .select({ status: fiscalPeriodsTable.status })
+      .from(fiscalPeriodsTable)
+      .where(eq(fiscalPeriodsTable.id, entry.periodId))
+      .limit(1);
+    if (period && (period.status === "closed" || period.status === "locked")) {
+      throw new Error("الفترة المالية مغلقة، لا يمكن الترحيل");
+    }
+  }
+  const [bal] = await db
+    .select({
+      d: sql<string>`coalesce(sum(${journalEntryLinesTable.debit}::numeric),0)`,
+      c: sql<string>`coalesce(sum(${journalEntryLinesTable.credit}::numeric),0)`,
+    })
+    .from(journalEntryLinesTable)
+    .where(eq(journalEntryLinesTable.entryId, id));
+  if (Math.abs(Number(bal.d) - Number(bal.c)) > 0.005) {
+    throw new Error("القيد غير متوازن");
+  }
+  const [updated] = await db
+    .update(journalEntriesTable)
+    .set({ status: "posted", postedAt: new Date(), postedBy: userId })
+    .where(eq(journalEntriesTable.id, id))
+    .returning();
+  return { id: updated.id, status: updated.status };
+}
+
+registerOnApprove("journal_entry", async (recordId) => {
+  try {
+    await finalizeJournalEntryPost(recordId, null);
+  } catch (err) {
+    logger.error({ err, recordId }, "journal_entry onApprove finalize failed");
+    throw err;
+  }
+});
+
+registerOnReject("journal_entry", async (recordId) => {
+  try {
+    // Constrain the revert to rows actually waiting on approval — guards
+    // against state drift if the row was somehow advanced between the
+    // engine call and this handler.
+    await db
+      .update(journalEntriesTable)
+      .set({ status: "draft" })
+      .where(
+        and(
+          eq(journalEntriesTable.id, recordId),
+          eq(journalEntriesTable.status, "pending_approval"),
+        ),
+      );
+  } catch (err) {
+    logger.error({ err, recordId }, "journal_entry onReject revert failed");
+  }
+});
 
 // ============== Currencies ==============
 
@@ -446,6 +534,32 @@ router.post(
         .where(eq(journalEntriesTable.id, id))
         .limit(1);
       if (!entry) return res.status(404).json({ error: "القيد غير موجود" });
+      // Strict gate, mirrors payment_run/credit_note:
+      //   * draft → submit to engine; if a rule matches, lock to
+      //     'pending_approval' and return 202 — the registered
+      //     onApprove("journal_entry") handler is the only caller that
+      //     finalizes the post.
+      //   * pending_approval → reject the manual call (would otherwise let
+      //     a finance user bypass the chain).
+      //   * anything else → 400.
+      if (entry.status === "pending_approval") {
+        // Surface the existing approval request id so the client can
+        // deep-link to the inbox on a repeat /post call (idempotent UX).
+        const existing = await db.execute(sql`
+          SELECT id FROM approval_requests
+           WHERE doc_type = 'journal_entry' AND record_id = ${id}
+           ORDER BY id DESC LIMIT 1
+        `);
+        const approvalRequestId =
+          (existing.rows[0] as { id?: number } | undefined)?.id;
+        return res.status(202).json({
+          ok: false,
+          pendingApproval: true,
+          approvalRequestId,
+          message:
+            "ترحيل القيد بانتظار الاعتماد — لا يمكن الترحيل يدوياً قبل اكتمال سلسلة الاعتماد.",
+        });
+      }
       if (entry.status !== "draft")
         return res.status(400).json({ error: "القيد ليس في حالة مسودة" });
 
@@ -476,12 +590,37 @@ router.post(
         return res.status(400).json({ error: "القيد غير متوازن" });
       }
 
-      const [updated] = await db
-        .update(journalEntriesTable)
-        .set({ status: "posted", postedAt: new Date(), postedBy: userId })
-        .where(eq(journalEntriesTable.id, id))
-        .returning();
-      return res.json({ id: updated.id, status: updated.status });
+      // Workflow-engine submission. The amount used for threshold
+      // matching is the entry's total debit (== total credit, balance
+      // already verified above). When a rule matches we lock the row to
+      // 'pending_approval' and return 202.
+      const submission = await submitForApproval({
+        docType: "journal_entry",
+        recordId: id,
+        recordRef: entry.entryNumber,
+        amount: Number(bal.d),
+        submittedByUserId: userId,
+        submittedByName:
+          (req.session as { userName?: string } | undefined)?.userName ?? null,
+      });
+      if (submission.required) {
+        await db
+          .update(journalEntriesTable)
+          .set({ status: "pending_approval" })
+          .where(eq(journalEntriesTable.id, id));
+        return res.status(202).json({
+          ok: false,
+          pendingApproval: true,
+          approvalRequestId: submission.requestId,
+          message: "ترحيل القيد بانتظار الاعتماد",
+        });
+      }
+
+      // No rule matched → finalize inline. Delegated to the shared
+      // helper so /post and the workflow-engine onApprove path always
+      // run identical logic.
+      const result = await finalizeJournalEntryPost(id, userId);
+      return res.json(result);
     } catch (err) {
       req.log.error({ err }, "Post JE failed");
       return res.status(400).json({ error: (err as Error).message });
