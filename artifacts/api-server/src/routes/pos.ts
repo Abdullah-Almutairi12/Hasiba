@@ -27,7 +27,8 @@ import {
   customerReceiptAllocationsTable,
   posOrderPaymentsTable,
 } from "@workspace/db";
-import { requireFinancialLimit } from "../lib/workflow-engine";
+import { checkFinancialLimit } from "../lib/workflow-engine";
+import { recordAudit } from "../lib/audit";
 
 const router = Router();
 
@@ -35,6 +36,23 @@ class ValidationError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "ValidationError";
+  }
+}
+
+// Thrown from inside the POS transaction when a per-role financial cap
+// (discount % or refund cash) is exceeded. We throw so the surrounding
+// `db.transaction(...)` rolls back the in-progress stock moves; the
+// outer catch turns it into a 403 + audit log entry.
+class FinancialLimitError extends Error {
+  actionKey: string;
+  max: number | null;
+  attempted: number;
+  constructor(actionKey: string, max: number | null, attempted: number, message: string) {
+    super(message);
+    this.name = "FinancialLimitError";
+    this.actionKey = actionKey;
+    this.max = max;
+    this.attempted = attempted;
   }
 }
 
@@ -151,21 +169,6 @@ router.get("/pos/orders", posReadGuard, async (req, res) => {
 router.post(
   "/pos/orders",
   posGuard,
-  // Cashier discount cap — admins set per-role percentage caps in the
-  // workflow tab as `pos.discount_pct` (matches workflow-init seed). We
-  // compute the discount as a percentage of the order subtotal (lines
-  // total before discount) so caps line up with the seeded
-  // cashier=5%/sales=10%/manager=20% defaults.
-  requireFinancialLimit("pos.discount_pct", (req) => {
-    const lines = (req.body?.lines ?? []) as Array<{ quantity?: number; unitPrice?: number }>;
-    const subtotal = lines.reduce(
-      (s, l) => s + Number(l.quantity ?? 0) * Number(l.unitPrice ?? 0),
-      0,
-    );
-    const discount = Number(req.body?.discount ?? 0);
-    if (subtotal <= 0 || discount <= 0) return 0;
-    return (discount / subtotal) * 100;
-  }),
   async (req, res) => {
   try {
     const body = CreatePosOrderBody.parse(req.body);
@@ -251,6 +254,47 @@ router.post(
           costPrice,
           total: lineTotal,
         });
+      }
+
+      // ============== Per-role financial limits ==============
+      // We enforce caps using ONLY trusted values: `orderItems` was just
+      // built from `productsTable.price` (server-side), so the client
+      // cannot bypass either ceiling by sending bogus unitPrices.
+      // Caps are seeded in `financial_limits` (see workflow-init):
+      //   pos.discount_pct  — cashier=5%, sales=10%, manager=20%, owner=∞
+      //   pos.refund_amount — cashier=500, manager=5000, owner=∞
+      // Returns at the POS are modeled as negative-quantity items; cash
+      // given back beyond the items' positive subtotal is also a refund.
+      const role = (req.session as { role?: string } | undefined)?.role;
+      if (!role) throw new ValidationError("غير مصرّح");
+      let positiveSubtotal = 0;
+      let refundFromReturns = 0;
+      for (const ln of orderItems) {
+        if (ln.quantity < 0) refundFromReturns += -ln.total;
+        else positiveSubtotal += ln.total;
+      }
+      const trustedDiscountPct =
+        positiveSubtotal > 0 && discount > 0 ? (discount / positiveSubtotal) * 100 : 0;
+      const refundCash = refundFromReturns + Math.max(0, discount - positiveSubtotal);
+      const dCheck = await checkFinancialLimit(role, "pos.discount_pct", trustedDiscountPct);
+      if (!dCheck.allowed) {
+        throw new FinancialLimitError(
+          "pos.discount_pct",
+          dCheck.max,
+          trustedDiscountPct,
+          dCheck.reason ?? "تجاوزت الحد المسموح للخصم",
+        );
+      }
+      if (refundCash > 0) {
+        const rCheck = await checkFinancialLimit(role, "pos.refund_amount", refundCash);
+        if (!rCheck.allowed) {
+          throw new FinancialLimitError(
+            "pos.refund_amount",
+            rCheck.max,
+            refundCash,
+            rCheck.reason ?? "تجاوزت الحد المسموح للاسترداد",
+          );
+        }
       }
 
       const tax = (subtotal - discount) * 0.15;
@@ -648,6 +692,23 @@ router.post(
       createdAt: result.order.createdAt.toISOString(),
     });
   } catch (err) {
+    if (err instanceof FinancialLimitError) {
+      const role = (req.session as { role?: string } | undefined)?.role ?? "unknown";
+      void recordAudit(req, {
+        action: "financial_limit_exceeded",
+        entity: err.actionKey,
+        details: `الدور ${role} حاول إجراء بقيمة ${err.attempted.toFixed(2)} وتجاوز الحد المسموح (${err.max ?? "—"}) لـ ${err.actionKey}`,
+        severity: "warning",
+      });
+      req.log.warn({ err }, "POS order rejected — financial limit exceeded");
+      res.status(403).json({
+        error: err.message,
+        actionKey: err.actionKey,
+        max: err.max,
+        attempted: err.attempted,
+      });
+      return;
+    }
     if (err instanceof ValidationError) {
       req.log.warn({ err }, "POS order validation failed");
       res.status(400).json({ error: err.message });

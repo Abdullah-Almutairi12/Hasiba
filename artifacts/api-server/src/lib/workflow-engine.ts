@@ -19,6 +19,7 @@ import type { PgTable } from "drizzle-orm/pg-core";
 import { and, asc, desc, eq, gt, isNull, lte, or, sql } from "drizzle-orm";
 import { logger } from "./logger";
 import { sendMail, isMailerConfigured } from "./mailer";
+import { recordAudit } from "./audit";
 
 // ---------------------------------------------------------------------------
 // Document types known to the engine. Each module that wants to trigger an
@@ -558,10 +559,35 @@ export function requireFinancialLimit(actionKey: string, getValue: (req: Request
       res.status(401).json({ error: "غير مصرّح" });
       return;
     }
-    const value = Math.abs(getValue(req));
+    let value = 0;
+    try {
+      value = Math.abs(getValue(req));
+      if (!Number.isFinite(value)) throw new Error("invalid value");
+    } catch (err) {
+      // Fail CLOSED: an authorization gate must never let a request through
+      // because its own value extractor blew up. Audit the failure and
+      // reject so callers fix their payload (or the getter) instead of
+      // silently bypassing the cap.
+      void recordAudit(req, {
+        action: "financial_limit_check_error",
+        entity: actionKey,
+        details: `تعذّر حساب قيمة الإجراء (${actionKey}) للدور ${role}: ${err instanceof Error ? err.message : String(err)}`,
+        severity: "warning",
+      });
+      res.status(400).json({ error: "تعذّر التحقق من الحد المالي للطلب", actionKey });
+      return;
+    }
     const r = await checkFinancialLimit(role, actionKey, value);
     if (!r.allowed) {
-      res.status(403).json({ error: r.reason ?? "تجاوزت الحد المسموح" });
+      // Audit failed attempts so admins can see who tried to exceed which cap.
+      // Fire-and-forget: never block the request response on the audit write.
+      void recordAudit(req, {
+        action: "financial_limit_exceeded",
+        entity: actionKey,
+        details: `الدور ${role} حاول إجراء بقيمة ${value} وتجاوز الحد المسموح (${r.max ?? "—"}) لـ ${actionKey}`,
+        severity: "warning",
+      });
+      res.status(403).json({ error: r.reason ?? "تجاوزت الحد المسموح", actionKey, max: r.max, attempted: value });
       return;
     }
     next();
