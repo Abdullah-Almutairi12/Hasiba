@@ -129,6 +129,8 @@ export async function initManufacturing(): Promise<void> {
       component_id integer NOT NULL REFERENCES products(id),
       quantity numeric(18,4) NOT NULL,
       unit_cost numeric(18,4) NOT NULL DEFAULT 0,
+      lot_id integer,
+      serial_id integer,
       stock_move_id integer,
       occurred_at timestamp NOT NULL DEFAULT now()
     );
@@ -139,6 +141,8 @@ export async function initManufacturing(): Promise<void> {
       work_order_id integer NOT NULL REFERENCES work_orders(id) ON DELETE CASCADE,
       quantity numeric(18,4) NOT NULL,
       unit_cost numeric(18,4) NOT NULL DEFAULT 0,
+      lot_id integer,
+      serial_id integer,
       stock_move_id integer,
       occurred_at timestamp NOT NULL DEFAULT now()
     );
@@ -195,6 +199,10 @@ export async function initManufacturing(): Promise<void> {
     ALTER TABLE work_orders   ADD COLUMN IF NOT EXISTS is_rework boolean NOT NULL DEFAULT false;
     ALTER TABLE scrap_records ADD COLUMN IF NOT EXISTS to_warehouse_id integer REFERENCES warehouses(id);
     ALTER TABLE scrap_records ADD COLUMN IF NOT EXISTS reworked_at timestamp;
+    ALTER TABLE work_order_consumptions ADD COLUMN IF NOT EXISTS lot_id integer;
+    ALTER TABLE work_order_consumptions ADD COLUMN IF NOT EXISTS serial_id integer;
+    ALTER TABLE work_order_productions  ADD COLUMN IF NOT EXISTS lot_id integer;
+    ALTER TABLE work_order_productions  ADD COLUMN IF NOT EXISTS serial_id integer;
   `);
 
   // 2b) Ensure a dedicated, NON-VALUATED Scrap warehouse exists per branch.

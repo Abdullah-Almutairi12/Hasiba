@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiGet, apiPost } from "@/hooks/use-api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -246,9 +246,7 @@ function WorkOrdersTab({ boms, warehouses, workOrders, canWrite, onChange, toast
                       <div className="flex gap-1">
                         {wo.state === "draft" && <Button size="sm" variant="outline" onClick={() => action.mutate({ id: wo.id, action: "confirm" })}>تأكيد</Button>}
                         {wo.state === "confirmed" && <Button size="sm" variant="outline" onClick={() => action.mutate({ id: wo.id, action: "start" })} title="بدء"><Play className="size-3" /></Button>}
-                        {wo.state === "in_progress" && <Button size="sm" variant="outline" onClick={() => action.mutate({ id: wo.id, action: "consume" })} title="استهلاك المكونات">استهلاك</Button>}
-                        {wo.state === "in_progress" && <Button size="sm" variant="outline" onClick={() => { const q = prompt("الكمية المنتجة:", String(Number(wo.quantity) - Number(wo.quantityProduced))); if (q) action.mutate({ id: wo.id, action: "produce", body: { quantity: Number(q) } }); }} title="إنتاج تام">إنتاج</Button>}
-                        {wo.state === "in_progress" && <Button size="sm" onClick={() => action.mutate({ id: wo.id, action: "complete" })} title="إنهاء"><CheckCircle2 className="size-3" /></Button>}
+                        {wo.state === "in_progress" && <Button size="sm" variant="outline" onClick={() => setSelectedId(wo.id)} title="استهلاك / إنتاج / إنهاء">انتقاء وإنهاء</Button>}
                         {wo.state !== "done" && wo.state !== "cancelled" && <Button size="sm" variant="ghost" onClick={() => action.mutate({ id: wo.id, action: "cancel" })}><XCircle className="size-3" /></Button>}
                       </div>
                     )}
@@ -291,53 +289,290 @@ function WorkOrdersTab({ boms, warehouses, workOrders, canWrite, onChange, toast
           </DialogContent>
         </Dialog>
 
-        <Dialog open={!!selectedId} onOpenChange={(v) => !v && setSelectedId(null)}>
-          <DialogContent className="max-w-3xl" dir="rtl">
-            <DialogHeader><DialogTitle>تفاصيل أمر الإنتاج</DialogTitle></DialogHeader>
-            {detail.data && (
-              <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-4 text-sm">
-                  <div><span className="text-muted-foreground">المرجع:</span> {detail.data.reference}</div>
-                  <div><span className="text-muted-foreground">الحالة:</span> <Badge className={STATE_BADGES[detail.data.state]?.cls}>{STATE_BADGES[detail.data.state]?.label}</Badge></div>
-                  <div><span className="text-muted-foreground">الكمية المخططة:</span> {detail.data.quantity}</div>
-                  <div><span className="text-muted-foreground">الكمية المنتجة:</span> {detail.data.quantityProduced}</div>
-                  <div><span className="text-muted-foreground">التكلفة المعيارية:</span> {Number(detail.data.standardCost).toFixed(2)}</div>
-                </div>
-                <div>
-                  <h4 className="font-semibold mb-1">حجوزات المكونات</h4>
-                  <Table>
-                    <TableHeader><TableRow><TableHead>المكون</TableHead><TableHead>المحجوز</TableHead><TableHead>المستهلك</TableHead></TableRow></TableHeader>
-                    <TableBody>
-                      {detail.data.reservations?.map((r: any) => (
-                        <TableRow key={r.id}><TableCell>{r.componentName}</TableCell><TableCell>{r.quantity}</TableCell><TableCell>{r.consumedQty}</TableCell></TableRow>
-                      ))}
-                      {(!detail.data.reservations || detail.data.reservations.length === 0) && <TableRow><TableCell colSpan={3} className="text-center text-muted-foreground">لا توجد حجوزات</TableCell></TableRow>}
-                    </TableBody>
-                  </Table>
-                </div>
-                {detail.data.qualityChecks?.length > 0 && (
+        <WorkOrderDetailDialog
+          selectedId={selectedId}
+          detail={detail}
+          onClose={() => setSelectedId(null)}
+          onChange={() => { detail.refetch(); onChange(); }}
+          canWrite={canWrite}
+          toast={toast}
+        />
+      </CardContent>
+    </Card>
+  );
+}
+
+// ---- WO Detail Dialog (with lot/serial picking) ----
+type Slice = { lotId?: number | null; serialId?: number | null; quantity: number };
+type SlicesByRes = Record<number, Slice[]>;
+
+function WorkOrderDetailDialog({ selectedId, detail, onClose, onChange, canWrite, toast }: any) {
+  const data = detail.data;
+  const [slicesByRes, setSlicesByRes] = useState<SlicesByRes>({});
+  const [finishedLot, setFinishedLot] = useState("");
+  const [finishedExpiry, setFinishedExpiry] = useState("");
+  const [finishedSerials, setFinishedSerials] = useState("");
+
+  useEffect(() => {
+    setSlicesByRes({});
+    setFinishedLot("");
+    setFinishedExpiry("");
+    setFinishedSerials("");
+  }, [selectedId]);
+
+  const productTracking: "none" | "lot" | "serial" = data?.productTrackingMode ?? "none";
+  const remainingQty = data ? Number(data.quantity) - Number(data.quantityProduced) : 0;
+
+  const buildPicks = () => {
+    const picks: Array<{ reservationId: number; slices: Slice[] }> = [];
+    for (const r of data?.reservations ?? []) {
+      const slices = (slicesByRes[r.id] ?? []).filter((s) => Number(s.quantity) > 0);
+      if (slices.length > 0) picks.push({ reservationId: r.id, slices });
+    }
+    return picks;
+  };
+
+  const validateClientSide = (): string | null => {
+    for (const r of data?.reservations ?? []) {
+      const remaining = Number(r.quantity) - Number(r.consumedQty);
+      if (remaining <= 0.0001) continue;
+      if (r.trackingMode === "none") continue;
+      const slices = slicesByRes[r.id] ?? [];
+      const sum = slices.reduce((s, x) => s + Number(x.quantity || 0), 0);
+      if (Math.abs(sum - remaining) > 0.0001) {
+        return `المكون "${r.componentName}": يجب اختيار ${remaining} من التشغيلات/الأرقام التسلسلية (المختار: ${sum})`;
+      }
+      if (r.trackingMode === "serial" && slices.some((x) => Number(x.quantity) !== 1)) {
+        return `المكون "${r.componentName}": كل رقم تسلسلي يجب أن يكون كميته 1`;
+      }
+    }
+    if (productTracking === "lot" && remainingQty > 0 && !finishedLot.trim()) {
+      return "أدخل رقم تشغيلة المنتج التام";
+    }
+    if (productTracking === "serial" && remainingQty > 0) {
+      const lines = finishedSerials.split(/[\n,]+/).map((s) => s.trim()).filter(Boolean);
+      if (lines.length !== Math.round(remainingQty)) {
+        return `أدخل ${Math.round(remainingQty)} رقم تسلسلي للمنتج التام`;
+      }
+      if (new Set(lines).size !== lines.length) return "الأرقام التسلسلية مكررة";
+    }
+    return null;
+  };
+
+  const buildFinished = () => {
+    if (productTracking === "lot") {
+      return { lotNumber: finishedLot.trim(), expiryDate: finishedExpiry || null };
+    }
+    if (productTracking === "serial") {
+      return {
+        serialNumbers: finishedSerials
+          .split(/[\n,]+/)
+          .map((s) => s.trim())
+          .filter(Boolean),
+      };
+    }
+    return undefined;
+  };
+
+  const consume = useMutation({
+    mutationFn: () =>
+      apiPost(`/manufacturing/work-orders/${selectedId}/consume`, { picks: buildPicks() }),
+    onSuccess: () => { toast({ title: "تم استهلاك المكونات" }); onChange(); },
+    onError: (e: Error) => toast({ title: "فشل الاستهلاك", description: e.message, variant: "destructive" }),
+  });
+  const complete = useMutation({
+    mutationFn: () => {
+      const err = validateClientSide();
+      if (err) return Promise.reject(new Error(err));
+      return apiPost(`/manufacturing/work-orders/${selectedId}/complete`, {
+        picks: buildPicks(),
+        finished: buildFinished(),
+      });
+    },
+    onSuccess: () => { toast({ title: "تم إنهاء أمر الإنتاج" }); onChange(); onClose(); },
+    onError: (e: Error) => toast({ title: "فشل الإنهاء", description: e.message, variant: "destructive" }),
+  });
+
+  return (
+    <Dialog open={!!selectedId} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto" dir="rtl">
+        <DialogHeader><DialogTitle>تفاصيل أمر الإنتاج</DialogTitle></DialogHeader>
+        {data && (
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-4 text-sm">
+              <div><span className="text-muted-foreground">المرجع:</span> {data.reference}</div>
+              <div><span className="text-muted-foreground">الحالة:</span> <Badge className={STATE_BADGES[data.state]?.cls}>{STATE_BADGES[data.state]?.label}</Badge></div>
+              <div><span className="text-muted-foreground">الكمية المخططة:</span> {data.quantity}</div>
+              <div><span className="text-muted-foreground">الكمية المنتجة:</span> {data.quantityProduced}</div>
+              <div><span className="text-muted-foreground">التكلفة المعيارية:</span> {Number(data.standardCost).toFixed(2)}</div>
+              <div><span className="text-muted-foreground">تتبّع المنتج:</span> <Badge variant="outline">{productTracking === "none" ? "بدون" : productTracking === "lot" ? "تشغيلة" : "رقم تسلسلي"}</Badge></div>
+            </div>
+
+            <div>
+              <h4 className="font-semibold mb-2">حجوزات المكونات</h4>
+              <div className="space-y-3">
+                {(data.reservations ?? []).map((r: any) => {
+                  const remaining = Number(r.quantity) - Number(r.consumedQty);
+                  const slices = slicesByRes[r.id] ?? [];
+                  const update = (next: Slice[]) =>
+                    setSlicesByRes((prev) => ({ ...prev, [r.id]: next }));
+                  return (
+                    <div key={r.id} className="rounded border p-3 space-y-2">
+                      <div className="flex items-center justify-between text-sm">
+                        <div>
+                          <span className="font-medium">{r.componentName}</span>
+                          <span className="text-xs text-muted-foreground ml-2">({r.sku})</span>
+                          <Badge variant="outline" className="mr-2">{r.trackingMode === "none" ? "بدون تتبع" : r.trackingMode === "lot" ? "تشغيلة" : "تسلسلي"}</Badge>
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          محجوز: {r.quantity} • مستهلك: {r.consumedQty} • متبقٍ: {remaining.toFixed(2)}
+                        </div>
+                      </div>
+
+                      {r.trackingMode === "lot" && remaining > 0.0001 && (
+                        <div className="space-y-2">
+                          {slices.length === 0 && (
+                            <div className="text-xs text-amber-600">يجب اختيار تشغيلة واحدة أو أكثر مجموعها {remaining.toFixed(2)}</div>
+                          )}
+                          {slices.map((s, idx) => (
+                            <div key={idx} className="flex gap-2 items-end">
+                              <div className="flex-1">
+                                <Label className="text-xs">التشغيلة</Label>
+                                <Select
+                                  value={s.lotId ? String(s.lotId) : ""}
+                                  onValueChange={(v) => {
+                                    const next = [...slices];
+                                    next[idx] = { ...next[idx], lotId: Number(v) };
+                                    update(next);
+                                  }}
+                                >
+                                  <SelectTrigger><SelectValue placeholder="اختر" /></SelectTrigger>
+                                  <SelectContent>
+                                    {(r.availableLots ?? []).map((l: any) => (
+                                      <SelectItem key={l.lotId} value={String(l.lotId)}>
+                                        {l.lotNumber} (متوفر: {Number(l.quantity).toFixed(2)}{l.expiryDate ? ` • ${l.expiryDate}` : ""})
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                              <div className="w-28">
+                                <Label className="text-xs">الكمية</Label>
+                                <Input
+                                  type="number"
+                                  step="0.01"
+                                  value={s.quantity}
+                                  onChange={(e) => {
+                                    const next = [...slices];
+                                    next[idx] = { ...next[idx], quantity: Number(e.target.value) };
+                                    update(next);
+                                  }}
+                                />
+                              </div>
+                              <Button size="sm" variant="ghost" onClick={() => update(slices.filter((_, i) => i !== idx))}>
+                                <XCircle className="size-4" />
+                              </Button>
+                            </div>
+                          ))}
+                          <Button size="sm" variant="outline" onClick={() => update([...slices, { lotId: null, quantity: Math.max(0, remaining - slices.reduce((s, x) => s + Number(x.quantity || 0), 0)) }])}>
+                            <Plus className="size-3 ml-1" />إضافة تشغيلة
+                          </Button>
+                        </div>
+                      )}
+
+                      {r.trackingMode === "serial" && remaining > 0.0001 && (
+                        <div className="space-y-2">
+                          <Label className="text-xs">اختر {Math.round(remaining)} رقم تسلسلي</Label>
+                          <div className="grid grid-cols-2 gap-1 max-h-40 overflow-y-auto">
+                            {(r.availableSerials ?? []).map((sn: any) => {
+                              const checked = slices.some((s) => s.serialId === sn.serialId);
+                              return (
+                                <label key={sn.serialId} className="flex items-center gap-2 text-xs">
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    onChange={(e) => {
+                                      if (e.target.checked) {
+                                        update([...slices, { serialId: sn.serialId, quantity: 1 }]);
+                                      } else {
+                                        update(slices.filter((s) => s.serialId !== sn.serialId));
+                                      }
+                                    }}
+                                  />
+                                  {sn.serialNumber}
+                                </label>
+                              );
+                            })}
+                            {(r.availableSerials ?? []).length === 0 && (
+                              <div className="col-span-2 text-xs text-muted-foreground">لا توجد أرقام تسلسلية متاحة</div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+                {(data.reservations ?? []).length === 0 && (
+                  <div className="text-sm text-muted-foreground text-center">لا توجد حجوزات</div>
+                )}
+              </div>
+            </div>
+
+            {productTracking !== "none" && remainingQty > 0 && (
+              <div className="rounded border p-3 space-y-2">
+                <h4 className="font-semibold">المنتج التام — {productTracking === "lot" ? "رقم تشغيلة" : "أرقام تسلسلية"}</h4>
+                {productTracking === "lot" ? (
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <Label className="text-xs">رقم التشغيلة</Label>
+                      <Input value={finishedLot} onChange={(e) => setFinishedLot(e.target.value)} />
+                    </div>
+                    <div>
+                      <Label className="text-xs">تاريخ الانتهاء (اختياري)</Label>
+                      <Input type="date" value={finishedExpiry} onChange={(e) => setFinishedExpiry(e.target.value)} />
+                    </div>
+                  </div>
+                ) : (
                   <div>
-                    <h4 className="font-semibold mb-1">فحوصات الجودة</h4>
-                    <Table>
-                      <TableHeader><TableRow><TableHead>الاسم</TableHead><TableHead>إلزامي</TableHead><TableHead>النتيجة</TableHead></TableRow></TableHeader>
-                      <TableBody>
-                        {detail.data.qualityChecks.map((q: any) => (
-                          <TableRow key={q.id}>
-                            <TableCell>{q.nameAr}</TableCell>
-                            <TableCell>{q.isMandatory ? "نعم" : "لا"}</TableCell>
-                            <TableCell><Badge variant={q.result === "pass" ? "default" : q.result === "fail" ? "destructive" : "secondary"}>{q.result}</Badge></TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
+                    <Label className="text-xs">أدخل {Math.round(remainingQty)} رقم تسلسلي (سطر لكل رقم أو مفصولة بفواصل)</Label>
+                    <Textarea rows={Math.min(6, Math.round(remainingQty))} value={finishedSerials} onChange={(e) => setFinishedSerials(e.target.value)} />
                   </div>
                 )}
               </div>
             )}
-          </DialogContent>
-        </Dialog>
-      </CardContent>
-    </Card>
+
+            {data.qualityChecks?.length > 0 && (
+              <div>
+                <h4 className="font-semibold mb-1">فحوصات الجودة</h4>
+                <Table>
+                  <TableHeader><TableRow><TableHead>الاسم</TableHead><TableHead>إلزامي</TableHead><TableHead>النتيجة</TableHead></TableRow></TableHeader>
+                  <TableBody>
+                    {data.qualityChecks.map((q: any) => (
+                      <TableRow key={q.id}>
+                        <TableCell>{q.nameAr}</TableCell>
+                        <TableCell>{q.isMandatory ? "نعم" : "لا"}</TableCell>
+                        <TableCell><Badge variant={q.result === "pass" ? "default" : q.result === "fail" ? "destructive" : "secondary"}>{q.result}</Badge></TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+
+            {canWrite && data.state === "in_progress" && (
+              <DialogFooter>
+                <Button variant="outline" onClick={() => consume.mutate()} disabled={consume.isPending}>
+                  استهلاك المكونات الآن
+                </Button>
+                <Button onClick={() => complete.mutate()} disabled={complete.isPending}>
+                  <CheckCircle2 className="size-4 ml-1" />إنهاء أمر الإنتاج
+                </Button>
+              </DialogFooter>
+            )}
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }
 

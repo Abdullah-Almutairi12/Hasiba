@@ -22,7 +22,12 @@ import {
   productionGuard,
   inventoryReadGuard,
 } from "../middlewares/require-role";
-import { recordStockMove, getDefaultWarehouseId } from "../lib/stock-engine";
+import {
+  recordStockMove,
+  getDefaultWarehouseId,
+  getOrCreateLot,
+} from "../lib/stock-engine";
+import { stockLotsTable, stockSerialsTable } from "@workspace/db";
 import { postJournalEntry } from "../lib/journal-posting";
 
 const router = Router();
@@ -487,10 +492,65 @@ router.get("/manufacturing/work-orders/:id", inventoryReadGuard, async (req, res
         warehouseId: workOrderReservationsTable.warehouseId,
         quantity: workOrderReservationsTable.quantity,
         consumedQty: workOrderReservationsTable.consumedQty,
+        trackingMode: productsTable.trackingMode,
       })
       .from(workOrderReservationsTable)
       .leftJoin(productsTable, eq(workOrderReservationsTable.componentId, productsTable.id))
       .where(eq(workOrderReservationsTable.workOrderId, id));
+    // Per-reservation availability of lots / serials at the WO warehouse
+    // so the operator can pick which lot/serial to consume.
+    const availability = await Promise.all(
+      reservations.map(async (r) => {
+        if (r.trackingMode === "lot") {
+          const lots = (await db.execute(sql`
+            SELECT l.id AS lot_id, l.lot_number, l.expiry_date,
+                   q.quantity::float8 AS quantity
+              FROM stock_quants q
+              JOIN stock_lots l ON l.id = q.lot_id
+             WHERE q.product_id = ${r.componentId}
+               AND q.warehouse_id = ${r.warehouseId}
+               AND q.quantity > 0
+             ORDER BY l.expiry_date NULLS LAST, l.id ASC
+          `) as unknown as { rows: Array<{ lot_id: number; lot_number: string; expiry_date: string | null; quantity: number }> }).rows;
+          return {
+            reservationId: r.id,
+            lots: lots.map((x) => ({
+              lotId: x.lot_id,
+              lotNumber: x.lot_number,
+              expiryDate: x.expiry_date,
+              quantity: Number(x.quantity),
+            })),
+            serials: [] as Array<{ serialId: number; serialNumber: string }>,
+          };
+        }
+        if (r.trackingMode === "serial") {
+          const serials = (await db.execute(sql`
+            SELECT s.id AS serial_id, s.serial_number
+              FROM stock_serials s
+             WHERE s.product_id = ${r.componentId}
+               AND s.current_warehouse_id = ${r.warehouseId}
+               AND s.state = 'in_stock'
+             ORDER BY s.id ASC
+          `) as unknown as { rows: Array<{ serial_id: number; serial_number: string }> }).rows;
+          return {
+            reservationId: r.id,
+            lots: [] as Array<{ lotId: number; lotNumber: string; expiryDate: string | null; quantity: number }>,
+            serials: serials.map((x) => ({ serialId: x.serial_id, serialNumber: x.serial_number })),
+          };
+        }
+        return {
+          reservationId: r.id,
+          lots: [] as Array<{ lotId: number; lotNumber: string; expiryDate: string | null; quantity: number }>,
+          serials: [] as Array<{ serialId: number; serialNumber: string }>,
+        };
+      }),
+    );
+    const availabilityMap = new Map(availability.map((a) => [a.reservationId, a]));
+    const [productInfo] = await db
+      .select({ trackingMode: productsTable.trackingMode })
+      .from(productsTable)
+      .where(eq(productsTable.id, wo.productId))
+      .limit(1);
     const consumptions = await db
       .select()
       .from(workOrderConsumptionsTable)
@@ -510,10 +570,13 @@ router.get("/manufacturing/work-orders/:id", inventoryReadGuard, async (req, res
       quantity: Number(wo.quantity),
       quantityProduced: Number(wo.quantityProduced),
       standardCost: Number(wo.standardCost),
+      productTrackingMode: productInfo?.trackingMode ?? "none",
       reservations: reservations.map((r) => ({
         ...r,
         quantity: Number(r.quantity),
         consumedQty: Number(r.consumedQty),
+        availableLots: availabilityMap.get(r.id)?.lots ?? [],
+        availableSerials: availabilityMap.get(r.id)?.serials ?? [],
       })),
       consumptions: consumptions.map((c) => ({
         ...c,
@@ -683,6 +746,14 @@ router.post("/manufacturing/work-orders/:id/start", productionGuard, async (req,
   }
 });
 
+// Per-reservation pick override: each slice consumes from a specific lot
+// or serial instead of the default FEFO behavior. Slice quantities must
+// sum to the requested take for the reservation.
+type ReservationPick = {
+  reservationId: number;
+  slices: Array<{ lotId?: number | null; serialId?: number | null; quantity: number }>;
+};
+
 // Internal: consume some/all open reservations into WIP. Issues stock
 // (skipJournal) and posts Inventory Cr / WIP Dr per consumption batch.
 // Returns total value moved Inventory -> WIP.
@@ -691,6 +762,7 @@ async function consumeWork(
   woId: number,
   pickRemaining: number,
   userId: number | null,
+  picks?: ReservationPick[],
 ): Promise<number> {
   const [wo] = await tx.select().from(workOrdersTable).where(eq(workOrdersTable.id, woId)).limit(1);
   if (!wo) throw new HttpError(404, "أمر الإنتاج غير موجود");
@@ -704,34 +776,97 @@ async function consumeWork(
   );
   const fraction = pickRemaining >= 1 ? 1 : Math.max(0, Math.min(1, pickRemaining));
   if (totalRemaining <= 0.0001 || fraction <= 0) return 0;
+  const pickMap = new Map<number, ReservationPick>();
+  for (const p of picks ?? []) pickMap.set(p.reservationId, p);
   let consumedValue = 0;
   for (const r of reservations) {
     const remaining = Number(r.quantity) - Number(r.consumedQty);
     if (remaining <= 0.0001) continue;
     const take = remaining * fraction;
-    const move = await recordStockMove(tx, {
-      productId: r.componentId,
-      fromWarehouseId: r.warehouseId,
-      quantity: take,
-      kind: "issue",
-      sourceType: "work_order",
-      sourceId: wo.id,
-      sourceRef: wo.reference,
-      createdBy: userId,
-      skipJournal: true,
-    });
-    consumedValue += take * move.unitCost;
-    await tx
-      .update(workOrderReservationsTable)
-      .set({ consumedQty: String(Number(r.consumedQty) + take) })
-      .where(eq(workOrderReservationsTable.id, r.id));
-    await tx.insert(workOrderConsumptionsTable).values({
-      workOrderId: wo.id,
-      componentId: r.componentId,
-      quantity: String(take),
-      unitCost: String(move.unitCost),
-      stockMoveId: move.moveId,
-    });
+    const pick = pickMap.get(r.id);
+    // Build the slice list. With no pick override we issue one slice with
+    // no lot/serial — the stock-engine will auto-FEFO if the component is
+    // lot-tracked, or refuse outright if it is serial-tracked (we then
+    // require an explicit pick at the route layer).
+    const slices = pick?.slices && pick.slices.length > 0
+      ? pick.slices
+      : [{ lotId: null, serialId: null, quantity: take }];
+    const sliceTotal = slices.reduce((s, x) => s + Number(x.quantity), 0);
+    if (Math.abs(sliceTotal - take) > 0.0001) {
+      throw new HttpError(
+        400,
+        `إجمالي الانتقاءات (${sliceTotal.toFixed(2)}) لا يطابق الكمية المطلوبة (${take.toFixed(2)})`,
+      );
+    }
+    let totalQtyForRes = 0;
+    for (const slice of slices) {
+      const sliceQty = Number(slice.quantity);
+      if (!(sliceQty > 0)) continue;
+      // Validate that the picked lot/serial belongs to this reservation's
+      // component, and (for serials) is currently in stock at the
+      // reservation's warehouse. Prevents traceability drift from a
+      // crafted/stale picker payload.
+      if (slice.lotId != null) {
+        const [lot] = await tx
+          .select({ productId: stockLotsTable.productId })
+          .from(stockLotsTable)
+          .where(eq(stockLotsTable.id, slice.lotId))
+          .limit(1);
+        if (!lot || lot.productId !== r.componentId) {
+          throw new HttpError(400, `التشغيلة المختارة لا تنتمي للمكون "${r.componentId}"`);
+        }
+      }
+      if (slice.serialId != null) {
+        const [sn] = await tx
+          .select({
+            productId: stockSerialsTable.productId,
+            warehouseId: stockSerialsTable.currentWarehouseId,
+            state: stockSerialsTable.state,
+          })
+          .from(stockSerialsTable)
+          .where(eq(stockSerialsTable.id, slice.serialId))
+          .limit(1);
+        if (!sn || sn.productId !== r.componentId) {
+          throw new HttpError(400, "الرقم التسلسلي المختار لا يطابق المكون");
+        }
+        if (sn.warehouseId !== r.warehouseId || sn.state !== "in_stock") {
+          throw new HttpError(409, "الرقم التسلسلي غير متاح في مستودع الحجز");
+        }
+        if (sliceQty !== 1) {
+          throw new HttpError(400, "الانتقاء التسلسلي يجب أن يكون كمية = 1");
+        }
+      }
+      const move = await recordStockMove(tx, {
+        productId: r.componentId,
+        fromWarehouseId: r.warehouseId,
+        quantity: sliceQty,
+        kind: "issue",
+        sourceType: "work_order",
+        sourceId: wo.id,
+        sourceRef: wo.reference,
+        lotId: slice.lotId ?? null,
+        serialId: slice.serialId ?? null,
+        createdBy: userId,
+        skipJournal: true,
+      });
+      consumedValue += sliceQty * move.unitCost;
+      totalQtyForRes += sliceQty;
+      await tx.insert(workOrderConsumptionsTable).values({
+        workOrderId: wo.id,
+        componentId: r.componentId,
+        quantity: String(sliceQty),
+        unitCost: String(move.unitCost),
+        lotId: slice.lotId ?? null,
+        serialId: slice.serialId ?? null,
+        stockMoveId: move.moveId,
+      });
+    }
+    if (totalQtyForRes > 0) {
+      await tx
+        .update(workOrderReservationsTable)
+        .set({ consumedQty: String(Number(r.consumedQty) + totalQtyForRes) })
+        .where(eq(workOrderReservationsTable.id, r.id));
+    }
   }
   if (consumedValue > 0) {
     await postJournalEntry(
@@ -756,11 +891,19 @@ async function consumeWork(
 
 // Internal: produce `qty` finished units out of WIP into finished_goods at
 // the WO standard cost. Posts Finished Goods Dr / WIP Cr.
+// `finished` carries the operator's lot/serial selection for traceable
+// finished products (required when the WO product is lot/serial-tracked).
+type FinishedSelection = {
+  lotNumber?: string | null;
+  expiryDate?: string | null;
+  serialNumbers?: string[] | null;
+};
 async function produceWork(
   tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
   woId: number,
   qty: number,
   userId: number | null,
+  finished?: FinishedSelection,
 ): Promise<number> {
   const [wo] = await tx.select().from(workOrdersTable).where(eq(workOrdersTable.id, woId)).limit(1);
   if (!wo) throw new HttpError(404, "أمر الإنتاج غير موجود");
@@ -770,24 +913,97 @@ async function produceWork(
   }
   const finishedUnitCost = Number(wo.standardCost);
   const finishedValue = finishedUnitCost * qty;
-  const move = await recordStockMove(tx, {
-    productId: wo.productId,
-    toWarehouseId: wo.warehouseId,
-    quantity: qty,
-    unitCost: finishedUnitCost,
-    kind: "receipt",
-    sourceType: "work_order",
-    sourceId: wo.id,
-    sourceRef: wo.reference,
-    createdBy: userId,
-    skipJournal: true,
-  });
-  await tx.insert(workOrderProductionsTable).values({
-    workOrderId: wo.id,
-    quantity: String(qty),
-    unitCost: String(finishedUnitCost),
-    stockMoveId: move.moveId,
-  });
+  // Resolve the finished-good tracking strategy and emit the matching set
+  // of receipt moves (1 per serial unit, or 1 lot-bearing receipt).
+  const [prod] = await tx
+    .select({ tracking: productsTable.trackingMode })
+    .from(productsTable)
+    .where(eq(productsTable.id, wo.productId))
+    .limit(1);
+  const tracking = prod?.tracking ?? "none";
+  const insertProduction = async (
+    sliceQty: number,
+    lotId: number | null,
+    serialId: number | null,
+  ) => {
+    const move = await recordStockMove(tx, {
+      productId: wo.productId,
+      toWarehouseId: wo.warehouseId,
+      quantity: sliceQty,
+      unitCost: finishedUnitCost,
+      kind: "receipt",
+      sourceType: "work_order",
+      sourceId: wo.id,
+      sourceRef: wo.reference,
+      lotId,
+      serialId,
+      createdBy: userId,
+      skipJournal: true,
+    });
+    await tx.insert(workOrderProductionsTable).values({
+      workOrderId: wo.id,
+      quantity: String(sliceQty),
+      unitCost: String(finishedUnitCost),
+      lotId,
+      serialId,
+      stockMoveId: move.moveId,
+    });
+  };
+  if (tracking === "lot") {
+    if (!finished?.lotNumber) {
+      throw new HttpError(400, "يجب إدخال رقم تشغيلة للمنتج التام");
+    }
+    const lotId = await getOrCreateLot(
+      tx,
+      wo.productId,
+      finished.lotNumber,
+      finished.expiryDate ?? null,
+      wo.reference,
+    );
+    await insertProduction(qty, lotId, null);
+  } else if (tracking === "serial") {
+    const serials = finished?.serialNumbers ?? [];
+    const expected = Math.round(qty);
+    if (Math.abs(qty - expected) > 0.0001) {
+      throw new HttpError(400, "كمية المنتج التسلسلي يجب أن تكون عدداً صحيحاً");
+    }
+    if (serials.length !== expected) {
+      throw new HttpError(400, `يجب إدخال ${expected} رقم تسلسلي للمنتج التام`);
+    }
+    if (new Set(serials).size !== serials.length) {
+      throw new HttpError(400, "الأرقام التسلسلية مكررة");
+    }
+    for (const sn of serials) {
+      const cleaned = sn.trim();
+      if (!cleaned) throw new HttpError(400, "رقم تسلسلي فارغ");
+      // Reject collisions with existing serials for this product.
+      const [existing] = await tx
+        .select({ id: stockSerialsTable.id })
+        .from(stockSerialsTable)
+        .where(
+          and(
+            eq(stockSerialsTable.productId, wo.productId),
+            eq(stockSerialsTable.serialNumber, cleaned),
+          ),
+        )
+        .limit(1);
+      if (existing) {
+        throw new HttpError(409, `الرقم التسلسلي "${cleaned}" مستخدم مسبقاً`);
+      }
+      const [created] = await tx
+        .insert(stockSerialsTable)
+        .values({
+          productId: wo.productId,
+          serialNumber: cleaned,
+          currentWarehouseId: wo.warehouseId,
+          state: "in_stock",
+        })
+        .returning({ id: stockSerialsTable.id });
+      await insertProduction(1, null, created.id);
+    }
+  } else {
+    await insertProduction(qty, null, null);
+  }
   if (finishedValue > 0) {
     await postJournalEntry(
       tx,
@@ -832,13 +1048,35 @@ async function assertNoFailedQc(
   }
 }
 
+// Operator-supplied per-reservation lot/serial slices.
+const PicksSchema = z
+  .array(
+    z.object({
+      reservationId: z.coerce.number().int(),
+      slices: z
+        .array(
+          z.object({
+            lotId: z.coerce.number().int().optional().nullable(),
+            serialId: z.coerce.number().int().optional().nullable(),
+            quantity: z.coerce.number().positive(),
+          }),
+        )
+        .min(1),
+    }),
+  )
+  .optional();
+
 // Explicit consume endpoint: move some/all reserved components into WIP
-// without producing finished goods yet. Body: { fraction?: 0..1 }
-// (defaults to 1 = consume everything still reserved).
+// without producing finished goods yet. Body: { fraction?: 0..1, picks? }
+// (defaults to 1 = consume everything still reserved). `picks` overrides
+// the FEFO/auto behavior with explicit lot/serial selections per reservation.
 router.post("/manufacturing/work-orders/:id/consume", productionGuard, async (req, res) => {
   try {
     const id = Number(req.params.id);
-    const Body = z.object({ fraction: z.coerce.number().min(0).max(1).optional() });
+    const Body = z.object({
+      fraction: z.coerce.number().min(0).max(1).optional(),
+      picks: PicksSchema,
+    });
     const body = Body.parse(req.body ?? {});
     const consumed = await db.transaction(async (tx) => {
       const [wo] = await tx.select().from(workOrdersTable).where(eq(workOrdersTable.id, id)).limit(1);
@@ -846,7 +1084,13 @@ router.post("/manufacturing/work-orders/:id/consume", productionGuard, async (re
       if (wo.state !== "in_progress") {
         throw new HttpError(409, "ابدأ أمر الإنتاج أولاً");
       }
-      return await consumeWork(tx, id, body.fraction ?? 1, req.session?.userId ?? null);
+      return await consumeWork(
+        tx,
+        id,
+        body.fraction ?? 1,
+        req.session?.userId ?? null,
+        body.picks,
+      );
     });
     res.json({ ok: true, consumedValue: consumed });
   } catch (err) {
@@ -855,12 +1099,23 @@ router.post("/manufacturing/work-orders/:id/consume", productionGuard, async (re
   }
 });
 
+const FinishedSchema = z
+  .object({
+    lotNumber: z.string().min(1).optional().nullable(),
+    expiryDate: z.string().optional().nullable(),
+    serialNumbers: z.array(z.string().min(1)).optional().nullable(),
+  })
+  .optional();
+
 // Explicit produce endpoint: clear `quantity` finished units from WIP
 // into Finished Goods at standard cost. Blocks on any failed mandatory QC.
 router.post("/manufacturing/work-orders/:id/produce", productionGuard, async (req, res) => {
   try {
     const id = Number(req.params.id);
-    const Body = z.object({ quantity: z.coerce.number().positive() });
+    const Body = z.object({
+      quantity: z.coerce.number().positive(),
+      finished: FinishedSchema,
+    });
     const body = Body.parse(req.body ?? {});
     const finished = await db.transaction(async (tx) => {
       const [wo] = await tx.select().from(workOrdersTable).where(eq(workOrdersTable.id, id)).limit(1);
@@ -884,7 +1139,13 @@ router.post("/manufacturing/work-orders/:id/produce", productionGuard, async (re
         throw new HttpError(409, "يجب استهلاك المكونات قبل الإنتاج لتجنّب رصيد سالب على حساب تحت التشغيل");
       }
       await assertNoFailedQc(tx, id);
-      return await produceWork(tx, id, body.quantity, req.session?.userId ?? null);
+      return await produceWork(
+        tx,
+        id,
+        body.quantity,
+        req.session?.userId ?? null,
+        body.finished,
+      );
     });
     res.json({ ok: true, finishedValue: finished });
   } catch (err) {
@@ -900,6 +1161,11 @@ router.post("/manufacturing/work-orders/:id/produce", productionGuard, async (re
 router.post("/manufacturing/work-orders/:id/complete", productionGuard, async (req, res) => {
   try {
     const id = Number(req.params.id);
+    const Body = z.object({
+      picks: PicksSchema,
+      finished: FinishedSchema,
+    });
+    const body = Body.parse(req.body ?? {});
     const out = await db.transaction(async (tx) => {
       const [wo] = await tx.select().from(workOrdersTable).where(eq(workOrdersTable.id, id)).limit(1);
       if (!wo) throw new HttpError(404, "أمر الإنتاج غير موجود");
@@ -921,12 +1187,24 @@ router.post("/manufacturing/work-orders/:id/complete", productionGuard, async (r
         throw new HttpError(409, "يوجد فحوصات جودة إلزامية لم تُنجز");
       }
       // Always consume everything still reserved before finishing.
-      const consumedValue = await consumeWork(tx, id, 1, req.session?.userId ?? null);
+      const consumedValue = await consumeWork(
+        tx,
+        id,
+        1,
+        req.session?.userId ?? null,
+        body.picks,
+      );
       // Produce the full remaining planned quantity — no partial completion.
       const remaining = Number(wo.quantity) - Number(wo.quantityProduced);
       let finishedValue = 0;
       if (remaining > 0.0001) {
-        finishedValue = await produceWork(tx, id, remaining, req.session?.userId ?? null);
+        finishedValue = await produceWork(
+          tx,
+          id,
+          remaining,
+          req.session?.userId ?? null,
+          body.finished,
+        );
       }
       // Clear any residual WIP balance for this WO to COGS as a variance.
       const [{ consumedTot }] = (await tx.execute(sql`
