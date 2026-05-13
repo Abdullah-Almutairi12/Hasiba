@@ -446,5 +446,23 @@ export async function initSales(): Promise<void> {
       ON pos_order_payments (order_id);
   `);
 
+  // DB-level integrity guards for split payments (task #30):
+  //   - amount must be > 0
+  //   - method must be one of the supported tenders
+  // The matching cross-row sum-equals-total check lives in pos-init.ts
+  // as a DEFERRABLE constraint trigger that fires at COMMIT.
+  await pool.query(`
+    DO $$ BEGIN
+      ALTER TABLE pos_order_payments
+        ADD CONSTRAINT pos_order_payments_amount_chk CHECK (amount > 0);
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+    DO $$ BEGIN
+      ALTER TABLE pos_order_payments
+        ADD CONSTRAINT pos_order_payments_method_chk
+        CHECK (method IN ('cash','card','transfer','stc','deferred'));
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+  `);
+
   logger.info("Sales / CRM subsystem initialized");
 }
