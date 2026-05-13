@@ -21,3 +21,4 @@ export * from "./hr";
 export * from "./manufacturing";
 export * from "./workflow";
 export * from "./integrations";
+export * from "./reporting";

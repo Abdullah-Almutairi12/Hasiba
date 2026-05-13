@@ -12,6 +12,9 @@ import Products from "@/pages/products";
 import Invoices from "@/pages/invoices";
 import Accounting from "@/pages/accounting";
 import Reports from "@/pages/reports";
+import ReportsBuilder from "@/pages/reports-builder";
+import ReportsSaved from "@/pages/reports-saved";
+import MyDashboard from "@/pages/my-dashboard";
 import Customers from "@/pages/customers";
 import Branches from "@/pages/branches";
 import UsersPage from "@/pages/users";
@@ -103,6 +106,15 @@ function Router() {
       </Route>
       <Route path="/reports">
         <Protected><Reports /></Protected>
+      </Route>
+      <Route path="/reports/builder">
+        <Protected><ReportsBuilder /></Protected>
+      </Route>
+      <Route path="/reports/saved">
+        <Protected><ReportsSaved /></Protected>
+      </Route>
+      <Route path="/my-dashboard">
+        <Protected><MyDashboard /></Protected>
       </Route>
       <Route path="/customers">
         <Protected><Customers /></Protected>

@@ -3,6 +3,7 @@ import app from "./app";
 import { logger } from "./lib/logger";
 import { startZatcaRetryWorker } from "./lib/integrations/zatca-phase2";
 import { startTrackingWorker } from "./lib/integrations/shipping";
+import { startReportingWorkers } from "./lib/reporting-workers";
 
 const rawPort = process.env["PORT"];
 
@@ -30,6 +31,7 @@ const server = app.listen(port, (err) => {
 // ZATCA retry worker — drains the zatca_invoice_retries queue every
 // 60s. Uses .unref() so it never blocks process shutdown.
 const zatcaRetryHandle = startZatcaRetryWorker(60_000);
+const reportingWorkerHandle = startReportingWorkers(5 * 60_000);
 
 // Shipping tracking worker — sweeps open shipments every 5 minutes
 // and refreshes their status from the carrier APIs (SMSA / Aramex /
@@ -40,6 +42,7 @@ function shutdown(signal: string): void {
   logger.info({ signal }, "Shutting down");
   clearInterval(zatcaRetryHandle);
   clearInterval(trackingHandle);
+  clearInterval(reportingWorkerHandle);
   server.close(() => process.exit(0));
 }
 process.on("SIGTERM", () => shutdown("SIGTERM"));
