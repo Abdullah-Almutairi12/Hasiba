@@ -33,6 +33,7 @@ import CreateCompany from "@/pages/create-company";
 import Login from "@/pages/login";
 import Welcome from "@/pages/welcome";
 import InvoicePrint from "@/pages/invoice-print";
+import TrackShipmentPage from "@/pages/track-shipment";
 import ProtectedRoute from "@/components/protected-route";
 import { ErrorBoundary } from "@/components/error-boundary";
 
@@ -72,6 +73,10 @@ function Router() {
 
       {/* Public marketing landing page */}
       <Route path="/welcome" component={Welcome} />
+
+      {/* Public customer-facing shipment tracking — opened from
+          WhatsApp / SMS links, no auth required. */}
+      <Route path="/track/:awb" component={TrackShipmentPage} />
 
       {/* Invoice print uses its own full-screen layout */}
       <Route path="/invoices/:id/print">

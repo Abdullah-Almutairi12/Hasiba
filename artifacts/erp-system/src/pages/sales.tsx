@@ -400,8 +400,34 @@ function SoActions({ so, onChange }: { so: SalesOrder; onChange: () => void }) {
 }
 
 // ===== Deliveries =====
+interface DeliveryRow {
+  id: number;
+  reference: string;
+  soId: number;
+  deliveryDate: string;
+  status: string;
+  createdAt: string;
+  carrierId: number | null;
+  shipmentId: number | null;
+}
+interface ShippingCarrier {
+  id: number;
+  provider: string;
+  displayName: string;
+  isEnabled: boolean;
+}
+interface CreatedShipment {
+  shipmentId: number;
+  awbNumber: string;
+  labelUrl: string | null;
+}
+
 function DeliveriesTab() {
-  const { data, isLoading } = useApiQuery<Array<{ id: number; reference: string; soId: number; deliveryDate: string; status: string; createdAt: string }>>("/sales/deliveries");
+  const { data, isLoading, refetch } = useApiQuery<DeliveryRow[]>("/sales/deliveries");
+  const { data: carriers } = useApiQuery<ShippingCarrier[]>(
+    "/integrations/shipping-carriers",
+  );
+  const [awbDialog, setAwbDialog] = useState<DeliveryRow | null>(null);
   return (
     <Card>
       <CardHeader><CardTitle>إذونات التسليم</CardTitle></CardHeader>
@@ -414,11 +440,154 @@ function DeliveriesTab() {
             { header: "أمر البيع", cell: (r) => <span className="font-mono text-xs">SO #{r.soId}</span> },
             { header: "التاريخ", cell: (r) => r.deliveryDate },
             { header: "الحالة", cell: (r) => <StatusBadge status={r.status} /> },
+            {
+              header: "الشحن",
+              cell: (r) =>
+                r.shipmentId ? (
+                  <Badge variant="default" className="font-normal gap-1">
+                    <Truck className="size-3" /> بوليصة #{r.shipmentId}
+                  </Badge>
+                ) : (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-2"
+                    onClick={() => setAwbDialog(r)}
+                  >
+                    <Truck className="size-3.5" />
+                    إنشاء بوليصة شحن
+                  </Button>
+                ),
+            },
           ]}
           emptyText="لا توجد إذونات تسليم"
         />
       </CardContent>
+      {awbDialog && (
+        <CreateAwbDialog
+          delivery={awbDialog}
+          carriers={(carriers ?? []).filter((c) => c.isEnabled)}
+          onClose={() => setAwbDialog(null)}
+          onSuccess={() => {
+            setAwbDialog(null);
+            refetch();
+          }}
+        />
+      )}
     </Card>
+  );
+}
+
+function CreateAwbDialog({
+  delivery,
+  carriers,
+  onClose,
+  onSuccess,
+}: {
+  delivery: DeliveryRow;
+  carriers: ShippingCarrier[];
+  onClose: () => void;
+  onSuccess: (out: CreatedShipment) => void;
+}) {
+  const { toast } = useToast();
+  const [carrierId, setCarrierId] = useState<string>(
+    carriers[0]?.id ? String(carriers[0].id) : "",
+  );
+  const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [line1, setLine1] = useState("");
+  const [city, setCity] = useState("");
+  const [weightKg, setWeightKg] = useState("1");
+  const [busy, setBusy] = useState(false);
+
+  async function submit() {
+    if (!carrierId) {
+      toast({ title: "اختر شركة الشحن", variant: "destructive" });
+      return;
+    }
+    setBusy(true);
+    try {
+      const out = await apiPost<CreatedShipment>("/integrations/shipments", {
+        carrierId: Number(carrierId),
+        deliveryOrderRef: delivery.reference,
+        toAddress: { name, phone, line1, city, country: "SA" },
+        weightKg: Number(weightKg) || 1,
+      });
+      toast({
+        title: "تم إنشاء بوليصة الشحن",
+        description: `AWB: ${out.awbNumber}`,
+      });
+      onSuccess(out);
+    } catch (e) {
+      toast({ title: "تعذّر إنشاء البوليصة", description: errMsg(e), variant: "destructive" });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>إنشاء بوليصة شحن — {delivery.reference}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div>
+            <Label>شركة الشحن</Label>
+            <Select value={carrierId} onValueChange={setCarrierId}>
+              <SelectTrigger><SelectValue placeholder="اختر شركة الشحن" /></SelectTrigger>
+              <SelectContent>
+                {carriers.length === 0 && (
+                  <div className="px-3 py-2 text-sm text-muted-foreground">
+                    لا توجد شركات شحن مفعّلة. أضِفها من الإعدادات.
+                  </div>
+                )}
+                {carriers.map((c) => (
+                  <SelectItem key={c.id} value={String(c.id)}>
+                    {c.displayName} ({c.provider})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label>اسم المستلم</Label>
+              <Input value={name} onChange={(e) => setName(e.target.value)} />
+            </div>
+            <div>
+              <Label>الجوال</Label>
+              <Input value={phone} onChange={(e) => setPhone(e.target.value)} />
+            </div>
+          </div>
+          <div>
+            <Label>العنوان</Label>
+            <Input value={line1} onChange={(e) => setLine1(e.target.value)} />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label>المدينة</Label>
+              <Input value={city} onChange={(e) => setCity(e.target.value)} />
+            </div>
+            <div>
+              <Label>الوزن (كجم)</Label>
+              <Input
+                type="number"
+                step="0.1"
+                value={weightKg}
+                onChange={(e) => setWeightKg(e.target.value)}
+              />
+            </div>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>إلغاء</Button>
+          <Button onClick={submit} disabled={busy || !carrierId || !name || !phone || !line1 || !city}>
+            {busy ? "جاري الإنشاء…" : "إنشاء البوليصة"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

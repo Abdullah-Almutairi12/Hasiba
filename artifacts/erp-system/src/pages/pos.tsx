@@ -51,9 +51,25 @@ import {
   ChevronLeft,
   ShieldCheck,
   Wallet,
+  Truck,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { motion, AnimatePresence } from "framer-motion";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useApiQuery, apiPost } from "@/hooks/use-api";
+
+interface PosShippingCarrier {
+  id: number;
+  provider: string;
+  displayName: string;
+  isEnabled: boolean;
+}
+interface PosCreatedShipment {
+  shipmentId: number;
+  awbNumber: string;
+  labelUrl: string | null;
+}
 
 const fmtPrice = (v: number) =>
   new Intl.NumberFormat("ar-SA", {
@@ -79,6 +95,11 @@ export default function POS() {
     uuid: string;
     payments?: Array<{ method: string; amount: number; reference?: string | null; payerName?: string | null }>;
   } | null>(null);
+  const [shipDialog, setShipDialog] = useState(false);
+  const [shipResult, setShipResult] = useState<PosCreatedShipment | null>(null);
+  const { data: shippingCarriers } = useApiQuery<PosShippingCarrier[]>(
+    "/integrations/shipping-carriers",
+  );
 
   type SplitMethod = "cash" | "card" | "transfer" | "stc" | "deferred";
   type SplitRow = { method: SplitMethod; amount: string; reference: string; payerName: string };
@@ -1466,9 +1487,40 @@ export default function POS() {
                       إرسال رقمي
                     </Button>
                   </div>
+                  {shipResult ? (
+                    <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-800 print:hidden">
+                      <div className="font-bold mb-1 flex items-center gap-2">
+                        <Truck className="size-3.5" />
+                        تم إنشاء بوليصة الشحن
+                      </div>
+                      <div className="font-mono">AWB: {shipResult.awbNumber}</div>
+                      {shipResult.labelUrl && (
+                        <a
+                          href={shipResult.labelUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-emerald-700 underline"
+                        >
+                          فتح/طباعة البوليصة
+                        </a>
+                      )}
+                    </div>
+                  ) : (
+                    <Button
+                      variant="outline"
+                      onClick={() => setShipDialog(true)}
+                      className="mt-3 w-full h-11 border-neutral-200 bg-white text-sm font-bold text-neutral-700 hover:bg-neutral-50 print:hidden gap-2"
+                    >
+                      <Truck className="size-4" />
+                      إنشاء بوليصة شحن
+                    </Button>
+                  )}
                   <button
-                    onClick={() => setShowSuccess(null)}
-                    className="mt-3 w-full text-sm font-medium text-[#2563EB] hover:underline"
+                    onClick={() => {
+                      setShipResult(null);
+                      setShowSuccess(null);
+                    }}
+                    className="mt-3 w-full text-sm font-medium text-[#2563EB] hover:underline print:hidden"
                   >
                     بيع جديد
                   </button>
@@ -1477,7 +1529,139 @@ export default function POS() {
             </motion.div>
           )}
         </AnimatePresence>
+
+        {shipDialog && showSuccess && (
+          <PosCreateAwbDialog
+            invoiceNo={showSuccess.invoiceNo}
+            carriers={(shippingCarriers ?? []).filter((c) => c.isEnabled)}
+            onClose={() => setShipDialog(false)}
+            onSuccess={(out) => {
+              setShipResult(out);
+              setShipDialog(false);
+            }}
+          />
+        )}
       </main>
     </div>
+  );
+}
+
+function PosCreateAwbDialog({
+  invoiceNo,
+  carriers,
+  onClose,
+  onSuccess,
+}: {
+  invoiceNo: string;
+  carriers: PosShippingCarrier[];
+  onClose: () => void;
+  onSuccess: (out: PosCreatedShipment) => void;
+}) {
+  const { toast } = useToast();
+  const [carrierId, setCarrierId] = useState<string>(
+    carriers[0]?.id ? String(carriers[0].id) : "",
+  );
+  const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [line1, setLine1] = useState("");
+  const [city, setCity] = useState("");
+  const [weightKg, setWeightKg] = useState("1");
+  const [busy, setBusy] = useState(false);
+
+  async function submit() {
+    if (!carrierId) {
+      toast({ title: "اختر شركة الشحن", variant: "destructive" });
+      return;
+    }
+    setBusy(true);
+    try {
+      const out = await apiPost<PosCreatedShipment>("/integrations/shipments", {
+        carrierId: Number(carrierId),
+        deliveryOrderRef: invoiceNo,
+        toAddress: { name, phone, line1, city, country: "SA" },
+        weightKg: Number(weightKg) || 1,
+      });
+      toast({
+        title: "تم إنشاء بوليصة الشحن",
+        description: `AWB: ${out.awbNumber}`,
+      });
+      onSuccess(out);
+    } catch (e) {
+      toast({
+        title: "تعذّر إنشاء البوليصة",
+        description: e instanceof Error ? e.message : String(e),
+        variant: "destructive",
+      });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>إنشاء بوليصة شحن — {invoiceNo}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div>
+            <Label>شركة الشحن</Label>
+            <Select value={carrierId} onValueChange={setCarrierId}>
+              <SelectTrigger><SelectValue placeholder="اختر شركة الشحن" /></SelectTrigger>
+              <SelectContent>
+                {carriers.length === 0 && (
+                  <div className="px-3 py-2 text-sm text-muted-foreground">
+                    لا توجد شركات شحن مفعّلة. أضِفها من الإعدادات.
+                  </div>
+                )}
+                {carriers.map((c) => (
+                  <SelectItem key={c.id} value={String(c.id)}>
+                    {c.displayName} ({c.provider})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label>اسم المستلم</Label>
+              <Input value={name} onChange={(e) => setName(e.target.value)} />
+            </div>
+            <div>
+              <Label>الجوال</Label>
+              <Input value={phone} onChange={(e) => setPhone(e.target.value)} />
+            </div>
+          </div>
+          <div>
+            <Label>العنوان</Label>
+            <Input value={line1} onChange={(e) => setLine1(e.target.value)} />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label>المدينة</Label>
+              <Input value={city} onChange={(e) => setCity(e.target.value)} />
+            </div>
+            <div>
+              <Label>الوزن (كجم)</Label>
+              <Input
+                type="number"
+                step="0.1"
+                value={weightKg}
+                onChange={(e) => setWeightKg(e.target.value)}
+              />
+            </div>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>إلغاء</Button>
+          <Button
+            onClick={submit}
+            disabled={busy || !carrierId || !name || !phone || !line1 || !city}
+          >
+            {busy ? "جاري الإنشاء…" : "إنشاء البوليصة"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

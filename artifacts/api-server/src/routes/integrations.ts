@@ -20,7 +20,7 @@ import { adminGuard, ownerOnly, requireRole } from "../middlewares/require-role"
 import { upsertCredential } from "../lib/integrations/credentials";
 import { encryptSecret } from "../lib/integrations/crypto";
 import { createCheckout, handleWebhook, refundIntent } from "../lib/integrations/payments";
-import { createAwb, pollTracking } from "../lib/integrations/shipping";
+import { createAwb, pollTracking, getPublicTracking } from "../lib/integrations/shipping";
 import { sendMessage } from "../lib/integrations/messaging";
 import {
   createCsr,
@@ -335,6 +335,42 @@ router.get("/integrations/payments/intents", adminGuard, async (_req, res) => {
 // Webhook endpoint: must be raw-body to verify HMAC. Mounted public
 // in routes/index.ts so it bypasses session auth.
 export const integrationsPublicRouter = Router();
+
+// Public shipment tracking lookup — backs the customer-facing
+// /track/:awb page that customers open from a WhatsApp/SMS link.
+// Lightly rate-limited per-IP so we don't proxy unlimited carrier
+// calls from a public endpoint.
+const trackingLookupLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => `track:${ipKeyGenerator(req.ip ?? "")}`,
+  message: { error: "تم تجاوز حد البحث، حاول لاحقاً", code: "RATE_LIMITED" },
+});
+
+integrationsPublicRouter.get(
+  "/integrations/track/:awb",
+  trackingLookupLimiter,
+  async (req, res) => {
+    try {
+      const awb = String(req.params.awb ?? "").trim();
+      if (!awb || awb.length > 64) {
+        res.status(400).json({ error: "رقم بوليصة غير صالح" });
+        return;
+      }
+      const out = await getPublicTracking(awb);
+      if (!out) {
+        res.status(404).json({ error: "لم يتم العثور على هذه الشحنة" });
+        return;
+      }
+      res.json(out);
+    } catch (err) {
+      handle(res, err);
+    }
+  },
+);
+
 integrationsPublicRouter.post(
   "/integrations/payments/webhook/:gatewayId",
   // Raw-body parser is registered globally in app.ts BEFORE express.json
@@ -377,9 +413,40 @@ const CreateCarrierBody = z.object({
   isEnabled: z.boolean().default(true),
 });
 
-router.get("/integrations/shipping-carriers", adminGuard, async (_req, res) => {
-  res.json(await db.select().from(shippingCarriersTable).orderBy(shippingCarriersTable.provider));
-});
+router.get(
+  "/integrations/shipping-carriers",
+  // Operational roles need to see the list to pick a carrier when
+  // creating an AWB from POS / Sales. We project to a minimal,
+  // non-sensitive subset (no accountNumber, no settings jsonb) so
+  // configuration data stays admin-only.
+  requireRole("owner", "manager", "sales", "cashier", "inventory"),
+  async (req, res) => {
+    const role = req.session?.role;
+    const isAdmin = role === "owner" || role === "manager";
+    if (isAdmin) {
+      res.json(
+        await db
+          .select()
+          .from(shippingCarriersTable)
+          .orderBy(shippingCarriersTable.provider),
+      );
+      return;
+    }
+    res.json(
+      await db
+        .select({
+          id: shippingCarriersTable.id,
+          provider: shippingCarriersTable.provider,
+          displayName: shippingCarriersTable.displayName,
+          isEnabled: shippingCarriersTable.isEnabled,
+          environment: shippingCarriersTable.environment,
+        })
+        .from(shippingCarriersTable)
+        .where(eq(shippingCarriersTable.isEnabled, true))
+        .orderBy(shippingCarriersTable.provider),
+    );
+  },
+);
 
 router.post("/integrations/shipping-carriers", adminGuard, async (req, res) => {
   try {
@@ -421,7 +488,15 @@ const CreateAwbBody = z.object({
   description: z.string().optional(),
 });
 
-router.post("/integrations/shipments", adminGuard, async (req, res) => {
+router.post(
+  "/integrations/shipments",
+  // Shipment / AWB creation is a daily operational action — cashiers
+  // book outgoing parcels from the POS receipt panel and sales reps
+  // dispatch them from the deliveries tab. Inventory dispatchers also
+  // need it. Keep carrier *configuration* admin-only above; only the
+  // act of creating an AWB is broader.
+  requireRole("owner", "manager", "sales", "cashier", "inventory"),
+  async (req, res) => {
   try {
     const b = CreateAwbBody.parse(req.body);
     const out = await createAwb(b);

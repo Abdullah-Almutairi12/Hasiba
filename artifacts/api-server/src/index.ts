@@ -2,6 +2,7 @@ import "reflect-metadata";
 import app from "./app";
 import { logger } from "./lib/logger";
 import { startZatcaRetryWorker } from "./lib/integrations/zatca-phase2";
+import { startTrackingWorker } from "./lib/integrations/shipping";
 
 const rawPort = process.env["PORT"];
 
@@ -30,9 +31,15 @@ const server = app.listen(port, (err) => {
 // 60s. Uses .unref() so it never blocks process shutdown.
 const zatcaRetryHandle = startZatcaRetryWorker(60_000);
 
+// Shipping tracking worker — sweeps open shipments every 5 minutes
+// and refreshes their status from the carrier APIs (SMSA / Aramex /
+// Saee / Naqel). .unref() so it never blocks shutdown.
+const trackingHandle = startTrackingWorker(5 * 60_000);
+
 function shutdown(signal: string): void {
   logger.info({ signal }, "Shutting down");
   clearInterval(zatcaRetryHandle);
+  clearInterval(trackingHandle);
   server.close(() => process.exit(0));
 }
 process.on("SIGTERM", () => shutdown("SIGTERM"));

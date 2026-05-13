@@ -1,7 +1,8 @@
 import { db, shippingCarriersTable, shipmentsTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { getCredential, MissingCredentialError } from "./credentials";
 import { recordIntegrationCall } from "./audit";
+import { logger } from "../logger";
 
 export type CarrierProvider = "smsa" | "aramex" | "saee" | "naqel";
 
@@ -436,6 +437,54 @@ export async function createAwb(req: CreateAwbRequest): Promise<CreateAwbResult>
   };
 }
 
+/**
+ * Derive a high-level shipment status from the latest tracking events.
+ * Each carrier publishes its own event vocabulary, so we match against
+ * common substrings (Arabic + English) found in the event description
+ * or status code rather than maintaining a per-carrier lookup table.
+ */
+export function deriveStatusFromEvents(
+  events: Array<{ code: string; description: string; at: string }>,
+  current: string,
+): string {
+  if (!events.length) return current;
+  // Walk newest → oldest so the most recent terminal event wins.
+  const sorted = [...events].sort((a, b) => {
+    const ta = Date.parse(a.at);
+    const tb = Date.parse(b.at);
+    return (Number.isNaN(tb) ? 0 : tb) - (Number.isNaN(ta) ? 0 : ta);
+  });
+  const norm = (s: string) => s.toLowerCase();
+  for (const e of sorted) {
+    const txt = `${norm(e.code)} ${norm(e.description)}`;
+    if (
+      /delivered|تم التسليم|تم تسليم|signed/i.test(txt) ||
+      e.code === "DLV"
+    ) {
+      return "delivered";
+    }
+    if (
+      /return|مرتجع|رفض|refused|undeliverable/i.test(txt) ||
+      e.code === "RTS" || e.code === "RTN"
+    ) {
+      return "returned";
+    }
+    if (
+      /cancel|ملغ|void/i.test(txt) ||
+      e.code === "CXL"
+    ) {
+      return "cancelled";
+    }
+    if (
+      /transit|out for delivery|picked|shipped|في الطريق|قيد التوصيل|تم الاستلام|warehouse|hub/i.test(txt) ||
+      e.code === "OFD" || e.code === "INT" || e.code === "PUP"
+    ) {
+      return current === "created" ? "in_transit" : current;
+    }
+  }
+  return current;
+}
+
 export async function pollTracking(shipmentId: number): Promise<number> {
   const [shipment] = await db
     .select()
@@ -485,9 +534,103 @@ export async function pollTracking(shipmentId: number): Promise<number> {
     });
     throw err;
   }
+  const newStatus = deriveStatusFromEvents(events, shipment.status);
   await db
     .update(shipmentsTable)
-    .set({ trackingHistory: events, updatedAt: new Date() })
+    .set({
+      trackingHistory: events,
+      status: newStatus,
+      updatedAt: new Date(),
+    })
     .where(eq(shipmentsTable.id, shipmentId));
   return events.length;
+}
+
+/**
+ * Background worker — every `intervalMs`, find open shipments
+ * (status not in delivered/returned/cancelled) whose tracking has
+ * not been refreshed in the last 10 minutes, and poll each carrier.
+ *
+ * Uses .unref() so it never holds the process open during shutdown.
+ * Runs sequentially with try/catch around each shipment so a single
+ * carrier outage doesn't take down the whole sweep.
+ */
+export function startTrackingWorker(intervalMs = 5 * 60 * 1000): NodeJS.Timeout {
+  const sweep = async () => {
+    try {
+      const stale = await db
+        .select({ id: shipmentsTable.id })
+        .from(shipmentsTable)
+        .where(
+          sql`${shipmentsTable.status} not in ('delivered','returned','cancelled')
+              and ${shipmentsTable.awbNumber} is not null
+              and (${shipmentsTable.updatedAt} < now() - interval '10 minutes')`,
+        )
+        .limit(50);
+      if (stale.length === 0) return;
+      logger.debug({ count: stale.length }, "shipping tracking sweep");
+      for (const row of stale) {
+        try {
+          await pollTracking(row.id);
+        } catch (err) {
+          logger.warn({ err, shipmentId: row.id }, "tracking poll failed");
+        }
+      }
+    } catch (err) {
+      logger.error({ err }, "tracking sweep failed");
+    }
+  };
+  // First sweep delayed by intervalMs so server boot isn't blocked.
+  const handle = setInterval(() => void sweep(), intervalMs);
+  handle.unref();
+  return handle;
+}
+
+/**
+ * Public-facing tracking lookup by AWB. Polls the carrier on demand
+ * (best-effort) and returns the persisted timeline. Designed to back
+ * the customer-facing /track/:awb page linked from WhatsApp/SMS.
+ */
+export async function getPublicTracking(awb: string): Promise<{
+  awbNumber: string;
+  status: string;
+  carrier: string;
+  carrierDisplayName: string;
+  history: Array<{ code: string; description: string; at: string }>;
+  updatedAt: string;
+} | null> {
+  const [shipment] = await db
+    .select()
+    .from(shipmentsTable)
+    .where(eq(shipmentsTable.awbNumber, awb));
+  if (!shipment) return null;
+  const [carrier] = await db
+    .select()
+    .from(shippingCarriersTable)
+    .where(eq(shippingCarriersTable.id, shipment.carrierId));
+  // Best-effort live refresh — swallow errors so the page still renders.
+  if (carrier && !["delivered", "returned", "cancelled"].includes(shipment.status)) {
+    try {
+      await pollTracking(shipment.id);
+    } catch (err) {
+      logger.warn({ err, awb }, "public tracking refresh failed");
+    }
+  }
+  const [refreshed] = await db
+    .select()
+    .from(shipmentsTable)
+    .where(eq(shipmentsTable.id, shipment.id));
+  const history = (refreshed?.trackingHistory ?? []) as Array<{
+    code: string;
+    description: string;
+    at: string;
+  }>;
+  return {
+    awbNumber: refreshed?.awbNumber ?? awb,
+    status: refreshed?.status ?? shipment.status,
+    carrier: carrier?.provider ?? "unknown",
+    carrierDisplayName: carrier?.displayName ?? carrier?.provider ?? "—",
+    history,
+    updatedAt: (refreshed?.updatedAt ?? new Date()).toISOString(),
+  };
 }
