@@ -86,15 +86,39 @@ async function nextEntryNumber(tx: DbOrTx, year: number): Promise<string> {
   // The sequence is created lazily on first use; nextval is atomic and
   // never returns the same value to two sessions.
   const seqName = `journal_entries_seq_${year}`;
+  const prefix = `JE-${year}-`;
   await tx.execute(
     sql.raw(`CREATE SEQUENCE IF NOT EXISTS ${seqName} MINVALUE 1 START 1`),
   );
+
+  // Self-heal: after seed/restore/migration, the sequence can fall behind
+  // existing JE-YYYY-NNNNN rows. Bump it to max(existing) so the next
+  // nextval returns a fresh, non-colliding number.
+  const healSql = `
+    DO $$
+    DECLARE
+      max_n bigint;
+      cur_n bigint;
+      was_called boolean;
+    BEGIN
+      SELECT COALESCE(MAX(NULLIF(regexp_replace(entry_number, '^${prefix}', ''), '')::bigint), 0)
+        INTO max_n
+        FROM journal_entries
+        WHERE entry_number LIKE '${prefix}%';
+      SELECT last_value, is_called INTO cur_n, was_called FROM ${seqName};
+      IF max_n > cur_n OR (max_n = cur_n AND NOT was_called) THEN
+        PERFORM setval('${seqName}', max_n, true);
+      END IF;
+    END $$;
+  `;
+  await tx.execute(sql.raw(healSql));
+
   const r = await tx.execute(sql.raw(`SELECT nextval('${seqName}')::bigint AS n`));
   // node-postgres returns rows on .rows; drizzle wraps but exposes them too.
   const rows = (r as unknown as { rows?: Array<{ n: string | number }> }).rows
     ?? (r as unknown as Array<{ n: string | number }>);
   const seq = Number(rows?.[0]?.n ?? 1);
-  return `JE-${year}-${String(seq).padStart(5, "0")}`;
+  return `${prefix}${String(seq).padStart(5, "0")}`;
 }
 
 /**
