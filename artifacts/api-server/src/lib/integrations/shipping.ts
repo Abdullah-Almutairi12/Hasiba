@@ -1,5 +1,5 @@
 import { db, shippingCarriersTable, shipmentsTable } from "@workspace/db";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { getCredential, MissingCredentialError } from "./credentials";
 import { recordIntegrationCall } from "./audit";
 import { logger } from "../logger";
@@ -535,15 +535,81 @@ export async function pollTracking(shipmentId: number): Promise<number> {
     throw err;
   }
   const newStatus = deriveStatusFromEvents(events, shipment.status);
-  await db
-    .update(shipmentsTable)
-    .set({
-      trackingHistory: events,
-      status: newStatus,
-      updatedAt: new Date(),
-    })
-    .where(eq(shipmentsTable.id, shipmentId));
+  // Atomic transition guard: only one concurrent poll wins the
+  // created -> in_transit flip. We scope the WHERE clause to the
+  // expected previous status when promoting out of "created" so
+  // two parallel poll cycles can't both fire the dispatch
+  // notification for the same shipment. For all other transitions
+  // the update is unconditional (we only need this guard for the
+  // notification edge).
+  const isFirstDispatch = shipment.status === "created" && newStatus === "in_transit";
+  const updated = isFirstDispatch
+    ? await db
+        .update(shipmentsTable)
+        .set({
+          trackingHistory: events,
+          status: newStatus,
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(shipmentsTable.id, shipmentId),
+            eq(shipmentsTable.status, "created"),
+          ),
+        )
+        .returning({ id: shipmentsTable.id })
+    : await db
+        .update(shipmentsTable)
+        .set({
+          trackingHistory: events,
+          status: newStatus,
+          updatedAt: new Date(),
+        })
+        .where(eq(shipmentsTable.id, shipmentId))
+        .returning({ id: shipmentsTable.id });
+  // Fire a templated WhatsApp notification the moment a shipment
+  // first transitions out of "created" into "in_transit". Done as
+  // a side-effect here (rather than from the route) so any code
+  // path that polls tracking — manual GET, background sweep,
+  // public lookup — gets the same one-off dispatch event. The
+  // conditional UPDATE above ensures only one caller wins.
+  if (isFirstDispatch && updated.length > 0) {
+    void notifyShipmentDispatched(shipmentId).catch((err) => {
+      logger.warn({ err, shipmentId }, "shipment dispatch notify failed");
+    });
+  }
   return events.length;
+}
+
+async function notifyShipmentDispatched(shipmentId: number): Promise<void> {
+  const { sendByTemplate } = await import("./messaging-templates");
+  const [s] = await db
+    .select()
+    .from(shipmentsTable)
+    .where(eq(shipmentsTable.id, shipmentId));
+  if (!s || !s.awbNumber) return;
+  const [c] = await db
+    .select()
+    .from(shippingCarriersTable)
+    .where(eq(shippingCarriersTable.id, s.carrierId));
+  const to = (s.toAddress ?? {}) as { phone?: string; name?: string };
+  if (!to.phone) return;
+  const baseUrl = (process.env["PUBLIC_BASE_URL"] ?? "").replace(/\/$/, "");
+  const trackingUrl = baseUrl
+    ? `${baseUrl}/track/${s.awbNumber}`
+    : s.awbNumber;
+  await sendByTemplate({
+    templateName: "shipment_dispatched",
+    to: to.phone,
+    variables: {
+      customer_name: to.name ?? "عميلنا الكريم",
+      order_ref: s.deliveryOrderRef ?? `SHIP-${s.id}`,
+      carrier: c?.displayName ?? c?.provider ?? "شركة الشحن",
+      awb: s.awbNumber,
+      tracking_url: trackingUrl,
+    },
+    branchId: c?.branchId ?? null,
+  });
 }
 
 /**

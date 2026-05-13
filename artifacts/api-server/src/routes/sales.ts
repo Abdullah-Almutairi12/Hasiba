@@ -47,6 +47,8 @@ import { buildZatcaQrBase64 } from "../lib/zatca-qr";
 import { processInvoiceForZatca } from "../lib/integrations/zatca-phase2";
 import { createAwb } from "../lib/integrations/shipping";
 import { sendMessage } from "../lib/integrations/messaging";
+import { sendByTemplate } from "../lib/integrations/messaging-templates";
+import { buildSignedInvoiceQrPath } from "./integrations";
 import { recordStockMove, getDefaultWarehouseId } from "../lib/stock-engine";
 import { sendMail, isMailerConfigured } from "../lib/mailer";
 import { warehousesTable as _warehousesTable } from "@workspace/db";
@@ -1831,23 +1833,26 @@ router.post("/sales/invoices", financeGuard, async (req, res) => {
         const payLink = baseUrl
           ? `${baseUrl}/portal/invoices/${result.inv.id}/pay`
           : null;
-        const pdfUrl = baseUrl
-          ? `${baseUrl}/portal/invoices/${result.inv.id}.pdf`
+        // Attach the ZATCA Phase-1 compact QR as the WhatsApp
+        // template's image header — Saudi tax law requires the
+        // QR to be presented to the buyer, and Meta requires the
+        // header media to be a publicly-fetchable URL.
+        const qrUrl = baseUrl
+          ? `${baseUrl}${buildSignedInvoiceQrPath(result.inv.id)}`
           : undefined;
-        const lines = [
-          `مرحباً ${cust.name}،`,
-          `تم إصدار فاتورة جديدة برقم ${result.inv.reference} بقيمة ${result.inv.total} ر.س.`,
-        ];
-        if (payLink) lines.push(`للدفع: ${payLink}`);
-        await sendMessage({
-          channel: "whatsapp",
-          provider: "whatsapp",
+        await sendByTemplate({
+          templateName: "invoice_issued",
           to: cust.phone,
-          body: lines.join("\n"),
-          mediaUrl: pdfUrl,
-          mediaFilename: `invoice-${result.inv.reference}.pdf`,
-          mediaCaption: lines.join("\n"),
+          variables: {
+            customer_name: cust.name,
+            invoice_no: result.inv.reference,
+            total: String(result.inv.total),
+            pay_link: payLink ?? "",
+          },
           branchId: result.inv.branchId ?? null,
+          mediaUrl: qrUrl,
+          mediaType: "image",
+          mediaFilename: `zatca-qr-${result.inv.reference}.png`,
         });
       } catch (e) {
         req.log.warn(

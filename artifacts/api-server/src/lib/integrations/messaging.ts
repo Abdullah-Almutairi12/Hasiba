@@ -13,6 +13,12 @@ export interface SendMessageRequest {
   to: string;
   body: string;
   templateName?: string;
+  // When false, the templateName is recorded on the outbound log
+  // for traceability but the WhatsApp payload is sent as plain
+  // text/media instead of `type: "template"`. Used so that fallback
+  // sends (template missing or pending Meta approval) still keep
+  // attribution to the originating event template.
+  useTemplate?: boolean;
   variables?: Record<string, string>;
   // Optional document attachment (e.g. invoice PDF, payment
   // receipt). When supplied with a WhatsApp provider we send a
@@ -21,6 +27,12 @@ export interface SendMessageRequest {
   mediaUrl?: string;
   mediaFilename?: string;
   mediaCaption?: string;
+  // When set together with `templateName`, the media is attached
+  // as the template's header component (image or document) so
+  // the message is delivered as a real Meta-approved template
+  // even with an attachment — required for messages sent outside
+  // the 24-hour customer-care window.
+  mediaType?: "image" | "document";
 }
 
 export interface SendMessageResult {
@@ -79,50 +91,103 @@ async function sendWhatsApp(req: SendMessageRequest, secret: Record<string, stri
   const accessToken = secret.accessToken;
   if (!phoneNumberId || !accessToken) throw new MissingCredentialError("whatsapp");
   const t0 = Date.now();
-  // Three message shapes: (1) document — when mediaUrl is set we
-  // ship the invoice PDF / receipt as a WhatsApp document with an
-  // optional caption that may contain the pay-link; (2) template
-  // — pre-approved business-initiated messages with variables;
-  // (3) plain text — agent-initiated freeform replies.
-  const payload: Record<string, unknown> = req.mediaUrl
-    ? {
-        messaging_product: "whatsapp",
-        to: req.to,
-        type: "document",
-        document: {
-          link: req.mediaUrl,
-          filename: req.mediaFilename ?? "invoice.pdf",
-          caption:
-            req.mediaCaption ?? renderTemplate(req.body, req.variables ?? {}),
+  // Four message shapes: (1) **template + media header** — when
+  // both templateName and mediaUrl are set, we send a real Meta
+  // template with the media attached as the `header` component
+  // (image or document). This is the only mode that delivers
+  // outside Meta's 24-hour customer-care window; (2) template —
+  // pre-approved business-initiated messages with body variables;
+  // (3) document — bare media (only valid inside the 24h window);
+  // (4) plain text — agent-initiated freeform replies.
+  const bodyComponent = req.variables
+    ? [
+        {
+          type: "body",
+          parameters: Object.values(req.variables).map((v) => ({
+            type: "text",
+            text: v,
+          })),
         },
-      }
-    : req.templateName
-      ? {
-          messaging_product: "whatsapp",
-          to: req.to,
-          type: "template",
-          template: {
-            name: req.templateName,
-            language: { code: "ar" },
-            components: req.variables
-              ? [
-                  {
-                    type: "body",
-                    parameters: Object.values(req.variables).map((v) => ({
-                      type: "text",
-                      text: v,
-                    })),
+      ]
+    : [];
+  // Treat the templateName as a "use real Meta template" trigger only
+  // when the caller explicitly opts in via `useTemplate`. This lets
+  // upstream code persist the attempted template name on the outbound
+  // log even when the live message is sent as plain text/media (e.g.
+  // because the template hasn't been approved by Meta yet).
+  const useApiTemplate = Boolean(req.templateName) && req.useTemplate !== false;
+  let payload: Record<string, unknown>;
+  if (useApiTemplate && req.mediaUrl) {
+    const headerKind = req.mediaType ?? "image";
+    payload = {
+      messaging_product: "whatsapp",
+      to: req.to,
+      type: "template",
+      template: {
+        name: req.templateName,
+        language: { code: "ar" },
+        components: [
+          {
+            type: "header",
+            parameters: [
+              headerKind === "image"
+                ? { type: "image", image: { link: req.mediaUrl } }
+                : {
+                    type: "document",
+                    document: {
+                      link: req.mediaUrl,
+                      filename: req.mediaFilename ?? "invoice.pdf",
+                    },
                   },
-                ]
-              : [],
+            ],
           },
-        }
-      : {
-          messaging_product: "whatsapp",
-          to: req.to,
-          type: "text",
-          text: { body: renderTemplate(req.body, req.variables ?? {}) },
-        };
+          ...bodyComponent,
+        ],
+      },
+    };
+  } else if (useApiTemplate) {
+    payload = {
+      messaging_product: "whatsapp",
+      to: req.to,
+      type: "template",
+      template: {
+        name: req.templateName,
+        language: { code: "ar" },
+        components: bodyComponent,
+      },
+    };
+  } else if (req.mediaUrl) {
+    payload = {
+      messaging_product: "whatsapp",
+      to: req.to,
+      type: req.mediaType === "image" ? "image" : "document",
+      ...(req.mediaType === "image"
+        ? {
+            image: {
+              link: req.mediaUrl,
+              caption:
+                req.mediaCaption ??
+                renderTemplate(req.body, req.variables ?? {}),
+            },
+          }
+        : {
+            document: {
+              link: req.mediaUrl,
+              filename: req.mediaFilename ?? "invoice.pdf",
+              caption:
+                req.mediaCaption ??
+                renderTemplate(req.body, req.variables ?? {}),
+            },
+          }),
+    };
+  } else {
+    payload = {
+      messaging_product: "whatsapp",
+      to: req.to,
+      type: "text",
+      text: { body: renderTemplate(req.body, req.variables ?? {}) },
+    };
+  }
   const r = await fetch(`https://graph.facebook.com/v20.0/${phoneNumberId}/messages`, {
     method: "POST",
     headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },

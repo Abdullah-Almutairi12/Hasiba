@@ -23,6 +23,13 @@ import { createCheckout, handleWebhook, refundIntent } from "../lib/integrations
 import { createAwb, pollTracking, getPublicTracking } from "../lib/integrations/shipping";
 import { sendMessage } from "../lib/integrations/messaging";
 import {
+  seedDefaultTemplates,
+  DEFAULT_TEMPLATES,
+} from "../lib/integrations/messaging-templates";
+import { buildZatcaQrBase64 } from "../lib/zatca-qr";
+import QRCode from "qrcode";
+import { createHmac, timingSafeEqual } from "node:crypto";
+import {
   createCsr,
   attachCsid,
   attachPcsid,
@@ -371,6 +378,116 @@ integrationsPublicRouter.get(
   },
 );
 
+// Public ZATCA QR PNG for a customer invoice. Served unauthenticated
+// because it must be fetchable by Meta's WhatsApp media servers when
+// the invoice notification template attaches it as a header image.
+// The QR itself only encodes data Saudi tax law already requires us
+// to print on the invoice (seller, VAT no., total, VAT amount,
+// timestamp), so disclosure is not a concern. Cached aggressively
+// since the values are immutable for an issued invoice.
+const qrLookupLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000,
+  max: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => `qr:${ipKeyGenerator(req.ip ?? "")}`,
+});
+
+/**
+ * HMAC-sign an invoice id for inclusion in the public QR URL.
+ * The signature is keyed off SESSION_SECRET (already required for
+ * cookies) so the URL can't be guessed by enumerating ids — only
+ * the server can mint a valid `s=` token. An expiry timestamp is
+ * baked in so messaging links auto-rot after a window long enough
+ * for Meta media servers to fetch it.
+ */
+function signQrToken(invoiceId: number, expSec: number): string {
+  const seed = process.env["SESSION_SECRET"];
+  if (!seed) {
+    if (process.env["NODE_ENV"] === "production") {
+      throw new Error(
+        "SESSION_SECRET is required in production to sign QR URLs",
+      );
+    }
+    return createHmac("sha256", "dev-only-fallback")
+      .update(`qr:${invoiceId}:${expSec}`)
+      .digest("base64url");
+  }
+  return createHmac("sha256", seed)
+    .update(`qr:${invoiceId}:${expSec}`)
+    .digest("base64url");
+}
+
+export function buildSignedInvoiceQrPath(
+  invoiceId: number,
+  ttlSeconds = 60 * 60 * 24 * 30,
+): string {
+  const exp = Math.floor(Date.now() / 1000) + ttlSeconds;
+  const sig = signQrToken(invoiceId, exp);
+  return `/api/integrations/qr/invoice/${invoiceId}.png?e=${exp}&s=${sig}`;
+}
+
+integrationsPublicRouter.get(
+  "/integrations/qr/invoice/:id.png",
+  qrLookupLimiter,
+  async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (!Number.isInteger(id) || id <= 0) {
+        res.status(400).send("invalid id");
+        return;
+      }
+      const exp = Number(req.query["e"] ?? 0);
+      const sig = String(req.query["s"] ?? "");
+      if (!Number.isFinite(exp) || exp <= 0 || !sig) {
+        res.status(403).send("missing signature");
+        return;
+      }
+      if (Math.floor(Date.now() / 1000) > exp) {
+        res.status(403).send("expired");
+        return;
+      }
+      const expected = signQrToken(id, exp);
+      const a = Buffer.from(sig);
+      const b = Buffer.from(expected);
+      if (a.length !== b.length || !timingSafeEqual(a, b)) {
+        res.status(403).send("bad signature");
+        return;
+      }
+      const [inv] = await db
+        .select({
+          id: customerInvoicesTable.id,
+          total: customerInvoicesTable.total,
+          vat: customerInvoicesTable.vat,
+          createdAt: customerInvoicesTable.createdAt,
+        })
+        .from(customerInvoicesTable)
+        .where(eq(customerInvoicesTable.id, id))
+        .limit(1);
+      if (!inv) {
+        res.status(404).send("not found");
+        return;
+      }
+      const tlvBase64 = buildZatcaQrBase64({
+        timestamp: inv.createdAt,
+        totalWithVat: Number(inv.total),
+        vatAmount: Number(inv.vat),
+      });
+      const png = await QRCode.toBuffer(tlvBase64, {
+        type: "png",
+        errorCorrectionLevel: "M",
+        margin: 1,
+        width: 512,
+      });
+      res.setHeader("Content-Type", "image/png");
+      res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+      res.send(png);
+    } catch (err) {
+      handle(res, err);
+    }
+  },
+);
+
 integrationsPublicRouter.post(
   "/integrations/payments/webhook/:gatewayId",
   // Raw-body parser is registered globally in app.ts BEFORE express.json
@@ -639,6 +756,74 @@ router.post("/integrations/whatsapp-templates", adminGuard, async (req, res) => 
       })
       .returning();
     res.status(201).json(row);
+  } catch (err) {
+    handle(res, err);
+  }
+});
+
+const UpdateTemplateBody = z.object({
+  bodyTemplate: z.string().min(2).optional(),
+  status: z.enum(["pending", "approved", "rejected", "paused"]).optional(),
+  category: z.enum(["UTILITY", "MARKETING", "AUTHENTICATION"]).optional(),
+  languageCode: z.string().optional(),
+  variableHints: z
+    .array(z.object({ name: z.string(), example: z.string() }))
+    .optional(),
+});
+
+router.patch("/integrations/whatsapp-templates/:id", adminGuard, async (req, res) => {
+  try {
+    const id = z.coerce.number().int().positive().parse(req.params.id);
+    const b = UpdateTemplateBody.parse(req.body);
+    const patch: Record<string, unknown> = { updatedAt: new Date() };
+    if (b.bodyTemplate !== undefined) patch.bodyTemplate = b.bodyTemplate;
+    if (b.status !== undefined) patch.status = b.status;
+    if (b.category !== undefined) patch.category = b.category;
+    if (b.languageCode !== undefined) patch.languageCode = b.languageCode;
+    if (b.variableHints !== undefined) patch.variableHints = b.variableHints;
+    const [row] = await db
+      .update(whatsappTemplatesTable)
+      .set(patch)
+      .where(eq(whatsappTemplatesTable.id, id))
+      .returning();
+    if (!row) {
+      res.status(404).json({ error: "القالب غير موجود" });
+      return;
+    }
+    res.json(row);
+  } catch (err) {
+    handle(res, err);
+  }
+});
+
+router.delete("/integrations/whatsapp-templates/:id", adminGuard, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    await db
+      .delete(whatsappTemplatesTable)
+      .where(eq(whatsappTemplatesTable.id, id));
+    res.json({ ok: true });
+  } catch (err) {
+    handle(res, err);
+  }
+});
+
+/**
+ * Seed/sync the built-in event templates (`invoice_issued`,
+ * `shipment_dispatched`, `low_stock_alert`). Idempotent — only
+ * inserts rows that don't already exist for the given branch
+ * scope. Returns the catalogue plus how many were newly inserted.
+ */
+router.post("/integrations/whatsapp-templates/sync", adminGuard, async (req, res) => {
+  try {
+    const branchId = z.coerce
+      .number()
+      .int()
+      .nullable()
+      .optional()
+      .parse(req.body?.branchId ?? null);
+    const inserted = await seedDefaultTemplates(branchId ?? null);
+    res.json({ ok: true, inserted, defaults: DEFAULT_TEMPLATES });
   } catch (err) {
     handle(res, err);
   }

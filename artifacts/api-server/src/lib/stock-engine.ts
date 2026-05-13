@@ -7,6 +7,76 @@ import {
 } from "@workspace/db";
 import { and, eq, sql } from "drizzle-orm";
 import { postJournalEntry, type DbOrTx } from "./journal-posting";
+import { db, alertsTable, usersTable } from "@workspace/db";
+import {
+  sendByTemplate,
+  hasRecentLowStockAlert,
+} from "./integrations/messaging-templates";
+import { logger } from "./logger";
+
+/**
+ * If the freshly-recomputed cached stock for `productId` has fallen
+ * at or below the product's min_stock threshold, push a debounced
+ * alert (in-app row in `alerts` + WhatsApp message to managers).
+ *
+ * Debouncing: we look for any matching `low_stock` alert in the last
+ * 24h to avoid spamming managers as more units of the same product
+ * are sold. The product id is embedded in the message text so we can
+ * key off it without a schema change to the (intentionally minimal)
+ * alerts table.
+ */
+async function scheduleLowStockNotification(productId: number): Promise<void> {
+  try {
+    const [p] = await db
+      .select({
+        id: productsTable.id,
+        nameAr: productsTable.nameAr,
+        sku: productsTable.sku,
+        stock: productsTable.stock,
+        minStock: productsTable.minStock,
+        isActive: productsTable.isActive,
+      })
+      .from(productsTable)
+      .where(eq(productsTable.id, productId));
+    if (!p || !p.isActive) return;
+    const stock = Number(p.stock);
+    const minStock = Number(p.minStock);
+    if (!(stock <= minStock)) return;
+    if (await hasRecentLowStockAlert(productId, 24)) return;
+
+    await db.insert(alertsTable).values({
+      type: "low_stock",
+      title: `مخزون منخفض: ${p.nameAr}`,
+      message: `المنتج #${productId} (${p.sku}) وصلت كميته إلى ${stock} وحدة (الحد الأدنى ${minStock}).`,
+    });
+
+    const managers = await db
+      .select({ phone: usersTable.phone, name: usersTable.name })
+      .from(usersTable)
+      .where(
+        and(
+          eq(usersTable.isActive, true),
+          sql`${usersTable.role} = 'manager'`,
+        ),
+      );
+    for (const m of managers) {
+      const phone = m.phone?.trim();
+      if (!phone) continue;
+      await sendByTemplate({
+        templateName: "low_stock_alert",
+        to: phone,
+        variables: {
+          product_name: p.nameAr,
+          sku: p.sku,
+          stock: String(stock),
+          min_stock: String(minStock),
+        },
+      });
+    }
+  } catch (err) {
+    logger.warn({ err, productId }, "low-stock notify failed");
+  }
+}
 
 export type StockMoveKind =
   | "receipt"
@@ -443,6 +513,28 @@ export async function recordStockMove(
        ), 0)
      WHERE id = ${input.productId}
   `);
+
+  // Low-stock notification hook — fires (debounced) the moment a
+  // movement drops cached stock at-or-below the product's min_stock
+  // threshold. Issued lazily so the hot path is unaffected by a
+  // missing WhatsApp credential.
+  if (input.kind === "issue" || input.kind === "adjustment") {
+    // `recordStockMove` is almost always called inside a
+    // `db.transaction((tx) => ...)` block. The cached `products.stock`
+    // we just wrote with `tx.execute(...)` is invisible to other
+    // connections until the surrounding transaction commits, so we
+    // can't dispatch the notification synchronously — the helper would
+    // read a stale row through the global `db` pool. Defer briefly so
+    // the caller's transaction has a chance to commit first; the
+    // helper itself is debounced via `hasRecentLowStockAlert` so the
+    // small race against extremely-long transactions is harmless.
+    const productId = input.productId;
+    setTimeout(() => {
+      void scheduleLowStockNotification(productId).catch(() => {
+        /* logged inside helper */
+      });
+    }, 500).unref();
+  }
 
   // ---- GL postings ----
   if (!input.skipJournal && unitCost > 0 && state === "done") {

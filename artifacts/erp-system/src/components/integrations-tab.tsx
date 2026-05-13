@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, Fragment } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -75,6 +75,20 @@ interface OutboundMessage {
   provider: string;
   toNumber: string;
   body: string;
+  status: string;
+  templateName: string | null;
+  variables: Record<string, string> | null;
+  createdAt: string;
+}
+
+interface WhatsAppTemplate {
+  id: number;
+  branchId: number | null;
+  name: string;
+  languageCode: string;
+  category: string;
+  bodyTemplate: string;
+  variableHints: Array<{ name: string; example: string }> | null;
   status: string;
   createdAt: string;
 }
@@ -498,6 +512,7 @@ function MessagingCard() {
             <TableRow>
               <TableHead>القناة</TableHead>
               <TableHead>المرسل إليه</TableHead>
+              <TableHead>القالب / المتغيّرات</TableHead>
               <TableHead>الحالة</TableHead>
               <TableHead>التاريخ</TableHead>
             </TableRow>
@@ -510,6 +525,25 @@ function MessagingCard() {
                   <span className="text-xs text-muted-foreground">{PROVIDER_LABEL[m.provider] ?? m.provider}</span>
                 </TableCell>
                 <TableCell dir="ltr" className="font-mono text-xs">{m.toNumber}</TableCell>
+                <TableCell className="max-w-[260px]">
+                  {m.templateName ? (
+                    <div className="space-y-1">
+                      <Badge variant="secondary" className="font-mono text-[10px]">
+                        {m.templateName}
+                      </Badge>
+                      {m.variables && Object.keys(m.variables).length > 0 && (
+                        <div className="text-[10px] text-muted-foreground" dir="ltr">
+                          {Object.entries(m.variables)
+                            .slice(0, 3)
+                            .map(([k, v]) => `${k}=${v}`)
+                            .join(" · ")}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">نص حر</span>
+                  )}
+                </TableCell>
                 <TableCell>
                   <Badge className={
                     m.status === "sent" ? "bg-emerald-100 text-emerald-700"
@@ -524,11 +558,294 @@ function MessagingCard() {
             ))}
             {msgs?.length === 0 && (
               <TableRow>
-                <TableCell colSpan={4} className="py-6 text-center text-muted-foreground">
+                <TableCell colSpan={5} className="py-6 text-center text-muted-foreground">
                   لم تُرسَل أي رسائل بعد
                 </TableCell>
               </TableRow>
             )}
+          </TableBody>
+        </Table>
+      </CardContent>
+    </Card>
+  );
+}
+
+function TemplatesCard() {
+  const qc = useQueryClient();
+  const { toast } = useToast();
+  const { data: templates } = useQuery({
+    queryKey: ["/integrations/whatsapp-templates"],
+    queryFn: () => api<WhatsAppTemplate[]>("/integrations/whatsapp-templates"),
+  });
+
+  const sync = useMutation({
+    mutationFn: () =>
+      api<{ inserted: number }>("/integrations/whatsapp-templates/sync", {
+        method: "POST",
+        body: JSON.stringify({}),
+      }),
+    onSuccess: (data) => {
+      toast({
+        title: "تم تحديث القوالب",
+        description: `تمت إضافة ${data.inserted} قالب جديد.`,
+      });
+      qc.invalidateQueries({ queryKey: ["/integrations/whatsapp-templates"] });
+    },
+    onError: (e: Error) =>
+      toast({ title: "فشل المزامنة", description: e.message, variant: "destructive" }),
+  });
+
+  const update = useMutation({
+    mutationFn: ({ id, patch }: { id: number; patch: Partial<WhatsAppTemplate> }) =>
+      api(`/integrations/whatsapp-templates/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify(patch),
+      }),
+    onSuccess: () => {
+      toast({ title: "تم حفظ القالب" });
+      qc.invalidateQueries({ queryKey: ["/integrations/whatsapp-templates"] });
+    },
+    onError: (e: Error) =>
+      toast({ title: "فشل الحفظ", description: e.message, variant: "destructive" }),
+  });
+
+  const del = useMutation({
+    mutationFn: (id: number) =>
+      api(`/integrations/whatsapp-templates/${id}`, { method: "DELETE" }),
+    onSuccess: () => {
+      toast({ title: "تم الحذف" });
+      qc.invalidateQueries({ queryKey: ["/integrations/whatsapp-templates"] });
+    },
+  });
+
+  const [edit, setEdit] = useState<{ id: number; body: string } | null>(null);
+  const [showNew, setShowNew] = useState(false);
+  const [newForm, setNewForm] = useState({
+    name: "",
+    languageCode: "ar",
+    category: "UTILITY" as "UTILITY" | "MARKETING" | "AUTHENTICATION",
+    bodyTemplate: "",
+    variableHints: "",
+  });
+
+  const create = useMutation({
+    mutationFn: () =>
+      api("/integrations/whatsapp-templates", {
+        method: "POST",
+        body: JSON.stringify({
+          name: newForm.name.trim(),
+          languageCode: newForm.languageCode.trim() || "ar",
+          category: newForm.category,
+          bodyTemplate: newForm.bodyTemplate,
+          variableHints: newForm.variableHints
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean)
+            .map((name) => ({ name, example: "" })),
+          status: "pending",
+        }),
+      }),
+    onSuccess: () => {
+      toast({ title: "تم تسجيل القالب" });
+      setShowNew(false);
+      setNewForm({
+        name: "",
+        languageCode: "ar",
+        category: "UTILITY",
+        bodyTemplate: "",
+        variableHints: "",
+      });
+      qc.invalidateQueries({ queryKey: ["/integrations/whatsapp-templates"] });
+    },
+    onError: (e: Error) =>
+      toast({ title: "فشل التسجيل", description: e.message, variant: "destructive" }),
+  });
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <MessageCircle className="size-4 text-primary" />
+          قوالب WhatsApp الجاهزة
+        </CardTitle>
+        <CardDescription>
+          قوالب معتمدة من Meta تُرسَل تلقائياً عند الأحداث: إصدار فاتورة، شحن طلب، انخفاض المخزون.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-muted/30 p-3">
+          <div className="text-xs text-muted-foreground">
+            القوالب الجاهزة: <span className="font-mono">invoice_issued</span> ·{" "}
+            <span className="font-mono">shipment_dispatched</span> ·{" "}
+            <span className="font-mono">low_stock_alert</span>
+          </div>
+          <div className="flex gap-2">
+            <Button size="sm" variant="outline" onClick={() => setShowNew((v) => !v)}>
+              {showNew ? "إغلاق" : "تسجيل قالب جديد"}
+            </Button>
+            <Button size="sm" onClick={() => sync.mutate()} disabled={sync.isPending}>
+              مزامنة القوالب الافتراضية
+            </Button>
+          </div>
+        </div>
+
+        {showNew && (
+          <div className="grid gap-3 rounded-lg border bg-background p-4 md:grid-cols-2">
+            <div className="space-y-1">
+              <Label className="text-xs">اسم القالب (يطابق Meta)</Label>
+              <Input
+                dir="ltr"
+                placeholder="order_confirmation"
+                value={newForm.name}
+                onChange={(e) => setNewForm({ ...newForm, name: e.target.value })}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">اللغة</Label>
+              <Input
+                dir="ltr"
+                placeholder="ar"
+                value={newForm.languageCode}
+                onChange={(e) => setNewForm({ ...newForm, languageCode: e.target.value })}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">الفئة</Label>
+              <Select
+                value={newForm.category}
+                onValueChange={(v) =>
+                  setNewForm({ ...newForm, category: v as typeof newForm.category })
+                }
+              >
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="UTILITY">UTILITY</SelectItem>
+                  <SelectItem value="MARKETING">MARKETING</SelectItem>
+                  <SelectItem value="AUTHENTICATION">AUTHENTICATION</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">المتغيّرات (مفصولة بفاصلة)</Label>
+              <Input
+                dir="ltr"
+                placeholder="customer_name, order_no, total"
+                value={newForm.variableHints}
+                onChange={(e) => setNewForm({ ...newForm, variableHints: e.target.value })}
+              />
+            </div>
+            <div className="space-y-1 md:col-span-2">
+              <Label className="text-xs">نص القالب (استخدم {"{{variable_name}}"})</Label>
+              <textarea
+                dir="auto"
+                className="w-full rounded-md border bg-background p-2 text-sm"
+                rows={3}
+                value={newForm.bodyTemplate}
+                onChange={(e) => setNewForm({ ...newForm, bodyTemplate: e.target.value })}
+              />
+            </div>
+            <div className="md:col-span-2">
+              <Button
+                size="sm"
+                onClick={() => create.mutate()}
+                disabled={
+                  create.isPending ||
+                  newForm.name.trim().length < 2 ||
+                  newForm.bodyTemplate.trim().length < 2
+                }
+              >
+                تسجيل القالب
+              </Button>
+            </div>
+          </div>
+        )}
+
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>الاسم</TableHead>
+              <TableHead>اللغة</TableHead>
+              <TableHead>الفئة</TableHead>
+              <TableHead>الحالة</TableHead>
+              <TableHead>المتغيّرات</TableHead>
+              <TableHead className="text-end">إجراء</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {templates?.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={6} className="py-6 text-center text-muted-foreground">
+                  لم تتم إضافة أي قالب بعد. اضغط "مزامنة القوالب الافتراضية".
+                </TableCell>
+              </TableRow>
+            )}
+            {templates?.map((t) => (
+              <Fragment key={t.id}>
+                <TableRow>
+                  <TableCell className="font-mono text-xs">{t.name}</TableCell>
+                  <TableCell><Badge variant="outline">{t.languageCode}</Badge></TableCell>
+                  <TableCell>
+                    <Badge variant="secondary" className="text-[10px]">{t.category}</Badge>
+                  </TableCell>
+                  <TableCell>
+                    <Select
+                      value={t.status}
+                      onValueChange={(v) => update.mutate({ id: t.id, patch: { status: v } as Partial<WhatsAppTemplate> })}
+                    >
+                      <SelectTrigger className="h-7 w-32 text-xs"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="approved">معتمد</SelectItem>
+                        <SelectItem value="pending">قيد المراجعة</SelectItem>
+                        <SelectItem value="paused">موقوف</SelectItem>
+                        <SelectItem value="rejected">مرفوض</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </TableCell>
+                  <TableCell className="text-[10px] text-muted-foreground" dir="ltr">
+                    {(t.variableHints ?? []).map((v) => v.name).join(", ") || "—"}
+                  </TableCell>
+                  <TableCell className="text-end">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() =>
+                        setEdit(edit?.id === t.id ? null : { id: t.id, body: t.bodyTemplate })
+                      }
+                    >
+                      {edit?.id === t.id ? "إلغاء" : "تعديل"}
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => del.mutate(t.id)}>
+                      حذف
+                    </Button>
+                  </TableCell>
+                </TableRow>
+                {edit?.id === t.id && (
+                  <TableRow>
+                    <TableCell colSpan={6} className="bg-muted/30">
+                      <div className="space-y-2 p-2">
+                        <Label className="text-xs">نص القالب (استخدم {"{{variable_name}}"})</Label>
+                        <textarea
+                          dir="auto"
+                          className="w-full rounded-md border bg-background p-2 text-sm"
+                          rows={4}
+                          value={edit.body}
+                          onChange={(e) => setEdit({ id: t.id, body: e.target.value })}
+                        />
+                        <Button
+                          size="sm"
+                          onClick={() => {
+                            update.mutate({ id: t.id, patch: { bodyTemplate: edit.body } as Partial<WhatsAppTemplate> });
+                            setEdit(null);
+                          }}
+                        >
+                          حفظ
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                )}
+              </Fragment>
+            ))}
           </TableBody>
         </Table>
       </CardContent>
@@ -700,12 +1017,14 @@ export function IntegrationsTab() {
           <TabsTrigger value="payments">المدفوعات</TabsTrigger>
           <TabsTrigger value="shipping">الشحن</TabsTrigger>
           <TabsTrigger value="messaging">الرسائل</TabsTrigger>
+          <TabsTrigger value="templates">القوالب</TabsTrigger>
           <TabsTrigger value="credentials">بيانات الاعتماد</TabsTrigger>
         </TabsList>
         <TabsContent value="zatca"><ZatcaCard /></TabsContent>
         <TabsContent value="payments"><PaymentsCard /></TabsContent>
         <TabsContent value="shipping"><ShippingCard /></TabsContent>
         <TabsContent value="messaging"><MessagingCard /></TabsContent>
+        <TabsContent value="templates"><TemplatesCard /></TabsContent>
         <TabsContent value="credentials"><CredentialsCard /></TabsContent>
       </Tabs>
     </div>
