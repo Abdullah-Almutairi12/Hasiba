@@ -327,6 +327,52 @@ export const CreatePosOrderBody = zod.object({
 });
 
 /**
+ * @summary Get a single POS order with its split-payment breakdown
+ */
+export const GetPosOrderParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const GetPosOrderResponse = zod.object({
+  id: zod.number(),
+  orderNumber: zod.string(),
+  sessionId: zod.number(),
+  items: zod.array(
+    zod.object({
+      productId: zod.number(),
+      productName: zod.string(),
+      quantity: zod.number(),
+      unitPrice: zod.number(),
+      total: zod.number(),
+    }),
+  ),
+  subtotal: zod.number(),
+  tax: zod.number(),
+  discount: zod.number(),
+  total: zod.number(),
+  paymentMethod: zod.enum([
+    "cash",
+    "card",
+    "transfer",
+    "stc",
+    "deferred",
+    "split",
+  ]),
+  payments: zod
+    .array(
+      zod.object({
+        method: zod.enum(["cash", "card", "transfer", "stc", "deferred"]),
+        amount: zod.number(),
+        reference: zod.string().nullish(),
+        payerName: zod.string().nullish(),
+      }),
+    )
+    .optional(),
+  customerId: zod.number().nullish(),
+  createdAt: zod.string(),
+});
+
+/**
  * @summary Get POS daily summary
  */
 export const GetPosSummaryResponse = zod.object({

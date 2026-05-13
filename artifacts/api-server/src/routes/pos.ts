@@ -166,6 +166,46 @@ router.get("/pos/orders", posReadGuard, async (req, res) => {
   }
 });
 
+router.get("/pos/orders/:id", posReadGuard, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      res.status(400).json({ error: "معرّف الطلب غير صالح" });
+      return;
+    }
+    const [order] = await db
+      .select()
+      .from(posOrdersTable)
+      .where(eq(posOrdersTable.id, id))
+      .limit(1);
+    if (!order) {
+      res.status(404).json({ error: "الطلب غير موجود" });
+      return;
+    }
+    const payRows = await db
+      .select()
+      .from(posOrderPaymentsTable)
+      .where(eq(posOrderPaymentsTable.orderId, id));
+    res.json({
+      ...order,
+      subtotal: Number(order.subtotal),
+      tax: Number(order.tax),
+      discount: Number(order.discount),
+      total: Number(order.total),
+      payments: payRows.map((p) => ({
+        method: p.method,
+        amount: Number(p.amount),
+        reference: p.reference ?? null,
+        payerName: p.payerName ?? null,
+      })),
+      createdAt: order.createdAt.toISOString(),
+    });
+  } catch (err) {
+    req.log.error({ err }, "Error fetching POS order");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 router.post(
   "/pos/orders",
   posGuard,

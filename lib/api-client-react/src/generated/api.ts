@@ -1473,6 +1473,93 @@ export const useCreatePosOrder = <
 };
 
 /**
+ * @summary Get a single POS order with its split-payment breakdown
+ */
+export const getGetPosOrderUrl = (id: number) => {
+  return `/api/pos/orders/${id}`;
+};
+
+export const getPosOrder = async (
+  id: number,
+  options?: RequestInit,
+): Promise<PosOrder> => {
+  return customFetch<PosOrder>(getGetPosOrderUrl(id), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetPosOrderQueryKey = (id: number) => {
+  return [`/api/pos/orders/${id}`] as const;
+};
+
+export const getGetPosOrderQueryOptions = <
+  TData = Awaited<ReturnType<typeof getPosOrder>>,
+  TError = ErrorType<void>,
+>(
+  id: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getPosOrder>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetPosOrderQueryKey(id);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getPosOrder>>> = ({
+    signal,
+  }) => getPosOrder(id, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getPosOrder>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetPosOrderQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getPosOrder>>
+>;
+export type GetPosOrderQueryError = ErrorType<void>;
+
+/**
+ * @summary Get a single POS order with its split-payment breakdown
+ */
+
+export function useGetPosOrder<
+  TData = Awaited<ReturnType<typeof getPosOrder>>,
+  TError = ErrorType<void>,
+>(
+  id: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getPosOrder>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetPosOrderQueryOptions(id, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
  * @summary Get POS daily summary
  */
 export const getGetPosSummaryUrl = () => {

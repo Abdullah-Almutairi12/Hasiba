@@ -305,6 +305,29 @@ paths:
               schema:
                 $ref: "#/components/schemas/PosOrder"
 
+  /pos/orders/{id}:
+    get:
+      operationId: getPosOrder
+      tags: [pos]
+      summary: Get a single POS order with its split-payment breakdown
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Order
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PosOrder"
+        "400":
+          description: Invalid order id
+        "404":
+          description: Not found
+
   /pos/summary:
     get:
       operationId: getPosSummary
