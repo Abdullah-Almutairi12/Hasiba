@@ -475,6 +475,8 @@ export const CreatePosOrderBodyPaymentMethod = {
   cash: "cash",
   card: "card",
   transfer: "transfer",
+  stc: "stc",
+  deferred: "deferred",
 } as const;
 
 export interface CreatePosOrderBody {
@@ -486,6 +488,8 @@ export interface CreatePosOrderBody {
   payments?: PosOrderPayment[];
   discount?: number;
   customerId?: number | null;
+  /** Optional gateway payment_intent.id whose captured funds back this sale. The intent is linked back to the resulting pos_order on success. */
+  paymentIntentId?: number | null;
 }
 
 export interface PosSummary {

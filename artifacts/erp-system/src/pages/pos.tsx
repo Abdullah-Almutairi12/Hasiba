@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { Money } from "@/components/riyal";
 import { useLocation } from "wouter";
 import {
@@ -85,6 +85,57 @@ export default function POS() {
   type SplitPayment = { method: SplitMethod; amount: number; reference?: string | null; payerName?: string | null };
   const [splitOpen, setSplitOpen] = useState(false);
   const [splitRows, setSplitRows] = useState<SplitRow[]>([]);
+
+  // ===== Real payment-gateway plumbing =====
+  // The cashier picks an enabled gateway (Moyasar, Mada, Tap, HyperPay,
+  // STC Pay, PayTabs); we open a hosted checkout, poll the resulting
+  // payment_intent until it captures, then finalise the POS order
+  // with a back-reference to the intent so accounting reconciles.
+  type Gateway = {
+    id: number;
+    provider: string;
+    displayName: string;
+    environment: string;
+  };
+  type Intent = {
+    id: number;
+    status: "pending" | "authorized" | "captured" | "paid" | "failed" | "refunded";
+    providerRef: string | null;
+    checkoutUrl: string | null;
+    failureReason?: string | null;
+  };
+  const [gateways, setGateways] = useState<Gateway[]>([]);
+  const [selectedGatewayId, setSelectedGatewayId] = useState<number | null>(null);
+  const [gatewayStage, setGatewayStage] =
+    useState<"idle" | "starting" | "awaiting" | "settling" | "failed">("idle");
+  const [activeIntent, setActiveIntent] = useState<Intent | null>(null);
+  const pollRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    let aborted = false;
+    fetch("/api/pos/payment-gateways", { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : []))
+      .then((rows: Gateway[]) => {
+        if (aborted) return;
+        setGateways(rows ?? []);
+        if (rows && rows[0]) setSelectedGatewayId((g) => g ?? rows[0].id);
+      })
+      .catch(() => {});
+    return () => {
+      aborted = true;
+      if (pollRef.current) window.clearInterval(pollRef.current);
+    };
+  }, []);
+
+  const providerLabel = (p: string) =>
+    ({
+      moyasar: "Moyasar",
+      mada: "مدى",
+      tap: "Tap",
+      hyperpay: "HyperPay",
+      stcpay: "STC Pay",
+      paytabs: "PayTabs",
+    } as Record<string, string>)[p] ?? p;
 
   useEffect(() => {
     const t = setInterval(() => {
@@ -178,9 +229,17 @@ export default function POS() {
     gift: "بطاقة هدية",
   };
 
+  const stopPolling = () => {
+    if (pollRef.current) {
+      window.clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+  };
+
   const submitOrder = (
     payments: SplitPayment[] | null,
     successMethodLabel: string,
+    paymentIntentId?: number | null,
   ) => {
     if (!activeSession) {
       toast({ title: "لا يوجد جلسة بيع مفتوحة", variant: "destructive" });
@@ -205,10 +264,15 @@ export default function POS() {
             })),
           }
         : {
-            paymentMethod: (paymentMethod === "cash" ? "cash" : "card") as
-              | "cash"
-              | "card",
+            // Preserve the actual cashier-selected method (so STC sales
+            // don't mis-report as card). Gift cards have no first-class
+            // server enum yet, so we collapse them to "card" — same
+            // accounting treatment as before this change.
+            paymentMethod: (paymentMethod === "gift"
+              ? "card"
+              : paymentMethod) as "cash" | "card" | "stc",
           }),
+      ...(paymentIntentId ? { paymentIntentId } : {}),
     };
 
     createOrder.mutate(
@@ -251,7 +315,129 @@ export default function POS() {
   };
 
   const handleCheckout = () => {
+    if (cart.length === 0) return;
+    // Cash, gift card, and STC-without-a-configured-gateway stay on the
+    // legacy direct-tender path. For card/STC/transfer we route through
+    // a real payment gateway when one is enabled.
+    const usesGateway =
+      (paymentMethod === "card" || paymentMethod === "stc") &&
+      gateways.length > 0 &&
+      selectedGatewayId !== null;
+    if (usesGateway) {
+      void startGatewayCheckout();
+      return;
+    }
     submitOrder(null, methodLabels[paymentMethod] || "بطاقة");
+  };
+
+  const startGatewayCheckout = async () => {
+    if (!selectedGatewayId) {
+      toast({ title: "اختر بوابة الدفع أولاً", variant: "destructive" });
+      return;
+    }
+    if (cart.length === 0) return;
+    setGatewayStage("starting");
+    setActiveIntent(null);
+    try {
+      const cartRef = `POS-${Date.now()}`;
+      const r = await fetch("/api/pos/payment/checkout", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          gatewayId: selectedGatewayId,
+          amount: +total.toFixed(2),
+          description: `بيع POS — ${cart.length} منتج`,
+          callbackUrl: window.location.origin + "/pos",
+          cartRef,
+        }),
+      });
+      const body = (await r.json().catch(() => ({}))) as {
+        intentId?: number;
+        checkoutUrl?: string | null;
+        providerRef?: string | null;
+        status?: string;
+        error?: string;
+      };
+      if (!r.ok || !body.intentId) {
+        setGatewayStage("failed");
+        toast({
+          title: "تعذّر بدء عملية الدفع",
+          description: body.error ?? `HTTP ${r.status}`,
+          variant: "destructive",
+        });
+        return;
+      }
+      const intent: Intent = {
+        id: body.intentId,
+        status: (body.status as Intent["status"]) ?? "pending",
+        providerRef: body.providerRef ?? null,
+        checkoutUrl: body.checkoutUrl ?? null,
+      };
+      setActiveIntent(intent);
+      setGatewayStage("awaiting");
+      if (intent.checkoutUrl) {
+        window.open(intent.checkoutUrl, "_blank", "noopener,noreferrer");
+      }
+      // Poll the intent every 2s for up to 5 minutes. Webhook flips
+      // status to "captured" / "paid" when the customer completes the
+      // hosted checkout; "failed" surfaces declines back to the till.
+      const startedAt = Date.now();
+      stopPolling();
+      pollRef.current = window.setInterval(async () => {
+        try {
+          const pr = await fetch(`/api/pos/payment/intent/${intent.id}`, {
+            credentials: "include",
+          });
+          if (!pr.ok) return;
+          const pi = (await pr.json()) as Intent;
+          setActiveIntent(pi);
+          if (pi.status === "captured" || pi.status === "paid") {
+            stopPolling();
+            setGatewayStage("settling");
+            const gw = gateways.find((g) => g.id === selectedGatewayId);
+            const label = `${providerLabel(gw?.provider ?? "")}${
+              pi.providerRef ? ` — ${pi.providerRef}` : ""
+            }`;
+            submitOrder(null, label, pi.id);
+            // Reset gateway stage after the order mutation finishes
+            // (handled in submitOrder's onSuccess via the success modal).
+            setGatewayStage("idle");
+          } else if (pi.status === "failed" || pi.status === "refunded") {
+            stopPolling();
+            setGatewayStage("failed");
+            toast({
+              title: "تم رفض عملية الدفع",
+              description: pi.failureReason ?? "حاول مرة أخرى",
+              variant: "destructive",
+            });
+          } else if (Date.now() - startedAt > 5 * 60_000) {
+            stopPolling();
+            setGatewayStage("failed");
+            toast({
+              title: "انتهت مهلة الانتظار",
+              description: "لم نستلم تأكيد الدفع من البوابة",
+              variant: "destructive",
+            });
+          }
+        } catch {
+          /* keep polling */
+        }
+      }, 2000);
+    } catch (e) {
+      setGatewayStage("failed");
+      toast({
+        title: "تعذّر الاتصال ببوابة الدفع",
+        description: e instanceof Error ? e.message : "حاول مرة أخرى",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const cancelGatewayCheckout = () => {
+    stopPolling();
+    setGatewayStage("idle");
+    setActiveIntent(null);
   };
 
   const openSplitDialog = () => {
@@ -896,11 +1082,74 @@ export default function POS() {
               })}
             </div>
 
+            {/* Gateway selector — only shown when at least one gateway is
+                configured AND the cashier picked card / STC Pay. */}
+            {gateways.length > 0 &&
+              (paymentMethod === "card" || paymentMethod === "stc") && (
+                <div className="border-t border-neutral-200 bg-blue-50/30 px-4 py-3">
+                  <label className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-neutral-500">
+                    بوابة الدفع
+                  </label>
+                  <select
+                    value={selectedGatewayId ?? ""}
+                    onChange={(e) =>
+                      setSelectedGatewayId(Number(e.target.value) || null)
+                    }
+                    disabled={
+                      gatewayStage === "starting" ||
+                      gatewayStage === "awaiting" ||
+                      gatewayStage === "settling"
+                    }
+                    className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm font-semibold text-neutral-800"
+                  >
+                    {gateways.map((g) => (
+                      <option key={g.id} value={g.id}>
+                        {providerLabel(g.provider)} — {g.displayName}
+                        {g.environment === "sandbox" ? " (تجريبي)" : ""}
+                      </option>
+                    ))}
+                  </select>
+                  {gatewayStage === "awaiting" && activeIntent && (
+                    <div className="mt-2 flex items-center justify-between rounded-md bg-amber-50 px-2 py-1.5 text-[11px] text-amber-800">
+                      <span>
+                        بانتظار تأكيد الدفع من البوابة
+                        {activeIntent.providerRef
+                          ? ` — ${activeIntent.providerRef}`
+                          : ""}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={cancelGatewayCheckout}
+                        className="text-amber-900 underline"
+                      >
+                        إلغاء
+                      </button>
+                    </div>
+                  )}
+                  {gatewayStage === "settling" && (
+                    <div className="mt-2 rounded-md bg-emerald-50 px-2 py-1.5 text-[11px] text-emerald-800">
+                      تم استلام الدفع — جارٍ إصدار الفاتورة...
+                    </div>
+                  )}
+                  {gatewayStage === "failed" && (
+                    <div className="mt-2 rounded-md bg-red-50 px-2 py-1.5 text-[11px] text-red-800">
+                      فشل الدفع. اختر بوابة وحاول مجدّداً.
+                    </div>
+                  )}
+                </div>
+              )}
+
             {/* Action buttons */}
             <div className="flex flex-col gap-3 border-t border-neutral-200 bg-white p-4">
               <Button
                 onClick={handleCheckout}
-                disabled={cart.length === 0 || createOrder.isPending}
+                disabled={
+                  cart.length === 0 ||
+                  createOrder.isPending ||
+                  gatewayStage === "starting" ||
+                  gatewayStage === "awaiting" ||
+                  gatewayStage === "settling"
+                }
                 className="h-14 w-full gap-2 rounded-xl bg-[#2563EB] text-lg font-bold text-white shadow-lg shadow-blue-500/30 transition-all active:scale-95 hover:bg-[#1D4ED8] disabled:bg-neutral-300 disabled:shadow-none"
               >
                 <span>

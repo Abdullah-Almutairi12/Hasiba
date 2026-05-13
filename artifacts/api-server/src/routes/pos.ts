@@ -18,7 +18,7 @@ import { nextRef } from "../lib/sales-engine";
 import { buildZatcaQrBase64 } from "../lib/zatca-qr";
 import { processInvoiceForZatca } from "../lib/integrations/zatca-phase2";
 import { recordStockMove } from "../lib/stock-engine";
-import { eq, gte, sql, desc, inArray } from "drizzle-orm";
+import { eq, gte, sql, desc, inArray, and, isNull } from "drizzle-orm";
 import { CreatePosSessionBody, CreatePosOrderBody } from "@workspace/api-zod";
 import { posGuard, posReadGuard } from "../middlewares/require-role";
 import { postJournalEntry } from "../lib/journal-posting";
@@ -26,9 +26,14 @@ import {
   customerReceiptsTable,
   customerReceiptAllocationsTable,
   posOrderPaymentsTable,
+  paymentGatewaysTable,
+  paymentIntentsTable,
+  usersTable,
 } from "@workspace/db";
 import { checkFinancialLimit } from "../lib/workflow-engine";
 import { recordAudit } from "../lib/audit";
+import { z } from "zod";
+import { createCheckout } from "../lib/integrations/payments";
 
 const router = Router();
 
@@ -55,6 +60,183 @@ class FinancialLimitError extends Error {
     this.attempted = attempted;
   }
 }
+
+// =============================================================
+// Payment-gateway plumbing for the till. Lets the cashier pick any
+// enabled gateway, kick off a hosted checkout, poll its status,
+// and link the resulting payment_intent to the finalised pos_order
+// so accounting + reporting reconcile cleanly.
+// =============================================================
+// Resolve the caller's branchId from the users table. Owners/managers
+// (no branch assigned) see global + every branch's gateways; cashiers
+// see only their own branch + global (branchId IS NULL) gateways.
+async function getCallerBranchId(userId: number): Promise<number | null> {
+  const [u] = await db
+    .select({ branchId: usersTable.branchId })
+    .from(usersTable)
+    .where(eq(usersTable.id, userId))
+    .limit(1);
+  return u?.branchId ?? null;
+}
+
+router.get("/pos/payment-gateways", posReadGuard, async (req, res) => {
+  try {
+    const userId = req.session?.userId;
+    if (!userId) {
+      res.status(401).json({ error: "غير مصرّح" });
+      return;
+    }
+    const callerBranch = await getCallerBranchId(userId);
+    const role = (req.session as { role?: string } | undefined)?.role;
+    const isPrivileged = role === "owner" || role === "manager";
+    // Branch-scoped gateways visible to a cashier: their own branch +
+    // any global (NULL) gateway. Owners/managers see everything.
+    const where = isPrivileged
+      ? eq(paymentGatewaysTable.isEnabled, true)
+      : callerBranch === null
+      ? and(
+          eq(paymentGatewaysTable.isEnabled, true),
+          isNull(paymentGatewaysTable.branchId),
+        )
+      : and(
+          eq(paymentGatewaysTable.isEnabled, true),
+          sql`(${paymentGatewaysTable.branchId} = ${callerBranch} OR ${paymentGatewaysTable.branchId} IS NULL)`,
+        );
+    const rows = await db
+      .select({
+        id: paymentGatewaysTable.id,
+        provider: paymentGatewaysTable.provider,
+        displayName: paymentGatewaysTable.displayName,
+        environment: paymentGatewaysTable.environment,
+        branchId: paymentGatewaysTable.branchId,
+      })
+      .from(paymentGatewaysTable)
+      .where(where)
+      .orderBy(paymentGatewaysTable.provider);
+    res.json(rows);
+  } catch (err) {
+    req.log.error({ err }, "Error listing POS gateways");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+const PosCheckoutBody = z.object({
+  gatewayId: z.coerce.number().int().positive(),
+  amount: z.coerce.number().positive(),
+  description: z.string().min(1).max(200).optional(),
+  customerId: z.coerce.number().int().positive().optional(),
+  callbackUrl: z.string().url(),
+  cartRef: z.string().min(1).max(64).optional(),
+});
+
+router.post("/pos/payment/checkout", posGuard, async (req, res) => {
+  try {
+    const body = PosCheckoutBody.parse(req.body);
+    const userId = req.session?.userId;
+    if (!userId) {
+      res.status(401).json({ error: "غير مصرّح" });
+      return;
+    }
+    // Tenant guard: a cashier can only initiate charges through a
+    // gateway that belongs to their branch (or to a global config).
+    // Owners/managers bypass this since they manage every branch.
+    const [gw] = await db
+      .select({
+        id: paymentGatewaysTable.id,
+        branchId: paymentGatewaysTable.branchId,
+        isEnabled: paymentGatewaysTable.isEnabled,
+      })
+      .from(paymentGatewaysTable)
+      .where(eq(paymentGatewaysTable.id, body.gatewayId))
+      .limit(1);
+    if (!gw || !gw.isEnabled) {
+      res.status(404).json({ error: "بوابة الدفع غير متاحة" });
+      return;
+    }
+    const role = (req.session as { role?: string } | undefined)?.role;
+    const isPrivileged = role === "owner" || role === "manager";
+    if (!isPrivileged) {
+      const callerBranch = await getCallerBranchId(userId);
+      if (gw.branchId !== null && gw.branchId !== callerBranch) {
+        res.status(403).json({ error: "بوابة الدفع تخص فرعاً آخر" });
+        return;
+      }
+    }
+    const out = await createCheckout({
+      gatewayId: body.gatewayId,
+      amount: body.amount,
+      currency: "SAR",
+      description: body.description ?? `POS ${body.cartRef ?? "cart"}`,
+      customerId: body.customerId,
+      callbackUrl: body.callbackUrl,
+      metadata: { source: "pos", cartRef: body.cartRef ?? "" },
+    });
+    res.status(201).json(out);
+  } catch (err) {
+    req.log.warn({ err }, "POS gateway checkout failed");
+    const msg = err instanceof Error ? err.message : "تعذّر بدء الدفع";
+    res.status(400).json({ error: msg });
+  }
+});
+
+router.get("/pos/payment/intent/:id", posReadGuard, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      res.status(400).json({ error: "معرّف غير صالح" });
+      return;
+    }
+    const userId = req.session?.userId;
+    if (!userId) {
+      res.status(401).json({ error: "غير مصرّح" });
+      return;
+    }
+    // Read intent with its gateway's branchId so we can refuse to
+    // leak intent state across branches (would otherwise enable a
+    // cashier to discover/poll another branch's payments).
+    const [row] = await db
+      .select({
+        id: paymentIntentsTable.id,
+        status: paymentIntentsTable.status,
+        providerRef: paymentIntentsTable.providerRef,
+        checkoutUrl: paymentIntentsTable.checkoutUrl,
+        amount: paymentIntentsTable.amount,
+        gatewayId: paymentIntentsTable.gatewayId,
+        gatewayBranchId: paymentGatewaysTable.branchId,
+        posOrderId: paymentIntentsTable.posOrderId,
+        failureReason: paymentIntentsTable.failureReason,
+        updatedAt: paymentIntentsTable.updatedAt,
+      })
+      .from(paymentIntentsTable)
+      .leftJoin(
+        paymentGatewaysTable,
+        eq(paymentGatewaysTable.id, paymentIntentsTable.gatewayId),
+      )
+      .where(eq(paymentIntentsTable.id, id));
+    if (!row) {
+      res.status(404).json({ error: "لم يتم العثور على عملية الدفع" });
+      return;
+    }
+    const role = (req.session as { role?: string } | undefined)?.role;
+    const isPrivileged = role === "owner" || role === "manager";
+    if (!isPrivileged) {
+      const callerBranch = await getCallerBranchId(userId);
+      if (
+        row.gatewayBranchId !== null &&
+        row.gatewayBranchId !== callerBranch
+      ) {
+        res.status(404).json({ error: "لم يتم العثور على عملية الدفع" });
+        return;
+      }
+    }
+    const { gatewayBranchId: _omit, ...safe } = row;
+    void _omit;
+    res.json({ ...safe, amount: Number(row.amount) });
+  } catch (err) {
+    req.log.error({ err }, "Error fetching payment intent");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
 
 router.get("/pos/sessions", posReadGuard, async (req, res) => {
   try {
@@ -215,6 +397,8 @@ router.post(
 
     const discount = body.discount ?? 0;
     const orderNumber = `ORD-${Date.now()}`;
+    const paymentIntentId = (body as { paymentIntentId?: number | null })
+      .paymentIntentId ?? null;
 
     // Single transaction: product reads/stock decrements, order insert, session
     // update, and GL postings all succeed-or-rollback together. Any failure in
@@ -339,6 +523,89 @@ router.post(
 
       const tax = (subtotal - discount) * 0.15;
       const total = subtotal - discount + tax;
+      const EPS = 0.01;
+
+      // ===== Gateway intent validation (inside the txn) =====
+      // We validate amount + currency + status + uniqueness HERE — not
+      // in a pre-flight read — so the row is locked, the consumption
+      // is atomic, and an underpaying intent can never be bound to a
+      // higher-value order. The conditional UPDATE at link time
+      // guarantees only one POS order can ever consume a given intent.
+      let validatedIntent:
+        | (typeof paymentIntentsTable.$inferSelect)
+        | null = null;
+      if (paymentIntentId) {
+        const [pi] = await tx
+          .select()
+          .from(paymentIntentsTable)
+          .where(eq(paymentIntentsTable.id, paymentIntentId))
+          .for("update");
+        if (!pi) throw new ValidationError("عملية الدفع غير موجودة");
+        // Cross-branch IDOR guard: the intent's gateway must belong to
+        // the same branch as the POS session (or be a global gateway).
+        const [intentGw] = await tx
+          .select({ branchId: paymentGatewaysTable.branchId })
+          .from(paymentGatewaysTable)
+          .where(eq(paymentGatewaysTable.id, pi.gatewayId))
+          .limit(1);
+        if (
+          intentGw &&
+          intentGw.branchId !== null &&
+          intentGw.branchId !== session.branchId
+        ) {
+          throw new ValidationError("عملية الدفع تخص فرعاً آخر");
+        }
+        if (pi.status !== "captured" && pi.status !== "paid") {
+          throw new ValidationError(
+            `عملية الدفع لم تكتمل بعد (${pi.status})`,
+          );
+        }
+        if (pi.posOrderId) {
+          throw new ValidationError(
+            `هذه العملية مرتبطة بطلب ${pi.posOrderId} بالفعل`,
+          );
+        }
+        if ((pi.currency ?? "SAR").toUpperCase() !== "SAR") {
+          throw new ValidationError(
+            `عملة بوابة الدفع (${pi.currency}) لا تطابق عملة الفاتورة (SAR)`,
+          );
+        }
+        const intentAmount = Number(pi.amount);
+        if (Math.abs(intentAmount - total) > EPS) {
+          throw new ValidationError(
+            `قيمة الدفع (${intentAmount.toFixed(2)}) لا تساوي إجمالي الفاتورة (${total.toFixed(2)})`,
+          );
+        }
+        validatedIntent = pi;
+      }
+
+      // ===== Tender ↔ intent classification consistency =====
+      // If a gateway intent was attached, every tendered line must
+      // be a non-cash electronic settlement (card / transfer / stc),
+      // and the bank-side amount must equal the intent amount. This
+      // blocks a tampered client from binding a captured intent to a
+      // cash receipt and forcing the JE into the wrong account.
+      const checkTenderForIntent = (
+        rows: Array<{ method: string; amount: number }>,
+      ) => {
+        if (!paymentIntentId) return;
+        const allowed = new Set(["card", "transfer", "stc"]);
+        const bankSide = rows.filter((r) => allowed.has(r.method));
+        const cashOrDeferred = rows.filter(
+          (r) => r.method === "cash" || r.method === "deferred",
+        );
+        if (cashOrDeferred.length > 0) {
+          throw new ValidationError(
+            "لا يمكن إقران دفعة نقدية أو آجلة مع عملية بوابة دفع",
+          );
+        }
+        const settled = bankSide.reduce((a, r) => a + r.amount, 0);
+        if (Math.abs(settled - total) > EPS) {
+          throw new ValidationError(
+            `مجموع الدفعات الإلكترونية (${settled.toFixed(2)}) لا يطابق إجمالي الفاتورة (${total.toFixed(2)})`,
+          );
+        }
+      };
 
       // Resolve the tendered payments. The split-bill flow sends a
       // `payments[]` array (one row per method); the legacy single-method
@@ -346,7 +613,6 @@ router.post(
       // `tenderedPayments` list and validate the sum matches the order
       // total — refusing the sale rather than silently posting an
       // unbalanced receipt.
-      const EPS = 0.01;
       type Tender = { method: "cash" | "card" | "transfer" | "stc" | "deferred"; amount: number; reference?: string | null; payerName?: string | null };
       let tenderedPayments: Tender[];
       if (body.payments && body.payments.length > 0) {
@@ -367,6 +633,7 @@ router.post(
         if (!body.paymentMethod) throw new ValidationError("طريقة الدفع مطلوبة");
         tenderedPayments = [{ method: body.paymentMethod, amount: total, reference: null, payerName: null }];
       }
+      checkTenderForIntent(tenderedPayments);
       const isSplit = tenderedPayments.length > 1;
       const headerPaymentMethod = isSplit ? "split" : tenderedPayments[0].method;
       const settledTotalUpfront = +tenderedPayments
@@ -402,9 +669,34 @@ router.post(
           orderId: created.id,
           method: p.method,
           amount: String(p.amount),
-          reference: p.reference,
+          reference: p.reference ?? (validatedIntent && p.method !== "cash" && p.method !== "deferred"
+            ? validatedIntent.providerRef ?? `intent#${validatedIntent.id}`
+            : null),
           payerName: p.payerName,
         });
+      }
+
+      // Link the gateway intent back to this finalised POS order so
+      // ops/reporting can reconcile gateway captures ↔ POS sales.
+      // Conditional WHERE pos_order_id IS NULL guarantees that two
+      // concurrent sales can never both consume the same intent —
+      // exactly one will get the row, the other rolls back.
+      if (validatedIntent) {
+        const linked = await tx
+          .update(paymentIntentsTable)
+          .set({ posOrderId: created.id, updatedAt: new Date() })
+          .where(
+            and(
+              eq(paymentIntentsTable.id, validatedIntent.id),
+              isNull(paymentIntentsTable.posOrderId),
+            ),
+          )
+          .returning({ id: paymentIntentsTable.id });
+        if (linked.length === 0) {
+          throw new ValidationError(
+            "تم استهلاك عملية الدفع من قبل طلب آخر",
+          );
+        }
       }
 
       await tx

@@ -184,6 +184,11 @@ export const paymentIntentsTable = pgTable(
     // Cross-reference to the source document the customer is paying.
     invoiceId: integer("invoice_id").references(() => customerInvoicesTable.id),
     customerId: integer("customer_id").references(() => customersTable.id),
+    // POS order this intent settled (set after the cashier finalises
+    // the sale once the gateway confirms capture). No FK constraint
+    // to avoid a circular import with `pos.ts`; the value is purely
+    // a back-reference for ops/reporting.
+    posOrderId: integer("pos_order_id"),
     // Provider-side ID for reconciliation (e.g. moyasar payment id).
     providerRef: text("provider_ref"),
     amount: numeric("amount", { precision: 14, scale: 2 }).notNull(),

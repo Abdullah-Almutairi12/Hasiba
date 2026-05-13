@@ -827,11 +827,21 @@ export async function handleWebhook(args: {
 
   let ledgerEntryId: number | null = null;
   if (updated && verdict === "settled") {
-    try {
-      const r = await postPaymentReceiptToLedger(updated.id);
-      ledgerEntryId = r.entryId;
-    } catch {
-      ledgerEntryId = null;
+    // POS-sourced intents post their own (Dr Bank / Cr AR) entry
+    // when the cashier finalises the sale via /pos/orders. Skipping
+    // here avoids double-counting the bank receipt.
+    const [intentRow] = await db
+      .select({ metadata: paymentIntentsTable.metadata })
+      .from(paymentIntentsTable)
+      .where(eq(paymentIntentsTable.id, updated.id));
+    const metaSource = (intentRow?.metadata as Record<string, unknown> | null)?.["source"];
+    if (metaSource !== "pos") {
+      try {
+        const r = await postPaymentReceiptToLedger(updated.id);
+        ledgerEntryId = r.entryId;
+      } catch {
+        ledgerEntryId = null;
+      }
     }
   }
 

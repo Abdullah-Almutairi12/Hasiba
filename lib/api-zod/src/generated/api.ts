@@ -304,7 +304,7 @@ export const CreatePosOrderBody = zod.object({
     }),
   ),
   paymentMethod: zod
-    .enum(["cash", "card", "transfer"])
+    .enum(["cash", "card", "transfer", "stc", "deferred"])
     .optional()
     .describe(
       "Single payment method. Required if `payments` is omitted; ignored when `payments` is provided.",
@@ -324,6 +324,12 @@ export const CreatePosOrderBody = zod.object({
     ),
   discount: zod.number().optional(),
   customerId: zod.number().nullish(),
+  paymentIntentId: zod
+    .number()
+    .nullish()
+    .describe(
+      "Optional gateway payment_intent.id whose captured funds back this sale. The intent is linked back to the resulting pos_order on success.",
+    ),
 });
 
 /**

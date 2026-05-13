@@ -2453,7 +2453,7 @@ components:
             required: [productId, quantity]
         paymentMethod:
           type: string
-          enum: [cash, card, transfer]
+          enum: [cash, card, transfer, stc, deferred]
           description: Single payment method. Required if `payments` is omitted; ignored when `payments` is provided.
         payments:
           type: array
@@ -2465,6 +2465,10 @@ components:
         customerId:
           type: integer
           nullable: true
+        paymentIntentId:
+          type: integer
+          nullable: true
+          description: Optional gateway payment_intent.id whose captured funds back this sale. The intent is linked back to the resulting pos_order on success.
       required: [sessionId, items]
 
     PosSummary:
