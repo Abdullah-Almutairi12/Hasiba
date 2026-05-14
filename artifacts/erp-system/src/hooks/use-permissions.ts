@@ -90,6 +90,10 @@ export const NAV_PERMISSIONS: Record<string, readonly Role[]> = {
   admin: GROUPS.admin,
   hr: GROUPS.hrRead,
   manufacturing: GROUPS.productionRead,
+  // Approval inbox (طلبات الموافقة) — managers, owners, and accountants
+  // are the canonical approvers; auditors get read access. Everyone else
+  // accesses their own pending items via the bell icon instead.
+  approvals: ["owner", "manager", "accountant", "auditor"],
   settings: ALL_ROLES,
 };
 

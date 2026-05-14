@@ -34,6 +34,36 @@ import { checkFinancialLimit } from "../lib/workflow-engine";
 import { recordAudit } from "../lib/audit";
 import { z } from "zod";
 import { createCheckout } from "../lib/integrations/payments";
+import bcrypt from "bcryptjs";
+import rateLimit, { ipKeyGenerator } from "express-rate-limit";
+
+// Brute-force protection for inline manager dual-authorization on POS
+// orders. Keyed by (IP, attempted manager email) so a single station
+// cannot attempt more than 10 manager credentials per 15 minutes. We
+// skip entirely when no managerOverride payload is present so regular
+// POS traffic is not throttled.
+const posOverrideLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => {
+    const ip = ipKeyGenerator(req.ip ?? "");
+    const email = (
+      (req.body as { managerOverride?: { email?: unknown } } | undefined)
+        ?.managerOverride?.email
+    );
+    const emailKey =
+      typeof email === "string" ? email.toLowerCase().trim().slice(0, 254) : "";
+    return `pos-override:${ip}:${emailKey}`;
+  },
+  skip: (req) => {
+    const ov = (req.body as { managerOverride?: unknown } | undefined)
+      ?.managerOverride;
+    return !ov || typeof ov !== "object";
+  },
+  message: { error: "محاولات تجاوز كثيرة، حاول لاحقاً" },
+});
 
 const router = Router();
 
@@ -391,6 +421,7 @@ router.get("/pos/orders/:id", posReadGuard, async (req, res) => {
 router.post(
   "/pos/orders",
   posGuard,
+  posOverrideLimiter,
   async (req, res) => {
   try {
     const body = CreatePosOrderBody.parse(req.body);
@@ -399,6 +430,63 @@ router.post(
     const orderNumber = `ORD-${Date.now()}`;
     const paymentIntentId = (body as { paymentIntentId?: number | null })
       .paymentIntentId ?? null;
+
+    // ============ Manager dual-authorization (four-eyes) ============
+    // The cashier may attach { managerOverride: { email, password } } to
+    // exceed their per-role financial limit (discount %, refund cash) on
+    // this single transaction. We verify the credentials BEFORE the
+    // transaction starts, audit it, and use the manager's role for the
+    // limit check so cashiers can ring large discounts/refunds only when
+    // a manager is physically present and types their PIN.
+    const rawOverride = (req.body as { managerOverride?: { email?: unknown; password?: unknown; reason?: unknown } } | undefined)?.managerOverride;
+    let overrideRoleEffective: string | null = null;
+    let overrideUserId: number | null = null;
+    let overrideUserName: string | null = null;
+    let overrideReason: string | null = null;
+    if (rawOverride && typeof rawOverride.email === "string" && typeof rawOverride.password === "string") {
+      // Cap field sizes BEFORE any DB hit or bcrypt compare so an attacker
+      // can't waste CPU with multi-MB passwords or oversized emails.
+      const email = rawOverride.email.toLowerCase().trim().slice(0, 254);
+      const password = rawOverride.password.slice(0, 200);
+      if (!email || !password) {
+        res.status(401).json({ error: "بيانات المدير غير صحيحة" });
+        return;
+      }
+      const [mgr] = await db
+        .select()
+        .from(usersTable)
+        .where(eq(usersTable.email, email));
+      if (!mgr || !mgr.passwordHash || !mgr.isActive) {
+        res.status(401).json({ error: "بيانات المدير غير صحيحة" });
+        return;
+      }
+      if (mgr.role !== "manager" && mgr.role !== "owner") {
+        res.status(403).json({ error: "هذا المستخدم لا يملك صلاحية اعتماد التجاوز" });
+        return;
+      }
+      if (mgr.id === req.session?.userId) {
+        res.status(403).json({ error: "لا يمكنك اعتماد تجاوز لنفسك (مبدأ فصل المهام)" });
+        return;
+      }
+      const ok = await bcrypt.compare(password, mgr.passwordHash);
+      if (!ok) {
+        // Audit the failed attempt so brute-force shows up in the log.
+        void recordAudit(req, {
+          action: "override_failed",
+          entity: "pos_order",
+          details: `محاولة تجاوز فاشلة باسم ${email}`,
+        });
+        res.status(401).json({ error: "بيانات المدير غير صحيحة" });
+        return;
+      }
+      overrideRoleEffective = mgr.role;
+      overrideUserId = mgr.id;
+      overrideUserName = mgr.name;
+      overrideReason = typeof rawOverride.reason === "string" ? rawOverride.reason.slice(0, 500) : null;
+      // Note: we record the success audit AFTER the transaction commits
+      // (below) so the audit row is linked to the actual orderNumber and
+      // we don't get phantom override approvals for orders that failed.
+    }
 
     // Single transaction: product reads/stock decrements, order insert, session
     // update, and GL postings all succeed-or-rollback together. Any failure in
@@ -489,8 +577,13 @@ router.post(
       //   pos.refund_amount — cashier=500, manager=5000, owner=∞
       // Returns at the POS are modeled as negative-quantity items; cash
       // given back beyond the items' positive subtotal is also a refund.
-      const role = (req.session as { role?: string } | undefined)?.role;
-      if (!role) throw new ValidationError("غير مصرّح");
+      const sessionRole = (req.session as { role?: string } | undefined)?.role;
+      if (!sessionRole) throw new ValidationError("غير مصرّح");
+      // If a valid manager override is attached, the financial-limit
+      // check runs against the manager's role (effectively granting the
+      // higher cap for this one transaction). Otherwise the cashier's
+      // own role is used.
+      const role = overrideRoleEffective ?? sessionRole;
       let positiveSubtotal = 0;
       let refundFromReturns = 0;
       for (const ln of orderItems) {
@@ -1013,6 +1106,17 @@ router.post(
       );
     });
 
+    // Now that the order is committed, record the override audit linked to
+    // the actual order id/number so forensic queries can trace who approved
+    // which transaction.
+    if (overrideUserId && overrideUserName) {
+      void recordAudit(req, {
+        action: "override",
+        entity: "pos_order",
+        details: `اعتماد ${overrideUserName} (#${overrideUserId}) لتجاوز حد الكاشير على الطلب ${orderNumber} (orderId=${result.order.id})${overrideReason ? " — " + overrideReason : ""}`,
+      });
+    }
+
     res.status(201).json({
       ...result.order,
       items: result.orderItems,
@@ -1033,11 +1137,15 @@ router.post(
         severity: "warning",
       });
       req.log.warn({ err }, "POS order rejected — financial limit exceeded");
+      // The UI uses requiresManagerApproval as the signal to pop the
+      // manager-PIN dialog; the cashier then retries with the same body
+      // plus { managerOverride: { email, password } }.
       res.status(403).json({
         error: err.message,
         actionKey: err.actionKey,
         max: err.max,
         attempted: err.attempted,
+        requiresManagerApproval: true,
       });
       return;
     }

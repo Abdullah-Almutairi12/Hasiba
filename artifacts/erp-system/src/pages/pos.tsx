@@ -257,10 +257,30 @@ export default function POS() {
     }
   };
 
+  // Manager dual-auth (PIN) dialog state. When the server rejects a
+  // discount/refund that exceeds the cashier's role cap, we stash the
+  // attempted submission here and pop a dialog asking for a manager
+  // email + password. On confirm we retry the same payload with an extra
+  // `managerOverride` field that the server validates server-side.
+  const [pinDialog, setPinDialog] = useState<{
+    actionKey: string;
+    max: number | null;
+    attempted: number;
+    error: string;
+    payments: SplitPayment[] | null;
+    successMethodLabel: string;
+    paymentIntentId: number | null;
+  } | null>(null);
+  const [pinEmail, setPinEmail] = useState("");
+  const [pinPassword, setPinPassword] = useState("");
+  const [pinReason, setPinReason] = useState("");
+  const [pinSubmitting, setPinSubmitting] = useState(false);
+
   const submitOrder = (
     payments: SplitPayment[] | null,
     successMethodLabel: string,
     paymentIntentId?: number | null,
+    managerOverride?: { email: string; password: string; reason?: string },
   ) => {
     if (!activeSession) {
       toast({ title: "لا يوجد جلسة بيع مفتوحة", variant: "destructive" });
@@ -294,10 +314,17 @@ export default function POS() {
               : paymentMethod) as "cash" | "card" | "stc",
           }),
       ...(paymentIntentId ? { paymentIntentId } : {}),
+      // Server validates these credentials inline and grants the manager's
+      // higher cap for this transaction only; we tag the audit row too.
+      ...(managerOverride
+        ? { managerOverride }
+        : {}),
+    } as CreatePosOrderBody & {
+      managerOverride?: { email: string; password: string; reason?: string };
     };
 
     createOrder.mutate(
-      { data },
+      { data: data as CreatePosOrderBody },
       {
         onSuccess: (resp) => {
           const order = resp as PosOrder & { invoiceNo?: string; uuid?: string };
@@ -318,12 +345,46 @@ export default function POS() {
           setDiscount(0);
           setSplitOpen(false);
           setSplitRows([]);
+          setPinDialog(null);
+          setPinEmail("");
+          setPinPassword("");
+          setPinReason("");
+          setPinSubmitting(false);
         },
         onError: (err) => {
           const e = err as {
-            response?: { data?: { error?: string } };
+            response?: {
+              status?: number;
+              data?: {
+                error?: string;
+                requiresManagerApproval?: boolean;
+                actionKey?: string;
+                max?: number | null;
+                attempted?: number;
+              };
+            };
             message?: string;
           };
+          setPinSubmitting(false);
+          // Server signals dual-auth requirement → pop the manager PIN
+          // dialog and stash the original args so we can retry with the
+          // same payload + manager creds.
+          if (
+            e?.response?.status === 403 &&
+            e?.response?.data?.requiresManagerApproval &&
+            !managerOverride
+          ) {
+            setPinDialog({
+              actionKey: e.response.data.actionKey ?? "pos.limit",
+              max: e.response.data.max ?? null,
+              attempted: e.response.data.attempted ?? 0,
+              error: e.response.data.error ?? "تجاوزت حدك المسموح",
+              payments,
+              successMethodLabel,
+              paymentIntentId: paymentIntentId ?? null,
+            });
+            return;
+          }
           toast({
             title: "تعذر إتمام الدفع",
             description:
@@ -332,6 +393,25 @@ export default function POS() {
           });
         },
       }
+    );
+  };
+
+  const confirmManagerOverride = () => {
+    if (!pinDialog) return;
+    if (!pinEmail.trim() || !pinPassword) {
+      toast({ title: "أدخل بريد المدير وكلمة المرور", variant: "destructive" });
+      return;
+    }
+    setPinSubmitting(true);
+    submitOrder(
+      pinDialog.payments,
+      pinDialog.successMethodLabel,
+      pinDialog.paymentIntentId,
+      {
+        email: pinEmail.trim(),
+        password: pinPassword,
+        reason: pinReason.trim() || undefined,
+      },
     );
   };
 
@@ -1370,6 +1450,91 @@ export default function POS() {
                 variant="outline"
                 onClick={() => setSplitOpen(false)}
                 disabled={createOrder.isPending}
+              >
+                إلغاء
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Manager dual-authorization (PIN) dialog */}
+        <Dialog
+          open={pinDialog !== null}
+          onOpenChange={(o) => {
+            if (!o) {
+              setPinDialog(null);
+              setPinEmail("");
+              setPinPassword("");
+              setPinReason("");
+              setPinSubmitting(false);
+            }
+          }}
+        >
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <ShieldCheck className="size-5 text-amber-500" />
+                موافقة المدير مطلوبة
+              </DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3 text-sm">
+              <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-amber-900 dark:bg-amber-900/30 dark:text-amber-100">
+                {pinDialog?.error}
+                {pinDialog?.max != null && (
+                  <div className="mt-1 text-[12px] opacity-80">
+                    حدّك المسموح: {pinDialog.max} — المحاولة:{" "}
+                    {pinDialog.attempted.toFixed(2)}
+                  </div>
+                )}
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="mgr-email">بريد المدير</Label>
+                <Input
+                  id="mgr-email"
+                  type="email"
+                  dir="ltr"
+                  value={pinEmail}
+                  onChange={(e) => setPinEmail(e.target.value)}
+                  placeholder="manager@example.com"
+                  autoComplete="off"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="mgr-password">كلمة مرور المدير</Label>
+                <Input
+                  id="mgr-password"
+                  type="password"
+                  value={pinPassword}
+                  onChange={(e) => setPinPassword(e.target.value)}
+                  autoComplete="off"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="mgr-reason">السبب (اختياري)</Label>
+                <Input
+                  id="mgr-reason"
+                  value={pinReason}
+                  onChange={(e) => setPinReason(e.target.value)}
+                  placeholder="مثلاً: خصم ولاء استثنائي للعميل"
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button
+                onClick={confirmManagerOverride}
+                disabled={pinSubmitting || !pinEmail.trim() || !pinPassword}
+              >
+                اعتماد التجاوز
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setPinDialog(null);
+                  setPinEmail("");
+                  setPinPassword("");
+                  setPinReason("");
+                }}
+                disabled={pinSubmitting}
               >
                 إلغاء
               </Button>
