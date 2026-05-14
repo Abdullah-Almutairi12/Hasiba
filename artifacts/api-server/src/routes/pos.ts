@@ -33,6 +33,7 @@ import {
 } from "@workspace/db";
 import { checkFinancialLimit, submitForApproval } from "../lib/workflow-engine";
 import { recordAudit } from "../lib/audit";
+import { evaluateAnomalies } from "../lib/anomaly-engine";
 import { z } from "zod";
 import { createCheckout } from "../lib/integrations/payments";
 import bcrypt from "bcryptjs";
@@ -1232,6 +1233,33 @@ router.post(
         entity: "pos_order",
         details: `اعتماد ${who} لتجاوز حد الكاشير على الطلب ${orderNumber} (orderId=${result.order.id})${overrideReason ? " — " + overrideReason : ""}`,
       });
+    }
+
+    // Anomaly detection: fire-and-forget signal evaluation for this
+    // order. Refund / void / discount / missing-customer events feed
+    // the rule engine, which fans out manager notifications when any
+    // sliding-window threshold is exceeded.
+    {
+      const actorId = req.session?.userId ?? null;
+      const actorName =
+        (req.session as { userName?: string } | undefined)?.userName ?? null;
+      const isRefund = result.orderItems.some((it) => (it.quantity ?? 0) < 0);
+      const isVoid = result.total === 0 && result.orderItems.length > 0;
+      const orderId = result.order.id;
+      const customerId = body.customerId ?? null;
+      const fire = (type: Parameters<typeof evaluateAnomalies>[0]["type"], extra: Record<string, unknown> = {}) =>
+        void evaluateAnomalies({
+          type,
+          actorId,
+          actorName,
+          refTable: "pos_orders",
+          refId: orderId,
+          payload: { orderNumber: result.order.orderNumber, customerId, ...extra },
+        });
+      if (isRefund) fire("pos.refund", { total: result.total });
+      if (isVoid) fire("pos.void");
+      if (discount > 0) fire("pos.discount", { discount, customerId });
+      if (!customerId) fire("pos.no_customer");
     }
 
     res.status(201).json({

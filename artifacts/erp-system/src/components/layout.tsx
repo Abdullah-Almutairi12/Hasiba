@@ -27,6 +27,7 @@ import {
   LogOut,
   Languages,
   User as UserIcon,
+  AlertTriangle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useTheme, type ThemeMode } from "@/hooks/use-theme";
@@ -95,6 +96,7 @@ const adminNavItems = [
   { key: "users", url: "/users", icon: Users },
   { key: "approvals", url: "/approvals", icon: CheckSquare },
   { key: "admin", url: "/admin", icon: ShieldCheck },
+  { key: "anomalies", url: "/anomalies", icon: AlertTriangle },
   { key: "settings", url: "/settings", icon: Settings },
 ] as const;
 

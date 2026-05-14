@@ -16,6 +16,7 @@ import { uploadBufferToPrivateObject } from "./storage";
 import { findOrCreateSupplier } from "./suppliers";
 import { recordAudit } from "../lib/audit";
 import { recordStockMove, getDefaultWarehouseId } from "../lib/stock-engine";
+import { evaluateAnomalies } from "../lib/anomaly-engine";
 
 // Postgres unique-violation SQLSTATE.
 // Drizzle wraps pg errors and may surface the original on `.cause`,
@@ -100,6 +101,22 @@ router.post("/invoices", financeGuard, async (req, res) => {
         confidence: null,
       })
       .returning();
+
+    // Anomaly hook: feed manual supplier-invoice creation into the
+    // engine so the after-hours rule also covers non-scan paths.
+    void evaluateAnomalies({
+      type: "invoice.created",
+      actorId: req.session?.userId ?? null,
+      actorName:
+        (req.session as { userName?: string } | undefined)?.userName ?? null,
+      refTable: "invoices",
+      refId: invoice?.id ?? null,
+      payload: {
+        invoiceNumber: invoice?.invoiceNumber,
+        supplierName: invoice?.supplierName,
+        amount: invoice ? Number(invoice.amount) : null,
+      },
+    });
 
     res.status(201).json({
       ...invoice,
@@ -728,6 +745,23 @@ router.post("/invoices/from-scan", supplierInvoiceAgent, async (req, res) => {
       details: `فاتورة رقم ${result.invoice.invoiceNumber} للمورد ${result.invoice.supplierName} بقيمة ${result.invoice.amount} (الوكيل الذكي)`,
       severity: result.invoice.status === "needs_review" ? "warning" : "info",
     });
+
+    // Anomaly hook: after-hours invoices land here, so the engine can
+    // raise an alert when a supplier invoice is committed at 02:00.
+    void evaluateAnomalies({
+      type: "invoice.created",
+      actorId: req.session?.userId ?? null,
+      actorName:
+        (req.session as { userName?: string } | undefined)?.userName ?? null,
+      refTable: "invoices",
+      refId: result.invoice.id,
+      payload: {
+        invoiceNumber: result.invoice.invoiceNumber,
+        supplierName: result.invoice.supplierName,
+        amount: result.invoice.amount,
+      },
+    });
+
     return res.json({ ok: true, ...result });
   } catch (err) {
     if (isUniqueViolation(err)) {

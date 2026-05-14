@@ -12,6 +12,7 @@ import { initHr } from "./lib/hr-init";
 import { initManufacturing } from "./lib/manufacturing-init";
 import { initWorkflow } from "./lib/workflow-init";
 import { initPos } from "./lib/pos-init";
+import { initAnomaly } from "./lib/anomaly-engine";
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 
@@ -30,6 +31,7 @@ const accountingReady = initAccounting()
   .then(() => initManufacturing())
   .then(() => initWorkflow())
   .then(() => initPos())
+  .then(() => initAnomaly())
   .catch((err) => {
     accountingInitError = err;
     logger.error({ err }, "Failed to initialize accounting/inventory/procurement subsystem");

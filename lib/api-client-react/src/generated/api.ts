@@ -27,6 +27,9 @@ import type {
   AiReportSummary,
   Alert,
   Announcement,
+  AnomalyEvent,
+  AnomalyRule,
+  AnomalyStats,
   ApprovalRequest,
   ApprovalRequestDetail,
   ApprovalRule,
@@ -105,6 +108,7 @@ import type {
   InvoiceStats,
   JournalEntry,
   JournalEntryDetail,
+  ListAnomalyEventsParams,
   ListApprovalRequestsParams,
   ListApproverCandidates200Item,
   ListAuditLogsParams,
@@ -142,6 +146,8 @@ import type {
   TrainAiModel200,
   TrainAllAiModels200,
   TrialBalance,
+  UpdateAnomalyEventBody,
+  UpdateAnomalyRuleBody,
   UpdateApprovalRule200,
   UpdateAutomationRule200,
   UpdateFeatureFlagBody,
@@ -6445,6 +6451,427 @@ export const useSetPermissionCell = <
 > => {
   return useMutation(getSetPermissionCellMutationOptions(options));
 };
+
+/**
+ * @summary List anomaly rules
+ */
+export const getListAnomalyRulesUrl = () => {
+  return `/api/anomalies/rules`;
+};
+
+export const listAnomalyRules = async (
+  options?: RequestInit,
+): Promise<AnomalyRule[]> => {
+  return customFetch<AnomalyRule[]>(getListAnomalyRulesUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListAnomalyRulesQueryKey = () => {
+  return [`/api/anomalies/rules`] as const;
+};
+
+export const getListAnomalyRulesQueryOptions = <
+  TData = Awaited<ReturnType<typeof listAnomalyRules>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listAnomalyRules>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListAnomalyRulesQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listAnomalyRules>>
+  > = ({ signal }) => listAnomalyRules({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listAnomalyRules>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListAnomalyRulesQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listAnomalyRules>>
+>;
+export type ListAnomalyRulesQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List anomaly rules
+ */
+
+export function useListAnomalyRules<
+  TData = Awaited<ReturnType<typeof listAnomalyRules>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listAnomalyRules>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListAnomalyRulesQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Update an anomaly rule
+ */
+export const getUpdateAnomalyRuleUrl = (key: string) => {
+  return `/api/anomalies/rules/${key}`;
+};
+
+export const updateAnomalyRule = async (
+  key: string,
+  updateAnomalyRuleBody: UpdateAnomalyRuleBody,
+  options?: RequestInit,
+): Promise<AnomalyRule> => {
+  return customFetch<AnomalyRule>(getUpdateAnomalyRuleUrl(key), {
+    ...options,
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(updateAnomalyRuleBody),
+  });
+};
+
+export const getUpdateAnomalyRuleMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateAnomalyRule>>,
+    TError,
+    { key: string; data: BodyType<UpdateAnomalyRuleBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateAnomalyRule>>,
+  TError,
+  { key: string; data: BodyType<UpdateAnomalyRuleBody> },
+  TContext
+> => {
+  const mutationKey = ["updateAnomalyRule"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateAnomalyRule>>,
+    { key: string; data: BodyType<UpdateAnomalyRuleBody> }
+  > = (props) => {
+    const { key, data } = props ?? {};
+
+    return updateAnomalyRule(key, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateAnomalyRuleMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updateAnomalyRule>>
+>;
+export type UpdateAnomalyRuleMutationBody = BodyType<UpdateAnomalyRuleBody>;
+export type UpdateAnomalyRuleMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Update an anomaly rule
+ */
+export const useUpdateAnomalyRule = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateAnomalyRule>>,
+    TError,
+    { key: string; data: BodyType<UpdateAnomalyRuleBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof updateAnomalyRule>>,
+  TError,
+  { key: string; data: BodyType<UpdateAnomalyRuleBody> },
+  TContext
+> => {
+  return useMutation(getUpdateAnomalyRuleMutationOptions(options));
+};
+
+/**
+ * @summary List anomaly events
+ */
+export const getListAnomalyEventsUrl = (params?: ListAnomalyEventsParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/anomalies/events?${stringifiedParams}`
+    : `/api/anomalies/events`;
+};
+
+export const listAnomalyEvents = async (
+  params?: ListAnomalyEventsParams,
+  options?: RequestInit,
+): Promise<AnomalyEvent[]> => {
+  return customFetch<AnomalyEvent[]>(getListAnomalyEventsUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListAnomalyEventsQueryKey = (
+  params?: ListAnomalyEventsParams,
+) => {
+  return [`/api/anomalies/events`, ...(params ? [params] : [])] as const;
+};
+
+export const getListAnomalyEventsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listAnomalyEvents>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListAnomalyEventsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listAnomalyEvents>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getListAnomalyEventsQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listAnomalyEvents>>
+  > = ({ signal }) => listAnomalyEvents(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listAnomalyEvents>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListAnomalyEventsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listAnomalyEvents>>
+>;
+export type ListAnomalyEventsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List anomaly events
+ */
+
+export function useListAnomalyEvents<
+  TData = Awaited<ReturnType<typeof listAnomalyEvents>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListAnomalyEventsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listAnomalyEvents>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListAnomalyEventsQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Acknowledge or dismiss an anomaly event
+ */
+export const getUpdateAnomalyEventUrl = (id: number) => {
+  return `/api/anomalies/events/${id}`;
+};
+
+export const updateAnomalyEvent = async (
+  id: number,
+  updateAnomalyEventBody: UpdateAnomalyEventBody,
+  options?: RequestInit,
+): Promise<AnomalyEvent> => {
+  return customFetch<AnomalyEvent>(getUpdateAnomalyEventUrl(id), {
+    ...options,
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(updateAnomalyEventBody),
+  });
+};
+
+export const getUpdateAnomalyEventMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateAnomalyEvent>>,
+    TError,
+    { id: number; data: BodyType<UpdateAnomalyEventBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateAnomalyEvent>>,
+  TError,
+  { id: number; data: BodyType<UpdateAnomalyEventBody> },
+  TContext
+> => {
+  const mutationKey = ["updateAnomalyEvent"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateAnomalyEvent>>,
+    { id: number; data: BodyType<UpdateAnomalyEventBody> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return updateAnomalyEvent(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateAnomalyEventMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updateAnomalyEvent>>
+>;
+export type UpdateAnomalyEventMutationBody = BodyType<UpdateAnomalyEventBody>;
+export type UpdateAnomalyEventMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Acknowledge or dismiss an anomaly event
+ */
+export const useUpdateAnomalyEvent = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateAnomalyEvent>>,
+    TError,
+    { id: number; data: BodyType<UpdateAnomalyEventBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof updateAnomalyEvent>>,
+  TError,
+  { id: number; data: BodyType<UpdateAnomalyEventBody> },
+  TContext
+> => {
+  return useMutation(getUpdateAnomalyEventMutationOptions(options));
+};
+
+/**
+ * @summary Aggregate counters for the anomaly dashboard
+ */
+export const getGetAnomalyStatsUrl = () => {
+  return `/api/anomalies/stats`;
+};
+
+export const getAnomalyStats = async (
+  options?: RequestInit,
+): Promise<AnomalyStats> => {
+  return customFetch<AnomalyStats>(getGetAnomalyStatsUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetAnomalyStatsQueryKey = () => {
+  return [`/api/anomalies/stats`] as const;
+};
+
+export const getGetAnomalyStatsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getAnomalyStats>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getAnomalyStats>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetAnomalyStatsQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getAnomalyStats>>> = ({
+    signal,
+  }) => getAnomalyStats({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getAnomalyStats>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetAnomalyStatsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getAnomalyStats>>
+>;
+export type GetAnomalyStatsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Aggregate counters for the anomaly dashboard
+ */
+
+export function useGetAnomalyStats<
+  TData = Awaited<ReturnType<typeof getAnomalyStats>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getAnomalyStats>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetAnomalyStatsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
 
 /**
  * @summary Active announcements visible to any logged-in user

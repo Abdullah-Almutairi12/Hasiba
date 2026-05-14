@@ -15,6 +15,8 @@ import {
   useListPermissionMatrix,
   useSetPermissionCell,
   useListAuditLogs,
+  useListAnomalyEvents,
+  useUpdateAnomalyEvent,
   useListAiModels,
   useTrainAiModel,
   useTrainAllAiModels,
@@ -146,6 +148,15 @@ function OverviewTab() {
   const { data: stats } = useGetAdminStats();
   const { data: health } = useGetAdminSystemHealth();
   const { data: announcements } = useListAnnouncements();
+  const { data: anomalies } = useListAnomalyEvents({ status: "open", limit: 5 });
+  const queryClient = useQueryClient();
+  const ackAnomaly = useUpdateAnomalyEvent({
+    mutation: {
+      onSuccess: () => {
+        void queryClient.invalidateQueries({ queryKey: ["/api/anomalies/events"] });
+      },
+    },
+  });
 
   return (
     <div className="space-y-6">
@@ -224,6 +235,57 @@ function OverviewTab() {
                 {health?.nodeVersion}
               </span>
             </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <AlertTriangle className="size-4 text-destructive" />
+              تنبيهات نشطة (سلوك شاذ)
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            {anomalies && anomalies.length > 0 ? (
+              anomalies.map((a) => (
+                <div
+                  key={a.id}
+                  className="rounded-lg border bg-card p-3 flex items-start justify-between gap-2"
+                  data-testid={`admin-anomaly-${a.id}`}
+                >
+                  <div className="min-w-0">
+                    <div className="font-bold flex items-center gap-2">
+                      {a.ruleName}
+                      <Badge
+                        variant={
+                          a.severity === "critical" || a.severity === "high"
+                            ? "destructive"
+                            : "secondary"
+                        }
+                      >
+                        {a.severity}
+                      </Badge>
+                    </div>
+                    <p className="mt-1 line-clamp-1 text-xs text-muted-foreground">
+                      {a.actorName ?? "—"} • {new Date(a.createdAt).toLocaleString("ar-SA")}
+                    </p>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="default"
+                    onClick={() =>
+                      ackAnomaly.mutate({ id: a.id, data: { status: "acknowledged" } })
+                    }
+                    disabled={ackAnomaly.isPending}
+                    data-testid={`admin-ack-anomaly-${a.id}`}
+                  >
+                    إقرار
+                  </Button>
+                </div>
+              ))
+            ) : (
+              <p className="text-muted-foreground">لا توجد تنبيهات مفتوحة.</p>
+            )}
           </CardContent>
         </Card>
 

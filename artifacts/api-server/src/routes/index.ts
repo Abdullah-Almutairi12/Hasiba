@@ -30,6 +30,7 @@ import hrRouter, { hrPublicRouter } from "./hr";
 import manufacturingRouter from "./manufacturing";
 import workflowRouter from "./workflow";
 import integrationsRouter, { integrationsPublicRouter } from "./integrations";
+import anomaliesRouter from "./anomalies";
 import { requireAuth } from "../middlewares/require-auth";
 
 const router: IRouter = Router();
@@ -74,5 +75,6 @@ router.use(hrRouter);
 router.use(manufacturingRouter);
 router.use(workflowRouter);
 router.use(integrationsRouter);
+router.use(anomaliesRouter);
 
 export default router;

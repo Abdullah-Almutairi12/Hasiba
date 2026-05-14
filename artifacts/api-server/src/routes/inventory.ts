@@ -26,6 +26,7 @@ import {
   getOrCreateLot,
   completeTransfer,
 } from "../lib/stock-engine";
+import { evaluateAnomalies } from "../lib/anomaly-engine";
 
 const router = Router();
 
@@ -213,6 +214,28 @@ router.post("/inventory/moves", inventoryGuard, async (req, res) => {
         createdBy: req.session?.userId ?? null,
       });
     });
+
+    // Anomaly hook: only manual *adjustments* (not receipts/issues from
+    // POs / sales) feed the unusual_stock_adjust rule. This is the
+    // single place where direct stock surgery happens in the system.
+    if (body.kind === "adjustment_in" || body.kind === "adjustment_out") {
+      void evaluateAnomalies({
+        type: "stock.adjust",
+        actorId: req.session?.userId ?? null,
+        actorName:
+          (req.session as { userName?: string } | undefined)?.userName ?? null,
+        refTable: "stock_moves",
+        refId: null,
+        payload: {
+          productId: body.productId,
+          warehouseId: body.warehouseId,
+          quantity: body.quantity,
+          direction: body.kind,
+          notes: body.notes ?? null,
+        },
+      });
+    }
+
     res.status(201).json(result);
   } catch (err) {
     const msg = err instanceof Error ? err.message : "تعذر تسجيل الحركة";

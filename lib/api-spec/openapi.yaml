@@ -1396,6 +1396,115 @@ paths:
               schema:
                 $ref: "#/components/schemas/PermissionMatrix"
 
+  /anomalies/rules:
+    get:
+      tags: [anomalies]
+      summary: List anomaly rules
+      operationId: listAnomalyRules
+      responses:
+        "200":
+          description: Rules
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AnomalyRule"
+
+  /anomalies/rules/{key}:
+    patch:
+      tags: [anomalies]
+      summary: Update an anomaly rule
+      operationId: updateAnomalyRule
+      parameters:
+        - name: key
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                windowMinutes: { type: integer, minimum: 1 }
+                threshold: { type: integer, minimum: 1 }
+                severity: { type: string, enum: [low, medium, high, critical] }
+                isEnabled: { type: boolean }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AnomalyRule"
+
+  /anomalies/events:
+    get:
+      tags: [anomalies]
+      summary: List anomaly events
+      operationId: listAnomalyEvents
+      parameters:
+        - name: status
+          in: query
+          schema: { type: string, enum: [open, acknowledged, dismissed] }
+        - name: severity
+          in: query
+          schema: { type: string, enum: [low, medium, high, critical] }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 500 }
+      responses:
+        "200":
+          description: Events
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AnomalyEvent"
+
+  /anomalies/events/{id}:
+    patch:
+      tags: [anomalies]
+      summary: Acknowledge or dismiss an anomaly event
+      operationId: updateAnomalyEvent
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status: { type: string, enum: [acknowledged, dismissed] }
+              required: [status]
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AnomalyEvent"
+
+  /anomalies/stats:
+    get:
+      tags: [anomalies]
+      summary: Aggregate counters for the anomaly dashboard
+      operationId: getAnomalyStats
+      responses:
+        "200":
+          description: Stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AnomalyStats"
+
   /admin/active-announcements:
     get:
       tags: [admin]
@@ -3535,6 +3644,51 @@ components:
         lastError: { type: string, nullable: true }
         updatedAt: { type: string }
       required: [id, key, name, category, status, accuracy, trainingSize, updatedAt]
+
+    AnomalyRule:
+      type: object
+      properties:
+        id: { type: integer }
+        ruleKey: { type: string }
+        name: { type: string }
+        description: { type: string, nullable: true }
+        eventType: { type: string }
+        windowMinutes: { type: integer }
+        threshold: { type: integer }
+        severity: { type: string }
+        isEnabled: { type: boolean }
+        updatedAt: { type: string }
+      required: [id, ruleKey, name, eventType, windowMinutes, threshold, severity, isEnabled, updatedAt]
+
+    AnomalyEvent:
+      type: object
+      properties:
+        id: { type: integer }
+        ruleKey: { type: string }
+        ruleName: { type: string }
+        actorId: { type: integer, nullable: true }
+        actorName: { type: string, nullable: true }
+        refTable: { type: string, nullable: true }
+        refId: { type: integer, nullable: true }
+        payload:
+          type: object
+          additionalProperties: true
+          nullable: true
+        severity: { type: string }
+        status: { type: string }
+        createdAt: { type: string }
+        acknowledgedAt: { type: string, nullable: true }
+        acknowledgedByName: { type: string, nullable: true }
+      required: [id, ruleKey, ruleName, severity, status, createdAt]
+
+    AnomalyStats:
+      type: object
+      properties:
+        openCount: { type: integer }
+        criticalOpen: { type: integer }
+        last24h: { type: integer }
+        total: { type: integer }
+      required: [openCount, criticalOpen, last24h, total]
 
     Supplier:
       type: object

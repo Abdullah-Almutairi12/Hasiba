@@ -1477,6 +1477,121 @@ export const SetPermissionCellResponse = zod.object({
 });
 
 /**
+ * @summary List anomaly rules
+ */
+export const ListAnomalyRulesResponseItem = zod.object({
+  id: zod.number(),
+  ruleKey: zod.string(),
+  name: zod.string(),
+  description: zod.string().nullish(),
+  eventType: zod.string(),
+  windowMinutes: zod.number(),
+  threshold: zod.number(),
+  severity: zod.string(),
+  isEnabled: zod.boolean(),
+  updatedAt: zod.string(),
+});
+export const ListAnomalyRulesResponse = zod.array(ListAnomalyRulesResponseItem);
+
+/**
+ * @summary Update an anomaly rule
+ */
+export const UpdateAnomalyRuleParams = zod.object({
+  key: zod.coerce.string(),
+});
+
+export const UpdateAnomalyRuleBody = zod.object({
+  windowMinutes: zod.number().min(1).optional(),
+  threshold: zod.number().min(1).optional(),
+  severity: zod.enum(["low", "medium", "high", "critical"]).optional(),
+  isEnabled: zod.boolean().optional(),
+});
+
+export const UpdateAnomalyRuleResponse = zod.object({
+  id: zod.number(),
+  ruleKey: zod.string(),
+  name: zod.string(),
+  description: zod.string().nullish(),
+  eventType: zod.string(),
+  windowMinutes: zod.number(),
+  threshold: zod.number(),
+  severity: zod.string(),
+  isEnabled: zod.boolean(),
+  updatedAt: zod.string(),
+});
+
+/**
+ * @summary List anomaly events
+ */
+export const listAnomalyEventsQueryLimitMax = 500;
+
+export const ListAnomalyEventsQueryParams = zod.object({
+  status: zod.enum(["open", "acknowledged", "dismissed"]).optional(),
+  severity: zod.enum(["low", "medium", "high", "critical"]).optional(),
+  limit: zod.coerce
+    .number()
+    .min(1)
+    .max(listAnomalyEventsQueryLimitMax)
+    .optional(),
+});
+
+export const ListAnomalyEventsResponseItem = zod.object({
+  id: zod.number(),
+  ruleKey: zod.string(),
+  ruleName: zod.string(),
+  actorId: zod.number().nullish(),
+  actorName: zod.string().nullish(),
+  refTable: zod.string().nullish(),
+  refId: zod.number().nullish(),
+  payload: zod.record(zod.string(), zod.unknown()).nullish(),
+  severity: zod.string(),
+  status: zod.string(),
+  createdAt: zod.string(),
+  acknowledgedAt: zod.string().nullish(),
+  acknowledgedByName: zod.string().nullish(),
+});
+export const ListAnomalyEventsResponse = zod.array(
+  ListAnomalyEventsResponseItem,
+);
+
+/**
+ * @summary Acknowledge or dismiss an anomaly event
+ */
+export const UpdateAnomalyEventParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const UpdateAnomalyEventBody = zod.object({
+  status: zod.enum(["acknowledged", "dismissed"]),
+});
+
+export const UpdateAnomalyEventResponse = zod.object({
+  id: zod.number(),
+  ruleKey: zod.string(),
+  ruleName: zod.string(),
+  actorId: zod.number().nullish(),
+  actorName: zod.string().nullish(),
+  refTable: zod.string().nullish(),
+  refId: zod.number().nullish(),
+  payload: zod.record(zod.string(), zod.unknown()).nullish(),
+  severity: zod.string(),
+  status: zod.string(),
+  createdAt: zod.string(),
+  acknowledgedAt: zod.string().nullish(),
+  acknowledgedByName: zod.string().nullish(),
+});
+
+/**
+ * @summary Aggregate counters for the anomaly dashboard
+ */
+export const GetAnomalyStatsResponse = zod.object({
+  openCount: zod.number(),
+  criticalOpen: zod.number(),
+  last24h: zod.number(),
+  total: zod.number(),
+});
+
+/**
  * @summary Active announcements visible to any logged-in user
  */
 export const ListActiveAnnouncementsResponseItem = zod.object({

@@ -22,3 +22,4 @@ export * from "./manufacturing";
 export * from "./workflow";
 export * from "./integrations";
 export * from "./reporting";
+export * from "./anomaly";

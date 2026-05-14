@@ -23,6 +23,7 @@ import Settings from "@/pages/settings";
 import ProjectsPage from "@/pages/projects";
 import MarketingPage from "@/pages/marketing";
 import AdminPage from "@/pages/admin";
+import AnomaliesPage from "@/pages/anomalies";
 import InboxPage from "@/pages/inbox";
 import TransfersPage from "@/pages/transfers";
 import StockTakePage from "@/pages/stocktake";
@@ -157,6 +158,9 @@ function Router() {
       </Route>
       <Route path="/admin">
         <Protected><AdminPage /></Protected>
+      </Route>
+      <Route path="/anomalies">
+        <Protected><AnomaliesPage /></Protected>
       </Route>
       <Route path="/inbox">
         <Protected><InboxPage /></Protected>

@@ -1198,6 +1198,44 @@ export interface AiModel {
   updatedAt: string;
 }
 
+export interface AnomalyRule {
+  id: number;
+  ruleKey: string;
+  name: string;
+  description?: string | null;
+  eventType: string;
+  windowMinutes: number;
+  threshold: number;
+  severity: string;
+  isEnabled: boolean;
+  updatedAt: string;
+}
+
+export type AnomalyEventPayload = { [key: string]: unknown } | null;
+
+export interface AnomalyEvent {
+  id: number;
+  ruleKey: string;
+  ruleName: string;
+  actorId?: number | null;
+  actorName?: string | null;
+  refTable?: string | null;
+  refId?: number | null;
+  payload?: AnomalyEventPayload;
+  severity: string;
+  status: string;
+  createdAt: string;
+  acknowledgedAt?: string | null;
+  acknowledgedByName?: string | null;
+}
+
+export interface AnomalyStats {
+  openCount: number;
+  criticalOpen: number;
+  last24h: number;
+  total: number;
+}
+
 export interface Supplier {
   id: number;
   name: string;
@@ -1378,6 +1416,66 @@ export type SetPermissionCellBody = {
   role: string;
   permissionKey: string;
   enabled: boolean;
+};
+
+export type UpdateAnomalyRuleBodySeverity =
+  (typeof UpdateAnomalyRuleBodySeverity)[keyof typeof UpdateAnomalyRuleBodySeverity];
+
+export const UpdateAnomalyRuleBodySeverity = {
+  low: "low",
+  medium: "medium",
+  high: "high",
+  critical: "critical",
+} as const;
+
+export type UpdateAnomalyRuleBody = {
+  /** @minimum 1 */
+  windowMinutes?: number;
+  /** @minimum 1 */
+  threshold?: number;
+  severity?: UpdateAnomalyRuleBodySeverity;
+  isEnabled?: boolean;
+};
+
+export type ListAnomalyEventsParams = {
+  status?: ListAnomalyEventsStatus;
+  severity?: ListAnomalyEventsSeverity;
+  /**
+   * @minimum 1
+   * @maximum 500
+   */
+  limit?: number;
+};
+
+export type ListAnomalyEventsStatus =
+  (typeof ListAnomalyEventsStatus)[keyof typeof ListAnomalyEventsStatus];
+
+export const ListAnomalyEventsStatus = {
+  open: "open",
+  acknowledged: "acknowledged",
+  dismissed: "dismissed",
+} as const;
+
+export type ListAnomalyEventsSeverity =
+  (typeof ListAnomalyEventsSeverity)[keyof typeof ListAnomalyEventsSeverity];
+
+export const ListAnomalyEventsSeverity = {
+  low: "low",
+  medium: "medium",
+  high: "high",
+  critical: "critical",
+} as const;
+
+export type UpdateAnomalyEventBodyStatus =
+  (typeof UpdateAnomalyEventBodyStatus)[keyof typeof UpdateAnomalyEventBodyStatus];
+
+export const UpdateAnomalyEventBodyStatus = {
+  acknowledged: "acknowledged",
+  dismissed: "dismissed",
+} as const;
+
+export type UpdateAnomalyEventBody = {
+  status: UpdateAnomalyEventBodyStatus;
 };
 
 export type TrainAiModel200 = {
