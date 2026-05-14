@@ -1,4 +1,8 @@
 import { useAuth } from "@/hooks/use-auth";
+import {
+  useListPermissionMatrix,
+  getListPermissionMatrixQueryKey,
+} from "@workspace/api-client-react";
 
 export type Role =
   | "owner"
@@ -104,6 +108,19 @@ export function useCurrentRole(): Role | null {
 
 export function usePermissions() {
   const role = useCurrentRole();
+  // The admin permission matrix is loaded best-effort. The endpoint is
+  // admin-only, so non-admin roles will get a 403 — we just ignore it and
+  // fall back to the static defaults. `staleTime` is generous because the
+  // matrix changes rarely (manual toggle in the admin UI).
+  const { data: matrix } = useListPermissionMatrix({
+    query: {
+      queryKey: getListPermissionMatrixQueryKey(),
+      staleTime: 60_000,
+      retry: false,
+      refetchOnWindowFocus: false,
+      enabled: !!role,
+    },
+  });
 
   function has(group: PermissionKey): boolean {
     if (!role) return false;
@@ -112,6 +129,16 @@ export function usePermissions() {
 
   function canSee(navKey: string): boolean {
     if (!role) return false;
+    // Honour the admin-defined override matrix when available. The matrix
+    // is the union of static defaults + per-cell overrides; an explicit
+    // `false` override removes nav access for that role × module pair, and
+    // an explicit `true` grants it.
+    if (matrix) {
+      const ov = matrix.overrides.find(
+        (o) => o.role === role && o.permissionKey === navKey,
+      );
+      if (ov) return ov.enabled;
+    }
     const allowed = NAV_PERMISSIONS[navKey];
     if (!allowed) return true;
     return allowed.includes(role);

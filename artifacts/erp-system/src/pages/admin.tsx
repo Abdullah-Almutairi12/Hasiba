@@ -12,6 +12,8 @@ import {
   useDeleteAnnouncement,
   useListFeatureFlags,
   useUpdateFeatureFlag,
+  useListPermissionMatrix,
+  useSetPermissionCell,
   useListAuditLogs,
   useListAiModels,
   useTrainAiModel,
@@ -710,6 +712,123 @@ function AnnouncementsTab() {
   );
 }
 
+function PermissionsMatrixTab() {
+  const { data: matrix, isLoading } = useListPermissionMatrix();
+  const setMut = useSetPermissionCell();
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  const ROLE_LABELS: Record<string, string> = {
+    owner: "المالك",
+    manager: "مدير",
+    accountant: "محاسب",
+    sales: "مبيعات",
+    cashier: "كاشير",
+    inventory: "مخزون",
+    marketing: "تسويق",
+    auditor: "مراجع",
+    hr: "موارد بشرية",
+    production: "إنتاج",
+  };
+  const KEY_LABELS: Record<string, string> = {
+    dashboard: "لوحة القيادة",
+    pos: "نقاط البيع",
+    products: "المنتجات",
+    invoices: "فواتير الموردين",
+    customers: "العملاء",
+    accounting: "المحاسبة",
+    reports: "التقارير",
+    reports_builder: "منشئ التقارير",
+    reports_saved: "التقارير المحفوظة",
+    my_dashboard: "لوحتي",
+    projects: "المشاريع",
+    marketing: "التسويق",
+    branches: "الفروع",
+    transfers: "التحويلات",
+    stocktake: "الجرد",
+    reorder: "إعادة الطلب",
+    procurement: "المشتريات",
+    sales: "المبيعات",
+    crm: "إدارة العملاء",
+    users: "المستخدمون",
+    admin: "لوحة الإدارة",
+    hr: "الموارد البشرية",
+    manufacturing: "التصنيع",
+    approvals: "الموافقات",
+    settings: "الإعدادات",
+  };
+
+  if (isLoading || !matrix) {
+    return <div className="text-sm text-muted-foreground">جارٍ التحميل…</div>;
+  }
+
+  const overrideMap = new Map<string, boolean>();
+  for (const o of matrix.overrides) overrideMap.set(`${o.role}::${o.permissionKey}`, o.enabled);
+
+  const isEnabled = (role: string, key: string) => {
+    const ov = overrideMap.get(`${role}::${key}`);
+    if (ov !== undefined) return ov;
+    return matrix.defaults[key]?.includes(role) ?? false;
+  };
+
+  const handleToggle = async (role: string, permissionKey: string, enabled: boolean) => {
+    await setMut.mutateAsync({ data: { role, permissionKey, enabled } });
+    toast({ title: enabled ? "تم تفعيل الصلاحية" : "تم إيقاف الصلاحية" });
+    queryClient.invalidateQueries({
+      predicate: (q) => {
+        const k = q.queryKey?.[0];
+        return typeof k === "string" && k.includes("/admin/permissions");
+      },
+    });
+  };
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">مصفوفة الصلاحيات حسب الدور</CardTitle>
+          <CardDescription>
+            فعّل أو أوقف وصول كل دور إلى كل وحدة. هذه الإعدادات تتحكم في رؤية القوائم
+            والصفحات. حماية كتابة العمليات الحساسة محفوظة على الخادم بشكل دائم.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="overflow-auto">
+          <table className="min-w-full text-sm">
+            <thead>
+              <tr className="border-b">
+                <th className="sticky right-0 bg-background p-2 text-right font-bold">الوحدة</th>
+                {matrix.roles.map((r) => (
+                  <th key={r} className="p-2 text-center font-medium text-muted-foreground whitespace-nowrap">
+                    {ROLE_LABELS[r] ?? r}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {matrix.permissionKeys.map((key) => (
+                <tr key={key} className="border-b hover:bg-muted/40">
+                  <td className="sticky right-0 bg-background p-2 font-medium whitespace-nowrap">
+                    {KEY_LABELS[key] ?? key}
+                  </td>
+                  {matrix.roles.map((role) => (
+                    <td key={role} className="p-2 text-center">
+                      <Switch
+                        checked={isEnabled(role, key)}
+                        onCheckedChange={(v) => handleToggle(role, key, v)}
+                        data-testid={`perm-${role}-${key}`}
+                      />
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 function FeatureFlagsTab() {
   const { data: flags } = useListFeatureFlags();
   const queryClient = useQueryClient();
@@ -1210,6 +1329,9 @@ export default function AdminPage() {
             <Megaphone className="me-2 size-4" />
             الإعلانات
           </TabsTrigger>
+          <TabsTrigger value="permissions" data-testid="tab-permissions">
+            مصفوفة الصلاحيات
+          </TabsTrigger>
           <TabsTrigger value="features" data-testid="tab-features">
             <ToggleRight className="me-2 size-4" />
             الميزات
@@ -1238,6 +1360,7 @@ export default function AdminPage() {
         <TabsContent value="overview"><OverviewTab /></TabsContent>
         <TabsContent value="tickets"><TicketsTab /></TabsContent>
         <TabsContent value="announcements"><AnnouncementsTab /></TabsContent>
+        <TabsContent value="permissions"><PermissionsMatrixTab /></TabsContent>
         <TabsContent value="features"><FeatureFlagsTab /></TabsContent>
         <TabsContent value="ai"><AiModelsTab /></TabsContent>
         <TabsContent value="assistant"><AssistantTab /></TabsContent>

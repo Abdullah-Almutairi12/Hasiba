@@ -120,6 +120,7 @@ import type {
   MarkAllInboxRead200,
   MarkInboxRead200,
   MatchBankStatementLineBody,
+  PermissionMatrix,
   PosOrder,
   PosSession,
   PosSummary,
@@ -134,6 +135,7 @@ import type {
   SalesChartPoint,
   SalesReport,
   SecurityChecklist,
+  SetPermissionCellBody,
   Supplier,
   SupportTicket,
   TopProduct,
@@ -6281,6 +6283,167 @@ export const useUpdateFeatureFlag = <
   TContext
 > => {
   return useMutation(getUpdateFeatureFlagMutationOptions(options));
+};
+
+/**
+ * @summary List permission matrix (defaults + overrides)
+ */
+export const getListPermissionMatrixUrl = () => {
+  return `/api/admin/permissions`;
+};
+
+export const listPermissionMatrix = async (
+  options?: RequestInit,
+): Promise<PermissionMatrix> => {
+  return customFetch<PermissionMatrix>(getListPermissionMatrixUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListPermissionMatrixQueryKey = () => {
+  return [`/api/admin/permissions`] as const;
+};
+
+export const getListPermissionMatrixQueryOptions = <
+  TData = Awaited<ReturnType<typeof listPermissionMatrix>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listPermissionMatrix>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListPermissionMatrixQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listPermissionMatrix>>
+  > = ({ signal }) => listPermissionMatrix({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listPermissionMatrix>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListPermissionMatrixQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listPermissionMatrix>>
+>;
+export type ListPermissionMatrixQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List permission matrix (defaults + overrides)
+ */
+
+export function useListPermissionMatrix<
+  TData = Awaited<ReturnType<typeof listPermissionMatrix>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listPermissionMatrix>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListPermissionMatrixQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Set a single (role, permissionKey) cell
+ */
+export const getSetPermissionCellUrl = () => {
+  return `/api/admin/permissions`;
+};
+
+export const setPermissionCell = async (
+  setPermissionCellBody: SetPermissionCellBody,
+  options?: RequestInit,
+): Promise<PermissionMatrix> => {
+  return customFetch<PermissionMatrix>(getSetPermissionCellUrl(), {
+    ...options,
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(setPermissionCellBody),
+  });
+};
+
+export const getSetPermissionCellMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof setPermissionCell>>,
+    TError,
+    { data: BodyType<SetPermissionCellBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof setPermissionCell>>,
+  TError,
+  { data: BodyType<SetPermissionCellBody> },
+  TContext
+> => {
+  const mutationKey = ["setPermissionCell"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof setPermissionCell>>,
+    { data: BodyType<SetPermissionCellBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return setPermissionCell(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type SetPermissionCellMutationResult = NonNullable<
+  Awaited<ReturnType<typeof setPermissionCell>>
+>;
+export type SetPermissionCellMutationBody = BodyType<SetPermissionCellBody>;
+export type SetPermissionCellMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Set a single (role, permissionKey) cell
+ */
+export const useSetPermissionCell = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof setPermissionCell>>,
+    TError,
+    { data: BodyType<SetPermissionCellBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof setPermissionCell>>,
+  TError,
+  { data: BodyType<SetPermissionCellBody> },
+  TContext
+> => {
+  return useMutation(getSetPermissionCellMutationOptions(options));
 };
 
 /**

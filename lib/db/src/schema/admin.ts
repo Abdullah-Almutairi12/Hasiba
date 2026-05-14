@@ -1,4 +1,4 @@
-import { pgTable, serial, text, timestamp, boolean, integer } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, timestamp, boolean, integer, uniqueIndex } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -51,3 +51,24 @@ export const featureFlagsTable = pgTable("feature_flags", {
 });
 
 export type FeatureFlag = typeof featureFlagsTable.$inferSelect;
+
+// Per-(role, navKey) UI override matrix. Default visibility is defined
+// statically in `artifacts/erp-system/src/hooks/use-permissions.ts`; rows
+// here let the system manager flip a specific role × module cell ON or OFF.
+// Server-side guards remain authoritative for write actions — this matrix
+// only governs which nav entries and read pages each role can see.
+export const permissionOverridesTable = pgTable(
+  "permission_overrides",
+  {
+    id: serial("id").primaryKey(),
+    role: text("role").notNull(),
+    permissionKey: text("permission_key").notNull(),
+    enabled: boolean("enabled").notNull(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("permission_overrides_role_key_unique").on(t.role, t.permissionKey),
+  ],
+);
+
+export type PermissionOverride = typeof permissionOverridesTable.$inferSelect;

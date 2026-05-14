@@ -1169,6 +1169,21 @@ export interface FeatureFlag {
   updatedAt: string;
 }
 
+export type PermissionMatrixDefaults = { [key: string]: string[] };
+
+export type PermissionMatrixOverridesItem = {
+  role: string;
+  permissionKey: string;
+  enabled: boolean;
+};
+
+export interface PermissionMatrix {
+  roles: string[];
+  permissionKeys: string[];
+  defaults: PermissionMatrixDefaults;
+  overrides: PermissionMatrixOverridesItem[];
+}
+
 export interface AiModel {
   id: number;
   key: string;
@@ -1357,6 +1372,12 @@ export type DeleteAnnouncement200 = {
 
 export type UpdateFeatureFlagBody = {
   isEnabled: boolean;
+};
+
+export type SetPermissionCellBody = {
+  role: string;
+  permissionKey: string;
+  enabled: boolean;
 };
 
 export type TrainAiModel200 = {

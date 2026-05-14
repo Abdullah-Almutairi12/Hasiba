@@ -1439,6 +1439,44 @@ export const UpdateFeatureFlagResponse = zod.object({
 });
 
 /**
+ * @summary List permission matrix (defaults + overrides)
+ */
+export const ListPermissionMatrixResponse = zod.object({
+  roles: zod.array(zod.string()),
+  permissionKeys: zod.array(zod.string()),
+  defaults: zod.record(zod.string(), zod.array(zod.string())),
+  overrides: zod.array(
+    zod.object({
+      role: zod.string(),
+      permissionKey: zod.string(),
+      enabled: zod.boolean(),
+    }),
+  ),
+});
+
+/**
+ * @summary Set a single (role, permissionKey) cell
+ */
+export const SetPermissionCellBody = zod.object({
+  role: zod.string(),
+  permissionKey: zod.string(),
+  enabled: zod.boolean(),
+});
+
+export const SetPermissionCellResponse = zod.object({
+  roles: zod.array(zod.string()),
+  permissionKeys: zod.array(zod.string()),
+  defaults: zod.record(zod.string(), zod.array(zod.string())),
+  overrides: zod.array(
+    zod.object({
+      role: zod.string(),
+      permissionKey: zod.string(),
+      enabled: zod.boolean(),
+    }),
+  ),
+});
+
+/**
  * @summary Active announcements visible to any logged-in user
  */
 export const ListActiveAnnouncementsResponseItem = zod.object({

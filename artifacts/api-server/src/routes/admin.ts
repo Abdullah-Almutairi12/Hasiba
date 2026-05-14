@@ -5,9 +5,14 @@ import {
   supportTicketsTable,
   announcementsTable,
   featureFlagsTable,
+  permissionOverridesTable,
   usersTable,
 } from "@workspace/db";
 import { eq, sql, desc, and, gt, or, isNull } from "drizzle-orm";
+import {
+  getPermissionMatrixPayload,
+  refreshPermissionOverridesCache,
+} from "../lib/permission-overrides";
 import { z } from "zod";
 import { adminGuard } from "../middlewares/require-role";
 
@@ -309,6 +314,44 @@ router.patch("/admin/feature-flags/:key", adminOnly, async (req, res) => {
     return res.json(serializeFlag(updated));
   } catch (err) {
     req.log.error({ err }, "Update feature flag failed");
+    return res.status(400).json({ error: "بيانات غير صحيحة" });
+  }
+});
+
+// ============== Permission matrix ==============
+router.get("/admin/permissions", adminOnly, async (req, res) => {
+  try {
+    const payload = await getPermissionMatrixPayload();
+    res.json(payload);
+  } catch (err) {
+    req.log.error({ err }, "List permission matrix failed");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+const SetPermissionBody = z.object({
+  role: z.string().min(1).max(64),
+  permissionKey: z.string().min(1).max(128),
+  enabled: z.boolean(),
+});
+
+router.put("/admin/permissions", adminOnly, async (req, res) => {
+  try {
+    const { role, permissionKey, enabled } = SetPermissionBody.parse(req.body);
+    // Atomic upsert against the (role, permission_key) unique index so
+    // concurrent admin toggles can never insert duplicate rows.
+    await db
+      .insert(permissionOverridesTable)
+      .values({ role, permissionKey, enabled })
+      .onConflictDoUpdate({
+        target: [permissionOverridesTable.role, permissionOverridesTable.permissionKey],
+        set: { enabled, updatedAt: new Date() },
+      });
+    await refreshPermissionOverridesCache();
+    const payload = await getPermissionMatrixPayload();
+    return res.json(payload);
+  } catch (err) {
+    req.log.error({ err }, "Set permission cell failed");
     return res.status(400).json({ error: "بيانات غير صحيحة" });
   }
 });
