@@ -22,6 +22,7 @@ import { useLanguage } from "@/hooks/use-language";
 import { usePermissions } from "@/hooks/use-permissions";
 import {
   ShoppingBag, Plus, FileText, ClipboardCheck, Truck, Wallet, FileCheck2, BarChart3,
+  Mail, Download,
 } from "lucide-react";
 
 interface Stats {
@@ -43,6 +44,7 @@ interface PO {
   status: string; orderDate: string; expectedDate: string | null;
   total: number; subtotal: number; vat: number;
   requiresApproval: boolean; approvedAt: string | null; createdAt: string;
+  sentToSupplierAt?: string | null; sentToSupplierEmail?: string | null;
 }
 
 interface PoLine {
@@ -52,6 +54,7 @@ interface PoLine {
 }
 
 interface PoDetail extends PO {
+  notes: string | null;
   lines: PoLine[];
   receipts: Array<{ id: number; reference: string; receivedAt: string; notes: string | null }>;
   invoices: Array<{ id: number; invoiceNumber: string; amount: number; status: string }>;
@@ -438,6 +441,26 @@ function PODetailDialog({ po, onClose }: { po: PO | null; onClose: () => void })
   });
 
   const canReceive = data && (data.status === "confirmed" || data.status === "partially_received");
+  const canSend = data && ["confirmed", "partially_received", "fully_received", "closed"].includes(data.status);
+
+  const send = useMutation({
+    mutationFn: () => apiPost(`/procurement/purchase-orders/${po!.id}/send`, {}),
+    onSuccess: (resp: { sentTo?: string; sentAt?: string }) => {
+      toast({
+        title: "تم إرسال أمر الشراء",
+        description: resp.sentTo ? `إلى ${resp.sentTo}` : undefined,
+      });
+      qc.invalidateQueries({ queryKey: [`/procurement/purchase-orders/${po!.id}`] });
+      qc.invalidateQueries({ queryKey: ["/procurement/purchase-orders"] });
+    },
+    onError: (err: Error) =>
+      toast({ title: "تعذر الإرسال", description: err.message, variant: "destructive" }),
+  });
+
+  const previewPdf = () => {
+    if (!po) return;
+    window.open(`/api/procurement/purchase-orders/${po.id}/pdf`, "_blank");
+  };
 
   return (
     <Dialog open={!!po} onOpenChange={(o) => !o && onClose()}>
@@ -453,6 +476,24 @@ function PODetailDialog({ po, onClose }: { po: PO | null; onClose: () => void })
               <div><span className="text-muted-foreground">التاريخ:</span> {data.orderDate}</div>
               <div><span className="text-muted-foreground">المتوقع:</span> {data.expectedDate ?? "—"}</div>
             </div>
+            {canSend && (
+              <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/40 p-3">
+                <Button variant="outline" size="sm" onClick={previewPdf} data-testid="button-preview-po-pdf">
+                  <Download className="me-1 size-4" />معاينة PDF
+                </Button>
+                <Button size="sm" onClick={() => send.mutate()} disabled={send.isPending}
+                  data-testid="button-send-po">
+                  <Mail className="me-1 size-4" />
+                  {data.sentToSupplierAt ? "إعادة الإرسال للمورد" : "إرسال للمورد"}
+                </Button>
+                {data.sentToSupplierAt && (
+                  <span className="text-xs text-muted-foreground">
+                    آخر إرسال: {new Date(data.sentToSupplierAt).toLocaleString("ar-SA")}
+                    {data.sentToSupplierEmail ? ` إلى ${data.sentToSupplierEmail}` : ""}
+                  </span>
+                )}
+              </div>
+            )}
             <Card>
               <CardHeader><CardTitle className="text-base">البنود</CardTitle></CardHeader>
               <CardContent>

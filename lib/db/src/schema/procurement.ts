@@ -102,6 +102,10 @@ export const purchaseOrdersTable = pgTable("purchase_orders", {
   requiresApproval: boolean("requires_approval").notNull().default(false),
   approvedBy: integer("approved_by").references(() => usersTable.id),
   approvedAt: timestamp("approved_at"),
+  // Stamped when the PO PDF is emailed out to the supplier so the UI can
+  // show "Sent on <date>" and prevent accidental double sends.
+  sentToSupplierAt: timestamp("sent_to_supplier_at"),
+  sentToSupplierEmail: text("sent_to_supplier_email"),
   createdBy: integer("created_by").references(() => usersTable.id),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });

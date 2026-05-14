@@ -39,6 +39,8 @@ import {
 } from "../lib/workflow-engine";
 import { logger } from "../lib/logger";
 import { sendMessage } from "../lib/integrations/messaging";
+import { sendMail, isMailerConfigured } from "../lib/mailer";
+import { buildPurchaseOrderPdf } from "../lib/pdf/purchase-order";
 
 const router = Router();
 
@@ -1099,6 +1101,167 @@ router.post("/procurement/purchase-orders/:id/close", async (req, res) => {
     return res.json({ ok: true });
   } catch (err) {
     req.log.error({ err }, "close PO failed");
+    respondError(res, err); return;
+  }
+});
+
+// =========================================================================
+// Send confirmed PO to supplier with bilingual PDF
+//   * Generates a bilingual (Arabic/English) PDF using pdfkit
+//   * Dispatches via the configured SMTP mailer with the PDF attached
+//   * Stamps sent_to_supplier_at + sent_to_supplier_email so the UI can
+//     show "Sent on <date>" and prevent accidental double-sends.
+//   * Also exposes a preview endpoint that just streams the PDF back so
+//     procurement staff can verify the document before emailing.
+// =========================================================================
+const SendPoBody = z.object({
+  to: z.string().email().optional(),
+  subject: z.string().optional(),
+  message: z.string().optional(),
+});
+
+async function loadPoForPdf(id: number) {
+  const [po] = await db.select().from(purchaseOrdersTable).where(eq(purchaseOrdersTable.id, id));
+  if (!po) throw httpErr(404, "أمر الشراء غير موجود");
+  const lines = await db
+    .select()
+    .from(purchaseOrderLinesTable)
+    .where(eq(purchaseOrderLinesTable.poId, id));
+  const [supplier] = await db
+    .select()
+    .from(suppliersTable)
+    .where(eq(suppliersTable.id, po.supplierId));
+  return {
+    po,
+    supplier,
+    pdfInput: {
+      reference: po.reference,
+      orderDate: po.orderDate,
+      expectedDate: po.expectedDate,
+      currencyCode: po.currencyCode,
+      subtotal: Number(po.subtotal),
+      vat: Number(po.vat),
+      total: Number(po.total),
+      notes: po.notes,
+      supplier: {
+        name: supplier?.name ?? po.supplierName,
+        email: supplier?.email ?? null,
+        phone: supplier?.phone ?? null,
+        address: supplier?.address ?? null,
+        vatNumber: supplier?.vatNumber ?? null,
+      },
+      lines: lines.map((l) => ({
+        description: l.description,
+        quantity: Number(l.quantity),
+        unitPrice: Number(l.unitPrice),
+        taxRate: Number(l.taxRate),
+        lineTotal: Number(l.lineTotal),
+      })),
+    },
+  };
+}
+
+router.get("/procurement/purchase-orders/:id/pdf", async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const { po, pdfInput } = await loadPoForPdf(id);
+    const buf = await buildPurchaseOrderPdf(pdfInput);
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader(
+      "Content-Disposition",
+      `inline; filename="PO-${po.reference}.pdf"`,
+    );
+    res.send(buf);
+  } catch (err) {
+    req.log.error({ err }, "PO pdf failed");
+    respondError(res, err); return;
+  }
+});
+
+router.post("/procurement/purchase-orders/:id/send", async (req, res) => {
+  let body: z.infer<typeof SendPoBody>;
+  try {
+    body = SendPoBody.parse(req.body ?? {});
+  } catch (err) {
+    if (err instanceof ZodError) { res.status(400).json({ error: "بيانات غير صالحة", details: err.issues }); return; }
+    res.status(400).json({ error: "Bad request" }); return;
+  }
+  try {
+    const id = Number(req.params.id);
+    const { po, supplier, pdfInput } = await loadPoForPdf(id);
+    // Only confirmed (or beyond) POs may be sent: a draft/pending document
+    // shouldn't be shared externally because terms aren't finalized yet.
+    const sendable = ["confirmed", "partially_received", "fully_received", "closed"];
+    if (!sendable.includes(po.status)) {
+      res.status(409).json({
+        error: `لا يمكن إرسال أمر شراء بحالة "${po.status}". يجب تأكيده أولاً.`,
+      });
+      return;
+    }
+    const recipient = body.to ?? supplier?.email ?? null;
+    if (!recipient) {
+      res.status(400).json({ error: "لا يوجد بريد إلكتروني للمورد" });
+      return;
+    }
+    const pdf = await buildPurchaseOrderPdf(pdfInput);
+    const subject = body.subject ?? `Purchase Order ${po.reference} / أمر شراء`;
+    const emailBody = body.message ?? [
+      `Dear ${supplier?.name ?? po.supplierName},`,
+      ``,
+      `Please find attached purchase order ${po.reference} for ${po.total} ${po.currencyCode}.`,
+      `Kindly confirm receipt and proceed with preparation.`,
+      ``,
+      `---`,
+      ``,
+      `السلام عليكم،`,
+      ``,
+      `نرفق لكم أمر الشراء رقم ${po.reference} بقيمة ${po.total} ${po.currencyCode}.`,
+      `يرجى تأكيد الاستلام والبدء بالتجهيز.`,
+      ``,
+      `مع التحية.`,
+    ].join("\n");
+
+    const dispatch = await sendMail({
+      to: recipient,
+      subject,
+      body: emailBody,
+      attachments: [{
+        filename: `PO-${po.reference}.pdf`,
+        content: pdf,
+        contentType: "application/pdf",
+      }],
+    });
+
+    if (!dispatch.sent) {
+      // Don't stamp sentAt when delivery actually failed — the user
+      // needs to know the supplier never received it.
+      res.status(502).json({
+        ok: false,
+        dispatched: false,
+        sentTo: recipient,
+        mailerConfigured: isMailerConfigured(),
+        reason: dispatch.reason,
+      });
+      return;
+    }
+
+    const now = new Date();
+    await db.update(purchaseOrdersTable)
+      .set({ sentToSupplierAt: now, sentToSupplierEmail: recipient })
+      .where(eq(purchaseOrdersTable.id, id));
+    void recordAudit(req, {
+      action: "send", entity: "purchase_order",
+      details: `${po.reference} → ${recipient}`,
+    });
+    res.json({
+      ok: true,
+      dispatched: true,
+      sentTo: recipient,
+      sentAt: now.toISOString(),
+      mailerConfigured: true,
+    });
+  } catch (err) {
+    req.log.error({ err }, "send PO failed");
     respondError(res, err); return;
   }
 });

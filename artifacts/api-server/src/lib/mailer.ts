@@ -1,10 +1,17 @@
 import nodemailer, { type Transporter } from "nodemailer";
 import { logger } from "./logger.js";
 
+export type MailAttachment = {
+  filename: string;
+  content: Buffer;
+  contentType?: string;
+};
+
 export type MailMessage = {
   to: string;
   subject: string;
   body: string;
+  attachments?: MailAttachment[];
 };
 
 export type MailDispatchResult =
@@ -52,6 +59,11 @@ export async function sendMail(msg: MailMessage): Promise<MailDispatchResult> {
       to: msg.to,
       subject: msg.subject,
       text: msg.body,
+      attachments: msg.attachments?.map((a) => ({
+        filename: a.filename,
+        content: a.content,
+        contentType: a.contentType,
+      })),
     });
     logger.info({ to: msg.to, messageId: info.messageId }, "mail.sent");
     return { sent: true, provider: "smtp", messageId: info.messageId };

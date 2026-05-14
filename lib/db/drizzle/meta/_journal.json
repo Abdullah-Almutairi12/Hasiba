@@ -43,6 +43,13 @@
       "when": 1779494400000,
       "tag": "0005_marketplace_inventory_item_id",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1779580800000,
+      "tag": "0006_po_sent_to_supplier",
+      "breakpoints": true
     }
   ]
 }

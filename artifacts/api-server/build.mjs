@@ -132,6 +132,17 @@ globalThis.__dirname = __bannerPath.dirname(globalThis.__filename);
   } catch (err) {
     console.warn("⚠ pdfkit font data copy skipped:", err?.message || err);
   }
+
+  // Bundle our own Arabic TTF font(s) next to the output so generated PDFs
+  // (purchase orders, etc.) can register them at runtime with pdfkit.
+  try {
+    const fontsSrc = path.resolve(artifactDir, "src/lib/pdf/fonts");
+    const fontsDest = path.resolve(distDir, "fonts");
+    await cp(fontsSrc, fontsDest, { recursive: true });
+    console.log(`✓ Copied PDF fonts → ${path.relative(artifactDir, fontsDest)}`);
+  } catch (err) {
+    console.warn("⚠ PDF font copy skipped:", err?.message || err);
+  }
 }
 
 buildAll().catch((err) => {
