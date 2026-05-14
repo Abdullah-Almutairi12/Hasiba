@@ -421,6 +421,14 @@ export async function actOnApproval(
     if (actingStep == null) {
       throw new Error("ليست لديك صلاحية اتخاذ إجراء على هذا الطلب");
     }
+    // Segregation of Duties: the user who submitted the request can never
+    // approve / reject / request changes on their own request — even if they
+    // happen to belong to an authorized approver role. This is the core of
+    // the four-eyes (دعم المراقبة الثنائية) principle. Commenting is still
+    // allowed above so the submitter can clarify.
+    if (isSubmitter) {
+      throw new Error("لا يمكنك اعتماد طلب قمت بإنشائه (مبدأ فصل المهام)");
+    }
   }
 
   await db.insert(approvalActionsTable).values({

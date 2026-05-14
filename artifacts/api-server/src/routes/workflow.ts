@@ -1,5 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
+import bcrypt from "bcryptjs";
+import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import {
   db,
   approvalRulesTable,
@@ -647,6 +649,80 @@ router.get("/workflow/approver-candidates", async (req, res) => {
     .where(eq(usersTable.isActive, true))
     .orderBy(asc(usersTable.name));
   res.json(rows);
+});
+
+// --------------------------------------------------------------------------
+// Manager PIN verification — used by POS for void/refund overrides and any
+// other on-site dual-authorization need. The cashier (or any non-manager
+// user) calls this endpoint with a manager's email + password; if the
+// supplied credentials match an active manager/owner user, we return 200
+// and an audit row is recorded. We deliberately do NOT create a session
+// for that user — the cashier remains logged in, and the override is
+// captured as an `overrideUserId` that the calling route can stamp onto
+// the underlying transaction.
+// --------------------------------------------------------------------------
+const VerifyPinBody = z.object({
+  email: z.string().email(),
+  password: z.string().min(1),
+  reason: z.string().trim().min(1).max(500).optional(),
+});
+
+// Hard rate-limit on this endpoint to defend against online brute-force
+// of manager/owner passwords. 10 attempts per 15 minutes per (IP, target
+// email). Authenticated only — the global requireAuth already gates this
+// router — so anonymous floods are not possible to begin with.
+const verifyPinLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => {
+    const ip = ipKeyGenerator(req.ip ?? "");
+    const email = typeof req.body?.email === "string" ? String(req.body.email).toLowerCase() : "";
+    return `verify-pin:${ip}:${email}`;
+  },
+  message: { error: "محاولات كثيرة. حاول مرة أخرى بعد قليل." },
+});
+
+router.post("/approvals/verify-pin", verifyPinLimiter, async (req, res) => {
+  if (!req.session?.userId) {
+    res.status(401).json({ error: "غير مصرح" });
+    return;
+  }
+  const parsed = VerifyPinBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "بيانات غير صالحة", details: parsed.error.issues });
+    return;
+  }
+  const { email, password, reason } = parsed.data;
+  const [user] = await db
+    .select()
+    .from(usersTable)
+    .where(eq(usersTable.email, email.toLowerCase().trim()));
+  if (!user || !user.passwordHash || !user.isActive) {
+    res.status(401).json({ error: "بيانات المدير غير صحيحة" });
+    return;
+  }
+  if (user.role !== "owner" && user.role !== "manager") {
+    res.status(403).json({ error: "هذا المستخدم لا يملك صلاحية اعتماد التجاوز" });
+    return;
+  }
+  // Self-override is forbidden — defeats the four-eyes principle.
+  if (user.id === req.session.userId) {
+    res.status(403).json({ error: "لا يمكنك اعتماد تجاوز لنفسك (مبدأ فصل المهام)" });
+    return;
+  }
+  const ok = await bcrypt.compare(password, user.passwordHash);
+  if (!ok) {
+    res.status(401).json({ error: "بيانات المدير غير صحيحة" });
+    return;
+  }
+  void recordAudit(req, {
+    action: "override",
+    entity: "approval_pin",
+    details: `معتمد بواسطة ${user.name} (${user.email})${reason ? " — " + reason : ""}`,
+  });
+  res.json({ ok: true, overrideUserId: user.id, overrideUserName: user.name });
 });
 
 export default router;

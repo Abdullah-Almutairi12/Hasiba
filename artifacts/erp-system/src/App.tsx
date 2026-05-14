@@ -161,6 +161,9 @@ function Router() {
       <Route path="/inbox">
         <Protected><InboxPage /></Protected>
       </Route>
+      <Route path="/approvals">
+        <Protected><InboxPage /></Protected>
+      </Route>
       <Route path="/settings">
         <Protected><Settings /></Protected>
       </Route>

@@ -393,6 +393,24 @@ router.post("/invoices/from-scan", supplierInvoiceAgent, async (req, res) => {
     if (!["confirmed", "partially_received", "fully_received"].includes(po.status)) {
       return res.status(409).json({ error: `لا يمكن مطابقة فاتورة مع أمر شراء بحالة "${po.status}".` });
     }
+    // Segregation of Duties: the user who created the purchase order
+    // cannot also be the one who books the matching supplier invoice.
+    // Otherwise the same person who decided WHAT to buy also decides we
+    // OWE for it — that's the classic fictitious-payable fraud path.
+    // No role escape (including owner): emergency overrides must go
+    // through the configured approval matrix, not bypass this guard.
+    {
+      const sessionUserId = req.session?.userId ?? null;
+      if (
+        sessionUserId != null &&
+        po.createdBy != null &&
+        sessionUserId === po.createdBy
+      ) {
+        return res.status(403).json({
+          error: "لا يمكن اعتماد فاتورة مورد على أمر شراء قمت بإنشائه (مبدأ فصل المهام). يجب على محاسب آخر تسجيل الفاتورة.",
+        });
+      }
+    }
     const linkedLineIds = body.items.map((it) => it.poLineId).filter((v): v is number => !!v);
     // 3-way match must be enforced: when a PO is linked, EVERY invoice
     // item must reference a PO line. A partial linkage would let the
