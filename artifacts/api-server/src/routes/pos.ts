@@ -30,7 +30,7 @@ import {
   paymentIntentsTable,
   usersTable,
 } from "@workspace/db";
-import { checkFinancialLimit } from "../lib/workflow-engine";
+import { checkFinancialLimit, submitForApproval } from "../lib/workflow-engine";
 import { recordAudit } from "../lib/audit";
 import { z } from "zod";
 import { createCheckout } from "../lib/integrations/payments";
@@ -1137,15 +1137,51 @@ router.post(
         severity: "warning",
       });
       req.log.warn({ err }, "POS order rejected — financial limit exceeded");
+
+      // Open a pending approval_request so the manager sees this in
+      // their inbox (the asynchronous "approve from inbox" path), in
+      // parallel to the synchronous manager-PIN override path the UI
+      // exposes via requiresManagerApproval. Either path can resolve
+      // the over-limit transaction. recordId is the POS session so
+      // submitForApproval's idempotency check dedupes repeated tries
+      // from the same till.
+      let pendingRequestId: number | undefined;
+      try {
+        const sess = req.session as
+          | { userId?: number; userName?: string }
+          | undefined;
+        const sessionIdRaw = (req.body as { sessionId?: unknown } | undefined)
+          ?.sessionId;
+        const sessionId = typeof sessionIdRaw === "number" ? sessionIdRaw : 0;
+        const result = await submitForApproval({
+          docType: "pos_over_limit",
+          recordId: sessionId,
+          recordRef: `POS session #${sessionId} — ${err.actionKey}`,
+          amount: err.attempted,
+          submittedByUserId: sess?.userId ?? null,
+          submittedByName: sess?.userName ?? null,
+          notes: `تجاوز ${err.actionKey} — المحاولة ${err.attempted.toFixed(
+            2,
+          )} والحد ${err.max ?? "—"}`,
+          forceRoles: ["manager", "owner"],
+          forceReason: "POS over-limit",
+        });
+        if (result.requestId) pendingRequestId = result.requestId;
+      } catch (subErr) {
+        req.log.warn({ err: subErr }, "failed to open pos_over_limit approval");
+      }
+
       // The UI uses requiresManagerApproval as the signal to pop the
       // manager-PIN dialog; the cashier then retries with the same body
-      // plus { managerOverride: { email, password } }.
+      // plus { managerOverride: { email, password } }. Alternatively a
+      // manager can approve the pendingRequestId from /approvals.
       res.status(403).json({
         error: err.message,
         actionKey: err.actionKey,
         max: err.max,
         attempted: err.attempted,
         requiresManagerApproval: true,
+        approvalRequestId: pendingRequestId ?? null,
       });
       return;
     }

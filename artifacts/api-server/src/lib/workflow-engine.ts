@@ -34,7 +34,8 @@ export type DocType =
   | "journal_entry"
   | "credit_note"
   | "credit_note_cancel"
-  | "payment_run";
+  | "payment_run"
+  | "pos_over_limit";
 
 type OnApproveHandler = (recordId: number, requestId: number) => Promise<void> | void;
 type OnRejectHandler = (recordId: number, requestId: number, reason: "rejected" | "changes_requested") => Promise<void> | void;
