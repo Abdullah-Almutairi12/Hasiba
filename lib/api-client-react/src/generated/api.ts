@@ -30,6 +30,8 @@ import type {
   AnomalyEvent,
   AnomalyRule,
   AnomalyStats,
+  AppSettings,
+  AppSettingsPatch,
   ApprovalRequest,
   ApprovalRequestDetail,
   ApprovalRule,
@@ -6289,6 +6291,167 @@ export const useUpdateFeatureFlag = <
   TContext
 > => {
   return useMutation(getUpdateFeatureFlagMutationOptions(options));
+};
+
+/**
+ * @summary Get app settings (any authenticated user; sensitive fields redacted for non-admins)
+ */
+export const getGetAppSettingsUrl = () => {
+  return `/api/settings`;
+};
+
+export const getAppSettings = async (
+  options?: RequestInit,
+): Promise<AppSettings> => {
+  return customFetch<AppSettings>(getGetAppSettingsUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetAppSettingsQueryKey = () => {
+  return [`/api/settings`] as const;
+};
+
+export const getGetAppSettingsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getAppSettings>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getAppSettings>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetAppSettingsQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getAppSettings>>> = ({
+    signal,
+  }) => getAppSettings({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getAppSettings>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetAppSettingsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getAppSettings>>
+>;
+export type GetAppSettingsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Get app settings (any authenticated user; sensitive fields redacted for non-admins)
+ */
+
+export function useGetAppSettings<
+  TData = Awaited<ReturnType<typeof getAppSettings>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getAppSettings>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetAppSettingsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Patch app settings (admin only)
+ */
+export const getPatchAppSettingsUrl = () => {
+  return `/api/settings`;
+};
+
+export const patchAppSettings = async (
+  appSettingsPatch: AppSettingsPatch,
+  options?: RequestInit,
+): Promise<AppSettings> => {
+  return customFetch<AppSettings>(getPatchAppSettingsUrl(), {
+    ...options,
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(appSettingsPatch),
+  });
+};
+
+export const getPatchAppSettingsMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof patchAppSettings>>,
+    TError,
+    { data: BodyType<AppSettingsPatch> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof patchAppSettings>>,
+  TError,
+  { data: BodyType<AppSettingsPatch> },
+  TContext
+> => {
+  const mutationKey = ["patchAppSettings"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof patchAppSettings>>,
+    { data: BodyType<AppSettingsPatch> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return patchAppSettings(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type PatchAppSettingsMutationResult = NonNullable<
+  Awaited<ReturnType<typeof patchAppSettings>>
+>;
+export type PatchAppSettingsMutationBody = BodyType<AppSettingsPatch>;
+export type PatchAppSettingsMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Patch app settings (admin only)
+ */
+export const usePatchAppSettings = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof patchAppSettings>>,
+    TError,
+    { data: BodyType<AppSettingsPatch> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof patchAppSettings>>,
+  TError,
+  { data: BodyType<AppSettingsPatch> },
+  TContext
+> => {
+  return useMutation(getPatchAppSettingsMutationOptions(options));
 };
 
 /**

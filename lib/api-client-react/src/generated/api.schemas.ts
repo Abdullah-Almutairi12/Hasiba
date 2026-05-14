@@ -1169,6 +1169,55 @@ export interface FeatureFlag {
   updatedAt: string;
 }
 
+export type AppSettingsCompany = { [key: string]: unknown };
+
+export type AppSettingsTax = { [key: string]: unknown };
+
+export type AppSettingsBranches = { [key: string]: unknown };
+
+export type AppSettingsPos = { [key: string]: unknown };
+
+export type AppSettingsPermissions = { [key: string]: unknown };
+
+export type AppSettingsAccounting = { [key: string]: unknown };
+
+export type AppSettingsIntegrations = { [key: string]: unknown };
+
+export interface AppSettings {
+  company: AppSettingsCompany;
+  tax: AppSettingsTax;
+  branches: AppSettingsBranches;
+  pos: AppSettingsPos;
+  permissions: AppSettingsPermissions;
+  accounting: AppSettingsAccounting;
+  integrations: AppSettingsIntegrations;
+  updatedAt: string;
+}
+
+export type AppSettingsPatchCompany = { [key: string]: unknown };
+
+export type AppSettingsPatchTax = { [key: string]: unknown };
+
+export type AppSettingsPatchBranches = { [key: string]: unknown };
+
+export type AppSettingsPatchPos = { [key: string]: unknown };
+
+export type AppSettingsPatchPermissions = { [key: string]: unknown };
+
+export type AppSettingsPatchAccounting = { [key: string]: unknown };
+
+export type AppSettingsPatchIntegrations = { [key: string]: unknown };
+
+export interface AppSettingsPatch {
+  company?: AppSettingsPatchCompany;
+  tax?: AppSettingsPatchTax;
+  branches?: AppSettingsPatchBranches;
+  pos?: AppSettingsPatchPos;
+  permissions?: AppSettingsPatchPermissions;
+  accounting?: AppSettingsPatchAccounting;
+  integrations?: AppSettingsPatchIntegrations;
+}
+
 export type PermissionMatrixDefaults = { [key: string]: string[] };
 
 export type PermissionMatrixOverridesItem = {

@@ -1439,6 +1439,44 @@ export const UpdateFeatureFlagResponse = zod.object({
 });
 
 /**
+ * @summary Get app settings (any authenticated user; sensitive fields redacted for non-admins)
+ */
+export const GetAppSettingsResponse = zod.object({
+  company: zod.record(zod.string(), zod.unknown()),
+  tax: zod.record(zod.string(), zod.unknown()),
+  branches: zod.record(zod.string(), zod.unknown()),
+  pos: zod.record(zod.string(), zod.unknown()),
+  permissions: zod.record(zod.string(), zod.unknown()),
+  accounting: zod.record(zod.string(), zod.unknown()),
+  integrations: zod.record(zod.string(), zod.unknown()),
+  updatedAt: zod.string(),
+});
+
+/**
+ * @summary Patch app settings (admin only)
+ */
+export const PatchAppSettingsBody = zod.object({
+  company: zod.record(zod.string(), zod.unknown()).optional(),
+  tax: zod.record(zod.string(), zod.unknown()).optional(),
+  branches: zod.record(zod.string(), zod.unknown()).optional(),
+  pos: zod.record(zod.string(), zod.unknown()).optional(),
+  permissions: zod.record(zod.string(), zod.unknown()).optional(),
+  accounting: zod.record(zod.string(), zod.unknown()).optional(),
+  integrations: zod.record(zod.string(), zod.unknown()).optional(),
+});
+
+export const PatchAppSettingsResponse = zod.object({
+  company: zod.record(zod.string(), zod.unknown()),
+  tax: zod.record(zod.string(), zod.unknown()),
+  branches: zod.record(zod.string(), zod.unknown()),
+  pos: zod.record(zod.string(), zod.unknown()),
+  permissions: zod.record(zod.string(), zod.unknown()),
+  accounting: zod.record(zod.string(), zod.unknown()),
+  integrations: zod.record(zod.string(), zod.unknown()),
+  updatedAt: zod.string(),
+});
+
+/**
  * @summary List permission matrix (defaults + overrides)
  */
 export const ListPermissionMatrixResponse = zod.object({

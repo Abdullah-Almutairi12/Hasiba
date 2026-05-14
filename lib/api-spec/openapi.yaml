@@ -1361,6 +1361,36 @@ paths:
               schema:
                 $ref: "#/components/schemas/FeatureFlag"
 
+  /settings:
+    get:
+      tags: [settings]
+      summary: Get app settings (any authenticated user; sensitive fields redacted for non-admins)
+      operationId: getAppSettings
+      responses:
+        "200":
+          description: Settings payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppSettings"
+    patch:
+      tags: [settings]
+      summary: Patch app settings (admin only)
+      operationId: patchAppSettings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AppSettingsPatch"
+      responses:
+        "200":
+          description: Updated settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppSettings"
+
   /admin/permissions:
     get:
       tags: [admin]
@@ -3603,6 +3633,31 @@ components:
         updatedAt:
           type: string
       required: [id, key, name, isEnabled, category, updatedAt]
+
+    AppSettings:
+      type: object
+      properties:
+        company: { type: object, additionalProperties: true }
+        tax: { type: object, additionalProperties: true }
+        branches: { type: object, additionalProperties: true }
+        pos: { type: object, additionalProperties: true }
+        permissions: { type: object, additionalProperties: true }
+        accounting: { type: object, additionalProperties: true }
+        integrations: { type: object, additionalProperties: true }
+        updatedAt: { type: string }
+      required: [company, tax, branches, pos, permissions, accounting, integrations, updatedAt]
+
+    AppSettingsPatch:
+      type: object
+      additionalProperties: false
+      properties:
+        company: { type: object, additionalProperties: true }
+        tax: { type: object, additionalProperties: true }
+        branches: { type: object, additionalProperties: true }
+        pos: { type: object, additionalProperties: true }
+        permissions: { type: object, additionalProperties: true }
+        accounting: { type: object, additionalProperties: true }
+        integrations: { type: object, additionalProperties: true }
 
     PermissionMatrix:
       type: object

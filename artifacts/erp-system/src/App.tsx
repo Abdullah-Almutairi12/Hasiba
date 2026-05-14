@@ -43,7 +43,7 @@ import { ErrorBoundary } from "@/components/error-boundary";
 
 const queryClient = new QueryClient();
 
-const DARK_ROUTES = new Set(["/", "/settings"]);
+const DARK_ROUTES = new Set(["/"]);
 
 function Protected({ children }: { children: React.ReactNode }) {
   return (
