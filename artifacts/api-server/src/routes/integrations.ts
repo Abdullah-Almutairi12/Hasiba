@@ -15,8 +15,12 @@ import {
   zatcaInvoicesTable,
   integrationCallsTable,
   customerInvoicesTable,
+  marketplaceConnectorsTable,
+  marketplaceProductMappingsTable,
+  marketplaceOrderImportsTable,
+  marketplaceSyncLogsTable,
 } from "@workspace/db";
-import { adminGuard, ownerOnly, requireRole } from "../middlewares/require-role";
+import { adminGuard, inventoryGuard, ownerOnly, requireRole } from "../middlewares/require-role";
 import { upsertCredential } from "../lib/integrations/credentials";
 import { encryptSecret } from "../lib/integrations/crypto";
 import { createCheckout, handleWebhook, refundIntent } from "../lib/integrations/payments";
@@ -986,6 +990,319 @@ router.post("/integrations/zatca/submit", requireRole("owner", "accountant"), as
     handle(res, err);
   }
 });
+
+// =============================================================
+// E-commerce marketplaces (Salla / Zid / Shopify)
+// =============================================================
+const MarketplacePlatform = z.enum(["salla", "zid", "shopify"]);
+
+const CreateConnectorBody = z.object({
+  platform: MarketplacePlatform,
+  displayName: z.string().min(2).max(80),
+  branchId: z.coerce.number().int().nullable().optional(),
+  storeUrl: z.string().url().nullable().optional(),
+  environment: z.enum(["sandbox", "production"]).default("production"),
+  defaultWarehouseId: z.coerce.number().int().nullable().optional(),
+  webhookSecret: z.string().min(8).max(200).nullable().optional(),
+  accessToken: z.string().min(4).max(500).nullable().optional(),
+  apiKey: z.string().min(4).max(500).nullable().optional(),
+});
+
+const UpdateConnectorBody = z.object({
+  displayName: z.string().min(2).max(80).optional(),
+  storeUrl: z.string().url().nullable().optional(),
+  environment: z.enum(["sandbox", "production"]).optional(),
+  defaultWarehouseId: z.coerce.number().int().nullable().optional(),
+  webhookSecret: z.string().min(8).max(200).nullable().optional(),
+  isEnabled: z.boolean().optional(),
+  accessToken: z.string().min(4).max(500).nullable().optional(),
+  apiKey: z.string().min(4).max(500).nullable().optional(),
+});
+
+router.get("/integrations/marketplaces", inventoryGuard, async (_req, res) => {
+  const rows = await db
+    .select()
+    .from(marketplaceConnectorsTable)
+    .orderBy(marketplaceConnectorsTable.platform, marketplaceConnectorsTable.displayName);
+  res.json(rows);
+});
+
+router.post("/integrations/marketplaces", adminGuard, async (req, res) => {
+  try {
+    const b = CreateConnectorBody.parse(req.body);
+    const [row] = await db
+      .insert(marketplaceConnectorsTable)
+      .values({
+        platform: b.platform,
+        displayName: b.displayName,
+        branchId: b.branchId ?? null,
+        storeUrl: b.storeUrl ?? null,
+        environment: b.environment,
+        defaultWarehouseId: b.defaultWarehouseId ?? null,
+        // Webhook signing secret is credential material — encrypt at rest.
+        webhookSecret: b.webhookSecret ? encryptSecret(b.webhookSecret) : null,
+      })
+      .returning();
+    if (b.accessToken || b.apiKey) {
+      const { credentialLabelForConnector } = await import("../lib/integrations/marketplaces");
+      await upsertCredential({
+        provider: b.platform,
+        branchId: b.branchId ?? null,
+        label: credentialLabelForConnector(row!.id),
+        environment: b.environment,
+        secret: { access_token: b.accessToken ?? null, api_key: b.apiKey ?? null },
+      });
+    }
+    res.status(201).json(row);
+  } catch (err) {
+    handle(res, err);
+  }
+});
+
+router.patch("/integrations/marketplaces/:id", adminGuard, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const b = UpdateConnectorBody.parse(req.body);
+    const [existing] = await db
+      .select()
+      .from(marketplaceConnectorsTable)
+      .where(eq(marketplaceConnectorsTable.id, id));
+    if (!existing) {
+      res.status(404).json({ error: "not_found" });
+      return;
+    }
+    const patch: Partial<typeof marketplaceConnectorsTable.$inferInsert> = {
+      updatedAt: new Date(),
+    };
+    if (b.displayName !== undefined) patch.displayName = b.displayName;
+    if (b.storeUrl !== undefined) patch.storeUrl = b.storeUrl;
+    if (b.environment !== undefined) patch.environment = b.environment;
+    if (b.defaultWarehouseId !== undefined) patch.defaultWarehouseId = b.defaultWarehouseId;
+    if (b.webhookSecret !== undefined) {
+      patch.webhookSecret = b.webhookSecret ? encryptSecret(b.webhookSecret) : null;
+    }
+    if (b.isEnabled !== undefined) patch.isEnabled = b.isEnabled;
+    const [row] = await db
+      .update(marketplaceConnectorsTable)
+      .set(patch)
+      .where(eq(marketplaceConnectorsTable.id, id))
+      .returning();
+    if (b.accessToken || b.apiKey) {
+      const { credentialLabelForConnector } = await import("../lib/integrations/marketplaces");
+      await upsertCredential({
+        provider: existing.platform,
+        branchId: existing.branchId,
+        label: credentialLabelForConnector(id),
+        environment: row!.environment === "production" ? "production" : "sandbox",
+        secret: { access_token: b.accessToken ?? null, api_key: b.apiKey ?? null },
+      });
+    }
+    res.json(row);
+  } catch (err) {
+    handle(res, err);
+  }
+});
+
+router.delete("/integrations/marketplaces/:id", adminGuard, async (req, res) => {
+  const id = Number(req.params.id);
+  await db.delete(marketplaceConnectorsTable).where(eq(marketplaceConnectorsTable.id, id));
+  res.json({ ok: true });
+});
+
+router.post(
+  "/integrations/marketplaces/:id/push-catalogue",
+  inventoryGuard,
+  async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const [c] = await db
+        .select()
+        .from(marketplaceConnectorsTable)
+        .where(eq(marketplaceConnectorsTable.id, id));
+      if (!c) {
+        res.status(404).json({ error: "not_found" });
+        return;
+      }
+      const productIds = z
+        .object({ productIds: z.array(z.coerce.number().int()).optional() })
+        .parse(req.body ?? {});
+      const { pushCatalogue } = await import("../lib/integrations/marketplaces");
+      const out = await pushCatalogue(c, productIds.productIds);
+      res.json(out);
+    } catch (err) {
+      handle(res, err);
+    }
+  },
+);
+
+router.post(
+  "/integrations/marketplaces/:id/sync-orders",
+  inventoryGuard,
+  async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const [c] = await db
+        .select()
+        .from(marketplaceConnectorsTable)
+        .where(eq(marketplaceConnectorsTable.id, id));
+      if (!c) {
+        res.status(404).json({ error: "not_found" });
+        return;
+      }
+      const { syncOrdersForConnector } = await import("../lib/integrations/marketplaces");
+      const out = await syncOrdersForConnector(c);
+      res.json(out);
+    } catch (err) {
+      handle(res, err);
+    }
+  },
+);
+
+router.get("/integrations/marketplaces/:id/logs", inventoryGuard, async (req, res) => {
+  const id = Number(req.params.id);
+  const rows = await db
+    .select()
+    .from(marketplaceSyncLogsTable)
+    .where(eq(marketplaceSyncLogsTable.connectorId, id))
+    .orderBy(desc(marketplaceSyncLogsTable.createdAt))
+    .limit(100);
+  res.json(rows);
+});
+
+router.get("/integrations/marketplaces/:id/mappings", inventoryGuard, async (req, res) => {
+  const id = Number(req.params.id);
+  const rows = await db
+    .select()
+    .from(marketplaceProductMappingsTable)
+    .where(eq(marketplaceProductMappingsTable.connectorId, id))
+    .orderBy(desc(marketplaceProductMappingsTable.lastPushedAt));
+  res.json(rows);
+});
+
+router.get("/integrations/marketplaces/:id/orders", inventoryGuard, async (req, res) => {
+  const id = Number(req.params.id);
+  const rows = await db
+    .select()
+    .from(marketplaceOrderImportsTable)
+    .where(eq(marketplaceOrderImportsTable.connectorId, id))
+    .orderBy(desc(marketplaceOrderImportsTable.createdAt))
+    .limit(100);
+  res.json(rows);
+});
+
+router.post(
+  "/integrations/marketplaces/:id/push-inventory",
+  inventoryGuard,
+  async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const [c] = await db
+        .select()
+        .from(marketplaceConnectorsTable)
+        .where(eq(marketplaceConnectorsTable.id, id));
+      if (!c) {
+        res.status(404).json({ error: "not_found" });
+        return;
+      }
+      const mappings = await db
+        .select()
+        .from(marketplaceProductMappingsTable)
+        .where(eq(marketplaceProductMappingsTable.connectorId, id));
+      const { broadcastInventoryChange } = await import("../lib/integrations/marketplaces");
+      for (const m of mappings) broadcastInventoryChange(m.productId);
+      res.json({ scheduled: mappings.length });
+    } catch (err) {
+      handle(res, err);
+    }
+  },
+);
+
+router.post(
+  "/integrations/marketplaces/logs/:id/retry",
+  inventoryGuard,
+  async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const { retrySyncLog } = await import("../lib/integrations/marketplaces");
+      const out = await retrySyncLog(id);
+      if (!out.ok) {
+        res.status(400).json(out);
+        return;
+      }
+      res.json(out);
+    } catch (err) {
+      handle(res, err);
+    }
+  },
+);
+
+// Public webhook endpoint for marketplace events. Mounted with a raw
+// body parser in app.ts so HMAC verification sees pristine bytes.
+integrationsPublicRouter.post(
+  "/integrations/marketplaces/webhook/:connectorId",
+  async (req, res) => {
+    try {
+      const connectorId = Number(req.params.connectorId);
+      const [connector] = await db
+        .select()
+        .from(marketplaceConnectorsTable)
+        .where(eq(marketplaceConnectorsTable.id, connectorId));
+      if (!connector || !connector.isEnabled) {
+        res.status(404).json({ error: "not_found" });
+        return;
+      }
+      const rawBody = Buffer.isBuffer(req.body)
+        ? req.body
+        : Buffer.from(typeof req.body === "string" ? req.body : JSON.stringify(req.body ?? {}));
+      const headers: Record<string, string | string[] | undefined> = {};
+      for (const [k, v] of Object.entries(req.headers)) {
+        headers[k.toLowerCase()] = v;
+      }
+      const { getAdapter, importOrder } = await import("../lib/integrations/marketplaces");
+      const adapter = getAdapter(connector.platform);
+      const parsed = adapter.parseWebhook(connector, headers, rawBody);
+      if (parsed.kind === "invalid_signature") {
+        await db.insert(marketplaceSyncLogsTable).values({
+          connectorId: connector.id,
+          operation: "webhook",
+          direction: "inbound",
+          success: false,
+          errorMessage: "invalid_signature",
+        });
+        res.status(401).json({ error: "invalid_signature" });
+        return;
+      }
+      if (parsed.kind === "ignored") {
+        // Valid signature but unsubscribed/unhandled topic. Return 2xx
+        // so providers do not retry; log as inbound success for audit.
+        await db.insert(marketplaceSyncLogsTable).values({
+          connectorId: connector.id,
+          operation: "webhook",
+          direction: "inbound",
+          success: true,
+          errorMessage: "ignored_topic",
+        });
+        res.json({ ok: true, kind: "ignored" });
+        return;
+      }
+      let importResult: { orderImportId: number; soId: number | null; status: string } | null = null;
+      if (parsed.order) {
+        importResult = await importOrder(connector, parsed.order);
+      }
+      await db.insert(marketplaceSyncLogsTable).values({
+        connectorId: connector.id,
+        operation: "webhook",
+        direction: "inbound",
+        success: true,
+        externalRef: parsed.order?.externalOrderId ?? null,
+        payloadSummary: { kind: parsed.kind, result: importResult },
+      });
+      res.json({ ok: true, kind: parsed.kind, import: importResult });
+    } catch (err) {
+      handle(res, err);
+    }
+  },
+);
 
 // =============================================================
 // Audit log of every external call

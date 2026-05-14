@@ -514,6 +514,23 @@ export async function recordStockMove(
      WHERE id = ${input.productId}
   `);
 
+  // Marketplace inventory broadcast — every stock movement fans
+  // out a debounced (1s) inventory push to every connector that has
+  // this product mapped. The helper is a no-op when there are no
+  // mappings, so the hot path is unaffected when marketplaces are
+  // unused. Deferred until after the surrounding tx is likely to
+  // have committed so the read sees committed quants.
+  {
+    const productIdForBroadcast = input.productId;
+    setTimeout(() => {
+      void import("./integrations/marketplaces")
+        .then((m) => m.broadcastInventoryChange(productIdForBroadcast))
+        .catch(() => {
+          /* logged inside helper */
+        });
+    }, 250).unref();
+  }
+
   // Low-stock notification hook — fires (debounced) the moment a
   // movement drops cached stock at-or-below the product's min_stock
   // threshold. Issued lazily so the hot path is unaffected by a

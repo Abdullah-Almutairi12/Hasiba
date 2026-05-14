@@ -97,6 +97,7 @@ const adminNavItems = [
   { key: "users", url: "/users", icon: Users },
   { key: "approvals", url: "/approvals", icon: CheckSquare },
   { key: "admin", url: "/admin", icon: ShieldCheck },
+  { key: "integrations_marketplaces", url: "/integrations/marketplaces", icon: ShieldCheck },
   { key: "anomalies", url: "/anomalies", icon: AlertTriangle },
   { key: "settings", url: "/settings", icon: Settings },
 ] as const;

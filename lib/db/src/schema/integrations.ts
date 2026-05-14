@@ -10,10 +10,13 @@ import {
   uniqueIndex,
   index,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import { branchesTable } from "./branches";
 import { invoicesTable } from "./invoices";
-import { customerInvoicesTable } from "./sales";
+import { customerInvoicesTable, salesOrdersTable } from "./sales";
 import { customersTable } from "./customers";
+import { productsTable } from "./products";
+import { warehousesTable } from "./warehouses";
 
 // =============================================================
 // External credentials — encrypted-at-rest connector secrets
@@ -344,3 +347,181 @@ export const integrationCallsTable = pgTable(
     index("integration_calls_success_idx").on(t.success),
   ],
 );
+
+// =============================================================
+// E-commerce marketplaces (Salla / Zid / Shopify)
+// =============================================================
+export const marketplaceConnectorsTable = pgTable(
+  "marketplace_connectors",
+  {
+    id: serial("id").primaryKey(),
+    branchId: integer("branch_id").references(() => branchesTable.id, {
+      onDelete: "cascade",
+    }),
+    // salla | zid | shopify
+    platform: text("platform").notNull(),
+    displayName: text("display_name").notNull(),
+    storeUrl: text("store_url"),
+    environment: text("environment").notNull().default("production"),
+    isEnabled: boolean("is_enabled").notNull().default(true),
+    // Warehouse used to fulfill orders coming from this store; also the
+    // source of on-hand quantities when pushing inventory back.
+    defaultWarehouseId: integer("default_warehouse_id").references(
+      () => warehousesTable.id,
+    ),
+    // HMAC secret used to verify inbound webhooks from the platform.
+    webhookSecret: text("webhook_secret"),
+    settings: jsonb("settings"),
+    lastSyncAt: timestamp("last_sync_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("marketplace_connectors_branch_platform_name_idx").on(
+      t.branchId,
+      t.platform,
+      t.displayName,
+    ),
+    index("marketplace_connectors_platform_idx").on(t.platform),
+  ],
+);
+
+export const marketplaceProductMappingsTable = pgTable(
+  "marketplace_product_mappings",
+  {
+    id: serial("id").primaryKey(),
+    connectorId: integer("connector_id")
+      .notNull()
+      .references(() => marketplaceConnectorsTable.id, { onDelete: "cascade" }),
+    productId: integer("product_id")
+      .notNull()
+      .references(() => productsTable.id, { onDelete: "cascade" }),
+    externalProductId: text("external_product_id").notNull(),
+    // Variant identifier when the store models size/color as variants.
+    // For Shopify this is the storefront variant_id (used by order
+    // webhooks); the separate `external_inventory_item_id` below is
+    // what the Inventory Levels API requires.
+    externalVariantId: text("external_variant_id"),
+    externalInventoryItemId: text("external_inventory_item_id"),
+    lastPushedAt: timestamp("last_pushed_at"),
+    lastInventoryPushedAt: timestamp("last_inventory_pushed_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("marketplace_pm_connector_external_variant_idx").on(
+      t.connectorId,
+      t.externalProductId,
+      sql`COALESCE(${t.externalVariantId}, '')`,
+    ),
+    index("marketplace_pm_product_idx").on(t.productId),
+  ],
+);
+
+export const marketplaceOrderImportsTable = pgTable(
+  "marketplace_order_imports",
+  {
+    id: serial("id").primaryKey(),
+    connectorId: integer("connector_id")
+      .notNull()
+      .references(() => marketplaceConnectorsTable.id, { onDelete: "cascade" }),
+    externalOrderId: text("external_order_id").notNull(),
+    externalOrderNumber: text("external_order_number"),
+    // pending | imported | failed | skipped
+    status: text("status").notNull().default("pending"),
+    soId: integer("so_id").references(() => salesOrdersTable.id),
+    customerId: integer("customer_id").references(() => customersTable.id),
+    total: numeric("total", { precision: 18, scale: 2 }),
+    rawPayload: jsonb("raw_payload"),
+    errorMessage: text("error_message"),
+    importedAt: timestamp("imported_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("marketplace_oi_connector_external_idx").on(
+      t.connectorId,
+      t.externalOrderId,
+    ),
+    index("marketplace_oi_status_idx").on(t.status),
+  ],
+);
+
+export const marketplaceSyncLogsTable = pgTable(
+  "marketplace_sync_logs",
+  {
+    id: serial("id").primaryKey(),
+    connectorId: integer("connector_id")
+      .notNull()
+      .references(() => marketplaceConnectorsTable.id, { onDelete: "cascade" }),
+    // push_product | push_inventory | pull_orders | pull_customers | webhook
+    operation: text("operation").notNull(),
+    direction: text("direction").notNull().default("outbound"),
+    success: boolean("success").notNull().default(true),
+    payloadSizeBytes: integer("payload_size_bytes"),
+    latencyMs: integer("latency_ms"),
+    statusCode: integer("status_code"),
+    externalRef: text("external_ref"),
+    errorMessage: text("error_message"),
+    payloadSummary: jsonb("payload_summary"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [
+    index("marketplace_sl_connector_created_idx").on(
+      t.connectorId,
+      t.createdAt,
+    ),
+    index("marketplace_sl_success_idx").on(t.success),
+  ],
+);
+
+/**
+ * Durable outbound job queue for marketplace side-effects.
+ *
+ * Every push (catalogue, inventory, retried order import) is queued
+ * here instead of executed inline. A worker drains the queue with
+ * exponential backoff so the system survives process restarts and
+ * upstream provider outages — replacing the previous in-memory
+ * `setTimeout` debouncer which silently lost work on restart.
+ *
+ * State machine: queued → running → done | failed.
+ * `attempts` counts how many times the worker has picked the job;
+ * `nextRunAt` defers the next attempt by `2^attempts` minutes.
+ */
+export const marketplaceOutboundJobsTable = pgTable(
+  "marketplace_outbound_jobs",
+  {
+    id: serial("id").primaryKey(),
+    connectorId: integer("connector_id")
+      .notNull()
+      .references(() => marketplaceConnectorsTable.id, { onDelete: "cascade" }),
+    // push_inventory | push_product | pull_orders | retry_order_import
+    jobType: text("job_type").notNull(),
+    // Coalescing key — duplicate queued jobs for the same key fold
+    // into one row so a flurry of stock movements collapses to a
+    // single outbound call.
+    dedupeKey: text("dedupe_key").notNull(),
+    payload: jsonb("payload").notNull(),
+    status: text("status").notNull().default("queued"),
+    attempts: integer("attempts").notNull().default(0),
+    maxAttempts: integer("max_attempts").notNull().default(8),
+    lastError: text("last_error"),
+    nextRunAt: timestamp("next_run_at").notNull().defaultNow(),
+    startedAt: timestamp("started_at"),
+    completedAt: timestamp("completed_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("marketplace_oj_dedupe_queued_idx")
+      .on(t.dedupeKey)
+      .where(sql`${t.status} = 'queued'`),
+    index("marketplace_oj_next_run_idx").on(t.status, t.nextRunAt),
+  ],
+);
+
+export type MarketplaceConnector = typeof marketplaceConnectorsTable.$inferSelect;
+export type MarketplaceProductMapping =
+  typeof marketplaceProductMappingsTable.$inferSelect;
+export type MarketplaceOrderImport =
+  typeof marketplaceOrderImportsTable.$inferSelect;
+export type MarketplaceSyncLog = typeof marketplaceSyncLogsTable.$inferSelect;
+export type MarketplaceOutboundJob =
+  typeof marketplaceOutboundJobsTable.$inferSelect;

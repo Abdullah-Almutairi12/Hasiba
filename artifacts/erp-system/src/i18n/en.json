@@ -33,6 +33,7 @@
     "sales": "Sales (Q2C)",
     "crm": "CRM Pipeline",
     "admin": "Admin Panel",
+    "integrations_marketplaces": "E-Commerce Marketplaces",
     "anomalies": "Smart Anomaly Alerts",
     "users": "Users & Permissions",
     "approvals": "Approval Requests",

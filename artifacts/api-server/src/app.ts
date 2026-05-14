@@ -102,6 +102,13 @@ app.use(
   express.raw({ type: "*/*", limit: "1mb" }),
 );
 
+// Marketplace webhooks (Salla / Zid / Shopify) also need raw bytes to
+// verify HMAC signatures supplied in their respective headers.
+app.use(
+  "/api/integrations/marketplaces/webhook",
+  express.raw({ type: "*/*", limit: "2mb" }),
+);
+
 // Default JSON limit for everything else.
 app.use(express.json({ limit: "1mb" }));
 app.use(express.urlencoded({ extended: true, limit: "1mb" }));
@@ -148,5 +155,13 @@ setTimeout(() => {
   void runReorderCheck();
   setInterval(() => void runReorderCheck(), ONE_DAY_MS);
 }, 60_000).unref();
+
+// Boot the marketplace outbound-job worker. It drains
+// `marketplace_outbound_jobs` every 5s with exponential backoff so
+// pushed inventory / catalogue / retried-order work survives process
+// restarts. The worker is a no-op when the queue is empty.
+import("./lib/integrations/marketplaces")
+  .then((m) => m.startMarketplaceWorker())
+  .catch((err) => logger.error({ err }, "failed to start marketplace worker"));
 
 export default app;

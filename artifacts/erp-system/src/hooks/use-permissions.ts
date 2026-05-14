@@ -92,6 +92,9 @@ export const NAV_PERMISSIONS: Record<string, readonly Role[]> = {
   crm: ["owner", "manager", "sales", "marketing", "auditor"],
   users: GROUPS.admin,
   admin: GROUPS.admin,
+  // Marketplace integrations: managers configure connectors; inventory
+  // role can trigger pushes/syncs from the same page.
+  integrations_marketplaces: ["owner", "manager", "inventory"],
   anomalies: GROUPS.auditRead,
   hr: GROUPS.hrRead,
   manufacturing: GROUPS.productionRead,

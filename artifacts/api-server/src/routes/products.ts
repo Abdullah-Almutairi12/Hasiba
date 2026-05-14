@@ -60,6 +60,7 @@ router.get("/products", async (req, res) => {
 router.post("/products", inventoryGuard, async (req, res) => {
   try {
     const body = CreateProductBody.parse(req.body);
+    const { broadcastProductChange } = await import("../lib/integrations/marketplaces");
     const product = await db.transaction(async (tx) => {
       const [created] = await tx
         .insert(productsTable)
@@ -98,6 +99,8 @@ router.post("/products", inventoryGuard, async (req, res) => {
       }
       return created;
     });
+
+    broadcastProductChange(product.id);
 
     const category = await db.select().from(categoriesTable).where(eq(categoriesTable.id, product.categoryId)).limit(1);
 
@@ -221,6 +224,9 @@ router.patch("/products/:id", inventoryGuard, async (req, res) => {
 
     const [updated] = await db.update(productsTable).set(updateData).where(eq(productsTable.id, id)).returning();
     if (!updated) return res.status(404).json({ error: "Not found" });
+
+    const { broadcastProductChange } = await import("../lib/integrations/marketplaces");
+    broadcastProductChange(updated.id);
 
     const category = await db.select().from(categoriesTable).where(eq(categoriesTable.id, updated.categoryId)).limit(1);
 

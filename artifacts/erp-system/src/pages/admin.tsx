@@ -87,6 +87,7 @@ import {
 } from "lucide-react";
 import { WorkflowTab } from "@/components/workflow-tab";
 import { IntegrationsTab } from "@/components/integrations-tab";
+import MarketplacesTab from "@/components/marketplaces-tab";
 import { Plug } from "lucide-react";
 
 function AccessDenied() {
@@ -1413,6 +1414,10 @@ export default function AdminPage() {
             <Plug className="me-2 size-4" />
             التكاملات
           </TabsTrigger>
+          <TabsTrigger value="marketplaces" data-testid="tab-marketplaces">
+            <Plug className="me-2 size-4" />
+            المتاجر
+          </TabsTrigger>
           <TabsTrigger value="audit" data-testid="tab-audit">
             <History className="me-2 size-4" />
             السجلات
@@ -1428,6 +1433,7 @@ export default function AdminPage() {
         <TabsContent value="assistant"><AssistantTab /></TabsContent>
         <TabsContent value="workflow"><WorkflowTab /></TabsContent>
         <TabsContent value="integrations"><IntegrationsTab /></TabsContent>
+        <TabsContent value="marketplaces"><MarketplacesTab /></TabsContent>
         <TabsContent value="audit"><AuditTab /></TabsContent>
       </Tabs>
       {/* hint icon used for tone palette */}
