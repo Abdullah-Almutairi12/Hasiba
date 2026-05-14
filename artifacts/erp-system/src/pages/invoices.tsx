@@ -46,7 +46,7 @@ type ExtractedItem = {
 
 type PoSuggestion = {
   id: number; reference: string; supplierId: number; supplierName: string;
-  status: string; total: number;
+  status: string; total: number; orderDate?: string | null; confidence: number;
 };
 type PoLine = {
   id: number; description: string; quantity: string;
@@ -159,40 +159,78 @@ export default function Invoices() {
   }
 
   // Fetch open PO suggestions for the detected supplier so the user can
-  // link this scanned invoice to a Purchase Order (3-way match).
-  async function loadPoSuggestions(supplierName: string) {
-    if (!supplierName.trim()) { setPoSuggestions([]); return; }
+  // link this scanned invoice to a Purchase Order (3-way match). Passing
+  // `amount` lets the backend rank by total-similarity and gives us a
+  // confidence score per suggestion.
+  async function loadPoSuggestions(supplierName: string, amount?: number) {
+    if (!supplierName.trim()) {
+      setPoSuggestions([]);
+      void pickPo(null);
+      return;
+    }
     try {
+      const qs = new URLSearchParams({ supplierName });
+      if (amount != null && amount > 0) qs.set("amount", String(amount));
       const res = await fetch(
-        `${API_BASE}/procurement/po-suggestions?supplierName=${encodeURIComponent(supplierName)}`,
+        `${API_BASE}/procurement/po-suggestions?${qs.toString()}`,
         { credentials: "include" },
       );
       if (!res.ok) return;
       const data = await res.json();
-      setPoSuggestions(Array.isArray(data) ? data : []);
+      const list: PoSuggestion[] = Array.isArray(data) ? data : [];
+      setPoSuggestions(list);
+      // If a PO was previously selected but the new supplier has no
+      // suggestions (or the previous selection is no longer offered),
+      // clear the linkage to avoid stale UI state.
+      if (list.length === 0) {
+        void pickPo(null);
+        return;
+      }
+      if (selectedPoId && !list.some((p) => p.id === selectedPoId)) {
+        void pickPo(null);
+      }
+      // Auto-select the top match when the backend is highly confident
+      // (>= 0.9). The user can still change it manually.
+      const top = list[0];
+      if (top && top.confidence >= 0.9) {
+        void pickPo(top.id);
+      }
     } catch { /* non-blocking */ }
   }
 
   async function pickPo(poId: number | null) {
     setSelectedPoId(poId);
     setSelectedPoDetail(null);
-    if (!poId || !extracted) return;
+    if (!poId) {
+      // Clearing the PO link must also drop per-line poLineId mappings
+      // so the UI doesn't carry stale 3-way-match references that the
+      // server would either ignore or reject on commit.
+      setExtracted((prev) =>
+        prev ? { ...prev, items: prev.items.map((it) => ({ ...it, poLineId: null })) } : prev,
+      );
+      return;
+    }
     try {
       const res = await fetch(`${API_BASE}/procurement/purchase-orders/${poId}`, { credentials: "include" });
       if (!res.ok) return;
       const data: PoDetail = await res.json();
       setSelectedPoDetail(data);
       // Best-effort auto-map by description (case-insensitive substring).
-      const items = extracted.items.map((it) => {
-        if (it.poLineId) return it;
-        const match = data.lines.find((ln) => {
-          const d = ln.description.toLowerCase();
-          const q = it.description.toLowerCase().trim();
-          return q && (d.includes(q) || q.includes(d));
+      // Use the functional setter so this works even when called right
+      // after setExtracted (e.g. high-confidence auto-select on scan).
+      setExtracted((prev) => {
+        if (!prev) return prev;
+        const items = prev.items.map((it) => {
+          if (it.poLineId) return it;
+          const match = data.lines.find((ln) => {
+            const d = ln.description.toLowerCase();
+            const q = it.description.toLowerCase().trim();
+            return q && (d.includes(q) || q.includes(d));
+          });
+          return match ? { ...it, poLineId: match.id } : it;
         });
-        return match ? { ...it, poLineId: match.id } : it;
+        return { ...prev, items };
       });
-      setExtracted({ ...extracted, items });
     } catch { /* non-blocking */ }
   }
 
@@ -220,7 +258,7 @@ export default function Invoices() {
       const data: Extracted = await res.json();
       setExtracted(data);
       toast.success(`تم استخراج البيانات (ثقة ${Math.round(data.confidence * 100)}%)`);
-      void loadPoSuggestions(data.supplierName);
+      void loadPoSuggestions(data.supplierName, data.total);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "فشل تحليل الفاتورة");
     } finally {
@@ -614,7 +652,7 @@ export default function Invoices() {
                   <Input
                     value={extracted.supplierName}
                     onChange={(e) => setExtracted({ ...extracted, supplierName: e.target.value })}
-                    onBlur={(e) => loadPoSuggestions(e.target.value)}
+                    onBlur={(e) => loadPoSuggestions(e.target.value, extracted.total)}
                     data-testid="input-supplier-name"
                   />
                 </div>
@@ -645,24 +683,75 @@ export default function Invoices() {
               </div>
 
               {/* PO matching (3-way): link the scanned invoice to an open PO so the
-                  server validates received-but-unbilled quantities and price tolerance. */}
-              <div className="rounded-md border bg-muted/30 p-3 space-y-2">
+                  server validates received-but-unbilled quantities and price tolerance.
+                  Suggestions are ranked by amount-similarity; high-confidence matches
+                  (>= 0.9) are auto-selected when suggestions load. */}
+              <div className="rounded-md border bg-muted/30 p-3 space-y-3">
                 <div className="flex items-center justify-between gap-2">
                   <Label className="text-sm">ربط بأمر شراء (مطابقة ثلاثية)</Label>
-                  <select
-                    className="border rounded h-9 px-2 text-sm bg-background"
-                    value={selectedPoId ?? ""}
-                    onChange={(e) => pickPo(e.target.value ? Number(e.target.value) : null)}
-                    data-testid="select-po"
-                  >
-                    <option value="">— بدون ربط (سيُضاف للمخزون مباشرة) —</option>
-                    {poSuggestions.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.reference} • {p.supplierName} • {formatRiyal(Number(p.total))}
-                      </option>
-                    ))}
-                  </select>
+                  {selectedPoId && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => pickPo(null)}
+                      data-testid="button-clear-po"
+                    >
+                      إلغاء الربط
+                    </Button>
+                  )}
                 </div>
+
+                {poSuggestions.length === 0 && (
+                  <div className="text-xs text-muted-foreground">
+                    لا توجد أوامر شراء مفتوحة لهذا المورد. سيُضاف للمخزون مباشرة.
+                  </div>
+                )}
+
+                {poSuggestions.length > 0 && (
+                  <div className="grid gap-2">
+                    {poSuggestions.map((p) => {
+                      const pct = Math.round(p.confidence * 100);
+                      const isSelected = selectedPoId === p.id;
+                      const tone =
+                        p.confidence >= 0.9
+                          ? "bg-green-100 text-green-800 border-green-200"
+                          : p.confidence >= 0.7
+                          ? "bg-yellow-100 text-yellow-800 border-yellow-200"
+                          : "bg-muted text-muted-foreground";
+                      return (
+                        <button
+                          type="button"
+                          key={p.id}
+                          onClick={() => pickPo(isSelected ? null : p.id)}
+                          className={
+                            "flex items-center justify-between gap-3 text-right border rounded-md px-3 py-2 transition-colors " +
+                            (isSelected
+                              ? "border-primary bg-primary/10"
+                              : "bg-background hover:bg-muted/50")
+                          }
+                          data-testid={`suggest-po-${p.id}`}
+                        >
+                          <div className="flex flex-col items-start gap-0.5">
+                            <div className="font-medium text-sm">{p.reference}</div>
+                            <div className="text-xs text-muted-foreground">
+                              {p.supplierName} • {formatRiyal(Number(p.total))} •{" "}
+                              {p.status === "fully_received"
+                                ? "مستلم بالكامل"
+                                : p.status === "partially_received"
+                                ? "مستلم جزئياً"
+                                : "مؤكد"}
+                            </div>
+                          </div>
+                          <Badge className={`border ${tone} text-xs whitespace-nowrap`}>
+                            ثقة {pct}%
+                          </Badge>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
                 {selectedPoId && !selectedPoDetail && (
                   <div className="text-xs text-muted-foreground">جارٍ تحميل بنود أمر الشراء…</div>
                 )}
