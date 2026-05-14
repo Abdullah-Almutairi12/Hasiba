@@ -621,7 +621,7 @@ export async function notify(userId: number, input: NotifyInput): Promise<void> 
   } catch (err) {
     logger.warn({ err }, "inbox insert failed");
   }
-  if (input.channel === "email" || input.channel == null) {
+  const emailFallback = async () => {
     const [user] = await db.select().from(usersTable).where(eq(usersTable.id, userId));
     if (user?.email && isMailerConfigured()) {
       await sendMail({
@@ -630,6 +630,9 @@ export async function notify(userId: number, input: NotifyInput): Promise<void> 
         body: `${input.message}\n\n${input.link ?? ""}`,
       }).catch(() => {});
     }
+  };
+  if (input.channel === "email" || input.channel == null) {
+    await emailFallback();
   }
   if (input.channel === "whatsapp" || input.channel === "sms") {
     // Real outbound dispatch via the integrations messaging
@@ -672,7 +675,8 @@ export async function notify(userId: number, input: NotifyInput): Promise<void> 
         });
       }
     } catch (err) {
-      logger.warn({ err, userId }, "outbound notification dispatch failed");
+      logger.warn({ err, userId }, "outbound notification dispatch failed; falling back to email");
+      await emailFallback().catch(() => {});
     }
   }
 }
