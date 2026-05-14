@@ -43,6 +43,7 @@ import {
   Trash2,
   Calendar,
   Activity,
+  Scale,
 } from "lucide-react";
 
 interface Product { id: number; nameAr: string; sku: string }
@@ -82,7 +83,8 @@ export default function ManufacturingPage() {
 
   const invalidateAll = () => {
     ["/manufacturing/boms", "/manufacturing/work-orders", "/manufacturing/work-centers",
-     "/manufacturing/routings", "/manufacturing/scrap", "/manufacturing/reports/summary"].forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
+     "/manufacturing/routings", "/manufacturing/scrap", "/manufacturing/reports/summary",
+     "/manufacturing/reports/variance"].forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
   };
 
   return (
@@ -141,6 +143,7 @@ export default function ManufacturingPage() {
           <TabsTrigger value="schedule">الجدولة</TabsTrigger>
           <TabsTrigger value="quality">الجودة</TabsTrigger>
           <TabsTrigger value="scrap">الإتلاف</TabsTrigger>
+          <TabsTrigger value="variance">فروق التصنيع</TabsTrigger>
         </TabsList>
 
         <TabsContent value="work-orders" className="mt-4">
@@ -163,6 +166,9 @@ export default function ManufacturingPage() {
         </TabsContent>
         <TabsContent value="scrap" className="mt-4">
           <ScrapTab rows={scrap} products={products} workOrders={workOrders} warehouses={warehouses} canWrite={canWrite} onChange={invalidateAll} toast={toast} />
+        </TabsContent>
+        <TabsContent value="variance" className="mt-4">
+          <VarianceTab />
         </TabsContent>
       </Tabs>
     </div>
@@ -1090,5 +1096,152 @@ function ScrapTab({ rows, products, workOrders, warehouses, canWrite, onChange, 
         </Dialog>
       </CardContent>
     </Card>
+  );
+}
+
+// ---- Variance Tab ----
+interface VarianceWO {
+  id: number;
+  reference: string;
+  state: string;
+  completedAt: string | null;
+  quantity: number;
+  quantityProduced: number;
+  productName: string | null;
+  sku: string | null;
+  consumedValue: number;
+  producedValue: number;
+  variance: number;
+  posted: boolean;
+  journalEntryId: number | null;
+  journalEntryNumber: string | null;
+}
+interface VariancePeriod {
+  period: string;
+  workOrders: number;
+  unfavorable: number;
+  favorable: number;
+  netVariance: number;
+}
+interface VarianceReport { workOrders: VarianceWO[]; periods: VariancePeriod[] }
+
+function fmtMoney(n: number): string {
+  return n.toLocaleString("ar-SA", { maximumFractionDigits: 2, minimumFractionDigits: 2 });
+}
+
+function VarianceTab() {
+  const { data, isLoading } = useQuery<VarianceReport>({
+    queryKey: ["/manufacturing/reports/variance"],
+    queryFn: () => apiGet("/manufacturing/reports/variance"),
+  });
+
+  const totals = useMemo(() => {
+    const rows = data?.workOrders ?? [];
+    const done = rows.filter((r) => r.state === "done");
+    const unfavorable = done.reduce((s, r) => s + Math.max(r.variance, 0), 0);
+    const favorable = done.reduce((s, r) => s + Math.min(r.variance, 0), 0);
+    const net = unfavorable + favorable;
+    return { unfavorable, favorable, net, count: done.length };
+  }, [data]);
+
+  if (isLoading) {
+    return <Card><CardContent className="p-6 text-sm text-muted-foreground">جاري التحميل…</CardContent></Card>;
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <KpiCard icon={<Scale className="size-4" />} label="أوامر مكتملة" value={String(totals.count)} />
+        <KpiCard icon={<Scale className="size-4 text-rose-600" />} label="فروق غير مفضّلة (مدين COGS)" value={fmtMoney(totals.unfavorable)} />
+        <KpiCard icon={<Scale className="size-4 text-emerald-600" />} label="فروق مفضّلة (دائن COGS)" value={fmtMoney(Math.abs(totals.favorable))} />
+        <KpiCard icon={<Scale className="size-4" />} label="صافي الفرق" value={fmtMoney(totals.net)} />
+      </div>
+
+      <Card>
+        <CardHeader><CardTitle className="text-base">فرق التصنيع لكل فترة (شهرياً)</CardTitle></CardHeader>
+        <CardContent>
+          {(data?.periods?.length ?? 0) === 0 ? (
+            <div className="text-sm text-muted-foreground">لا توجد بيانات بعد.</div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>الفترة</TableHead>
+                  <TableHead>عدد الأوامر</TableHead>
+                  <TableHead>غير مفضّل</TableHead>
+                  <TableHead>مفضّل</TableHead>
+                  <TableHead>الصافي</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {data!.periods.map((p) => (
+                  <TableRow key={p.period}>
+                    <TableCell className="font-mono">{p.period}</TableCell>
+                    <TableCell>{p.workOrders}</TableCell>
+                    <TableCell className="text-rose-700">{fmtMoney(p.unfavorable)}</TableCell>
+                    <TableCell className="text-emerald-700">{fmtMoney(Math.abs(p.favorable))}</TableCell>
+                    <TableCell className="font-medium">{fmtMoney(p.netVariance)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">فرق التصنيع لكل أمر إنتاج</CardTitle>
+          <p className="text-xs text-muted-foreground mt-1">
+            الفرق = قيمة المواد المستهلكة − قيمة المنتج النهائي. الفرق الموجب يُرحَّل إلى تكلفة البضاعة المباعة (COGS مدين / WIP دائن)، والسالب يُرحَّل عكسياً عند إنهاء أمر الإنتاج.
+          </p>
+        </CardHeader>
+        <CardContent>
+          {(data?.workOrders?.length ?? 0) === 0 ? (
+            <div className="text-sm text-muted-foreground">لا توجد أوامر إنتاج بعد.</div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>المرجع</TableHead>
+                  <TableHead>المنتج</TableHead>
+                  <TableHead>الحالة</TableHead>
+                  <TableHead>تاريخ الإنجاز</TableHead>
+                  <TableHead>المستهلك</TableHead>
+                  <TableHead>المنتج</TableHead>
+                  <TableHead>الفرق</TableHead>
+                  <TableHead>قيد التسوية</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {data!.workOrders.map((r) => {
+                  const badge = STATE_BADGES[r.state] ?? { label: r.state, cls: "" };
+                  const sign = r.variance > 0.005 ? "rose" : r.variance < -0.005 ? "emerald" : "slate";
+                  const cls = sign === "rose" ? "text-rose-700" : sign === "emerald" ? "text-emerald-700" : "text-muted-foreground";
+                  return (
+                    <TableRow key={r.id}>
+                      <TableCell className="font-medium">{r.reference}</TableCell>
+                      <TableCell>{r.productName ?? "—"} {r.sku && <span className="text-xs text-muted-foreground">({r.sku})</span>}</TableCell>
+                      <TableCell><Badge className={badge.cls}>{badge.label}</Badge></TableCell>
+                      <TableCell className="text-xs">{r.completedAt ? new Date(r.completedAt).toLocaleDateString("ar-SA") : "—"}</TableCell>
+                      <TableCell>{fmtMoney(r.consumedValue)}</TableCell>
+                      <TableCell>{fmtMoney(r.producedValue)}</TableCell>
+                      <TableCell className={`font-medium ${cls}`}>{fmtMoney(r.variance)}</TableCell>
+                      <TableCell className="text-xs">
+                        {r.posted
+                          ? <span className="text-emerald-700">{r.journalEntryNumber ?? "مُرحَّل"}</span>
+                          : r.state === "done"
+                            ? <span className="text-muted-foreground">لا يوجد (ضمن نطاق التقريب)</span>
+                            : <span className="text-muted-foreground">قيد التنفيذ</span>}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+    </div>
   );
 }

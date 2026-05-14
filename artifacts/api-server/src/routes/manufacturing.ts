@@ -1637,6 +1637,98 @@ router.get("/manufacturing/schedule", inventoryReadGuard, async (req, res) => {
 // Reports: throughput, on-time, scrap rate, utilization
 // ===========================================================================
 
+// Manufacturing variance report: per work order and per period.
+// Variance = Σ(consumed value) − Σ(produced value) for each WO. A positive
+// value means the WO consumed more than the standard cost produced
+// (unfavorable, cleared as COGS Dr / WIP Cr at completion); a negative
+// value means it consumed less (favorable, cleared as WIP Dr / COGS Cr).
+// `posted` is true if a variance journal was actually posted (i.e. the
+// WO was completed and the residual exceeded the rounding epsilon).
+router.get("/manufacturing/reports/variance", inventoryReadGuard, async (req, res) => {
+  try {
+    const rows = (await db.execute(sql`
+      WITH cons AS (
+        SELECT work_order_id, COALESCE(SUM(quantity * unit_cost)::float8, 0) AS v
+          FROM work_order_consumptions GROUP BY work_order_id
+      ), prod AS (
+        SELECT work_order_id, COALESCE(SUM(quantity * unit_cost)::float8, 0) AS v
+          FROM work_order_productions GROUP BY work_order_id
+      ), jrn AS (
+        SELECT source_ref, id AS entry_id, entry_number
+          FROM journal_entries
+         WHERE source_ref LIKE 'WO-VAR-%'
+      )
+      SELECT wo.id, wo.reference, wo.state,
+             wo.completed_at, wo.quantity::float8 AS quantity,
+             wo.quantity_produced::float8 AS quantity_produced,
+             p.name_ar AS product_name, p.sku AS sku,
+             COALESCE(cons.v, 0)::float8 AS consumed_value,
+             COALESCE(prod.v, 0)::float8 AS produced_value,
+             (COALESCE(cons.v, 0) - COALESCE(prod.v, 0))::float8 AS variance,
+             jrn.entry_id AS journal_entry_id,
+             jrn.entry_number AS journal_entry_number
+        FROM work_orders wo
+        LEFT JOIN products p ON p.id = wo.product_id
+        LEFT JOIN cons ON cons.work_order_id = wo.id
+        LEFT JOIN prod ON prod.work_order_id = wo.id
+        LEFT JOIN jrn  ON jrn.source_ref = 'WO-VAR-' || wo.id
+       WHERE wo.state IN ('in_progress','done')
+       ORDER BY wo.completed_at DESC NULLS LAST, wo.id DESC
+       LIMIT 500
+    `) as unknown as { rows: any[] }).rows;
+
+    const periods = (await db.execute(sql`
+      WITH cons AS (
+        SELECT work_order_id, COALESCE(SUM(quantity * unit_cost)::float8, 0) AS v
+          FROM work_order_consumptions GROUP BY work_order_id
+      ), prod AS (
+        SELECT work_order_id, COALESCE(SUM(quantity * unit_cost)::float8, 0) AS v
+          FROM work_order_productions GROUP BY work_order_id
+      )
+      SELECT to_char(date_trunc('month', wo.completed_at), 'YYYY-MM') AS period,
+             COUNT(*)::int AS work_orders,
+             COALESCE(SUM(GREATEST(COALESCE(cons.v,0) - COALESCE(prod.v,0), 0))::float8, 0) AS unfavorable,
+             COALESCE(SUM(LEAST(COALESCE(cons.v,0) - COALESCE(prod.v,0), 0))::float8, 0) AS favorable,
+             COALESCE(SUM(COALESCE(cons.v,0) - COALESCE(prod.v,0))::float8, 0) AS net_variance
+        FROM work_orders wo
+        LEFT JOIN cons ON cons.work_order_id = wo.id
+        LEFT JOIN prod ON prod.work_order_id = wo.id
+       WHERE wo.state = 'done' AND wo.completed_at IS NOT NULL
+       GROUP BY 1 ORDER BY 1 DESC
+       LIMIT 24
+    `) as unknown as { rows: any[] }).rows;
+
+    res.json({
+      workOrders: rows.map((r) => ({
+        id: Number(r.id),
+        reference: r.reference,
+        state: r.state,
+        completedAt: r.completed_at,
+        quantity: Number(r.quantity),
+        quantityProduced: Number(r.quantity_produced),
+        productName: r.product_name,
+        sku: r.sku,
+        consumedValue: Number(r.consumed_value),
+        producedValue: Number(r.produced_value),
+        variance: Number(r.variance),
+        posted: r.journal_entry_id != null,
+        journalEntryId: r.journal_entry_id != null ? Number(r.journal_entry_id) : null,
+        journalEntryNumber: r.journal_entry_number ?? null,
+      })),
+      periods: periods.map((p) => ({
+        period: p.period,
+        workOrders: Number(p.work_orders),
+        unfavorable: Number(p.unfavorable),
+        favorable: Number(p.favorable),
+        netVariance: Number(p.net_variance),
+      })),
+    });
+  } catch (err) {
+    req.log.error({ err }, "variance report failed");
+    respondError(res, err);
+  }
+});
+
 router.get("/manufacturing/reports/summary", inventoryReadGuard, async (req, res) => {
   try {
     const [done] = await db.execute(sql`
