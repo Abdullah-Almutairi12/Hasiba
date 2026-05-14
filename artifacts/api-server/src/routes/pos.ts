@@ -29,6 +29,7 @@ import {
   paymentGatewaysTable,
   paymentIntentsTable,
   usersTable,
+  approvalRequestsTable,
 } from "@workspace/db";
 import { checkFinancialLimit, submitForApproval } from "../lib/workflow-engine";
 import { recordAudit } from "../lib/audit";
@@ -439,10 +440,57 @@ router.post(
     // limit check so cashiers can ring large discounts/refunds only when
     // a manager is physically present and types their PIN.
     const rawOverride = (req.body as { managerOverride?: { email?: unknown; password?: unknown; reason?: unknown } } | undefined)?.managerOverride;
+    const rawApprovalReqId = (req.body as { approvalRequestId?: unknown } | undefined)?.approvalRequestId;
     let overrideRoleEffective: string | null = null;
     let overrideUserId: number | null = null;
     let overrideUserName: string | null = null;
     let overrideReason: string | null = null;
+    let consumedApprovalRequestId: number | null = null;
+
+    // Async path: the cashier can attach an `approvalRequestId` that a
+    // manager already approved from /approvals. We validate AND consume
+    // it atomically (status approved → consumed) before the transaction
+    // so it can be used exactly once. Must match docType=pos_over_limit
+    // and the same POS session, so an approval for one till cannot be
+    // replayed at another.
+    if (typeof rawApprovalReqId === "number" && Number.isFinite(rawApprovalReqId)) {
+      const sessionIdRaw = (req.body as { sessionId?: unknown } | undefined)?.sessionId;
+      const sessionId = typeof sessionIdRaw === "number" ? sessionIdRaw : null;
+      const [reqRow] = await db
+        .select()
+        .from(approvalRequestsTable)
+        .where(eq(approvalRequestsTable.id, rawApprovalReqId))
+        .limit(1);
+      if (
+        !reqRow ||
+        reqRow.docType !== "pos_over_limit" ||
+        reqRow.status !== "approved" ||
+        reqRow.recordId !== sessionId
+      ) {
+        res.status(403).json({ error: "طلب الموافقة غير صالح أو مستهلك" });
+        return;
+      }
+      // Atomic consume: only one writer can flip approved → consumed.
+      const consumed = await db
+        .update(approvalRequestsTable)
+        .set({ status: "consumed" })
+        .where(
+          and(
+            eq(approvalRequestsTable.id, reqRow.id),
+            eq(approvalRequestsTable.status, "approved"),
+          ),
+        )
+        .returning({ id: approvalRequestsTable.id });
+      if (consumed.length === 0) {
+        res.status(409).json({ error: "تم استهلاك طلب الموافقة مسبقاً" });
+        return;
+      }
+      consumedApprovalRequestId = reqRow.id;
+      overrideRoleEffective = "manager";
+      overrideUserName = reqRow.submittedByName ?? "approved-via-inbox";
+      overrideUserId = null;
+      overrideReason = reqRow.notes ?? "موافقة عبر الصندوق الوارد";
+    }
     if (rawOverride && typeof rawOverride.email === "string" && typeof rawOverride.password === "string") {
       // Cap field sizes BEFORE any DB hit or bcrypt compare so an attacker
       // can't waste CPU with multi-MB passwords or oversized emails.
@@ -603,14 +651,22 @@ router.post(
         );
       }
       if (refundCash > 0) {
-        const rCheck = await checkFinancialLimit(role, "pos.refund_amount", refundCash);
-        if (!rCheck.allowed) {
-          throw new FinancialLimitError(
-            "pos.refund_amount",
-            rCheck.max,
-            refundCash,
-            rCheck.reason ?? "تجاوزت الحد المسموح للاسترداد",
-          );
+        // Policy: ANY POS refund/void cash-out requires manager dual auth,
+        // not just amounts above the cashier cap. If the effective role is
+        // still a cashier (no override token was consumed), force the
+        // approval flow even when the amount is within the cashier's
+        // financial_limits row. Manager/owner/sales roles can refund up
+        // to their own cap directly.
+        if (role !== "manager" && role !== "owner") {
+          const rCheck = await checkFinancialLimit(role, "pos.refund_amount", refundCash);
+          if (role === "cashier" || !rCheck.allowed) {
+            throw new FinancialLimitError(
+              "pos.refund_amount",
+              rCheck.max,
+              refundCash,
+              "أي عملية إرجاع/إلغاء نقدية تتطلب اعتماد المدير",
+            );
+          }
         }
       }
 
@@ -1109,11 +1165,14 @@ router.post(
     // Now that the order is committed, record the override audit linked to
     // the actual order id/number so forensic queries can trace who approved
     // which transaction.
-    if (overrideUserId && overrideUserName) {
+    if (overrideRoleEffective && (overrideUserId || consumedApprovalRequestId)) {
+      const who = overrideUserId
+        ? `${overrideUserName} (#${overrideUserId})`
+        : `موافقة #${consumedApprovalRequestId} — ${overrideUserName ?? "—"}`;
       void recordAudit(req, {
         action: "override",
         entity: "pos_order",
-        details: `اعتماد ${overrideUserName} (#${overrideUserId}) لتجاوز حد الكاشير على الطلب ${orderNumber} (orderId=${result.order.id})${overrideReason ? " — " + overrideReason : ""}`,
+        details: `اعتماد ${who} لتجاوز حد الكاشير على الطلب ${orderNumber} (orderId=${result.order.id})${overrideReason ? " — " + overrideReason : ""}`,
       });
     }
 

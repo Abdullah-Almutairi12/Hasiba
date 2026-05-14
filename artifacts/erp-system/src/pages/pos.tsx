@@ -270,6 +270,7 @@ export default function POS() {
     payments: SplitPayment[] | null;
     successMethodLabel: string;
     paymentIntentId: number | null;
+    approvalRequestId: number | null;
   } | null>(null);
   const [pinEmail, setPinEmail] = useState("");
   const [pinPassword, setPinPassword] = useState("");
@@ -281,6 +282,7 @@ export default function POS() {
     successMethodLabel: string,
     paymentIntentId?: number | null,
     managerOverride?: { email: string; password: string; reason?: string },
+    approvalRequestId?: number | null,
   ) => {
     if (!activeSession) {
       toast({ title: "لا يوجد جلسة بيع مفتوحة", variant: "destructive" });
@@ -319,8 +321,12 @@ export default function POS() {
       ...(managerOverride
         ? { managerOverride }
         : {}),
+      ...(approvalRequestId
+        ? { approvalRequestId }
+        : {}),
     } as CreatePosOrderBody & {
       managerOverride?: { email: string; password: string; reason?: string };
+      approvalRequestId?: number;
     };
 
     createOrder.mutate(
@@ -372,7 +378,8 @@ export default function POS() {
           if (
             e?.response?.status === 403 &&
             e?.response?.data?.requiresManagerApproval &&
-            !managerOverride
+            !managerOverride &&
+            !approvalRequestId
           ) {
             setPinDialog({
               actionKey: e.response.data.actionKey ?? "pos.limit",
@@ -382,6 +389,9 @@ export default function POS() {
               payments,
               successMethodLabel,
               paymentIntentId: paymentIntentId ?? null,
+              approvalRequestId:
+                (e.response.data as { approvalRequestId?: number | null })
+                  ?.approvalRequestId ?? null,
             });
             return;
           }
@@ -412,6 +422,22 @@ export default function POS() {
         password: pinPassword,
         reason: pinReason.trim() || undefined,
       },
+    );
+  };
+
+  // Async path: cashier clicks this after the manager remotely approves the
+  // pending request from /approvals. We retry the same payload with just
+  // the approvalRequestId; the server atomically consumes the approved
+  // request and lets the transaction through.
+  const retryWithApprovedRequest = () => {
+    if (!pinDialog?.approvalRequestId) return;
+    setPinSubmitting(true);
+    submitOrder(
+      pinDialog.payments,
+      pinDialog.successMethodLabel,
+      pinDialog.paymentIntentId,
+      undefined,
+      pinDialog.approvalRequestId,
     );
   };
 
@@ -1519,13 +1545,29 @@ export default function POS() {
                 />
               </div>
             </div>
-            <DialogFooter>
+            {pinDialog?.approvalRequestId ? (
+              <div className="rounded-md border border-emerald-300 bg-emerald-50 p-3 text-[12px] text-emerald-900 dark:bg-emerald-900/30 dark:text-emerald-100">
+                تم فتح طلب اعتماد رقم #{pinDialog.approvalRequestId} في
+                الصندوق الوارد للمدير. بعد اعتماده عن بُعد، اضغط «استخدم
+                الموافقة المعتمدة» لإكمال العملية بدون كلمة مرور.
+              </div>
+            ) : null}
+            <DialogFooter className="gap-2 sm:gap-2">
               <Button
                 onClick={confirmManagerOverride}
                 disabled={pinSubmitting || !pinEmail.trim() || !pinPassword}
               >
                 اعتماد التجاوز
               </Button>
+              {pinDialog?.approvalRequestId ? (
+                <Button
+                  variant="secondary"
+                  onClick={retryWithApprovedRequest}
+                  disabled={pinSubmitting}
+                >
+                  استخدم الموافقة المعتمدة
+                </Button>
+              ) : null}
               <Button
                 variant="outline"
                 onClick={() => {
