@@ -329,49 +329,91 @@ export async function initAccounting(): Promise<void> {
       END IF;
     END $$;
   `).catch((e) => logger.warn({ err: e }, "fiscal_years UNIQUE install skipped"));
-  const year = new Date().getFullYear();
-  await pool.query(
-    `INSERT INTO fiscal_years (name, start_date, end_date)
-     VALUES ($1, $2, $3)
-     ON CONFLICT (name) DO NOTHING`,
-    [String(year), `${year}-01-01`, `${year}-12-31`],
-  );
-  const { rows: fyRows } = await pool.query(
-    `SELECT id FROM fiscal_years WHERE name = $1`,
-    [String(year)],
-  );
-  const fyId = fyRows[0]?.id;
-  if (fyId) {
+
+  // Idempotent add-column for `code` on fiscal_periods (drizzle schema
+  // declares it, but live DBs may predate the column). Backfill any
+  // existing rows: monthly → "<year>-Mxx", annual → "<year>-Y".
+  await pool.query(`
+    ALTER TABLE fiscal_periods ADD COLUMN IF NOT EXISTS code text;
+    UPDATE fiscal_periods p
+       SET code = CASE
+         WHEN p.end_date::date - p.start_date::date >= 360
+           THEN to_char(p.start_date, 'YYYY') || '-Y'
+         ELSE to_char(p.start_date, 'YYYY') || '-M' || lpad(extract(month from p.start_date)::text, 2, '0')
+       END
+     WHERE p.code IS NULL;
+  `).catch((e) => logger.warn({ err: e }, "fiscal_periods.code backfill skipped"));
+
+  // Idempotent backfill: legacy DBs may already have 12 monthly rows
+  // but no annual umbrella row. Insert one per fiscal year that is
+  // missing it so /accounting/close-year always has a row to lock.
+  await pool.query(`
+    INSERT INTO fiscal_periods (fiscal_year_id, code, name, start_date, end_date)
+    SELECT fy.id,
+           to_char(fy.start_date, 'YYYY') || '-Y',
+           'السنة المالية ' || to_char(fy.start_date, 'YYYY'),
+           fy.start_date,
+           fy.end_date
+      FROM fiscal_years fy
+     WHERE NOT EXISTS (
+       SELECT 1 FROM fiscal_periods p
+        WHERE p.fiscal_year_id = fy.id
+          AND p.end_date::date - p.start_date::date >= 360
+     );
+  `).catch((e) => logger.warn({ err: e }, "annual fiscal_period backfill skipped"));
+
+  const currentYear = new Date().getFullYear();
+  // Seed current AND previous year so closing-year flows have a real
+  // prior-period to act on, and historical entries can be back-posted
+  // within the most recent two years without manual setup.
+  const monthsAr = [
+    "يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو",
+    "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر",
+  ];
+  for (const year of [currentYear - 1, currentYear]) {
+    await pool.query(
+      `INSERT INTO fiscal_years (name, start_date, end_date)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (name) DO NOTHING`,
+      [String(year), `${year}-01-01`, `${year}-12-31`],
+    );
+    const { rows: fyRows } = await pool.query(
+      `SELECT id FROM fiscal_years WHERE name = $1`,
+      [String(year)],
+    );
+    const fyId = fyRows[0]?.id;
+    if (!fyId) continue;
     const { rows: pCount } = await pool.query(
       `SELECT count(*)::int AS n FROM fiscal_periods WHERE fiscal_year_id = $1`,
       [fyId],
     );
     if (pCount[0].n === 0) {
-      const monthsAr = [
-        "يناير",
-        "فبراير",
-        "مارس",
-        "أبريل",
-        "مايو",
-        "يونيو",
-        "يوليو",
-        "أغسطس",
-        "سبتمبر",
-        "أكتوبر",
-        "نوفمبر",
-        "ديسمبر",
-      ];
       for (let m = 0; m < 12; m++) {
         const start = new Date(Date.UTC(year, m, 1));
         const end = new Date(Date.UTC(year, m + 1, 0));
         const startStr = start.toISOString().slice(0, 10);
         const endStr = end.toISOString().slice(0, 10);
+        const code = `${year}-M${String(m + 1).padStart(2, "0")}`;
         await pool.query(
-          `INSERT INTO fiscal_periods (fiscal_year_id, name, start_date, end_date)
-           VALUES ($1, $2, $3, $4)`,
-          [fyId, `${monthsAr[m]} ${year}`, startStr, endStr],
+          `INSERT INTO fiscal_periods (fiscal_year_id, code, name, start_date, end_date)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [fyId, code, `${monthsAr[m]} ${year}`, startStr, endStr],
         );
       }
+      // Annual umbrella period — resolvePeriodId() prefers the most
+      // specific (shortest) match, so monthly rows still win for date
+      // lookups; the annual row is what gets locked by close-year.
+      await pool.query(
+        `INSERT INTO fiscal_periods (fiscal_year_id, code, name, start_date, end_date)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [
+          fyId,
+          `${year}-Y`,
+          `السنة المالية ${year}`,
+          `${year}-01-01`,
+          `${year}-12-31`,
+        ],
+      );
     }
   }
 

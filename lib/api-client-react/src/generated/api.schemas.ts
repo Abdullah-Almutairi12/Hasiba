@@ -747,6 +747,46 @@ export interface FiscalYear {
   periods: FiscalPeriod[];
 }
 
+export type FiscalPeriodFlatStatus =
+  (typeof FiscalPeriodFlatStatus)[keyof typeof FiscalPeriodFlatStatus];
+
+export const FiscalPeriodFlatStatus = {
+  open: "open",
+  closed: "closed",
+  locked: "locked",
+} as const;
+
+export interface FiscalPeriodFlat {
+  id: number;
+  fiscalYearId: number;
+  yearName?: string | null;
+  name: string;
+  startDate: string;
+  endDate: string;
+  status: FiscalPeriodFlatStatus;
+  closedAt?: string | null;
+  closedBy?: number | null;
+  createdAt: string;
+}
+
+export interface CloseYearResult {
+  fiscalYearId: number;
+  fiscalYearName: string;
+  closingEntryId: number;
+  closingEntryNumber: string;
+  netResult: number;
+}
+
+export interface ClosingEntry {
+  id: number;
+  entryNumber: string;
+  entryDate: string;
+  description: string;
+  sourceRef?: string | null;
+  postedAt?: string | null;
+  totalAmount: number;
+}
+
 export interface BankAccount {
   id: number;
   name: string;
@@ -1371,6 +1411,14 @@ export type ReverseJournalEntryBody = {
 export type ReverseJournalEntry200 = {
   id: number;
   entryNumber: string;
+};
+
+export type CloseFiscalYearBody = {
+  fiscalYearId: number;
+};
+
+export type ListClosingEntriesParams = {
+  fiscalYearId?: number;
 };
 
 export type MatchBankStatementLineBody = {

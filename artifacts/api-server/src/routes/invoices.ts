@@ -7,7 +7,7 @@ import {
   purchaseOrdersTable, purchaseOrderLinesTable,
 } from "@workspace/db";
 import { inArray } from "drizzle-orm";
-import { postJournalEntry } from "../lib/journal-posting";
+import { postJournalEntry, ClosedPeriodError } from "../lib/journal-posting";
 import { eq, sql, desc, ilike } from "drizzle-orm";
 import { CreateInvoiceBody, UpdateInvoiceBody } from "@workspace/api-zod";
 import { extractInvoiceFromImage, type ExtractedInvoice } from "../lib/invoice-extractor";
@@ -764,6 +764,9 @@ router.post("/invoices/from-scan", supplierInvoiceAgent, async (req, res) => {
 
     return res.json({ ok: true, ...result });
   } catch (err) {
+    if (err instanceof ClosedPeriodError) {
+      return res.status(403).json({ error: err.message });
+    }
     if (isUniqueViolation(err)) {
       return res.status(409).json({
         error: `الفاتورة رقم ${body.invoiceNumber} موجودة مسبقاً.`,

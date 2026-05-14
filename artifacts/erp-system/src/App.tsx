@@ -11,6 +11,7 @@ import POS from "@/pages/pos";
 import Products from "@/pages/products";
 import Invoices from "@/pages/invoices";
 import Accounting from "@/pages/accounting";
+import AccountingPeriodsPage from "@/pages/accounting-periods";
 import Reports from "@/pages/reports";
 import ReportsBuilder from "@/pages/reports-builder";
 import ReportsSaved from "@/pages/reports-saved";
@@ -104,6 +105,9 @@ function Router() {
       </Route>
       <Route path="/accounting">
         <Protected><Accounting /></Protected>
+      </Route>
+      <Route path="/accounting/periods">
+        <Protected><AccountingPeriodsPage /></Protected>
       </Route>
       <Route path="/reports">
         <Protected><Reports /></Protected>

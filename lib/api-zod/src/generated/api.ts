@@ -732,6 +732,88 @@ export const ReopenFiscalPeriodResponse = zod.object({
   createdAt: zod.string(),
 });
 
+/**
+ * @summary Close a fiscal period (alias matching task spec)
+ */
+export const CloseFiscalPeriodAliasParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const CloseFiscalPeriodAliasResponse = zod.object({
+  id: zod.number(),
+  fiscalYearId: zod.number(),
+  name: zod.string(),
+  startDate: zod.string(),
+  endDate: zod.string(),
+  status: zod.enum(["open", "closed", "locked"]),
+  closedAt: zod.string().nullish(),
+  createdAt: zod.string(),
+});
+
+/**
+ * @summary Reopen a closed fiscal period (owner only)
+ */
+export const ReopenFiscalPeriodAliasParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const ReopenFiscalPeriodAliasResponse = zod.object({
+  id: zod.number(),
+  fiscalYearId: zod.number(),
+  name: zod.string(),
+  startDate: zod.string(),
+  endDate: zod.string(),
+  status: zod.enum(["open", "closed", "locked"]),
+  closedAt: zod.string().nullish(),
+  createdAt: zod.string(),
+});
+
+/**
+ * @summary Flat list of all fiscal periods (across years)
+ */
+export const ListFiscalPeriodsResponseItem = zod.object({
+  id: zod.number(),
+  fiscalYearId: zod.number(),
+  yearName: zod.string().nullish(),
+  name: zod.string(),
+  startDate: zod.string(),
+  endDate: zod.string(),
+  status: zod.enum(["open", "closed", "locked"]),
+  closedAt: zod.string().nullish(),
+  closedBy: zod.number().nullish(),
+  createdAt: zod.string(),
+});
+export const ListFiscalPeriodsResponse = zod.array(
+  ListFiscalPeriodsResponseItem,
+);
+
+/**
+ * @summary Close a fiscal year (owner only) — creates closing JE to retained earnings + locks periods
+ */
+export const CloseFiscalYearBody = zod.object({
+  fiscalYearId: zod.number(),
+});
+
+/**
+ * @summary Year-end closing journal entries report
+ */
+export const ListClosingEntriesQueryParams = zod.object({
+  fiscalYearId: zod.coerce.number().optional(),
+});
+
+export const ListClosingEntriesResponseItem = zod.object({
+  id: zod.number(),
+  entryNumber: zod.string(),
+  entryDate: zod.string(),
+  description: zod.string(),
+  sourceRef: zod.string().nullish(),
+  postedAt: zod.string().nullish(),
+  totalAmount: zod.number(),
+});
+export const ListClosingEntriesResponse = zod.array(
+  ListClosingEntriesResponseItem,
+);
+
 export const ListBankAccountsResponseItem = zod.object({
   id: zod.number(),
   name: zod.string(),

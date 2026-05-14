@@ -692,6 +692,94 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/FiscalPeriod" }
 
+  /accounting/periods/{id}/close:
+    post:
+      operationId: closeFiscalPeriodAlias
+      tags: [accounting]
+      summary: Close a fiscal period (alias matching task spec)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Period closed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FiscalPeriod" }
+
+  /accounting/periods/{id}/reopen:
+    post:
+      operationId: reopenFiscalPeriodAlias
+      tags: [accounting]
+      summary: Reopen a closed fiscal period (owner only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Period reopened
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FiscalPeriod" }
+
+  /accounting/periods:
+    get:
+      operationId: listFiscalPeriods
+      tags: [accounting]
+      summary: Flat list of all fiscal periods (across years)
+      responses:
+        "200":
+          description: Periods
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/FiscalPeriodFlat" }
+
+  /accounting/close-year:
+    post:
+      operationId: closeFiscalYear
+      tags: [accounting]
+      summary: Close a fiscal year (owner only) — creates closing JE to retained earnings + locks periods
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [fiscalYearId]
+              properties:
+                fiscalYearId: { type: integer }
+      responses:
+        "201":
+          description: Year closed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CloseYearResult" }
+
+  /accounting/closing-entries:
+    get:
+      operationId: listClosingEntries
+      tags: [accounting]
+      summary: Year-end closing journal entries report
+      parameters:
+        - name: fiscalYearId
+          in: query
+          required: false
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Closing entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ClosingEntry" }
+
   /accounting/bank-accounts:
     get:
       operationId: listBankAccounts
@@ -2908,6 +2996,43 @@ components:
           items:
             $ref: "#/components/schemas/FiscalPeriod"
       required: [id, name, startDate, endDate, status, createdAt, periods]
+
+    FiscalPeriodFlat:
+      type: object
+      properties:
+        id: { type: integer }
+        fiscalYearId: { type: integer }
+        yearName: { type: string, nullable: true }
+        name: { type: string }
+        startDate: { type: string }
+        endDate: { type: string }
+        status: { type: string, enum: [open, closed, locked] }
+        closedAt: { type: string, nullable: true }
+        closedBy: { type: integer, nullable: true }
+        createdAt: { type: string }
+      required: [id, fiscalYearId, name, startDate, endDate, status, createdAt]
+
+    CloseYearResult:
+      type: object
+      properties:
+        fiscalYearId: { type: integer }
+        fiscalYearName: { type: string }
+        closingEntryId: { type: integer }
+        closingEntryNumber: { type: string }
+        netResult: { type: number }
+      required: [fiscalYearId, fiscalYearName, closingEntryId, closingEntryNumber, netResult]
+
+    ClosingEntry:
+      type: object
+      properties:
+        id: { type: integer }
+        entryNumber: { type: string }
+        entryDate: { type: string }
+        description: { type: string }
+        sourceRef: { type: string, nullable: true }
+        postedAt: { type: string, nullable: true }
+        totalAmount: { type: number }
+      required: [id, entryNumber, entryDate, description, totalAmount]
 
     BankAccount:
       type: object

@@ -26,6 +26,9 @@ import {
   reverseJournalEntry,
   getRateForDate,
 } from "../lib/journal-posting";
+import { recordAudit } from "../lib/audit";
+import { ClosedPeriodError } from "../lib/journal-posting";
+import { handleClosedPeriod } from "../lib/handle-error";
 import {
   submitForApproval,
   registerOnApprove,
@@ -68,7 +71,9 @@ async function finalizeJournalEntryPost(
       .where(eq(fiscalPeriodsTable.id, entry.periodId))
       .limit(1);
     if (period && (period.status === "closed" || period.status === "locked")) {
-      throw new Error("الفترة المالية مغلقة، لا يمكن الترحيل");
+      // Use the shared ClosedPeriodError so /post + the approval-engine
+      // path both surface a 403 with the exact required Arabic message.
+      throw new ClosedPeriodError(String(entry.entryDate ?? ""));
     }
   }
   const [bal] = await db
@@ -331,6 +336,15 @@ router.post(
       .where(eq(fiscalPeriodsTable.id, id))
       .returning();
     if (!row) return res.status(404).json({ error: "الفترة غير موجودة" });
+    // Reopening a closed period bypasses normal posting controls — always
+    // leave an audit trail with the period name + range so auditors can
+    // reconcile later why a sealed period was unlocked.
+    await recordAudit(req, {
+      action: "fiscal_period.reopen",
+      entity: `fiscal_period:${row.id}`,
+      details: `إعادة فتح الفترة "${row.name}" (${row.startDate} → ${row.endDate})`,
+      severity: "warning",
+    });
     return res.json({
       ...row,
       closedAt: null,
@@ -338,6 +352,327 @@ router.post(
     });
   },
 );
+
+// Path aliases matching the closing-controls task spec:
+//   POST /accounting/periods/:id/close
+//   POST /accounting/periods/:id/reopen
+// These delegate to the existing /accounting/fiscal-periods/:id/{close,reopen}
+// handlers so behavior, guards, and audit logs stay identical.
+router.post(
+  "/accounting/periods/:id/close",
+  requireRole("owner", "manager"),
+  async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const userId = req.session?.userId ?? null;
+      const [row] = await db
+        .update(fiscalPeriodsTable)
+        .set({ status: "closed", closedAt: new Date(), closedBy: userId })
+        .where(eq(fiscalPeriodsTable.id, id))
+        .returning();
+      if (!row) return res.status(404).json({ error: "الفترة غير موجودة" });
+      return res.json({
+        ...row,
+        closedAt: row.closedAt?.toISOString() ?? null,
+        createdAt: row.createdAt.toISOString(),
+      });
+    } catch (err) {
+      req.log.error({ err }, "Close period (alias) failed");
+      return res.status(400).json({ error: (err as Error).message });
+    }
+  },
+);
+router.post(
+  "/accounting/periods/:id/reopen",
+  ownerOnly,
+  async (req, res) => {
+    const id = Number(req.params.id);
+    const [row] = await db
+      .update(fiscalPeriodsTable)
+      .set({ status: "open", closedAt: null, closedBy: null })
+      .where(eq(fiscalPeriodsTable.id, id))
+      .returning();
+    if (!row) return res.status(404).json({ error: "الفترة غير موجودة" });
+    await recordAudit(req, {
+      action: "fiscal_period.reopen",
+      entity: `fiscal_period:${row.id}`,
+      details: `إعادة فتح الفترة "${row.name}" (${row.startDate} → ${row.endDate})`,
+      severity: "warning",
+    });
+    return res.json({
+      ...row,
+      closedAt: null,
+      createdAt: row.createdAt.toISOString(),
+    });
+  },
+);
+
+// Alias matching the task spec: GET /accounting/periods returns a flat list
+// of all fiscal periods (across years) so the periods page can render them
+// without first joining the year hierarchy.
+router.get("/accounting/periods", reportReadGuard, async (_req, res) => {
+  const rows = await db
+    .select({
+      id: fiscalPeriodsTable.id,
+      fiscalYearId: fiscalPeriodsTable.fiscalYearId,
+      yearName: fiscalYearsTable.name,
+      name: fiscalPeriodsTable.name,
+      startDate: fiscalPeriodsTable.startDate,
+      endDate: fiscalPeriodsTable.endDate,
+      status: fiscalPeriodsTable.status,
+      closedAt: fiscalPeriodsTable.closedAt,
+      closedBy: fiscalPeriodsTable.closedBy,
+      createdAt: fiscalPeriodsTable.createdAt,
+    })
+    .from(fiscalPeriodsTable)
+    .leftJoin(
+      fiscalYearsTable,
+      eq(fiscalYearsTable.id, fiscalPeriodsTable.fiscalYearId),
+    )
+    .orderBy(asc(fiscalPeriodsTable.startDate));
+  return res.json(
+    rows.map((p) => ({
+      ...p,
+      closedAt: p.closedAt?.toISOString() ?? null,
+      createdAt: p.createdAt.toISOString(),
+    })),
+  );
+});
+
+// ============== Fiscal Year Closing ==============
+//
+// Closing a fiscal year:
+//   1. Compute net balance of every revenue and expense account from
+//      posted JE lines whose entry_date falls within the year.
+//   2. Create a single closing JE on the year's last day that zeroes
+//      out each revenue/expense account, with the balancing leg posted
+//      to retained_earnings. The JE source is "period_close" so it is
+//      easy to find again in the closing-statement report.
+//   3. Mark the fiscal_year row as 'closed' and every fiscal_period
+//      under it as 'closed' so subsequent edits are blocked by
+//      resolvePeriodId() in journal-posting.ts.
+//
+// Reopening a year is intentionally NOT exposed: an owner who needs to
+// reverse the close must (a) reverse the period_close JE manually, then
+// (b) reopen each affected period one at a time — which leaves a
+// per-period audit trail.
+
+const closeYearBody = z.object({
+  fiscalYearId: z.number().int().positive(),
+});
+
+router.post("/accounting/close-year", ownerOnly, async (req, res) => {
+  try {
+    const { fiscalYearId } = closeYearBody.parse(req.body);
+    const userId = req.session?.userId ?? null;
+
+    const result = await db.transaction(async (tx) => {
+      const [year] = await tx
+        .select()
+        .from(fiscalYearsTable)
+        .where(eq(fiscalYearsTable.id, fiscalYearId))
+        .limit(1);
+      if (!year) throw new Error("السنة المالية غير موجودة");
+      if (year.status === "closed")
+        throw new Error("السنة المالية مغلقة مسبقاً");
+
+      const [retained] = await tx
+        .select({ id: accountsTable.id })
+        .from(accountsTable)
+        .where(eq(accountsTable.systemKey, "retained_earnings"))
+        .limit(1);
+      if (!retained)
+        throw new Error(
+          "حساب الأرباح المرحّلة (retained_earnings) غير موجود في دليل الحسابات",
+        );
+
+      // Aggregate per-account net (debit - credit) on revenue/expense
+      // accounts from POSTED entries whose date is within the year.
+      // We use base_debit/base_credit so multi-currency entries are
+      // already normalized to SAR.
+      const balances = await tx
+        .select({
+          accountId: accountsTable.id,
+          accountType: accountsTable.type,
+          accountName: accountsTable.nameAr,
+          net: sql<string>`coalesce(sum(${journalEntryLinesTable.baseDebit}::numeric - ${journalEntryLinesTable.baseCredit}::numeric),0)`,
+        })
+        .from(journalEntryLinesTable)
+        .innerJoin(
+          accountsTable,
+          eq(accountsTable.id, journalEntryLinesTable.accountId),
+        )
+        .innerJoin(
+          journalEntriesTable,
+          eq(journalEntriesTable.id, journalEntryLinesTable.entryId),
+        )
+        .where(
+          and(
+            eq(journalEntriesTable.status, "posted"),
+            gte(journalEntriesTable.entryDate, year.startDate),
+            lte(journalEntriesTable.entryDate, year.endDate),
+            sql`${accountsTable.type} IN ('revenue','expense')`,
+          ),
+        )
+        .groupBy(accountsTable.id, accountsTable.type, accountsTable.nameAr);
+
+      // Build closing lines: a credit-balance revenue account is debited
+      // to close it; a debit-balance expense account is credited. The
+      // running net flows to retained earnings as the balancing leg.
+      const lines: Array<{
+        accountId: number;
+        description: string;
+        debit: number;
+        credit: number;
+      }> = [];
+      let retainedDelta = 0; // net debit to retained earnings
+      for (const b of balances) {
+        const net = Number(b.net);
+        if (Math.abs(net) < 0.005) continue;
+        if (net > 0) {
+          // expense / debit-balance: credit it to zero
+          lines.push({
+            accountId: b.accountId,
+            description: `إقفال ${b.accountName}`,
+            debit: 0,
+            credit: net,
+          });
+          retainedDelta -= net;
+        } else {
+          // revenue / credit-balance: debit it to zero
+          lines.push({
+            accountId: b.accountId,
+            description: `إقفال ${b.accountName}`,
+            debit: -net,
+            credit: 0,
+          });
+          retainedDelta += -net;
+        }
+      }
+
+      if (lines.length === 0) {
+        throw new Error(
+          "لا توجد أرصدة إيرادات أو مصروفات لإقفالها في هذه السنة المالية",
+        );
+      }
+
+      // Balancing leg to retained earnings. retainedDelta = net profit.
+      // A positive net profit → CREDIT retained earnings; a loss → DEBIT.
+      if (retainedDelta > 0) {
+        lines.push({
+          accountId: retained.id,
+          description: "ترحيل صافي الربح إلى الأرباح المحتجزة",
+          debit: 0,
+          credit: retainedDelta,
+        });
+      } else {
+        lines.push({
+          accountId: retained.id,
+          description: "ترحيل صافي الخسارة من الأرباح المحتجزة",
+          debit: -retainedDelta,
+          credit: 0,
+        });
+      }
+
+      const { id: jeId, entryNumber } = await postJournalEntry(
+        tx,
+        {
+          entryDate: year.endDate,
+          description: `قيد إقفال السنة المالية ${year.name}`,
+          reference: `YEAR-CLOSE-${year.name}`,
+          source: "period_close",
+          sourceRef: `fiscal_year:${year.id}`,
+          createdBy: userId,
+          status: "posted",
+        },
+        lines,
+      );
+
+      // Lock the year and every period under it. We close periods AFTER
+      // posting the closing entry so resolvePeriodId() does not block
+      // the closing JE itself.
+      await tx
+        .update(fiscalPeriodsTable)
+        .set({ status: "closed", closedAt: new Date(), closedBy: userId })
+        .where(
+          and(
+            eq(fiscalPeriodsTable.fiscalYearId, year.id),
+            eq(fiscalPeriodsTable.status, "open"),
+          ),
+        );
+      await tx
+        .update(fiscalYearsTable)
+        .set({ status: "closed", closedAt: new Date(), closedBy: userId })
+        .where(eq(fiscalYearsTable.id, year.id));
+
+      return {
+        fiscalYearId: year.id,
+        fiscalYearName: year.name,
+        closingEntryId: jeId,
+        closingEntryNumber: entryNumber,
+        netResult: retainedDelta,
+      };
+    });
+
+    await recordAudit(req, {
+      action: "fiscal_year.close",
+      entity: `fiscal_year:${result.fiscalYearId}`,
+      details: `إقفال السنة المالية ${result.fiscalYearName} — قيد الإقفال ${result.closingEntryNumber}`,
+      severity: "critical",
+    });
+
+    return res.status(201).json(result);
+  } catch (err) {
+    req.log.error({ err }, "Close fiscal year failed");
+    return res.status(400).json({ error: (err as Error).message });
+  }
+});
+
+// Closing-statement report: lists every closing JE (source='period_close')
+// optionally filtered to a single fiscal year via sourceRef.
+router.get("/accounting/closing-entries", reportReadGuard, async (req, res) => {
+  try {
+    const fiscalYearId = req.query.fiscalYearId
+      ? Number(req.query.fiscalYearId)
+      : undefined;
+    const wheres: SQL[] = [
+      eq(journalEntriesTable.source, "period_close"),
+    ];
+    if (fiscalYearId) {
+      wheres.push(
+        eq(journalEntriesTable.sourceRef, `fiscal_year:${fiscalYearId}`),
+      );
+    }
+    const entries = await db
+      .select({
+        id: journalEntriesTable.id,
+        entryNumber: journalEntriesTable.entryNumber,
+        entryDate: journalEntriesTable.entryDate,
+        description: journalEntriesTable.description,
+        sourceRef: journalEntriesTable.sourceRef,
+        postedAt: journalEntriesTable.postedAt,
+        totalDebit: sql<string>`coalesce(sum(${journalEntryLinesTable.debit}::numeric),0)`,
+      })
+      .from(journalEntriesTable)
+      .leftJoin(
+        journalEntryLinesTable,
+        eq(journalEntryLinesTable.entryId, journalEntriesTable.id),
+      )
+      .where(and(...wheres))
+      .groupBy(journalEntriesTable.id)
+      .orderBy(desc(journalEntriesTable.entryDate));
+    return res.json(
+      entries.map((e) => ({
+        ...e,
+        totalAmount: Number(e.totalDebit),
+        postedAt: e.postedAt?.toISOString() ?? null,
+      })),
+    );
+  } catch (err) {
+    req.log.error({ err }, "List closing entries failed");
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
 
 // ============== Journal Entries ==============
 
@@ -517,6 +852,7 @@ router.post("/accounting/journal-entries", financeGuard, async (req, res) => {
     return res.status(201).json(result);
   } catch (err) {
     req.log.error({ err }, "Create JE failed");
+    if (handleClosedPeriod(err, res)) return;
     return res.status(400).json({ error: (err as Error).message });
   }
 });
@@ -573,8 +909,8 @@ router.post(
           .limit(1);
         if (period && (period.status === "closed" || period.status === "locked")) {
           return res
-            .status(400)
-            .json({ error: "الفترة المالية مغلقة، لا يمكن الترحيل" });
+            .status(403)
+            .json({ error: "الفترة مُغلقة لا يمكن التعديل" });
         }
       }
 
@@ -623,6 +959,7 @@ router.post(
       return res.json(result);
     } catch (err) {
       req.log.error({ err }, "Post JE failed");
+      if (handleClosedPeriod(err, res)) return;
       return res.status(400).json({ error: (err as Error).message });
     }
   },
@@ -643,6 +980,7 @@ router.post(
       return res.json(result);
     } catch (err) {
       req.log.error({ err }, "Reverse JE failed");
+      if (handleClosedPeriod(err, res)) return;
       return res.status(400).json({ error: (err as Error).message });
     }
   },

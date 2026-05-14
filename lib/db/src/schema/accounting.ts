@@ -106,6 +106,9 @@ export const fiscalPeriodsTable = pgTable(
     fiscalYearId: integer("fiscal_year_id")
       .notNull()
       .references(() => fiscalYearsTable.id, { onDelete: "cascade" }),
+    // Stable machine code per period (e.g. "2026-M01", "2026-Y"). Used by
+    // reports and external callers that can't rely on auto-increment ids.
+    code: text("code"),
     name: text("name").notNull(),
     startDate: date("start_date").notNull(),
     endDate: date("end_date").notNull(),

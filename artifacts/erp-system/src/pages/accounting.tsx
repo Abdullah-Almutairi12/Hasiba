@@ -11,6 +11,8 @@ import {
   useReverseJournalEntry,
   useCloseFiscalPeriod,
   useReopenFiscalPeriod,
+  useCloseFiscalYear,
+  useListClosingEntries,
   useCreateJournalEntry,
   useGetTrialBalance,
   useListBankAccounts,
@@ -19,8 +21,10 @@ import {
   type Currency,
   type FiscalYear,
   type FiscalPeriod,
+  type ClosingEntry,
   type BankAccount,
 } from "@workspace/api-client-react";
+import { useCurrentRole } from "@/hooks/use-permissions";
 
 type ApiError = { response?: { data?: { error?: string } }; message?: string };
 function apiErrorMessage(e: unknown, fallback: string): string {
@@ -734,8 +738,131 @@ function ChartOfAccountsTab() {
   );
 }
 
-function FiscalPeriodsTab() {
+const PERIOD_STATUS_LABEL: Record<string, string> = {
+  open: "مفتوحة",
+  closed: "مغلقة",
+  locked: "مقفلة",
+};
+const PERIOD_STATUS_VARIANT: Record<string, "default" | "secondary" | "destructive"> = {
+  open: "default",
+  closed: "secondary",
+  locked: "destructive",
+};
+
+function CloseYearDialog({ year }: { year: FiscalYear }) {
+  const [open, setOpen] = useState(false);
+  const qc = useQueryClient();
+  const closeYear = useCloseFiscalYear({
+    mutation: {
+      onSuccess: (data) => {
+        toast.success(
+          `تم إقفال السنة ${data.fiscalYearName} — قيد ${data.closingEntryNumber}`,
+        );
+        qc.invalidateQueries();
+        setOpen(false);
+      },
+      onError: (e: unknown) =>
+        toast.error(apiErrorMessage(e, "تعذر إقفال السنة")),
+    },
+  });
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button size="sm" variant="destructive">
+          <Lock className="h-3 w-3 ml-1" /> إقفال السنة المالية
+        </Button>
+      </DialogTrigger>
+      <DialogContent dir="rtl">
+        <DialogHeader>
+          <DialogTitle>إقفال السنة المالية {year.name}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3 text-sm">
+          <p>
+            سيقوم النظام بإنشاء قيد إقفال لكل حسابات الإيرادات والمصروفات
+            وترحيل صافي النتيجة إلى حساب الأرباح المحتجزة بتاريخ{" "}
+            <strong>{year.endDate}</strong>، ثم يقفل جميع الفترات الفرعية.
+          </p>
+          <p className="text-destructive">
+            هذا الإجراء لا يمكن التراجع عنه إلا بعكس قيد الإقفال وإعادة فتح
+            كل فترة يدوياً.
+          </p>
+        </div>
+        <DialogFooter className="gap-2">
+          <Button variant="ghost" onClick={() => setOpen(false)}>
+            إلغاء
+          </Button>
+          <Button
+            variant="destructive"
+            disabled={closeYear.isPending}
+            onClick={() =>
+              closeYear.mutate({ data: { fiscalYearId: year.id } })
+            }
+          >
+            تأكيد الإقفال
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ClosingEntriesReport() {
+  const { data, isLoading } = useListClosingEntries();
+  if (isLoading) return <Skeleton className="h-24 w-full" />;
+  const entries = data ?? [];
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <BookOpen className="h-4 w-4" /> كشف الإقفال — قيود إقفال السنوات
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {entries.length === 0 ? (
+          <p className="text-sm text-muted-foreground text-center py-4">
+            لا توجد قيود إقفال سنوية بعد.
+          </p>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>رقم القيد</TableHead>
+                <TableHead>تاريخ القيد</TableHead>
+                <TableHead>البيان</TableHead>
+                <TableHead>المرجع</TableHead>
+                <TableHead>الإجمالي</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {entries.map((e: ClosingEntry) => (
+                <TableRow key={e.id}>
+                  <TableCell className="font-mono text-xs">
+                    {e.entryNumber}
+                  </TableCell>
+                  <TableCell>{e.entryDate}</TableCell>
+                  <TableCell className="max-w-md truncate">
+                    {e.description}
+                  </TableCell>
+                  <TableCell className="font-mono text-xs text-muted-foreground">
+                    {e.sourceRef ?? "—"}
+                  </TableCell>
+                  <TableCell>
+                    <Money value={e.totalAmount} />
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+export function FiscalPeriodsTab() {
   const { data: years, isLoading } = useListFiscalYears();
+  const role = useCurrentRole();
+  const isOwner = role === "owner";
   const qc = useQueryClient();
   const close = useCloseFiscalPeriod({
     mutation: {
@@ -760,10 +887,14 @@ function FiscalPeriodsTab() {
     <div className="space-y-4">
       {(years ?? []).map((y: FiscalYear) => (
         <Card key={y.id}>
-          <CardHeader>
-            <CardTitle>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <CardTitle className="flex items-center gap-2">
               السنة المالية {y.name} ({y.startDate} → {y.endDate})
+              {y.status === "closed" && (
+                <Badge variant="destructive">مغلقة</Badge>
+              )}
             </CardTitle>
+            {isOwner && y.status !== "closed" && <CloseYearDialog year={y} />}
           </CardHeader>
           <CardContent>
             <Table>
@@ -773,6 +904,7 @@ function FiscalPeriodsTab() {
                   <TableHead>من</TableHead>
                   <TableHead>إلى</TableHead>
                   <TableHead>الحالة</TableHead>
+                  <TableHead>تاريخ الإقفال</TableHead>
                   <TableHead>إجراء</TableHead>
                 </TableRow>
               </TableHeader>
@@ -783,11 +915,14 @@ function FiscalPeriodsTab() {
                     <TableCell>{p.startDate}</TableCell>
                     <TableCell>{p.endDate}</TableCell>
                     <TableCell>
-                      <Badge
-                        variant={p.status === "open" ? "default" : "secondary"}
-                      >
-                        {p.status === "open" ? "مفتوحة" : "مغلقة"}
+                      <Badge variant={PERIOD_STATUS_VARIANT[p.status] ?? "secondary"}>
+                        {PERIOD_STATUS_LABEL[p.status] ?? p.status}
                       </Badge>
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground">
+                      {p.closedAt
+                        ? new Date(p.closedAt).toLocaleDateString("ar-SA")
+                        : "—"}
                     </TableCell>
                     <TableCell>
                       {p.status === "open" ? (
@@ -798,14 +933,18 @@ function FiscalPeriodsTab() {
                         >
                           <Lock className="h-3 w-3 ml-1" /> إقفال
                         </Button>
-                      ) : (
+                      ) : isOwner ? (
                         <Button
                           size="sm"
                           variant="ghost"
                           onClick={() => reopen.mutate({ id: p.id })}
                         >
-                          <Unlock className="h-3 w-3 ml-1" /> إعادة فتح
+                          <Unlock className="h-3 w-3 ml-1" /> فتح مؤقت
                         </Button>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">
+                          —
+                        </span>
                       )}
                     </TableCell>
                   </TableRow>
@@ -815,6 +954,7 @@ function FiscalPeriodsTab() {
           </CardContent>
         </Card>
       ))}
+      <ClosingEntriesReport />
     </div>
   );
 }

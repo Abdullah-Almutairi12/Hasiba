@@ -53,11 +53,28 @@ async function resolveAccount(
   throw new Error("Posting line missing accountId/accountCode/systemKey");
 }
 
+/**
+ * Thrown when an entry hits a closed/locked fiscal period. Carries the
+ * exact Arabic message required by the closing-controls task so routes
+ * can surface a consistent **403** to clients (e.g. journal-entry create,
+ * post, and the invoice-from-scan flow).
+ */
+export class ClosedPeriodError extends Error {
+  constructor(public readonly dateStr: string) {
+    super("الفترة مُغلقة لا يمكن التعديل");
+    this.name = "ClosedPeriodError";
+  }
+}
+
 async function resolvePeriodId(
   tx: DbOrTx,
   d: Date,
 ): Promise<number> {
   const dateStr = d.toISOString().slice(0, 10);
+  // When monthly AND annual periods both cover a date, pick the most
+  // specific one (shortest span). This lets us safely seed an annual
+  // fiscal_periods row alongside the 12 monthly ones without breaking
+  // date resolution.
   const [p] = await tx
     .select({ id: fiscalPeriodsTable.id, status: fiscalPeriodsTable.status })
     .from(fiscalPeriodsTable)
@@ -67,16 +84,17 @@ async function resolvePeriodId(
         gte(fiscalPeriodsTable.endDate, dateStr),
       ),
     )
+    .orderBy(
+      sql`${fiscalPeriodsTable.endDate}::date - ${fiscalPeriodsTable.startDate}::date ASC`,
+    )
     .limit(1);
   if (!p) {
-    // Fail closed: never allow a posted/draft entry that has no governing
-    // fiscal period — it would be a permanent gap in closing controls.
     throw new Error(
       `لا توجد فترة مالية مفتوحة تغطي تاريخ ${dateStr}. يجب إنشاء السنة/الفترة المالية أولاً.`,
     );
   }
   if (p.status === "closed" || p.status === "locked") {
-    throw new Error(`الفترة المالية مغلقة لتاريخ ${dateStr}`);
+    throw new ClosedPeriodError(dateStr);
   }
   return p.id;
 }

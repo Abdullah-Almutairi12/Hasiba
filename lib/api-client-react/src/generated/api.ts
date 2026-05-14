@@ -54,6 +54,9 @@ import type {
   BranchPerformance,
   CashFlow,
   Category,
+  CloseFiscalYearBody,
+  CloseYearResult,
+  ClosingEntry,
   CreateAccountBody,
   CreateAnnouncementBody,
   CreateApprovalRule201,
@@ -85,6 +88,7 @@ import type {
   FeatureFlag,
   FinancialLimit,
   FiscalPeriod,
+  FiscalPeriodFlat,
   FiscalYear,
   FraudAlert,
   GeneralLedger,
@@ -115,6 +119,7 @@ import type {
   ListApproverCandidates200Item,
   ListAuditLogsParams,
   ListAutomationRunsParams,
+  ListClosingEntriesParams,
   ListCustomersParams,
   ListInboxParams,
   ListInvoicesParams,
@@ -3160,6 +3165,435 @@ export const useReopenFiscalPeriod = <
 > => {
   return useMutation(getReopenFiscalPeriodMutationOptions(options));
 };
+
+/**
+ * @summary Close a fiscal period (alias matching task spec)
+ */
+export const getCloseFiscalPeriodAliasUrl = (id: number) => {
+  return `/api/accounting/periods/${id}/close`;
+};
+
+export const closeFiscalPeriodAlias = async (
+  id: number,
+  options?: RequestInit,
+): Promise<FiscalPeriod> => {
+  return customFetch<FiscalPeriod>(getCloseFiscalPeriodAliasUrl(id), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getCloseFiscalPeriodAliasMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof closeFiscalPeriodAlias>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof closeFiscalPeriodAlias>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  const mutationKey = ["closeFiscalPeriodAlias"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof closeFiscalPeriodAlias>>,
+    { id: number }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return closeFiscalPeriodAlias(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CloseFiscalPeriodAliasMutationResult = NonNullable<
+  Awaited<ReturnType<typeof closeFiscalPeriodAlias>>
+>;
+
+export type CloseFiscalPeriodAliasMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Close a fiscal period (alias matching task spec)
+ */
+export const useCloseFiscalPeriodAlias = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof closeFiscalPeriodAlias>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof closeFiscalPeriodAlias>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  return useMutation(getCloseFiscalPeriodAliasMutationOptions(options));
+};
+
+/**
+ * @summary Reopen a closed fiscal period (owner only)
+ */
+export const getReopenFiscalPeriodAliasUrl = (id: number) => {
+  return `/api/accounting/periods/${id}/reopen`;
+};
+
+export const reopenFiscalPeriodAlias = async (
+  id: number,
+  options?: RequestInit,
+): Promise<FiscalPeriod> => {
+  return customFetch<FiscalPeriod>(getReopenFiscalPeriodAliasUrl(id), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getReopenFiscalPeriodAliasMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof reopenFiscalPeriodAlias>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof reopenFiscalPeriodAlias>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  const mutationKey = ["reopenFiscalPeriodAlias"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof reopenFiscalPeriodAlias>>,
+    { id: number }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return reopenFiscalPeriodAlias(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ReopenFiscalPeriodAliasMutationResult = NonNullable<
+  Awaited<ReturnType<typeof reopenFiscalPeriodAlias>>
+>;
+
+export type ReopenFiscalPeriodAliasMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Reopen a closed fiscal period (owner only)
+ */
+export const useReopenFiscalPeriodAlias = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof reopenFiscalPeriodAlias>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof reopenFiscalPeriodAlias>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  return useMutation(getReopenFiscalPeriodAliasMutationOptions(options));
+};
+
+/**
+ * @summary Flat list of all fiscal periods (across years)
+ */
+export const getListFiscalPeriodsUrl = () => {
+  return `/api/accounting/periods`;
+};
+
+export const listFiscalPeriods = async (
+  options?: RequestInit,
+): Promise<FiscalPeriodFlat[]> => {
+  return customFetch<FiscalPeriodFlat[]>(getListFiscalPeriodsUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListFiscalPeriodsQueryKey = () => {
+  return [`/api/accounting/periods`] as const;
+};
+
+export const getListFiscalPeriodsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listFiscalPeriods>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listFiscalPeriods>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListFiscalPeriodsQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listFiscalPeriods>>
+  > = ({ signal }) => listFiscalPeriods({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listFiscalPeriods>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListFiscalPeriodsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listFiscalPeriods>>
+>;
+export type ListFiscalPeriodsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Flat list of all fiscal periods (across years)
+ */
+
+export function useListFiscalPeriods<
+  TData = Awaited<ReturnType<typeof listFiscalPeriods>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listFiscalPeriods>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListFiscalPeriodsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Close a fiscal year (owner only) — creates closing JE to retained earnings + locks periods
+ */
+export const getCloseFiscalYearUrl = () => {
+  return `/api/accounting/close-year`;
+};
+
+export const closeFiscalYear = async (
+  closeFiscalYearBody: CloseFiscalYearBody,
+  options?: RequestInit,
+): Promise<CloseYearResult> => {
+  return customFetch<CloseYearResult>(getCloseFiscalYearUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(closeFiscalYearBody),
+  });
+};
+
+export const getCloseFiscalYearMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof closeFiscalYear>>,
+    TError,
+    { data: BodyType<CloseFiscalYearBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof closeFiscalYear>>,
+  TError,
+  { data: BodyType<CloseFiscalYearBody> },
+  TContext
+> => {
+  const mutationKey = ["closeFiscalYear"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof closeFiscalYear>>,
+    { data: BodyType<CloseFiscalYearBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return closeFiscalYear(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CloseFiscalYearMutationResult = NonNullable<
+  Awaited<ReturnType<typeof closeFiscalYear>>
+>;
+export type CloseFiscalYearMutationBody = BodyType<CloseFiscalYearBody>;
+export type CloseFiscalYearMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Close a fiscal year (owner only) — creates closing JE to retained earnings + locks periods
+ */
+export const useCloseFiscalYear = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof closeFiscalYear>>,
+    TError,
+    { data: BodyType<CloseFiscalYearBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof closeFiscalYear>>,
+  TError,
+  { data: BodyType<CloseFiscalYearBody> },
+  TContext
+> => {
+  return useMutation(getCloseFiscalYearMutationOptions(options));
+};
+
+/**
+ * @summary Year-end closing journal entries report
+ */
+export const getListClosingEntriesUrl = (params?: ListClosingEntriesParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/accounting/closing-entries?${stringifiedParams}`
+    : `/api/accounting/closing-entries`;
+};
+
+export const listClosingEntries = async (
+  params?: ListClosingEntriesParams,
+  options?: RequestInit,
+): Promise<ClosingEntry[]> => {
+  return customFetch<ClosingEntry[]>(getListClosingEntriesUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListClosingEntriesQueryKey = (
+  params?: ListClosingEntriesParams,
+) => {
+  return [
+    `/api/accounting/closing-entries`,
+    ...(params ? [params] : []),
+  ] as const;
+};
+
+export const getListClosingEntriesQueryOptions = <
+  TData = Awaited<ReturnType<typeof listClosingEntries>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListClosingEntriesParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listClosingEntries>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getListClosingEntriesQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listClosingEntries>>
+  > = ({ signal }) => listClosingEntries(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listClosingEntries>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListClosingEntriesQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listClosingEntries>>
+>;
+export type ListClosingEntriesQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Year-end closing journal entries report
+ */
+
+export function useListClosingEntries<
+  TData = Awaited<ReturnType<typeof listClosingEntries>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListClosingEntriesParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listClosingEntries>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListClosingEntriesQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
 
 export const getListBankAccountsUrl = () => {
   return `/api/accounting/bank-accounts`;
