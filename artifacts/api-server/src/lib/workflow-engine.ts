@@ -650,8 +650,9 @@ export async function notify(userId: number, input: NotifyInput): Promise<void> 
       if (!phone) {
         logger.info(
           { userId, title: input.title },
-          "outbound notification skipped: user has no phone",
+          "outbound notification skipped: user has no phone; falling back to email",
         );
+        await emailFallback().catch(() => {});
       } else {
         const { sendMessage } = await import("./integrations/messaging");
         const provider =
@@ -665,7 +666,7 @@ export async function notify(userId: number, input: NotifyInput): Promise<void> 
                 | "unifonic"
                 | "mobily"
                 | "taqnyat");
-        await sendMessage({
+        const result = await sendMessage({
           channel: input.channel,
           provider,
           to: phone,
@@ -673,9 +674,16 @@ export async function notify(userId: number, input: NotifyInput): Promise<void> 
             ? `${input.title}\n\n${input.message}\n${input.link}`
             : `${input.title}\n\n${input.message}`,
         });
+        if (result.status !== "sent") {
+          logger.warn(
+            { userId, status: result.status, channel: input.channel },
+            "outbound notification not delivered; falling back to email",
+          );
+          await emailFallback().catch(() => {});
+        }
       }
     } catch (err) {
-      logger.warn({ err, userId }, "outbound notification dispatch failed; falling back to email");
+      logger.warn({ err, userId }, "outbound notification dispatch threw; falling back to email");
       await emailFallback().catch(() => {});
     }
   }
