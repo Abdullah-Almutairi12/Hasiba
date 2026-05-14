@@ -27,6 +27,7 @@ import {
 } from "@workspace/db";
 import { and, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { handleRouteError } from "../lib/handle-error";
+import { recordAudit } from "../lib/audit";
 import {
   adminGuard,
   financeGuard,
@@ -42,7 +43,7 @@ import {
   applyDiscountRules,
   applyLineDiscountRules,
 } from "../lib/sales-engine";
-import { postJournalEntry } from "../lib/journal-posting";
+import { postJournalEntry, reverseJournalEntry, ClosedPeriodError } from "../lib/journal-posting";
 import { buildZatcaQrBase64 } from "../lib/zatca-qr";
 import { processInvoiceForZatca } from "../lib/integrations/zatca-phase2";
 import { createAwb } from "../lib/integrations/shipping";
@@ -1695,6 +1696,11 @@ router.post("/sales/invoices", financeGuard, async (req, res) => {
           source: so ? "so" : "manual",
           sourceRef: so?.reference ?? null,
           appliedDiscounts: allAppliedRules.length ? allAppliedRules : null,
+          // Customer invoices post their journal entry in this same
+          // transaction, so they are approved-and-locked from row insert.
+          // Only a reverse invoice can neutralise them afterwards.
+          isLocked: true,
+          lockedAt: new Date(),
           createdBy: req.session?.userId ?? null,
         })
         .returning();
@@ -1864,6 +1870,218 @@ router.post("/sales/invoices", financeGuard, async (req, res) => {
     res.status(201).json(serializeMoneyDoc(result.inv));
   } catch (err) {
     req.log.error({ err }, "create customer invoice");
+    handleRouteError(err, res);
+  }
+});
+
+// Hard-delete a customer invoice. Refuses to touch a locked invoice — the
+// only legal correction path for an issued AR invoice is a reverse entry
+// via /sales/invoices/:id/reverse so the ledger trail stays intact.
+router.delete("/sales/invoices/:id", financeGuard, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) {
+      res.status(400).json({ error: "Bad id" }); return;
+    }
+    const [current] = await db
+      .select()
+      .from(customerInvoicesTable)
+      .where(eq(customerInvoicesTable.id, id));
+    if (!current) { res.status(404).json({ error: "Not found" }); return; }
+    if (current.isLocked) {
+      res.status(409).json({
+        error: "لا يمكن حذف فاتورة معتمدة/مقفلة. استخدم قيد عكسي بدلاً من ذلك.",
+        code: "INVOICE_LOCKED",
+      });
+      return;
+    }
+    await db.delete(customerInvoiceLinesTable).where(eq(customerInvoiceLinesTable.invoiceId, id));
+    await db.delete(customerInvoicesTable).where(eq(customerInvoicesTable.id, id));
+    void recordAudit(req, {
+      action: "delete",
+      entity: "customer_invoice",
+      details: `حذف فاتورة عميل مسودة ${current.reference}`,
+      severity: "warning",
+    });
+    res.json({ ok: true });
+  } catch (err) {
+    handleRouteError(err, res);
+  }
+});
+
+// Reverse a locked customer invoice. Creates a sibling invoice with
+// negated totals, links the pair via reverses_id / reversed_by_id, posts
+// a reverse journal entry, rolls back customer aggregates, and clears
+// invoicedQty on the originating SO lines — all inside one DB transaction.
+const CustomerReverseBody = z.object({
+  reason: z.string().trim().min(3, "السبب مطلوب").max(500),
+});
+
+router.post("/sales/invoices/:id/reverse", financeGuard, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) {
+      res.status(400).json({ error: "Bad id" }); return;
+    }
+    const { reason } = CustomerReverseBody.parse(req.body ?? {});
+
+    const result = await db.transaction(async (tx) => {
+      const [orig] = await tx
+        .select()
+        .from(customerInvoicesTable)
+        .where(eq(customerInvoicesTable.id, id));
+      if (!orig) throw Object.assign(new Error("الفاتورة غير موجودة"), { httpStatus: 404 });
+      if (!orig.isLocked) {
+        throw Object.assign(
+          new Error("لا يمكن عكس فاتورة غير مقفلة."),
+          { httpStatus: 409 },
+        );
+      }
+      if (orig.reversedById) {
+        throw Object.assign(new Error("الفاتورة معكوسة مسبقاً."), { httpStatus: 409 });
+      }
+      if (orig.reversesId) {
+        throw Object.assign(
+          new Error("لا يمكن عكس فاتورة هي نفسها قيد عكسي."),
+          { httpStatus: 409 },
+        );
+      }
+      if (Number(orig.amountPaid) > 0) {
+        throw Object.assign(
+          new Error("لا يمكن عكس فاتورة عليها مدفوعات. قم بإلغاء/عكس سند القبض أولاً."),
+          { httpStatus: 409 },
+        );
+      }
+
+      const origLines = await tx
+        .select()
+        .from(customerInvoiceLinesTable)
+        .where(eq(customerInvoiceLinesTable.invoiceId, orig.id));
+
+      const reverseRef = `REV-${orig.reference}`;
+      const now = new Date();
+      const [reverse] = await tx
+        .insert(customerInvoicesTable)
+        .values({
+          reference: reverseRef,
+          soId: orig.soId,
+          customerId: orig.customerId,
+          customerName: orig.customerName,
+          branchId: orig.branchId,
+          salesRepId: orig.salesRepId,
+          status: "cancelled",
+          invoiceDate: now.toISOString().slice(0, 10),
+          dueDate: null,
+          subtotal: String(-Number(orig.subtotal)),
+          discount: String(-Number(orig.discount)),
+          vat: String(-Number(orig.vat)),
+          total: String(-Number(orig.total)),
+          amountPaid: "0",
+          notes: `قيد عكسي للفاتورة ${orig.reference} — ${reason}`,
+          source: "manual",
+          sourceRef: orig.reference,
+          reversesId: orig.id,
+          isLocked: true,
+          lockedAt: now,
+          reversedReason: reason,
+          createdBy: req.session?.userId ?? null,
+        })
+        .returning();
+      if (!reverse) throw new Error("Failed to create reverse customer invoice");
+
+      // Mirror negated lines so reports/totals stay reconciled.
+      for (const ln of origLines) {
+        await tx.insert(customerInvoiceLinesTable).values({
+          invoiceId: reverse.id,
+          soLineId: ln.soLineId,
+          productId: ln.productId,
+          description: ln.description,
+          quantity: String(-Number(ln.quantity)),
+          unitPrice: ln.unitPrice,
+          discountPct: ln.discountPct,
+          taxRate: ln.taxRate,
+          lineTotal: String(-Number(ln.lineTotal)),
+        });
+        // Release the SO-line invoicedQty so the SO can be re-invoiced.
+        if (ln.soLineId) {
+          await tx
+            .update(salesOrderLinesTable)
+            .set({
+              invoicedQty: sql`GREATEST(${salesOrderLinesTable.invoicedQty}::numeric - ${Number(ln.quantity)}, 0)`,
+            })
+            .where(eq(salesOrderLinesTable.id, ln.soLineId));
+        }
+      }
+
+      // Pair original ↔ reverse.
+      await tx
+        .update(customerInvoicesTable)
+        .set({
+          reversedById: reverse.id,
+          reversedReason: reason,
+          status: "cancelled",
+        })
+        .where(eq(customerInvoicesTable.id, orig.id));
+
+      // Roll back customer aggregates.
+      await tx
+        .update(customersTable)
+        .set({
+          totalOrders: sql`GREATEST(${customersTable.totalOrders} - 1, 0)`,
+          totalSpent: sql`GREATEST(${customersTable.totalSpent}::numeric - ${Number(orig.total)}, 0)`,
+        })
+        .where(eq(customersTable.id, orig.customerId));
+
+      // Find and reverse the journal entry posted at creation time. The
+      // POST handler uses source='manual' + sourceRef=reference.
+      const [origJe] = await tx
+        .select({ id: journalEntriesTable.id })
+        .from(journalEntriesTable)
+        .where(
+          and(
+            eq(journalEntriesTable.source, "manual"),
+            eq(journalEntriesTable.sourceRef, orig.reference),
+            eq(journalEntriesTable.status, "posted"),
+          ),
+        )
+        .limit(1);
+      let reverseJournalId: number | null = null;
+      if (origJe) {
+        const rev = await reverseJournalEntry(
+          tx,
+          origJe.id,
+          req.session?.userId ?? null,
+          reason,
+        );
+        reverseJournalId = rev.id;
+      }
+
+      return { reverse, reverseJournalId };
+    });
+
+    void recordAudit(req, {
+      action: "update",
+      entity: "customer_invoice",
+      details: `قيد عكسي لفاتورة عميل #${id}: ${reason}`,
+      severity: "warning",
+    });
+    res.json({
+      ok: true,
+      reverse: serializeMoneyDoc(result.reverse),
+      reverseJournalId: result.reverseJournalId,
+    });
+  } catch (err) {
+    if (err instanceof ClosedPeriodError) {
+      res.status(403).json({ error: err.message }); return;
+    }
+    const tagged = err as { httpStatus?: number };
+    if (typeof tagged?.httpStatus === "number") {
+      res.status(tagged.httpStatus).json({
+        error: err instanceof Error ? err.message : "Bad request",
+      });
+      return;
+    }
+    req.log.error({ err }, "reverse customer invoice");
     handleRouteError(err, res);
   }
 });

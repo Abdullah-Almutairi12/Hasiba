@@ -29,9 +29,11 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { formatRiyal } from "@/components/riyal";
 import {
   FileText, UploadCloud, CheckCircle2, Clock, AlertTriangle, AlertCircle,
-  Camera, Sparkles, Trash2, Plus, Loader2, ScanLine,
+  Camera, Sparkles, Trash2, Plus, Loader2, ScanLine, Lock, Undo2,
 } from "lucide-react";
 import { toast } from "sonner";
+import { Textarea } from "@/components/ui/textarea";
+import { usePermissions } from "@/hooks/use-permissions";
 
 type ExtractedItem = {
   description: string;
@@ -97,8 +99,39 @@ async function resizeImage(file: File, maxDim = 1600, quality = 0.85): Promise<s
 }
 
 export default function Invoices() {
+  const { canManageFinance } = usePermissions();
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [scanOpen, setScanOpen] = useState(false);
+  const [reverseTarget, setReverseTarget] = useState<{ id: number; number: string } | null>(null);
+  const [reverseReason, setReverseReason] = useState("");
+  const [reversing, setReversing] = useState(false);
+
+  async function submitReverse() {
+    if (!reverseTarget) return;
+    if (reverseReason.trim().length < 3) {
+      toast.error("الرجاء كتابة سبب القيد العكسي.");
+      return;
+    }
+    try {
+      setReversing(true);
+      const res = await fetch(`${API_BASE}/invoices/${reverseTarget.id}/reverse`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: reverseReason.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error ?? "فشل إنشاء القيد العكسي");
+      toast.success("تم إنشاء قيد عكسي وتسجيل القيود المحاسبية.");
+      setReverseTarget(null);
+      setReverseReason("");
+      await qc.invalidateQueries();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "فشل القيد العكسي");
+    } finally {
+      setReversing(false);
+    }
+  }
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [scanning, setScanning] = useState(false);
   const [committing, setCommitting] = useState(false);
@@ -373,6 +406,7 @@ export default function Invoices() {
                   <TableHead>المبلغ</TableHead>
                   <TableHead className="text-center">الدقة</TableHead>
                   <TableHead className="text-left">الحالة</TableHead>
+                  <TableHead className="text-left">إجراءات</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -389,7 +423,7 @@ export default function Invoices() {
                   ))
                 ) : invoices?.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="h-32 text-center text-muted-foreground">لا توجد فواتير</TableCell>
+                    <TableCell colSpan={7} className="h-32 text-center text-muted-foreground">لا توجد فواتير</TableCell>
                   </TableRow>
                 ) : (
                   invoices?.map((invoice) => (
@@ -428,7 +462,47 @@ export default function Invoices() {
                           })()
                         ) : '---'}
                       </TableCell>
-                      <TableCell className="text-left">{getStatusBadge(invoice.status)}</TableCell>
+                      <TableCell className="text-left">
+                        <div className="flex items-center justify-end gap-1.5 flex-wrap">
+                          {getStatusBadge(invoice.status)}
+                          {(invoice as { isLocked?: boolean }).isLocked && !(invoice as { reversedById?: number | null }).reversedById && !(invoice as { reversesId?: number | null }).reversesId && (
+                            <Badge variant="outline" className="bg-slate-100 text-slate-700 border-slate-300 gap-1" data-testid={`badge-locked-${invoice.id}`}>
+                              <Lock className="size-3" /> مقفلة
+                            </Badge>
+                          )}
+                          {(invoice as { reversedById?: number | null }).reversedById && (
+                            <Badge variant="outline" className="bg-amber-50 text-amber-800 border-amber-300" data-testid={`badge-reversed-${invoice.id}`}>
+                              ملغاة بقيد عكسي
+                            </Badge>
+                          )}
+                          {(invoice as { reversesId?: number | null }).reversesId && (
+                            <Badge variant="outline" className="bg-purple-50 text-purple-800 border-purple-300">
+                              قيد عكسي
+                            </Badge>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-left">
+                        {canManageFinance
+                          && (invoice as { isLocked?: boolean }).isLocked
+                          && !(invoice as { reversedById?: number | null }).reversedById
+                          && !(invoice as { reversesId?: number | null }).reversesId ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="gap-1.5"
+                            data-testid={`button-reverse-${invoice.id}`}
+                            onClick={() => {
+                              setReverseTarget({ id: invoice.id, number: invoice.invoiceNumber });
+                              setReverseReason("");
+                            }}
+                          >
+                            <Undo2 className="size-3.5" /> قيد عكسي
+                          </Button>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">—</span>
+                        )}
+                      </TableCell>
                     </TableRow>
                   ))
                 )}
@@ -695,6 +769,43 @@ export default function Invoices() {
                 حفظ وإضافة للمخزون والمحاسبة
               </Button>
             )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!reverseTarget} onOpenChange={(o) => { if (!o) { setReverseTarget(null); setReverseReason(""); } }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>إنشاء قيد عكسي</DialogTitle>
+            <DialogDescription>
+              سيتم إنشاء فاتورة مورد بقيمة سالبة مرتبطة بالفاتورة {reverseTarget?.number} مع قيد محاسبي عكسي. لا يمكن التراجع عن هذه العملية.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="reverse-reason">سبب القيد العكسي</Label>
+            <Textarea
+              id="reverse-reason"
+              data-testid="input-reverse-reason"
+              value={reverseReason}
+              onChange={(e) => setReverseReason(e.target.value)}
+              rows={3}
+              placeholder="مثلاً: خطأ في إدخال المبلغ، إرجاع كامل للمورد..."
+            />
+          </div>
+          <DialogFooter className="flex-row gap-2 justify-between sm:justify-between">
+            <Button variant="ghost" onClick={() => { setReverseTarget(null); setReverseReason(""); }} disabled={reversing}>
+              إلغاء
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={submitReverse}
+              disabled={reversing || reverseReason.trim().length < 3}
+              data-testid="button-confirm-reverse"
+              className="gap-2"
+            >
+              {reversing ? <Loader2 className="size-4 animate-spin" /> : <Undo2 className="size-4" />}
+              تأكيد القيد العكسي
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

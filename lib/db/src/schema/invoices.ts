@@ -1,4 +1,4 @@
-import { pgTable, serial, text, integer, numeric, real, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, integer, numeric, real, timestamp, boolean } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { suppliersTable } from "./suppliers";
@@ -15,6 +15,17 @@ export const invoicesTable = pgTable("invoices", {
   invoiceDate: timestamp("invoice_date"),
   dueDate: timestamp("due_date"),
   poId: integer("po_id"),
+  notes: text("notes"),
+  // Audit lock: set true when the invoice is approved/finalised. Locked
+  // invoices cannot be deleted or have financial fields edited — only a
+  // reverse invoice (qiyud 3aksi) may neutralise them.
+  isLocked: boolean("is_locked").notNull().default(false),
+  lockedAt: timestamp("locked_at"),
+  // Self-referencing reversal trail: reversesId points to the original
+  // locked invoice; reversedById points to the reversing invoice.
+  reversesId: integer("reverses_id"),
+  reversedById: integer("reversed_by_id"),
+  reversedReason: text("reversed_reason"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

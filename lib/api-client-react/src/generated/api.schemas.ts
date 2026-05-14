@@ -523,6 +523,12 @@ export interface Invoice {
   confidence?: number | null;
   fileUrl?: string | null;
   dueDate?: string | null;
+  notes?: string | null;
+  isLocked?: boolean;
+  lockedAt?: string | null;
+  reversesId?: number | null;
+  reversedById?: number | null;
+  reversedReason?: string | null;
   createdAt: string;
 }
 

@@ -315,6 +315,15 @@ export const customerInvoicesTable = pgTable(
     // (after proportional scaling for partial invoicing of an SO). Mirrors
     // the JE: sum(amount) <= invoice.discount; remainder goes to sales_discount.
     appliedDiscounts: jsonb("applied_discounts"),
+    // Audit lock — see invoicesTable for the same pattern. Set true at
+    // creation (issuance) since the customer invoice posts its journal
+    // entry inside the same transaction and therefore is immediately
+    // finalised. Reversal is the only legal way to neutralise it.
+    isLocked: boolean("is_locked").notNull().default(false),
+    lockedAt: timestamp("locked_at"),
+    reversesId: integer("reverses_id"),
+    reversedById: integer("reversed_by_id"),
+    reversedReason: text("reversed_reason"),
     createdBy: integer("created_by").references(() => usersTable.id),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
@@ -322,6 +331,7 @@ export const customerInvoicesTable = pgTable(
     custIdx: index("customer_invoices_customer_idx").on(t.customerId),
     statusIdx: index("customer_invoices_status_idx").on(t.status),
     dueIdx: index("customer_invoices_due_idx").on(t.dueDate),
+    reversesIdx: index("customer_invoices_reverses_idx").on(t.reversesId),
   }),
 );
 

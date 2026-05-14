@@ -2779,6 +2779,23 @@ components:
         dueDate:
           type: string
           nullable: true
+        notes:
+          type: string
+          nullable: true
+        isLocked:
+          type: boolean
+        lockedAt:
+          type: string
+          nullable: true
+        reversesId:
+          type: integer
+          nullable: true
+        reversedById:
+          type: integer
+          nullable: true
+        reversedReason:
+          type: string
+          nullable: true
         createdAt:
           type: string
       required: [id, invoiceNumber, supplierName, amount, status, createdAt]

@@ -25,7 +25,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Money } from "@/components/riyal";
-import { Plus, FileText, Truck, Receipt, ArrowLeftRight, Tag, Percent, Award, AlertCircle } from "lucide-react";
+import { Plus, FileText, Truck, Receipt, ArrowLeftRight, Tag, Percent, Award, AlertCircle, Lock, Undo2, Loader2 } from "lucide-react";
 import { useApiQuery, useApiMutation, apiPost, apiDelete } from "@/hooks/use-api";
 import { useToast } from "@/hooks/use-toast";
 import { useListCustomers, useListProducts } from "@workspace/api-client-react";
@@ -60,6 +60,9 @@ interface Invoice extends Quotation {
   dueDate: string | null;
   amountPaid: number;
   source: string;
+  isLocked?: boolean;
+  reversedById?: number | null;
+  reversesId?: number | null;
 }
 interface Receipt {
   id: number;
@@ -596,6 +599,31 @@ function InvoicesTab() {
   const { data, isLoading, refetch } = useApiQuery<Invoice[]>("/sales/invoices");
   const [open, setOpen] = useState(false);
   const { canManageFinance } = usePermissions();
+  const { toast } = useToast();
+  const [reverseTarget, setReverseTarget] = useState<Invoice | null>(null);
+  const [reverseReason, setReverseReason] = useState("");
+  const [reversing, setReversing] = useState(false);
+
+  async function submitReverse() {
+    if (!reverseTarget) return;
+    if (reverseReason.trim().length < 3) {
+      toast({ title: "السبب مطلوب", description: "اكتب سبب القيد العكسي.", variant: "destructive" });
+      return;
+    }
+    try {
+      setReversing(true);
+      await apiPost(`/sales/invoices/${reverseTarget.id}/reverse`, { reason: reverseReason.trim() });
+      toast({ title: "تم", description: `تم إنشاء قيد عكسي للفاتورة ${reverseTarget.reference}.` });
+      setReverseTarget(null);
+      setReverseReason("");
+      await refetch();
+    } catch (e) {
+      toast({ title: "فشل القيد العكسي", description: errMsg(e), variant: "destructive" });
+    } finally {
+      setReversing(false);
+    }
+  }
+
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between">
@@ -621,12 +649,80 @@ function InvoicesTab() {
             { header: "الإجمالي", cell: (r) => <Money value={r.total} /> },
             { header: "المدفوع", cell: (r) => <Money value={r.amountPaid} /> },
             { header: "المتبقي", cell: (r) => <span className="font-medium"><Money value={r.total - r.amountPaid} /></span> },
-            { header: "الحالة", cell: (r) => <StatusBadge status={r.status} /> },
+            { header: "الحالة", cell: (r) => (
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <StatusBadge status={r.status} />
+                {r.isLocked && !r.reversedById && !r.reversesId && (
+                  <Badge variant="outline" className="bg-slate-100 text-slate-700 border-slate-300 gap-1 font-normal" data-testid={`badge-invoice-locked-${r.id}`}>
+                    <Lock className="size-3" /> مقفلة
+                  </Badge>
+                )}
+                {r.reversedById && (
+                  <Badge variant="outline" className="bg-amber-50 text-amber-800 border-amber-300 font-normal" data-testid={`badge-invoice-reversed-${r.id}`}>
+                    ملغاة بقيد عكسي
+                  </Badge>
+                )}
+                {r.reversesId && (
+                  <Badge variant="outline" className="bg-purple-50 text-purple-800 border-purple-300 font-normal">
+                    قيد عكسي
+                  </Badge>
+                )}
+              </div>
+            ) },
             { header: "المصدر", cell: (r) => <Badge variant="outline" className="font-normal">{r.source}</Badge> },
+            { header: "إجراءات", cell: (r) => (
+              canManageFinance && r.isLocked && !r.reversedById && !r.reversesId && r.amountPaid === 0 ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="gap-1.5"
+                  data-testid={`button-reverse-invoice-${r.id}`}
+                  onClick={() => { setReverseTarget(r); setReverseReason(""); }}
+                >
+                  <Undo2 className="size-3.5" /> قيد عكسي
+                </Button>
+              ) : <span className="text-xs text-muted-foreground">—</span>
+            ) },
           ]}
           emptyText="لا توجد فواتير بعد"
         />
       </CardContent>
+      <Dialog open={!!reverseTarget} onOpenChange={(o) => { if (!o) { setReverseTarget(null); setReverseReason(""); } }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>إنشاء قيد عكسي</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            سيتم إنشاء فاتورة مقابلة بقيمة سالبة للفاتورة {reverseTarget?.reference} مع قيد محاسبي عكسي. لا يمكن التراجع.
+          </p>
+          <div className="space-y-2">
+            <Label htmlFor="rev-reason">سبب القيد العكسي</Label>
+            <Textarea
+              id="rev-reason"
+              data-testid="input-reverse-reason"
+              value={reverseReason}
+              onChange={(e) => setReverseReason(e.target.value)}
+              rows={3}
+              placeholder="مثلاً: خطأ في الفاتورة، إلغاء أمر البيع..."
+            />
+          </div>
+          <DialogFooter className="flex-row gap-2 justify-between sm:justify-between">
+            <Button variant="ghost" onClick={() => { setReverseTarget(null); setReverseReason(""); }} disabled={reversing}>
+              إلغاء
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={submitReverse}
+              disabled={reversing || reverseReason.trim().length < 3}
+              className="gap-2"
+              data-testid="button-confirm-reverse-invoice"
+            >
+              {reversing ? <Loader2 className="size-4 animate-spin" /> : <Undo2 className="size-4" />}
+              تأكيد القيد العكسي
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }

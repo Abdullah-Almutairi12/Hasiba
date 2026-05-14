@@ -213,5 +213,22 @@ export async function initProcurement(): Promise<void> {
     CREATE INDEX IF NOT EXISTS invoices_po_idx ON invoices (po_id);
   `);
 
+  // 5) Audit lock + reversal trail on supplier invoices. Once approved
+  //    (status='done') the row becomes immutable; the only way to
+  //    neutralise it is to issue a reverse invoice via /invoices/:id/reverse.
+  await pool.query(`
+    ALTER TABLE invoices ADD COLUMN IF NOT EXISTS notes text;
+    ALTER TABLE invoices ADD COLUMN IF NOT EXISTS is_locked boolean NOT NULL DEFAULT false;
+    ALTER TABLE invoices ADD COLUMN IF NOT EXISTS locked_at timestamp;
+    ALTER TABLE invoices ADD COLUMN IF NOT EXISTS reverses_id integer REFERENCES invoices(id);
+    ALTER TABLE invoices ADD COLUMN IF NOT EXISTS reversed_by_id integer REFERENCES invoices(id);
+    ALTER TABLE invoices ADD COLUMN IF NOT EXISTS reversed_reason text;
+    CREATE INDEX IF NOT EXISTS invoices_reverses_idx ON invoices (reverses_id);
+    -- Backfill: any existing invoices already marked done are treated as
+    -- approved and locked retroactively so the new guards apply uniformly.
+    UPDATE invoices SET is_locked = true, locked_at = COALESCE(locked_at, now())
+     WHERE status = 'done' AND is_locked = false;
+  `);
+
   logger.info("Procurement subsystem initialized");
 }

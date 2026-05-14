@@ -7,8 +7,9 @@ import {
   purchaseOrdersTable, purchaseOrderLinesTable,
 } from "@workspace/db";
 import { inArray } from "drizzle-orm";
-import { postJournalEntry, ClosedPeriodError } from "../lib/journal-posting";
-import { eq, sql, desc, ilike } from "drizzle-orm";
+import { postJournalEntry, reverseJournalEntry, ClosedPeriodError } from "../lib/journal-posting";
+import { journalEntriesTable } from "@workspace/db";
+import { eq, sql, desc, ilike, and } from "drizzle-orm";
 import { CreateInvoiceBody, UpdateInvoiceBody } from "@workspace/api-zod";
 import { extractInvoiceFromImage, type ExtractedInvoice } from "../lib/invoice-extractor";
 import { requireRole, financeGuard, invoiceReadGuard } from "../middlewares/require-role";
@@ -222,16 +223,27 @@ router.patch("/invoices/:id", financeGuard, async (req, res) => {
   try {
     const id = Number(req.params.id);
     const body = UpdateInvoiceBody.parse(req.body);
+    // Accept an optional `notes` field even if it's not in the OpenAPI
+    // schema yet — notes are the only field allowed to change after lock.
+    const rawNotes = typeof (req.body as { notes?: unknown }).notes === "string"
+      ? ((req.body as { notes?: string }).notes ?? null)
+      : undefined;
 
-    // Audit guard: once an invoice is marked done, financial fields are
-    // frozen — only status transitions are allowed. Modifying amount or
-    // supplier on a finalised invoice would break ZATCA traceability and
-    // the accounting trail.
+    // Audit guard: once an invoice is locked (approved/finalised), every
+    // financial field is frozen forever. Only `notes` may be edited. To
+    // neutralise a locked invoice the user must issue a reverse invoice.
     const [current] = await db.select().from(invoicesTable).where(eq(invoicesTable.id, id));
     if (!current) return res.status(404).json({ error: "Not found" });
-    if (current.status === "done" && (body.amount !== undefined || body.supplierName)) {
+
+    const wantsFinancialEdit =
+      body.amount !== undefined ||
+      body.supplierName !== undefined ||
+      (body.status !== undefined && body.status !== current.status);
+
+    if (current.isLocked && wantsFinancialEdit) {
       return res.status(409).json({
-        error: "لا يمكن تعديل فاتورة مكتملة. أنشئ إشعار دائن/مدين بدلاً من ذلك.",
+        error: "هذه الفاتورة مقفلة بعد الاعتماد. لتصحيح القيمة أنشئ قيداً عكسياً ثم فاتورة جديدة.",
+        code: "INVOICE_LOCKED",
       });
     }
 
@@ -239,6 +251,15 @@ router.patch("/invoices/:id", financeGuard, async (req, res) => {
     if (body.status) updateData.status = body.status;
     if (body.amount !== undefined) updateData.amount = String(body.amount);
     if (body.supplierName) updateData.supplierName = body.supplierName;
+    if (rawNotes !== undefined) updateData.notes = rawNotes;
+
+    // Auto-lock on transition to "done" so the next request can no longer
+    // edit financial fields. Idempotent — re-PATCHing a done invoice to
+    // "done" keeps the original lockedAt.
+    if (body.status === "done" && !current.isLocked) {
+      updateData.isLocked = true;
+      updateData.lockedAt = new Date();
+    }
 
     const [updated] = await db.update(invoicesTable).set(updateData).where(eq(invoicesTable.id, id)).returning();
     if (!updated) return res.status(404).json({ error: "Not found" });
@@ -251,6 +272,170 @@ router.patch("/invoices/:id", financeGuard, async (req, res) => {
     });
   } catch (err) {
     req.log.error({ err }, "Error updating invoice");
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Hard-delete a supplier invoice. Locked invoices CANNOT be deleted — they
+// must be reversed through /invoices/:id/reverse so the audit trail stays
+// intact. Returns 409 with a stable `code` for the UI to surface the
+// "use reverse" hint.
+router.delete("/invoices/:id", financeGuard, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: "Bad id" });
+    const [current] = await db.select().from(invoicesTable).where(eq(invoicesTable.id, id));
+    if (!current) return res.status(404).json({ error: "Not found" });
+    if (current.isLocked) {
+      return res.status(409).json({
+        error: "لا يمكن حذف فاتورة معتمدة/مقفلة. استخدم قيد عكسي بدلاً من ذلك.",
+        code: "INVOICE_LOCKED",
+      });
+    }
+    await db.delete(invoicesTable).where(eq(invoicesTable.id, id));
+    void recordAudit(req, {
+      action: "delete",
+      entity: "invoice",
+      details: `حذف فاتورة مسودة ${current.invoiceNumber}`,
+      severity: "warning",
+    });
+    return res.json({ ok: true });
+  } catch (err) {
+    req.log.error({ err }, "Error deleting invoice");
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Reverse a locked supplier invoice: creates a sibling invoice with a
+// negated amount, links the two via reverses_id/reversed_by_id, and posts
+// a reverse journal entry — all inside one DB transaction.
+const SupplierReverseBody = z.object({
+  reason: z.string().trim().min(3, "السبب مطلوب").max(500),
+});
+
+router.post("/invoices/:id/reverse", financeGuard, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: "Bad id" });
+    const { reason } = SupplierReverseBody.parse(req.body ?? {});
+
+    const result = await db.transaction(async (tx) => {
+      const [orig] = await tx.select().from(invoicesTable).where(eq(invoicesTable.id, id));
+      if (!orig) throw Object.assign(new Error("الفاتورة غير موجودة"), { httpStatus: 404 });
+      if (!orig.isLocked) {
+        throw Object.assign(
+          new Error("لا يمكن عكس فاتورة غير مقفلة. اعتمد الفاتورة أولاً."),
+          { httpStatus: 409 },
+        );
+      }
+      if (orig.reversedById) {
+        throw Object.assign(new Error("الفاتورة معكوسة مسبقاً."), { httpStatus: 409 });
+      }
+      if (orig.reversesId) {
+        throw Object.assign(
+          new Error("لا يمكن عكس فاتورة هي نفسها قيد عكسي."),
+          { httpStatus: 409 },
+        );
+      }
+
+      // Insert the reversing invoice — same supplier, negated amount,
+      // status='done' + isLocked=true so it's immutable from birth.
+      const reverseNumber = `REV-${orig.invoiceNumber}`;
+      const [reverse] = await tx
+        .insert(invoicesTable)
+        .values({
+          invoiceNumber: reverseNumber,
+          supplierId: orig.supplierId,
+          supplierName: orig.supplierName,
+          amount: String(-Number(orig.amount)),
+          status: "done",
+          confidence: orig.confidence,
+          fileUrl: orig.fileUrl,
+          invoiceDate: new Date(),
+          dueDate: null,
+          poId: orig.poId,
+          notes: `قيد عكسي للفاتورة ${orig.invoiceNumber}`,
+          reversesId: orig.id,
+          isLocked: true,
+          lockedAt: new Date(),
+          reversedReason: reason,
+        })
+        .returning();
+      if (!reverse) throw new Error("Failed to create reverse invoice");
+
+      // Pair them: original now points to its reverser.
+      await tx
+        .update(invoicesTable)
+        .set({ reversedById: reverse.id, reversedReason: reason })
+        .where(eq(invoicesTable.id, orig.id));
+
+      // Roll the supplier's AP balance back.
+      if (orig.supplierId) {
+        await tx
+          .update(suppliersTable)
+          .set({ balance: sql`${suppliersTable.balance} - ${Number(orig.amount)}` })
+          .where(eq(suppliersTable.id, orig.supplierId));
+      }
+
+      // Reverse the matching journal entry. The original from-scan posting
+      // uses sourceRef=`INV-${invoiceNumber}` — find it and flip every line.
+      const originalRef = `INV-${orig.invoiceNumber}`;
+      const [origJe] = await tx
+        .select({ id: journalEntriesTable.id })
+        .from(journalEntriesTable)
+        .where(
+          and(
+            eq(journalEntriesTable.source, "supplier_invoice"),
+            eq(journalEntriesTable.sourceRef, originalRef),
+            eq(journalEntriesTable.status, "posted"),
+          ),
+        )
+        .limit(1);
+      let reverseJournalId: number | null = null;
+      if (origJe) {
+        const rev = await reverseJournalEntry(
+          tx,
+          origJe.id,
+          req.session?.userId ?? null,
+          reason,
+        );
+        reverseJournalId = rev.id;
+      }
+
+      return {
+        reverse: {
+          ...reverse,
+          amount: Number(reverse.amount),
+          dueDate: reverse.dueDate?.toISOString() ?? null,
+          lockedAt: reverse.lockedAt?.toISOString() ?? null,
+          createdAt: reverse.createdAt.toISOString(),
+          invoiceDate: reverse.invoiceDate?.toISOString() ?? null,
+        },
+        reverseJournalId,
+      };
+    });
+
+    void recordAudit(req, {
+      action: "update",
+      entity: "invoice",
+      details: `قيد عكسي للفاتورة #${id}: ${reason}`,
+      severity: "warning",
+    });
+    return res.json({ ok: true, ...result });
+  } catch (err) {
+    if (err instanceof ZodError) {
+      return res.status(400).json({ error: "بيانات غير صالحة.", details: err.issues });
+    }
+    if (err instanceof ClosedPeriodError) {
+      return res.status(403).json({ error: err.message });
+    }
+    const tagged = err as { httpStatus?: number };
+    if (typeof tagged?.httpStatus === "number") {
+      return res.status(tagged.httpStatus).json({
+        error: err instanceof Error ? err.message : "Bad request",
+      });
+    }
+    req.log.error({ err }, "Error reversing supplier invoice");
     return res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -516,6 +701,7 @@ router.post("/invoices/from-scan", supplierInvoiceAgent, async (req, res) => {
       }
 
       // 1) Insert the invoice header — DB unique constraint on invoice_number guards against races.
+      const willBeApproved = body.confidence >= 0.85;
       const [invoice] = await tx
         .insert(invoicesTable)
         .values({
@@ -523,12 +709,17 @@ router.post("/invoices/from-scan", supplierInvoiceAgent, async (req, res) => {
           supplierId,
           supplierName: body.supplierName,
           amount: String(body.total),
-          status: body.confidence >= 0.85 ? "done" : "needs_review",
+          status: willBeApproved ? "done" : "needs_review",
           confidence: body.confidence,
           fileUrl: body.fileUrl || null,
           invoiceDate: body.invoiceDate ? new Date(body.invoiceDate) : null,
           dueDate: body.dueDate ? new Date(body.dueDate) : null,
           poId: body.poId ?? null,
+          // Auto-lock on approval: the moment status=='done' the invoice
+          // posts a journal entry and updates the supplier balance, so it
+          // must become immutable in the same insert.
+          isLocked: willBeApproved,
+          lockedAt: willBeApproved ? new Date() : null,
         })
         .returning();
       if (!invoice) throw new Error("Failed to create invoice");

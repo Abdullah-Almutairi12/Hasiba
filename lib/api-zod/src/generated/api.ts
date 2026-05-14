@@ -411,6 +411,12 @@ export const ListInvoicesResponseItem = zod.object({
   confidence: zod.number().nullish(),
   fileUrl: zod.string().nullish(),
   dueDate: zod.string().nullish(),
+  notes: zod.string().nullish(),
+  isLocked: zod.boolean().optional(),
+  lockedAt: zod.string().nullish(),
+  reversesId: zod.number().nullish(),
+  reversedById: zod.number().nullish(),
+  reversedReason: zod.string().nullish(),
   createdAt: zod.string(),
 });
 export const ListInvoicesResponse = zod.array(ListInvoicesResponseItem);
@@ -438,6 +444,12 @@ export const GetInvoiceResponse = zod.object({
   confidence: zod.number().nullish(),
   fileUrl: zod.string().nullish(),
   dueDate: zod.string().nullish(),
+  notes: zod.string().nullish(),
+  isLocked: zod.boolean().optional(),
+  lockedAt: zod.string().nullish(),
+  reversesId: zod.number().nullish(),
+  reversedById: zod.number().nullish(),
+  reversedReason: zod.string().nullish(),
   createdAt: zod.string(),
 });
 
@@ -462,6 +474,12 @@ export const UpdateInvoiceResponse = zod.object({
   confidence: zod.number().nullish(),
   fileUrl: zod.string().nullish(),
   dueDate: zod.string().nullish(),
+  notes: zod.string().nullish(),
+  isLocked: zod.boolean().optional(),
+  lockedAt: zod.string().nullish(),
+  reversesId: zod.number().nullish(),
+  reversedById: zod.number().nullish(),
+  reversedReason: zod.string().nullish(),
   createdAt: zod.string(),
 });
 
@@ -1921,6 +1939,12 @@ export const GetSupplierResponse = zod.object({
       confidence: zod.number().nullish(),
       fileUrl: zod.string().nullish(),
       dueDate: zod.string().nullish(),
+      notes: zod.string().nullish(),
+      isLocked: zod.boolean().optional(),
+      lockedAt: zod.string().nullish(),
+      reversesId: zod.number().nullish(),
+      reversedById: zod.number().nullish(),
+      reversedReason: zod.string().nullish(),
       createdAt: zod.string(),
     }),
   ),
