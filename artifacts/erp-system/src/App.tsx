@@ -39,6 +39,12 @@ import Login from "@/pages/login";
 import Welcome from "@/pages/welcome";
 import InvoicePrint from "@/pages/invoice-print";
 import TrackShipmentPage from "@/pages/track-shipment";
+import DocumentsPage from "@/pages/documents";
+import PortalLogin from "@/pages/portal-login";
+import PortalCustomer from "@/pages/portal-customer";
+import PortalSupplier from "@/pages/portal-supplier";
+import PortalEmployee from "@/pages/portal-employee";
+import SignPage from "@/pages/sign";
 import ProtectedRoute from "@/components/protected-route";
 import { ErrorBoundary } from "@/components/error-boundary";
 
@@ -159,6 +165,9 @@ function Router() {
       </Route>
       <Route path="/hr">
         <Protected><HrPage /></Protected>
+      </Route>
+      <Route path="/documents">
+        <Protected><DocumentsPage /></Protected>
       </Route>
       <Route path="/admin">
         <Protected><AdminPage /></Protected>

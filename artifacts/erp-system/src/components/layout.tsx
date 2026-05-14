@@ -93,6 +93,7 @@ const operationsNavItems = [
 const adminNavItems = [
   { key: "branches", url: "/branches", icon: Building2 },
   { key: "hr", url: "/hr", icon: UserCog },
+  { key: "documents", url: "/documents", icon: FileText },
   { key: "users", url: "/users", icon: Users },
   { key: "approvals", url: "/approvals", icon: CheckSquare },
   { key: "admin", url: "/admin", icon: ShieldCheck },

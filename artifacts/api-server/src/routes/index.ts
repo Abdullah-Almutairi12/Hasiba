@@ -32,6 +32,9 @@ import manufacturingRouter from "./manufacturing";
 import workflowRouter from "./workflow";
 import integrationsRouter, { integrationsPublicRouter } from "./integrations";
 import anomaliesRouter from "./anomalies";
+import portalAuthRouter from "./portal-auth";
+import portalRouter from "./portal";
+import documentsRouter, { signPublicRouter } from "./documents";
 import { requireAuth } from "../middlewares/require-auth";
 
 const router: IRouter = Router();
@@ -43,6 +46,11 @@ router.use(authRouter);
 router.use(hrPublicRouter);
 // Payment provider webhooks verify HMAC and must bypass session auth.
 router.use(integrationsPublicRouter);
+// Portal magic-link auth + per-portal endpoints (token-authenticated, not session).
+router.use(portalAuthRouter);
+router.use(portalRouter);
+// Public e-signature endpoints (token-authenticated, bypass session auth).
+router.use(signPublicRouter);
 
 // All business routes require an authenticated session
 router.use(requireAuth);
@@ -78,5 +86,6 @@ router.use(manufacturingRouter);
 router.use(workflowRouter);
 router.use(integrationsRouter);
 router.use(anomaliesRouter);
+router.use(documentsRouter);
 
 export default router;

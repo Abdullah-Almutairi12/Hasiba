@@ -100,6 +100,7 @@ export const NAV_PERMISSIONS: Record<string, readonly Role[]> = {
   // accesses their own pending items via the bell icon instead.
   approvals: ["owner", "manager", "accountant", "auditor"],
   settings: ALL_ROLES,
+  documents: ALL_ROLES,
 };
 
 export function useCurrentRole(): Role | null {
