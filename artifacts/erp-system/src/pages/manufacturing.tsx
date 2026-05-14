@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { apiGet, apiPost } from "@/hooks/use-api";
+import { apiGet, apiPost, apiPatch } from "@/hooks/use-api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -872,49 +872,222 @@ function RoutingsTab({ routings, workCenters, canWrite, onChange, toast }: any) 
   );
 }
 
-// ---- Schedule Tab ----
+// ---- Schedule Tab (visual calendar with drag-to-reschedule) ----
+interface ScheduleRow {
+  workCenterId: number | null;
+  workCenterName: string | null;
+  capacityPerDay: number | null;
+  plannedStart: string | null;
+  plannedEnd: string | null;
+  woId: number;
+  woRef: string;
+  productName: string | null;
+  quantity: number;
+  durationMinutes: number;
+  state: string;
+}
+
+function startOfDay(d: Date) { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; }
+function addDaysDt(d: Date, n: number) { const x = new Date(d); x.setDate(x.getDate() + n); return x; }
+function fmtDate(d: Date) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${dd}`;
+}
+function parseLocalDate(s: string) {
+  const [y, m, d] = s.slice(0, 10).split("-").map(Number);
+  return new Date(y, (m ?? 1) - 1, d ?? 1);
+}
+function diffDays(a: Date, b: Date) {
+  return Math.round((startOfDay(a).getTime() - startOfDay(b).getTime()) / 86400000);
+}
+
 function ScheduleTab() {
-  const { data = [] } = useQuery<any[]>({ queryKey: ["/manufacturing/schedule"], queryFn: () => apiGet("/manufacturing/schedule") });
-  const grouped = useMemo(() => {
-    const m = new Map<string, any[]>();
+  const qc = useQueryClient();
+  const { toast } = useToast();
+  const { data = [] } = useQuery<ScheduleRow[]>({
+    queryKey: ["/manufacturing/schedule"],
+    queryFn: () => apiGet("/manufacturing/schedule"),
+  });
+  const [view, setView] = useState<"day" | "week" | "month">("week");
+  const [anchor, setAnchor] = useState<Date>(() => startOfDay(new Date()));
+  const days = view === "day" ? 1 : view === "week" ? 7 : 30;
+  const dates = useMemo(() => Array.from({ length: days }, (_, i) => addDaysDt(anchor, i)), [anchor, days]);
+
+  // Dedupe (workCenterId + woId) so a WO appearing on multiple routing ops in
+  // the same work center isn't rendered twice on the same row.
+  const rows = useMemo(() => {
+    const seen = new Set<string>();
+    const out: ScheduleRow[] = [];
     for (const r of data) {
-      const k = r.workCenterName ?? "—";
-      if (!m.has(k)) m.set(k, []);
-      m.get(k)!.push(r);
+      const key = `${r.workCenterId ?? "null"}:${r.woId}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(r);
     }
-    return Array.from(m.entries());
+    return out;
   }, [data]);
+
+  const workCenters = useMemo(() => {
+    const m = new Map<string, { id: number | null; name: string }>();
+    for (const r of rows) {
+      const key = String(r.workCenterId ?? "null");
+      if (!m.has(key)) m.set(key, { id: r.workCenterId ?? null, name: r.workCenterName ?? "بدون محطة" });
+    }
+    return Array.from(m.values());
+  }, [rows]);
+
+  const patch = useMutation({
+    mutationFn: ({ id, plannedStart, plannedEnd }: { id: number; plannedStart: string; plannedEnd: string }) =>
+      apiPatch(`/manufacturing/work-orders/${id}`, { plannedStart, plannedEnd }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/manufacturing/schedule"] });
+      qc.invalidateQueries({ queryKey: ["/manufacturing/work-orders"] });
+      toast({ title: "تم إعادة جدولة أمر الإنتاج" });
+    },
+    onError: (e: Error) => toast({ title: "فشل التحديث", description: e.message, variant: "destructive" }),
+  });
+
+  const onDrop = (day: Date, ev: React.DragEvent) => {
+    ev.preventDefault();
+    const raw = ev.dataTransfer.getData("application/json");
+    if (!raw) return;
+    let drag: { woId: number; durationDays: number; grabOffset: number };
+    try { drag = JSON.parse(raw); } catch { return; }
+    const newStart = addDaysDt(day, -drag.grabOffset);
+    const newEnd = addDaysDt(newStart, Math.max(0, drag.durationDays - 1));
+    patch.mutate({ id: drag.woId, plannedStart: fmtDate(newStart), plannedEnd: fmtDate(newEnd) });
+  };
+
+  const unscheduled = useMemo(() => rows.filter((r) => !r.plannedStart), [rows]);
+
   return (
     <Card>
-      <CardHeader><CardTitle>جدولة الإنتاج (الحمل مقابل الطاقة)</CardTitle></CardHeader>
+      <CardHeader className="flex flex-row items-center justify-between gap-2 flex-wrap">
+        <CardTitle><Calendar className="size-4 inline ml-1" />تقويم الإنتاج</CardTitle>
+        <div className="flex items-center gap-2">
+          <Button size="sm" variant="outline" onClick={() => setAnchor(addDaysDt(anchor, -days))}>السابق</Button>
+          <Button size="sm" variant="outline" onClick={() => setAnchor(startOfDay(new Date()))}>اليوم</Button>
+          <Button size="sm" variant="outline" onClick={() => setAnchor(addDaysDt(anchor, days))}>التالي</Button>
+          <Select value={view} onValueChange={(v) => setView(v as "day" | "week" | "month")}>
+            <SelectTrigger className="w-28"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="day">يوم</SelectItem>
+              <SelectItem value="week">أسبوع</SelectItem>
+              <SelectItem value="month">شهر</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </CardHeader>
       <CardContent className="space-y-4">
-        {grouped.length === 0 && <p className="text-center text-muted-foreground">لا توجد أوامر إنتاج مجدولة</p>}
-        {grouped.map(([wc, items]) => {
-          const totalMinutes = items.reduce((s, x) => s + Number(x.durationMinutes ?? 0) * Number(x.quantity), 0);
-          const cap = items[0]?.capacityPerDay ? Number(items[0].capacityPerDay) * 60 : 0;
-          const loadPct = cap > 0 ? Math.min(100, (totalMinutes / cap) * 100) : 0;
-          return (
-            <div key={wc} className="rounded border p-3">
-              <div className="flex items-center justify-between mb-2">
-                <div className="font-semibold">{wc}</div>
-                <div className="text-sm text-muted-foreground">{totalMinutes.toFixed(0)} دقيقة / {cap.toFixed(0)} دقيقة يومياً</div>
-              </div>
-              <div className="h-2 rounded bg-slate-100 overflow-hidden mb-2"><div className="h-full bg-primary" style={{ width: `${loadPct}%` }} /></div>
-              <Table>
-                <TableHeader><TableRow><TableHead>أمر</TableHead><TableHead>المنتج</TableHead><TableHead>الكمية</TableHead><TableHead>التاريخ</TableHead><TableHead>الحالة</TableHead></TableRow></TableHeader>
-                <TableBody>
-                  {items.map((x, i) => (
-                    <TableRow key={i}>
-                      <TableCell>{x.woRef}</TableCell><TableCell>{x.productName}</TableCell><TableCell>{x.quantity}</TableCell>
-                      <TableCell>{x.plannedEnd ?? "—"}</TableCell>
-                      <TableCell><Badge className={STATE_BADGES[x.state]?.cls}>{STATE_BADGES[x.state]?.label}</Badge></TableCell>
-                    </TableRow>
+        {workCenters.length === 0 ? (
+          <p className="text-center text-muted-foreground">لا توجد أوامر إنتاج مجدولة</p>
+        ) : (
+          <div className="overflow-x-auto" dir="ltr">
+            <div style={{ minWidth: Math.max(700, 160 + days * 60) }}>
+              <div className="flex border-b bg-muted/30">
+                <div className="w-40 shrink-0 p-2 text-xs font-semibold border-r">محطة العمل</div>
+                <div className="flex-1 flex">
+                  {dates.map((d) => (
+                    <div key={d.toISOString()} className="flex-1 p-2 text-center text-xs font-semibold border-r">
+                      <div>{d.toLocaleDateString("ar", { weekday: "short" })}</div>
+                      <div className="text-muted-foreground">{d.getDate()}/{d.getMonth() + 1}</div>
+                    </div>
                   ))}
-                </TableBody>
-              </Table>
+                </div>
+              </div>
+              {workCenters.map((wc) => {
+                const wcRows = rows.filter((r) => (r.workCenterId ?? null) === wc.id);
+                const visibleBars = wcRows.filter((r) => {
+                  if (!r.plannedStart) return false;
+                  const ps = parseLocalDate(r.plannedStart);
+                  const pe = r.plannedEnd ? parseLocalDate(r.plannedEnd) : ps;
+                  return diffDays(pe, anchor) >= 0 && diffDays(ps, anchor) <= days - 1;
+                });
+                const rowHeight = Math.max(80, 12 + visibleBars.length * 38);
+                return (
+                  <div key={String(wc.id)} className="flex border-b" style={{ minHeight: rowHeight }}>
+                    <div className="w-40 shrink-0 p-2 text-sm font-medium border-r flex items-center">{wc.name}</div>
+                    <div className="flex-1 relative">
+                      <div className="absolute inset-0 flex">
+                        {dates.map((d) => (
+                          <div
+                            key={d.toISOString()}
+                            className="flex-1 border-r hover:bg-primary/5 transition-colors"
+                            onDragOver={(e) => e.preventDefault()}
+                            onDrop={(e) => onDrop(d, e)}
+                          />
+                        ))}
+                      </div>
+                      {visibleBars.map((r, idx) => {
+                        const ps = parseLocalDate(r.plannedStart!);
+                        const pe = r.plannedEnd ? parseLocalDate(r.plannedEnd) : ps;
+                        const startOffset = diffDays(ps, anchor);
+                        const endOffset = diffDays(pe, anchor);
+                        const visStart = Math.max(0, startOffset);
+                        const visEnd = Math.min(days - 1, endOffset);
+                        const leftPct = (visStart / days) * 100;
+                        const widthPct = ((visEnd - visStart + 1) / days) * 100;
+                        const durationDays = endOffset - startOffset + 1;
+                        const stateCls = STATE_BADGES[r.state]?.cls ?? "bg-slate-200 text-slate-700";
+                        return (
+                          <div
+                            key={`${r.woId}-${idx}`}
+                            draggable
+                            onDragStart={(e) => {
+                              e.dataTransfer.effectAllowed = "move";
+                              e.dataTransfer.setData("application/json", JSON.stringify({
+                                woId: r.woId,
+                                durationDays,
+                                grabOffset: Math.max(0, -startOffset),
+                              }));
+                            }}
+                            className={`absolute rounded px-2 py-1 text-xs cursor-move shadow-sm border ${stateCls} overflow-hidden hover-elevate`}
+                            style={{ left: `${leftPct}%`, width: `calc(${widthPct}% - 4px)`, top: `${6 + idx * 38}px`, height: 32 }}
+                            title={`${r.woRef} — ${r.productName ?? ""} (${r.plannedStart} → ${r.plannedEnd ?? r.plannedStart})`}
+                            data-testid={`schedule-bar-${r.woId}`}
+                          >
+                            <div className="font-semibold truncate leading-tight">{r.woRef}</div>
+                            <div className="truncate opacity-80 leading-tight">{r.productName} ×{r.quantity}</div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
-          );
-        })}
+          </div>
+        )}
+
+        {unscheduled.length > 0 && (
+          <div className="rounded border p-3">
+            <div className="text-sm font-semibold mb-2">أوامر غير مجدولة (اسحبها إلى التقويم)</div>
+            <div className="flex flex-wrap gap-2">
+              {unscheduled.map((r) => (
+                <div
+                  key={`u-${r.workCenterId ?? "x"}-${r.woId}`}
+                  draggable
+                  onDragStart={(e) => {
+                    e.dataTransfer.effectAllowed = "move";
+                    e.dataTransfer.setData("application/json", JSON.stringify({
+                      woId: r.woId, durationDays: 1, grabOffset: 0,
+                    }));
+                  }}
+                  className={`rounded border px-2 py-1 text-xs cursor-move ${STATE_BADGES[r.state]?.cls ?? "bg-slate-200"}`}
+                  data-testid={`unscheduled-${r.woId}`}
+                >
+                  <span className="font-semibold">{r.woRef}</span> — {r.productName} ×{r.quantity}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <p className="text-xs text-muted-foreground">
+          نصيحة: اسحب أمر الإنتاج إلى يوم آخر لإعادة جدولته. سيتم الحفاظ على مدة الأمر.
+        </p>
       </CardContent>
     </Card>
   );

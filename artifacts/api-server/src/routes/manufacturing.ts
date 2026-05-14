@@ -657,6 +657,49 @@ router.post("/manufacturing/work-orders", productionGuard, async (req, res) => {
   }
 });
 
+// Reschedule planned start/end dates (used by the visual schedule calendar).
+const WorkOrderPatchBody = z.object({
+  plannedStart: z.string().nullable().optional(),
+  plannedEnd: z.string().nullable().optional(),
+  notes: z.string().nullable().optional(),
+});
+
+router.patch("/manufacturing/work-orders/:id", productionGuard, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) throw new HttpError(400, "معرف غير صالح");
+    const body = WorkOrderPatchBody.parse(req.body);
+    const [existing] = await db.select().from(workOrdersTable).where(eq(workOrdersTable.id, id)).limit(1);
+    if (!existing) throw new HttpError(404, "أمر الإنتاج غير موجود");
+    if (existing.state === "done" || existing.state === "cancelled") {
+      throw new HttpError(409, "لا يمكن إعادة جدولة أمر إنتاج مكتمل أو ملغى");
+    }
+    const updates: Record<string, unknown> = {};
+    if (body.plannedStart !== undefined) updates.plannedStart = body.plannedStart;
+    if (body.plannedEnd !== undefined) updates.plannedEnd = body.plannedEnd;
+    if (body.notes !== undefined) updates.notes = body.notes;
+    // Validate against the effective final values (merge of request + existing),
+    // not just the fields that happen to be in this request body.
+    const effStart = body.plannedStart !== undefined ? body.plannedStart : existing.plannedStart;
+    const effEnd = body.plannedEnd !== undefined ? body.plannedEnd : existing.plannedEnd;
+    if (typeof effStart === "string" && typeof effEnd === "string" && effEnd < effStart) {
+      throw new HttpError(400, "تاريخ النهاية يجب أن يكون بعد تاريخ البداية");
+    }
+    if (Object.keys(updates).length === 0) {
+      return res.json(existing);
+    }
+    const [updated] = await db
+      .update(workOrdersTable)
+      .set(updates)
+      .where(eq(workOrdersTable.id, id))
+      .returning();
+    return res.json(updated);
+  } catch (err) {
+    req.log.error({ err }, "patch work order failed");
+    return respondError(res, err);
+  }
+});
+
 // Confirm: explode the BoM (recursively expanding phantom assemblies),
 // validate that enough on-hand stock exists net of existing reservations,
 // then snapshot reservations. No stock moves until consume.
