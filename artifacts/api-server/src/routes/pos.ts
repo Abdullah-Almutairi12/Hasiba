@@ -453,6 +453,16 @@ router.post(
     // so it can be used exactly once. Must match docType=pos_over_limit
     // and the same POS session, so an approval for one till cannot be
     // replayed at another.
+    // Pending approval data — validated up-front, but consumed atomically
+    // INSIDE the main transaction so the consume is bound to the exact
+    // attempted amount/action and is rolled back if the order fails.
+    let pendingApprovalRow: {
+      id: number;
+      approvedAmount: number;
+      actionKey: string | null;
+      submittedByName: string | null;
+      notes: string | null;
+    } | null = null;
     if (typeof rawApprovalReqId === "number" && Number.isFinite(rawApprovalReqId)) {
       const sessionIdRaw = (req.body as { sessionId?: unknown } | undefined)?.sessionId;
       const sessionId = typeof sessionIdRaw === "number" ? sessionIdRaw : null;
@@ -470,22 +480,20 @@ router.post(
         res.status(403).json({ error: "طلب الموافقة غير صالح أو مستهلك" });
         return;
       }
-      // Atomic consume: only one writer can flip approved → consumed.
-      const consumed = await db
-        .update(approvalRequestsTable)
-        .set({ status: "consumed" })
-        .where(
-          and(
-            eq(approvalRequestsTable.id, reqRow.id),
-            eq(approvalRequestsTable.status, "approved"),
-          ),
-        )
-        .returning({ id: approvalRequestsTable.id });
-      if (consumed.length === 0) {
-        res.status(409).json({ error: "تم استهلاك طلب الموافقة مسبقاً" });
-        return;
-      }
-      consumedApprovalRequestId = reqRow.id;
+      // Recover the original action key from recordRef which was written
+      // as `POS session #<id> — <actionKey>`. Used to refuse mismatches
+      // (a discount approval cannot be consumed by a refund attempt).
+      const actionKey =
+        reqRow.recordRef && reqRow.recordRef.includes("— ")
+          ? reqRow.recordRef.split("— ")[1]?.trim() ?? null
+          : null;
+      pendingApprovalRow = {
+        id: reqRow.id,
+        approvedAmount: Number(reqRow.amount ?? 0),
+        actionKey,
+        submittedByName: reqRow.submittedByName,
+        notes: reqRow.notes,
+      };
       overrideRoleEffective = "manager";
       overrideUserName = reqRow.submittedByName ?? "approved-via-inbox";
       overrideUserId = null;
@@ -668,6 +676,56 @@ router.post(
             );
           }
         }
+      }
+
+      // Async-approval binding: if the cashier is using an inbox-approved
+      // request, refuse it when the current attempt would exceed the
+      // approved amount or doesn't match the approved actionKey. This
+      // stops a manager-approved 1000 SAR discount being silently reused
+      // for a 5000 SAR refund in the same session.
+      if (pendingApprovalRow) {
+        const attemptedNow = Math.max(trustedDiscountPct, refundCash);
+        const approvedAk = pendingApprovalRow.actionKey;
+        const usingDiscount = trustedDiscountPct > 0;
+        const usingRefund = refundCash > 0;
+        const akMatches =
+          !approvedAk ||
+          (approvedAk === "pos.discount_pct" && usingDiscount && !usingRefund) ||
+          (approvedAk === "pos.refund_amount" && usingRefund && !usingDiscount);
+        if (!akMatches) {
+          throw new FinancialLimitError(
+            approvedAk ?? "pos.limit",
+            pendingApprovalRow.approvedAmount,
+            attemptedNow,
+            "الموافقة المعتمدة لا تطابق نوع العملية الحالية",
+          );
+        }
+        const attemptedBound =
+          approvedAk === "pos.refund_amount" ? refundCash : trustedDiscountPct;
+        if (attemptedBound > pendingApprovalRow.approvedAmount + 1e-6) {
+          throw new FinancialLimitError(
+            approvedAk ?? "pos.limit",
+            pendingApprovalRow.approvedAmount,
+            attemptedBound,
+            "القيمة الحالية تتجاوز القيمة المعتمدة",
+          );
+        }
+        // Atomic single-use consume inside the same transaction so a
+        // downstream failure rolls it back automatically.
+        const consumed = await tx
+          .update(approvalRequestsTable)
+          .set({ status: "consumed" })
+          .where(
+            and(
+              eq(approvalRequestsTable.id, pendingApprovalRow.id),
+              eq(approvalRequestsTable.status, "approved"),
+            ),
+          )
+          .returning({ id: approvalRequestsTable.id });
+        if (consumed.length === 0) {
+          throw new ValidationError("تم استهلاك طلب الموافقة مسبقاً");
+        }
+        consumedApprovalRequestId = pendingApprovalRow.id;
       }
 
       const tax = (subtotal - discount) * 0.15;
