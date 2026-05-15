@@ -3,6 +3,7 @@ import PDFDocument from "pdfkit";
 import type { Response } from "express";
 import type { BuiltReport } from "./query-builder";
 import { rowsToCsv } from "./query-builder";
+import { registerArabicFonts } from "./pdf/arabic-font";
 
 export function streamCsv(res: Response, name: string, report: BuiltReport): void {
   const headers = report.outputColumns.map((c) => c.label);
@@ -57,17 +58,22 @@ export function streamPdf(res: Response, name: string, report: BuiltReport): voi
   res.setHeader("Content-Type", "application/pdf");
   res.setHeader("Content-Disposition", `attachment; filename="${name}.pdf"`);
   doc.pipe(res);
-  doc.fontSize(18).text(name, { align: "center" });
+  const { useReg, useBold, T } = registerArabicFonts(doc);
+  useBold();
+  doc.fontSize(18).text(T(name), { align: "center" });
   doc.moveDown(0.5);
+  useReg();
   doc.fontSize(9).fillColor("#666").text(`Generated: ${new Date().toISOString().slice(0, 19).replace("T", " ")}`, { align: "center" });
   doc.moveDown(1);
   const tableTop = doc.y;
   const colWidth = (doc.page.width - doc.page.margins.left - doc.page.margins.right) / Math.max(headers.length, 1);
   doc.fontSize(10).rect(doc.page.margins.left, tableTop, doc.page.width - doc.page.margins.left - doc.page.margins.right, 22).fill("#2563EB");
   doc.fillColor("#fff");
+  useBold();
   headers.forEach((h, i) => {
-    doc.text(String(h), doc.page.margins.left + i * colWidth + 4, tableTop + 6, { width: colWidth - 8, align: "center" });
+    doc.text(T(String(h)), doc.page.margins.left + i * colWidth + 4, tableTop + 6, { width: colWidth - 8, align: "center" });
   });
+  useReg();
   let y = tableTop + 24;
   doc.fillColor("#000").fontSize(9);
   for (const r of report.rows) {
@@ -76,7 +82,7 @@ export function streamPdf(res: Response, name: string, report: BuiltReport): voi
       y = doc.page.margins.top;
     }
     report.outputColumns.forEach((c, i) => {
-      doc.text(String(r[c.key] ?? ""), doc.page.margins.left + i * colWidth + 4, y, { width: colWidth - 8, align: "center" });
+      doc.text(T(String(r[c.key] ?? "")), doc.page.margins.left + i * colWidth + 4, y, { width: colWidth - 8, align: "center" });
     });
     y += 18;
   }

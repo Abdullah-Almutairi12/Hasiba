@@ -34,6 +34,7 @@ import {
   payrollReadGuard,
 } from "../middlewares/require-role";
 import { handleRouteError } from "../lib/handle-error";
+import { registerArabicFonts } from "../lib/pdf/arabic-font";
 import { postJournalEntry } from "../lib/journal-posting";
 import { logger } from "../lib/logger";
 import {
@@ -2673,6 +2674,7 @@ router.get("/hr/payslips/:id/pdf", async (req, res) => {
       end: () => void;
       font: (n: string) => PDFDoc;
       fillColor: (c: string) => PDFDoc;
+      registerFont: (name: string, src: Buffer) => PDFDoc;
     };
     const PDFDocumentMod = (await import("pdfkit")) as unknown as {
       default: new (opts?: object) => PDFDoc;
@@ -2682,49 +2684,61 @@ router.get("/hr/payslips/:id/pdf", async (req, res) => {
     res.setHeader("Content-Disposition", `inline; filename="payslip-${slip.reference}.pdf"`);
     doc.pipe(res);
 
+    const { useReg, useBold, T } = registerArabicFonts(doc);
+
     const fmt = (n: string | number) =>
       num(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     const hijri = toHijri(period.payDate).formatted;
 
-    doc.fontSize(16).text(`Payslip / بيان راتب — ${slip.reference}`, { align: "left" });
+    useBold();
+    doc.fontSize(16).text(T(`Payslip / بيان راتب — ${slip.reference}`), { align: "left" });
+    useReg();
     doc.fontSize(10).fillColor("#555")
-      .text(`Run: ${run.reference}   Period: ${period.name}   Pay date: ${period.payDate} (Hijri ${hijri})`)
+      .text(T(`Run: ${run.reference}   Period: ${period.name}   Pay date: ${period.payDate} (Hijri ${hijri})`))
       .moveDown(0.5).fillColor("#000");
     doc.fontSize(11)
-      .text(`Employee: ${emp.nameAr ?? emp.name} (${emp.employeeNo})`)
-      .text(`National ID: ${emp.nationalId ?? "—"}`)
-      .text(`IBAN: ${emp.bankIban ?? "—"}   Bank: ${emp.bankName ?? "—"}`)
-      .text(`Worked days: ${num(line.workedDays)}   LWP days: ${num(line.leaveWithoutPayDays)}   OT hours: ${num(line.overtimeHours)}`)
+      .text(T(`Employee: ${emp.nameAr ?? emp.name} (${emp.employeeNo})`))
+      .text(T(`National ID: ${emp.nationalId ?? "—"}`))
+      .text(T(`IBAN: ${emp.bankIban ?? "—"}   Bank: ${emp.bankName ?? "—"}`))
+      .text(T(`Worked days: ${num(line.workedDays)}   LWP days: ${num(line.leaveWithoutPayDays)}   OT hours: ${num(line.overtimeHours)}`))
       .moveDown(0.5);
 
     const writeRow = (label: string, amount: string | number) => {
-      doc.fontSize(11).text(`${label.padEnd(45, " ")} ${fmt(amount).padStart(15, " ")}`);
+      doc.fontSize(11).text(`${T(label).padEnd(45, " ")} ${fmt(amount).padStart(15, " ")}`);
     };
 
-    doc.font("Helvetica-Bold").text("Earnings / الاستحقاقات").font("Helvetica");
+    useBold();
+    doc.text(T("Earnings / الاستحقاقات"));
+    useReg();
     writeRow("Basic salary / الراتب الأساسي", line.basicSalary);
     writeRow("Housing allowance / بدل سكن", line.housingAllowance);
     writeRow("Transport allowance / بدل مواصلات", line.transportAllowance);
     writeRow("Other allowances / بدلات أخرى", line.otherAllowances);
     writeRow("Overtime amount / قيمة الإضافي", line.overtimeAmount);
-    doc.font("Helvetica-Bold");
+    useBold();
     writeRow("Gross / إجمالي الاستحقاقات", line.grossPay);
-    doc.font("Helvetica").moveDown(0.5);
+    useReg();
+    doc.moveDown(0.5);
 
-    doc.font("Helvetica-Bold").text("Deductions / الخصومات").font("Helvetica");
+    useBold();
+    doc.text(T("Deductions / الخصومات"));
+    useReg();
     writeRow("GOSI (employee) / تأمينات الموظف", line.gosiEmployee);
     writeRow("LWP / إجازة بدون راتب", line.lwpDeduction);
     writeRow("Loan installment / قسط القرض", line.loanDeduction);
     writeRow("Other / خصومات أخرى", line.otherDeductions);
-    doc.font("Helvetica-Bold");
+    useBold();
     writeRow("Total deductions / إجمالي الخصومات", line.totalDeductions);
-    doc.font("Helvetica").moveDown(0.5);
+    useReg();
+    doc.moveDown(0.5);
 
-    doc.font("Helvetica-Bold").fontSize(13);
+    useBold();
+    doc.fontSize(13);
     writeRow("NET PAY / صافي الراتب (SAR)", line.netPay);
-    doc.font("Helvetica").fontSize(9).fillColor("#666")
-      .text(`Employer GOSI / حصة الشركة من التأمينات: ${fmt(line.gosiEmployer)}`)
-      .text(`Issued ${slip.createdAt.toISOString().slice(0, 10)} — حاسبة.AI`);
+    useReg();
+    doc.fontSize(9).fillColor("#666")
+      .text(T(`Employer GOSI / حصة الشركة من التأمينات: ${fmt(line.gosiEmployer)}`))
+      .text(T(`Issued ${slip.createdAt.toISOString().slice(0, 10)} — حاسبة.AI`));
 
     doc.end();
     return;

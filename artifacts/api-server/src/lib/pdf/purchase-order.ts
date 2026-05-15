@@ -1,18 +1,5 @@
 import PDFDocument from "pdfkit";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
-import { existsSync, readFileSync } from "node:fs";
-import { createRequire } from "node:module";
-// CJS-only deps – use require so esbuild bundles them as-is.
-const __nodeRequire =
-  typeof require === "function" ? require : createRequire(import.meta.url);
-const arabicReshaper: { convertArabic: (s: string) => string } =
-  __nodeRequire("arabic-reshaper");
-const bidiFactory: () => {
-  getEmbeddingLevels: (s: string, dir?: "ltr" | "rtl") => unknown;
-  getReorderedString: (s: string, levels: unknown) => string;
-} = __nodeRequire("bidi-js");
-const bidi = bidiFactory();
+import { registerArabicFonts } from "./arabic-font";
 
 export type PoPdfLine = {
   description: string;
@@ -76,60 +63,6 @@ export function getCompanyInfoFromEnv(): CompanyInfo {
 const fmtMoney = (n: number, currency: string) =>
   `${currency} ${n.toFixed(2)}`;
 
-const ARABIC_RE = /[\u0600-\u06FF\u0750-\u077F\uFB50-\uFDFF\uFE70-\uFEFF]/;
-
-/**
- * Reshape + bidi-reorder a string so it renders correctly with a static
- * Arabic font (Amiri) inside pdfkit which does no shaping itself.
- *
- * Latin-only strings pass through unchanged. Mixed strings are reordered
- * with the Unicode Bidi Algorithm.
- */
-function shape(s: string): string {
-  if (!s) return s;
-  if (!ARABIC_RE.test(s)) return s;
-  const reshaped = arabicReshaper.convertArabic(s);
-  const levels = bidi.getEmbeddingLevels(reshaped, "ltr");
-  return bidi.getReorderedString(reshaped, levels);
-}
-
-/**
- * Locate the bundled Amiri TTF. In dev (tsx) the file lives next to this
- * source under `./fonts/`. In a production esbuild bundle build.mjs copies
- * the directory to `<distDir>/fonts/`.
- */
-function findFont(filename: string): string | null {
-  const candidates: string[] = [];
-  try {
-    const here = path.dirname(fileURLToPath(import.meta.url));
-    candidates.push(path.join(here, "fonts", filename));
-  } catch {
-    /* not ESM context */
-  }
-  if (typeof __dirname === "string") {
-    candidates.push(path.join(__dirname, "fonts", filename));
-    candidates.push(path.join(__dirname, "..", "fonts", filename));
-  }
-  for (const c of candidates) {
-    if (existsSync(c)) return c;
-  }
-  return null;
-}
-
-let cachedFontReg: Buffer | null = null;
-let cachedFontBold: Buffer | null = null;
-function loadFonts(): { regular: Buffer | null; bold: Buffer | null } {
-  if (!cachedFontReg) {
-    const p = findFont("Amiri-Regular.ttf");
-    if (p) cachedFontReg = readFileSync(p);
-  }
-  if (!cachedFontBold) {
-    const p = findFont("Amiri-Bold.ttf");
-    if (p) cachedFontBold = readFileSync(p);
-  }
-  return { regular: cachedFontReg, bold: cachedFontBold };
-}
-
 /**
  * Render a bilingual (English + Arabic) Purchase Order PDF using the
  * embedded Amiri Arabic font + arabic-reshaper + bidi-js so Arabic text
@@ -150,17 +83,7 @@ export function buildPurchaseOrderPdf(
     doc.on("end", () => resolve(Buffer.concat(chunks)));
     doc.on("error", reject);
 
-    const fonts = loadFonts();
-    const FONT_REG = "Body";
-    const FONT_BOLD = "BodyBold";
-    if (fonts.regular) doc.registerFont(FONT_REG, fonts.regular);
-    if (fonts.bold) doc.registerFont(FONT_BOLD, fonts.bold);
-    const useReg = () => doc.font(fonts.regular ? FONT_REG : "Helvetica");
-    const useBold = () =>
-      doc.font(
-        fonts.bold ? FONT_BOLD : fonts.regular ? FONT_REG : "Helvetica-Bold",
-      );
-    const T = (s: string) => shape(s);
+    const { useReg, useBold, T } = registerArabicFonts(doc);
 
     // ----- Header -----
     useBold();

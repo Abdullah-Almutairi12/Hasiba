@@ -4,6 +4,7 @@ import PDFDocument from "pdfkit";
 import { db, posOrdersTable, productsTable, invoicesTable, suppliersTable, journalEntriesTable, journalEntryLinesTable, accountsTable } from "@workspace/db";
 import { sql, desc, gte, and, eq, lte } from "drizzle-orm";
 import { recordAudit } from "../lib/audit";
+import { registerArabicFonts } from "../lib/pdf/arabic-font";
 import { exportsGuard, reportReadGuard } from "../middlewares/require-role";
 import type { Request, Response, NextFunction } from "express";
 
@@ -364,11 +365,13 @@ router.get("/exports/:type.pdf", async (req, res) => {
     res.setHeader("Content-Disposition", `attachment; filename="${type}-${new Date().toISOString().slice(0, 10)}.pdf"`);
     doc.pipe(res);
 
-    // Note: pdfkit's default font lacks Arabic glyphs. The title/headers will still
-    // display as Latin characters; rows show as best-effort. For full Arabic shaping
-    // we'd need to embed a TTF (e.g., IBM Plex Sans Arabic). MVP keeps it simple.
-    doc.fontSize(18).text(title, { align: "center" });
+    // Arabic text is reshaped and bidi-reordered, then drawn with the bundled
+    // Amiri TTF so titles/headers/cells render correctly in Arabic.
+    const { useReg, useBold, T } = registerArabicFonts(doc);
+    useBold();
+    doc.fontSize(18).text(T(title), { align: "center" });
     doc.moveDown(0.5);
+    useReg();
     doc.fontSize(9).fillColor("#666").text(`Generated: ${new Date().toISOString().slice(0, 19).replace("T", " ")}`, { align: "center" });
     doc.moveDown(1);
 
@@ -377,9 +380,11 @@ router.get("/exports/:type.pdf", async (req, res) => {
 
     doc.fontSize(10).fillColor("#fff").rect(doc.page.margins.left, tableTop, doc.page.width - doc.page.margins.left - doc.page.margins.right, 22).fill("#2563EB");
     doc.fillColor("#fff");
+    useBold();
     headers.forEach((h, i) => {
-      doc.text(h, doc.page.margins.left + i * colWidth + 4, tableTop + 6, { width: colWidth - 8, align: "center" });
+      doc.text(T(h), doc.page.margins.left + i * colWidth + 4, tableTop + 6, { width: colWidth - 8, align: "center" });
     });
+    useReg();
 
     let y = tableTop + 24;
     doc.fillColor("#000").fontSize(9);
@@ -389,7 +394,7 @@ router.get("/exports/:type.pdf", async (req, res) => {
         y = doc.page.margins.top;
       }
       row.forEach((cell, i) => {
-        doc.text(String(cell), doc.page.margins.left + i * colWidth + 4, y, { width: colWidth - 8, align: "center" });
+        doc.text(T(String(cell)), doc.page.margins.left + i * colWidth + 4, y, { width: colWidth - 8, align: "center" });
       });
       doc.moveTo(doc.page.margins.left, y + 14)
         .lineTo(doc.page.width - doc.page.margins.right, y + 14)
