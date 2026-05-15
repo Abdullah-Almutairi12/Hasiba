@@ -92,6 +92,7 @@ app.use(
 // We must mount the larger parser BEFORE the global 1mb parser, otherwise the
 // global one runs first, consumes the body, and rejects oversize payloads with 413.
 app.use("/api/invoices/scan", express.json({ limit: "20mb" }));
+app.use("/api/admin/company-settings/logo", express.json({ limit: "10mb" }));
 
 // Payment provider webhooks must keep the RAW body bytes so that the
 // HMAC-SHA256 signature in the X-Signature header verifies. Mount

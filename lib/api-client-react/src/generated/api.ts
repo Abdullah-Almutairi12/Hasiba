@@ -57,6 +57,8 @@ import type {
   CloseFiscalYearBody,
   CloseYearResult,
   ClosingEntry,
+  CompanySettings,
+  CompanySettingsPatch,
   CreateAccountBody,
   CreateAnnouncementBody,
   CreateApprovalRule201,
@@ -161,6 +163,7 @@ import type {
   UpdateInvoiceBody,
   UpdateProductBody,
   UpdateSupportTicketBody,
+  UploadCompanyLogoBody,
   UpsertFinancialLimit200,
   UpsertFinancialLimitBody,
   User,
@@ -6725,6 +6728,253 @@ export const useUpdateFeatureFlag = <
   TContext
 > => {
   return useMutation(getUpdateFeatureFlagMutationOptions(options));
+};
+
+/**
+ * @summary Get company letterhead, bank and PO terms (admin only)
+ */
+export const getGetCompanySettingsUrl = () => {
+  return `/api/admin/company-settings`;
+};
+
+export const getCompanySettings = async (
+  options?: RequestInit,
+): Promise<CompanySettings> => {
+  return customFetch<CompanySettings>(getGetCompanySettingsUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetCompanySettingsQueryKey = () => {
+  return [`/api/admin/company-settings`] as const;
+};
+
+export const getGetCompanySettingsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getCompanySettings>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getCompanySettings>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetCompanySettingsQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getCompanySettings>>
+  > = ({ signal }) => getCompanySettings({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getCompanySettings>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetCompanySettingsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getCompanySettings>>
+>;
+export type GetCompanySettingsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Get company letterhead, bank and PO terms (admin only)
+ */
+
+export function useGetCompanySettings<
+  TData = Awaited<ReturnType<typeof getCompanySettings>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getCompanySettings>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetCompanySettingsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Update company letterhead, bank and PO terms (admin only)
+ */
+export const getUpdateCompanySettingsUrl = () => {
+  return `/api/admin/company-settings`;
+};
+
+export const updateCompanySettings = async (
+  companySettingsPatch: CompanySettingsPatch,
+  options?: RequestInit,
+): Promise<CompanySettings> => {
+  return customFetch<CompanySettings>(getUpdateCompanySettingsUrl(), {
+    ...options,
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(companySettingsPatch),
+  });
+};
+
+export const getUpdateCompanySettingsMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateCompanySettings>>,
+    TError,
+    { data: BodyType<CompanySettingsPatch> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateCompanySettings>>,
+  TError,
+  { data: BodyType<CompanySettingsPatch> },
+  TContext
+> => {
+  const mutationKey = ["updateCompanySettings"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateCompanySettings>>,
+    { data: BodyType<CompanySettingsPatch> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return updateCompanySettings(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateCompanySettingsMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updateCompanySettings>>
+>;
+export type UpdateCompanySettingsMutationBody = BodyType<CompanySettingsPatch>;
+export type UpdateCompanySettingsMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Update company letterhead, bank and PO terms (admin only)
+ */
+export const useUpdateCompanySettings = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateCompanySettings>>,
+    TError,
+    { data: BodyType<CompanySettingsPatch> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof updateCompanySettings>>,
+  TError,
+  { data: BodyType<CompanySettingsPatch> },
+  TContext
+> => {
+  return useMutation(getUpdateCompanySettingsMutationOptions(options));
+};
+
+/**
+ * @summary Upload a new company logo (admin only)
+ */
+export const getUploadCompanyLogoUrl = () => {
+  return `/api/admin/company-settings/logo`;
+};
+
+export const uploadCompanyLogo = async (
+  uploadCompanyLogoBody: UploadCompanyLogoBody,
+  options?: RequestInit,
+): Promise<CompanySettings> => {
+  return customFetch<CompanySettings>(getUploadCompanyLogoUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(uploadCompanyLogoBody),
+  });
+};
+
+export const getUploadCompanyLogoMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof uploadCompanyLogo>>,
+    TError,
+    { data: BodyType<UploadCompanyLogoBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof uploadCompanyLogo>>,
+  TError,
+  { data: BodyType<UploadCompanyLogoBody> },
+  TContext
+> => {
+  const mutationKey = ["uploadCompanyLogo"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof uploadCompanyLogo>>,
+    { data: BodyType<UploadCompanyLogoBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return uploadCompanyLogo(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UploadCompanyLogoMutationResult = NonNullable<
+  Awaited<ReturnType<typeof uploadCompanyLogo>>
+>;
+export type UploadCompanyLogoMutationBody = BodyType<UploadCompanyLogoBody>;
+export type UploadCompanyLogoMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Upload a new company logo (admin only)
+ */
+export const useUploadCompanyLogo = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof uploadCompanyLogo>>,
+    TError,
+    { data: BodyType<UploadCompanyLogoBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof uploadCompanyLogo>>,
+  TError,
+  { data: BodyType<UploadCompanyLogoBody> },
+  TContext
+> => {
+  return useMutation(getUploadCompanyLogoMutationOptions(options));
 };
 
 /**

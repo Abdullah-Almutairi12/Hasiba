@@ -1449,6 +1449,63 @@ paths:
               schema:
                 $ref: "#/components/schemas/FeatureFlag"
 
+  /admin/company-settings:
+    get:
+      tags: [admin]
+      summary: Get company letterhead, bank and PO terms (admin only)
+      operationId: getCompanySettings
+      responses:
+        "200":
+          description: Company settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CompanySettings"
+    patch:
+      tags: [admin]
+      summary: Update company letterhead, bank and PO terms (admin only)
+      operationId: updateCompanySettings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CompanySettingsPatch"
+      responses:
+        "200":
+          description: Updated company settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CompanySettings"
+
+  /admin/company-settings/logo:
+    post:
+      tags: [admin]
+      summary: Upload a new company logo (admin only)
+      operationId: uploadCompanyLogo
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                image:
+                  type: string
+                  description: base64 (with or without data URL prefix)
+                contentType:
+                  type: string
+                  enum: [image/png, image/jpeg, image/webp, image/svg+xml]
+              required: [image, contentType]
+      responses:
+        "200":
+          description: Updated company settings with new logo
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CompanySettings"
+
   /settings:
     get:
       tags: [settings]
@@ -3775,6 +3832,40 @@ components:
         updatedAt:
           type: string
       required: [id, key, name, isEnabled, category, updatedAt]
+
+    CompanySettings:
+      type: object
+      properties:
+        id: { type: integer }
+        nameEn: { type: string, nullable: true }
+        nameAr: { type: string, nullable: true }
+        vatNumber: { type: string, nullable: true }
+        address: { type: string, nullable: true }
+        phone: { type: string, nullable: true }
+        email: { type: string, nullable: true }
+        logoObjectKey: { type: string, nullable: true }
+        bankName: { type: string, nullable: true }
+        bankIban: { type: string, nullable: true }
+        termsEn: { type: string, nullable: true }
+        termsAr: { type: string, nullable: true }
+        updatedAt: { type: string }
+      required: [id, updatedAt]
+
+    CompanySettingsPatch:
+      type: object
+      additionalProperties: false
+      properties:
+        nameEn: { type: string, nullable: true }
+        nameAr: { type: string, nullable: true }
+        vatNumber: { type: string, nullable: true }
+        address: { type: string, nullable: true }
+        phone: { type: string, nullable: true }
+        email: { type: string, nullable: true }
+        bankName: { type: string, nullable: true }
+        bankIban: { type: string, nullable: true }
+        termsEn: { type: string, nullable: true }
+        termsAr: { type: string, nullable: true }
+        logoObjectKey: { type: string, nullable: true }
 
     AppSettings:
       type: object

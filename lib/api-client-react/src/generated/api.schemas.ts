@@ -1215,6 +1215,36 @@ export interface FeatureFlag {
   updatedAt: string;
 }
 
+export interface CompanySettings {
+  id: number;
+  nameEn?: string | null;
+  nameAr?: string | null;
+  vatNumber?: string | null;
+  address?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  logoObjectKey?: string | null;
+  bankName?: string | null;
+  bankIban?: string | null;
+  termsEn?: string | null;
+  termsAr?: string | null;
+  updatedAt: string;
+}
+
+export interface CompanySettingsPatch {
+  nameEn?: string | null;
+  nameAr?: string | null;
+  vatNumber?: string | null;
+  address?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  bankName?: string | null;
+  bankIban?: string | null;
+  termsEn?: string | null;
+  termsAr?: string | null;
+  logoObjectKey?: string | null;
+}
+
 export type AppSettingsCompany = { [key: string]: unknown };
 
 export type AppSettingsTax = { [key: string]: unknown };
@@ -1513,6 +1543,22 @@ export type DeleteAnnouncement200 = {
 
 export type UpdateFeatureFlagBody = {
   isEnabled: boolean;
+};
+
+export type UploadCompanyLogoBodyContentType =
+  (typeof UploadCompanyLogoBodyContentType)[keyof typeof UploadCompanyLogoBodyContentType];
+
+export const UploadCompanyLogoBodyContentType = {
+  "image/png": "image/png",
+  "image/jpeg": "image/jpeg",
+  "image/webp": "image/webp",
+  "image/svg+xml": "image/svg+xml",
+} as const;
+
+export type UploadCompanyLogoBody = {
+  /** base64 (with or without data URL prefix) */
+  image: string;
+  contentType: UploadCompanyLogoBodyContentType;
 };
 
 export type SetPermissionCellBody = {

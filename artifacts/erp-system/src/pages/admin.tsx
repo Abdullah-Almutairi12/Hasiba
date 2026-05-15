@@ -88,7 +88,8 @@ import {
 import { WorkflowTab } from "@/components/workflow-tab";
 import { IntegrationsTab } from "@/components/integrations-tab";
 import MarketplacesTab from "@/components/marketplaces-tab";
-import { Plug } from "lucide-react";
+import { CompanySettingsTab } from "@/components/company-settings-tab";
+import { Plug, Building2 } from "lucide-react";
 
 function AccessDenied() {
   return (
@@ -1418,6 +1419,10 @@ export default function AdminPage() {
             <Plug className="me-2 size-4" />
             المتاجر
           </TabsTrigger>
+          <TabsTrigger value="company" data-testid="tab-company">
+            <Building2 className="me-2 size-4" />
+            بيانات الشركة
+          </TabsTrigger>
           <TabsTrigger value="audit" data-testid="tab-audit">
             <History className="me-2 size-4" />
             السجلات
@@ -1434,6 +1439,7 @@ export default function AdminPage() {
         <TabsContent value="workflow"><WorkflowTab /></TabsContent>
         <TabsContent value="integrations"><IntegrationsTab /></TabsContent>
         <TabsContent value="marketplaces"><MarketplacesTab /></TabsContent>
+        <TabsContent value="company"><CompanySettingsTab /></TabsContent>
         <TabsContent value="audit"><AuditTab /></TabsContent>
       </Tabs>
       {/* hint icon used for tone palette */}

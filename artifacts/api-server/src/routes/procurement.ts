@@ -40,7 +40,7 @@ import {
 import { logger } from "../lib/logger";
 import { sendMessage } from "../lib/integrations/messaging";
 import { sendMail, isMailerConfigured } from "../lib/mailer";
-import { buildPurchaseOrderPdf } from "../lib/pdf/purchase-order";
+import { buildPurchaseOrderPdf, getCompanyInfo } from "../lib/pdf/purchase-order";
 
 const router = Router();
 
@@ -1165,7 +1165,7 @@ router.get("/procurement/purchase-orders/:id/pdf", async (req, res) => {
   try {
     const id = Number(req.params.id);
     const { po, pdfInput } = await loadPoForPdf(id);
-    const buf = await buildPurchaseOrderPdf(pdfInput);
+    const buf = await buildPurchaseOrderPdf(pdfInput, await getCompanyInfo());
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader(
       "Content-Disposition",
@@ -1203,7 +1203,7 @@ router.post("/procurement/purchase-orders/:id/send", async (req, res) => {
       res.status(400).json({ error: "لا يوجد بريد إلكتروني للمورد" });
       return;
     }
-    const pdf = await buildPurchaseOrderPdf(pdfInput);
+    const pdf = await buildPurchaseOrderPdf(pdfInput, await getCompanyInfo());
     const subject = body.subject ?? `Purchase Order ${po.reference} / أمر شراء`;
     const emailBody = body.message ?? [
       `Dear ${supplier?.name ?? po.supplierName},`,

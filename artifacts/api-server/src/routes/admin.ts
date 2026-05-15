@@ -7,7 +7,9 @@ import {
   featureFlagsTable,
   permissionOverridesTable,
   usersTable,
+  companySettingsTable,
 } from "@workspace/db";
+import { uploadBufferToPrivateObject } from "./storage";
 import { eq, sql, desc, and, gt, or, isNull } from "drizzle-orm";
 import {
   getPermissionMatrixPayload,
@@ -353,6 +355,139 @@ router.put("/admin/permissions", adminOnly, async (req, res) => {
   } catch (err) {
     req.log.error({ err }, "Set permission cell failed");
     return res.status(400).json({ error: "بيانات غير صحيحة" });
+  }
+});
+
+// ============== Company Settings (letterhead, bank, PO terms) ==============
+// Singleton row at id=1 holding the fields rendered on the PO PDF header
+// and footer. PDF generators read this with an env-var fallback so an
+// unconfigured tenant still produces a usable document.
+
+function serializeCompany(row: typeof companySettingsTable.$inferSelect | undefined | null) {
+  if (!row) {
+    return {
+      id: 1,
+      nameEn: null, nameAr: null, vatNumber: null, address: null,
+      phone: null, email: null, logoObjectKey: null,
+      bankName: null, bankIban: null, termsEn: null, termsAr: null,
+      updatedAt: new Date(0).toISOString(),
+    };
+  }
+  return {
+    id: row.id,
+    nameEn: row.nameEn,
+    nameAr: row.nameAr,
+    vatNumber: row.vatNumber,
+    address: row.address,
+    phone: row.phone,
+    email: row.email,
+    logoObjectKey: row.logoObjectKey,
+    bankName: row.bankName,
+    bankIban: row.bankIban,
+    termsEn: row.termsEn,
+    termsAr: row.termsAr,
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+async function ensureCompanyRow() {
+  await db
+    .insert(companySettingsTable)
+    .values({ id: 1 })
+    .onConflictDoNothing({ target: companySettingsTable.id });
+  const [row] = await db
+    .select()
+    .from(companySettingsTable)
+    .where(eq(companySettingsTable.id, 1))
+    .limit(1);
+  return row!;
+}
+
+router.get("/admin/company-settings", adminOnly, async (req, res) => {
+  try {
+    const row = await ensureCompanyRow();
+    res.json(serializeCompany(row));
+  } catch (err) {
+    req.log.error({ err }, "Get company settings failed");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+const UpdateCompanyBody = z.object({
+  nameEn: z.string().max(200).nullish(),
+  nameAr: z.string().max(200).nullish(),
+  vatNumber: z.string().max(50).nullish(),
+  address: z.string().max(500).nullish(),
+  phone: z.string().max(50).nullish(),
+  email: z.string().email().max(200).nullish().or(z.literal("")),
+  bankName: z.string().max(200).nullish(),
+  bankIban: z.string().max(50).nullish(),
+  termsEn: z.string().max(5000).nullish(),
+  termsAr: z.string().max(5000).nullish(),
+  logoObjectKey: z.string().max(500).nullish(),
+});
+
+router.patch("/admin/company-settings", adminOnly, async (req, res) => {
+  try {
+    await ensureCompanyRow();
+    const body = UpdateCompanyBody.parse(req.body);
+    const update: Record<string, unknown> = { updatedAt: new Date() };
+    for (const [k, v] of Object.entries(body)) {
+      if (v !== undefined) {
+        update[k] = v === "" ? null : v;
+      }
+    }
+    const [updated] = await db
+      .update(companySettingsTable)
+      .set(update)
+      .where(eq(companySettingsTable.id, 1))
+      .returning();
+    return res.json(serializeCompany(updated));
+  } catch (err) {
+    req.log.error({ err }, "Update company settings failed");
+    return res.status(400).json({ error: "بيانات غير صحيحة" });
+  }
+});
+
+const UploadLogoBody = z.object({
+  // data URL: "data:image/png;base64,...." OR plain base64.
+  // Restricted to PNG/JPEG: those are the only formats pdfkit can embed
+  // in the PO header, so accepting WEBP/SVG would silently produce a
+  // logo-less PDF after a "successful" upload.
+  image: z.string().min(20).max(8 * 1024 * 1024),
+  contentType: z.enum(["image/png", "image/jpeg"]),
+});
+
+router.post("/admin/company-settings/logo", adminOnly, async (req, res) => {
+  try {
+    const body = UploadLogoBody.parse(req.body);
+    const m = /^data:[^;]+;base64,(.+)$/i.exec(body.image);
+    const base64 = m ? m[1]! : body.image;
+    const buffer = Buffer.from(base64, "base64");
+    if (buffer.length === 0 || buffer.length > 5 * 1024 * 1024) {
+      return res.status(400).json({ error: "حجم الشعار غير صالح (الحد 5MB)" });
+    }
+    const extMap: Record<string, string> = {
+      "image/png": "png",
+      "image/jpeg": "jpg",
+      "image/webp": "webp",
+      "image/svg+xml": "svg",
+    };
+    const uploaded = await uploadBufferToPrivateObject({
+      buffer,
+      contentType: body.contentType,
+      ext: extMap[body.contentType],
+    });
+    await ensureCompanyRow();
+    const [updated] = await db
+      .update(companySettingsTable)
+      .set({ logoObjectKey: uploaded.objectKey, updatedAt: new Date() })
+      .where(eq(companySettingsTable.id, 1))
+      .returning();
+    return res.json(serializeCompany(updated));
+  } catch (err) {
+    req.log.error({ err }, "Upload company logo failed");
+    return res.status(400).json({ error: "فشل رفع الشعار" });
   }
 });
 

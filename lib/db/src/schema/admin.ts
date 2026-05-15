@@ -72,3 +72,25 @@ export const permissionOverridesTable = pgTable(
 );
 
 export type PermissionOverride = typeof permissionOverridesTable.$inferSelect;
+
+// Singleton (id = 1) row holding the company-wide letterhead, contact,
+// bank and PO-terms fields rendered on the PDF header/footer. Managers
+// edit this from the admin "بيانات الشركة" tab; PDF generators read it
+// with a fallback to the legacy COMPANY_* environment variables.
+export const companySettingsTable = pgTable("company_settings", {
+  id: serial("id").primaryKey(),
+  nameEn: text("name_en"),
+  nameAr: text("name_ar"),
+  vatNumber: text("vat_number"),
+  address: text("address"),
+  phone: text("phone"),
+  email: text("email"),
+  logoObjectKey: text("logo_object_key"),
+  bankName: text("bank_name"),
+  bankIban: text("bank_iban"),
+  termsEn: text("terms_en"),
+  termsAr: text("terms_ar"),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export type CompanySettings = typeof companySettingsTable.$inferSelect;

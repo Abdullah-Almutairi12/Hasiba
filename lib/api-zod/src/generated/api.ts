@@ -1539,6 +1539,87 @@ export const UpdateFeatureFlagResponse = zod.object({
 });
 
 /**
+ * @summary Get company letterhead, bank and PO terms (admin only)
+ */
+export const GetCompanySettingsResponse = zod.object({
+  id: zod.number(),
+  nameEn: zod.string().nullish(),
+  nameAr: zod.string().nullish(),
+  vatNumber: zod.string().nullish(),
+  address: zod.string().nullish(),
+  phone: zod.string().nullish(),
+  email: zod.string().nullish(),
+  logoObjectKey: zod.string().nullish(),
+  bankName: zod.string().nullish(),
+  bankIban: zod.string().nullish(),
+  termsEn: zod.string().nullish(),
+  termsAr: zod.string().nullish(),
+  updatedAt: zod.string(),
+});
+
+/**
+ * @summary Update company letterhead, bank and PO terms (admin only)
+ */
+export const UpdateCompanySettingsBody = zod.object({
+  nameEn: zod.string().nullish(),
+  nameAr: zod.string().nullish(),
+  vatNumber: zod.string().nullish(),
+  address: zod.string().nullish(),
+  phone: zod.string().nullish(),
+  email: zod.string().nullish(),
+  bankName: zod.string().nullish(),
+  bankIban: zod.string().nullish(),
+  termsEn: zod.string().nullish(),
+  termsAr: zod.string().nullish(),
+  logoObjectKey: zod.string().nullish(),
+});
+
+export const UpdateCompanySettingsResponse = zod.object({
+  id: zod.number(),
+  nameEn: zod.string().nullish(),
+  nameAr: zod.string().nullish(),
+  vatNumber: zod.string().nullish(),
+  address: zod.string().nullish(),
+  phone: zod.string().nullish(),
+  email: zod.string().nullish(),
+  logoObjectKey: zod.string().nullish(),
+  bankName: zod.string().nullish(),
+  bankIban: zod.string().nullish(),
+  termsEn: zod.string().nullish(),
+  termsAr: zod.string().nullish(),
+  updatedAt: zod.string(),
+});
+
+/**
+ * @summary Upload a new company logo (admin only)
+ */
+export const UploadCompanyLogoBody = zod.object({
+  image: zod.string().describe("base64 (with or without data URL prefix)"),
+  contentType: zod.enum([
+    "image/png",
+    "image/jpeg",
+    "image/webp",
+    "image/svg+xml",
+  ]),
+});
+
+export const UploadCompanyLogoResponse = zod.object({
+  id: zod.number(),
+  nameEn: zod.string().nullish(),
+  nameAr: zod.string().nullish(),
+  vatNumber: zod.string().nullish(),
+  address: zod.string().nullish(),
+  phone: zod.string().nullish(),
+  email: zod.string().nullish(),
+  logoObjectKey: zod.string().nullish(),
+  bankName: zod.string().nullish(),
+  bankIban: zod.string().nullish(),
+  termsEn: zod.string().nullish(),
+  termsAr: zod.string().nullish(),
+  updatedAt: zod.string(),
+});
+
+/**
  * @summary Get app settings (any authenticated user; sensitive fields redacted for non-admins)
  */
 export const GetAppSettingsResponse = zod.object({

@@ -39,6 +39,9 @@ export type CompanyInfo = {
   bankIban: string;
   termsEn: string;
   termsAr: string;
+  /** Raw image bytes for the company logo — drawn in the PDF header
+   *  when present. pdfkit supports PNG and JPEG; SVG is skipped. */
+  logo?: { data: Buffer; contentType: string } | null;
 };
 
 export function getCompanyInfoFromEnv(): CompanyInfo {
@@ -58,6 +61,74 @@ export function getCompanyInfoFromEnv(): CompanyInfo {
       process.env.COMPANY_PO_TERMS_AR ??
       "يرجى تأكيد استلام أمر الشراء. يجب أن تطابق البضاعة المواصفات المتفق عليها. يتم الدفع وفق الشروط المتفق عليها بعد التسليم واستلام الفاتورة.",
   };
+}
+
+/**
+ * Resolve CompanyInfo at runtime by reading the `company_settings`
+ * singleton, falling back to environment variables for any field the
+ * admin hasn't filled in yet. Imported dynamically so this PDF module
+ * stays usable from contexts that don't have the DB initialised.
+ */
+async function loadLogoFromObjectKey(
+  objectKey: string,
+): Promise<{ data: Buffer; contentType: string } | null> {
+  try {
+    const privateDir = process.env["PRIVATE_OBJECT_DIR"] ?? "";
+    if (!privateDir) return null;
+    const trimmed = privateDir.replace(/^\/+|\/+$/g, "");
+    const [bucketName, ...prefixParts] = trimmed.split("/");
+    if (!bucketName) return null;
+    const prefix = prefixParts.join("/");
+    const objectName = prefix ? `${prefix}/${objectKey}` : objectKey;
+    const { objectStorageClient } = await import("../objectStorage");
+    const file = objectStorageClient.bucket(bucketName).file(objectName);
+    const [exists] = await file.exists();
+    if (!exists) return null;
+    const [metadata] = await file.getMetadata();
+    const contentType =
+      (metadata.contentType as string | undefined) ?? "image/png";
+    // pdfkit's doc.image() only understands PNG / JPEG. Skip SVG / WEBP
+    // rather than crashing the PDF render.
+    if (!/^image\/(png|jpe?g)$/i.test(contentType)) return null;
+    const [buf] = await file.download();
+    return { data: buf, contentType };
+  } catch {
+    return null;
+  }
+}
+
+export async function getCompanyInfo(): Promise<CompanyInfo> {
+  const env = getCompanyInfoFromEnv();
+  try {
+    const { db, companySettingsTable } = await import("@workspace/db");
+    const { eq } = await import("drizzle-orm");
+    const [row] = await db
+      .select()
+      .from(companySettingsTable)
+      .where(eq(companySettingsTable.id, 1))
+      .limit(1);
+    if (!row) return env;
+    const pick = (v: string | null, fallback: string) =>
+      v && v.trim().length > 0 ? v : fallback;
+    const logo = row.logoObjectKey
+      ? await loadLogoFromObjectKey(row.logoObjectKey)
+      : null;
+    return {
+      nameEn: pick(row.nameEn, env.nameEn),
+      nameAr: pick(row.nameAr, env.nameAr),
+      vatNumber: pick(row.vatNumber, env.vatNumber),
+      address: pick(row.address, env.address),
+      email: pick(row.email, env.email),
+      phone: pick(row.phone, env.phone),
+      bankName: pick(row.bankName, env.bankName),
+      bankIban: pick(row.bankIban, env.bankIban),
+      termsEn: pick(row.termsEn, env.termsEn),
+      termsAr: pick(row.termsAr, env.termsAr),
+      logo,
+    };
+  } catch {
+    return env;
+  }
 }
 
 const fmtMoney = (n: number, currency: string) =>
@@ -86,14 +157,31 @@ export function buildPurchaseOrderPdf(
     const { useReg, useBold, T } = registerArabicFonts(doc);
 
     // ----- Header -----
+    // If a logo is configured we draw it on the right side of the header
+    // block; the company name + contact text stays on the left at x=40.
+    let logoDrawn = false;
+    if (company.logo) {
+      try {
+        doc.image(company.logo.data, 460, 40, {
+          fit: [95, 60],
+        });
+        logoDrawn = true;
+      } catch {
+        // Corrupt / unsupported image — fall back to text-only header.
+      }
+    }
+    const headerTextWidth = logoDrawn ? 400 : 515;
     useBold();
-    doc.fontSize(18).fillColor("#0f172a").text(T(company.nameEn), { align: "left" });
+    doc.fontSize(18).fillColor("#0f172a")
+      .text(T(company.nameEn), 40, 40, { width: headerTextWidth, align: "left" });
     useReg();
-    doc.fontSize(12).fillColor("#475569").text(T(company.nameAr), { align: "left" });
+    doc.fontSize(12).fillColor("#475569")
+      .text(T(company.nameAr), 40, doc.y, { width: headerTextWidth, align: "left" });
     doc.fontSize(9).fillColor("#64748b")
-      .text(T(company.address))
-      .text(T(`Email: ${company.email}    Phone: ${company.phone}`))
-      .text(T(`VAT / الرقم الضريبي: ${company.vatNumber}`));
+      .text(T(company.address), 40, doc.y, { width: headerTextWidth })
+      .text(T(`Email: ${company.email}    Phone: ${company.phone}`), 40, doc.y, { width: headerTextWidth })
+      .text(T(`VAT / الرقم الضريبي: ${company.vatNumber}`), 40, doc.y, { width: headerTextWidth });
+    if (logoDrawn && doc.y < 110) doc.y = 110;
 
     doc.moveDown(0.5);
     doc.strokeColor("#cbd5e1").lineWidth(1)
