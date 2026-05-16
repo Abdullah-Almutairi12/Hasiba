@@ -29,7 +29,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { formatRiyal } from "@/components/riyal";
 import {
   FileText, UploadCloud, CheckCircle2, Clock, AlertTriangle, AlertCircle,
-  Camera, Sparkles, Trash2, Plus, Loader2, ScanLine, Lock, Undo2,
+  Camera, Sparkles, Trash2, Plus, Loader2, ScanLine, Lock, Undo2, Printer,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Textarea } from "@/components/ui/textarea";
@@ -521,25 +521,34 @@ export default function Invoices() {
                         </div>
                       </TableCell>
                       <TableCell className="text-left">
-                        {canManageFinance
-                          && (invoice as { isLocked?: boolean }).isLocked
-                          && !(invoice as { reversedById?: number | null }).reversedById
-                          && !(invoice as { reversesId?: number | null }).reversesId ? (
+                        <div className="flex items-center gap-1.5 flex-wrap justify-end">
                           <Button
                             size="sm"
                             variant="outline"
                             className="gap-1.5"
-                            data-testid={`button-reverse-${invoice.id}`}
-                            onClick={() => {
-                              setReverseTarget({ id: invoice.id, number: invoice.invoiceNumber });
-                              setReverseReason("");
-                            }}
+                            data-testid={`button-print-${invoice.id}`}
+                            onClick={() => window.open(`${API_BASE}/invoices/${invoice.id}/pdf`, "_blank", "noopener,noreferrer")}
                           >
-                            <Undo2 className="size-3.5" /> قيد عكسي
+                            <Printer className="size-3.5" /> طباعة
                           </Button>
-                        ) : (
-                          <span className="text-xs text-muted-foreground">—</span>
-                        )}
+                          {canManageFinance
+                            && (invoice as { isLocked?: boolean }).isLocked
+                            && !(invoice as { reversedById?: number | null }).reversedById
+                            && !(invoice as { reversesId?: number | null }).reversesId && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="gap-1.5"
+                              data-testid={`button-reverse-${invoice.id}`}
+                              onClick={() => {
+                                setReverseTarget({ id: invoice.id, number: invoice.invoiceNumber });
+                                setReverseReason("");
+                              }}
+                            >
+                              <Undo2 className="size-3.5" /> قيد عكسي
+                            </Button>
+                          )}
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))

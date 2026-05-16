@@ -25,7 +25,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Money } from "@/components/riyal";
-import { Plus, FileText, Truck, Receipt, ArrowLeftRight, Tag, Percent, Award, AlertCircle, Lock, Undo2, Loader2 } from "lucide-react";
+import { Plus, FileText, Truck, Receipt, ArrowLeftRight, Tag, Percent, Award, AlertCircle, Lock, Undo2, Loader2, Printer } from "lucide-react";
 import { useApiQuery, useApiMutation, apiPost, apiDelete } from "@/hooks/use-api";
 import { useToast } from "@/hooks/use-toast";
 import { useListCustomers, useListProducts } from "@workspace/api-client-react";
@@ -671,17 +671,28 @@ function InvoicesTab() {
             ) },
             { header: "المصدر", cell: (r) => <Badge variant="outline" className="font-normal">{r.source}</Badge> },
             { header: "إجراءات", cell: (r) => (
-              canManageFinance && r.isLocked && !r.reversedById && !r.reversesId && r.amountPaid === 0 ? (
+              <div className="flex items-center gap-1.5 flex-wrap">
                 <Button
                   size="sm"
                   variant="outline"
                   className="gap-1.5"
-                  data-testid={`button-reverse-invoice-${r.id}`}
-                  onClick={() => { setReverseTarget(r); setReverseReason(""); }}
+                  data-testid={`button-print-invoice-${r.id}`}
+                  onClick={() => window.open(`${(import.meta.env.BASE_URL || "/").replace(/\/$/, "")}/api/sales/invoices/${r.id}/pdf`, "_blank", "noopener,noreferrer")}
                 >
-                  <Undo2 className="size-3.5" /> قيد عكسي
+                  <Printer className="size-3.5" /> طباعة
                 </Button>
-              ) : <span className="text-xs text-muted-foreground">—</span>
+                {canManageFinance && r.isLocked && !r.reversedById && !r.reversesId && r.amountPaid === 0 && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-1.5"
+                    data-testid={`button-reverse-invoice-${r.id}`}
+                    onClick={() => { setReverseTarget(r); setReverseReason(""); }}
+                  >
+                    <Undo2 className="size-3.5" /> قيد عكسي
+                  </Button>
+                )}
+              </div>
             ) },
           ]}
           emptyText="لا توجد فواتير بعد"
