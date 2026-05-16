@@ -1733,6 +1733,141 @@ router.post("/sales/invoices/:id/send", financeGuard, async (req, res) => {
   }
 });
 
+// List recent dispatch attempts for a given customer invoice. Powers the
+// "Outbox" drawer in the UI so users can see whether each attempt was
+// actually delivered (`sent`) or got queued/failed (`queued`) along with
+// the SMTP error so they can fix configuration without DB access.
+router.get("/sales/invoices/:id/send-history", financeGuard, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) {
+      res.status(400).json({ error: "Bad id" });
+      return;
+    }
+    const [head] = await db
+      .select({ id: customerInvoicesTable.id })
+      .from(customerInvoicesTable)
+      .where(eq(customerInvoicesTable.id, id));
+    if (!head) {
+      res.status(404).json({ error: "Not found" });
+      return;
+    }
+    const result = await db.execute(sql`
+      SELECT id, kind, ref_id AS "refId", reference, recipient, subject,
+             status, error, created_at AS "createdAt", sent_at AS "sentAt",
+             created_by AS "createdBy"
+      FROM sales_email_outbox
+      WHERE kind = 'invoice' AND ref_id = ${id}
+      ORDER BY created_at DESC
+      LIMIT 50;
+    `);
+    const rows = (result as unknown as { rows?: Array<Record<string, unknown>> }).rows
+      ?? (result as unknown as Array<Record<string, unknown>>);
+    res.json({ items: rows ?? [], mailerConfigured: isMailerConfigured() });
+  } catch (err) {
+    handleRouteError(err, res);
+  }
+});
+
+// One-click retry of a recorded send attempt. We re-render the current
+// invoice PDF (so the customer always gets the up-to-date document) and
+// re-dispatch over SMTP with the original recipient/subject/body. Each
+// retry inserts a NEW outbox row so the per-attempt audit trail (status,
+// error, timestamp) is preserved — the original failure row is never
+// overwritten.
+router.post(
+  "/sales/invoices/:id/send-history/:outboxId/retry",
+  financeGuard,
+  async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const outboxId = Number(req.params.outboxId);
+      if (!Number.isFinite(id) || !Number.isFinite(outboxId)) {
+        res.status(400).json({ error: "Bad id" });
+        return;
+      }
+      const lookup = await db.execute(sql`
+        SELECT id, kind, ref_id AS "refId", reference, recipient, subject,
+               body, status
+        FROM sales_email_outbox
+        WHERE id = ${outboxId} AND kind = 'invoice' AND ref_id = ${id}
+        LIMIT 1;
+      `);
+      const lookupRows = (lookup as unknown as { rows?: Array<Record<string, unknown>> }).rows
+        ?? (lookup as unknown as Array<Record<string, unknown>>);
+      const row = lookupRows?.[0] as
+        | {
+            id: number;
+            reference: string;
+            recipient: string;
+            subject: string;
+            body: string;
+            status: string;
+          }
+        | undefined;
+      if (!row) {
+        res.status(404).json({ error: "Outbox entry not found" });
+        return;
+      }
+      if (row.status === "sent") {
+        res.status(409).json({ error: "تم تسليم هذه المحاولة مسبقاً" });
+        return;
+      }
+      const rendered = await renderCustomerInvoicePdfById(id);
+      if (!rendered.ok) {
+        res.status(rendered.status).json({ error: rendered.error });
+        return;
+      }
+      const { pdf, head } = rendered;
+      const filename = `invoice-${head.reference}.pdf`;
+      const dispatch = await sendMail({
+        to: row.recipient,
+        subject: row.subject,
+        body: row.body,
+        attachments: [{ filename, content: pdf, contentType: "application/pdf" }],
+      });
+      const newStatus = dispatch.sent ? "sent" : "queued";
+      const errorMsg = dispatch.sent ? null : dispatch.reason;
+      const inserted = await db.execute(sql`
+        INSERT INTO sales_email_outbox
+          (kind, ref_id, reference, recipient, subject, body, status, error,
+           created_by, sent_at)
+        VALUES ('invoice', ${head.id}, ${head.reference}, ${row.recipient},
+                ${row.subject}, ${row.body}, ${newStatus}, ${errorMsg},
+                ${req.session?.userId ?? null},
+                ${dispatch.sent ? sql`now()` : sql`null`})
+        RETURNING id;
+      `);
+      const insertedRows = (inserted as unknown as { rows?: Array<Record<string, unknown>> }).rows
+        ?? (inserted as unknown as Array<Record<string, unknown>>);
+      const newOutboxId = insertedRows?.[0]?.id as number | undefined;
+      req.log.info(
+        {
+          invoiceId: id,
+          originalOutboxId: row.id,
+          newOutboxId,
+          recipient: row.recipient,
+          dispatched: dispatch.sent,
+          reason: dispatch.sent ? undefined : dispatch.reason,
+        },
+        "invoice.send.email.retry",
+      );
+      res.json({
+        ok: dispatch.sent,
+        dispatched: dispatch.sent,
+        outboxId: newOutboxId,
+        outboxStatus: newStatus,
+        sentTo: row.recipient,
+        reason: dispatch.sent ? undefined : dispatch.reason,
+        mailerConfigured: isMailerConfigured(),
+      });
+    } catch (err) {
+      req.log.error({ err }, "retry customer invoice email");
+      handleRouteError(err, res);
+    }
+  },
+);
+
 router.post("/sales/invoices", financeGuard, async (req, res) => {
   try {
     const body = InvoiceBody.parse(req.body);

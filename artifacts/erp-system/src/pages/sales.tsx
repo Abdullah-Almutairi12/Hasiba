@@ -25,8 +25,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Money } from "@/components/riyal";
-import { Plus, FileText, Truck, Receipt, ArrowLeftRight, Tag, Percent, Award, AlertCircle, Lock, Undo2, Loader2, Printer, Send, Mail, MessageCircle } from "lucide-react";
-import { useApiQuery, useApiMutation, apiPost, apiDelete } from "@/hooks/use-api";
+import { Plus, FileText, Truck, Receipt, ArrowLeftRight, Tag, Percent, Award, AlertCircle, Lock, Undo2, Loader2, Printer, Send, Mail, MessageCircle, Inbox, RefreshCw, CheckCircle2, XCircle } from "lucide-react";
+import { useApiQuery, useApiMutation, apiPost, apiGet, apiDelete } from "@/hooks/use-api";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { useToast } from "@/hooks/use-toast";
 import { useListCustomers, useListProducts } from "@workspace/api-client-react";
 import { usePermissions } from "@/hooks/use-permissions";
@@ -612,6 +613,7 @@ function InvoicesTab() {
   const [sendChannel, setSendChannel] = useState<"email" | "whatsapp">("email");
   const [sendTo, setSendTo] = useState("");
   const [sending, setSending] = useState(false);
+  const [historyTarget, setHistoryTarget] = useState<Invoice | null>(null);
 
   async function submitSend() {
     if (!sendTarget) return;
@@ -746,6 +748,18 @@ function InvoicesTab() {
                         {r.sentToCustomerAt ? "إعادة الإرسال" : "إرسال للعميل"}
                       </Button>
                     )}
+                    {canSend && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="gap-1.5"
+                        data-testid={`button-invoice-outbox-${r.id}`}
+                        onClick={() => setHistoryTarget(r)}
+                        title="سجل الإرسال"
+                      >
+                        <Inbox className="size-3.5" /> سجل الإرسال
+                      </Button>
+                    )}
                     {canReverse && (
                       <Button
                         size="sm"
@@ -813,6 +827,11 @@ function InvoicesTab() {
         pdfUrl={previewInvoice ? `${apiBase}/sales/invoices/${previewInvoice.id}/pdf` : null}
         title={previewInvoice ? `فاتورة ${previewInvoice.reference}` : "معاينة الفاتورة"}
         downloadName={previewInvoice ? `${previewInvoice.reference}.pdf` : "invoice.pdf"}
+      />
+      <InvoiceSendHistorySheet
+        target={historyTarget}
+        onClose={() => setHistoryTarget(null)}
+        onAfterRetry={refetch}
       />
       <Dialog open={!!sendTarget} onOpenChange={(o) => { if (!o) { setSendTarget(null); setSendTo(""); } }}>
         <DialogContent>
@@ -1792,5 +1811,184 @@ function DocTable<R>({
         )}
       </TableBody>
     </Table>
+  );
+}
+
+// ===== Invoice Send History (Outbox) =====
+type SendHistoryItem = {
+  id: number;
+  recipient: string;
+  subject: string;
+  status: "sent" | "queued" | string;
+  error: string | null;
+  createdAt: string;
+  sentAt: string | null;
+};
+
+function InvoiceSendHistorySheet({
+  target,
+  onClose,
+  onAfterRetry,
+}: {
+  target: Invoice | null;
+  onClose: () => void;
+  onAfterRetry: () => void | Promise<unknown>;
+}) {
+  const { toast } = useToast();
+  const [items, setItems] = useState<SendHistoryItem[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [mailerConfigured, setMailerConfigured] = useState<boolean | null>(null);
+  const [retryingId, setRetryingId] = useState<number | null>(null);
+
+  async function load(id: number) {
+    setLoading(true);
+    try {
+      const r = await apiGet<{ items: SendHistoryItem[]; mailerConfigured: boolean }>(
+        `/sales/invoices/${id}/send-history`,
+      );
+      setItems(r.items ?? []);
+      setMailerConfigured(r.mailerConfigured);
+    } catch (e) {
+      toast({ title: "تعذّر تحميل السجل", description: errMsg(e), variant: "destructive" });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  React.useEffect(() => {
+    if (target) {
+      void load(target.id);
+    } else {
+      setItems([]);
+      setMailerConfigured(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [target?.id]);
+
+  async function retry(outboxId: number) {
+    if (!target) return;
+    try {
+      setRetryingId(outboxId);
+      const r = await apiPost<{
+        ok: boolean;
+        dispatched: boolean;
+        sentTo?: string;
+        reason?: string;
+        outboxStatus: string;
+        mailerConfigured?: boolean;
+      }>(`/sales/invoices/${target.id}/send-history/${outboxId}/retry`, {});
+      if (r.dispatched) {
+        toast({
+          title: "تم الإرسال",
+          description: `أعيد إرسال الفاتورة ${target.reference} إلى ${r.sentTo}.`,
+        });
+      } else {
+        toast({
+          title: r.mailerConfigured ? "تعذّر الإرسال" : "تم وضع الرسالة في قائمة الانتظار",
+          description:
+            r.reason ?? "البريد غير مُهيأ — يرجى ضبط SMTP_HOST/SMTP_PORT لإرسال الرسالة فعلياً",
+          variant: r.mailerConfigured ? "destructive" : undefined,
+        });
+      }
+      await load(target.id);
+      await onAfterRetry();
+    } catch (e) {
+      toast({ title: "فشل الإرسال", description: errMsg(e), variant: "destructive" });
+    } finally {
+      setRetryingId(null);
+    }
+  }
+
+  return (
+    <Sheet open={!!target} onOpenChange={(o) => { if (!o) onClose(); }}>
+      <SheetContent className="w-full sm:max-w-xl overflow-y-auto">
+        <SheetHeader>
+          <SheetTitle>سجل إرسال الفاتورة {target?.reference}</SheetTitle>
+          <SheetDescription>
+            آخر محاولات إرسال هذه الفاتورة عبر البريد الإلكتروني. اضغط "إعادة الإرسال" لإعادة
+            محاولة المحاولات التي لم تُسلَّم.
+          </SheetDescription>
+        </SheetHeader>
+        {mailerConfigured === false && (
+          <div className="mt-4 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+            البريد غير مُهيأ على الخادم. ستظل المحاولات معلّقة (queued) حتى يتم ضبط SMTP.
+          </div>
+        )}
+        <div className="mt-4 space-y-3" data-testid="send-history-list">
+          {loading ? (
+            <div className="space-y-2">
+              <Skeleton className="h-20 w-full" />
+              <Skeleton className="h-20 w-full" />
+            </div>
+          ) : items.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-6">
+              لا توجد محاولات إرسال لهذه الفاتورة بعد.
+            </p>
+          ) : (
+            items.map((it) => {
+              const isSent = it.status === "sent";
+              const statusBadge = isSent ? (
+                <Badge variant="outline" className="bg-emerald-50 text-emerald-800 border-emerald-300 gap-1 font-normal">
+                  <CheckCircle2 className="size-3" /> تم التسليم
+                </Badge>
+              ) : (
+                <Badge variant="outline" className="bg-rose-50 text-rose-800 border-rose-300 gap-1 font-normal">
+                  <XCircle className="size-3" /> {it.status === "queued" ? "في الانتظار" : "فشل"}
+                </Badge>
+              );
+              return (
+                <div
+                  key={it.id}
+                  className="rounded-md border p-3 space-y-2"
+                  data-testid={`send-history-row-${it.id}`}
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 text-sm">
+                      <Mail className="size-4 text-muted-foreground" />
+                      <span className="font-medium" dir="ltr">{it.recipient}</span>
+                      <Badge variant="outline" className="font-normal text-[10px] py-0 px-1.5">
+                        بريد إلكتروني
+                      </Badge>
+                    </div>
+                    {statusBadge}
+                  </div>
+                  <div className="text-xs text-muted-foreground">{it.subject}</div>
+                  <div className="text-[11px] text-muted-foreground flex flex-wrap gap-x-3 gap-y-1">
+                    <span>أُنشئت: {new Date(it.createdAt).toLocaleString("ar-SA")}</span>
+                    {it.sentAt && (
+                      <span>سُلّمت: {new Date(it.sentAt).toLocaleString("ar-SA")}</span>
+                    )}
+                  </div>
+                  {it.error && (
+                    <div className="rounded bg-rose-50 border border-rose-200 px-2 py-1 text-[11px] text-rose-900 whitespace-pre-wrap">
+                      {it.error}
+                    </div>
+                  )}
+                  {!isSent && (
+                    <div className="flex justify-end">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="gap-1.5"
+                        disabled={retryingId === it.id}
+                        onClick={() => retry(it.id)}
+                        data-testid={`button-retry-send-${it.id}`}
+                      >
+                        {retryingId === it.id ? (
+                          <Loader2 className="size-3.5 animate-spin" />
+                        ) : (
+                          <RefreshCw className="size-3.5" />
+                        )}
+                        إعادة الإرسال
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              );
+            })
+          )}
+        </div>
+      </SheetContent>
+    </Sheet>
   );
 }
