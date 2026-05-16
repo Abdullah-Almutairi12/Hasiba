@@ -1493,20 +1493,30 @@ router.get("/sales/invoices", customerReadGuard, async (req, res) => {
       )
       .orderBy(desc(customerInvoicesTable.createdAt))
       .limit(200);
-
     // Surface last send signal per invoice from sales_email_outbox (email)
     // and outbound_messages (WhatsApp). This lets the UI show whether a
     // given invoice was already delivered and over which channel so staff
-    // don't re-press "إرسال" without thinking.
+    // don't re-press "إرسال" without thinking. We also expose `lastSend`
+    // — the most recent outbox attempt regardless of status — so the
+    // invoice list can render a delivered / queued / failed badge with
+    // the recipient + error in a tooltip.
     const ids = rows.map((r) => r.id);
     const refs = rows.map((r) => r.reference);
     type SendInfo = { sentAt: string; to: string; status: string };
     const emailByInvoice = new Map<number, SendInfo>();
     const waByRef = new Map<string, SendInfo>();
+    const lastSendById = new Map<number, {
+      outboxId: number;
+      status: string;
+      recipient: string | null;
+      error: string | null;
+      createdAt: string | null;
+      sentAt: string | null;
+    }>();
     if (ids.length > 0) {
       // Only successfully-dispatched sends count as "تم الإرسال". Queued
-      // or failed attempts must not drive the badge — staff still need to
-      // re-send those.
+      // or failed attempts must not drive the channel badge — staff still
+      // need to re-send those.
       const emailRes = await db.execute(sql`
         SELECT DISTINCT ON (ref_id)
           ref_id,
@@ -1528,6 +1538,45 @@ router.get("/sales/invoices", customerReadGuard, async (req, res) => {
           sentAt: sentAt instanceof Date ? sentAt.toISOString() : String(sentAt),
           to: String(r["recipient"] ?? ""),
           status: String(r["status"] ?? ""),
+        });
+      }
+      // Most-recent attempt per invoice (any status) — drives the
+      // delivered/queued/failed badge.
+      const lastRes = await db.execute(sql`
+        SELECT DISTINCT ON (ref_id)
+          ref_id AS "refId",
+          id AS "outboxId",
+          status,
+          recipient,
+          error,
+          created_at AS "createdAt",
+          sent_at AS "sentAt"
+        FROM sales_email_outbox
+        WHERE kind = 'invoice' AND ref_id = ANY(${ids}::int[])
+        ORDER BY ref_id, created_at DESC, id DESC
+      `);
+      const lastRows = ((lastRes as unknown as { rows?: Array<Record<string, unknown>> }).rows
+        ?? (lastRes as unknown as Array<Record<string, unknown>>)) ?? [];
+      for (const r of lastRows) {
+        const refId = Number((r as Record<string, unknown>)["refId"]);
+        if (!Number.isFinite(refId)) continue;
+        const createdAt = (r as Record<string, unknown>)["createdAt"];
+        const sentAt = (r as Record<string, unknown>)["sentAt"];
+        lastSendById.set(refId, {
+          outboxId: Number((r as Record<string, unknown>)["outboxId"]),
+          status: String((r as Record<string, unknown>)["status"] ?? ""),
+          recipient: (r as Record<string, unknown>)["recipient"] == null
+            ? null
+            : String((r as Record<string, unknown>)["recipient"]),
+          error: (r as Record<string, unknown>)["error"] == null
+            ? null
+            : String((r as Record<string, unknown>)["error"]),
+          createdAt: createdAt instanceof Date
+            ? createdAt.toISOString()
+            : (createdAt as string | null) ?? null,
+          sentAt: sentAt instanceof Date
+            ? sentAt.toISOString()
+            : (sentAt as string | null) ?? null,
         });
       }
       const waRes = await db.execute(sql`
@@ -1584,6 +1633,7 @@ router.get("/sales/invoices", customerReadGuard, async (req, res) => {
         lastSentAt,
         lastSentChannel,
         lastSentTo,
+        lastSend: lastSendById.get(r.id) ?? null,
       };
     });
     res.json(out);
