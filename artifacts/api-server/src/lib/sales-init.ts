@@ -439,6 +439,15 @@ export async function initSales(): Promise<void> {
     );
     CREATE INDEX IF NOT EXISTS sales_email_outbox_kind_ref_idx
       ON sales_email_outbox (kind, ref_id);
+    -- Background auto-retry bookkeeping. attempts is incremented every
+    -- time the retry worker re-dispatches the row; next_retry_at is when
+    -- the worker is allowed to try again (exponential backoff). After N
+    -- failed attempts the worker flips status to 'failed' so the UI shows
+    -- it as a hard error instead of "queued" forever.
+    ALTER TABLE sales_email_outbox ADD COLUMN IF NOT EXISTS attempts integer NOT NULL DEFAULT 0;
+    ALTER TABLE sales_email_outbox ADD COLUMN IF NOT EXISTS next_retry_at timestamp;
+    CREATE INDEX IF NOT EXISTS sales_email_outbox_due_idx
+      ON sales_email_outbox (status, kind, next_retry_at);
   `);
 
   // Split-bill payments per POS order (one row per tendered method).

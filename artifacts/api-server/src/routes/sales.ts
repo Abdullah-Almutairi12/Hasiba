@@ -1608,7 +1608,7 @@ router.get("/sales/invoices/:id", customerReadGuard, async (req, res) => {
 // purchase-order PDF chrome (logo, company info, bilingual labels,
 // totals, bank details, terms). Cached ZATCA QR is embedded when
 // present on the invoice row.
-async function renderCustomerInvoicePdfById(id: number): Promise<
+export async function renderCustomerInvoicePdfById(id: number): Promise<
   | { ok: true; pdf: Buffer; head: typeof customerInvoicesTable.$inferSelect; customer: typeof customersTable.$inferSelect | undefined }
   | { ok: false; status: 400 | 404; error: string }
 > {

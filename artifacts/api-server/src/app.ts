@@ -165,4 +165,14 @@ import("./lib/integrations/marketplaces")
   .then((m) => m.startMarketplaceWorker())
   .catch((err) => logger.error({ err }, "failed to start marketplace worker"));
 
+// Background sweep that auto-retries queued invoice emails (e.g. SMTP was
+// temporarily down) with exponential backoff so staff don't have to manually
+// click "retry" in the Outbox drawer. After MAX_ATTEMPTS the worker flips
+// the row to `failed` so the UI surfaces it as a hard error.
+import("./lib/invoice-email-retry-worker")
+  .then((m) => m.startInvoiceEmailRetryWorker())
+  .catch((err) =>
+    logger.error({ err }, "failed to start invoice email retry worker"),
+  );
+
 export default app;
