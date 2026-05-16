@@ -1515,84 +1515,220 @@ router.get("/sales/invoices/:id", customerReadGuard, async (req, res) => {
 // purchase-order PDF chrome (logo, company info, bilingual labels,
 // totals, bank details, terms). Cached ZATCA QR is embedded when
 // present on the invoice row.
+async function renderCustomerInvoicePdfById(id: number): Promise<
+  | { ok: true; pdf: Buffer; head: typeof customerInvoicesTable.$inferSelect; customer: typeof customersTable.$inferSelect | undefined }
+  | { ok: false; status: 400 | 404; error: string }
+> {
+  if (!Number.isFinite(id)) return { ok: false, status: 400, error: "Bad id" };
+  const [head] = await db
+    .select()
+    .from(customerInvoicesTable)
+    .where(eq(customerInvoicesTable.id, id));
+  if (!head) return { ok: false, status: 404, error: "Not found" };
+  const [customer] = await db
+    .select()
+    .from(customersTable)
+    .where(eq(customersTable.id, head.customerId));
+  const lines = await db
+    .select()
+    .from(customerInvoiceLinesTable)
+    .where(eq(customerInvoiceLinesTable.invoiceId, id));
+  const company = await getCompanyInfo();
+  let qrDataUrl: string | null = null;
+  if (head.zatcaQr) {
+    try {
+      qrDataUrl = await QRCode.toDataURL(head.zatcaQr, {
+        errorCorrectionLevel: "M",
+        margin: 1,
+        width: 220,
+      });
+    } catch {
+      qrDataUrl = null;
+    }
+  }
+  const pdf = await buildCustomerInvoicePdf(
+    {
+      reference: head.reference,
+      invoiceDate: head.invoiceDate,
+      dueDate: head.dueDate,
+      currencyCode: head.currencyCode,
+      subtotal: Number(head.subtotal),
+      discount: Number(head.discount),
+      vat: Number(head.vat),
+      total: Number(head.total),
+      amountPaid: Number(head.amountPaid),
+      status: head.status,
+      notes: head.notes,
+      customer: {
+        name: head.customerName,
+        email: customer?.email ?? null,
+        phone: customer?.phone ?? null,
+        address: customer?.billingAddress ?? customer?.shippingAddress ?? null,
+        vatNumber: customer?.taxNumber ?? null,
+      },
+      lines: lines.map((l) => ({
+        description: l.description,
+        quantity: Number(l.quantity),
+        unitPrice: Number(l.unitPrice),
+        taxRate: Number(l.taxRate),
+        lineTotal: Number(l.lineTotal),
+      })),
+      zatcaQrDataUrl: qrDataUrl,
+    },
+    company,
+  );
+  return { ok: true, pdf, head, customer };
+}
+
 router.get("/sales/invoices/:id/pdf", customerReadGuard, async (req, res) => {
   try {
     const id = Number(req.params.id);
-    if (!Number.isFinite(id)) {
-      res.status(400).json({ error: "Bad id" });
+    const rendered = await renderCustomerInvoicePdfById(id);
+    if (!rendered.ok) {
+      res.status(rendered.status).json({ error: rendered.error });
       return;
     }
-    const [head] = await db
-      .select()
-      .from(customerInvoicesTable)
-      .where(eq(customerInvoicesTable.id, id));
-    if (!head) {
-      res.status(404).json({ error: "Not found" });
-      return;
-    }
-    const [customer] = await db
-      .select()
-      .from(customersTable)
-      .where(eq(customersTable.id, head.customerId));
-    const lines = await db
-      .select()
-      .from(customerInvoiceLinesTable)
-      .where(eq(customerInvoiceLinesTable.invoiceId, id));
-
-    const company = await getCompanyInfo();
-    let qrDataUrl: string | null = null;
-    if (head.zatcaQr) {
-      try {
-        qrDataUrl = await QRCode.toDataURL(head.zatcaQr, {
-          errorCorrectionLevel: "M",
-          margin: 1,
-          width: 220,
-        });
-      } catch {
-        qrDataUrl = null;
-      }
-    }
-
-    const pdf = await buildCustomerInvoicePdf(
-      {
-        reference: head.reference,
-        invoiceDate: head.invoiceDate,
-        dueDate: head.dueDate,
-        currencyCode: head.currencyCode,
-        subtotal: Number(head.subtotal),
-        discount: Number(head.discount),
-        vat: Number(head.vat),
-        total: Number(head.total),
-        amountPaid: Number(head.amountPaid),
-        status: head.status,
-        notes: head.notes,
-        customer: {
-          name: head.customerName,
-          email: customer?.email ?? null,
-          phone: customer?.phone ?? null,
-          address: customer?.billingAddress ?? customer?.shippingAddress ?? null,
-          vatNumber: customer?.taxNumber ?? null,
-        },
-        lines: lines.map((l) => ({
-          description: l.description,
-          quantity: Number(l.quantity),
-          unitPrice: Number(l.unitPrice),
-          taxRate: Number(l.taxRate),
-          lineTotal: Number(l.lineTotal),
-        })),
-        zatcaQrDataUrl: qrDataUrl,
-      },
-      company,
-    );
-
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader(
       "Content-Disposition",
-      `inline; filename="invoice-${head.reference}.pdf"`,
+      `inline; filename="invoice-${rendered.head.reference}.pdf"`,
     );
-    res.send(pdf);
+    res.send(rendered.pdf);
   } catch (err) {
     req.log.error({ err }, "render customer invoice PDF");
+    handleRouteError(err, res);
+  }
+});
+
+// Send the customer invoice PDF to the customer over email (attachment) or
+// WhatsApp (document via approved template). Mirrors the quotation send
+// route — we never lie about delivery: the underlying outbox row records
+// the real dispatch outcome, and the response reports `dispatched`.
+router.post("/sales/invoices/:id/send", financeGuard, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const Body = z.object({
+      channel: z.enum(["email", "whatsapp"]),
+      to: z.string().trim().min(1).optional(),
+    });
+    const body = Body.parse(req.body ?? {});
+
+    const rendered = await renderCustomerInvoicePdfById(id);
+    if (!rendered.ok) {
+      res.status(rendered.status).json({ error: rendered.error });
+      return;
+    }
+    const { pdf, head, customer } = rendered;
+    const filename = `invoice-${head.reference}.pdf`;
+
+    if (body.channel === "email") {
+      const recipient = body.to ?? customer?.email ?? null;
+      if (!recipient || !/^\S+@\S+\.\S+$/.test(recipient)) {
+        res.status(400).json({ error: "لا يوجد بريد إلكتروني للعميل" });
+        return;
+      }
+      const subject = `فاتورة ${head.reference}`;
+      const emailBody =
+        `السلام عليكم،\n\nنرفق لكم الفاتورة ${head.reference} بإجمالي ${head.total} ${head.currencyCode}.` +
+        (head.dueDate ? ` تاريخ الاستحقاق: ${head.dueDate}.` : "") +
+        `\n\nمع التحية.`;
+      const dispatch = await sendMail({
+        to: recipient,
+        subject,
+        body: emailBody,
+        attachments: [{ filename, content: pdf, contentType: "application/pdf" }],
+      });
+      const outboxStatus = dispatch.sent ? "sent" : "queued";
+      const errorMsg = dispatch.sent ? null : dispatch.reason;
+      const inserted = await db.execute(sql`
+        INSERT INTO sales_email_outbox
+          (kind, ref_id, reference, recipient, subject, body, status, error,
+           created_by, sent_at)
+        VALUES ('invoice', ${head.id}, ${head.reference}, ${recipient}, ${subject},
+                ${emailBody}, ${outboxStatus}, ${errorMsg},
+                ${req.session?.userId ?? null},
+                ${dispatch.sent ? sql`now()` : sql`null`})
+        RETURNING id;
+      `);
+      const rows = (inserted as unknown as { rows?: Array<Record<string, unknown>> }).rows
+        ?? (inserted as unknown as Array<Record<string, unknown>>);
+      req.log.info(
+        {
+          invoiceId: head.id,
+          recipient,
+          outboxId: rows?.[0]?.id,
+          dispatched: dispatch.sent,
+          reason: dispatch.sent ? undefined : dispatch.reason,
+        },
+        "invoice.send.email",
+      );
+      res.json({
+        ok: dispatch.sent,
+        dispatched: dispatch.sent,
+        channel: "email",
+        sentTo: recipient,
+        outboxId: rows?.[0]?.id,
+        outboxStatus,
+        reason: dispatch.sent ? undefined : dispatch.reason,
+        mailerConfigured: isMailerConfigured(),
+      });
+      return;
+    }
+
+    // WhatsApp path
+    const recipient = body.to ?? customer?.phone ?? null;
+    if (!recipient) {
+      res.status(400).json({ error: "لا يوجد رقم واتساب للعميل" });
+      return;
+    }
+    const baseUrl =
+      (process.env["PUBLIC_BASE_URL"] ?? "").replace(/\/$/, "") || "";
+    const payLink = baseUrl
+      ? `${baseUrl}/portal/invoices/${head.id}/pay`
+      : "";
+    // Public PDF URL for WhatsApp document attachment (Meta requires a
+    // fetchable URL). When PUBLIC_BASE_URL isn't set the template
+    // dispatch falls back to text-only.
+    const pdfUrl = baseUrl
+      ? `${baseUrl}/api/sales/invoices/${head.id}/pdf`
+      : undefined;
+    try {
+      await sendByTemplate({
+        templateName: "invoice_issued",
+        to: recipient,
+        variables: {
+          customer_name: head.customerName,
+          invoice_no: head.reference,
+          total: String(head.total),
+          pay_link: payLink,
+        },
+        branchId: head.branchId ?? null,
+        mediaUrl: pdfUrl,
+        mediaType: "document",
+        mediaFilename: filename,
+      });
+      req.log.info(
+        { invoiceId: head.id, recipient, hasPdfUrl: !!pdfUrl },
+        "invoice.send.whatsapp",
+      );
+      res.json({
+        ok: true,
+        dispatched: true,
+        channel: "whatsapp",
+        sentTo: recipient,
+        attachedPdf: !!pdfUrl,
+      });
+    } catch (err) {
+      req.log.warn({ err, invoiceId: head.id }, "invoice.send.whatsapp.failed");
+      res.status(502).json({
+        ok: false,
+        dispatched: false,
+        channel: "whatsapp",
+        error: err instanceof Error ? err.message : "تعذّر إرسال الواتساب",
+      });
+    }
+  } catch (err) {
+    req.log.error({ err }, "send customer invoice");
     handleRouteError(err, res);
   }
 });

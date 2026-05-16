@@ -25,7 +25,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Money } from "@/components/riyal";
-import { Plus, FileText, Truck, Receipt, ArrowLeftRight, Tag, Percent, Award, AlertCircle, Lock, Undo2, Loader2, Printer, Mail } from "lucide-react";
+import { Plus, FileText, Truck, Receipt, ArrowLeftRight, Tag, Percent, Award, AlertCircle, Lock, Undo2, Loader2, Printer, Send, Mail, MessageCircle } from "lucide-react";
 import { useApiQuery, useApiMutation, apiPost, apiDelete } from "@/hooks/use-api";
 import { useToast } from "@/hooks/use-toast";
 import { useListCustomers, useListProducts } from "@workspace/api-client-react";
@@ -606,23 +606,50 @@ function InvoicesTab() {
   const [reverseTarget, setReverseTarget] = useState<Invoice | null>(null);
   const [reverseReason, setReverseReason] = useState("");
   const [reversing, setReversing] = useState(false);
-  const [sendingId, setSendingId] = useState<number | null>(null);
   const [previewInvoice, setPreviewInvoice] = useState<Invoice | null>(null);
   const apiBase = (import.meta.env.BASE_URL || "/").replace(/\/$/, "") + "/api";
+  const [sendTarget, setSendTarget] = useState<Invoice | null>(null);
+  const [sendChannel, setSendChannel] = useState<"email" | "whatsapp">("email");
+  const [sendTo, setSendTo] = useState("");
+  const [sending, setSending] = useState(false);
 
-  async function sendToCustomer(inv: Invoice) {
+  async function submitSend() {
+    if (!sendTarget) return;
     try {
-      setSendingId(inv.id);
-      const resp = await apiPost<{ sentTo?: string }>(`/sales/invoices/${inv.id}/send`, {});
-      toast({
-        title: "تم إرسال الفاتورة للعميل",
-        description: resp?.sentTo ? `إلى ${resp.sentTo}` : undefined,
-      });
-      await refetch();
+      setSending(true);
+      const payload: { channel: "email" | "whatsapp"; to?: string } = { channel: sendChannel };
+      if (sendTo.trim()) payload.to = sendTo.trim();
+      const r = await apiPost<{
+        ok: boolean;
+        dispatched: boolean;
+        channel: string;
+        sentTo?: string;
+        reason?: string;
+        mailerConfigured?: boolean;
+        attachedPdf?: boolean;
+      }>(`/sales/invoices/${sendTarget.id}/send`, payload);
+      if (r.dispatched) {
+        toast({
+          title: "تم الإرسال",
+          description:
+            sendChannel === "email"
+              ? `تم إرسال الفاتورة ${sendTarget.reference} إلى ${r.sentTo}.`
+              : `تم إرسال الفاتورة ${sendTarget.reference} عبر واتساب إلى ${r.sentTo}${r.attachedPdf ? " مع مرفق PDF" : ""}.`,
+        });
+        setSendTarget(null);
+        setSendTo("");
+        await refetch();
+      } else {
+        toast({
+          title: "تعذّر الإرسال",
+          description: r.reason ?? "لم يتم تأكيد التسليم من المزوّد. تم تسجيل المحاولة.",
+          variant: "destructive",
+        });
+      }
     } catch (e) {
-      toast({ title: "تعذر إرسال الفاتورة", description: errMsg(e), variant: "destructive" });
+      toast({ title: "فشل الإرسال", description: errMsg(e), variant: "destructive" });
     } finally {
-      setSendingId(null);
+      setSending(false);
     }
   }
 
@@ -712,11 +739,10 @@ function InvoicesTab() {
                         size="sm"
                         variant="outline"
                         className="gap-1.5"
-                        onClick={() => sendToCustomer(r)}
-                        disabled={sendingId === r.id}
                         data-testid={`button-send-invoice-${r.id}`}
+                        onClick={() => { setSendTarget(r); setSendChannel("email"); setSendTo(""); }}
                       >
-                        {sendingId === r.id ? <Loader2 className="size-3.5 animate-spin" /> : <Mail className="size-3.5" />}
+                        <Send className="size-3.5" />
                         {r.sentToCustomerAt ? "إعادة الإرسال" : "إرسال للعميل"}
                       </Button>
                     )}
@@ -788,6 +814,68 @@ function InvoicesTab() {
         title={previewInvoice ? `فاتورة ${previewInvoice.reference}` : "معاينة الفاتورة"}
         downloadName={previewInvoice ? `${previewInvoice.reference}.pdf` : "invoice.pdf"}
       />
+      <Dialog open={!!sendTarget} onOpenChange={(o) => { if (!o) { setSendTarget(null); setSendTo(""); } }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>إرسال الفاتورة للعميل</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            سيتم إرسال ملف PDF للفاتورة {sendTarget?.reference} إلى {sendTarget?.customerName}.
+          </p>
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-2">
+              <Button
+                type="button"
+                variant={sendChannel === "email" ? "default" : "outline"}
+                onClick={() => setSendChannel("email")}
+                className="gap-2"
+                data-testid="button-send-channel-email"
+              >
+                <Mail className="size-4" /> بريد إلكتروني
+              </Button>
+              <Button
+                type="button"
+                variant={sendChannel === "whatsapp" ? "default" : "outline"}
+                onClick={() => setSendChannel("whatsapp")}
+                className="gap-2"
+                data-testid="button-send-channel-whatsapp"
+              >
+                <MessageCircle className="size-4" /> واتساب
+              </Button>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="send-to">
+                {sendChannel === "email" ? "البريد الإلكتروني (اختياري)" : "رقم الواتساب (اختياري)"}
+              </Label>
+              <Input
+                id="send-to"
+                data-testid="input-send-to"
+                value={sendTo}
+                onChange={(e) => setSendTo(e.target.value)}
+                placeholder={sendChannel === "email" ? "customer@example.com" : "+9665XXXXXXXX"}
+                dir="ltr"
+              />
+              <p className="text-xs text-muted-foreground">
+                اتركه فارغاً لاستخدام {sendChannel === "email" ? "البريد المسجّل" : "الرقم المسجّل"} للعميل.
+              </p>
+            </div>
+          </div>
+          <DialogFooter className="flex-row gap-2 justify-between sm:justify-between">
+            <Button variant="ghost" onClick={() => { setSendTarget(null); setSendTo(""); }} disabled={sending}>
+              إلغاء
+            </Button>
+            <Button
+              onClick={submitSend}
+              disabled={sending}
+              className="gap-2"
+              data-testid="button-confirm-send-invoice"
+            >
+              {sending ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
+              إرسال
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }
