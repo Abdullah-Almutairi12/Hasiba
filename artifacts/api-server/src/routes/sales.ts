@@ -45,6 +45,7 @@ import {
 } from "../lib/sales-engine";
 import { postJournalEntry, reverseJournalEntry, ClosedPeriodError } from "../lib/journal-posting";
 import { buildZatcaQrBase64 } from "../lib/zatca-qr";
+import { getCompanyInfo } from "../lib/pdf/purchase-order";
 import { processInvoiceForZatca } from "../lib/integrations/zatca-phase2";
 import { createAwb } from "../lib/integrations/shipping";
 import { sendMessage } from "../lib/integrations/messaging";
@@ -1511,6 +1512,15 @@ router.get("/sales/invoices/:id", customerReadGuard, async (req, res) => {
 router.post("/sales/invoices", financeGuard, async (req, res) => {
   try {
     const body = InvoiceBody.parse(req.body);
+    const company = await getCompanyInfo();
+    const sellerNameForZatca =
+      company.nameAr && company.nameAr !== "—"
+        ? company.nameAr
+        : process.env["ZATCA_SELLER_NAME"] ?? "حاسبة AI";
+    const sellerVatForZatca =
+      company.vatNumber && company.vatNumber !== "—"
+        ? company.vatNumber
+        : process.env["ZATCA_VAT_NUMBER"] ?? "300000000000003";
     const result = await db.transaction(async (tx) => {
       let customerId = body.customerId;
       let so: typeof salesOrdersTable.$inferSelect | undefined;
@@ -1674,6 +1684,8 @@ router.post("/sales/invoices", financeGuard, async (req, res) => {
         timestamp: new Date(invoiceDate),
         totalWithVat: totals.total,
         vatAmount: totals.vat,
+        sellerName: sellerNameForZatca,
+        vatNumber: sellerVatForZatca,
       });
       const [inv] = await tx
         .insert(customerInvoicesTable)
@@ -1794,8 +1806,8 @@ router.post("/sales/invoices", financeGuard, async (req, res) => {
           invoiceNumber: reference,
           issueDate: new Date(invoiceDate),
           invoiceType: "standard" as const,
-          sellerName: process.env["ZATCA_SELLER_NAME"] ?? "حاسبة AI",
-          sellerVat: process.env["ZATCA_VAT_NUMBER"] ?? "300000000000003",
+          sellerName: sellerNameForZatca,
+          sellerVat: sellerVatForZatca,
           buyerName: customer.name,
           buyerVat: customer.taxNumber ?? null,
           totalExclVat: Number(totals.subtotal.toFixed(2)),

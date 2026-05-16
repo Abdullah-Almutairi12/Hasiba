@@ -27,6 +27,7 @@ import { recordIntegrationCall } from "./audit";
 import { nextRef } from "../sales-engine";
 import { postJournalEntry } from "../journal-posting";
 import { buildZatcaQrBase64 } from "../zatca-qr";
+import { getCompanyInfo } from "../pdf/purchase-order";
 import { logger } from "../logger";
 
 // Webhook secrets are stored encrypted at rest. Decrypt-on-use and
@@ -1181,6 +1182,15 @@ export async function importOrder(
 
   try {
     const customer = await findOrCreateCustomer(order);
+    const company = await getCompanyInfo();
+    const sellerNameForZatca =
+      company.nameAr && company.nameAr !== "—"
+        ? company.nameAr
+        : process.env["ZATCA_SELLER_NAME"] ?? "حاسبة AI";
+    const sellerVatForZatca =
+      company.vatNumber && company.vatNumber !== "—"
+        ? company.vatNumber
+        : process.env["ZATCA_VAT_NUMBER"] ?? "300000000000003";
     const soId = await db.transaction(async (tx) => {
       // ---------------- Sales Order ----------------
       const soRef = await nextRef(tx, `MKT-${connector.platform.toUpperCase()}`);
@@ -1279,6 +1289,8 @@ export async function importOrder(
         timestamp: new Date(invoiceDate),
         totalWithVat: order.total,
         vatAmount: order.vat,
+        sellerName: sellerNameForZatca,
+        vatNumber: sellerVatForZatca,
       });
       const [inv] = await tx
         .insert(customerInvoicesTable)

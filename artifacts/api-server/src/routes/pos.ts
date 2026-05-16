@@ -16,6 +16,7 @@ import {
 } from "@workspace/db";
 import { nextRef } from "../lib/sales-engine";
 import { buildZatcaQrBase64 } from "../lib/zatca-qr";
+import { getCompanyInfo } from "../lib/pdf/purchase-order";
 import { processInvoiceForZatca } from "../lib/integrations/zatca-phase2";
 import { recordStockMove } from "../lib/stock-engine";
 import { eq, gte, sql, desc, inArray, and, isNull } from "drizzle-orm";
@@ -548,6 +549,15 @@ router.post(
     // Single transaction: product reads/stock decrements, order insert, session
     // update, and GL postings all succeed-or-rollback together. Any failure in
     // posting the journal entry now rolls back the order + stock changes too.
+    const company = await getCompanyInfo();
+    const sellerNameForZatca =
+      company.nameAr && company.nameAr !== "—"
+        ? company.nameAr
+        : process.env["ZATCA_SELLER_NAME"] ?? "حاسبة AI";
+    const sellerVatForZatca =
+      company.vatNumber && company.vatNumber !== "—"
+        ? company.vatNumber
+        : process.env["ZATCA_VAT_NUMBER"] ?? "300000000000003";
     const result = await db.transaction(async (tx) => {
       // Resolve the session's branch and the warehouse to issue stock from.
       // Prefer the default warehouse for that branch; fall back to the global
@@ -1017,6 +1027,8 @@ router.post(
         timestamp: new Date(),
         totalWithVat: total,
         vatAmount: tax,
+        sellerName: sellerNameForZatca,
+        vatNumber: sellerVatForZatca,
       });
       const [posInvoice] = await tx
         .insert(customerInvoicesTable)
@@ -1206,8 +1218,8 @@ router.post(
       invoiceNumber: result.invoiceRef,
       issueDate: new Date(),
       invoiceType: "simplified",
-      sellerName: process.env["ZATCA_SELLER_NAME"] ?? "حاسبة AI",
-      sellerVat: process.env["ZATCA_VAT_NUMBER"] ?? "300000000000003",
+      sellerName: sellerNameForZatca,
+      sellerVat: sellerVatForZatca,
       buyerName: result.invoiceCustomerName,
       buyerVat: null,
       totalExclVat: Number(result.subtotal.toFixed(2)),

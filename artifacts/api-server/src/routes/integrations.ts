@@ -31,6 +31,7 @@ import {
   DEFAULT_TEMPLATES,
 } from "../lib/integrations/messaging-templates";
 import { buildZatcaQrBase64 } from "../lib/zatca-qr";
+import { getCompanyInfo } from "../lib/pdf/purchase-order";
 import QRCode from "qrcode";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import {
@@ -472,10 +473,19 @@ integrationsPublicRouter.get(
         res.status(404).send("not found");
         return;
       }
+      const company = await getCompanyInfo();
       const tlvBase64 = buildZatcaQrBase64({
         timestamp: inv.createdAt,
         totalWithVat: Number(inv.total),
         vatAmount: Number(inv.vat),
+        sellerName:
+          company.nameAr && company.nameAr !== "—"
+            ? company.nameAr
+            : process.env["ZATCA_SELLER_NAME"] ?? "حاسبة AI",
+        vatNumber:
+          company.vatNumber && company.vatNumber !== "—"
+            ? company.vatNumber
+            : process.env["ZATCA_VAT_NUMBER"] ?? "300000000000003",
       });
       const png = await QRCode.toBuffer(tlvBase64, {
         type: "png",
@@ -971,13 +981,20 @@ router.post("/integrations/zatca/submit", requireRole("owner", "accountant"), as
     const subtotal = Number(inv.subtotal);
     const vatAmount = Number(inv.vat);
     const total = Number(inv.total);
+    const company = await getCompanyInfo();
     const out = await processInvoiceForZatca({
       invoiceId: inv.id,
       invoiceNumber: inv.reference,
       issueDate: new Date(inv.invoiceDate),
       invoiceType: b.invoiceType,
-      sellerName: process.env["ZATCA_SELLER_NAME"] ?? "حاسبة AI",
-      sellerVat: process.env["ZATCA_VAT_NUMBER"] ?? "300000000000003",
+      sellerName:
+        company.nameAr && company.nameAr !== "—"
+          ? company.nameAr
+          : process.env["ZATCA_SELLER_NAME"] ?? "حاسبة AI",
+      sellerVat:
+        company.vatNumber && company.vatNumber !== "—"
+          ? company.vatNumber
+          : process.env["ZATCA_VAT_NUMBER"] ?? "300000000000003",
       buyerName: b.buyerName ?? inv.customerName,
       buyerVat: b.buyerVat ?? null,
       totalExclVat: Number(subtotal.toFixed(2)),

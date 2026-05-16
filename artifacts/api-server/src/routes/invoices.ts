@@ -18,6 +18,7 @@ import { findOrCreateSupplier } from "./suppliers";
 import { recordAudit } from "../lib/audit";
 import { recordStockMove, getDefaultWarehouseId } from "../lib/stock-engine";
 import { evaluateAnomalies } from "../lib/anomaly-engine";
+import { getCompanyInfo } from "../lib/pdf/purchase-order";
 
 // Postgres unique-violation SQLSTATE.
 // Drizzle wraps pg errors and may surface the original on `.cause`,
@@ -190,9 +191,17 @@ router.get("/invoices/:id/zatca-qr", invoiceReadGuard, async (req, res) => {
       .toISOString()
       .replace(/\.\d{3}Z$/, "Z");
 
+    const company = await getCompanyInfo();
+    const sellerName =
+      company.nameAr && company.nameAr !== "—" ? company.nameAr : SELLER_NAME;
+    const vatNumber =
+      company.vatNumber && company.vatNumber !== "—"
+        ? company.vatNumber
+        : VAT_NUMBER;
+
     const tlvBase64 = buildZatcaQrPayload({
-      sellerName: SELLER_NAME,
-      vatNumber: VAT_NUMBER,
+      sellerName,
+      vatNumber,
       timestamp,
       totalWithVat,
       vatAmount,
@@ -207,8 +216,8 @@ router.get("/invoices/:id/zatca-qr", invoiceReadGuard, async (req, res) => {
     return res.json({
       tlvBase64,
       dataUrl,
-      sellerName: SELLER_NAME,
-      vatNumber: VAT_NUMBER,
+      sellerName,
+      vatNumber,
       timestamp,
       totalWithVat,
       vatAmount,
