@@ -324,6 +324,10 @@ export const customerInvoicesTable = pgTable(
     reversesId: integer("reverses_id"),
     reversedById: integer("reversed_by_id"),
     reversedReason: text("reversed_reason"),
+    // Audit fields for emailing the customer the branded invoice PDF
+    // (mirrors `sent_to_supplier_*` on purchase_orders).
+    sentToCustomerAt: timestamp("sent_to_customer_at"),
+    sentToCustomerEmail: text("sent_to_customer_email"),
     createdBy: integer("created_by").references(() => usersTable.id),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },

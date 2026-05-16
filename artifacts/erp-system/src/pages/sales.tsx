@@ -25,7 +25,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Money } from "@/components/riyal";
-import { Plus, FileText, Truck, Receipt, ArrowLeftRight, Tag, Percent, Award, AlertCircle, Lock, Undo2, Loader2, Printer } from "lucide-react";
+import { Plus, FileText, Truck, Receipt, ArrowLeftRight, Tag, Percent, Award, AlertCircle, Lock, Undo2, Loader2, Printer, Mail } from "lucide-react";
 import { useApiQuery, useApiMutation, apiPost, apiDelete } from "@/hooks/use-api";
 import { useToast } from "@/hooks/use-toast";
 import { useListCustomers, useListProducts } from "@workspace/api-client-react";
@@ -63,6 +63,8 @@ interface Invoice extends Quotation {
   isLocked?: boolean;
   reversedById?: number | null;
   reversesId?: number | null;
+  sentToCustomerAt?: string | null;
+  sentToCustomerEmail?: string | null;
 }
 interface Receipt {
   id: number;
@@ -603,6 +605,23 @@ function InvoicesTab() {
   const [reverseTarget, setReverseTarget] = useState<Invoice | null>(null);
   const [reverseReason, setReverseReason] = useState("");
   const [reversing, setReversing] = useState(false);
+  const [sendingId, setSendingId] = useState<number | null>(null);
+
+  async function sendToCustomer(inv: Invoice) {
+    try {
+      setSendingId(inv.id);
+      const resp = await apiPost<{ sentTo?: string }>(`/sales/invoices/${inv.id}/send`, {});
+      toast({
+        title: "تم إرسال الفاتورة للعميل",
+        description: resp?.sentTo ? `إلى ${resp.sentTo}` : undefined,
+      });
+      await refetch();
+    } catch (e) {
+      toast({ title: "تعذر إرسال الفاتورة", description: errMsg(e), variant: "destructive" });
+    } finally {
+      setSendingId(null);
+    }
+  }
 
   async function submitReverse() {
     if (!reverseTarget) return;
@@ -670,30 +689,56 @@ function InvoicesTab() {
               </div>
             ) },
             { header: "المصدر", cell: (r) => <Badge variant="outline" className="font-normal">{r.source}</Badge> },
-            { header: "إجراءات", cell: (r) => (
-              <div className="flex items-center gap-1.5 flex-wrap">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="gap-1.5"
-                  data-testid={`button-print-invoice-${r.id}`}
-                  onClick={() => window.open(`${(import.meta.env.BASE_URL || "/").replace(/\/$/, "")}/api/sales/invoices/${r.id}/pdf`, "_blank", "noopener,noreferrer")}
-                >
-                  <Printer className="size-3.5" /> طباعة
-                </Button>
-                {canManageFinance && r.isLocked && !r.reversedById && !r.reversesId && r.amountPaid === 0 && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="gap-1.5"
-                    data-testid={`button-reverse-invoice-${r.id}`}
-                    onClick={() => { setReverseTarget(r); setReverseReason(""); }}
-                  >
-                    <Undo2 className="size-3.5" /> قيد عكسي
-                  </Button>
-                )}
-              </div>
-            ) },
+            { header: "إجراءات", cell: (r) => {
+              const canSend = canManageFinance && r.status !== "draft" && !r.reversedById;
+              const canReverse = canManageFinance && r.isLocked && !r.reversedById && !r.reversesId && r.amountPaid === 0;
+              const pdfHref = `${(import.meta.env.BASE_URL || "/").replace(/\/$/, "")}/api/sales/invoices/${r.id}/pdf`;
+              return (
+                <div className="flex flex-col items-start gap-1">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="gap-1.5"
+                      data-testid={`button-print-invoice-${r.id}`}
+                      onClick={() => window.open(pdfHref, "_blank", "noopener,noreferrer")}
+                    >
+                      <Printer className="size-3.5" /> طباعة
+                    </Button>
+                    {canSend && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="gap-1.5"
+                        onClick={() => sendToCustomer(r)}
+                        disabled={sendingId === r.id}
+                        data-testid={`button-send-invoice-${r.id}`}
+                      >
+                        {sendingId === r.id ? <Loader2 className="size-3.5 animate-spin" /> : <Mail className="size-3.5" />}
+                        {r.sentToCustomerAt ? "إعادة الإرسال" : "إرسال للعميل"}
+                      </Button>
+                    )}
+                    {canReverse && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="gap-1.5"
+                        data-testid={`button-reverse-invoice-${r.id}`}
+                        onClick={() => { setReverseTarget(r); setReverseReason(""); }}
+                      >
+                        <Undo2 className="size-3.5" /> قيد عكسي
+                      </Button>
+                    )}
+                  </div>
+                  {r.sentToCustomerAt && (
+                    <span className="text-[11px] text-muted-foreground" data-testid={`text-invoice-sent-${r.id}`}>
+                      أُرسلت: {new Date(r.sentToCustomerAt).toLocaleString("ar-SA")}
+                      {r.sentToCustomerEmail ? ` → ${r.sentToCustomerEmail}` : ""}
+                    </span>
+                  )}
+                </div>
+              );
+            } },
           ]}
           emptyText="لا توجد فواتير بعد"
         />

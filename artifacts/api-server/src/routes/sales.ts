@@ -2788,6 +2788,172 @@ router.post("/sales/quotations/:id/send", salesWriteGuard, async (req, res) => {
 });
 
 // ===================================================================
+// Customer invoice: send branded PDF to the customer's email.
+// Mirrors `POST /procurement/purchase-orders/:id/send`: builds the same
+// PDF served by `/sales/invoices/:id/pdf`, dispatches via `sendMail`,
+// records the attempt in `sales_email_outbox`, and — only on successful
+// delivery — stamps `sent_to_customer_at` / `sent_to_customer_email`.
+// ===================================================================
+router.post("/sales/invoices/:id/send", financeGuard, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) { res.status(400).json({ error: "Bad id" }); return; }
+    const Body = z.object({
+      to: z.string().email().optional(),
+      subject: z.string().optional(),
+      message: z.string().optional(),
+    });
+    const body = Body.parse(req.body ?? {});
+    const [head] = await db
+      .select()
+      .from(customerInvoicesTable)
+      .where(eq(customerInvoicesTable.id, id));
+    if (!head) { res.status(404).json({ error: "الفاتورة غير موجودة" }); return; }
+    if (head.status === "draft") {
+      res.status(409).json({ error: "لا يمكن إرسال فاتورة في حالة مسودة" });
+      return;
+    }
+    const [customer] = await db
+      .select()
+      .from(customersTable)
+      .where(eq(customersTable.id, head.customerId));
+    const recipient = body.to ?? customer?.email ?? null;
+    if (!recipient) {
+      res.status(400).json({ error: "لا يوجد بريد إلكتروني للعميل" });
+      return;
+    }
+
+    const lines = await db
+      .select()
+      .from(customerInvoiceLinesTable)
+      .where(eq(customerInvoiceLinesTable.invoiceId, id));
+    const company = await getCompanyInfo();
+    let qrDataUrl: string | null = null;
+    if (head.zatcaQr) {
+      try {
+        qrDataUrl = await QRCode.toDataURL(head.zatcaQr, {
+          errorCorrectionLevel: "M", margin: 1, width: 220,
+        });
+      } catch { qrDataUrl = null; }
+    }
+    const pdf = await buildCustomerInvoicePdf(
+      {
+        reference: head.reference,
+        invoiceDate: head.invoiceDate,
+        dueDate: head.dueDate,
+        currencyCode: head.currencyCode,
+        subtotal: Number(head.subtotal),
+        discount: Number(head.discount),
+        vat: Number(head.vat),
+        total: Number(head.total),
+        amountPaid: Number(head.amountPaid),
+        status: head.status,
+        notes: head.notes,
+        customer: {
+          name: head.customerName,
+          email: customer?.email ?? null,
+          phone: customer?.phone ?? null,
+          address: customer?.billingAddress ?? customer?.shippingAddress ?? null,
+          vatNumber: customer?.taxNumber ?? null,
+        },
+        lines: lines.map((l) => ({
+          description: l.description,
+          quantity: Number(l.quantity),
+          unitPrice: Number(l.unitPrice),
+          taxRate: Number(l.taxRate),
+          lineTotal: Number(l.lineTotal),
+        })),
+        zatcaQrDataUrl: qrDataUrl,
+      },
+      company,
+    );
+
+    const subject = body.subject ?? `فاتورة ${head.reference} / Invoice`;
+    const emailBody = body.message ?? [
+      `السلام عليكم،`,
+      ``,
+      `نرفق لكم الفاتورة رقم ${head.reference} بإجمالي ${head.total} ${head.currencyCode}` +
+        (head.dueDate ? ` (تاريخ الاستحقاق ${head.dueDate}).` : `.`),
+      `للاطلاع والسداد في حينه، شكراً لتعاملكم معنا.`,
+      ``,
+      `---`,
+      ``,
+      `Dear ${head.customerName},`,
+      ``,
+      `Please find attached invoice ${head.reference} for ${head.total} ${head.currencyCode}` +
+        (head.dueDate ? ` (due on ${head.dueDate}).` : `.`),
+      `Thank you for your business.`,
+    ].join("\n");
+    const attachmentFilename = `invoice-${head.reference}.pdf`;
+
+    const dispatch = await sendMail({
+      to: recipient,
+      subject,
+      body: emailBody,
+      attachments: [{
+        filename: attachmentFilename,
+        content: pdf,
+        contentType: "application/pdf",
+      }],
+    });
+    const outboxStatus = dispatch.sent ? "sent" : "failed";
+    const errorMsg = dispatch.sent ? null : dispatch.reason ?? "delivery failed";
+
+    const outboxId = await db.transaction(async (tx) => {
+      const inserted = await tx.execute(sql`
+        INSERT INTO sales_email_outbox
+          (kind, ref_id, reference, recipient, subject, body, status, error,
+           created_by, sent_at)
+        VALUES ('customer_invoice', ${head.id}, ${head.reference}, ${recipient},
+                ${subject}, ${emailBody}, ${outboxStatus}, ${errorMsg},
+                ${req.session?.userId ?? null},
+                ${dispatch.sent ? sql`now()` : sql`null`})
+        RETURNING id;
+      `);
+      const rows = (inserted as unknown as { rows?: Array<Record<string, unknown>> }).rows
+        ?? (inserted as unknown as Array<Record<string, unknown>>);
+      if (dispatch.sent) {
+        await tx
+          .update(customerInvoicesTable)
+          .set({ sentToCustomerAt: new Date(), sentToCustomerEmail: recipient })
+          .where(eq(customerInvoicesTable.id, head.id));
+      }
+      return rows?.[0]?.id as number | undefined;
+    });
+
+    if (!dispatch.sent) {
+      res.status(502).json({
+        ok: false,
+        dispatched: false,
+        sentTo: recipient,
+        outboxId,
+        outboxStatus,
+        mailerConfigured: isMailerConfigured(),
+        reason: dispatch.reason,
+      });
+      return;
+    }
+    void recordAudit(req, {
+      action: "send",
+      entity: "customer_invoice",
+      details: `${head.reference} → ${recipient}`,
+    });
+    res.json({
+      ok: true,
+      dispatched: true,
+      sentTo: recipient,
+      sentAt: new Date().toISOString(),
+      outboxId,
+      outboxStatus,
+      mailerConfigured: true,
+    });
+  } catch (err) {
+    req.log.error({ err }, "send customer invoice failed");
+    handleRouteError(err, res);
+  }
+});
+
+// ===================================================================
 // Commission posting
 // Computes commissions from invoices in [from, to] (same logic as the
 // commission-report) and posts a single journal entry per period:
@@ -2992,7 +3158,7 @@ function serializeMoneyDoc<T extends MoneyDoc | null | undefined>(doc: T): Money
   for (const k of ["subtotal", "discount", "vat", "total", "amountPaid", "amount"]) {
     if (out[k] != null) out[k] = Number(out[k] as string | number);
   }
-  for (const k of ["createdAt", "deliveredAt", "sentAt", "acceptedAt", "rejectedAt", "closedAt"]) {
+  for (const k of ["createdAt", "deliveredAt", "sentAt", "sentToCustomerAt", "acceptedAt", "rejectedAt", "closedAt"]) {
     const v = out[k];
     if (v instanceof Date) out[k] = v.toISOString();
   }

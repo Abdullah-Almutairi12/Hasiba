@@ -283,6 +283,8 @@ export async function initSales(): Promise<void> {
     ALTER TABLE customer_invoices ADD COLUMN IF NOT EXISTS reverses_id integer REFERENCES customer_invoices(id);
     ALTER TABLE customer_invoices ADD COLUMN IF NOT EXISTS reversed_by_id integer REFERENCES customer_invoices(id);
     ALTER TABLE customer_invoices ADD COLUMN IF NOT EXISTS reversed_reason text;
+    ALTER TABLE customer_invoices ADD COLUMN IF NOT EXISTS sent_to_customer_at timestamp;
+    ALTER TABLE customer_invoices ADD COLUMN IF NOT EXISTS sent_to_customer_email text;
     CREATE INDEX IF NOT EXISTS customer_invoices_reverses_idx ON customer_invoices (reverses_id);
     -- Backfill: existing non-draft customer invoices are already posted; lock them.
     UPDATE customer_invoices SET is_locked = true, locked_at = COALESCE(locked_at, now())
