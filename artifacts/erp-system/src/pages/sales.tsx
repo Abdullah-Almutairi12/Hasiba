@@ -31,6 +31,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useListCustomers, useListProducts } from "@workspace/api-client-react";
 import { usePermissions } from "@/hooks/use-permissions";
 import { ApprovalActions } from "@/components/approval-actions";
+import { PdfPreviewSheet } from "@/components/pdf-preview-sheet";
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
@@ -606,6 +607,8 @@ function InvoicesTab() {
   const [reverseReason, setReverseReason] = useState("");
   const [reversing, setReversing] = useState(false);
   const [sendingId, setSendingId] = useState<number | null>(null);
+  const [previewInvoice, setPreviewInvoice] = useState<Invoice | null>(null);
+  const apiBase = (import.meta.env.BASE_URL || "/").replace(/\/$/, "") + "/api";
 
   async function sendToCustomer(inv: Invoice) {
     try {
@@ -692,7 +695,6 @@ function InvoicesTab() {
             { header: "إجراءات", cell: (r) => {
               const canSend = canManageFinance && r.status !== "draft" && !r.reversedById;
               const canReverse = canManageFinance && r.isLocked && !r.reversedById && !r.reversesId && r.amountPaid === 0;
-              const pdfHref = `${(import.meta.env.BASE_URL || "/").replace(/\/$/, "")}/api/sales/invoices/${r.id}/pdf`;
               return (
                 <div className="flex flex-col items-start gap-1">
                   <div className="flex flex-wrap items-center gap-1.5">
@@ -701,7 +703,7 @@ function InvoicesTab() {
                       variant="outline"
                       className="gap-1.5"
                       data-testid={`button-print-invoice-${r.id}`}
-                      onClick={() => window.open(pdfHref, "_blank", "noopener,noreferrer")}
+                      onClick={() => setPreviewInvoice(r)}
                     >
                       <Printer className="size-3.5" /> طباعة
                     </Button>
@@ -779,6 +781,13 @@ function InvoicesTab() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <PdfPreviewSheet
+        open={!!previewInvoice}
+        onOpenChange={(o) => { if (!o) setPreviewInvoice(null); }}
+        pdfUrl={previewInvoice ? `${apiBase}/sales/invoices/${previewInvoice.id}/pdf` : null}
+        title={previewInvoice ? `فاتورة ${previewInvoice.reference}` : "معاينة الفاتورة"}
+        downloadName={previewInvoice ? `${previewInvoice.reference}.pdf` : "invoice.pdf"}
+      />
     </Card>
   );
 }

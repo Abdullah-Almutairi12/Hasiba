@@ -1,0 +1,136 @@
+import { useEffect, useRef, useState } from "react";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
+import { Button } from "@/components/ui/button";
+import { Printer, Download, Loader2 } from "lucide-react";
+
+interface PdfPreviewSheetProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  pdfUrl: string | null;
+  title: string;
+  downloadName: string;
+}
+
+export function PdfPreviewSheet({
+  open,
+  onOpenChange,
+  pdfUrl,
+  title,
+  downloadName,
+}: PdfPreviewSheetProps) {
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open || !pdfUrl) {
+      setBlobUrl(null);
+      setError(null);
+      return;
+    }
+    let cancelled = false;
+    let createdUrl: string | null = null;
+    setLoading(true);
+    setError(null);
+    setBlobUrl(null);
+    fetch(pdfUrl, { credentials: "include" })
+      .then(async (r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const blob = await r.blob();
+        if (cancelled) return;
+        createdUrl = URL.createObjectURL(blob);
+        setBlobUrl(createdUrl);
+      })
+      .catch((e) => {
+        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+      if (createdUrl) URL.revokeObjectURL(createdUrl);
+    };
+  }, [open, pdfUrl]);
+
+  function handlePrint() {
+    const win = iframeRef.current?.contentWindow;
+    if (win) {
+      try {
+        win.focus();
+        win.print();
+        return;
+      } catch {
+        // Fall through to opening in a new tab.
+      }
+    }
+    if (blobUrl) window.open(blobUrl, "_blank", "noopener,noreferrer");
+  }
+
+  function handleDownload() {
+    if (!blobUrl) return;
+    const a = document.createElement("a");
+    a.href = blobUrl;
+    a.download = downloadName;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
+
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent
+        side="left"
+        className="w-full sm:max-w-2xl lg:max-w-3xl flex flex-col gap-3 p-4"
+        data-testid="sheet-pdf-preview"
+      >
+        <div className="flex items-center justify-between gap-2 pe-8">
+          <SheetTitle className="text-base truncate">{title}</SheetTitle>
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1.5"
+              onClick={handleDownload}
+              disabled={!blobUrl}
+              data-testid="button-pdf-preview-download"
+            >
+              <Download className="size-3.5" /> تحميل
+            </Button>
+            <Button
+              size="sm"
+              className="gap-1.5"
+              onClick={handlePrint}
+              disabled={!blobUrl}
+              data-testid="button-pdf-preview-print"
+            >
+              <Printer className="size-3.5" /> طباعة
+            </Button>
+          </div>
+        </div>
+        <div className="flex-1 min-h-0 rounded-md border bg-muted overflow-hidden">
+          {loading && (
+            <div className="flex h-full items-center justify-center text-muted-foreground">
+              <Loader2 className="size-5 animate-spin me-2" /> جاري تحميل المعاينة…
+            </div>
+          )}
+          {error && !loading && (
+            <div className="flex h-full items-center justify-center text-destructive text-sm p-4 text-center">
+              تعذر تحميل المعاينة: {error}
+            </div>
+          )}
+          {blobUrl && !loading && !error && (
+            <iframe
+              ref={iframeRef}
+              src={blobUrl}
+              title={title}
+              className="w-full h-full bg-white"
+              data-testid="pdf-preview-iframe"
+            />
+          )}
+        </div>
+      </SheetContent>
+    </Sheet>
+  );
+}

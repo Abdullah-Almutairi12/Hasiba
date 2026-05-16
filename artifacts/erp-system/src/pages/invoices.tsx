@@ -34,6 +34,7 @@ import {
 import { toast } from "sonner";
 import { Textarea } from "@/components/ui/textarea";
 import { usePermissions } from "@/hooks/use-permissions";
+import { PdfPreviewSheet } from "@/components/pdf-preview-sheet";
 
 type ExtractedItem = {
   description: string;
@@ -105,6 +106,7 @@ export default function Invoices() {
   const [reverseTarget, setReverseTarget] = useState<{ id: number; number: string } | null>(null);
   const [reverseReason, setReverseReason] = useState("");
   const [reversing, setReversing] = useState(false);
+  const [previewTarget, setPreviewTarget] = useState<{ id: number; number: string } | null>(null);
 
   async function submitReverse() {
     if (!reverseTarget) return;
@@ -527,7 +529,7 @@ export default function Invoices() {
                             variant="outline"
                             className="gap-1.5"
                             data-testid={`button-print-${invoice.id}`}
-                            onClick={() => window.open(`${API_BASE}/invoices/${invoice.id}/pdf`, "_blank", "noopener,noreferrer")}
+                            onClick={() => setPreviewTarget({ id: invoice.id, number: invoice.invoiceNumber || `#${invoice.id}` })}
                           >
                             <Printer className="size-3.5" /> طباعة
                           </Button>
@@ -907,6 +909,13 @@ export default function Invoices() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <PdfPreviewSheet
+        open={!!previewTarget}
+        onOpenChange={(o) => { if (!o) setPreviewTarget(null); }}
+        pdfUrl={previewTarget ? `${API_BASE}/invoices/${previewTarget.id}/pdf` : null}
+        title={previewTarget ? `فاتورة ${previewTarget.number}` : "معاينة الفاتورة"}
+        downloadName={previewTarget ? `${previewTarget.number}.pdf` : "invoice.pdf"}
+      />
     </div>
   );
 }
