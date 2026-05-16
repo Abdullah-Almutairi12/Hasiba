@@ -53,11 +53,23 @@ interface PoLine {
   unitPrice: number; taxRate: number; lineTotal: number;
 }
 
+interface PoOutboxEntry {
+  id: number;
+  recipient: string;
+  subject: string;
+  attachmentFilename: string | null;
+  status: "sent" | "failed" | "queued" | string;
+  error: string | null;
+  createdAt: string;
+  sentAt: string | null;
+}
+
 interface PoDetail extends PO {
   notes: string | null;
   lines: PoLine[];
   receipts: Array<{ id: number; reference: string; receivedAt: string; notes: string | null }>;
   invoices: Array<{ id: number; invoiceNumber: string; amount: number; status: string }>;
+  outbox?: PoOutboxEntry[];
 }
 
 interface GRN {
@@ -453,8 +465,31 @@ function PODetailDialog({ po, onClose }: { po: PO | null; onClose: () => void })
       qc.invalidateQueries({ queryKey: [`/procurement/purchase-orders/${po!.id}`] });
       qc.invalidateQueries({ queryKey: ["/procurement/purchase-orders"] });
     },
-    onError: (err: Error) =>
-      toast({ title: "تعذر الإرسال", description: err.message, variant: "destructive" }),
+    onError: (err: Error) => {
+      toast({ title: "تعذر الإرسال", description: err.message, variant: "destructive" });
+      qc.invalidateQueries({ queryKey: [`/procurement/purchase-orders/${po!.id}`] });
+    },
+  });
+
+  const retry = useMutation({
+    mutationFn: (outboxId: number) =>
+      apiPost(
+        `/procurement/purchase-orders/${po!.id}/outbox/${outboxId}/retry`,
+        {},
+      ),
+    onSuccess: (resp: { dispatched?: boolean; sentTo?: string }) => {
+      toast({
+        title: resp.dispatched ? "تمت إعادة الإرسال" : "فشل إعادة الإرسال",
+        description: resp.sentTo ? `إلى ${resp.sentTo}` : undefined,
+        variant: resp.dispatched ? "default" : "destructive",
+      });
+      qc.invalidateQueries({ queryKey: [`/procurement/purchase-orders/${po!.id}`] });
+      qc.invalidateQueries({ queryKey: ["/procurement/purchase-orders"] });
+    },
+    onError: (err: Error) => {
+      toast({ title: "تعذر إعادة الإرسال", description: err.message, variant: "destructive" });
+      qc.invalidateQueries({ queryKey: [`/procurement/purchase-orders/${po!.id}`] });
+    },
   });
 
   const previewPdf = () => {
@@ -564,6 +599,58 @@ function PODetailDialog({ po, onClose }: { po: PO | null; onClose: () => void })
                       </li>
                     ))}
                   </ul>
+                </CardContent>
+              </Card>
+            )}
+            {data.outbox && data.outbox.length > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">سجل الإرسال للمورد</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>التاريخ</TableHead>
+                        <TableHead>المستلم</TableHead>
+                        <TableHead>المرفق</TableHead>
+                        <TableHead>الحالة</TableHead>
+                        <TableHead>السبب</TableHead>
+                        <TableHead></TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {data.outbox.map((e) => (
+                        <TableRow key={e.id} data-testid={`row-po-outbox-${e.id}`}>
+                          <TableCell className="text-xs">
+                            {new Date(e.createdAt).toLocaleString("ar-SA")}
+                          </TableCell>
+                          <TableCell className="font-mono text-xs">{e.recipient}</TableCell>
+                          <TableCell className="font-mono text-xs">
+                            {e.attachmentFilename ?? "—"}
+                          </TableCell>
+                          <TableCell><StatusBadge status={e.status} /></TableCell>
+                          <TableCell className="text-xs text-muted-foreground max-w-[240px] truncate">
+                            {e.error ?? (e.sentAt ? new Date(e.sentAt).toLocaleString("ar-SA") : "—")}
+                          </TableCell>
+                          <TableCell>
+                            {e.status !== "sent" && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => retry.mutate(e.id)}
+                                disabled={retry.isPending}
+                                data-testid={`button-retry-po-outbox-${e.id}`}
+                              >
+                                <Mail className="me-1 size-3" />
+                                إعادة المحاولة
+                              </Button>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
                 </CardContent>
               </Card>
             )}

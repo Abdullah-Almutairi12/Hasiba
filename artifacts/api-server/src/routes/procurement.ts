@@ -705,6 +705,15 @@ router.get("/procurement/purchase-orders/:id", async (req, res) => {
       .from(invoicesTable)
       .where(eq(invoicesTable.poId, id))
       .orderBy(desc(invoicesTable.createdAt));
+    const outboxResult = await db.execute(sql`
+      SELECT id, recipient, subject, attachment_filename, status, error,
+             created_at, sent_at
+        FROM procurement_email_outbox
+       WHERE kind = 'purchase_order' AND ref_id = ${id}
+       ORDER BY created_at DESC
+    `);
+    const outboxRows = (outboxResult as unknown as { rows?: Array<Record<string, unknown>> }).rows
+      ?? (outboxResult as unknown as Array<Record<string, unknown>>);
     return res.json({
       ...po,
       subtotal: Number(po.subtotal),
@@ -728,6 +737,20 @@ router.get("/procurement/purchase-orders/:id", async (req, res) => {
         amount: Number(i.amount),
         dueDate: i.dueDate?.toISOString() ?? null,
         createdAt: i.createdAt.toISOString(),
+      })),
+      outbox: outboxRows.map((r) => ({
+        id: r.id,
+        recipient: r.recipient,
+        subject: r.subject,
+        attachmentFilename: r.attachment_filename,
+        status: r.status,
+        error: r.error,
+        createdAt: r.created_at instanceof Date
+          ? r.created_at.toISOString()
+          : r.created_at,
+        sentAt: r.sent_at instanceof Date
+          ? r.sent_at.toISOString()
+          : r.sent_at,
       })),
     });
   } catch (err) {
@@ -1178,6 +1201,124 @@ router.get("/procurement/purchase-orders/:id/pdf", async (req, res) => {
   }
 });
 
+/**
+ * Dispatch a PO to a supplier and record the attempt in the
+ * `procurement_email_outbox`. Used by both the initial send route and the
+ * retry route so every attempt — success or failure — leaves a row in the
+ * outbox audit trail.
+ */
+async function dispatchPurchaseOrder(opts: {
+  poId: number;
+  toOverride?: string;
+  subjectOverride?: string;
+  messageOverride?: string;
+  userId: number | null;
+}): Promise<{
+  status: number;
+  payload: Record<string, unknown>;
+  audit?: { details: string };
+}> {
+  const { po, supplier, pdfInput } = await loadPoForPdf(opts.poId);
+  const sendable = ["confirmed", "partially_received", "fully_received", "closed"];
+  if (!sendable.includes(po.status)) {
+    return {
+      status: 409,
+      payload: {
+        error: `لا يمكن إرسال أمر شراء بحالة "${po.status}". يجب تأكيده أولاً.`,
+      },
+    };
+  }
+  const recipient = opts.toOverride ?? supplier?.email ?? null;
+  if (!recipient) {
+    return { status: 400, payload: { error: "لا يوجد بريد إلكتروني للمورد" } };
+  }
+  const pdf = await buildPurchaseOrderPdf(pdfInput, await getCompanyInfo());
+  const subject = opts.subjectOverride ?? `Purchase Order ${po.reference} / أمر شراء`;
+  const emailBody = opts.messageOverride ?? [
+    `Dear ${supplier?.name ?? po.supplierName},`,
+    ``,
+    `Please find attached purchase order ${po.reference} for ${po.total} ${po.currencyCode}.`,
+    `Kindly confirm receipt and proceed with preparation.`,
+    ``,
+    `---`,
+    ``,
+    `السلام عليكم،`,
+    ``,
+    `نرفق لكم أمر الشراء رقم ${po.reference} بقيمة ${po.total} ${po.currencyCode}.`,
+    `يرجى تأكيد الاستلام والبدء بالتجهيز.`,
+    ``,
+    `مع التحية.`,
+  ].join("\n");
+  const attachmentFilename = `PO-${po.reference}.pdf`;
+
+  const dispatch = await sendMail({
+    to: recipient,
+    subject,
+    body: emailBody,
+    attachments: [{
+      filename: attachmentFilename,
+      content: pdf,
+      contentType: "application/pdf",
+    }],
+  });
+
+  const outboxStatus = dispatch.sent ? "sent" : "failed";
+  const errorMsg = dispatch.sent ? null : dispatch.reason ?? "delivery failed";
+
+  // Insert the outbox row (always, regardless of success) and — only when
+  // the dispatch actually went out — stamp the convenience fields on the PO
+  // itself so existing UI keeps working.
+  const outboxId = await db.transaction(async (tx) => {
+    const inserted = await tx.execute(sql`
+      INSERT INTO procurement_email_outbox
+        (kind, ref_id, reference, recipient, subject, body,
+         attachment_filename, status, error, created_by, sent_at)
+      VALUES ('purchase_order', ${po.id}, ${po.reference}, ${recipient},
+              ${subject}, ${emailBody}, ${attachmentFilename},
+              ${outboxStatus}, ${errorMsg}, ${opts.userId},
+              ${dispatch.sent ? sql`now()` : sql`null`})
+      RETURNING id;
+    `);
+    const rows = (inserted as unknown as { rows?: Array<Record<string, unknown>> }).rows
+      ?? (inserted as unknown as Array<Record<string, unknown>>);
+    if (dispatch.sent) {
+      await tx
+        .update(purchaseOrdersTable)
+        .set({ sentToSupplierAt: new Date(), sentToSupplierEmail: recipient })
+        .where(eq(purchaseOrdersTable.id, po.id));
+    }
+    return rows?.[0]?.id as number | undefined;
+  });
+
+  if (!dispatch.sent) {
+    return {
+      status: 502,
+      payload: {
+        ok: false,
+        dispatched: false,
+        sentTo: recipient,
+        outboxId,
+        outboxStatus,
+        mailerConfigured: isMailerConfigured(),
+        reason: dispatch.reason,
+      },
+    };
+  }
+  return {
+    status: 200,
+    payload: {
+      ok: true,
+      dispatched: true,
+      sentTo: recipient,
+      sentAt: new Date().toISOString(),
+      outboxId,
+      outboxStatus,
+      mailerConfigured: true,
+    },
+    audit: { details: `${po.reference} → ${recipient}` },
+  };
+}
+
 router.post("/procurement/purchase-orders/:id/send", async (req, res) => {
   let body: z.infer<typeof SendPoBody>;
   try {
@@ -1188,83 +1329,106 @@ router.post("/procurement/purchase-orders/:id/send", async (req, res) => {
   }
   try {
     const id = Number(req.params.id);
-    const { po, supplier, pdfInput } = await loadPoForPdf(id);
-    // Only confirmed (or beyond) POs may be sent: a draft/pending document
-    // shouldn't be shared externally because terms aren't finalized yet.
-    const sendable = ["confirmed", "partially_received", "fully_received", "closed"];
-    if (!sendable.includes(po.status)) {
-      res.status(409).json({
-        error: `لا يمكن إرسال أمر شراء بحالة "${po.status}". يجب تأكيده أولاً.`,
+    const result = await dispatchPurchaseOrder({
+      poId: id,
+      toOverride: body.to,
+      subjectOverride: body.subject,
+      messageOverride: body.message,
+      userId: req.session?.userId ?? null,
+    });
+    if (result.audit) {
+      void recordAudit(req, {
+        action: "send", entity: "purchase_order", details: result.audit.details,
       });
-      return;
     }
-    const recipient = body.to ?? supplier?.email ?? null;
-    if (!recipient) {
-      res.status(400).json({ error: "لا يوجد بريد إلكتروني للمورد" });
-      return;
-    }
-    const pdf = await buildPurchaseOrderPdf(pdfInput, await getCompanyInfo());
-    const subject = body.subject ?? `Purchase Order ${po.reference} / أمر شراء`;
-    const emailBody = body.message ?? [
-      `Dear ${supplier?.name ?? po.supplierName},`,
-      ``,
-      `Please find attached purchase order ${po.reference} for ${po.total} ${po.currencyCode}.`,
-      `Kindly confirm receipt and proceed with preparation.`,
-      ``,
-      `---`,
-      ``,
-      `السلام عليكم،`,
-      ``,
-      `نرفق لكم أمر الشراء رقم ${po.reference} بقيمة ${po.total} ${po.currencyCode}.`,
-      `يرجى تأكيد الاستلام والبدء بالتجهيز.`,
-      ``,
-      `مع التحية.`,
-    ].join("\n");
-
-    const dispatch = await sendMail({
-      to: recipient,
-      subject,
-      body: emailBody,
-      attachments: [{
-        filename: `PO-${po.reference}.pdf`,
-        content: pdf,
-        contentType: "application/pdf",
-      }],
-    });
-
-    if (!dispatch.sent) {
-      // Don't stamp sentAt when delivery actually failed — the user
-      // needs to know the supplier never received it.
-      res.status(502).json({
-        ok: false,
-        dispatched: false,
-        sentTo: recipient,
-        mailerConfigured: isMailerConfigured(),
-        reason: dispatch.reason,
-      });
-      return;
-    }
-
-    const now = new Date();
-    await db.update(purchaseOrdersTable)
-      .set({ sentToSupplierAt: now, sentToSupplierEmail: recipient })
-      .where(eq(purchaseOrdersTable.id, id));
-    void recordAudit(req, {
-      action: "send", entity: "purchase_order",
-      details: `${po.reference} → ${recipient}`,
-    });
-    res.json({
-      ok: true,
-      dispatched: true,
-      sentTo: recipient,
-      sentAt: now.toISOString(),
-      mailerConfigured: true,
-    });
+    res.status(result.status).json(result.payload);
   } catch (err) {
     req.log.error({ err }, "send PO failed");
     respondError(res, err); return;
   }
 });
+
+// =========================================================================
+// PO email outbox — list every dispatch attempt for a PO, and retry a
+// failed/queued row. The outbox is the durable audit trail; retrying just
+// kicks off another attempt (which writes a brand new row).
+// =========================================================================
+router.get("/procurement/purchase-orders/:id/outbox", async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const result = await db.execute(sql`
+      SELECT id, recipient, subject, attachment_filename, status, error,
+             created_by, created_at, sent_at
+        FROM procurement_email_outbox
+       WHERE kind = 'purchase_order' AND ref_id = ${id}
+       ORDER BY created_at DESC
+    `);
+    const rows = (result as unknown as { rows?: Array<Record<string, unknown>> }).rows
+      ?? (result as unknown as Array<Record<string, unknown>>);
+    res.json({
+      entries: rows.map((r) => ({
+        id: r.id,
+        recipient: r.recipient,
+        subject: r.subject,
+        attachmentFilename: r.attachment_filename,
+        status: r.status,
+        error: r.error,
+        createdBy: r.created_by,
+        createdAt: r.created_at instanceof Date
+          ? r.created_at.toISOString()
+          : r.created_at,
+        sentAt: r.sent_at instanceof Date
+          ? r.sent_at.toISOString()
+          : r.sent_at,
+      })),
+    });
+  } catch (err) {
+    req.log.error({ err }, "list PO outbox failed");
+    respondError(res, err); return;
+  }
+});
+
+router.post(
+  "/procurement/purchase-orders/:id/outbox/:outboxId/retry",
+  async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const outboxId = Number(req.params.outboxId);
+      const result = await db.execute(sql`
+        SELECT id, recipient, subject, body, status
+          FROM procurement_email_outbox
+         WHERE id = ${outboxId}
+           AND kind = 'purchase_order'
+           AND ref_id = ${id}
+      `);
+      const rows = (result as unknown as { rows?: Array<Record<string, unknown>> }).rows
+        ?? (result as unknown as Array<Record<string, unknown>>);
+      const row = rows?.[0];
+      if (!row) { res.status(404).json({ error: "السجل غير موجود" }); return; }
+      if (row.status === "sent") {
+        res.status(409).json({ error: "تم الإرسال بنجاح مسبقاً، لا حاجة لإعادة المحاولة" });
+        return;
+      }
+      const dispatch = await dispatchPurchaseOrder({
+        poId: id,
+        toOverride: row.recipient as string,
+        subjectOverride: row.subject as string,
+        messageOverride: row.body as string,
+        userId: req.session?.userId ?? null,
+      });
+      if (dispatch.audit) {
+        void recordAudit(req, {
+          action: "send_retry", entity: "purchase_order",
+          details: dispatch.audit.details,
+        });
+      }
+      res.status(dispatch.status).json(dispatch.payload);
+    } catch (err) {
+      req.log.error({ err }, "retry PO outbox failed");
+      respondError(res, err); return;
+    }
+  },
+);
 
 // =========================================================================
 // GOODS RECEIPTS — posts stock + Dr Inventory / Cr GR-IR

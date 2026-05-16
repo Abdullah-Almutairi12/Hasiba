@@ -230,5 +230,29 @@ export async function initProcurement(): Promise<void> {
      WHERE status = 'done' AND is_locked = false;
   `);
 
+  // 6) Procurement email outbox — durable per-attempt log of every PO send.
+  //    Mirrors `sales_email_outbox` so procurement keeps a full audit trail
+  //    (recipient, subject, status, error, sent_at, attached filename) and
+  //    failed sends can be retried from the UI without losing prior history.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS procurement_email_outbox (
+      id serial PRIMARY KEY,
+      kind text NOT NULL,
+      ref_id integer NOT NULL,
+      reference text NOT NULL,
+      recipient text NOT NULL,
+      subject text NOT NULL,
+      body text NOT NULL,
+      attachment_filename text,
+      status text NOT NULL DEFAULT 'queued',
+      error text,
+      created_by integer REFERENCES users(id),
+      created_at timestamp NOT NULL DEFAULT now(),
+      sent_at timestamp
+    );
+    CREATE INDEX IF NOT EXISTS procurement_email_outbox_kind_ref_idx
+      ON procurement_email_outbox (kind, ref_id);
+  `);
+
   logger.info("Procurement subsystem initialized");
 }
