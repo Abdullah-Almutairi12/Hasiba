@@ -52,6 +52,14 @@ interface Quotation {
   subtotal: number;
   discount: number;
   vat: number;
+  lastSend?: {
+    outboxId: number;
+    status: string;
+    recipient: string | null;
+    error: string | null;
+    createdAt: string | null;
+    sentAt: string | null;
+  } | null;
 }
 interface SalesOrder extends Quotation {
   orderDate: string;
@@ -161,8 +169,14 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-function InvoiceSendStatusBadge({ invoice }: { invoice: Invoice }) {
-  const ls = invoice.lastSend;
+function SendStatusBadge({
+  doc,
+  testIdPrefix = "badge-invoice-send-status",
+}: {
+  doc: { id: number; lastSend?: Quotation["lastSend"] };
+  testIdPrefix?: string;
+}) {
+  const ls = doc.lastSend;
   if (!ls) return null;
   const tone: { className: string; dot: string; label: string } = (() => {
     switch (ls.status) {
@@ -200,7 +214,7 @@ function InvoiceSendStatusBadge({ invoice }: { invoice: Invoice }) {
           <Badge
             variant="outline"
             className={`gap-1 font-normal ${tone.className}`}
-            data-testid={`badge-invoice-send-status-${invoice.id}`}
+            data-testid={`${testIdPrefix}-${doc.id}`}
             data-status={ls.status}
           >
             <span className={`size-1.5 rounded-full ${tone.dot}`} />
@@ -341,6 +355,7 @@ function QuotationsTab() {
             { header: "ساري حتى", cell: (r) => r.validUntil ?? "—" },
             { header: "الإجمالي", cell: (r) => <Money value={r.total} /> },
             { header: "الحالة", cell: (r) => <StatusBadge status={r.status} /> },
+            { header: "الإرسال", cell: (r) => <SendStatusBadge doc={r} testIdPrefix="badge-quotation-send-status" /> },
             { header: "إجراءات", cell: (r) => <QuotationActions q={r} onChange={refetch} /> },
           ]}
           emptyText="لا توجد عروض أسعار بعد"
@@ -892,7 +907,7 @@ function InvoicesTab() {
                     قيد عكسي
                   </Badge>
                 )}
-                <InvoiceSendStatusBadge invoice={r} />
+                <SendStatusBadge doc={r} />
               </div>
             ) },
             { header: "المصدر", cell: (r) => <Badge variant="outline" className="font-normal">{r.source}</Badge> },

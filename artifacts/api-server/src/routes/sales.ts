@@ -723,7 +723,61 @@ router.get("/sales/quotations", customerReadGuard, async (req, res) => {
       )
       .orderBy(desc(quotationsTable.createdAt))
       .limit(200);
-    res.json(rows.map(serializeMoneyDoc));
+    // Surface the latest send attempt per quotation from sales_email_outbox
+    // (kind='quotation') so the list can render a delivered / queued / failed
+    // badge identical to customer invoices.
+    const ids = rows.map((r) => r.id);
+    const lastSendById = new Map<number, {
+      outboxId: number;
+      status: string;
+      recipient: string | null;
+      error: string | null;
+      createdAt: string | null;
+      sentAt: string | null;
+    }>();
+    if (ids.length > 0) {
+      const lastRes = await db.execute(sql`
+        SELECT DISTINCT ON (ref_id)
+          ref_id AS "refId",
+          id AS "outboxId",
+          status,
+          recipient,
+          error,
+          created_at AS "createdAt",
+          sent_at AS "sentAt"
+        FROM sales_email_outbox
+        WHERE kind = 'quotation' AND ref_id = ANY(${ids}::int[])
+        ORDER BY ref_id, created_at DESC, id DESC
+      `);
+      const lastRows = ((lastRes as unknown as { rows?: Array<Record<string, unknown>> }).rows
+        ?? (lastRes as unknown as Array<Record<string, unknown>>)) ?? [];
+      for (const r of lastRows) {
+        const refId = Number((r as Record<string, unknown>)["refId"]);
+        if (!Number.isFinite(refId)) continue;
+        const createdAt = (r as Record<string, unknown>)["createdAt"];
+        const sentAt = (r as Record<string, unknown>)["sentAt"];
+        lastSendById.set(refId, {
+          outboxId: Number((r as Record<string, unknown>)["outboxId"]),
+          status: String((r as Record<string, unknown>)["status"] ?? ""),
+          recipient: (r as Record<string, unknown>)["recipient"] == null
+            ? null
+            : String((r as Record<string, unknown>)["recipient"]),
+          error: (r as Record<string, unknown>)["error"] == null
+            ? null
+            : String((r as Record<string, unknown>)["error"]),
+          createdAt: createdAt instanceof Date
+            ? createdAt.toISOString()
+            : (createdAt as string | null) ?? null,
+          sentAt: sentAt instanceof Date
+            ? sentAt.toISOString()
+            : (sentAt as string | null) ?? null,
+        });
+      }
+    }
+    res.json(rows.map((r) => ({
+      ...(serializeMoneyDoc(r) as Record<string, unknown>),
+      lastSend: lastSendById.get(r.id) ?? null,
+    })));
   } catch (err) {
     handleRouteError(err, res);
   }
