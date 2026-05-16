@@ -24,6 +24,7 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Money } from "@/components/riyal";
 import { Plus, FileText, Truck, Receipt, ArrowLeftRight, Tag, Percent, Award, AlertCircle, Lock, Undo2, Loader2, Printer, Send, Mail, MessageCircle, Inbox, RefreshCw, CheckCircle2, XCircle } from "lucide-react";
 import { useApiQuery, useApiMutation, apiPost, apiGet, apiDelete } from "@/hooks/use-api";
@@ -67,6 +68,15 @@ interface Invoice extends Quotation {
   reversesId?: number | null;
   sentToCustomerAt?: string | null;
   sentToCustomerEmail?: string | null;
+  lastSentAt?: string | null;
+  lastSentChannel?: "email" | "whatsapp" | null;
+  lastSentTo?: string | null;
+  lastEmailSentAt?: string | null;
+  lastEmailSentTo?: string | null;
+  lastEmailStatus?: string | null;
+  lastWhatsappSentAt?: string | null;
+  lastWhatsappSentTo?: string | null;
+  lastWhatsappStatus?: string | null;
 }
 interface Receipt {
   id: number;
@@ -599,6 +609,85 @@ function CreateAwbDialog({
 }
 
 // ===== Invoices =====
+function fmtDateTime(iso?: string | null): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleString("ar-SA");
+}
+
+function SendStatusCell({ invoice }: { invoice: Invoice }) {
+  const hasEmail = !!invoice.lastEmailSentAt;
+  const hasWa = !!invoice.lastWhatsappSentAt;
+  if (!hasEmail && !hasWa) {
+    return (
+      <Badge
+        variant="outline"
+        className="font-normal text-muted-foreground"
+        data-testid={`badge-invoice-send-none-${invoice.id}`}
+      >
+        لم يُرسل
+      </Badge>
+    );
+  }
+  const channelLabel =
+    hasEmail && hasWa
+      ? "البريد · واتساب"
+      : hasEmail
+        ? "البريد"
+        : "واتساب";
+  const lastAt = invoice.lastSentAt ?? invoice.lastEmailSentAt ?? invoice.lastWhatsappSentAt ?? null;
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <div
+            className="inline-flex flex-col items-start gap-1 cursor-default"
+            data-testid={`cell-invoice-send-${invoice.id}`}
+          >
+            <div className="flex items-center gap-1">
+              <Badge
+                variant="outline"
+                className="font-normal bg-emerald-50 text-emerald-800 border-emerald-300 gap-1"
+                data-testid={`badge-invoice-sent-${invoice.id}`}
+              >
+                {hasEmail && <Mail className="size-3" />}
+                {hasWa && <MessageCircle className="size-3" />}
+                {channelLabel}
+              </Badge>
+            </div>
+            <span className="text-[11px] text-muted-foreground">
+              {fmtDateTime(lastAt)}
+            </span>
+          </div>
+        </TooltipTrigger>
+        <TooltipContent side="top" className="text-xs space-y-1 max-w-xs">
+          {hasEmail && (
+            <div data-testid={`tooltip-invoice-email-${invoice.id}`}>
+              <div className="font-semibold flex items-center gap-1">
+                <Mail className="size-3" /> البريد الإلكتروني
+              </div>
+              <div>المستلم: {invoice.lastEmailSentTo || "—"}</div>
+              <div>التاريخ: {fmtDateTime(invoice.lastEmailSentAt)}</div>
+              {invoice.lastEmailStatus && <div>الحالة: {invoice.lastEmailStatus}</div>}
+            </div>
+          )}
+          {hasWa && (
+            <div data-testid={`tooltip-invoice-whatsapp-${invoice.id}`}>
+              <div className="font-semibold flex items-center gap-1">
+                <MessageCircle className="size-3" /> واتساب
+              </div>
+              <div>المستلم: {invoice.lastWhatsappSentTo || "—"}</div>
+              <div>التاريخ: {fmtDateTime(invoice.lastWhatsappSentAt)}</div>
+              {invoice.lastWhatsappStatus && <div>الحالة: {invoice.lastWhatsappStatus}</div>}
+            </div>
+          )}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
+
 function InvoicesTab() {
   const { data, isLoading, refetch } = useApiQuery<Invoice[]>("/sales/invoices");
   const [open, setOpen] = useState(false);
@@ -721,6 +810,7 @@ function InvoicesTab() {
               </div>
             ) },
             { header: "المصدر", cell: (r) => <Badge variant="outline" className="font-normal">{r.source}</Badge> },
+            { header: "الإرسال", cell: (r) => <SendStatusCell invoice={r} /> },
             { header: "إجراءات", cell: (r) => {
               const canSend = canManageFinance && r.status !== "draft" && !r.reversedById;
               const canReverse = canManageFinance && r.isLocked && !r.reversedById && !r.reversesId && r.amountPaid === 0;

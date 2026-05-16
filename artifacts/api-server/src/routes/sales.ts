@@ -1493,7 +1493,100 @@ router.get("/sales/invoices", customerReadGuard, async (req, res) => {
       )
       .orderBy(desc(customerInvoicesTable.createdAt))
       .limit(200);
-    res.json(rows.map(serializeMoneyDoc));
+
+    // Surface last send signal per invoice from sales_email_outbox (email)
+    // and outbound_messages (WhatsApp). This lets the UI show whether a
+    // given invoice was already delivered and over which channel so staff
+    // don't re-press "إرسال" without thinking.
+    const ids = rows.map((r) => r.id);
+    const refs = rows.map((r) => r.reference);
+    type SendInfo = { sentAt: string; to: string; status: string };
+    const emailByInvoice = new Map<number, SendInfo>();
+    const waByRef = new Map<string, SendInfo>();
+    if (ids.length > 0) {
+      // Only successfully-dispatched sends count as "تم الإرسال". Queued
+      // or failed attempts must not drive the badge — staff still need to
+      // re-send those.
+      const emailRes = await db.execute(sql`
+        SELECT DISTINCT ON (ref_id)
+          ref_id,
+          recipient,
+          status,
+          sent_at
+        FROM sales_email_outbox
+        WHERE kind = 'invoice'
+          AND ref_id = ANY(${ids}::int[])
+          AND status = 'sent'
+          AND sent_at IS NOT NULL
+        ORDER BY ref_id, sent_at DESC, id DESC
+      `);
+      const emailRows = ((emailRes as unknown as { rows?: Array<Record<string, unknown>> }).rows
+        ?? (emailRes as unknown as Array<Record<string, unknown>>)) ?? [];
+      for (const r of emailRows) {
+        const sentAt = r["sent_at"];
+        emailByInvoice.set(Number(r["ref_id"]), {
+          sentAt: sentAt instanceof Date ? sentAt.toISOString() : String(sentAt),
+          to: String(r["recipient"] ?? ""),
+          status: String(r["status"] ?? ""),
+        });
+      }
+      const waRes = await db.execute(sql`
+        SELECT DISTINCT ON (variables->>'invoice_no')
+          variables->>'invoice_no' AS invoice_no,
+          to_number,
+          status,
+          sent_at
+        FROM outbound_messages
+        WHERE template_name = 'invoice_issued'
+          AND variables->>'invoice_no' = ANY(${refs}::text[])
+          AND status IN ('sent', 'delivered')
+          AND sent_at IS NOT NULL
+        ORDER BY variables->>'invoice_no', sent_at DESC, id DESC
+      `);
+      const waRows = ((waRes as unknown as { rows?: Array<Record<string, unknown>> }).rows
+        ?? (waRes as unknown as Array<Record<string, unknown>>)) ?? [];
+      for (const r of waRows) {
+        const sentAt = r["sent_at"];
+        waByRef.set(String(r["invoice_no"]), {
+          sentAt: sentAt instanceof Date ? sentAt.toISOString() : String(sentAt),
+          to: String(r["to_number"] ?? ""),
+          status: String(r["status"] ?? ""),
+        });
+      }
+    }
+
+    const out = rows.map((r) => {
+      const base = serializeMoneyDoc(r) as Record<string, unknown>;
+      const email = emailByInvoice.get(r.id) ?? null;
+      const wa = waByRef.get(r.reference) ?? null;
+      let lastSentAt: string | null = null;
+      let lastSentChannel: "email" | "whatsapp" | null = null;
+      let lastSentTo: string | null = null;
+      const emailT = email ? new Date(email.sentAt).getTime() : -Infinity;
+      const waT = wa ? new Date(wa.sentAt).getTime() : -Infinity;
+      if (email && emailT >= waT) {
+        lastSentAt = email.sentAt;
+        lastSentChannel = "email";
+        lastSentTo = email.to;
+      } else if (wa) {
+        lastSentAt = wa.sentAt;
+        lastSentChannel = "whatsapp";
+        lastSentTo = wa.to;
+      }
+      return {
+        ...base,
+        lastEmailSentAt: email?.sentAt ?? null,
+        lastEmailSentTo: email?.to ?? null,
+        lastEmailStatus: email?.status ?? null,
+        lastWhatsappSentAt: wa?.sentAt ?? null,
+        lastWhatsappSentTo: wa?.to ?? null,
+        lastWhatsappStatus: wa?.status ?? null,
+        lastSentAt,
+        lastSentChannel,
+        lastSentTo,
+      };
+    });
+    res.json(out);
   } catch (err) {
     handleRouteError(err, res);
   }
