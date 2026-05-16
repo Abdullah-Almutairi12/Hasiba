@@ -19,6 +19,7 @@ import { recordAudit } from "../lib/audit";
 import { recordStockMove, getDefaultWarehouseId } from "../lib/stock-engine";
 import { evaluateAnomalies } from "../lib/anomaly-engine";
 import { getCompanyInfo } from "../lib/pdf/purchase-order";
+import { buildSupplierInvoicePdf } from "../lib/pdf/supplier-invoice";
 
 // Postgres unique-violation SQLSTATE.
 // Drizzle wraps pg errors and may surface the original on `.cause`,
@@ -285,10 +286,135 @@ router.patch("/invoices/:id", financeGuard, async (req, res) => {
   }
 });
 
-// Hard-delete a supplier invoice. Locked invoices CANNOT be deleted — they
-// must be reversed through /invoices/:id/reverse so the audit trail stays
-// intact. Returns 409 with a stable `code` for the UI to surface the
-// "use reverse" hint.
+// Render a branded, printable supplier invoice PDF that mirrors the
+// purchase-order PDF chrome (logo, company info, bilingual labels,
+// totals, bank details). When the invoice is linked to a PO, the PO's
+// line items are rendered; otherwise a single summary row is shown.
+router.get("/invoices/:id/pdf", invoiceReadGuard, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) {
+      res.status(400).json({ error: "Bad id" });
+      return;
+    }
+    const [invoice] = await db
+      .select()
+      .from(invoicesTable)
+      .where(eq(invoicesTable.id, id));
+    if (!invoice) {
+      res.status(404).json({ error: "Not found" });
+      return;
+    }
+
+    const supplier = invoice.supplierId
+      ? (
+          await db
+            .select()
+            .from(suppliersTable)
+            .where(eq(suppliersTable.id, invoice.supplierId))
+        )[0]
+      : null;
+
+    let poReference: string | null = null;
+    let poLines: Array<{
+      description: string;
+      quantity: number;
+      unitPrice: number;
+      taxRate: number;
+      lineTotal: number;
+    }> = [];
+    if (invoice.poId) {
+      const [po] = await db
+        .select()
+        .from(purchaseOrdersTable)
+        .where(eq(purchaseOrdersTable.id, invoice.poId));
+      if (po) poReference = po.reference;
+      const lines = await db
+        .select()
+        .from(purchaseOrderLinesTable)
+        .where(eq(purchaseOrderLinesTable.poId, invoice.poId));
+      poLines = lines.map((l) => ({
+        description: l.description,
+        quantity: Number(l.quantity),
+        unitPrice: Number(l.unitPrice),
+        taxRate: Number(l.taxRate),
+        lineTotal: Number(l.lineTotal),
+      }));
+    }
+
+    const company = await getCompanyInfo();
+
+    // Build a ZATCA QR (Phase 1, TLV-base64) on the fly so the printed
+    // copy is scannable. We back-calculate the VAT portion at 15% — the
+    // same simplification used by /invoices/:id/zatca-qr above.
+    let qrDataUrl: string | null = null;
+    try {
+      const totalWithVat = Number(invoice.amount);
+      const vatAmount = (totalWithVat * VAT_RATE) / (1 + VAT_RATE);
+      const timestamp = invoice.createdAt
+        .toISOString()
+        .replace(/\.\d{3}Z$/, "Z");
+      const sellerName =
+        company.nameAr && company.nameAr !== "—" ? company.nameAr : SELLER_NAME;
+      const vatNumber =
+        company.vatNumber && company.vatNumber !== "—"
+          ? company.vatNumber
+          : VAT_NUMBER;
+      const tlvBase64 = buildZatcaQrPayload({
+        sellerName,
+        vatNumber,
+        timestamp,
+        totalWithVat,
+        vatAmount,
+      });
+      qrDataUrl = await QRCode.toDataURL(tlvBase64, {
+        errorCorrectionLevel: "M",
+        margin: 1,
+        width: 220,
+      });
+    } catch {
+      qrDataUrl = null;
+    }
+
+    const pdf = await buildSupplierInvoicePdf(
+      {
+        invoiceNumber: invoice.invoiceNumber,
+        invoiceDate: invoice.invoiceDate
+          ? invoice.invoiceDate.toISOString().slice(0, 10)
+          : null,
+        dueDate: invoice.dueDate
+          ? invoice.dueDate.toISOString().slice(0, 10)
+          : null,
+        currencyCode: supplier?.defaultCurrency ?? "SAR",
+        amount: Number(invoice.amount),
+        status: invoice.status,
+        notes: invoice.notes,
+        poReference,
+        supplier: {
+          name: invoice.supplierName,
+          email: supplier?.email ?? null,
+          phone: supplier?.phone ?? null,
+          address: supplier?.address ?? null,
+          vatNumber: supplier?.vatNumber ?? null,
+        },
+        lines: poLines,
+        zatcaQrDataUrl: qrDataUrl,
+      },
+      company,
+    );
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader(
+      "Content-Disposition",
+      `inline; filename="supplier-invoice-${invoice.invoiceNumber}.pdf"`,
+    );
+    res.send(pdf);
+  } catch (err) {
+    req.log.error({ err }, "render supplier invoice PDF");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 router.delete("/invoices/:id", financeGuard, async (req, res) => {
   try {
     const id = Number(req.params.id);

@@ -46,6 +46,8 @@ import {
 import { postJournalEntry, reverseJournalEntry, ClosedPeriodError } from "../lib/journal-posting";
 import { buildZatcaQrBase64 } from "../lib/zatca-qr";
 import { getCompanyInfo } from "../lib/pdf/purchase-order";
+import { buildCustomerInvoicePdf } from "../lib/pdf/customer-invoice";
+import QRCode from "qrcode";
 import { processInvoiceForZatca } from "../lib/integrations/zatca-phase2";
 import { createAwb } from "../lib/integrations/shipping";
 import { sendMessage } from "../lib/integrations/messaging";
@@ -1505,6 +1507,92 @@ router.get("/sales/invoices/:id", customerReadGuard, async (req, res) => {
     const lines = await db.select().from(customerInvoiceLinesTable).where(eq(customerInvoiceLinesTable.invoiceId, id));
     res.json({ ...serializeMoneyDoc(head), lines: lines.map(serializeLine) });
   } catch (err) {
+    handleRouteError(err, res);
+  }
+});
+
+// Render a branded, printable customer invoice PDF that mirrors the
+// purchase-order PDF chrome (logo, company info, bilingual labels,
+// totals, bank details, terms). Cached ZATCA QR is embedded when
+// present on the invoice row.
+router.get("/sales/invoices/:id/pdf", customerReadGuard, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) {
+      res.status(400).json({ error: "Bad id" });
+      return;
+    }
+    const [head] = await db
+      .select()
+      .from(customerInvoicesTable)
+      .where(eq(customerInvoicesTable.id, id));
+    if (!head) {
+      res.status(404).json({ error: "Not found" });
+      return;
+    }
+    const [customer] = await db
+      .select()
+      .from(customersTable)
+      .where(eq(customersTable.id, head.customerId));
+    const lines = await db
+      .select()
+      .from(customerInvoiceLinesTable)
+      .where(eq(customerInvoiceLinesTable.invoiceId, id));
+
+    const company = await getCompanyInfo();
+    let qrDataUrl: string | null = null;
+    if (head.zatcaQr) {
+      try {
+        qrDataUrl = await QRCode.toDataURL(head.zatcaQr, {
+          errorCorrectionLevel: "M",
+          margin: 1,
+          width: 220,
+        });
+      } catch {
+        qrDataUrl = null;
+      }
+    }
+
+    const pdf = await buildCustomerInvoicePdf(
+      {
+        reference: head.reference,
+        invoiceDate: head.invoiceDate,
+        dueDate: head.dueDate,
+        currencyCode: head.currencyCode,
+        subtotal: Number(head.subtotal),
+        discount: Number(head.discount),
+        vat: Number(head.vat),
+        total: Number(head.total),
+        amountPaid: Number(head.amountPaid),
+        status: head.status,
+        notes: head.notes,
+        customer: {
+          name: head.customerName,
+          email: customer?.email ?? null,
+          phone: customer?.phone ?? null,
+          address: customer?.billingAddress ?? customer?.shippingAddress ?? null,
+          vatNumber: customer?.taxNumber ?? null,
+        },
+        lines: lines.map((l) => ({
+          description: l.description,
+          quantity: Number(l.quantity),
+          unitPrice: Number(l.unitPrice),
+          taxRate: Number(l.taxRate),
+          lineTotal: Number(l.lineTotal),
+        })),
+        zatcaQrDataUrl: qrDataUrl,
+      },
+      company,
+    );
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader(
+      "Content-Disposition",
+      `inline; filename="invoice-${head.reference}.pdf"`,
+    );
+    res.send(pdf);
+  } catch (err) {
+    req.log.error({ err }, "render customer invoice PDF");
     handleRouteError(err, res);
   }
 });
