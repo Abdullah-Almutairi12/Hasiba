@@ -17,7 +17,7 @@ export interface LastSend {
 
 export function SendStatusBadge({
   doc,
-  testIdPrefix = "badge-invoice-send-status",
+  testIdPrefix = "badge-send-status",
 }: {
   doc: { id: number; lastSend?: LastSend | null };
   testIdPrefix?: string;

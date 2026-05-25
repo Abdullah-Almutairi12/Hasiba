@@ -560,6 +560,55 @@ router.get("/procurement/purchase-orders", async (req, res) => {
       .from(purchaseOrdersTable)
       .where(conds.length ? and(...conds) : undefined)
       .orderBy(desc(purchaseOrdersTable.createdAt));
+
+    // Surface the latest send attempt per PO from procurement_email_outbox
+    // (kind='purchase_order') so the list can render a delivered / queued /
+    // failed badge identical to customer invoices + quotations.
+    const ids = rows.map((r) => r.id);
+    const lastSendById = new Map<number, {
+      outboxId: number;
+      status: string;
+      recipient: string | null;
+      error: string | null;
+      createdAt: string | null;
+      sentAt: string | null;
+    }>();
+    if (ids.length > 0) {
+      const lastRes = await db.execute(sql`
+        SELECT DISTINCT ON (ref_id)
+          ref_id AS "refId",
+          id AS "outboxId",
+          status,
+          recipient,
+          error,
+          created_at AS "createdAt",
+          sent_at AS "sentAt"
+        FROM procurement_email_outbox
+        WHERE kind = 'purchase_order' AND ref_id = ANY(${ids}::int[])
+        ORDER BY ref_id, created_at DESC, id DESC
+      `);
+      const lastRows = ((lastRes as unknown as { rows?: Array<Record<string, unknown>> }).rows
+        ?? (lastRes as unknown as Array<Record<string, unknown>>)) ?? [];
+      for (const lr of lastRows) {
+        const refId = Number(lr["refId"]);
+        if (!Number.isFinite(refId)) continue;
+        const createdAt = lr["createdAt"];
+        const sentAt = lr["sentAt"];
+        lastSendById.set(refId, {
+          outboxId: Number(lr["outboxId"]),
+          status: String(lr["status"] ?? ""),
+          recipient: lr["recipient"] == null ? null : String(lr["recipient"]),
+          error: lr["error"] == null ? null : String(lr["error"]),
+          createdAt: createdAt instanceof Date
+            ? createdAt.toISOString()
+            : (createdAt as string | null) ?? null,
+          sentAt: sentAt instanceof Date
+            ? sentAt.toISOString()
+            : (sentAt as string | null) ?? null,
+        });
+      }
+    }
+
     res.json(
       rows.map((r) => ({
         ...r,
@@ -569,6 +618,7 @@ router.get("/procurement/purchase-orders", async (req, res) => {
         exchangeRate: Number(r.exchangeRate),
         approvedAt: r.approvedAt?.toISOString() ?? null,
         createdAt: r.createdAt.toISOString(),
+        lastSend: lastSendById.get(r.id) ?? null,
       })),
     );
   } catch (err) {

@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { ApprovalActions } from "@/components/approval-actions";
+import { SendStatusBadge, type LastSend } from "@/components/send-status-badge";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger,
 } from "@/components/ui/dialog";
@@ -45,6 +46,7 @@ interface PO {
   total: number; subtotal: number; vat: number;
   requiresApproval: boolean; approvedAt: string | null; createdAt: string;
   sentToSupplierAt?: string | null; sentToSupplierEmail?: string | null;
+  lastSend?: LastSend | null;
 }
 
 interface PoLine {
@@ -379,11 +381,18 @@ function POsTab({ onSelectPO }: { onSelectPO: (po: PO) => void }) {
           <TableHeader><TableRow>
             <TableHead>المرجع</TableHead><TableHead>المورد</TableHead>
             <TableHead>الإجمالي</TableHead><TableHead>الحالة</TableHead>
+            <TableHead>الإرسال</TableHead>
             <TableHead>التاريخ</TableHead><TableHead>الإجراءات</TableHead>
           </TableRow></TableHeader>
           <TableBody>
-            {rows.map((r) => (
-              <TableRow key={r.id} className="cursor-pointer hover:bg-muted/50" onClick={() => onSelectPO(r)}>
+            {rows.map((r) => {
+              const sendTone = r.lastSend?.status === "failed"
+                ? "bg-red-50/40 dark:bg-red-950/20"
+                : r.lastSend?.status === "queued"
+                ? "bg-amber-50/40 dark:bg-amber-950/20"
+                : "";
+              return (
+              <TableRow key={r.id} className={`cursor-pointer hover:bg-muted/50 ${sendTone}`} onClick={() => onSelectPO(r)}>
                 <TableCell className="font-mono">{r.reference}</TableCell>
                 <TableCell>{r.supplierName}</TableCell>
                 <TableCell>{fmt(r.total)}</TableCell>
@@ -392,6 +401,9 @@ function POsTab({ onSelectPO }: { onSelectPO: (po: PO) => void }) {
                     <StatusBadge status={r.status} />
                     {r.requiresApproval && !r.approvedAt && <Badge variant="outline">يحتاج اعتماد</Badge>}
                   </div>
+                </TableCell>
+                <TableCell>
+                  <SendStatusBadge doc={r} testIdPrefix="badge-po-send-status" />
                 </TableCell>
                 <TableCell>{new Date(r.orderDate).toLocaleDateString("ar-SA")}</TableCell>
                 <TableCell className="space-x-1 space-x-reverse" onClick={(e) => e.stopPropagation()}>
@@ -413,9 +425,10 @@ function POsTab({ onSelectPO }: { onSelectPO: (po: PO) => void }) {
                   )}
                 </TableCell>
               </TableRow>
-            ))}
+              );
+            })}
             {rows.length === 0 && (
-              <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground">لا توجد أوامر شراء</TableCell></TableRow>
+              <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground">لا توجد أوامر شراء</TableCell></TableRow>
             )}
           </TableBody>
         </Table>
