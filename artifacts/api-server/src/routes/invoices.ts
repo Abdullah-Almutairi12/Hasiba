@@ -70,10 +70,16 @@ function buildZatcaQrPayload(params: {
 router.get("/invoices", invoiceReadGuard, async (req, res) => {
   try {
     const { status } = req.query;
+    // Tenant scope: only return invoices belonging to the caller's company.
+    const companyScope = eq(invoicesTable.companyId, getCompanyId(req));
     const rows = await db
       .select()
       .from(invoicesTable)
-      .where(status ? eq(invoicesTable.status, status as string) : sql`true`)
+      .where(
+        status
+          ? and(companyScope, eq(invoicesTable.status, status as string))
+          : companyScope,
+      )
       .orderBy(desc(invoicesTable.createdAt));
 
     res.json(
@@ -139,6 +145,7 @@ router.get("/invoices/stats", invoiceReadGuard, async (req, res) => {
   try {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
+    const companyId = getCompanyId(req);
 
     const [stats] = await db
       .select({
@@ -146,7 +153,8 @@ router.get("/invoices/stats", invoiceReadGuard, async (req, res) => {
         processingCount: sql<number>`count(*) filter (where ${invoicesTable.status} = 'processing')`,
         needsReviewCount: sql<number>`count(*) filter (where ${invoicesTable.status} = 'needs_review')`,
       })
-      .from(invoicesTable);
+      .from(invoicesTable)
+      .where(eq(invoicesTable.companyId, companyId));
 
     res.json({
       todayCount: Number(stats.todayCount),
@@ -163,7 +171,10 @@ router.get("/invoices/stats", invoiceReadGuard, async (req, res) => {
 router.get("/invoices/:id", invoiceReadGuard, async (req, res) => {
   try {
     const id = Number(req.params.id);
-    const [invoice] = await db.select().from(invoicesTable).where(eq(invoicesTable.id, id));
+    const [invoice] = await db
+      .select()
+      .from(invoicesTable)
+      .where(and(eq(invoicesTable.id, id), eq(invoicesTable.companyId, getCompanyId(req))));
     if (!invoice) return res.status(404).json({ error: "Not found" });
 
     return res.json({
@@ -181,7 +192,10 @@ router.get("/invoices/:id", invoiceReadGuard, async (req, res) => {
 router.get("/invoices/:id/zatca-qr", invoiceReadGuard, async (req, res) => {
   try {
     const id = Number(req.params.id);
-    const [invoice] = await db.select().from(invoicesTable).where(eq(invoicesTable.id, id));
+    const [invoice] = await db
+      .select()
+      .from(invoicesTable)
+      .where(and(eq(invoicesTable.id, id), eq(invoicesTable.companyId, getCompanyId(req))));
     if (!invoice) return res.status(404).json({ error: "Not found" });
 
     const totalWithVat = Number(invoice.amount);
@@ -244,7 +258,12 @@ router.patch("/invoices/:id", financeGuard, async (req, res) => {
     // Audit guard: once an invoice is locked (approved/finalised), every
     // financial field is frozen forever. Only `notes` may be edited. To
     // neutralise a locked invoice the user must issue a reverse invoice.
-    const [current] = await db.select().from(invoicesTable).where(eq(invoicesTable.id, id));
+    // Tenant scope on the lookup so PATCHing a foreign invoice returns 404.
+    const companyId = getCompanyId(req);
+    const [current] = await db
+      .select()
+      .from(invoicesTable)
+      .where(and(eq(invoicesTable.id, id), eq(invoicesTable.companyId, companyId)));
     if (!current) return res.status(404).json({ error: "Not found" });
 
     const wantsFinancialEdit =
@@ -273,7 +292,11 @@ router.patch("/invoices/:id", financeGuard, async (req, res) => {
       updateData.lockedAt = new Date();
     }
 
-    const [updated] = await db.update(invoicesTable).set(updateData).where(eq(invoicesTable.id, id)).returning();
+    const [updated] = await db
+      .update(invoicesTable)
+      .set(updateData)
+      .where(and(eq(invoicesTable.id, id), eq(invoicesTable.companyId, companyId)))
+      .returning();
     if (!updated) return res.status(404).json({ error: "Not found" });
 
     return res.json({
@@ -421,7 +444,10 @@ router.delete("/invoices/:id", financeGuard, async (req, res) => {
   try {
     const id = Number(req.params.id);
     if (!Number.isFinite(id)) return res.status(400).json({ error: "Bad id" });
-    const [current] = await db.select().from(invoicesTable).where(eq(invoicesTable.id, id));
+    // Tenant scope: cross-tenant DELETE returns 404.
+    const companyId = getCompanyId(req);
+    const tenantScope = and(eq(invoicesTable.id, id), eq(invoicesTable.companyId, companyId));
+    const [current] = await db.select().from(invoicesTable).where(tenantScope);
     if (!current) return res.status(404).json({ error: "Not found" });
     if (current.isLocked) {
       return res.status(409).json({
@@ -429,7 +455,7 @@ router.delete("/invoices/:id", financeGuard, async (req, res) => {
         code: "INVOICE_LOCKED",
       });
     }
-    await db.delete(invoicesTable).where(eq(invoicesTable.id, id));
+    await db.delete(invoicesTable).where(tenantScope);
     void recordAudit(req, {
       action: "delete",
       entity: "invoice",

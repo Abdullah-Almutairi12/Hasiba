@@ -339,12 +339,15 @@ router.post("/pos/sessions", posGuard, async (req, res) => {
 router.get("/pos/orders", posReadGuard, async (req, res) => {
   try {
     const { sessionId, date } = req.query;
+    // Tenant scope: pos_orders.company_id is NOT NULL — enforce per-tenant.
+    const companyId = getCompanyId(req);
 
     const orders = await db
       .select()
       .from(posOrdersTable)
       .where(
-        sql`${sessionId ? sql`${posOrdersTable.sessionId} = ${Number(sessionId)}` : sql`true`}
+        sql`${posOrdersTable.companyId} = ${companyId}
+          ${sessionId ? sql`and ${posOrdersTable.sessionId} = ${Number(sessionId)}` : sql``}
           ${date ? sql`and date(${posOrdersTable.createdAt}) = ${date}` : sql``}`
       )
       .orderBy(desc(posOrdersTable.createdAt))
@@ -388,10 +391,12 @@ router.get("/pos/orders/:id", posReadGuard, async (req, res) => {
       res.status(400).json({ error: "معرّف الطلب غير صالح" });
       return;
     }
+    // Tenant scope: cross-tenant GET returns 404 (hide existence).
+    const companyId = getCompanyId(req);
     const [order] = await db
       .select()
       .from(posOrdersTable)
-      .where(eq(posOrdersTable.id, id))
+      .where(and(eq(posOrdersTable.id, id), eq(posOrdersTable.companyId, companyId)))
       .limit(1);
     if (!order) {
       res.status(404).json({ error: "الطلب غير موجود" });

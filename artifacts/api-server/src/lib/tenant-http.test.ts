@@ -25,6 +25,10 @@ import {
   categoriesTable,
   productsTable,
   customersTable,
+  invoicesTable,
+  branchesTable,
+  posSessionsTable,
+  posOrdersTable,
 } from "@workspace/db";
 import app from "../app";
 
@@ -40,6 +44,14 @@ let productAId = 0;
 let productBId = 0;
 let customerAId = 0;
 let customerBId = 0;
+let invoiceAId = 0;
+let invoiceBId = 0;
+let branchAId = 0;
+let branchBId = 0;
+let sessionAId = 0;
+let sessionBId = 0;
+let posOrderAId = 0;
+let posOrderBId = 0;
 
 let agentA: request.Agent;
 let agentB: request.Agent;
@@ -135,6 +147,82 @@ beforeAll(async () => {
   customerAId = cA.id;
   customerBId = cB.id;
 
+  // One supplier invoice per tenant (draft, unlocked)
+  const [invA] = await db
+    .insert(invoicesTable)
+    .values({
+      invoiceNumber: `HTTP-INV-A-${RUN_TAG}`,
+      supplierName: `Supplier A ${RUN_TAG}`,
+      amount: "100.00",
+      status: "pending",
+      companyId: companyAId,
+    })
+    .returning();
+  const [invB] = await db
+    .insert(invoicesTable)
+    .values({
+      invoiceNumber: `HTTP-INV-B-${RUN_TAG}`,
+      supplierName: `Supplier B ${RUN_TAG}`,
+      amount: "200.00",
+      status: "pending",
+      companyId: companyBId,
+    })
+    .returning();
+  invoiceAId = invA.id;
+  invoiceBId = invB.id;
+
+  // One branch + POS session + POS order per tenant
+  const [brA] = await db
+    .insert(branchesTable)
+    .values({ name: `Br A ${RUN_TAG}`, nameAr: `فرع A ${RUN_TAG}`, city: "Riyadh", companyId: companyAId })
+    .returning();
+  const [brB] = await db
+    .insert(branchesTable)
+    .values({ name: `Br B ${RUN_TAG}`, nameAr: `فرع B ${RUN_TAG}`, city: "Jeddah", companyId: companyBId })
+    .returning();
+  branchAId = brA.id;
+  branchBId = brB.id;
+
+  const [sA] = await db
+    .insert(posSessionsTable)
+    .values({ sessionNumber: `HTTP-POS-A-${RUN_TAG}`, branchId: branchAId, cashierName: "A" })
+    .returning();
+  const [sB] = await db
+    .insert(posSessionsTable)
+    .values({ sessionNumber: `HTTP-POS-B-${RUN_TAG}`, branchId: branchBId, cashierName: "B" })
+    .returning();
+  sessionAId = sA.id;
+  sessionBId = sB.id;
+
+  // DB trigger `pos_order_total_matches_payments()` enforces that the
+  // sum of payments equals `total` for non-zero orders. Seed with a
+  // zero-total order so the trigger short-circuits — the tenant
+  // isolation tests below only care about row visibility, not amounts.
+  const [oA] = await db
+    .insert(posOrdersTable)
+    .values({
+      orderNumber: `HTTP-ORD-A-${RUN_TAG}`,
+      sessionId: sessionAId,
+      items: [],
+      subtotal: "0.00",
+      total: "0.00",
+      companyId: companyAId,
+    })
+    .returning();
+  const [oB] = await db
+    .insert(posOrdersTable)
+    .values({
+      orderNumber: `HTTP-ORD-B-${RUN_TAG}`,
+      sessionId: sessionBId,
+      items: [],
+      subtotal: "0.00",
+      total: "0.00",
+      companyId: companyBId,
+    })
+    .returning();
+  posOrderAId = oA.id;
+  posOrderBId = oB.id;
+
   // Login each via cookie-jar agents
   agentA = request.agent(app);
   agentB = request.agent(app);
@@ -153,6 +241,22 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  const posOrderIds = [posOrderAId, posOrderBId].filter((n) => n > 0);
+  if (posOrderIds.length > 0) {
+    await db.delete(posOrdersTable).where(inArray(posOrdersTable.id, posOrderIds));
+  }
+  const sessionIds = [sessionAId, sessionBId].filter((n) => n > 0);
+  if (sessionIds.length > 0) {
+    await db.delete(posSessionsTable).where(inArray(posSessionsTable.id, sessionIds));
+  }
+  const branchIds = [branchAId, branchBId].filter((n) => n > 0);
+  if (branchIds.length > 0) {
+    await db.delete(branchesTable).where(inArray(branchesTable.id, branchIds));
+  }
+  const invIds = [invoiceAId, invoiceBId].filter((n) => n > 0);
+  if (invIds.length > 0) {
+    await db.delete(invoicesTable).where(inArray(invoicesTable.id, invIds));
+  }
   const productIds: number[] = [];
   if (productAId) productIds.push(productAId);
   if (productBId) productIds.push(productBId);
@@ -349,5 +453,74 @@ describe("HTTP — PATCH/DELETE cross-tenant writes (Phase 2 isolation)", () => 
       .where(eq(customersTable.id, customerBId));
     expect(after[0]?.name).toBe(before[0]?.name);
     expect(after[0]?.name).not.toBe("HACKED");
+  });
+});
+
+describe("HTTP — /api/invoices is tenant-scoped", () => {
+  it("GET /api/invoices returns ONLY the caller's invoices", async () => {
+    const resA = await agentA.get("/api/invoices");
+    expect(resA.status).toBe(200);
+    const idsA = (resA.body as Array<{ id: number }>).map((r) => r.id);
+    expect(idsA).toContain(invoiceAId);
+    expect(idsA).not.toContain(invoiceBId);
+
+    const resB = await agentB.get("/api/invoices");
+    expect(resB.status).toBe(200);
+    const idsB = (resB.body as Array<{ id: number }>).map((r) => r.id);
+    expect(idsB).toContain(invoiceBId);
+    expect(idsB).not.toContain(invoiceAId);
+  });
+
+  it("GET /api/invoices/:id on another tenant's invoice returns 404", async () => {
+    const res = await agentA.get(`/api/invoices/${invoiceBId}`);
+    expect(res.status).toBe(404);
+  });
+
+  it("PATCH /api/invoices/:id on another tenant's invoice returns 404 and does NOT mutate", async () => {
+    const before = await db
+      .select({ supplierName: invoicesTable.supplierName, amount: invoicesTable.amount })
+      .from(invoicesTable)
+      .where(eq(invoicesTable.id, invoiceBId));
+    const res = await agentA
+      .patch(`/api/invoices/${invoiceBId}`)
+      .send({ supplierName: "HACKED", amount: 9999 });
+    expect(res.status).toBe(404);
+    const after = await db
+      .select({ supplierName: invoicesTable.supplierName, amount: invoicesTable.amount })
+      .from(invoicesTable)
+      .where(eq(invoicesTable.id, invoiceBId));
+    expect(after[0]?.supplierName).toBe(before[0]?.supplierName);
+    expect(after[0]?.amount).toBe(before[0]?.amount);
+  });
+
+  it("DELETE /api/invoices/:id on another tenant's invoice returns 404 and does NOT delete", async () => {
+    const res = await agentA.delete(`/api/invoices/${invoiceBId}`);
+    expect(res.status).toBe(404);
+    const [row] = await db
+      .select({ id: invoicesTable.id })
+      .from(invoicesTable)
+      .where(eq(invoicesTable.id, invoiceBId));
+    expect(row?.id).toBe(invoiceBId);
+  });
+});
+
+describe("HTTP — /api/pos/orders is tenant-scoped", () => {
+  it("GET /api/pos/orders returns ONLY the caller's orders", async () => {
+    const resA = await agentA.get("/api/pos/orders");
+    expect(resA.status).toBe(200);
+    const idsA = (resA.body as Array<{ id: number }>).map((r) => r.id);
+    expect(idsA).toContain(posOrderAId);
+    expect(idsA).not.toContain(posOrderBId);
+
+    const resB = await agentB.get("/api/pos/orders");
+    expect(resB.status).toBe(200);
+    const idsB = (resB.body as Array<{ id: number }>).map((r) => r.id);
+    expect(idsB).toContain(posOrderBId);
+    expect(idsB).not.toContain(posOrderAId);
+  });
+
+  it("GET /api/pos/orders/:id on another tenant's order returns 404", async () => {
+    const res = await agentA.get(`/api/pos/orders/${posOrderBId}`);
+    expect(res.status).toBe(404);
   });
 });
