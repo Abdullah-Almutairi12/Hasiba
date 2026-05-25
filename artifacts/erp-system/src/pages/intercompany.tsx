@@ -401,13 +401,27 @@ function ImbalancesTab() {
   });
 
   const { data: lastScan } = useQuery<
-    { ranAt: string; newCount: number; resolvedCount: number } | null
+    {
+      ranAt: string | null;
+      newCount: number;
+      resolvedCount: number;
+      isStale: boolean;
+      ageHours: number | null;
+      staleThresholdHours: number;
+      hasLinks: boolean;
+    } | null
   >({
     queryKey: ["intercompany-imbalances-last-scan"],
     queryFn: () =>
-      fetchJson<{ ranAt: string; newCount: number; resolvedCount: number } | null>(
-        "/api/intercompany/imbalances/last-scan",
-      ),
+      fetchJson<{
+        ranAt: string | null;
+        newCount: number;
+        resolvedCount: number;
+        isStale: boolean;
+        ageHours: number | null;
+        staleThresholdHours: number;
+        hasLinks: boolean;
+      } | null>("/api/intercompany/imbalances/last-scan"),
     refetchInterval: 5 * 60 * 1000,
   });
 
@@ -521,26 +535,57 @@ function ImbalancesTab() {
         <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
           تظهر هنا الروابط المتطابقة التي اختلفت قيمتها بين الفاتورة المصدر والمرآة المقابلة. تُحفظ هذه النتائج في قاعدة البيانات عند توليد أي تقرير موحّد أو بالضغط على "فحص الآن".
         </p>
-        <div className="text-xs text-muted-foreground mt-2">
-          {lastScan ? (
-            <span>
-              آخر فحص ليلي: {formatRelativeArabic(lastScan.ranAt)}
-              {" — "}
-              <span className="font-semibold text-foreground">
-                جديد {lastScan.newCount}
+        {lastScan?.isStale ? (
+          <div
+            className="mt-2 flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200"
+            role="alert"
+            data-testid="banner-stale-scan"
+          >
+            <AlertTriangle className="size-4 mt-0.5 shrink-0" />
+            <div className="leading-relaxed">
+              <div className="font-semibold">
+                لم يُنفَّذ الفحص الليلي لعدم التطابق منذ أكثر من{" "}
+                {lastScan.staleThresholdHours} ساعة.
+              </div>
+              <div>
+                {lastScan.ranAt ? (
+                  <>
+                    آخر تنفيذ ناجح: {formatRelativeArabic(lastScan.ranAt)}{" "}
+                    <span className="opacity-70">
+                      ({new Date(lastScan.ranAt).toLocaleString("ar-SA")})
+                    </span>
+                    . يُحتمل توقّف المهمة المجدولة — راجع سجلات الخادم أو شغّل "فحص الآن" يدوياً.
+                  </>
+                ) : (
+                  <>
+                    لم يُسجَّل أي فحص ليلي حتى الآن رغم وجود روابط بين الشركات. يُحتمل أن المهمة المجدولة لم تبدأ بعد — شغّل "فحص الآن" يدوياً وراجع سجلات الخادم.
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="text-xs text-muted-foreground mt-2">
+            {lastScan && lastScan.ranAt ? (
+              <span>
+                آخر فحص ليلي: {formatRelativeArabic(lastScan.ranAt)}
+                {" — "}
+                <span className="font-semibold text-foreground">
+                  جديد {lastScan.newCount}
+                </span>
+                {" · "}
+                <span className="font-semibold text-foreground">
+                  مُسوّى تلقائياً {lastScan.resolvedCount}
+                </span>
+                <span className="mx-1 opacity-60">
+                  ({new Date(lastScan.ranAt).toLocaleString("ar-SA")})
+                </span>
               </span>
-              {" · "}
-              <span className="font-semibold text-foreground">
-                مُسوّى تلقائياً {lastScan.resolvedCount}
-              </span>
-              <span className="mx-1 opacity-60">
-                ({new Date(lastScan.ranAt).toLocaleString("ar-SA")})
-              </span>
-            </span>
-          ) : (
-            <span>لم يُسجَّل فحص ليلي بعد لهذه الشركة.</span>
-          )}
-        </div>
+            ) : (
+              <span>لم يُسجَّل فحص ليلي بعد لهذه الشركة.</span>
+            )}
+          </div>
+        )}
       </CardHeader>
       <CardContent>
         {isLoading ? (

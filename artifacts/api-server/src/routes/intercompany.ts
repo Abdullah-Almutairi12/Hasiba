@@ -440,26 +440,53 @@ async function getAllowedCompanyIds(userId: number): Promise<number[]> {
  * Returns `null` if there is no audit row yet (fresh tenant or scan
  * has not run since boot).
  */
+/**
+ * Threshold for flagging the nightly scan as stale. The cron runs
+ * every 24h, so a ~26h ceiling gives 2h of slack for clock skew,
+ * boot delay, and long-running scans before we surface a warning.
+ */
+const STALE_SCAN_MS = 26 * 60 * 60 * 1000;
+
 router.get("/intercompany/imbalances/last-scan", async (req, res) => {
   try {
     const companyId = getCompanyId(req);
-    const row = await db
-      .select({
-        createdAt: auditLogsTable.createdAt,
-        details: auditLogsTable.details,
-      })
-      .from(auditLogsTable)
-      .where(
-        and(
-          eq(auditLogsTable.action, "scan_nightly"),
-          eq(auditLogsTable.entity, "intercompany_imbalance"),
-          sql`${auditLogsTable.details} ~ ${`group=\\[(.*,)?${companyId}(,.*)?\\]`}`,
+    const [row, linkCountRow] = await Promise.all([
+      db
+        .select({
+          createdAt: auditLogsTable.createdAt,
+          details: auditLogsTable.details,
+        })
+        .from(auditLogsTable)
+        .where(
+          and(
+            eq(auditLogsTable.action, "scan_nightly"),
+            eq(auditLogsTable.entity, "intercompany_imbalance"),
+            sql`${auditLogsTable.details} ~ ${`group=\\[(.*,)?${companyId}(,.*)?\\]`}`,
+          ),
+        )
+        .orderBy(desc(auditLogsTable.createdAt))
+        .limit(1),
+      db
+        .select({ n: sql<number>`count(*)::int` })
+        .from(intercompanyLinksTable)
+        .where(
+          sql`${intercompanyLinksTable.sourceCompanyId} = ${companyId} OR ${intercompanyLinksTable.targetCompanyId} = ${companyId}`,
         ),
-      )
-      .orderBy(desc(auditLogsTable.createdAt))
-      .limit(1);
+    ]);
+    const hasLinks = (linkCountRow[0]?.n ?? 0) > 0;
     if (row.length === 0) {
-      res.json(null);
+      // Fresh tenant with no links — no scan is expected yet, so this
+      // is not stale. Once any intercompany link exists, a missing
+      // audit row IS stale (the nightly cron should have written one).
+      res.json({
+        ranAt: null,
+        newCount: 0,
+        resolvedCount: 0,
+        isStale: hasLinks,
+        ageHours: null,
+        staleThresholdHours: 26,
+        hasLinks,
+      });
       return;
     }
     const r = row[0]!;
@@ -471,10 +498,16 @@ router.get("/intercompany/imbalances/last-scan", async (req, res) => {
     const subtotal = num("subtotal");
     const open = num("open");
     const resolved = num("resolved");
+    const ageMs = Date.now() - r.createdAt.getTime();
+    const ageHours = Math.round((ageMs / (60 * 60 * 1000)) * 10) / 10;
     res.json({
       ranAt: r.createdAt.toISOString(),
       newCount: subtotal + open,
       resolvedCount: resolved,
+      isStale: ageMs > STALE_SCAN_MS,
+      ageHours,
+      staleThresholdHours: 26,
+      hasLinks,
     });
   } catch (err) {
     req.log.error({ err }, "fetch last nightly imbalance scan failed");
