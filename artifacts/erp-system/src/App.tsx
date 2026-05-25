@@ -1,7 +1,8 @@
 import { lazy, Suspense, useEffect } from "react";
 import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
 import { useTheme } from "@/hooks/use-theme";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { createAppQueryClient } from "@/lib/query-client";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import Layout from "@/components/layout";
@@ -50,7 +51,7 @@ const InvoicePrint = lazy(() => import("@/pages/invoice-print"));
 const TrackShipmentPage = lazy(() => import("@/pages/track-shipment"));
 const DocumentsPage = lazy(() => import("@/pages/documents"));
 
-const queryClient = new QueryClient();
+const queryClient = createAppQueryClient();
 
 const DARK_ROUTES = new Set(["/"]);
 

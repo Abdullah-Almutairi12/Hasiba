@@ -91,7 +91,8 @@ import { WorkflowTab } from "@/components/workflow-tab";
 import { IntegrationsTab } from "@/components/integrations-tab";
 import MarketplacesTab from "@/components/marketplaces-tab";
 import { CompanySettingsTab } from "@/components/company-settings-tab";
-import { Plug, Building2 } from "lucide-react";
+import { CompaniesTable } from "@/components/multi-company/companies-table";
+import { Plug, Building2, Briefcase } from "lucide-react";
 
 function AccessDenied() {
   return (
@@ -1478,6 +1479,8 @@ export default function AdminPage() {
     return <AccessDenied />;
   }
 
+  const isOwner = user?.role === "owner";
+
   return (
     <div className="mx-auto max-w-7xl space-y-6" dir={isRTL ? "rtl" : "ltr"}>
       <div className="flex flex-wrap items-end justify-between gap-3">
@@ -1535,6 +1538,11 @@ export default function AdminPage() {
             <Plug className="me-2 size-4" />
             المتاجر
           </TabsTrigger>
+          {isOwner && (
+            <TabsTrigger value="companies" data-testid="tab-companies">
+              <Briefcase className="me-1 size-4" /> الشركات
+            </TabsTrigger>
+          )}
           <TabsTrigger value="company" data-testid="tab-company">
             <Building2 className="me-2 size-4" />
             بيانات الشركة
@@ -1555,6 +1563,7 @@ export default function AdminPage() {
         <TabsContent value="workflow"><WorkflowTab /></TabsContent>
         <TabsContent value="integrations"><IntegrationsTab /></TabsContent>
         <TabsContent value="marketplaces"><MarketplacesTab /></TabsContent>
+        {isOwner && <TabsContent value="companies"><CompaniesTable /></TabsContent>}
         <TabsContent value="company"><CompanySettingsTab /></TabsContent>
         <TabsContent value="audit"><AuditTab /></TabsContent>
       </Tabs>

@@ -1,4 +1,14 @@
+import { useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { setActiveCompanyKey } from "@/lib/query-client";
+
+export type AuthCompany = {
+  id: number;
+  name: string;
+  role: string;
+  isDefault: boolean;
+  isActive: boolean;
+};
 
 export type AuthUser = {
   id: number;
@@ -7,6 +17,8 @@ export type AuthUser = {
   role: string;
   branchId: number | null;
   avatarUrl: string | null;
+  companyId: number | null;
+  companies: AuthCompany[];
 };
 
 const API_BASE = `${import.meta.env.BASE_URL.replace(/\/$/, "")}/api`;
@@ -24,7 +36,7 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   return (await res.json()) as T;
 }
 
-const ME_KEY = ["auth", "me"] as const;
+export const ME_KEY = ["auth", "me"] as const;
 
 export function useAuth() {
   const qc = useQueryClient();
@@ -60,6 +72,13 @@ export function useAuth() {
       qc.clear();
     },
   });
+
+  // Keep the cache-scoping key in sync with the active tenant: any
+  // change to /auth/me (initial load OR a switch) must immediately
+  // update the module-level company id used by `queryKeyHashFn`.
+  useEffect(() => {
+    setActiveCompanyKey(meQuery.data?.companyId ?? null);
+  }, [meQuery.data?.companyId]);
 
   return {
     user: meQuery.data ?? null,

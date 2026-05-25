@@ -9,6 +9,7 @@ import {
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
+import { useCurrentCompany } from "@/hooks/use-current-company";
 import { usePermissions } from "@/hooks/use-permissions";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -27,6 +28,7 @@ import {
 } from "@/components/ui/tabs";
 import {
   Building2,
+  AlertTriangle,
   Receipt,
   Boxes,
   CreditCard,
@@ -740,6 +742,7 @@ function SecurityTab() {
 export default function SettingsPage() {
   const { user } = useAuth();
   const { isAdmin } = usePermissions();
+  const { activeCompany, canSwitch } = useCurrentCompany();
   const readOnly = !isAdmin;
   return (
     <div className="mx-auto max-w-7xl space-y-6 p-3 sm:p-4 md:p-6">
@@ -753,6 +756,23 @@ export default function SettingsPage() {
           {user?.role && <span className="ms-2 text-xs text-muted-foreground">({user.role})</span>}
         </p>
       </div>
+
+      {activeCompany && canSwitch && (
+        <div
+          className="flex items-center gap-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900"
+          data-testid="settings-active-company-banner"
+        >
+          <AlertTriangle className="size-5 shrink-0 text-amber-600" />
+          <div className="flex-1">
+            <div className="font-bold">
+              أنت تعدّل: {activeCompany.name}
+            </div>
+            <div className="text-xs text-amber-800/80">
+              التغييرات هنا تنطبق على الشركة النشطة فقط. بدّل الشركة من القائمة العلوية لتعديل شركة أخرى.
+            </div>
+          </div>
+        </div>
+      )}
 
       <Tabs defaultValue="company" className="space-y-4">
         <TabsList className="flex w-full flex-wrap justify-start gap-1 bg-muted/40 p-1">
