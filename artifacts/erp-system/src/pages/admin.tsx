@@ -98,6 +98,7 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
+  AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import {
   ShieldCheck,
@@ -2418,6 +2419,104 @@ function ResendRecipientPicker({
 }
 
 /**
+ * Task #211 — row-level quick action that re-sends a past cleanup
+ * report to **only the bounced** recipients (hard failures). Distinct
+ * from the picker's "undelivered" shortcut, which also includes
+ * pending + deferred. Opens an AlertDialog with the exact address
+ * list before firing so an admin can review which inboxes will get a
+ * second copy.
+ */
+function ResendBouncedOnlyButton({
+  rowId,
+  bouncedEmails,
+  windowLabel,
+  isPending,
+  onConfirm,
+}: {
+  rowId: number;
+  bouncedEmails: string[];
+  windowLabel: string;
+  isPending: boolean;
+  onConfirm: (bounced: string[]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  if (bouncedEmails.length === 0) return null;
+  return (
+    <AlertDialog open={open} onOpenChange={setOpen}>
+      <AlertDialogTrigger asChild>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 px-2 text-rose-700 hover:text-rose-800 hover:bg-rose-50"
+          disabled={isPending}
+          title={`إعادة إرسال إلى ${bouncedEmails.length} عنوان مرتد فقط (${windowLabel})`}
+          data-testid={`button-resend-bounced-only-${rowId}`}
+        >
+          {isPending ? (
+            <Loader2 className="size-3 animate-spin" />
+          ) : (
+            <MailX className="size-3" />
+          )}
+          <span className="ms-1 tabular-nums">
+            للمرتدّين ({bouncedEmails.length})
+          </span>
+        </Button>
+      </AlertDialogTrigger>
+      <AlertDialogContent
+        data-testid={`dialog-resend-bounced-only-${rowId}`}
+      >
+        <AlertDialogHeader>
+          <AlertDialogTitle>إعادة الإرسال إلى المرتدّين فقط؟</AlertDialogTitle>
+          <AlertDialogDescription asChild>
+            <div className="space-y-2 text-start">
+              <div>
+                سيتم إرسال نفس التقرير (
+                <span dir="ltr">{windowLabel}</span>) إلى{" "}
+                <span className="font-medium tabular-nums">
+                  {bouncedEmails.length}
+                </span>{" "}
+                عنوان فُشل تسليمه سابقاً، دون باقي المستلمين.
+              </div>
+              <div>
+                <div className="text-xs font-medium text-rose-700">
+                  المرتدّون:
+                </div>
+                <div
+                  className="text-xs text-rose-800"
+                  dir="ltr"
+                  data-testid={`text-resend-bounced-list-${rowId}`}
+                >
+                  {bouncedEmails.join("، ")}
+                </div>
+              </div>
+              <div className="text-xs text-muted-foreground">
+                تأكّد أن العناوين أصبحت صالحة قبل المتابعة، وإلا ستفشل مجدداً.
+              </div>
+            </div>
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel
+            data-testid={`button-resend-bounced-only-cancel-${rowId}`}
+          >
+            رجوع
+          </AlertDialogCancel>
+          <AlertDialogAction
+            onClick={() => {
+              onConfirm(bouncedEmails);
+              setOpen(false);
+            }}
+            data-testid={`button-resend-bounced-only-proceed-${rowId}`}
+          >
+            نعم، أعد الإرسال
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
+/**
  * Task #204 — small status badge used both inside the resend popover
  * and in the per-recipient breakdown of the history table.
  */
@@ -2737,6 +2836,32 @@ function CleanupReportSendsHistory() {
                       )}
                     </TableCell>
                     <TableCell className="text-xs whitespace-nowrap">
+                      {canResend && (counts.bounced ?? 0) > 0 && (
+                        <ResendBouncedOnlyButton
+                          rowId={r.id}
+                          bouncedEmails={recipientStatuses
+                            .filter((s) => s.status === "bounced")
+                            .map((s) => s.email)}
+                          windowLabel={windowLabel!}
+                          isPending={
+                            resendMut.isPending &&
+                            resendMut.variables?.id === r.id
+                          }
+                          onConfirm={(bounced) => {
+                            originalTotalsRef.current.set(
+                              r.id,
+                              (r.recipients ?? "")
+                                .split(",")
+                                .map((s) => s.trim())
+                                .filter((s) => s.length > 0).length,
+                            );
+                            resendMut.mutate({
+                              id: r.id,
+                              data: { recipients: bounced },
+                            });
+                          }}
+                        />
+                      )}
                       {canResend && (
                         <ResendRecipientPicker
                           rowId={r.id}
