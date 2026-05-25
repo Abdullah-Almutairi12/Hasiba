@@ -167,6 +167,7 @@ import type {
   SupportTicket,
   SwitchCompany200,
   SwitchCompanyRequest,
+  SystemSettings,
   TopProduct,
   TrainAiModel200,
   TrainAllAiModels200,
@@ -182,6 +183,8 @@ import type {
   UpdateInvoiceBody,
   UpdateProductBody,
   UpdateSupportTicketBody,
+  UpdateSystemSettings200,
+  UpdateSystemSettingsBody,
   UploadCompanyLogoBody,
   UploadStorageAttachment200,
   UploadStorageAttachmentBody,
@@ -7262,6 +7265,168 @@ export const useUpdateFeatureFlag = <
   TContext
 > => {
   return useMutation(getUpdateFeatureFlagMutationOptions(options));
+};
+
+/**
+ * @summary Get system-wide admin settings (alert retention, etc.)
+ */
+export const getGetSystemSettingsUrl = () => {
+  return `/api/admin/system-settings`;
+};
+
+export const getSystemSettings = async (
+  options?: RequestInit,
+): Promise<SystemSettings> => {
+  return customFetch<SystemSettings>(getGetSystemSettingsUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetSystemSettingsQueryKey = () => {
+  return [`/api/admin/system-settings`] as const;
+};
+
+export const getGetSystemSettingsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getSystemSettings>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getSystemSettings>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetSystemSettingsQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getSystemSettings>>
+  > = ({ signal }) => getSystemSettings({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getSystemSettings>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetSystemSettingsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getSystemSettings>>
+>;
+export type GetSystemSettingsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Get system-wide admin settings (alert retention, etc.)
+ */
+
+export function useGetSystemSettings<
+  TData = Awaited<ReturnType<typeof getSystemSettings>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getSystemSettings>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetSystemSettingsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Update system-wide admin settings (admin only)
+ */
+export const getUpdateSystemSettingsUrl = () => {
+  return `/api/admin/system-settings`;
+};
+
+export const updateSystemSettings = async (
+  updateSystemSettingsBody: UpdateSystemSettingsBody,
+  options?: RequestInit,
+): Promise<UpdateSystemSettings200> => {
+  return customFetch<UpdateSystemSettings200>(getUpdateSystemSettingsUrl(), {
+    ...options,
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(updateSystemSettingsBody),
+  });
+};
+
+export const getUpdateSystemSettingsMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateSystemSettings>>,
+    TError,
+    { data: BodyType<UpdateSystemSettingsBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateSystemSettings>>,
+  TError,
+  { data: BodyType<UpdateSystemSettingsBody> },
+  TContext
+> => {
+  const mutationKey = ["updateSystemSettings"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateSystemSettings>>,
+    { data: BodyType<UpdateSystemSettingsBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return updateSystemSettings(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateSystemSettingsMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updateSystemSettings>>
+>;
+export type UpdateSystemSettingsMutationBody =
+  BodyType<UpdateSystemSettingsBody>;
+export type UpdateSystemSettingsMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Update system-wide admin settings (admin only)
+ */
+export const useUpdateSystemSettings = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateSystemSettings>>,
+    TError,
+    { data: BodyType<UpdateSystemSettingsBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof updateSystemSettings>>,
+  TError,
+  { data: BodyType<UpdateSystemSettingsBody> },
+  TContext
+> => {
+  return useMutation(getUpdateSystemSettingsMutationOptions(options));
 };
 
 /**

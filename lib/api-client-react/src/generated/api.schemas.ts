@@ -1521,6 +1521,27 @@ export interface AppSettingsPatch {
   templates?: AppSettingsPatchTemplates;
 }
 
+export type SystemSettingsSource =
+  (typeof SystemSettingsSource)[keyof typeof SystemSettingsSource];
+
+export const SystemSettingsSource = {
+  db: "db",
+  env: "env",
+  default: "default",
+} as const;
+
+export interface SystemSettings {
+  /** Admin-configured DB override (null = not set, falls through to env/default). */
+  alertRetentionDays: number | null;
+  /** Value the nightly sweep will actually use (DB > env > default). */
+  effectiveAlertRetentionDays: number;
+  source: SystemSettingsSource;
+  envOverride: number | null;
+  defaultDays: number;
+  minDays: number;
+  maxDays: number;
+}
+
 export type PermissionMatrixDefaults = { [key: string]: string[] };
 
 export type PermissionMatrixOverridesItem = {
@@ -1819,6 +1840,20 @@ export type DeleteAnnouncement200 = {
 
 export type UpdateFeatureFlagBody = {
   isEnabled: boolean;
+};
+
+export type UpdateSystemSettingsBody = {
+  /**
+   * Null clears the DB override and falls back to env/default.
+   * @minimum 7
+   * @maximum 3650
+   */
+  alertRetentionDays: number | null;
+};
+
+export type UpdateSystemSettings200 = {
+  ok: boolean;
+  alertRetentionDays: number | null;
 };
 
 export type UploadCompanyLogoBodyContentType =

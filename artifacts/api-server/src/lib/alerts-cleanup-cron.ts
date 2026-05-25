@@ -26,18 +26,58 @@ import { logger } from "./logger";
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 const FIRST_RUN_DELAY_MS = 150_000;
 const DEFAULT_RETENTION_DAYS = 90;
+const MIN_RETENTION_DAYS = 7;
+const MAX_RETENTION_DAYS = 3650;
 
 export interface AlertsSweepSummary {
   deleted: number;
   retentionDays: number;
+  source: "db" | "env" | "default";
 }
 
-function getRetentionDays(): number {
+function clampRetention(n: number): number | null {
+  if (!Number.isFinite(n) || n < MIN_RETENTION_DAYS || n > MAX_RETENTION_DAYS) {
+    return null;
+  }
+  return Math.floor(n);
+}
+
+function getEnvRetentionDays(): number | null {
   const raw = process.env.ALERTS_RETENTION_DAYS;
-  if (!raw) return DEFAULT_RETENTION_DAYS;
-  const parsed = Number.parseInt(raw, 10);
-  if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_RETENTION_DAYS;
-  return parsed;
+  if (!raw) return null;
+  return clampRetention(Number.parseInt(raw, 10));
+}
+
+/**
+ * Resolve the retention window with the precedence required by task #161:
+ *   1. `app_settings.system.alertRetentionDays` (admin-tunable from /admin)
+ *   2. `ALERTS_RETENTION_DAYS` environment variable
+ *   3. Hardcoded default (90 days)
+ *
+ * Reads are best-effort — a DB blip falls back to env/default so the sweep
+ * still runs.
+ */
+export async function resolveRetention(): Promise<{
+  retentionDays: number;
+  source: "db" | "env" | "default";
+}> {
+  try {
+    const result = await pool.query<{ value: number | null }>(
+      `SELECT (system->>'alertRetentionDays')::int AS value
+         FROM app_settings
+        WHERE id = 1`,
+    );
+    const raw = result.rows[0]?.value;
+    if (raw != null) {
+      const v = clampRetention(Number(raw));
+      if (v != null) return { retentionDays: v, source: "db" };
+    }
+  } catch (err) {
+    logger.warn({ err }, "alerts cleanup: failed to read DB retention setting");
+  }
+  const env = getEnvRetentionDays();
+  if (env != null) return { retentionDays: env, source: "env" };
+  return { retentionDays: DEFAULT_RETENTION_DAYS, source: "default" };
 }
 
 /**
@@ -46,7 +86,7 @@ function getRetentionDays(): number {
  * until more rows age past the threshold.
  */
 export async function runAlertsCleanup(): Promise<AlertsSweepSummary> {
-  const retentionDays = getRetentionDays();
+  const { retentionDays, source } = await resolveRetention();
   try {
     const result = await pool.query(
       `
@@ -59,14 +99,14 @@ export async function runAlertsCleanup(): Promise<AlertsSweepSummary> {
     const deleted = result.rowCount ?? 0;
     if (deleted > 0) {
       logger.info(
-        { deleted, retentionDays },
+        { deleted, retentionDays, source },
         "alerts cleanup: archived read alerts past retention",
       );
     }
-    return { deleted, retentionDays };
+    return { deleted, retentionDays, source };
   } catch (err) {
     logger.error({ err }, "alerts cleanup failed");
-    return { deleted: 0, retentionDays };
+    return { deleted: 0, retentionDays, source };
   }
 }
 

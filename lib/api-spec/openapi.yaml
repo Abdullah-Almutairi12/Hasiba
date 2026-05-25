@@ -1621,6 +1621,48 @@ paths:
               schema:
                 $ref: "#/components/schemas/FeatureFlag"
 
+  /admin/system-settings:
+    get:
+      tags: [admin]
+      summary: Get system-wide admin settings (alert retention, etc.)
+      operationId: getSystemSettings
+      responses:
+        "200":
+          description: System settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SystemSettings"
+    patch:
+      tags: [admin]
+      summary: Update system-wide admin settings (admin only)
+      operationId: updateSystemSettings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                alertRetentionDays:
+                  type: integer
+                  nullable: true
+                  minimum: 7
+                  maximum: 3650
+                  description: Null clears the DB override and falls back to env/default.
+              required: [alertRetentionDays]
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  alertRetentionDays: { type: integer, nullable: true }
+                required: [ok, alertRetentionDays]
+
   /admin/company-settings:
     get:
       tags: [admin]
@@ -4467,6 +4509,36 @@ components:
         appearance: { type: object, additionalProperties: true }
         backup: { type: object, additionalProperties: true }
         templates: { type: object, additionalProperties: true }
+
+    SystemSettings:
+      type: object
+      properties:
+        alertRetentionDays:
+          type: integer
+          nullable: true
+          description: Admin-configured DB override (null = not set, falls through to env/default).
+        effectiveAlertRetentionDays:
+          type: integer
+          description: Value the nightly sweep will actually use (DB > env > default).
+        source:
+          type: string
+          enum: [db, env, default]
+        envOverride:
+          type: integer
+          nullable: true
+        defaultDays: { type: integer }
+        minDays: { type: integer }
+        maxDays: { type: integer }
+      required:
+        [
+          alertRetentionDays,
+          effectiveAlertRetentionDays,
+          source,
+          envOverride,
+          defaultDays,
+          minDays,
+          maxDays,
+        ]
 
     PermissionMatrix:
       type: object

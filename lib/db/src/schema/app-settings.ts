@@ -21,6 +21,9 @@ export const appSettingsTable = pgTable("app_settings", {
   appearance: jsonb("appearance").notNull().default({}),
   backup: jsonb("backup").notNull().default({}),
   templates: jsonb("templates").notNull().default({}),
+  // System-level toggles exposed in /admin (e.g. alertRetentionDays).
+  // Free jsonb bag; shape enforced at the API layer.
+  system: jsonb("system").notNull().default({}),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 

@@ -12,6 +12,8 @@ import {
   useDeleteAnnouncement,
   useListFeatureFlags,
   useUpdateFeatureFlag,
+  useGetSystemSettings,
+  useUpdateSystemSettings,
   useListPermissionMatrix,
   useSetPermissionCell,
   useListAuditLogs,
@@ -1010,6 +1012,102 @@ function PermissionsMatrixTab() {
   );
 }
 
+function AlertRetentionCard() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const { data: settings } = useGetSystemSettings();
+  const updateMut = useUpdateSystemSettings({
+    mutation: {
+      onSuccess: () => {
+        toast({ title: "تم حفظ مدة الاحتفاظ" });
+        void queryClient.invalidateQueries({
+          predicate: (q) => {
+            const k = q.queryKey?.[0];
+            return typeof k === "string" && k.includes("/admin/system-settings");
+          },
+        });
+      },
+      onError: () => {
+        toast({ title: "تعذّر حفظ الإعداد", variant: "destructive" });
+      },
+    },
+  });
+
+  const options = [
+    { value: "default", label: "افتراضي (90 يوم)" },
+    { value: "30", label: "30 يوم" },
+    { value: "60", label: "60 يوم" },
+    { value: "90", label: "90 يوم" },
+    { value: "180", label: "180 يوم" },
+    { value: "365", label: "365 يوم" },
+  ];
+
+  const currentValue =
+    settings?.alertRetentionDays != null
+      ? String(settings.alertRetentionDays)
+      : "default";
+
+  const sourceLabel: Record<string, string> = {
+    db: "محفوظ في قاعدة البيانات",
+    env: "متغيّر بيئة",
+    default: "القيمة الافتراضية",
+  };
+
+  return (
+    <Card data-testid="card-alert-retention">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <History className="size-4 text-primary" />
+          مدة الاحتفاظ بالتنبيهات القديمة
+        </CardTitle>
+        <CardDescription>
+          يحذف النظام تلقائياً التنبيهات المقروءة الأقدم من هذه المدة كل ليلة.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3 text-sm">
+        <div className="flex flex-wrap items-center gap-3">
+          <Label className="min-w-32">المدة الحالية</Label>
+          <Select
+            value={currentValue}
+            onValueChange={(v) => {
+              const next = v === "default" ? null : Number(v);
+              updateMut.mutate({ data: { alertRetentionDays: next } });
+            }}
+            disabled={updateMut.isPending}
+          >
+            <SelectTrigger className="w-56" data-testid="select-alert-retention">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {options.map((o) => (
+                <SelectItem key={o.value} value={o.value}>
+                  {o.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {updateMut.isPending && <Loader2 className="size-4 animate-spin" />}
+        </div>
+        {settings && (
+          <div className="rounded-md border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+            ينفّذ التنظيف القادم باستخدام{" "}
+            <span className="font-bold tabular-nums text-foreground">
+              {settings.effectiveAlertRetentionDays} يوم
+            </span>{" "}
+            ({sourceLabel[settings.source] ?? settings.source}).
+            {settings.envOverride != null && settings.source !== "env" && (
+              <>
+                {" "}
+                متغيّر البيئة المضبوط: {settings.envOverride} يوم.
+              </>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function FeatureFlagsTab() {
   const { data: flags } = useListFeatureFlags();
   const queryClient = useQueryClient();
@@ -1044,6 +1142,7 @@ function FeatureFlagsTab() {
 
   return (
     <div className="space-y-6">
+      <AlertRetentionCard />
       {Object.entries(grouped).map(([cat, items]) => (
         <div key={cat}>
           <h3 className="mb-3 flex items-center gap-2 text-sm font-bold text-muted-foreground">

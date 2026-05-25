@@ -1706,6 +1706,48 @@ export const UpdateFeatureFlagResponse = zod.object({
 });
 
 /**
+ * @summary Get system-wide admin settings (alert retention, etc.)
+ */
+export const GetSystemSettingsResponse = zod.object({
+  alertRetentionDays: zod
+    .number()
+    .nullable()
+    .describe(
+      "Admin-configured DB override (null = not set, falls through to env\/default).",
+    ),
+  effectiveAlertRetentionDays: zod
+    .number()
+    .describe(
+      "Value the nightly sweep will actually use (DB > env > default).",
+    ),
+  source: zod.enum(["db", "env", "default"]),
+  envOverride: zod.number().nullable(),
+  defaultDays: zod.number(),
+  minDays: zod.number(),
+  maxDays: zod.number(),
+});
+
+/**
+ * @summary Update system-wide admin settings (admin only)
+ */
+export const updateSystemSettingsBodyAlertRetentionDaysMin = 7;
+export const updateSystemSettingsBodyAlertRetentionDaysMax = 3650;
+
+export const UpdateSystemSettingsBody = zod.object({
+  alertRetentionDays: zod
+    .number()
+    .min(updateSystemSettingsBodyAlertRetentionDaysMin)
+    .max(updateSystemSettingsBodyAlertRetentionDaysMax)
+    .nullable()
+    .describe("Null clears the DB override and falls back to env\/default."),
+});
+
+export const UpdateSystemSettingsResponse = zod.object({
+  ok: zod.boolean(),
+  alertRetentionDays: zod.number().nullable(),
+});
+
+/**
  * @summary Get company letterhead, bank and PO terms (admin only)
  */
 export const GetCompanySettingsResponse = zod.object({

@@ -9,9 +9,11 @@ import {
   usersTable,
   companySettingsTable,
   alertsTable,
+  appSettingsTable,
 } from "@workspace/db";
 import { uploadBufferToPrivateObject } from "./storage";
 import { eq, sql, desc, and, gt, or, isNull } from "drizzle-orm";
+import { recordAudit } from "../lib/audit";
 import {
   getPermissionMatrixPayload,
   refreshPermissionOverridesCache,
@@ -500,6 +502,117 @@ router.put("/admin/permissions", adminOnly, async (req, res) => {
   } catch (err) {
     req.log.error({ err }, "Set permission cell failed");
     return res.status(400).json({ error: "بيانات غير صحيحة" });
+  }
+});
+
+// ============== System Settings (task #161) ==============
+// Singleton row in `app_settings` carries a `system` jsonb bag with
+// admin-tunable knobs that aren't tied to a particular module. Today
+// it only holds `alertRetentionDays` (consumed by the nightly alerts
+// cleanup cron in lib/alerts-cleanup-cron.ts), but the column is a
+// free bag so future system-wide toggles slot in without migrations.
+const ALERT_RETENTION_MIN = 7;
+const ALERT_RETENTION_MAX = 3650;
+const ALERT_RETENTION_DEFAULT = 90;
+
+async function ensureAppSettingsRow() {
+  await db
+    .insert(appSettingsTable)
+    .values({ id: 1 })
+    .onConflictDoNothing({ target: appSettingsTable.id });
+  const [row] = await db
+    .select()
+    .from(appSettingsTable)
+    .where(eq(appSettingsTable.id, 1))
+    .limit(1);
+  return row!;
+}
+
+function readAlertRetention(systemBag: unknown): number | null {
+  if (!systemBag || typeof systemBag !== "object") return null;
+  const v = (systemBag as Record<string, unknown>)["alertRetentionDays"];
+  if (typeof v !== "number" || !Number.isFinite(v)) return null;
+  if (v < ALERT_RETENTION_MIN || v > ALERT_RETENTION_MAX) return null;
+  return Math.floor(v);
+}
+
+router.get("/admin/system-settings", adminOnly, async (req, res) => {
+  try {
+    const row = await ensureAppSettingsRow();
+    const dbValue = readAlertRetention(row.system);
+    const envRaw = process.env["ALERTS_RETENTION_DAYS"];
+    const envParsed = envRaw ? Number.parseInt(envRaw, 10) : NaN;
+    const envValue =
+      Number.isFinite(envParsed) &&
+      envParsed >= ALERT_RETENTION_MIN &&
+      envParsed <= ALERT_RETENTION_MAX
+        ? envParsed
+        : null;
+    const effective = dbValue ?? envValue ?? ALERT_RETENTION_DEFAULT;
+    const source: "db" | "env" | "default" =
+      dbValue != null ? "db" : envValue != null ? "env" : "default";
+    res.json({
+      alertRetentionDays: dbValue,
+      effectiveAlertRetentionDays: effective,
+      source,
+      envOverride: envValue,
+      defaultDays: ALERT_RETENTION_DEFAULT,
+      minDays: ALERT_RETENTION_MIN,
+      maxDays: ALERT_RETENTION_MAX,
+    });
+  } catch (err) {
+    req.log.error({ err }, "Get system settings failed");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+const UpdateSystemSettingsBody = z.object({
+  // null clears the DB override → cron falls back to env, then default.
+  alertRetentionDays: z
+    .number()
+    .int()
+    .min(ALERT_RETENTION_MIN)
+    .max(ALERT_RETENTION_MAX)
+    .nullable(),
+});
+
+router.patch("/admin/system-settings", adminOnly, async (req, res) => {
+  try {
+    const body = UpdateSystemSettingsBody.parse(req.body);
+    const row = await ensureAppSettingsRow();
+    const prevSystem = (row.system ?? {}) as Record<string, unknown>;
+    const prev = readAlertRetention(prevSystem);
+    const nextSystem: Record<string, unknown> = { ...prevSystem };
+    if (body.alertRetentionDays === null) {
+      delete nextSystem["alertRetentionDays"];
+    } else {
+      nextSystem["alertRetentionDays"] = body.alertRetentionDays;
+    }
+    await db
+      .update(appSettingsTable)
+      .set({ system: nextSystem, updatedAt: new Date() })
+      .where(eq(appSettingsTable.id, row.id));
+    void recordAudit(req, {
+      action: "system_settings.alert_retention_changed",
+      entity: `app_settings#${row.id}`,
+      details: `from=${prev ?? "default"} to=${body.alertRetentionDays ?? "default"}`,
+      severity: "info",
+    });
+    req.log.info(
+      {
+        userId: req.session?.userId,
+        prev,
+        next: body.alertRetentionDays,
+      },
+      "admin.system_settings.alert_retention_changed",
+    );
+    return res.json({ ok: true, alertRetentionDays: body.alertRetentionDays });
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return res.status(400).json({ error: "بيانات غير صحيحة" });
+    }
+    req.log.error({ err }, "Patch system settings failed");
+    return res.status(500).json({ error: "Internal server error" });
   }
 });
 
