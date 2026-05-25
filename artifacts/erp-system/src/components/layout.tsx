@@ -28,6 +28,7 @@ import {
   Languages,
   User as UserIcon,
   AlertTriangle,
+  Truck,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useTheme, type ThemeMode } from "@/hooks/use-theme";
@@ -72,6 +73,7 @@ const mainNavItems = [
   { key: "crm", url: "/crm", icon: Target },
   { key: "invoices", url: "/invoices", icon: FileText },
   { key: "customers", url: "/customers", icon: Users },
+  { key: "suppliers", url: "/suppliers", icon: Truck },
 ] as const;
 
 const financeNavItems = [

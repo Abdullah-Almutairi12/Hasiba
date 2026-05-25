@@ -73,6 +73,7 @@ export const NAV_PERMISSIONS: Record<string, readonly Role[]> = {
   products: ALL_ROLES, // read-only for most; writes guarded server-side
   invoices: GROUPS.invoiceRead,
   customers: ["owner", "manager", "accountant", "sales", "cashier", "marketing", "auditor"],
+  suppliers: GROUPS.supplierRead,
   accounting: ["owner", "manager", "accountant", "auditor"],
   reports: GROUPS.reportRead,
   reports_builder: GROUPS.reportRead,

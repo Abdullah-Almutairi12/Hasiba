@@ -28,6 +28,7 @@ const ReportsBuilder = lazy(() => import("@/pages/reports-builder"));
 const ReportsSaved = lazy(() => import("@/pages/reports-saved"));
 const MyDashboard = lazy(() => import("@/pages/my-dashboard"));
 const Customers = lazy(() => import("@/pages/customers"));
+const Suppliers = lazy(() => import("@/pages/suppliers"));
 const Branches = lazy(() => import("@/pages/branches"));
 const UsersPage = lazy(() => import("@/pages/users"));
 const HrPage = lazy(() => import("@/pages/hr"));
@@ -135,6 +136,9 @@ function Router() {
         </Route>
         <Route path="/customers">
           <Protected><Customers /></Protected>
+        </Route>
+        <Route path="/suppliers">
+          <Protected><Suppliers /></Protected>
         </Route>
         <Route path="/branches">
           <Protected><Branches /></Protected>

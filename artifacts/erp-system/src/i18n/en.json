@@ -17,6 +17,7 @@
     "products": "Products & Inventory",
     "invoices": "Supplier Invoices",
     "customers": "Customers",
+    "suppliers": "Suppliers",
     "accounting": "Accounting & Compliance",
     "reports": "Reports & Analytics",
     "reports_builder": "Report Builder",
