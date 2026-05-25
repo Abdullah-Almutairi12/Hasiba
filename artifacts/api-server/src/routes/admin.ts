@@ -13,7 +13,7 @@ import {
   alertsCleanupRunsTable,
 } from "@workspace/db";
 import { uploadBufferToPrivateObject } from "./storage";
-import { eq, sql, desc, and, gt, or, isNull } from "drizzle-orm";
+import { eq, sql, desc, and, gt, gte, lte, or, isNull } from "drizzle-orm";
 import { recordAudit } from "../lib/audit";
 import {
   getPermissionMatrixPayload,
@@ -297,9 +297,27 @@ router.get(
   adminOnly,
   async (req, res) => {
     try {
+      // Task #174: optional `from` / `to` ISO date filters so admins can
+      // export a specific window (e.g. a quarter) instead of all kept rows.
+      const parseBoundary = (raw: unknown): Date | null => {
+        if (typeof raw !== "string" || raw.trim() === "") return null;
+        const d = new Date(raw);
+        return Number.isNaN(d.getTime()) ? null : d;
+      };
+      const from = parseBoundary(req.query.from);
+      const to = parseBoundary(req.query.to);
+      if ((req.query.from && !from) || (req.query.to && !to)) {
+        return res
+          .status(400)
+          .json({ error: "Invalid 'from' or 'to' date" });
+      }
+      const conds = [] as Array<ReturnType<typeof gte>>;
+      if (from) conds.push(gte(alertsCleanupRunsTable.ranAt, from));
+      if (to) conds.push(lte(alertsCleanupRunsTable.ranAt, to));
       const rows = await db
         .select()
         .from(alertsCleanupRunsTable)
+        .where(conds.length ? and(...conds) : undefined)
         .orderBy(desc(alertsCleanupRunsTable.ranAt));
       const escape = (v: unknown) => {
         if (v == null) return "";

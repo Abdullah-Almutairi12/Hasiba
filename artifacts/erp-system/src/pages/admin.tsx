@@ -264,13 +264,27 @@ function InvoiceSendFailuresCard() {
 function AlertsCleanupCard() {
   const { data } = useGetAlertsCleanupLastRun();
   const { data: history } = useGetAlertsCleanupHistory();
+  const [csvFrom, setCsvFrom] = useState("");
+  const [csvTo, setCsvTo] = useState("");
   const lastRunAt = data?.lastRunAt
     ? new Date(data.lastRunAt).toLocaleString("ar-SA")
     : null;
   const runs = history ?? [];
-  const csvHref =
-    (import.meta.env.BASE_URL || "/").replace(/\/$/, "") +
-    "/api/admin/system-settings/alerts-cleanup-runs.csv";
+  const csvHref = (() => {
+    const base =
+      (import.meta.env.BASE_URL || "/").replace(/\/$/, "") +
+      "/api/admin/system-settings/alerts-cleanup-runs.csv";
+    const params = new URLSearchParams();
+    if (csvFrom) params.set("from", new Date(csvFrom).toISOString());
+    if (csvTo) {
+      // include the whole "to" day by snapping to 23:59:59.999
+      const d = new Date(csvTo);
+      d.setHours(23, 59, 59, 999);
+      params.set("to", d.toISOString());
+    }
+    const qs = params.toString();
+    return qs ? `${base}?${qs}` : base;
+  })();
   const maxDeleted = runs.reduce(
     (m, r) => (r.rowsDeleted > m ? r.rowsDeleted : m),
     0,
@@ -290,18 +304,54 @@ function AlertsCleanupCard() {
               آخر مرة نظّف فيها النظام التنبيهات القديمة المقروءة تلقائياً.
             </CardDescription>
           </div>
-          <Button
-            asChild
-            variant="outline"
-            size="sm"
-            className="gap-1.5"
-            data-testid="button-export-alerts-cleanup-csv"
-          >
-            <a href={csvHref} download>
-              <FileDown className="size-3.5" />
-              تصدير CSV
-            </a>
-          </Button>
+          <div className="flex flex-col items-end gap-1.5">
+            <div className="flex items-center gap-1.5">
+              <Input
+                type="date"
+                value={csvFrom}
+                onChange={(e) => setCsvFrom(e.target.value)}
+                max={csvTo || undefined}
+                className="h-8 w-[8.5rem] text-xs"
+                aria-label="من تاريخ"
+                data-testid="input-alerts-cleanup-csv-from"
+              />
+              <span className="text-xs text-muted-foreground">إلى</span>
+              <Input
+                type="date"
+                value={csvTo}
+                onChange={(e) => setCsvTo(e.target.value)}
+                min={csvFrom || undefined}
+                className="h-8 w-[8.5rem] text-xs"
+                aria-label="إلى تاريخ"
+                data-testid="input-alerts-cleanup-csv-to"
+              />
+              <Button
+                asChild
+                variant="outline"
+                size="sm"
+                className="gap-1.5"
+                data-testid="button-export-alerts-cleanup-csv"
+              >
+                <a href={csvHref} download>
+                  <FileDown className="size-3.5" />
+                  تصدير CSV
+                </a>
+              </Button>
+            </div>
+            {(csvFrom || csvTo) && (
+              <button
+                type="button"
+                onClick={() => {
+                  setCsvFrom("");
+                  setCsvTo("");
+                }}
+                className="text-[11px] text-muted-foreground hover:text-foreground"
+                data-testid="button-alerts-cleanup-csv-reset"
+              >
+                إعادة تعيين النطاق (كل الفترات)
+              </button>
+            )}
+          </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-2 text-sm">
