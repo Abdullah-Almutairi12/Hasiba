@@ -91,6 +91,8 @@ import type {
   DeleteApprovalRule200,
   DeleteAutomationRule200,
   DeleteDelegation200,
+  DismissDashboardAlert200,
+  DismissDashboardAlertBody,
   ExchangeRate,
   FeatureFlag,
   FinancialLimit,
@@ -594,6 +596,95 @@ export function useGetDashboardAlerts<
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
+
+/**
+ * Persists a per-user dismissal of a dashboard alert by its stable `key`. Dismissed alerts disappear from `GET /dashboard/alerts` for that user until the underlying condition re-triggers (i.e. its `triggeredAt` advances past the dismissal time). Safe to call repeatedly; later calls refresh the dismissedAt timestamp.
+
+ * @summary Dismiss a dashboard alert for the current user
+ */
+export const getDismissDashboardAlertUrl = () => {
+  return `/api/dashboard/alerts/dismiss`;
+};
+
+export const dismissDashboardAlert = async (
+  dismissDashboardAlertBody: DismissDashboardAlertBody,
+  options?: RequestInit,
+): Promise<DismissDashboardAlert200> => {
+  return customFetch<DismissDashboardAlert200>(getDismissDashboardAlertUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(dismissDashboardAlertBody),
+  });
+};
+
+export const getDismissDashboardAlertMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof dismissDashboardAlert>>,
+    TError,
+    { data: BodyType<DismissDashboardAlertBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof dismissDashboardAlert>>,
+  TError,
+  { data: BodyType<DismissDashboardAlertBody> },
+  TContext
+> => {
+  const mutationKey = ["dismissDashboardAlert"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof dismissDashboardAlert>>,
+    { data: BodyType<DismissDashboardAlertBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return dismissDashboardAlert(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DismissDashboardAlertMutationResult = NonNullable<
+  Awaited<ReturnType<typeof dismissDashboardAlert>>
+>;
+export type DismissDashboardAlertMutationBody =
+  BodyType<DismissDashboardAlertBody>;
+export type DismissDashboardAlertMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Dismiss a dashboard alert for the current user
+ */
+export const useDismissDashboardAlert = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof dismissDashboardAlert>>,
+    TError,
+    { data: BodyType<DismissDashboardAlertBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof dismissDashboardAlert>>,
+  TError,
+  { data: BodyType<DismissDashboardAlertBody> },
+  TContext
+> => {
+  return useMutation(getDismissDashboardAlertMutationOptions(options));
+};
 
 /**
  * @summary Get branch comparison data

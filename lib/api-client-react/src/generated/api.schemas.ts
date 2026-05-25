@@ -392,6 +392,9 @@ export interface Alert {
   createdAt: string;
   /** Optional in-app link for click-through (e.g. synthetic alerts that point at a specific page). */
   href?: string;
+  /** Stable string identifier used to dismiss the alert via POST /dashboard/alerts/dismiss. `alert:<id>` for persisted rows, `synthetic:<name>` for computed banners.
+   */
+  key: string;
 }
 
 export type BranchPerformanceStatus =
@@ -1592,6 +1595,15 @@ export const GetDashboardSalesChartPeriod = {
   monthly: "monthly",
   yearly: "yearly",
 } as const;
+
+export type DismissDashboardAlertBody = {
+  /** The alert's stable `key` as returned by GET /dashboard/alerts. */
+  key: string;
+};
+
+export type DismissDashboardAlert200 = {
+  ok: boolean;
+};
 
 export type ListProductsParams = {
   category?: string;

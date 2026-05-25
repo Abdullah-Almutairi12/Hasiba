@@ -5,12 +5,15 @@ import {
   posOrdersTable,
   posSessionsTable,
   alertsTable,
+  alertDismissalsTable,
   branchesTable,
   invoicesTable,
   auditLogsTable,
   intercompanyLinksTable,
 } from "@workspace/db";
 import { sql, gte, desc, and, lt, eq } from "drizzle-orm";
+import { z } from "zod/v4";
+import { handleRouteError } from "../lib/handle-error";
 import { adminGuard } from "../middlewares/require-role";
 import { getCompanyId } from "../lib/scoped-db";
 
@@ -289,6 +292,7 @@ router.get("/dashboard/sales-chart", async (req, res) => {
 router.get("/dashboard/alerts", async (req, res) => {
   try {
     const companyId = getCompanyId(req);
+    const userId = req.session?.userId;
     const alertScope = eq(alertsTable.companyId, companyId);
     const role = req.session?.role;
     const isFinance = typeof role === "string" && FINANCE_ROLES.has(role);
@@ -303,6 +307,28 @@ router.get("/dashboard/alerts", async (req, res) => {
       .where(alertScope)
       .orderBy(desc(alertsTable.createdAt))
       .limit(10);
+
+    // Per-user dismissals: hide an alert iff its trigger timestamp
+    // is <= dismissedAt. Fetched once and joined client-side because
+    // synthetic and persisted alerts share the same lookup table.
+    const dismissalsPromise =
+      typeof userId === "number"
+        ? db
+            .select({
+              alertKey: alertDismissalsTable.alertKey,
+              dismissedAt: alertDismissalsTable.dismissedAt,
+            })
+            .from(alertDismissalsTable)
+            .where(
+              and(
+                eq(alertDismissalsTable.userId, userId),
+                // Tenant scope: a user that belongs to multiple
+                // companies dismisses per-company, so the synthetic
+                // banner hidden in company A still shows in company B.
+                eq(alertDismissalsTable.companyId, companyId),
+              ),
+            )
+        : Promise.resolve([] as Array<{ alertKey: string; dismissedAt: Date }>);
 
     // Only finance roles ever see the stale-scan banner; for everyone
     // else we skip the extra DB round-trip entirely.
@@ -329,10 +355,18 @@ router.get("/dashboard/alerts", async (req, res) => {
         ])
       : Promise.resolve(null);
 
-    const [alerts, staleData] = await Promise.all([alertsPromise, stalePromise]);
+    const [alerts, staleData, dismissals] = await Promise.all([
+      alertsPromise,
+      stalePromise,
+      dismissalsPromise,
+    ]);
+
+    const dismissedAtByKey = new Map<string, Date>();
+    for (const d of dismissals) dismissedAtByKey.set(d.alertKey, d.dismissedAt);
 
     const synthetic: Array<{
       id: number;
+      key: string;
       type: string;
       title: string;
       message: string;
@@ -349,38 +383,116 @@ router.get("/dashboard/alerts", async (req, res) => {
         ? !lastScan || Date.now() - lastScan.createdAt.getTime() > STALE_SCAN_MS
         : false;
       if (isStale) {
-        const message = lastScan
-          ? `لم يعمل الفحص الليلي لعدم التطابق بين الشركات منذ أكثر من 26 ساعة (آخر تشغيل: ${lastScan.createdAt.toISOString()}). افتح /intercompany?tab=imbalances للمراجعة.`
-          : "لم يعمل الفحص الليلي لعدم التطابق بين الشركات بعد رغم وجود روابط بين شركات. افتح /intercompany?tab=imbalances للمراجعة.";
-        synthetic.push({
-          // Negative sentinel id keeps the synthetic row distinguishable
-          // from real alerts.id (serial, always positive) and stable for
-          // React list keys across polls.
-          id: -1,
-          type: "warning",
-          title: "فحص عدم التطابق بين الشركات متأخر",
-          message,
-          isRead: false,
-          createdAt: new Date().toISOString(),
-          href: "/intercompany?tab=imbalances",
-        });
+        const key = "synthetic:stale_scan";
+        // triggeredAt = the moment the banner became stale. When a
+        // fresh `scan_nightly` runs and the condition relapses, this
+        // advances and the alert re-emerges past any older dismissal.
+        const triggeredAt = lastScan
+          ? new Date(lastScan.createdAt.getTime() + STALE_SCAN_MS)
+          : new Date(0);
+        const dismissedAt = dismissedAtByKey.get(key);
+        if (!dismissedAt || triggeredAt > dismissedAt) {
+          const message = lastScan
+            ? `لم يعمل الفحص الليلي لعدم التطابق بين الشركات منذ أكثر من 26 ساعة (آخر تشغيل: ${lastScan.createdAt.toISOString()}). افتح /intercompany?tab=imbalances للمراجعة.`
+            : "لم يعمل الفحص الليلي لعدم التطابق بين الشركات بعد رغم وجود روابط بين شركات. افتح /intercompany?tab=imbalances للمراجعة.";
+          synthetic.push({
+            // Negative sentinel id keeps the synthetic row distinguishable
+            // from real alerts.id (serial, always positive) and stable for
+            // React list keys across polls.
+            id: -1,
+            key,
+            type: "warning",
+            title: "فحص عدم التطابق بين الشركات متأخر",
+            message,
+            isRead: false,
+            createdAt: new Date().toISOString(),
+            href: "/intercompany?tab=imbalances",
+          });
+        }
       }
     }
 
-    res.json([
-      ...synthetic,
-      ...alerts.map((a) => ({
+    const persisted = alerts
+      .filter((a) => {
+        const dismissedAt = dismissedAtByKey.get(`alert:${a.id}`);
+        // Real alerts have a fixed createdAt, so any dismissal after
+        // creation hides the row indefinitely — a new trigger inserts
+        // a new alerts row with a fresh id (and therefore a fresh key).
+        return !dismissedAt || a.createdAt > dismissedAt;
+      })
+      .map((a) => ({
         id: a.id,
+        key: `alert:${a.id}`,
         type: a.type,
         title: a.title,
         message: a.message,
         isRead: a.isRead,
         createdAt: a.createdAt.toISOString(),
-      })),
-    ]);
+      }));
+
+    res.json([...synthetic, ...persisted]);
   } catch (err) {
     req.log.error({ err }, "Error fetching alerts");
     res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+const dismissAlertBodySchema = z.object({
+  key: z
+    .string()
+    .min(1)
+    .max(128)
+    .regex(/^[a-z0-9:_-]+$/i, "key must be alphanumeric with : _ -"),
+});
+
+router.post("/dashboard/alerts/dismiss", async (req, res) => {
+  try {
+    const userId = req.session?.userId;
+    if (typeof userId !== "number") {
+      res.status(401).json({ error: "Not authenticated" });
+      return;
+    }
+    const companyId = getCompanyId(req);
+    const { key } = dismissAlertBodySchema.parse(req.body);
+
+    // Validate the key actually corresponds to an alert visible to
+    // this tenant — prevents users from poisoning the dismissals
+    // table with arbitrary keys or hiding sibling tenants' alerts.
+    if (key.startsWith("alert:")) {
+      const numericId = Number(key.slice("alert:".length));
+      if (!Number.isInteger(numericId) || numericId <= 0) {
+        res.status(400).json({ error: "Invalid alert key" });
+        return;
+      }
+      const [row] = await db
+        .select({ id: alertsTable.id })
+        .from(alertsTable)
+        .where(and(eq(alertsTable.id, numericId), eq(alertsTable.companyId, companyId)))
+        .limit(1);
+      if (!row) {
+        res.status(404).json({ error: "Alert not found" });
+        return;
+      }
+    } else if (key !== "synthetic:stale_scan") {
+      res.status(400).json({ error: "Unknown alert key" });
+      return;
+    }
+
+    await db
+      .insert(alertDismissalsTable)
+      .values({ userId, companyId, alertKey: key })
+      .onConflictDoUpdate({
+        target: [
+          alertDismissalsTable.userId,
+          alertDismissalsTable.companyId,
+          alertDismissalsTable.alertKey,
+        ],
+        set: { dismissedAt: new Date() },
+      });
+
+    res.json({ ok: true });
+  } catch (err) {
+    handleRouteError(err, res);
   }
 });
 

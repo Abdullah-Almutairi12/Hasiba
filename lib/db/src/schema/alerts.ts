@@ -1,7 +1,8 @@
-import { pgTable, serial, text, boolean, timestamp, integer } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, boolean, timestamp, integer, uniqueIndex } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { companiesTable } from "./companies";
+import { usersTable } from "./users";
 
 export const alertsTable = pgTable("alerts", {
   id: serial("id").primaryKey(),
@@ -26,3 +27,38 @@ export const alertsTable = pgTable("alerts", {
 export const insertAlertSchema = createInsertSchema(alertsTable).omit({ id: true, createdAt: true });
 export type InsertAlert = z.infer<typeof insertAlertSchema>;
 export type Alert = typeof alertsTable.$inferSelect;
+
+/**
+ * Per-user dismissal of a dashboard alert row. `alertKey` is the
+ * stable string identifier surfaced by GET /dashboard/alerts:
+ *   - persisted alerts: `alert:<id>`
+ *   - synthetic stale-scan banner: `synthetic:stale_scan`
+ * The reader treats an alert as hidden when a dismissal exists AND
+ * the alert's current trigger timestamp is <= dismissedAt. A new
+ * persisted alert (different id) gets its own key, and the synthetic
+ * banner re-emerges only after a fresh `scan_nightly` runs (advancing
+ * the triggeredAt) and the condition relapses.
+ */
+export const alertDismissalsTable = pgTable(
+  "alert_dismissals",
+  {
+    id: serial("id").primaryKey(),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => usersTable.id, { onDelete: "cascade" }),
+    companyId: integer("company_id")
+      .notNull()
+      .references(() => companiesTable.id, { onDelete: "cascade" }),
+    alertKey: text("alert_key").notNull(),
+    dismissedAt: timestamp("dismissed_at").notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("alert_dismissals_user_company_key_uq").on(
+      t.userId,
+      t.companyId,
+      t.alertKey,
+    ),
+  ],
+);
+
+export type AlertDismissal = typeof alertDismissalsTable.$inferSelect;

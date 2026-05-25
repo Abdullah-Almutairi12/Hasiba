@@ -5,8 +5,11 @@ import {
   useGetDashboardSummary,
   useGetDashboardSalesChart,
   useGetDashboardAlerts,
+  useDismissDashboardAlert,
+  getGetDashboardAlertsQueryKey,
   useGetBranchPerformance,
 } from "@workspace/api-client-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
@@ -20,7 +23,8 @@ import {
   AlertCircle,
   Info,
   CheckCircle2,
-  AlertTriangle
+  AlertTriangle,
+  X
 } from "lucide-react";
 import {
   AreaChart,
@@ -98,6 +102,34 @@ export default function Dashboard() {
   const { data: salesChart, isLoading: isLoadingSales } = useGetDashboardSalesChart({ period: 'monthly' });
   const { data: alerts, isLoading: isLoadingAlerts } = useGetDashboardAlerts();
   const { data: branches, isLoading: isLoadingBranches } = useGetBranchPerformance();
+  const queryClient = useQueryClient();
+  const dismissAlert = useDismissDashboardAlert({
+    mutation: {
+      // Optimistically remove the row so finance gets instant feedback;
+      // the next refetch reconciles against the server's truth.
+      onMutate: async ({ data }) => {
+        const queryKey = getGetDashboardAlertsQueryKey();
+        await queryClient.cancelQueries({ queryKey });
+        const previous = queryClient.getQueryData<typeof alerts>(queryKey);
+        if (previous) {
+          queryClient.setQueryData(
+            queryKey,
+            previous.filter((a) => a.key !== data.key),
+          );
+        }
+        return { previous };
+      },
+      onError: (_err, _vars, ctx) => {
+        const queryKey = getGetDashboardAlertsQueryKey();
+        if (ctx && "previous" in ctx && ctx.previous) {
+          queryClient.setQueryData(queryKey, ctx.previous);
+        }
+      },
+      onSettled: () => {
+        queryClient.invalidateQueries({ queryKey: getGetDashboardAlertsQueryKey() });
+      },
+    },
+  });
 
   if (isLoadingSummary) {
     return (
@@ -288,16 +320,33 @@ export default function Dashboard() {
                   Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-12 w-full rounded-md" />)
                 ) : (
                   alerts?.slice(0, 3).map((alert) => {
+                    const handleDismiss = (e: React.MouseEvent) => {
+                      // Stop the outer anchor from navigating when the
+                      // user is reaching for the dismiss control.
+                      e.preventDefault();
+                      e.stopPropagation();
+                      dismissAlert.mutate({ data: { key: alert.key } });
+                    };
                     const inner = (
                       <div className="flex gap-3 p-3 rounded-lg bg-black/20 border border-white/5 hover:bg-black/30 transition-colors">
                         {alert.type === 'danger' && <AlertCircle className="size-5 text-red-500 shrink-0 mt-0.5" />}
                         {alert.type === 'warning' && <AlertTriangle className="size-5 text-yellow-500 shrink-0 mt-0.5" />}
                         {alert.type === 'success' && <CheckCircle2 className="size-5 text-green-500 shrink-0 mt-0.5" />}
                         {alert.type === 'info' && <Info className="size-5 text-cyan-500 shrink-0 mt-0.5" />}
-                        <div>
+                        <div className="flex-1 min-w-0">
                           <h4 className="text-sm font-medium text-foreground">{alert.title}</h4>
                           <p className="text-xs text-muted-foreground mt-0.5">{alert.message}</p>
                         </div>
+                        <button
+                          type="button"
+                          onClick={handleDismiss}
+                          aria-label="إخفاء التنبيه"
+                          title="إخفاء التنبيه"
+                          data-testid={`button-dismiss-alert-${alert.id}`}
+                          className="shrink-0 -mt-1 -ml-1 p-1 rounded-md text-muted-foreground/70 hover:text-foreground hover:bg-white/10 transition-colors"
+                        >
+                          <X className="size-4" />
+                        </button>
                       </div>
                     );
                     return alert.href ? (

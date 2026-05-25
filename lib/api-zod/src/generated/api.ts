@@ -82,10 +82,32 @@ export const GetDashboardAlertsResponseItem = zod.object({
     .describe(
       "Optional in-app link for click-through (e.g. synthetic alerts that point at a specific page).",
     ),
+  key: zod
+    .string()
+    .describe(
+      "Stable string identifier used to dismiss the alert via POST \/dashboard\/alerts\/dismiss. `alert:<id>` for persisted rows, `synthetic:<name>` for computed banners.\n",
+    ),
 });
 export const GetDashboardAlertsResponse = zod.array(
   GetDashboardAlertsResponseItem,
 );
+
+/**
+ * Persists a per-user dismissal of a dashboard alert by its stable `key`. Dismissed alerts disappear from `GET /dashboard/alerts` for that user until the underlying condition re-triggers (i.e. its `triggeredAt` advances past the dismissal time). Safe to call repeatedly; later calls refresh the dismissedAt timestamp.
+
+ * @summary Dismiss a dashboard alert for the current user
+ */
+export const DismissDashboardAlertBody = zod.object({
+  key: zod
+    .string()
+    .describe(
+      "The alert's stable `key` as returned by GET \/dashboard\/alerts.",
+    ),
+});
+
+export const DismissDashboardAlertResponse = zod.object({
+  ok: zod.boolean(),
+});
 
 /**
  * @summary Get branch comparison data

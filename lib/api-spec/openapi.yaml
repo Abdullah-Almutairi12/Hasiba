@@ -107,6 +107,40 @@ paths:
                 items:
                   $ref: "#/components/schemas/Alert"
 
+  /dashboard/alerts/dismiss:
+    post:
+      operationId: dismissDashboardAlert
+      tags: [dashboard]
+      summary: Dismiss a dashboard alert for the current user
+      description: >
+        Persists a per-user dismissal of a dashboard alert by its stable
+        `key`. Dismissed alerts disappear from `GET /dashboard/alerts`
+        for that user until the underlying condition re-triggers
+        (i.e. its `triggeredAt` advances past the dismissal time). Safe
+        to call repeatedly; later calls refresh the dismissedAt
+        timestamp.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                key:
+                  type: string
+                  description: The alert's stable `key` as returned by GET /dashboard/alerts.
+              required: [key]
+      responses:
+        "200":
+          description: Dismissal recorded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                required: [ok]
+
   /dashboard/branch-performance:
     get:
       operationId: getBranchPerformance
@@ -2845,7 +2879,13 @@ components:
         href:
           type: string
           description: Optional in-app link for click-through (e.g. synthetic alerts that point at a specific page).
-      required: [id, type, title, message, isRead, createdAt]
+        key:
+          type: string
+          description: >
+            Stable string identifier used to dismiss the alert via POST
+            /dashboard/alerts/dismiss. `alert:<id>` for persisted rows,
+            `synthetic:<name>` for computed banners.
+      required: [id, type, title, message, isRead, createdAt, key]
 
     BranchPerformance:
       type: object
