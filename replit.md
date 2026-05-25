@@ -122,6 +122,32 @@ Frontend mirror in `artifacts/erp-system/src/hooks/use-permissions.ts` (`NAV_PER
 
 **Important pitfall (fixed):** `router.use(guard)` without a path prefix runs for every request that enters the router, regardless of route matching. When applying a router-level guard, always scope it: `router.use("/reports", reportReadGuard)`.
 
+## Testing
+
+Server-side unit + integration tests live next to the code they cover
+(`src/**/*.test.ts`) and run with Vitest against the live `DATABASE_URL`
+(fixtures are tagged with `vitest-<ts>` and cleaned up in `afterAll`).
+
+- `pnpm --filter @workspace/api-server run test` — run the full suite
+- Current coverage:
+  - `lib/integrations/shipping.test.ts` — webhook security boundary
+    (carrier-scoped lookup, signature required for production carriers,
+    HMAC verification, happy-path event ingestion)
+  - `lib/scoped-db.test.ts` — multi-tenant isolation invariants
+    (`stamp()` overrides client `companyId`, `scope()` filters by
+    bound tenant, `scoped()` composes AND with extra predicates)
+
+## Build / bundle
+
+The API is bundled to a single ESM file via esbuild. Large pure-JS
+runtime libs (`openai`, `exceljs`, `pdfkit`, `qrcode`,
+`arabic-reshaper`, `bidi-js`, `google-auth-library`) are kept as
+externals — Node resolves them from `node_modules` at startup. This
+cut `dist/index.mjs` from 9.3 MB → ~4.7 MB. Do **not** externalize
+`@peculiar/x509` / `node-forge` / `tsyringe`: they require
+`reflect-metadata` to load first, and bundling guarantees the init
+order esbuild produces.
+
 ## Important Notes
 
 - `lib/api-zod/src/index.ts` must contain ONLY `export * from "./generated/api";` — do not add other exports
