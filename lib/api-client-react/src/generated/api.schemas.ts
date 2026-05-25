@@ -2087,11 +2087,21 @@ export type SendCleanupReportTest400 = {
   reason?: string;
 };
 
+/**
+ * Optional subset selector (task #201). When `recipients` is omitted or empty the email goes to every recipient of the original send (legacy behaviour). When provided, the email goes only to those addresses, which must all be present in the original send's recipient list.
+ */
+export type ResendCleanupReportBody = {
+  /** @maxItems 50 */
+  recipients?: string[];
+};
+
 export type ResendCleanupReport200 = {
   ok: boolean;
   sent: boolean;
   recipients?: string[];
   rowCount?: number;
+  /** True when the send went to a strict subset of the original recipients (task #201). */
+  subset?: boolean;
 };
 
 export type ResendCleanupReport400 = {

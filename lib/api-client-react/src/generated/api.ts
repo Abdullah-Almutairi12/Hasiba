@@ -165,6 +165,7 @@ import type {
   ResendCleanupReport200,
   ResendCleanupReport400,
   ResendCleanupReport404,
+  ResendCleanupReportBody,
   RetryInvoiceSendFailure200,
   RetryInvoiceSendFailure404,
   RetryInvoiceSendFailure409,
@@ -8193,11 +8194,14 @@ export const getResendCleanupReportUrl = (id: number) => {
 
 export const resendCleanupReport = async (
   id: number,
+  resendCleanupReportBody?: ResendCleanupReportBody,
   options?: RequestInit,
 ): Promise<ResendCleanupReport200> => {
   return customFetch<ResendCleanupReport200>(getResendCleanupReportUrl(id), {
     ...options,
     method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(resendCleanupReportBody),
   });
 };
 
@@ -8208,14 +8212,14 @@ export const getResendCleanupReportMutationOptions = <
   mutation?: UseMutationOptions<
     Awaited<ReturnType<typeof resendCleanupReport>>,
     TError,
-    { id: number },
+    { id: number; data: BodyType<ResendCleanupReportBody> },
     TContext
   >;
   request?: SecondParameter<typeof customFetch>;
 }): UseMutationOptions<
   Awaited<ReturnType<typeof resendCleanupReport>>,
   TError,
-  { id: number },
+  { id: number; data: BodyType<ResendCleanupReportBody> },
   TContext
 > => {
   const mutationKey = ["resendCleanupReport"];
@@ -8229,11 +8233,11 @@ export const getResendCleanupReportMutationOptions = <
 
   const mutationFn: MutationFunction<
     Awaited<ReturnType<typeof resendCleanupReport>>,
-    { id: number }
+    { id: number; data: BodyType<ResendCleanupReportBody> }
   > = (props) => {
-    const { id } = props ?? {};
+    const { id, data } = props ?? {};
 
-    return resendCleanupReport(id, requestOptions);
+    return resendCleanupReport(id, data, requestOptions);
   };
 
   return { mutationFn, ...mutationOptions };
@@ -8242,7 +8246,7 @@ export const getResendCleanupReportMutationOptions = <
 export type ResendCleanupReportMutationResult = NonNullable<
   Awaited<ReturnType<typeof resendCleanupReport>>
 >;
-
+export type ResendCleanupReportMutationBody = BodyType<ResendCleanupReportBody>;
 export type ResendCleanupReportMutationError = ErrorType<
   ResendCleanupReport400 | ResendCleanupReport404
 >;
@@ -8257,14 +8261,14 @@ export const useResendCleanupReport = <
   mutation?: UseMutationOptions<
     Awaited<ReturnType<typeof resendCleanupReport>>,
     TError,
-    { id: number },
+    { id: number; data: BodyType<ResendCleanupReportBody> },
     TContext
   >;
   request?: SecondParameter<typeof customFetch>;
 }): UseMutationResult<
   Awaited<ReturnType<typeof resendCleanupReport>>,
   TError,
-  { id: number },
+  { id: number; data: BodyType<ResendCleanupReportBody> },
   TContext
 > => {
   return useMutation(getResendCleanupReportMutationOptions(options));

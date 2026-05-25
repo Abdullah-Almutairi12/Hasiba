@@ -2047,11 +2047,30 @@ export const ResendCleanupReportParams = zod.object({
   id: zod.coerce.number(),
 });
 
+export const resendCleanupReportBodyRecipientsMax = 50;
+
+export const ResendCleanupReportBody = zod
+  .object({
+    recipients: zod
+      .array(zod.string())
+      .max(resendCleanupReportBodyRecipientsMax)
+      .optional(),
+  })
+  .describe(
+    "Optional subset selector (task #201). When `recipients` is omitted or empty the email goes to every recipient of the original send (legacy behaviour). When provided, the email goes only to those addresses, which must all be present in the original send's recipient list.",
+  );
+
 export const ResendCleanupReportResponse = zod.object({
   ok: zod.boolean(),
   sent: zod.boolean(),
   recipients: zod.array(zod.string()).optional(),
   rowCount: zod.number().optional(),
+  subset: zod
+    .boolean()
+    .optional()
+    .describe(
+      "True when the send went to a strict subset of the original recipients (task #201).",
+    ),
 });
 
 /**

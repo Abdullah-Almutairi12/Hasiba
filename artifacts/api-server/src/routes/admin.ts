@@ -1471,12 +1471,24 @@ router.get(
   },
 );
 
-// Task #196: re-send a specific historical cleanup-report email to
-// only the recipients of that original send (not the whole configured
-// recipient list). Lets admins satisfy "I never got the May 12 report"
-// requests without spamming everyone else. Only successful past sends
-// can be re-sent — failures should be re-triggered via "send now".
-// The resend is logged as its own row with trigger="manual".
+// Task #196 / #201: re-send a specific historical cleanup-report
+// email. By default it goes to every recipient of the original send;
+// when the admin passes a `recipients[]` subset in the body (task
+// #201), it goes to only those addresses. The subset must be a strict
+// subset of the original recipients — we never allow this endpoint to
+// introduce new addresses (use "send now" for that). Lets admins
+// satisfy "I never got the May 12 report" support requests without
+// spamming everyone else. Only successful past sends can be re-sent —
+// failures should be re-triggered via "send now". The resend is
+// logged as its own row with trigger="manual".
+const resendCleanupReportBodySchema = z
+  .object({
+    recipients: z
+      .array(z.string().trim().min(1))
+      .max(50)
+      .optional(),
+  })
+  .strict();
 router.post(
   "/admin/system-settings/cleanup-report-sends/:id/resend",
   adminOnly,
@@ -1487,6 +1499,11 @@ router.post(
       if (!Number.isFinite(id) || id <= 0) {
         return res.status(400).json({ error: "معرّف غير صالح" });
       }
+      const parsed = resendCleanupReportBodySchema.safeParse(req.body ?? {});
+      if (!parsed.success) {
+        return res.status(400).json({ error: "طلب غير صالح" });
+      }
+      const subsetRaw = parsed.data.recipients;
       const [row] = await db
         .select()
         .from(cleanupReportSendsTable)
@@ -1500,14 +1517,44 @@ router.post(
           .status(400)
           .json({ error: "لا يمكن إعادة إرسال محاولة فاشلة" });
       }
-      const recipients = (row.recipients ?? "")
+      const originalRecipients = (row.recipients ?? "")
         .split(",")
         .map((r) => r.trim())
         .filter((r) => r.length > 0);
-      if (recipients.length === 0) {
+      if (originalRecipients.length === 0) {
         return res
           .status(400)
           .json({ error: "لا يوجد مستلمون في هذا السجل" });
+      }
+      let recipients = originalRecipients;
+      let isSubset = false;
+      if (subsetRaw && subsetRaw.length > 0) {
+        const originalSet = new Set(
+          originalRecipients.map((r) => r.toLowerCase()),
+        );
+        const requested = Array.from(
+          new Set(subsetRaw.map((r) => r.trim()).filter((r) => r.length > 0)),
+        );
+        const unknown = requested.filter(
+          (r) => !originalSet.has(r.toLowerCase()),
+        );
+        if (unknown.length > 0) {
+          return res.status(400).json({
+            error:
+              "بعض المستلمين المختارين ليسوا من المستلمين الأصليين لهذا السجل",
+          });
+        }
+        // Preserve original casing/order by intersecting against the source list.
+        const requestedLower = new Set(requested.map((r) => r.toLowerCase()));
+        recipients = originalRecipients.filter((r) =>
+          requestedLower.has(r.toLowerCase()),
+        );
+        if (recipients.length === 0) {
+          return res
+            .status(400)
+            .json({ error: "لم يتم اختيار أي مستلم" });
+        }
+        isSubset = recipients.length < originalRecipients.length;
       }
       if (!row.windowFrom || !row.windowTo) {
         // Historical rows from before task #196 didn't store the
@@ -1551,7 +1598,7 @@ router.post(
       void recordAudit(req, {
         action: "system_settings.cleanup_report_resent",
         entity: "cleanup_report_sends",
-        details: `source=${id} recipients=${result.recipients?.length ?? 0} rows=${result.rowCount ?? 0}`,
+        details: `source=${id} recipients=${result.recipients?.length ?? 0}/${originalRecipients.length}${isSubset ? " (subset)" : ""} rows=${result.rowCount ?? 0}`,
         severity: "info",
       });
       return res.json({
@@ -1559,6 +1606,7 @@ router.post(
         sent: true,
         recipients: result.recipients ?? [],
         rowCount: result.rowCount ?? 0,
+        subset: isSubset,
       });
     } catch (err) {
       req.log.error({ err }, "Resend cleanup report failed");

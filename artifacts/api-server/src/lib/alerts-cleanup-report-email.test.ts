@@ -432,8 +432,8 @@ describe("sendCleanupReportEmail", () => {
 
     expect(result.sent).toBe(true);
     const pdfArgs = vi.mocked(pdfMod.buildAlertsCleanupPdf).mock.calls[0][0]!;
-    expect(pdfArgs.from.toISOString()).toBe(from.toISOString());
-    expect(pdfArgs.to.toISOString()).toBe(to.toISOString());
+    expect(pdfArgs.from!.toISOString()).toBe(from.toISOString());
+    expect(pdfArgs.to!.toISOString()).toBe(to.toISOString());
   });
 
   it("recipientsOverride with default asTest (true) keeps existing test-send behavior (prefixed subject, no lastSentAt bump)", async () => {

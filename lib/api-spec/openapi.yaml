@@ -2023,6 +2023,23 @@ paths:
           in: path
           required: true
           schema: { type: integer }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              description: >-
+                Optional subset selector (task #201). When `recipients`
+                is omitted or empty the email goes to every recipient
+                of the original send (legacy behaviour). When provided,
+                the email goes only to those addresses, which must all
+                be present in the original send's recipient list.
+              properties:
+                recipients:
+                  type: array
+                  maxItems: 50
+                  items: { type: string }
       responses:
         "200":
           description: Report re-sent
@@ -2037,6 +2054,11 @@ paths:
                     type: array
                     items: { type: string }
                   rowCount: { type: integer }
+                  subset:
+                    type: boolean
+                    description: >-
+                      True when the send went to a strict subset of the
+                      original recipients (task #201).
                 required: [ok, sent]
         "400":
           description: Invalid id / not a success row / mailer not configured

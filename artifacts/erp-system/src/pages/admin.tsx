@@ -84,6 +84,12 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
   ShieldCheck,
   LifeBuoy,
   Megaphone,
@@ -1902,6 +1908,156 @@ function CleanupReportEmailCard() {
 }
 
 /**
+ * Task #201: per-recipient picker for the "re-send a past report"
+ * action. Opens a popover with one checkbox per original recipient so
+ * an admin can scope the re-send to just the user who reported they
+ * never got the report, instead of duplicating to everyone. Sending
+ * with all boxes ticked (or with the toggle-all flow) is equivalent
+ * to the legacy "re-send to everyone" behaviour.
+ */
+function ResendRecipientPicker({
+  rowId,
+  recipients,
+  windowLabel,
+  isPending,
+  onResend,
+}: {
+  rowId: number;
+  recipients: string[];
+  windowLabel: string;
+  isPending: boolean;
+  onResend: (subset: string[] | null) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [selected, setSelected] = useState<Record<string, boolean>>(() =>
+    Object.fromEntries(recipients.map((r) => [r, true])),
+  );
+  // Re-sync when the popover is opened so a stale selection from a
+  // previous open doesn't carry over if the recipient list changed.
+  useEffect(() => {
+    if (open) {
+      setSelected(Object.fromEntries(recipients.map((r) => [r, true])));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+  const chosen = recipients.filter((r) => selected[r]);
+  const allChecked = chosen.length === recipients.length;
+  const noneChecked = chosen.length === 0;
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 px-2"
+          disabled={isPending}
+          title={`إعادة إرسال نفس النطاق (${windowLabel}) — اختر المستلمين`}
+          data-testid={`button-resend-cleanup-report-${rowId}`}
+        >
+          {isPending ? (
+            <Loader2 className="size-3 animate-spin" />
+          ) : (
+            <RotateCw className="size-3" />
+          )}
+          <span className="ms-1">إعادة الإرسال</span>
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent
+        className="w-72 p-3"
+        align="end"
+        data-testid={`popover-resend-recipients-${rowId}`}
+      >
+        <div className="space-y-2">
+          <div>
+            <div className="text-xs font-medium">إعادة الإرسال إلى</div>
+            <div className="text-[11px] text-muted-foreground" dir="ltr">
+              {windowLabel}
+            </div>
+          </div>
+          <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+            <span>
+              {chosen.length} / {recipients.length} مستلم
+            </span>
+            <button
+              type="button"
+              className="text-primary hover:underline disabled:opacity-50"
+              disabled={recipients.length === 0}
+              onClick={() => {
+                const next = allChecked ? false : true;
+                setSelected(
+                  Object.fromEntries(recipients.map((r) => [r, next])),
+                );
+              }}
+              data-testid={`button-resend-toggle-all-${rowId}`}
+            >
+              {allChecked ? "إلغاء الكل" : "اختيار الكل"}
+            </button>
+          </div>
+          <div className="max-h-56 space-y-1 overflow-y-auto rounded border bg-muted/20 p-2">
+            {recipients.map((r) => {
+              const id = `resend-${rowId}-${r}`;
+              return (
+                <label
+                  key={r}
+                  htmlFor={id}
+                  className="flex cursor-pointer items-center gap-2 rounded px-1 py-1 text-xs hover:bg-muted/60"
+                  dir="ltr"
+                >
+                  <Checkbox
+                    id={id}
+                    checked={!!selected[r]}
+                    onCheckedChange={(v) =>
+                      setSelected((prev) => ({ ...prev, [r]: v === true }))
+                    }
+                    data-testid={`checkbox-resend-recipient-${rowId}-${r}`}
+                  />
+                  <span className="truncate" title={r}>
+                    {r}
+                  </span>
+                </label>
+              );
+            })}
+          </div>
+          <div className="flex items-center justify-end gap-2 pt-1">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-xs"
+              onClick={() => setOpen(false)}
+              data-testid={`button-resend-cancel-${rowId}`}
+            >
+              إلغاء
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              className="h-7 px-3 text-xs"
+              disabled={noneChecked || isPending}
+              onClick={() => {
+                // If every box is ticked, send `null` so the backend
+                // takes the legacy "all original recipients" path
+                // (and the audit log doesn't flag it as a subset).
+                onResend(allChecked ? null : chosen);
+                setOpen(false);
+              }}
+              data-testid={`button-resend-confirm-${rowId}`}
+            >
+              {isPending ? (
+                <Loader2 className="size-3 animate-spin" />
+              ) : (
+                <Send className="size-3" />
+              )}
+              <span className="ms-1">إرسال</span>
+            </Button>
+          </div>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+/**
  * Task #191: shows the last ~20 cleanup-report email send attempts so
  * admins can audit who triggered each send (cron / manual / test),
  * how many recipients it hit, and whether it succeeded.
@@ -1924,9 +2080,12 @@ function CleanupReportSendsHistory() {
   const resendMut = useResendCleanupReport({
     mutation: {
       onSuccess: (resp) => {
+        const count = resp.recipients?.length ?? 0;
         toast({
           title: "تمت إعادة الإرسال",
-          description: `إلى ${resp.recipients?.length ?? 0} مستلم (${resp.rowCount ?? 0} عملية تنظيف).`,
+          description: resp.subset
+            ? `إلى ${count} مستلم محدد (${resp.rowCount ?? 0} عملية تنظيف).`
+            : `إلى ${count} مستلم (${resp.rowCount ?? 0} عملية تنظيف).`,
         });
         void invalidateSends();
       },
@@ -2071,26 +2230,27 @@ function CleanupReportSendsHistory() {
                     </TableCell>
                     <TableCell className="text-xs whitespace-nowrap">
                       {canResend && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 px-2"
-                          disabled={
+                        <ResendRecipientPicker
+                          rowId={r.id}
+                          recipients={(r.recipients ?? "")
+                            .split(",")
+                            .map((s) => s.trim())
+                            .filter((s) => s.length > 0)}
+                          windowLabel={windowLabel!}
+                          isPending={
                             resendMut.isPending &&
                             resendMut.variables?.id === r.id
                           }
-                          onClick={() => resendMut.mutate({ id: r.id })}
-                          title={`إعادة إرسال نفس النطاق (${windowLabel}) إلى نفس المستلمين`}
-                          data-testid={`button-resend-cleanup-report-${r.id}`}
-                        >
-                          {resendMut.isPending &&
-                          resendMut.variables?.id === r.id ? (
-                            <Loader2 className="size-3 animate-spin" />
-                          ) : (
-                            <RotateCw className="size-3" />
-                          )}
-                          <span className="ms-1">إعادة الإرسال</span>
-                        </Button>
+                          onResend={(subset) =>
+                            resendMut.mutate({
+                              id: r.id,
+                              data:
+                                subset && subset.length > 0
+                                  ? { recipients: subset }
+                                  : {},
+                            })
+                          }
+                        />
                       )}
                     </TableCell>
                   </TableRow>
