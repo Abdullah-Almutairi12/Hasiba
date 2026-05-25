@@ -29,7 +29,7 @@ import {
 } from "../middlewares/require-role";
 import { recordAudit } from "../lib/audit";
 import { postJournalEntry } from "../lib/journal-posting";
-import { mirrorPurchaseOrder } from "../lib/intercompany-mirror";
+import { mirrorPurchaseOrder, voidMirrorForSourceTx } from "../lib/intercompany-mirror";
 import { getCompanyId } from "../lib/scoped-db";
 import { recordStockMove, getDefaultWarehouseId, getOrCreateLot } from "../lib/stock-engine";
 import {
@@ -1172,7 +1172,15 @@ router.post("/procurement/purchase-orders/:id/cancel", async (req, res) => {
     if (po.status === "fully_received" || po.status === "closed") {
       res.status(409).json({ error: "لا يمكن إلغاء أمر شراء مستلم/مغلق." }); return;
     }
-    await db.update(purchaseOrdersTable).set({ status: "cancelled" }).where(eq(purchaseOrdersTable.id, id));
+    await db.transaction(async (tx) => {
+      await tx.update(purchaseOrdersTable).set({ status: "cancelled" }).where(eq(purchaseOrdersTable.id, id));
+      // Auto-void the sibling-company sales order mirror, if any, so the
+      // counterparty doesn't keep an open SO for a cancelled PO.
+      await voidMirrorForSourceTx(tx, "purchase_order", id, {
+        userId: req.session?.userId ?? null,
+        userName: null,
+      });
+    });
     void recordAudit(req, {
       action: "cancel", entity: "purchase_order", details: po.reference, severity: "warning",
     });

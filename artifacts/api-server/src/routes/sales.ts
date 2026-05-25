@@ -55,7 +55,7 @@ import { sendMessage } from "../lib/integrations/messaging";
 import { sendByTemplate } from "../lib/integrations/messaging-templates";
 import { buildSignedInvoiceQrPath } from "./integrations";
 import { recordStockMove, getDefaultWarehouseId } from "../lib/stock-engine";
-import { mirrorSalesInvoice } from "../lib/intercompany-mirror";
+import { mirrorSalesInvoice, mirrorCreditNote, voidMirrorForSourceTx } from "../lib/intercompany-mirror";
 import { sendMail, isMailerConfigured } from "../lib/mailer";
 import { MAX_ATTEMPTS as INVOICE_EMAIL_MAX_ATTEMPTS } from "../lib/invoice-email-retry-worker";
 import { warehousesTable as _warehousesTable } from "@workspace/db";
@@ -215,6 +215,13 @@ async function finalizeCreditNoteCancellation(
       .where(eq(creditNotesTable.id, id))
       .returning();
 
+    // Mirror cascade: if this CN had a debit-note mirror in a sibling
+    // company, void it inside the same transaction.
+    await voidMirrorForSourceTx(tx, "credit_note", id, {
+      userId: sessionUserId,
+      userName: null,
+    });
+
     if (note.invoiceId) {
       const [inv] = await tx
         .select()
@@ -336,6 +343,15 @@ async function finalizeCreditNoteIssue(
       .update(creditNotesTable)
       .set({ journalEntryId: je.id, status: "issued" })
       .where(eq(creditNotesTable.id, noteId));
+    // Intercompany mirror: when the source customer invoice was itself
+    // mirrored to a sibling company, emit a debit-note (negative supplier
+    // invoice) in that sibling so AP and AR stay symmetric.
+    await mirrorCreditNote({
+      noteId,
+      sourceCompanyId: companyId,
+      actor: { userId: sessionUserId, userName: null },
+      tx,
+    });
     // Invoice + SO settlement.
     if (note.invoiceId) {
       const [inv] = await tx
@@ -2639,8 +2655,17 @@ router.delete("/sales/invoices/:id", financeGuard, async (req, res) => {
       });
       return;
     }
-    await db.delete(customerInvoiceLinesTable).where(eq(customerInvoiceLinesTable.invoiceId, id));
-    await db.delete(customerInvoicesTable).where(eq(customerInvoicesTable.id, id));
+    await db.transaction(async (tx) => {
+      // Auto-void any intercompany mirror in the sibling company so
+      // we don't leave a dangling supplier invoice behind when the
+      // source draft is destroyed.
+      await voidMirrorForSourceTx(tx, "sales_invoice", id, {
+        userId: req.session?.userId ?? null,
+        userName: null,
+      });
+      await tx.delete(customerInvoiceLinesTable).where(eq(customerInvoiceLinesTable.invoiceId, id));
+      await tx.delete(customerInvoicesTable).where(eq(customerInvoicesTable.id, id));
+    });
     void recordAudit(req, {
       action: "delete",
       entity: "customer_invoice",
@@ -2799,6 +2824,13 @@ router.post("/sales/invoices/:id/reverse", financeGuard, async (req, res) => {
         );
         reverseJournalId = rev.id;
       }
+
+      // Auto-void any intercompany mirror so the sibling company's
+      // supplier invoice flips to cancelled inside this same transaction.
+      await voidMirrorForSourceTx(tx, "sales_invoice", orig.id, {
+        userId: req.session?.userId ?? null,
+        userName: null,
+      });
 
       return { reverse, reverseJournalId };
     });

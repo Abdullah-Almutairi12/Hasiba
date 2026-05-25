@@ -12,6 +12,8 @@ import {
   userCompaniesTable,
   intercompanyLinksTable,
   auditLogsTable,
+  creditNotesTable,
+  creditNoteLinesTable,
   db as defaultDb,
 } from "@workspace/db";
 import { and, eq, inArray, sql } from "drizzle-orm";
@@ -494,6 +496,208 @@ export async function voidMirror(linkId: number, actor: MirrorActor): Promise<vo
       `Voided intercompany mirror ${link.sourceRef} → ${link.targetRef}`,
     );
   });
+}
+
+/**
+ * Internal helper: void a mirror for a given source document inside the
+ * caller's transaction. Used by source-side cancel/reverse routes that
+ * already authorised the actor on the source company — we deliberately
+ * skip the cross-company access check because the mirror cascade must
+ * always succeed when the source-side action succeeds (otherwise the
+ * sibling company is left stranded with a live mirror of a cancelled
+ * source). Idempotent: no-op when no link exists or the link is already
+ * void. Returns the link row that was voided, if any.
+ */
+export async function voidMirrorForSourceTx(
+  tx: Tx,
+  kind: "sales_invoice" | "purchase_order" | "credit_note",
+  sourceDocId: number,
+  actor: MirrorActor,
+): Promise<{ linkId: number; targetDocId: number } | null> {
+  const [link] = await tx
+    .select()
+    .from(intercompanyLinksTable)
+    .where(
+      and(
+        eq(intercompanyLinksTable.kind, kind),
+        eq(intercompanyLinksTable.sourceDocId, sourceDocId),
+      ),
+    );
+  if (!link) return null;
+  if (link.status === "void") {
+    return { linkId: link.id, targetDocId: link.targetDocId };
+  }
+
+  if (link.kind === "sales_invoice" || link.kind === "credit_note") {
+    await tx
+      .update(invoicesTable)
+      .set({
+        status: "cancelled",
+        notes: sql`coalesce(${invoicesTable.notes}, '') || ' [intercompany void]'`,
+      })
+      .where(eq(invoicesTable.id, link.targetDocId));
+  } else if (link.kind === "purchase_order") {
+    await tx
+      .update(salesOrdersTable)
+      .set({ status: "cancelled" })
+      .where(eq(salesOrdersTable.id, link.targetDocId));
+  }
+
+  await tx
+    .update(intercompanyLinksTable)
+    .set({ status: "void", updatedAt: new Date() })
+    .where(eq(intercompanyLinksTable.id, link.id));
+
+  await writeAudit(
+    tx,
+    actor,
+    link.sourceCompanyId,
+    "intercompany_mirror_voided",
+    `Auto-voided intercompany mirror ${link.sourceRef} → ${link.targetRef} (source cancelled/reversed)`,
+  );
+  return { linkId: link.id, targetDocId: link.targetDocId };
+}
+
+export interface MirrorCreditNoteInput {
+  noteId: number;
+  sourceCompanyId: number;
+  actor: MirrorActor;
+  tx?: Tx;
+}
+
+/**
+ * Phase-5 mirror: credit note in source company → debit note (negative
+ * supplier invoice) in target (linked) company. Only fires when the
+ * underlying customer invoice has an existing sales_invoice mirror link
+ * — a free-form CN against a non-mirrored invoice has no counterparty
+ * to mirror to and is silently skipped.
+ *
+ * The debit note is persisted as a row in `invoices` (supplier invoices)
+ * with a negative `amount`, `status='cancelled'` to signal it's a
+ * contra-document, and `isIntercompany=true`. Linked via
+ * `intercompany_links.kind='credit_note'` so /intercompany page can
+ * surface it next to the original sales-invoice mirror.
+ */
+export async function mirrorCreditNote(
+  input: MirrorCreditNoteInput,
+): Promise<{ linkId: number; targetDocId: number } | null> {
+  const tx = input.tx ?? (defaultDb as unknown as Tx);
+  const [note] = await tx
+    .select()
+    .from(creditNotesTable)
+    .where(eq(creditNotesTable.id, input.noteId));
+  if (!note) {
+    throw new IntercompanyMirrorError("INVALID_REFERENCE", `credit note ${input.noteId} not found`);
+  }
+  if (!note.invoiceId) return null;
+
+  // Mirror only when the underlying customer invoice was itself mirrored.
+  const [invLink] = await tx
+    .select()
+    .from(intercompanyLinksTable)
+    .where(
+      and(
+        eq(intercompanyLinksTable.kind, "sales_invoice"),
+        eq(intercompanyLinksTable.sourceDocId, note.invoiceId),
+      ),
+    );
+  if (!invLink) return null;
+  const targetCompanyId = invLink.targetCompanyId;
+  if (targetCompanyId === input.sourceCompanyId) return null;
+
+  // Idempotency.
+  const [existingLink] = await tx
+    .select()
+    .from(intercompanyLinksTable)
+    .where(
+      and(
+        eq(intercompanyLinksTable.kind, "credit_note"),
+        eq(intercompanyLinksTable.sourceDocId, note.id),
+      ),
+    );
+  if (existingLink) {
+    return { linkId: existingLink.id, targetDocId: existingLink.targetDocId };
+  }
+
+  // No cross-company access check here: the parent sales_invoice mirror
+  // was already authorised at creation time, and finalize/approval flows
+  // for credit notes can run without an HTTP session (e.g. workflow
+  // onApprove callbacks with actor.userId=null). Treat this as a trusted
+  // internal cascade — same rationale as voidMirrorForSourceTx.
+
+  const supplierId = await resolveCounterpartySupplier(tx, targetCompanyId, input.sourceCompanyId);
+  const [sourceCo] = await tx
+    .select({ name: companiesTable.name })
+    .from(companiesTable)
+    .where(eq(companiesTable.id, input.sourceCompanyId));
+
+  const cnLines = await tx
+    .select()
+    .from(creditNoteLinesTable)
+    .where(eq(creditNoteLinesTable.noteId, note.id));
+  const linesPayload = cnLines.map((l) => ({
+    description: l.description,
+    quantity: Number(l.quantity),
+    unitPrice: Number(l.unitPrice),
+    taxRate: Number(l.taxRate),
+    lineTotal: Number(l.lineTotal),
+  }));
+  const mirrorRef = `IC-${note.reference}-C${targetCompanyId}`;
+  const notesBlob = JSON.stringify({
+    mirrorOf: { kind: "credit_note", id: note.id, reference: note.reference },
+    debitNoteAgainst: invLink.targetRef,
+    subtotal: Number(note.subtotal),
+    vat: Number(note.vat),
+    total: Number(note.total),
+    lines: linesPayload,
+  });
+
+  const [mirror] = await tx
+    .insert(invoicesTable)
+    .values({
+      invoiceNumber: mirrorRef,
+      supplierId,
+      supplierName: sourceCo?.name ?? "Intercompany",
+      amount: String((-Number(note.total)).toFixed(2)),
+      status: "cancelled",
+      invoiceDate: note.noteDate ? new Date(note.noteDate) : new Date(),
+      dueDate: null,
+      notes: notesBlob,
+      isLocked: false,
+      companyId: targetCompanyId,
+      isIntercompany: true,
+      counterpartyCompanyId: input.sourceCompanyId,
+    })
+    .returning({ id: invoicesTable.id });
+  if (!mirror) {
+    throw new IntercompanyMirrorError("INVALID_REFERENCE", "failed to insert mirror debit note");
+  }
+
+  const [link] = await tx
+    .insert(intercompanyLinksTable)
+    .values({
+      kind: "credit_note",
+      sourceCompanyId: input.sourceCompanyId,
+      sourceDocId: note.id,
+      sourceRef: note.reference,
+      targetCompanyId,
+      targetDocId: mirror.id,
+      targetRef: mirrorRef,
+      status: "matched",
+    })
+    .returning({ id: intercompanyLinksTable.id });
+  if (!link) {
+    throw new IntercompanyMirrorError("INVALID_REFERENCE", "failed to insert intercompany credit-note link");
+  }
+
+  await writeAudit(
+    tx,
+    input.actor,
+    input.sourceCompanyId,
+    "intercompany_mirror_created",
+    `Intercompany debit-note mirror created: CN ${note.reference} → ${mirrorRef} (company ${targetCompanyId})`,
+  );
+  return { linkId: link.id, targetDocId: mirror.id };
 }
 
 /**
