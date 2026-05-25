@@ -7,6 +7,7 @@ import { recordAudit } from "../lib/audit";
 import { registerArabicFonts } from "../lib/pdf/arabic-font";
 import { drawBrandedHeader, drawBrandedFooter, loadBrand, BRAND } from "../lib/pdf/branding-header";
 import { exportsGuard, reportReadGuard } from "../middlewares/require-role";
+import { getCompanyId } from "../lib/scoped-db";
 import type { Request, Response, NextFunction } from "express";
 
 const router = Router();
@@ -57,8 +58,15 @@ router.use("/exports/:type.pdf", exportAuthByType);
 
 // Aggregate posted-only line totals per account, optionally filtered by date
 // range. Used by the four financial-statement exports below.
-async function postedAccountTotals(from?: string, to?: string) {
-  const wheres = [eq(journalEntriesTable.status, "posted")];
+async function postedAccountTotals(companyId: number, from?: string, to?: string) {
+  // Tenant scope: aggregate ONLY the caller's posted journal entries.
+  // accountsTable is a global chart of accounts (no company_id), so the
+  // tenant predicate lives on journal_entries.company_id which propagates
+  // through the INNER JOIN below.
+  const wheres = [
+    eq(journalEntriesTable.status, "posted"),
+    eq(journalEntriesTable.companyId, companyId),
+  ];
   if (from) wheres.push(gte(journalEntriesTable.entryDate, from));
   if (to) wheres.push(lte(journalEntriesTable.entryDate, to));
   return db
@@ -79,6 +87,7 @@ async function postedAccountTotals(from?: string, to?: string) {
 
 async function fetchReportRows(
   type: ReportType,
+  companyId: number,
   q: { from?: string; to?: string } = {},
 ): Promise<{ headers: string[]; rows: Array<Array<string | number>>; title: string }> {
   switch (type) {
@@ -93,7 +102,7 @@ async function fetchReportRows(
           createdAt: posOrdersTable.createdAt,
         })
         .from(posOrdersTable)
-        .where(gte(posOrdersTable.createdAt, start))
+        .where(and(gte(posOrdersTable.createdAt, start), eq(posOrdersTable.companyId, companyId)))
         .orderBy(desc(posOrdersTable.createdAt));
       return {
         title: "تقرير المبيعات (آخر 30 يوم)",
@@ -111,6 +120,7 @@ async function fetchReportRows(
           costPrice: productsTable.costPrice,
         })
         .from(productsTable)
+        .where(eq(productsTable.companyId, companyId))
         .orderBy(desc(productsTable.id));
       return {
         title: "تقرير المنتجات والمخزون",
@@ -128,6 +138,7 @@ async function fetchReportRows(
           createdAt: invoicesTable.createdAt,
         })
         .from(invoicesTable)
+        .where(eq(invoicesTable.companyId, companyId))
         .orderBy(desc(invoicesTable.createdAt))
         .limit(500);
       return {
@@ -144,9 +155,10 @@ async function fetchReportRows(
           phone: suppliersTable.phone,
           email: suppliersTable.email,
           balance: suppliersTable.balance,
-          invoicesCount: sql<number>`(select count(*) from ${invoicesTable} where ${invoicesTable.supplierId} = ${suppliersTable.id})`,
+          invoicesCount: sql<number>`(select count(*) from ${invoicesTable} where ${invoicesTable.supplierId} = ${suppliersTable.id} and ${invoicesTable.companyId} = ${companyId})`,
         })
         .from(suppliersTable)
+        .where(eq(suppliersTable.companyId, companyId))
         .orderBy(desc(suppliersTable.createdAt));
       return {
         title: "تقرير الموردين",
@@ -155,7 +167,6 @@ async function fetchReportRows(
       };
     }
     case "journal": {
-      const { eq } = await import("drizzle-orm");
       const rows = await db
         .select({
           entryNumber: journalEntriesTable.entryNumber,
@@ -177,6 +188,7 @@ async function fetchReportRows(
           accountsTable,
           eq(accountsTable.id, journalEntryLinesTable.accountId),
         )
+        .where(eq(journalEntriesTable.companyId, companyId))
         .orderBy(desc(journalEntriesTable.entryDate), desc(journalEntriesTable.id))
         .limit(2000);
       return {
@@ -195,7 +207,7 @@ async function fetchReportRows(
       };
     }
     case "trial-balance": {
-      const totals = await postedAccountTotals(q.from, q.to);
+      const totals = await postedAccountTotals(companyId, q.from, q.to);
       const range = `${q.from ?? "البداية"} → ${q.to ?? "حتى الآن"}`;
       return {
         title: `ميزان المراجعة (${range})`,
@@ -204,7 +216,7 @@ async function fetchReportRows(
       };
     }
     case "profit-loss": {
-      const totals = await postedAccountTotals(q.from, q.to);
+      const totals = await postedAccountTotals(companyId, q.from, q.to);
       const range = `${q.from ?? "البداية"} → ${q.to ?? "حتى الآن"}`;
       const out: Array<Array<string | number>> = [];
       let totalRev = 0;
@@ -230,7 +242,7 @@ async function fetchReportRows(
       };
     }
     case "balance-sheet": {
-      const totals = await postedAccountTotals(undefined, q.to);
+      const totals = await postedAccountTotals(companyId, undefined, q.to);
       const out: Array<Array<string | number>> = [];
       let assets = 0;
       let liabilities = 0;
@@ -273,7 +285,10 @@ async function fetchReportRows(
     }
     case "cash-flow": {
       // MVP: cash-flow approximated from movement on cash + bank accounts.
-      const wheres = [eq(journalEntriesTable.status, "posted")];
+      const wheres = [
+        eq(journalEntriesTable.status, "posted"),
+        eq(journalEntriesTable.companyId, companyId),
+      ];
       if (q.from) wheres.push(gte(journalEntriesTable.entryDate, q.from));
       if (q.to) wheres.push(lte(journalEntriesTable.entryDate, q.to));
       const lines = await db
@@ -316,7 +331,7 @@ router.get("/exports/:type.xlsx", async (req, res) => {
   const from = req.query.from as string | undefined;
   const to = req.query.to as string | undefined;
   try {
-    const { title, headers, rows } = await fetchReportRows(type, { from, to });
+    const { title, headers, rows } = await fetchReportRows(type, getCompanyId(req), { from, to });
     const wb = new ExcelJS.Workbook();
     wb.creator = "حاسبة.AI";
     wb.created = new Date();
@@ -359,7 +374,7 @@ router.get("/exports/:type.pdf", async (req, res) => {
   const from = req.query.from as string | undefined;
   const to = req.query.to as string | undefined;
   try {
-    const { title, headers, rows } = await fetchReportRows(type, { from, to });
+    const { title, headers, rows } = await fetchReportRows(type, getCompanyId(req), { from, to });
 
     const doc = new PDFDocument({ size: "A4", margin: 36, layout: "landscape", info: { Title: title } });
     res.setHeader("Content-Type", "application/pdf");

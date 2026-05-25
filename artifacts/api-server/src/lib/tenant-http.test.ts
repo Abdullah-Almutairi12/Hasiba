@@ -16,6 +16,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import request from "supertest";
 import bcrypt from "bcryptjs";
+import ExcelJS from "exceljs";
 import { eq, inArray } from "drizzle-orm";
 import {
   db,
@@ -522,6 +523,46 @@ describe("HTTP — /api/pos/orders is tenant-scoped", () => {
   it("GET /api/pos/orders/:id on another tenant's order returns 404", async () => {
     const res = await agentA.get(`/api/pos/orders/${posOrderBId}`);
     expect(res.status).toBe(404);
+  });
+
+  // XLSX is a ZIP archive, so substring searches on the raw bytes won't
+  // reliably hit sharedStrings.xml. We unzip via ExcelJS and read every
+  // visible cell value to assert per-tenant isolation.
+  async function readXlsxCells(buf: Buffer): Promise<string> {
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength));
+    const out: string[] = [];
+    wb.eachSheet((ws) => {
+      ws.eachRow((row) => {
+        row.eachCell((cell) => out.push(String(cell.value ?? "")));
+      });
+    });
+    return out.join("\n");
+  }
+
+  it("GET /api/exports/sales.xlsx returns only the caller's POS orders", async () => {
+    const resA = await agentA.get("/api/exports/sales.xlsx").buffer(true).parse((res, cb) => {
+      const chunks: Buffer[] = [];
+      res.on("data", (c: Buffer) => chunks.push(c));
+      res.on("end", () => cb(null, Buffer.concat(chunks)));
+    });
+    expect(resA.status).toBe(200);
+    expect(resA.header["content-type"]).toContain("spreadsheetml");
+    const text = await readXlsxCells(resA.body as Buffer);
+    expect(text).toContain(`HTTP-ORD-A-${RUN_TAG}`);
+    expect(text).not.toContain(`HTTP-ORD-B-${RUN_TAG}`);
+  });
+
+  it("GET /api/exports/invoices.xlsx returns only the caller's invoices", async () => {
+    const resA = await agentA.get("/api/exports/invoices.xlsx").buffer(true).parse((res, cb) => {
+      const chunks: Buffer[] = [];
+      res.on("data", (c: Buffer) => chunks.push(c));
+      res.on("end", () => cb(null, Buffer.concat(chunks)));
+    });
+    expect(resA.status).toBe(200);
+    const text = await readXlsxCells(resA.body as Buffer);
+    expect(text).toContain(`HTTP-INV-A-${RUN_TAG}`);
+    expect(text).not.toContain(`HTTP-INV-B-${RUN_TAG}`);
   });
 
   it("POST /api/pos/sessions with another tenant's branchId returns 404 and creates no session", async () => {

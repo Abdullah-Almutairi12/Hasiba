@@ -141,7 +141,7 @@ router.get("/suppliers/:id", async (req, res) => {
         createdAt: invoicesTable.createdAt,
       })
       .from(invoicesTable)
-      .where(eq(invoicesTable.supplierId, id))
+      .where(and(eq(invoicesTable.supplierId, id), scoped.scope(invoicesTable)))
       .orderBy(desc(invoicesTable.createdAt))
       .limit(25);
 
