@@ -212,12 +212,16 @@ export async function initManufacturing(): Promise<void> {
   //     write-off (Scrap Loss Dr / Inventory Cr) posted at the same time.
   await pool.query(`
     ALTER TABLE warehouses ADD COLUMN IF NOT EXISTS is_scrap boolean NOT NULL DEFAULT false;
-    INSERT INTO warehouses (branch_id, name, name_ar, is_default, is_scrap)
-    SELECT b.id, 'Scrap', 'مستودع التالف', false, true
+    -- company_id is NOT NULL on warehouses (Phase-2 tenant isolation,
+    -- migration 0008). Inherit it from the parent branch so the scrap
+    -- warehouse is correctly tenant-scoped per company.
+    INSERT INTO warehouses (company_id, branch_id, name, name_ar, is_default, is_scrap)
+    SELECT b.company_id, b.id, 'Scrap', 'مستودع التالف', false, true
       FROM branches b
-     WHERE NOT EXISTS (
-       SELECT 1 FROM warehouses w WHERE w.branch_id = b.id AND w.name = 'Scrap'
-     );
+     WHERE b.company_id IS NOT NULL
+       AND NOT EXISTS (
+         SELECT 1 FROM warehouses w WHERE w.branch_id = b.id AND w.name = 'Scrap'
+       );
     UPDATE warehouses SET is_scrap = true WHERE name = 'Scrap' AND is_scrap = false;
   `).catch((e) => logger.warn({ err: e }, "scrap warehouse seed skipped"));
 
