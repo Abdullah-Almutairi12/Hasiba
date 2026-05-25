@@ -322,10 +322,12 @@ router.get("/invoices/:id/pdf", invoiceReadGuard, async (req, res) => {
       res.status(400).json({ error: "Bad id" });
       return;
     }
+    // Tenant scope: cross-tenant PDF reads collapse to 404.
+    const companyId = getCompanyId(req);
     const [invoice] = await db
       .select()
       .from(invoicesTable)
-      .where(eq(invoicesTable.id, id));
+      .where(and(eq(invoicesTable.id, id), eq(invoicesTable.companyId, companyId)));
     if (!invoice) {
       res.status(404).json({ error: "Not found" });
       return;
@@ -481,9 +483,17 @@ router.post("/invoices/:id/reverse", financeGuard, async (req, res) => {
     const id = Number(req.params.id);
     if (!Number.isFinite(id)) return res.status(400).json({ error: "Bad id" });
     const { reason } = SupplierReverseBody.parse(req.body ?? {});
+    // Tenant scope: cross-tenant reversal collapses to 404 — both the
+    // initial lookup and the paired UPDATE below are scoped on
+    // (id, companyId) so a forged ID from another tenant can never
+    // mutate the original invoice.
+    const companyId = getCompanyId(req);
 
     const result = await db.transaction(async (tx) => {
-      const [orig] = await tx.select().from(invoicesTable).where(eq(invoicesTable.id, id));
+      const [orig] = await tx
+        .select()
+        .from(invoicesTable)
+        .where(and(eq(invoicesTable.id, id), eq(invoicesTable.companyId, companyId)));
       if (!orig) throw Object.assign(new Error("الفاتورة غير موجودة"), { httpStatus: 404 });
       if (!orig.isLocked) {
         throw Object.assign(
@@ -531,7 +541,7 @@ router.post("/invoices/:id/reverse", financeGuard, async (req, res) => {
       await tx
         .update(invoicesTable)
         .set({ reversedById: reverse.id, reversedReason: reason })
-        .where(eq(invoicesTable.id, orig.id));
+        .where(and(eq(invoicesTable.id, orig.id), eq(invoicesTable.companyId, companyId)));
 
       // Roll the supplier's AP balance back.
       if (orig.supplierId) {

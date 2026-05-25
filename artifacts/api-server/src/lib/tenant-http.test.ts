@@ -149,7 +149,8 @@ beforeAll(async () => {
   customerAId = cA.id;
   customerBId = cB.id;
 
-  // One supplier invoice per tenant (draft, unlocked)
+  // One supplier invoice per tenant. Tenant B's is locked so the
+  // reverse-endpoint test can attempt a cross-tenant reversal.
   const [invA] = await db
     .insert(invoicesTable)
     .values({
@@ -166,7 +167,9 @@ beforeAll(async () => {
       invoiceNumber: `HTTP-INV-B-${RUN_TAG}`,
       supplierName: `Supplier B ${RUN_TAG}`,
       amount: "200.00",
-      status: "pending",
+      status: "done",
+      isLocked: true,
+      lockedAt: new Date(),
       companyId: companyBId,
     })
     .returning();
@@ -570,6 +573,38 @@ describe("HTTP — /api/pos/orders is tenant-scoped", () => {
     const text = await readXlsxCells(resA.body as Buffer);
     expect(text).toContain(`HTTP-INV-A-${RUN_TAG}`);
     expect(text).not.toContain(`HTTP-INV-B-${RUN_TAG}`);
+  });
+
+  it("GET /api/invoices/:id/pdf with another tenant's invoice id returns 404", async () => {
+    const res = await agentA.get(`/api/invoices/${invoiceBId}/pdf`);
+    expect(res.status).toBe(404);
+    // Tenant A's own PDF still works (200 + application/pdf).
+    const own = await agentA.get(`/api/invoices/${invoiceAId}/pdf`).buffer(true).parse((r, cb) => {
+      const chunks: Buffer[] = [];
+      r.on("data", (c: Buffer) => chunks.push(c));
+      r.on("end", () => cb(null, Buffer.concat(chunks)));
+    });
+    expect(own.status).toBe(200);
+    expect(own.header["content-type"]).toContain("pdf");
+  });
+
+  it("POST /api/invoices/:id/reverse with another tenant's invoice id returns 404 and performs no mutation", async () => {
+    const res = await agentA
+      .post(`/api/invoices/${invoiceBId}/reverse`)
+      .send({ reason: "cross-tenant reversal attempt" });
+    expect(res.status).toBe(404);
+    // The original invoice B must remain unreversed (reversedById null).
+    const [stillOriginal] = await db
+      .select()
+      .from(invoicesTable)
+      .where(eq(invoicesTable.id, invoiceBId));
+    expect(stillOriginal.reversedById).toBeNull();
+    // No REV-* row was created for invoice B.
+    const reversals = await db
+      .select({ id: invoicesTable.id })
+      .from(invoicesTable)
+      .where(eq(invoicesTable.invoiceNumber, `REV-HTTP-INV-B-${RUN_TAG}`));
+    expect(reversals).toEqual([]);
   });
 
   it("POST /api/pos/sessions with another tenant's branchId returns 404 and creates no session", async () => {
