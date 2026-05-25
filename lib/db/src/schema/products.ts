@@ -2,6 +2,7 @@ import { pgTable, serial, text, integer, numeric, boolean, timestamp } from "dri
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { categoriesTable } from "./categories";
+import { companiesTable } from "./companies";
 
 export const productsTable = pgTable("products", {
   id: serial("id").primaryKey(),
@@ -22,7 +23,7 @@ export const productsTable = pgTable("products", {
   costingMethod: text("costing_method").notNull().default("average"), // fifo | average | standard
   isVariantParent: boolean("is_variant_parent").notNull().default(false),
   /** Nullable in Phase 1; becomes NOT NULL in Phase 2 once tenant scoping lands. */
-  companyId: integer("company_id"),
+  companyId: integer("company_id").references(() => companiesTable.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

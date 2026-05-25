@@ -266,6 +266,10 @@ export async function initProcurement(): Promise<void> {
       ON procurement_email_outbox (status, kind, next_retry_at);
     CREATE INDEX IF NOT EXISTS procurement_email_outbox_retry_of_idx
       ON procurement_email_outbox (retry_of);
+    -- Multi-Company Phase 1: nullable tenant scoping column. Becomes
+    -- NOT NULL in Phase 2 once route handlers stamp it on insert.
+    ALTER TABLE procurement_email_outbox ADD COLUMN IF NOT EXISTS company_id integer
+      REFERENCES companies(id) ON DELETE SET NULL;
   `);
 
   logger.info("Procurement subsystem initialized");

@@ -1,7 +1,8 @@
 #!/bin/bash
 set -e
 pnpm install --frozen-lockfile
-# Multi-Company Phase 1: provision companies tables + companyId columns
-# via raw SQL before drizzle push, so push sees no new work for them.
-pnpm --filter @workspace/scripts run backfill-multi-company
 pnpm --filter db run push-force
+# Multi-Company Phase 1: seed default company + backfill company_id on
+# every existing row. Runs AFTER drizzle push so the columns/FKs are
+# already in place. The script is idempotent and safe to re-run.
+pnpm --filter @workspace/scripts run backfill-multi-company

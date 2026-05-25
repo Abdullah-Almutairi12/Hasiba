@@ -2,6 +2,7 @@ import { pgTable, serial, text, integer, numeric, real, timestamp, boolean } fro
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { suppliersTable } from "./suppliers";
+import { companiesTable } from "./companies";
 
 export const invoicesTable = pgTable("invoices", {
   id: serial("id").primaryKey(),
@@ -27,7 +28,7 @@ export const invoicesTable = pgTable("invoices", {
   reversedById: integer("reversed_by_id"),
   reversedReason: text("reversed_reason"),
   /** Nullable in Phase 1; becomes NOT NULL in Phase 2 once tenant scoping lands. */
-  companyId: integer("company_id"),
+  companyId: integer("company_id").references(() => companiesTable.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

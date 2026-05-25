@@ -14,6 +14,7 @@ import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { branchesTable } from "./branches";
 import { usersTable } from "./users";
+import { companiesTable } from "./companies";
 
 // =========================================================================
 // Departments / Positions
@@ -79,7 +80,7 @@ export const employeesTable = pgTable(
     status: text("status").notNull().default("active"),
     notes: text("notes"),
     /** Nullable in Phase 1; becomes NOT NULL in Phase 2 once tenant scoping lands. */
-    companyId: integer("company_id"),
+    companyId: integer("company_id").references(() => companiesTable.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (t) => ({

@@ -4,6 +4,7 @@ import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { branchesTable } from "./branches";
 import { customersTable } from "./customers";
+import { companiesTable } from "./companies";
 
 export const posSessionsTable = pgTable("pos_sessions", {
   id: serial("id").primaryKey(),
@@ -30,7 +31,7 @@ export const posOrdersTable = pgTable("pos_orders", {
   total: numeric("total", { precision: 10, scale: 2 }).notNull(),
   paymentMethod: text("payment_method").notNull().default("cash"),
   /** Nullable in Phase 1; becomes NOT NULL in Phase 2 once tenant scoping lands. */
-  companyId: integer("company_id"),
+  companyId: integer("company_id").references(() => companiesTable.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

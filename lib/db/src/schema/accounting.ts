@@ -13,6 +13,7 @@ import {
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { usersTable } from "./users";
+import { companiesTable } from "./companies";
 
 // ===== Currencies =====
 
@@ -168,7 +169,9 @@ export const journalEntriesTable = pgTable(
     reversedAt: timestamp("reversed_at"),
     reversalOf: integer("reversal_of"),
     /** Nullable in Phase 1; becomes NOT NULL in Phase 2 once tenant scoping lands. */
-    companyId: integer("company_id"),
+    companyId: integer("company_id").references(() => companiesTable.id, {
+      onDelete: "set null",
+    }),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (t) => ({

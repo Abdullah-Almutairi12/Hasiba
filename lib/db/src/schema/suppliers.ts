@@ -1,6 +1,7 @@
 import { pgTable, serial, text, numeric, integer, timestamp } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
+import { companiesTable } from "./companies";
 
 export const suppliersTable = pgTable("suppliers", {
   id: serial("id").primaryKey(),
@@ -20,7 +21,7 @@ export const suppliersTable = pgTable("suppliers", {
   defaultTax: numeric("default_tax", { precision: 5, scale: 2 }).notNull().default("15"),
   notes: text("notes"),
   /** Nullable in Phase 1; becomes NOT NULL in Phase 2 once tenant scoping lands. */
-  companyId: integer("company_id"),
+  companyId: integer("company_id").references(() => companiesTable.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
