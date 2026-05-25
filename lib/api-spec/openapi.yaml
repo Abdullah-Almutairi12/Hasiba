@@ -1428,6 +1428,44 @@ paths:
                 items:
                   $ref: "#/components/schemas/AlertsCleanupRun"
 
+  /admin/system-settings/alerts-cleanup-runs/count:
+    get:
+      tags: [admin]
+      summary: Count alerts-cleanup runs in a date range
+      description: >-
+        Returns the number of `alerts_cleanup_runs` rows that match the
+        given `from` / `to` ISO date filters (same parsing as the CSV
+        export endpoint). Used by the Admin Panel to preview how many
+        runs the chosen window would export before downloading the CSV.
+      operationId: countAlertsCleanupRuns
+      parameters:
+        - name: from
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+      responses:
+        "200":
+          description: Matching run count
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [count]
+                properties:
+                  count:
+                    type: integer
+                    minimum: 0
+        "400":
+          description: Invalid from/to date
+
   /admin/tickets:
     get:
       tags: [admin]

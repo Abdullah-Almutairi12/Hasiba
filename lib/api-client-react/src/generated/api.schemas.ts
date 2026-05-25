@@ -1841,6 +1841,16 @@ export type ListAuditLogsParams = {
   limit?: number;
 };
 
+export type CountAlertsCleanupRunsParams = {
+  from?: string;
+  to?: string;
+};
+
+export type CountAlertsCleanupRuns200 = {
+  /** @minimum 0 */
+  count: number;
+};
+
 export type ListSupportTicketsParams = {
   status?: string;
 };

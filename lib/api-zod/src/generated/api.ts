@@ -1571,6 +1571,21 @@ export const GetAlertsCleanupHistoryResponse = zod.array(
 );
 
 /**
+ * Returns the number of `alerts_cleanup_runs` rows that match the given `from` / `to` ISO date filters (same parsing as the CSV export endpoint). Used by the Admin Panel to preview how many runs the chosen window would export before downloading the CSV.
+ * @summary Count alerts-cleanup runs in a date range
+ */
+export const CountAlertsCleanupRunsQueryParams = zod.object({
+  from: zod.date().optional(),
+  to: zod.date().optional(),
+});
+
+export const countAlertsCleanupRunsResponseCountMin = 0;
+
+export const CountAlertsCleanupRunsResponse = zod.object({
+  count: zod.number().min(countAlertsCleanupRunsResponseCountMin),
+});
+
+/**
  * @summary List support tickets
  */
 export const ListSupportTicketsQueryParams = zod.object({

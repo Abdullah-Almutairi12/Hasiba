@@ -6,6 +6,7 @@ import {
   useGetAdminSystemHealth,
   useGetAlertsCleanupLastRun,
   useGetAlertsCleanupHistory,
+  useCountAlertsCleanupRuns,
   useListSupportTickets,
   useCreateSupportTicket,
   useUpdateSupportTicket,
@@ -270,19 +271,27 @@ function AlertsCleanupCard() {
     ? new Date(data.lastRunAt).toLocaleString("ar-SA")
     : null;
   const runs = history ?? [];
-  const csvHref = (() => {
-    const base =
-      (import.meta.env.BASE_URL || "/").replace(/\/$/, "") +
-      "/api/admin/system-settings/alerts-cleanup-runs.csv";
-    const params = new URLSearchParams();
-    if (csvFrom) params.set("from", new Date(csvFrom).toISOString());
+  // Task #175: keep CSV href and the count-preview endpoint in sync by
+  // computing the from/to ISO boundaries once and reusing them.
+  const csvRange = (() => {
+    const params: { from?: string; to?: string } = {};
+    if (csvFrom) params.from = new Date(csvFrom).toISOString();
     if (csvTo) {
       // include the whole "to" day by snapping to 23:59:59.999
       const d = new Date(csvTo);
       d.setHours(23, 59, 59, 999);
-      params.set("to", d.toISOString());
+      params.to = d.toISOString();
     }
-    const qs = params.toString();
+    return params;
+  })();
+  const { data: countData, isFetching: countLoading } =
+    useCountAlertsCleanupRuns(csvRange);
+  const matchCount = countData?.count;
+  const csvHref = (() => {
+    const base =
+      (import.meta.env.BASE_URL || "/").replace(/\/$/, "") +
+      "/api/admin/system-settings/alerts-cleanup-runs.csv";
+    const qs = new URLSearchParams(csvRange).toString();
     return qs ? `${base}?${qs}` : base;
   })();
   const maxDeleted = runs.reduce(
@@ -337,6 +346,14 @@ function AlertsCleanupCard() {
                   تصدير CSV
                 </a>
               </Button>
+            </div>
+            <div
+              className="text-[11px] text-muted-foreground tabular-nums"
+              data-testid="alerts-cleanup-csv-count"
+            >
+              {countLoading || matchCount === undefined
+                ? "—"
+                : `${matchCount.toLocaleString("ar-SA")} تشغيل في هذا النطاق`}
             </div>
             {(csvFrom || csvTo) && (
               <button

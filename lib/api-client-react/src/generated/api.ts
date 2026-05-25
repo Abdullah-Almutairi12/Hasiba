@@ -65,6 +65,8 @@ import type {
   CompanySettings,
   CompanySettingsPatch,
   CompanyUser,
+  CountAlertsCleanupRuns200,
+  CountAlertsCleanupRunsParams,
   CreateAccountBody,
   CreateAnnouncementBody,
   CreateApprovalRule201,
@@ -6573,6 +6575,113 @@ export function useGetAlertsCleanupHistory<
   request?: SecondParameter<typeof customFetch>;
 }): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getGetAlertsCleanupHistoryQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * Returns the number of `alerts_cleanup_runs` rows that match the given `from` / `to` ISO date filters (same parsing as the CSV export endpoint). Used by the Admin Panel to preview how many runs the chosen window would export before downloading the CSV.
+ * @summary Count alerts-cleanup runs in a date range
+ */
+export const getCountAlertsCleanupRunsUrl = (
+  params?: CountAlertsCleanupRunsParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/admin/system-settings/alerts-cleanup-runs/count?${stringifiedParams}`
+    : `/api/admin/system-settings/alerts-cleanup-runs/count`;
+};
+
+export const countAlertsCleanupRuns = async (
+  params?: CountAlertsCleanupRunsParams,
+  options?: RequestInit,
+): Promise<CountAlertsCleanupRuns200> => {
+  return customFetch<CountAlertsCleanupRuns200>(
+    getCountAlertsCleanupRunsUrl(params),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getCountAlertsCleanupRunsQueryKey = (
+  params?: CountAlertsCleanupRunsParams,
+) => {
+  return [
+    `/api/admin/system-settings/alerts-cleanup-runs/count`,
+    ...(params ? [params] : []),
+  ] as const;
+};
+
+export const getCountAlertsCleanupRunsQueryOptions = <
+  TData = Awaited<ReturnType<typeof countAlertsCleanupRuns>>,
+  TError = ErrorType<void>,
+>(
+  params?: CountAlertsCleanupRunsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof countAlertsCleanupRuns>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getCountAlertsCleanupRunsQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof countAlertsCleanupRuns>>
+  > = ({ signal }) =>
+    countAlertsCleanupRuns(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof countAlertsCleanupRuns>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type CountAlertsCleanupRunsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof countAlertsCleanupRuns>>
+>;
+export type CountAlertsCleanupRunsQueryError = ErrorType<void>;
+
+/**
+ * @summary Count alerts-cleanup runs in a date range
+ */
+
+export function useCountAlertsCleanupRuns<
+  TData = Awaited<ReturnType<typeof countAlertsCleanupRuns>>,
+  TError = ErrorType<void>,
+>(
+  params?: CountAlertsCleanupRunsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof countAlertsCleanupRuns>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getCountAlertsCleanupRunsQueryOptions(params, options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;

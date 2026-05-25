@@ -351,6 +351,41 @@ router.get(
   },
 );
 
+// Task #175: lightweight count endpoint mirroring the CSV export's
+// from/to parsing so the Admin Panel can preview how many runs the
+// chosen window will export before downloading.
+router.get(
+  "/admin/system-settings/alerts-cleanup-runs/count",
+  adminOnly,
+  async (req, res) => {
+    try {
+      const parseBoundary = (raw: unknown): Date | null => {
+        if (typeof raw !== "string" || raw.trim() === "") return null;
+        const d = new Date(raw);
+        return Number.isNaN(d.getTime()) ? null : d;
+      };
+      const from = parseBoundary(req.query.from);
+      const to = parseBoundary(req.query.to);
+      if ((req.query.from && !from) || (req.query.to && !to)) {
+        return res
+          .status(400)
+          .json({ error: "Invalid 'from' or 'to' date" });
+      }
+      const conds = [] as Array<ReturnType<typeof gte>>;
+      if (from) conds.push(gte(alertsCleanupRunsTable.ranAt, from));
+      if (to) conds.push(lte(alertsCleanupRunsTable.ranAt, to));
+      const [row] = await db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(alertsCleanupRunsTable)
+        .where(conds.length ? and(...conds) : undefined);
+      return res.json({ count: Number(row?.count ?? 0) });
+    } catch (err) {
+      req.log.error({ err }, "Alerts cleanup count lookup failed");
+      return res.status(500).json({ error: "Internal server error" });
+    }
+  },
+);
+
 // Task #164: surface a short history (~14 most recent runs) so the
 // Admin Panel can render a sparkline / bar chart of nightly sweeps.
 router.get("/admin/alerts-cleanup/history", adminOnly, async (req, res) => {
