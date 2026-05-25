@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Money } from "@/components/riyal";
 import { useLocation } from "wouter";
 import {
@@ -89,6 +89,16 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   ShieldCheck,
   LifeBuoy,
@@ -1926,9 +1936,10 @@ function ResendRecipientPicker({
   recipients: string[];
   windowLabel: string;
   isPending: boolean;
-  onResend: (subset: string[] | null) => void;
+  onResend: (subset: string[] | null, originalTotal: number) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const [selected, setSelected] = useState<Record<string, boolean>>(() =>
     Object.fromEntries(recipients.map((r) => [r, true])),
   );
@@ -1941,8 +1952,18 @@ function ResendRecipientPicker({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
   const chosen = recipients.filter((r) => selected[r]);
+  const excluded = recipients.filter((r) => !selected[r]);
   const allChecked = chosen.length === recipients.length;
   const noneChecked = chosen.length === 0;
+  const isSubset = !allChecked && !noneChecked;
+  const submit = () => {
+    // If every box is ticked, send `null` so the backend takes the
+    // legacy "all original recipients" path (and the audit log
+    // doesn't flag it as a subset).
+    onResend(allChecked ? null : chosen, recipients.length);
+    setOpen(false);
+    setConfirmOpen(false);
+  };
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
@@ -1975,7 +1996,7 @@ function ResendRecipientPicker({
             </div>
           </div>
           <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-            <span>
+            <span data-testid={`text-resend-selection-count-${rowId}`}>
               {chosen.length} / {recipients.length} مستلم
             </span>
             <button
@@ -2018,6 +2039,26 @@ function ResendRecipientPicker({
               );
             })}
           </div>
+          {isSubset && (
+            <div
+              className="rounded border border-amber-300 bg-amber-50 p-2 text-[11px] text-amber-900"
+              data-testid={`warning-resend-excluded-${rowId}`}
+            >
+              <div className="flex items-start gap-1.5">
+                <AlertTriangle className="mt-[1px] size-3 shrink-0" />
+                <div className="space-y-1">
+                  <div className="font-medium">
+                    تنبيه: لن يصل هذا التقرير إلى{" "}
+                    <span className="tabular-nums">{excluded.length}</span> من
+                    المستلمين الأصليين.
+                  </div>
+                  <div className="text-amber-800" dir="ltr">
+                    {excluded.join("، ")}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
           <div className="flex items-center justify-end gap-2 pt-1">
             <Button
               type="button"
@@ -2035,11 +2076,14 @@ function ResendRecipientPicker({
               className="h-7 px-3 text-xs"
               disabled={noneChecked || isPending}
               onClick={() => {
-                // If every box is ticked, send `null` so the backend
-                // takes the legacy "all original recipients" path
-                // (and the audit log doesn't flag it as a subset).
-                onResend(allChecked ? null : chosen);
-                setOpen(false);
+                if (isSubset) {
+                  // A subset is a destructive omission — require an
+                  // explicit confirmation so the admin can't quietly
+                  // skip an original recipient by accident.
+                  setConfirmOpen(true);
+                  return;
+                }
+                submit();
               }}
               data-testid={`button-resend-confirm-${rowId}`}
             >
@@ -2052,6 +2096,72 @@ function ResendRecipientPicker({
             </Button>
           </div>
         </div>
+        <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+          <AlertDialogContent
+            data-testid={`dialog-resend-confirm-${rowId}`}
+          >
+            <AlertDialogHeader>
+              <AlertDialogTitle>
+                إعادة إرسال إلى مجموعة أصغر؟
+              </AlertDialogTitle>
+              <AlertDialogDescription asChild>
+                <div className="space-y-2 text-start">
+                  <div>
+                    سيتم إرسال التقرير إلى{" "}
+                    <span className="font-medium tabular-nums">
+                      {chosen.length}
+                    </span>{" "}
+                    من أصل{" "}
+                    <span className="font-medium tabular-nums">
+                      {recipients.length}
+                    </span>{" "}
+                    من المستلمين الأصليين فقط.
+                  </div>
+                  <div>
+                    <div className="text-xs font-medium text-emerald-700">
+                      سيستلم ({chosen.length}):
+                    </div>
+                    <div
+                      className="text-xs text-emerald-800"
+                      dir="ltr"
+                      data-testid={`text-resend-included-list-${rowId}`}
+                    >
+                      {chosen.join("، ")}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-xs font-medium text-rose-700">
+                      لن يستلم ({excluded.length}):
+                    </div>
+                    <div
+                      className="text-xs text-rose-800"
+                      dir="ltr"
+                      data-testid={`text-resend-excluded-list-${rowId}`}
+                    >
+                      {excluded.join("، ")}
+                    </div>
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    هل تريد المتابعة؟
+                  </div>
+                </div>
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel
+                data-testid={`button-resend-confirm-cancel-${rowId}`}
+              >
+                رجوع
+              </AlertDialogCancel>
+              <AlertDialogAction
+                onClick={submit}
+                data-testid={`button-resend-confirm-proceed-${rowId}`}
+              >
+                نعم، تابع الإرسال
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </PopoverContent>
     </Popover>
   );
@@ -2077,14 +2187,22 @@ function CleanupReportSendsHistory() {
         );
       },
     });
+  // Track the original recipient count per source row id so the
+  // success toast can show the "X of Y" subset framing the API
+  // contract advertises (the response itself only carries the chosen
+  // count, not the original total).
+  const originalTotalsRef = useRef<Map<number, number>>(new Map());
   const resendMut = useResendCleanupReport({
     mutation: {
-      onSuccess: (resp) => {
+      onSuccess: (resp, vars) => {
         const count = resp.recipients?.length ?? 0;
+        const total =
+          originalTotalsRef.current.get(vars.id) ?? count;
+        originalTotalsRef.current.delete(vars.id);
         toast({
           title: "تمت إعادة الإرسال",
           description: resp.subset
-            ? `إلى ${count} مستلم محدد (${resp.rowCount ?? 0} عملية تنظيف).`
+            ? `تم الإرسال إلى ${count} من ${total} من المستلمين الأصليين (${resp.rowCount ?? 0} عملية تنظيف).`
             : `إلى ${count} مستلم (${resp.rowCount ?? 0} عملية تنظيف).`,
         });
         void invalidateSends();
@@ -2241,15 +2359,19 @@ function CleanupReportSendsHistory() {
                             resendMut.isPending &&
                             resendMut.variables?.id === r.id
                           }
-                          onResend={(subset) =>
+                          onResend={(subset, originalTotal) => {
+                            originalTotalsRef.current.set(
+                              r.id,
+                              originalTotal,
+                            );
                             resendMut.mutate({
                               id: r.id,
                               data:
                                 subset && subset.length > 0
                                   ? { recipients: subset }
                                   : {},
-                            })
-                          }
+                            });
+                          }}
                         />
                       )}
                     </TableCell>
