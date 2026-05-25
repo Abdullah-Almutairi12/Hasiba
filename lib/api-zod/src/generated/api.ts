@@ -1470,6 +1470,43 @@ export const UpdateSupportTicketResponse = zod.object({
 });
 
 /**
+ * @summary List unresolved "invoice send failed" alerts with their outbox metadata
+ */
+export const ListInvoiceSendFailuresResponseItem = zod.object({
+  alertId: zod.number(),
+  outboxId: zod.number().nullish(),
+  invoiceId: zod.number().nullish(),
+  invoiceReference: zod.string().nullish(),
+  recipient: zod.string().nullish(),
+  lastError: zod.string().nullish(),
+  attempts: zod.number().nullish(),
+  createdAt: zod.string(),
+  title: zod.string(),
+  message: zod.string(),
+  retriable: zod
+    .boolean()
+    .describe(
+      "True when the underlying outbox row is still 'failed' and can be re-queued.",
+    ),
+});
+export const ListInvoiceSendFailuresResponse = zod.array(
+  ListInvoiceSendFailuresResponseItem,
+);
+
+/**
+ * Resets the underlying outbox row's `attempts` counter and clears `next_retry_at` so the background invoice email retry worker picks it up on the next sweep. On success, marks the alert as read.
+ * @summary One-click retry of a failed invoice email send
+ */
+export const RetryInvoiceSendFailureParams = zod.object({
+  alertId: zod.coerce.number(),
+});
+
+export const RetryInvoiceSendFailureResponse = zod.object({
+  ok: zod.boolean(),
+  outboxId: zod.number().nullish(),
+});
+
+/**
  * @summary List announcements
  */
 export const ListAnnouncementsResponseItem = zod.object({

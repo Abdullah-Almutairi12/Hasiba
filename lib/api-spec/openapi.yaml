@@ -1348,6 +1348,65 @@ paths:
               schema:
                 $ref: "#/components/schemas/SupportTicket"
 
+  /admin/invoice-send-failures:
+    get:
+      tags: [admin]
+      summary: List unresolved "invoice send failed" alerts with their outbox metadata
+      operationId: listInvoiceSendFailures
+      responses:
+        "200":
+          description: Failures list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/InvoiceSendFailure"
+
+  /admin/invoice-send-failures/{alertId}/retry:
+    post:
+      tags: [admin]
+      summary: One-click retry of a failed invoice email send
+      description: >-
+        Resets the underlying outbox row's `attempts` counter and clears
+        `next_retry_at` so the background invoice email retry worker picks
+        it up on the next sweep. On success, marks the alert as read.
+      operationId: retryInvoiceSendFailure
+      parameters:
+        - name: alertId
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Retry queued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  outboxId: { type: integer, nullable: true }
+                required: [ok]
+        "404":
+          description: Alert or outbox row not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error: { type: string }
+                required: [error]
+        "409":
+          description: Outbox row is no longer retriable (already sent, etc.)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error: { type: string }
+                required: [error]
+
   /admin/announcements:
     get:
       tags: [admin]
@@ -3766,6 +3825,22 @@ components:
           type: integer
           description: Count of unresolved (unread) "invoice send failure" alerts.
       required: [openTickets, criticalTickets, resolvedToday, activeUsers, totalUsers, activeAnnouncements, enabledFeatures, totalFeatures, failedInvoiceSends]
+
+    InvoiceSendFailure:
+      type: object
+      properties:
+        alertId: { type: integer }
+        outboxId: { type: integer, nullable: true }
+        invoiceId: { type: integer, nullable: true }
+        invoiceReference: { type: string, nullable: true }
+        recipient: { type: string, nullable: true }
+        lastError: { type: string, nullable: true }
+        attempts: { type: integer, nullable: true }
+        createdAt: { type: string }
+        title: { type: string }
+        message: { type: string }
+        retriable: { type: boolean, description: "True when the underlying outbox row is still 'failed' and can be re-queued." }
+      required: [alertId, createdAt, title, message, retriable]
 
     AdminSystemHealth:
       type: object

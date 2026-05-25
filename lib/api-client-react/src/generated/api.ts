@@ -113,6 +113,7 @@ import type {
   ImportBankStatementBody,
   InboxItem,
   Invoice,
+  InvoiceSendFailure,
   InvoiceStats,
   JournalEntry,
   JournalEntryDetail,
@@ -142,6 +143,9 @@ import type {
   ProductStats,
   ProfitLoss,
   ReportInsights,
+  RetryInvoiceSendFailure200,
+  RetryInvoiceSendFailure404,
+  RetryInvoiceSendFailure409,
   ReverseJournalEntry200,
   ReverseJournalEntryBody,
   Role,
@@ -6321,6 +6325,172 @@ export const useUpdateSupportTicket = <
   TContext
 > => {
   return useMutation(getUpdateSupportTicketMutationOptions(options));
+};
+
+/**
+ * @summary List unresolved "invoice send failed" alerts with their outbox metadata
+ */
+export const getListInvoiceSendFailuresUrl = () => {
+  return `/api/admin/invoice-send-failures`;
+};
+
+export const listInvoiceSendFailures = async (
+  options?: RequestInit,
+): Promise<InvoiceSendFailure[]> => {
+  return customFetch<InvoiceSendFailure[]>(getListInvoiceSendFailuresUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListInvoiceSendFailuresQueryKey = () => {
+  return [`/api/admin/invoice-send-failures`] as const;
+};
+
+export const getListInvoiceSendFailuresQueryOptions = <
+  TData = Awaited<ReturnType<typeof listInvoiceSendFailures>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listInvoiceSendFailures>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getListInvoiceSendFailuresQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listInvoiceSendFailures>>
+  > = ({ signal }) => listInvoiceSendFailures({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listInvoiceSendFailures>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListInvoiceSendFailuresQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listInvoiceSendFailures>>
+>;
+export type ListInvoiceSendFailuresQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List unresolved "invoice send failed" alerts with their outbox metadata
+ */
+
+export function useListInvoiceSendFailures<
+  TData = Awaited<ReturnType<typeof listInvoiceSendFailures>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listInvoiceSendFailures>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListInvoiceSendFailuresQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * Resets the underlying outbox row's `attempts` counter and clears `next_retry_at` so the background invoice email retry worker picks it up on the next sweep. On success, marks the alert as read.
+ * @summary One-click retry of a failed invoice email send
+ */
+export const getRetryInvoiceSendFailureUrl = (alertId: number) => {
+  return `/api/admin/invoice-send-failures/${alertId}/retry`;
+};
+
+export const retryInvoiceSendFailure = async (
+  alertId: number,
+  options?: RequestInit,
+): Promise<RetryInvoiceSendFailure200> => {
+  return customFetch<RetryInvoiceSendFailure200>(
+    getRetryInvoiceSendFailureUrl(alertId),
+    {
+      ...options,
+      method: "POST",
+    },
+  );
+};
+
+export const getRetryInvoiceSendFailureMutationOptions = <
+  TError = ErrorType<RetryInvoiceSendFailure404 | RetryInvoiceSendFailure409>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof retryInvoiceSendFailure>>,
+    TError,
+    { alertId: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof retryInvoiceSendFailure>>,
+  TError,
+  { alertId: number },
+  TContext
+> => {
+  const mutationKey = ["retryInvoiceSendFailure"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof retryInvoiceSendFailure>>,
+    { alertId: number }
+  > = (props) => {
+    const { alertId } = props ?? {};
+
+    return retryInvoiceSendFailure(alertId, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RetryInvoiceSendFailureMutationResult = NonNullable<
+  Awaited<ReturnType<typeof retryInvoiceSendFailure>>
+>;
+
+export type RetryInvoiceSendFailureMutationError = ErrorType<
+  RetryInvoiceSendFailure404 | RetryInvoiceSendFailure409
+>;
+
+/**
+ * @summary One-click retry of a failed invoice email send
+ */
+export const useRetryInvoiceSendFailure = <
+  TError = ErrorType<RetryInvoiceSendFailure404 | RetryInvoiceSendFailure409>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof retryInvoiceSendFailure>>,
+    TError,
+    { alertId: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof retryInvoiceSendFailure>>,
+  TError,
+  { alertId: number },
+  TContext
+> => {
+  return useMutation(getRetryInvoiceSendFailureMutationOptions(options));
 };
 
 /**

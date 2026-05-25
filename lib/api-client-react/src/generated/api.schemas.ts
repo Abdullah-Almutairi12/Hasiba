@@ -1196,6 +1196,21 @@ export interface AdminStats {
   failedInvoiceSends: number;
 }
 
+export interface InvoiceSendFailure {
+  alertId: number;
+  outboxId?: number | null;
+  invoiceId?: number | null;
+  invoiceReference?: string | null;
+  recipient?: string | null;
+  lastError?: string | null;
+  attempts?: number | null;
+  createdAt: string;
+  title: string;
+  message: string;
+  /** True when the underlying outbox row is still 'failed' and can be re-queued. */
+  retriable: boolean;
+}
+
 export interface AdminSystemHealth {
   databaseOk: boolean;
   databaseLatencyMs: number;
@@ -1556,6 +1571,19 @@ export type UpdateSupportTicketBody = {
   status?: string;
   reply?: string;
   priority?: string;
+};
+
+export type RetryInvoiceSendFailure200 = {
+  ok: boolean;
+  outboxId?: number | null;
+};
+
+export type RetryInvoiceSendFailure404 = {
+  error: string;
+};
+
+export type RetryInvoiceSendFailure409 = {
+  error: string;
 };
 
 export type CreateAnnouncementBody = {

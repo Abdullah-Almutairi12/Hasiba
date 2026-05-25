@@ -83,6 +83,143 @@ router.get("/admin/stats", adminOnly, async (req, res) => {
   }
 });
 
+// ============== Invoice Send Failures ==============
+// The background invoice retry worker (lib/invoice-email-retry-worker.ts)
+// inserts an alert of type 'invoice_send_failed' once a sales_email_outbox
+// row exhausts its MAX_ATTEMPTS budget. Each alert message carries a
+// stable `[outbox#<id>]` token so we can resolve back to the original
+// failed outbox row and enrich the UI with recipient/reference/error.
+const OUTBOX_TOKEN_RE = /\[outbox#(\d+)\]/;
+
+router.get("/admin/invoice-send-failures", adminOnly, async (req, res) => {
+  try {
+    const alerts = await db
+      .select()
+      .from(alertsTable)
+      .where(and(eq(alertsTable.type, "invoice_send_failed"), eq(alertsTable.isRead, false)))
+      .orderBy(desc(alertsTable.createdAt))
+      .limit(50);
+
+    const outboxIds = alerts
+      .map((a) => {
+        const m = OUTBOX_TOKEN_RE.exec(a.message);
+        return m ? Number(m[1]) : null;
+      })
+      .filter((n): n is number => n !== null && Number.isFinite(n));
+
+    type OutboxRow = {
+      id: number;
+      refId: number;
+      reference: string;
+      recipient: string;
+      status: string;
+      error: string | null;
+      attempts: number;
+    };
+    const outboxMap = new Map<number, OutboxRow>();
+    if (outboxIds.length > 0) {
+      const result = await db.execute(sql`
+        SELECT id,
+               ref_id AS "refId",
+               reference,
+               recipient,
+               status,
+               error,
+               attempts
+          FROM sales_email_outbox
+         WHERE id = ANY(${outboxIds}::int[])
+      `);
+      const rows = (result as unknown as { rows?: OutboxRow[] }).rows
+        ?? (result as unknown as OutboxRow[]);
+      for (const r of rows ?? []) outboxMap.set(r.id, r);
+    }
+
+    const items = alerts.map((a) => {
+      const m = OUTBOX_TOKEN_RE.exec(a.message);
+      const outboxId = m ? Number(m[1]) : null;
+      const ob = outboxId != null ? outboxMap.get(outboxId) : undefined;
+      return {
+        alertId: a.id,
+        outboxId: outboxId ?? null,
+        invoiceId: ob?.refId ?? null,
+        invoiceReference: ob?.reference ?? null,
+        recipient: ob?.recipient ?? null,
+        lastError: ob?.error ?? null,
+        attempts: ob?.attempts ?? null,
+        createdAt: a.createdAt.toISOString(),
+        title: a.title,
+        message: a.message,
+        retriable: !!ob && ob.status === "failed",
+      };
+    });
+    res.json(items);
+  } catch (err) {
+    req.log.error({ err }, "List invoice send failures failed");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.post(
+  "/admin/invoice-send-failures/:alertId/retry",
+  adminOnly,
+  async (req, res) => {
+    try {
+      const alertId = Number(req.params.alertId);
+      if (!Number.isFinite(alertId)) {
+        return res.status(400).json({ error: "Bad id" });
+      }
+      const [alert] = await db
+        .select()
+        .from(alertsTable)
+        .where(eq(alertsTable.id, alertId))
+        .limit(1);
+      if (!alert || alert.type !== "invoice_send_failed") {
+        return res.status(404).json({ error: "التنبيه غير موجود" });
+      }
+      const m = OUTBOX_TOKEN_RE.exec(alert.message);
+      const outboxId = m ? Number(m[1]) : null;
+      if (!outboxId || !Number.isFinite(outboxId)) {
+        return res
+          .status(404)
+          .json({ error: "تعذّر تحديد سجل البريد الأصلي" });
+      }
+      // Reset attempts so the retry worker's WHERE attempts<MAX_ATTEMPTS
+      // filter matches, and clear next_retry_at so the very next sweep
+      // picks it up instead of waiting for the previous backoff window.
+      const upd = await db.execute(sql`
+        UPDATE sales_email_outbox
+           SET attempts = 0,
+               next_retry_at = null,
+               error = null
+         WHERE id = ${outboxId}
+           AND kind = 'invoice'
+           AND retry_of IS NULL
+           AND status = 'failed'
+         RETURNING id;
+      `);
+      const updRows = (upd as unknown as { rows?: Array<{ id: number }> }).rows
+        ?? (upd as unknown as Array<{ id: number }>);
+      if (!updRows || updRows.length === 0) {
+        return res
+          .status(409)
+          .json({ error: "هذا السجل لم يعد قابلاً للإرسال" });
+      }
+      await db
+        .update(alertsTable)
+        .set({ isRead: true })
+        .where(eq(alertsTable.id, alertId));
+      req.log.info(
+        { alertId, outboxId, userId: req.session?.userId },
+        "admin.invoice_send_failure.retry_requeued",
+      );
+      return res.json({ ok: true, outboxId });
+    } catch (err) {
+      req.log.error({ err }, "Retry invoice send failure failed");
+      return res.status(500).json({ error: "Internal server error" });
+    }
+  },
+);
+
 // ============== System Health ==============
 router.get("/admin/system", adminOnly, async (req, res) => {
   try {

@@ -17,6 +17,8 @@ import {
   useListAuditLogs,
   useListAnomalyEvents,
   useUpdateAnomalyEvent,
+  useListInvoiceSendFailures,
+  useRetryInvoiceSendFailure,
   useListAiModels,
   useTrainAiModel,
   useTrainAllAiModels,
@@ -141,6 +143,111 @@ function StatCard({
             <Icon className="size-5" />
           </div>
         </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function InvoiceSendFailuresCard() {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const { data: failures } = useListInvoiceSendFailures();
+  const [pendingId, setPendingId] = useState<number | null>(null);
+  const [inlineError, setInlineError] = useState<string | null>(null);
+  const retryMut = useRetryInvoiceSendFailure({
+    mutation: {
+      onSuccess: () => {
+        toast({ title: "تمت إعادة جدولة الإرسال" });
+        setInlineError(null);
+        void queryClient.invalidateQueries({
+          predicate: (q) => {
+            const k = q.queryKey?.[0];
+            return (
+              typeof k === "string" &&
+              (k.includes("/admin/invoice-send-failures") ||
+                k.includes("/admin/stats") ||
+                k.includes("/dashboard/alerts"))
+            );
+          },
+        });
+      },
+      onError: (err: unknown) => {
+        const msg =
+          (err as { response?: { data?: { error?: string } } })?.response?.data
+            ?.error ?? "تعذّر إعادة الإرسال";
+        setInlineError(msg);
+      },
+      onSettled: () => setPendingId(null),
+    },
+  });
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Send className="size-4 text-destructive" />
+          فواتير فشل إرسالها
+        </CardTitle>
+        <CardDescription>
+          تنبيهات لم تُحلّ بعد بعد استنفاد محاولات الإرسال التلقائي.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-2 text-sm">
+        {inlineError && (
+          <div
+            className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700"
+            data-testid="invoice-retry-inline-error"
+          >
+            {inlineError}
+          </div>
+        )}
+        {failures && failures.length > 0 ? (
+          failures.map((f) => (
+            <div
+              key={f.alertId}
+              className="rounded-lg border bg-card p-3 flex items-start justify-between gap-2"
+              data-testid={`invoice-failure-${f.alertId}`}
+            >
+              <div className="min-w-0 flex-1">
+                <div className="font-bold truncate">
+                  {f.invoiceReference ?? f.title}
+                </div>
+                <div className="mt-1 text-xs text-muted-foreground" dir="ltr">
+                  {f.recipient ?? "—"}
+                </div>
+                {f.lastError && (
+                  <div className="mt-1 text-xs text-rose-600 line-clamp-2">
+                    {f.lastError}
+                  </div>
+                )}
+                <div className="mt-1 text-[11px] text-muted-foreground">
+                  {new Date(f.createdAt).toLocaleString("ar-SA")}
+                </div>
+              </div>
+              <Button
+                size="sm"
+                variant="default"
+                disabled={
+                  !f.retriable ||
+                  (retryMut.isPending && pendingId === f.alertId)
+                }
+                onClick={() => {
+                  setPendingId(f.alertId);
+                  setInlineError(null);
+                  retryMut.mutate({ alertId: f.alertId });
+                }}
+                data-testid={`button-retry-invoice-${f.alertId}`}
+              >
+                {retryMut.isPending && pendingId === f.alertId && (
+                  <Loader2 className="me-2 size-4 animate-spin" />
+                )}
+                إعادة المحاولة
+              </Button>
+            </div>
+          ))
+        ) : (
+          <p className="text-muted-foreground">لا توجد إخفاقات إرسال حالياً.</p>
+        )}
       </CardContent>
     </Card>
   );
@@ -328,6 +435,8 @@ function OverviewTab() {
             )}
           </CardContent>
         </Card>
+
+        <InvoiceSendFailuresCard />
       </div>
     </div>
   );
