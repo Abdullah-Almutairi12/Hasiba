@@ -12,6 +12,7 @@ import {
   appSettingsTable,
   alertsCleanupRunsTable,
   cleanupReportSendsTable,
+  cleanupReportSendRecipientsTable,
   auditLogsTable,
 } from "@workspace/db";
 import { uploadBufferToPrivateObject } from "./storage";
@@ -1448,6 +1449,25 @@ router.get(
         .from(cleanupReportSendsTable)
         .orderBy(desc(cleanupReportSendsTable.sentAt))
         .limit(20);
+      const ids = rows.map((r) => r.id);
+      const recipientRows =
+        ids.length > 0
+          ? await db
+              .select()
+              .from(cleanupReportSendRecipientsTable)
+              .where(
+                sql`${cleanupReportSendRecipientsTable.sendId} IN (${sql.join(
+                  ids.map((id) => sql`${id}`),
+                  sql`, `,
+                )})`,
+              )
+          : [];
+      const byId = new Map<number, typeof recipientRows>();
+      for (const rr of recipientRows) {
+        const arr = byId.get(rr.sendId) ?? [];
+        arr.push(rr);
+        byId.set(rr.sendId, arr);
+      }
       return res.json(
         rows.map((r) => ({
           id: r.id,
@@ -1462,6 +1482,16 @@ router.get(
           failureReason: r.failureReason,
           windowFrom: r.windowFrom ? r.windowFrom.toISOString() : null,
           windowTo: r.windowTo ? r.windowTo.toISOString() : null,
+          messageId: r.messageId ?? null,
+          // Task #204: per-recipient delivery status. Empty array for
+          // historical rows written before this column existed.
+          recipientStatuses: (byId.get(r.id) ?? []).map((rr) => ({
+            email: rr.email,
+            status: rr.status,
+            reason: rr.reason,
+            deliveredAt: rr.deliveredAt ? rr.deliveredAt.toISOString() : null,
+            updatedAt: rr.updatedAt.toISOString(),
+          })),
         })),
       );
     } catch (err) {

@@ -134,6 +134,45 @@ export const cleanupReportSendsTable = pgTable("cleanup_report_sends", {
   // failure rows where the PDF was never built.
   windowFrom: timestamp("window_from"),
   windowTo: timestamp("window_to"),
+  // Task #204 — SMTP message-id returned by nodemailer for the
+  // successful submission. Used by the email provider webhook
+  // (`/api/integrations/email/webhook`) to update per-recipient
+  // delivery status rows. Nullable for failures + historical rows.
+  messageId: text("message_id"),
 });
 
 export type CleanupReportSend = typeof cleanupReportSendsTable.$inferSelect;
+
+// Task #204 — per-recipient delivery status for each cleanup-report
+// send. One row per (sendId, email). Status is seeded from the SMTP
+// envelope returned by nodemailer at submission time (accepted →
+// 'delivered', rejected → 'bounced', pending → 'pending') and can be
+// updated later by the email provider webhook
+// (`/api/integrations/email/webhook`) when bounce / deferral events
+// arrive asynchronously. Lets admins see UP FRONT which recipients
+// actually got the report so they can proactively re-send the bounced
+// ones instead of waiting for a user to complain.
+export const cleanupReportSendRecipientsTable = pgTable(
+  "cleanup_report_send_recipients",
+  {
+    id: serial("id").primaryKey(),
+    sendId: integer("send_id")
+      .notNull()
+      .references(() => cleanupReportSendsTable.id, { onDelete: "cascade" }),
+    email: text("email").notNull(),
+    // 'delivered' | 'bounced' | 'pending' | 'deferred'
+    status: text("status").notNull().default("pending"),
+    reason: text("reason"),
+    deliveredAt: timestamp("delivered_at"),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => ({
+    sendEmailIdx: uniqueIndex("cleanup_report_send_recipients_send_email_idx").on(
+      t.sendId,
+      t.email,
+    ),
+  }),
+);
+
+export type CleanupReportSendRecipient =
+  typeof cleanupReportSendRecipientsTable.$inferSelect;

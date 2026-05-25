@@ -15,6 +15,7 @@ import { initPos } from "./lib/pos-init";
 import { initAnomaly } from "./lib/anomaly-engine";
 import { initIntercompany } from "./lib/intercompany-init";
 import { initAlertDismissals } from "./lib/alert-dismissals-init";
+import { initCleanupReportDelivery } from "./lib/cleanup-report-delivery-init";
 import { initIntercompanyImbalanceFxColumns } from "./lib/intercompany-imbalance-fx-init";
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
@@ -37,6 +38,7 @@ const accountingReady = initAccounting()
   .then(() => initAnomaly())
   .then(() => initIntercompany())
   .then(() => initAlertDismissals())
+  .then(() => initCleanupReportDelivery())
   .then(() => initIntercompanyImbalanceFxColumns())
   .catch((err) => {
     accountingInitError = err;
@@ -123,6 +125,13 @@ app.use(
 app.use(
   "/api/integrations/shipping/webhook",
   express.raw({ type: "*/*", limit: "1mb" }),
+);
+// Task #204: email-delivery webhook (provider-side bounce / delivery
+// events for the cleanup-report mailer). Keep raw bytes so we can
+// verify the optional HMAC-SHA256 in X-Webhook-Signature.
+app.use(
+  "/api/integrations/email/webhook",
+  express.raw({ type: "*/*", limit: "256kb" }),
 );
 
 // Default JSON limit for everything else.

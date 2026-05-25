@@ -2130,6 +2130,24 @@ export const ListCleanupReportSends200ItemStatus = {
   failure: "failure",
 } as const;
 
+export type ListCleanupReportSends200ItemRecipientStatusesItemStatus =
+  (typeof ListCleanupReportSends200ItemRecipientStatusesItemStatus)[keyof typeof ListCleanupReportSends200ItemRecipientStatusesItemStatus];
+
+export const ListCleanupReportSends200ItemRecipientStatusesItemStatus = {
+  delivered: "delivered",
+  bounced: "bounced",
+  pending: "pending",
+  deferred: "deferred",
+} as const;
+
+export type ListCleanupReportSends200ItemRecipientStatusesItem = {
+  email: string;
+  status: ListCleanupReportSends200ItemRecipientStatusesItemStatus;
+  reason?: string | null;
+  deliveredAt?: string | null;
+  updatedAt: string;
+};
+
 export type ListCleanupReportSends200Item = {
   id: number;
   sentAt: string;
@@ -2145,6 +2163,10 @@ export type ListCleanupReportSends200Item = {
   windowFrom?: string | null;
   /** End of the report window the PDF covered. */
   windowTo?: string | null;
+  /** Task #204 — SMTP message-id returned by the underlying transport. Used by the email delivery webhook to correlate async bounce / delivery events back to this send. */
+  messageId?: string | null;
+  /** Task #204 — per-recipient delivery status. One entry per address in `recipients`. Empty array for failed sends and for historical rows written before this column existed. */
+  recipientStatuses?: ListCleanupReportSends200ItemRecipientStatusesItem[];
 };
 
 export type GetCleanupReportTestHistory200EntriesItem = {

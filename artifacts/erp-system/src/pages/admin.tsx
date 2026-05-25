@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { Money } from "@/components/riyal";
 import { useLocation } from "wouter";
 import {
@@ -119,6 +119,11 @@ import {
   Workflow,
   PlayCircle,
   RotateCw,
+  ChevronDown,
+  ChevronRight,
+  Mail,
+  MailX,
+  Clock,
 } from "lucide-react";
 import { WorkflowTab } from "@/components/workflow-tab";
 import { IntegrationsTab } from "@/components/integrations-tab";
@@ -1931,23 +1936,50 @@ function ResendRecipientPicker({
   windowLabel,
   isPending,
   onResend,
+  statusByEmail,
 }: {
   rowId: number;
   recipients: string[];
   windowLabel: string;
   isPending: boolean;
+  /**
+   * Task #206 — passes the chosen subset (or `null` for "send to
+   * everyone") AND the original recipient total so callers can report
+   * "X of Y" in toasts and audit logs without re-deriving it.
+   */
   onResend: (subset: string[] | null, originalTotal: number) => void;
+  /**
+   * Task #204 — per-recipient delivery status keyed by lowercased
+   * email. When present, the picker highlights bounced/pending rows
+   * and exposes a "تحديد غير المُسلَّمين فقط" shortcut.
+   */
+  statusByEmail?: Record<
+    string,
+    "delivered" | "bounced" | "pending" | "deferred"
+  >;
 }) {
   const [open, setOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
-  const [selected, setSelected] = useState<Record<string, boolean>>(() =>
-    Object.fromEntries(recipients.map((r) => [r, true])),
-  );
+  const undeliveredEmails = recipients.filter((r) => {
+    const s = statusByEmail?.[r.toLowerCase()];
+    return s === "bounced" || s === "pending" || s === "deferred";
+  });
+  const hasUndelivered = undeliveredEmails.length > 0;
+  // When the row has undelivered recipients, pre-select only those so
+  // the admin can resend the bounced ones with one click. Otherwise
+  // fall back to the legacy "everyone selected" default.
+  const initialSelection = () =>
+    hasUndelivered
+      ? Object.fromEntries(
+          recipients.map((r) => [r, undeliveredEmails.includes(r)]),
+        )
+      : Object.fromEntries(recipients.map((r) => [r, true]));
+  const [selected, setSelected] = useState<Record<string, boolean>>(initialSelection);
   // Re-sync when the popover is opened so a stale selection from a
   // previous open doesn't carry over if the recipient list changed.
   useEffect(() => {
     if (open) {
-      setSelected(Object.fromEntries(recipients.map((r) => [r, true])));
+      setSelected(initialSelection());
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
@@ -1999,29 +2031,59 @@ function ResendRecipientPicker({
             <span data-testid={`text-resend-selection-count-${rowId}`}>
               {chosen.length} / {recipients.length} مستلم
             </span>
-            <button
-              type="button"
-              className="text-primary hover:underline disabled:opacity-50"
-              disabled={recipients.length === 0}
-              onClick={() => {
-                const next = allChecked ? false : true;
-                setSelected(
-                  Object.fromEntries(recipients.map((r) => [r, next])),
-                );
-              }}
-              data-testid={`button-resend-toggle-all-${rowId}`}
-            >
-              {allChecked ? "إلغاء الكل" : "اختيار الكل"}
-            </button>
+            <div className="flex items-center gap-2">
+              {hasUndelivered && (
+                <button
+                  type="button"
+                  className="text-amber-600 hover:underline"
+                  onClick={() =>
+                    setSelected(
+                      Object.fromEntries(
+                        recipients.map((r) => [
+                          r,
+                          undeliveredEmails.includes(r),
+                        ]),
+                      ),
+                    )
+                  }
+                  data-testid={`button-resend-undelivered-only-${rowId}`}
+                >
+                  تحديد غير المُسلَّمين فقط ({undeliveredEmails.length})
+                </button>
+              )}
+              <button
+                type="button"
+                className="text-primary hover:underline disabled:opacity-50"
+                disabled={recipients.length === 0}
+                onClick={() => {
+                  const next = allChecked ? false : true;
+                  setSelected(
+                    Object.fromEntries(recipients.map((r) => [r, next])),
+                  );
+                }}
+                data-testid={`button-resend-toggle-all-${rowId}`}
+              >
+                {allChecked ? "إلغاء الكل" : "اختيار الكل"}
+              </button>
+            </div>
           </div>
           <div className="max-h-56 space-y-1 overflow-y-auto rounded border bg-muted/20 p-2">
             {recipients.map((r) => {
               const id = `resend-${rowId}-${r}`;
+              const status = statusByEmail?.[r.toLowerCase()];
+              const isUndelivered =
+                status === "bounced" ||
+                status === "pending" ||
+                status === "deferred";
               return (
                 <label
                   key={r}
                   htmlFor={id}
-                  className="flex cursor-pointer items-center gap-2 rounded px-1 py-1 text-xs hover:bg-muted/60"
+                  className={`flex cursor-pointer items-center gap-2 rounded px-1 py-1 text-xs hover:bg-muted/60 ${
+                    isUndelivered
+                      ? "bg-amber-50 dark:bg-amber-950/20"
+                      : ""
+                  }`}
                   dir="ltr"
                 >
                   <Checkbox
@@ -2032,9 +2094,12 @@ function ResendRecipientPicker({
                     }
                     data-testid={`checkbox-resend-recipient-${rowId}-${r}`}
                   />
-                  <span className="truncate" title={r}>
+                  <span className="flex-1 truncate" title={r}>
                     {r}
                   </span>
+                  {status && (
+                    <RecipientStatusBadge status={status} compact />
+                  )}
                 </label>
               );
             })}
@@ -2168,6 +2233,52 @@ function ResendRecipientPicker({
 }
 
 /**
+ * Task #204 — small status badge used both inside the resend popover
+ * and in the per-recipient breakdown of the history table.
+ */
+function RecipientStatusBadge({
+  status,
+  compact = false,
+}: {
+  status: "delivered" | "bounced" | "pending" | "deferred";
+  compact?: boolean;
+}) {
+  const map = {
+    delivered: {
+      label: "مُسلَّم",
+      cls: "bg-emerald-50 text-emerald-700 border-emerald-200",
+      Icon: Mail,
+    },
+    bounced: {
+      label: "مرتد",
+      cls: "bg-rose-50 text-rose-700 border-rose-200",
+      Icon: MailX,
+    },
+    pending: {
+      label: "قيد الانتظار",
+      cls: "bg-amber-50 text-amber-700 border-amber-200",
+      Icon: Clock,
+    },
+    deferred: {
+      label: "مؤجَّل",
+      cls: "bg-amber-50 text-amber-700 border-amber-200",
+      Icon: Clock,
+    },
+  } as const;
+  const { label, cls, Icon } = map[status];
+  return (
+    <Badge
+      variant="outline"
+      className={`${cls} ${compact ? "px-1 py-0 text-[9px]" : "text-[10px]"}`}
+      data-testid={`badge-recipient-status-${status}`}
+    >
+      <Icon className={compact ? "size-2.5" : "size-3"} />
+      <span className="ms-1">{label}</span>
+    </Badge>
+  );
+}
+
+/**
  * Task #191: shows the last ~20 cleanup-report email send attempts so
  * admins can audit who triggered each send (cron / manual / test),
  * how many recipients it hit, and whether it succeeded.
@@ -2177,6 +2288,9 @@ function CleanupReportSendsHistory() {
   const { toast } = useToast();
   const { data, isLoading } = useListCleanupReportSends();
   const rows = data ?? [];
+  // Task #204 — track which rows have their per-recipient delivery
+  // breakdown expanded.
+  const [expanded, setExpanded] = useState<Record<number, boolean>>({});
   const invalidateSends = () =>
     queryClient.invalidateQueries({
       predicate: (q) => {
@@ -2258,6 +2372,7 @@ function CleanupReportSendsHistory() {
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead className="text-xs w-0"></TableHead>
                 <TableHead className="text-xs">التاريخ</TableHead>
                 <TableHead className="text-xs">النطاق</TableHead>
                 <TableHead className="text-xs">النوع</TableHead>
@@ -2278,11 +2393,52 @@ function CleanupReportSendsHistory() {
                     ? `${new Date(r.windowFrom).toISOString().slice(0, 10)} → ${new Date(r.windowTo).toISOString().slice(0, 10)}`
                     : null;
                 const canResend = r.status === "success" && !!windowLabel;
+                const recipientStatuses = r.recipientStatuses ?? [];
+                const statusByEmail: Record<
+                  string,
+                  "delivered" | "bounced" | "pending" | "deferred"
+                > = {};
+                for (const s of recipientStatuses) {
+                  statusByEmail[s.email.toLowerCase()] = s.status;
+                }
+                const counts = recipientStatuses.reduce(
+                  (acc, s) => {
+                    acc[s.status] = (acc[s.status] ?? 0) + 1;
+                    return acc;
+                  },
+                  {} as Record<string, number>,
+                );
+                const isExpanded = !!expanded[r.id];
+                const hasBreakdown = recipientStatuses.length > 0;
                 return (
+                  <Fragment key={r.id}>
                   <TableRow
-                    key={r.id}
                     data-testid={`row-cleanup-report-send-${r.id}`}
                   >
+                    <TableCell className="p-1 align-top">
+                      {hasBreakdown && (
+                        <button
+                          type="button"
+                          className="rounded p-1 hover:bg-muted"
+                          onClick={() =>
+                            setExpanded((p) => ({
+                              ...p,
+                              [r.id]: !p[r.id],
+                            }))
+                          }
+                          aria-label={
+                            isExpanded ? "إخفاء التفاصيل" : "عرض التفاصيل"
+                          }
+                          data-testid={`button-toggle-recipient-statuses-${r.id}`}
+                        >
+                          {isExpanded ? (
+                            <ChevronDown className="size-3" />
+                          ) : (
+                            <ChevronRight className="size-3" />
+                          )}
+                        </button>
+                      )}
+                    </TableCell>
                     <TableCell className="text-xs whitespace-nowrap">
                       {date}
                     </TableCell>
@@ -2310,17 +2466,53 @@ function CleanupReportSendsHistory() {
                         : r.triggeredByUserName ?? "—"}
                     </TableCell>
                     <TableCell
-                      className="text-xs truncate max-w-[14rem]"
+                      className="text-xs max-w-[16rem]"
                       title={r.recipients}
                       dir="ltr"
                     >
-                      <span className="tabular-nums me-1">
-                        {r.recipientCount}
-                      </span>
-                      {r.recipients && (
-                        <span className="text-muted-foreground">
-                          · {r.recipients}
+                      <div className="flex items-center gap-1 truncate">
+                        <span className="tabular-nums">
+                          {r.recipientCount}
                         </span>
+                        {r.recipients && (
+                          <span className="text-muted-foreground truncate">
+                            · {r.recipients}
+                          </span>
+                        )}
+                      </div>
+                      {hasBreakdown && (
+                        <div
+                          className="mt-1 flex flex-wrap gap-1"
+                          data-testid={`text-cleanup-report-send-status-summary-${r.id}`}
+                        >
+                          {(["delivered", "bounced", "pending", "deferred"] as const).map(
+                            (k) =>
+                              counts[k] ? (
+                                <Badge
+                                  key={k}
+                                  variant="outline"
+                                  className={`px-1 py-0 text-[9px] ${
+                                    k === "delivered"
+                                      ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                                      : k === "bounced"
+                                        ? "bg-rose-50 text-rose-700 border-rose-200"
+                                        : "bg-amber-50 text-amber-700 border-amber-200"
+                                  }`}
+                                >
+                                  {k === "delivered"
+                                    ? "مُسلَّم"
+                                    : k === "bounced"
+                                      ? "مرتد"
+                                      : k === "pending"
+                                        ? "قيد الانتظار"
+                                        : "مؤجَّل"}
+                                  <span className="ms-1 tabular-nums">
+                                    {counts[k]}
+                                  </span>
+                                </Badge>
+                              ) : null,
+                          )}
+                        </div>
                       )}
                     </TableCell>
                     <TableCell>
@@ -2355,6 +2547,7 @@ function CleanupReportSendsHistory() {
                             .map((s) => s.trim())
                             .filter((s) => s.length > 0)}
                           windowLabel={windowLabel!}
+                          statusByEmail={statusByEmail}
                           isPending={
                             resendMut.isPending &&
                             resendMut.variables?.id === r.id
@@ -2376,6 +2569,56 @@ function CleanupReportSendsHistory() {
                       )}
                     </TableCell>
                   </TableRow>
+                  {isExpanded && hasBreakdown && (
+                    <TableRow
+                      data-testid={`row-cleanup-report-send-statuses-${r.id}`}
+                      className="bg-muted/20"
+                    >
+                      <TableCell />
+                      <TableCell colSpan={7} className="py-2">
+                        <div className="space-y-1">
+                          <div className="text-[11px] font-medium text-muted-foreground">
+                            حالة التسليم لكل مستلم
+                            {r.messageId && (
+                              <span
+                                className="ms-2 font-normal"
+                                dir="ltr"
+                                title={r.messageId}
+                              >
+                                · message-id: {r.messageId}
+                              </span>
+                            )}
+                          </div>
+                          <div className="grid gap-1 sm:grid-cols-2 lg:grid-cols-3">
+                            {recipientStatuses.map((s) => (
+                              <div
+                                key={s.email}
+                                className="flex items-center justify-between gap-2 rounded border bg-background px-2 py-1 text-xs"
+                                dir="ltr"
+                                data-testid={`row-recipient-status-${r.id}-${s.email}`}
+                              >
+                                <span className="truncate" title={s.email}>
+                                  {s.email}
+                                </span>
+                                <div className="flex shrink-0 items-center gap-1">
+                                  <RecipientStatusBadge status={s.status} />
+                                  {s.reason && (
+                                    <span
+                                      className="max-w-[10rem] truncate text-[10px] text-muted-foreground"
+                                      title={s.reason}
+                                    >
+                                      {s.reason}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  )}
+                  </Fragment>
                 );
               })}
             </TableBody>

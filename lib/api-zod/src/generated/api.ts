@@ -2098,6 +2098,26 @@ export const ListCleanupReportSendsResponseItem = zod.object({
     .date()
     .nullish()
     .describe("End of the report window the PDF covered."),
+  messageId: zod
+    .string()
+    .nullish()
+    .describe(
+      "Task #204 — SMTP message-id returned by the underlying transport. Used by the email delivery webhook to correlate async bounce \/ delivery events back to this send.",
+    ),
+  recipientStatuses: zod
+    .array(
+      zod.object({
+        email: zod.string(),
+        status: zod.enum(["delivered", "bounced", "pending", "deferred"]),
+        reason: zod.string().nullish(),
+        deliveredAt: zod.coerce.date().nullish(),
+        updatedAt: zod.coerce.date(),
+      }),
+    )
+    .optional()
+    .describe(
+      "Task #204 — per-recipient delivery status. One entry per address in `recipients`. Empty array for failed sends and for historical rows written before this column existed.",
+    ),
 });
 export const ListCleanupReportSendsResponse = zod.array(
   ListCleanupReportSendsResponseItem,

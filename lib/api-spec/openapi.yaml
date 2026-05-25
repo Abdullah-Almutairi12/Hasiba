@@ -2136,6 +2136,39 @@ paths:
                       format: date-time
                       nullable: true
                       description: End of the report window the PDF covered.
+                    messageId:
+                      type: string
+                      nullable: true
+                      description: >-
+                        Task #204 — SMTP message-id returned by the
+                        underlying transport. Used by the email
+                        delivery webhook to correlate async bounce /
+                        delivery events back to this send.
+                    recipientStatuses:
+                      type: array
+                      description: >-
+                        Task #204 — per-recipient delivery status.
+                        One entry per address in `recipients`. Empty
+                        array for failed sends and for historical
+                        rows written before this column existed.
+                      items:
+                        type: object
+                        properties:
+                          email: { type: string }
+                          status:
+                            type: string
+                            enum: [delivered, bounced, pending, deferred]
+                          reason:
+                            type: string
+                            nullable: true
+                          deliveredAt:
+                            type: string
+                            format: date-time
+                            nullable: true
+                          updatedAt:
+                            type: string
+                            format: date-time
+                        required: [email, status, updatedAt]
                   required:
                     - id
                     - sentAt

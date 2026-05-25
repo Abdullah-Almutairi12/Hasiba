@@ -1372,6 +1372,164 @@ integrationsPublicRouter.post(
 );
 
 // =============================================================
+// Task #204 — email delivery webhook (cleanup-report mailer).
+// =============================================================
+// Generic, provider-agnostic endpoint for SMTP / ESP delivery events.
+// The body shape is intentionally simple so an admin can wire any
+// provider (Postmark, SES, SendGrid, Resend, plain Postfix DSN
+// forwarder) by mapping its outbound payload to:
+//
+//   { messageId?: string, recipient: string,
+//     event: 'delivered' | 'bounced' | 'deferred' | 'opened',
+//     reason?: string, timestamp?: string }
+//
+// `messageId` is the SMTP id we recorded at submission time (preferred
+// match key). If absent, we fall back to the single most-recent
+// `pending` row for that recipient in the last 30 days — never a bulk
+// update across history, which would clobber prior delivery records.
+//
+// Auth posture: when `EMAIL_WEBHOOK_SECRET` is set, the raw body MUST
+// be HMAC-SHA256 signed with the hex digest in `X-Webhook-Signature`.
+// In production (`NODE_ENV === "production"`) the secret is REQUIRED —
+// requests are rejected with 503 otherwise so we fail closed. In dev
+// the endpoint is open for local fixtures, but the blast radius is
+// bounded to flipping flags on admin send history.
+import {
+  cleanupReportSendsTable as _cleanupReportSendsTableForWebhook,
+  cleanupReportSendRecipientsTable as _cleanupReportSendRecipientsTableForWebhook,
+} from "@workspace/db";
+
+const emailWebhookEventSchema = z.object({
+  messageId: z.string().trim().optional(),
+  recipient: z.string().trim().min(3).max(320),
+  event: z.enum(["delivered", "bounced", "deferred", "opened"]),
+  reason: z.string().trim().max(500).optional(),
+  timestamp: z.string().trim().optional(),
+});
+
+integrationsPublicRouter.post(
+  "/integrations/email/webhook",
+  async (req, res) => {
+    try {
+      const rawBody = Buffer.isBuffer(req.body)
+        ? req.body
+        : Buffer.from(
+            typeof req.body === "string"
+              ? req.body
+              : JSON.stringify(req.body ?? {}),
+          );
+      const secret = process.env["EMAIL_WEBHOOK_SECRET"];
+      // Fail-closed in production: without a configured secret an
+      // unauthenticated caller could flip delivery flags on admin
+      // history. Refuse to serve until the operator wires up HMAC.
+      if (!secret && process.env["NODE_ENV"] === "production") {
+        res
+          .status(503)
+          .json({ error: "email_webhook_secret_not_configured" });
+        return;
+      }
+      if (secret) {
+        const provided = String(req.headers["x-webhook-signature"] ?? "");
+        if (!provided) {
+          res.status(401).json({ error: "missing_signature" });
+          return;
+        }
+        const expected = createHmac("sha256", secret)
+          .update(rawBody)
+          .digest("hex");
+        const a = Buffer.from(provided, "utf8");
+        const b = Buffer.from(expected, "utf8");
+        if (a.length !== b.length || !timingSafeEqual(a, b)) {
+          res.status(401).json({ error: "invalid_signature" });
+          return;
+        }
+      }
+      let json: unknown;
+      try {
+        json = rawBody.length > 0 ? JSON.parse(rawBody.toString("utf8")) : {};
+      } catch {
+        res.status(400).json({ error: "invalid_json" });
+        return;
+      }
+      const events = Array.isArray(json) ? json : [json];
+      let updated = 0;
+      for (const raw of events) {
+        const parsed = emailWebhookEventSchema.safeParse(raw);
+        if (!parsed.success) continue;
+        const { messageId, recipient, event, reason } = parsed.data;
+        const email = recipient.toLowerCase();
+        const status =
+          event === "delivered"
+            ? "delivered"
+            : event === "bounced"
+              ? "bounced"
+              : event === "deferred"
+                ? "deferred"
+                : "delivered"; // 'opened' implies delivered
+        // Resolve the target send via messageId if provided, else
+        // most-recent matching pending row in the last 30 days.
+        let sendId: number | null = null;
+        if (messageId) {
+          const [s] = await db
+            .select({ id: _cleanupReportSendsTableForWebhook.id })
+            .from(_cleanupReportSendsTableForWebhook)
+            .where(eq(_cleanupReportSendsTableForWebhook.messageId, messageId))
+            .limit(1);
+          sendId = s?.id ?? null;
+        }
+        // Resolve to a single recipient row id and update by primary
+        // key. Bulk-updating by recipient email would clobber every
+        // historical send to that address — see code-review feedback.
+        let targetId: number | null = null;
+        if (sendId) {
+          const [row] = await db
+            .select({ id: _cleanupReportSendRecipientsTableForWebhook.id })
+            .from(_cleanupReportSendRecipientsTableForWebhook)
+            .where(
+              sql`${_cleanupReportSendRecipientsTableForWebhook.sendId} = ${sendId}
+                  AND lower(${_cleanupReportSendRecipientsTableForWebhook.email}) = ${email}`,
+            )
+            .limit(1);
+          targetId = row?.id ?? null;
+        } else {
+          // Fallback: newest still-pending row for this address in the
+          // last 30 days. We never touch already-finalised rows.
+          const [row] = await db
+            .select({ id: _cleanupReportSendRecipientsTableForWebhook.id })
+            .from(_cleanupReportSendRecipientsTableForWebhook)
+            .where(
+              sql`lower(${_cleanupReportSendRecipientsTableForWebhook.email}) = ${email}
+                  AND ${_cleanupReportSendRecipientsTableForWebhook.status} = 'pending'
+                  AND ${_cleanupReportSendRecipientsTableForWebhook.updatedAt}
+                      > NOW() - INTERVAL '30 days'`,
+            )
+            .orderBy(
+              sql`${_cleanupReportSendRecipientsTableForWebhook.updatedAt} DESC`,
+            )
+            .limit(1);
+          targetId = row?.id ?? null;
+        }
+        if (!targetId) continue;
+        const result = await db
+          .update(_cleanupReportSendRecipientsTableForWebhook)
+          .set({
+            status,
+            reason: reason ?? null,
+            deliveredAt: status === "delivered" ? new Date() : undefined,
+            updatedAt: new Date(),
+          })
+          .where(eq(_cleanupReportSendRecipientsTableForWebhook.id, targetId))
+          .returning({ id: _cleanupReportSendRecipientsTableForWebhook.id });
+        updated += result.length;
+      }
+      res.json({ ok: true, updated });
+    } catch (err) {
+      handle(res, err);
+    }
+  },
+);
+
+// =============================================================
 // Audit log of every external call
 // =============================================================
 router.get("/integrations/calls", adminGuard, async (req, res) => {

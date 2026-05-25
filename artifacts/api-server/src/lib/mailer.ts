@@ -17,7 +17,21 @@ export type MailMessage = {
 };
 
 export type MailDispatchResult =
-  | { sent: true; provider: "smtp"; messageId: string }
+  | {
+      sent: true;
+      provider: "smtp";
+      messageId: string;
+      /**
+       * Per-recipient SMTP envelope from nodemailer. `accepted` are
+       * addresses the receiving server acknowledged at submit time,
+       * `rejected` were refused outright (typically hard bounces),
+       * and `pending` are awaiting an async DSN. Lower-cased for
+       * stable matching against stored recipient rows.
+       */
+      accepted: string[];
+      rejected: string[];
+      pending: string[];
+    }
   | { sent: false; reason: string };
 
 let cachedTransport: Transporter | null = null;
@@ -69,8 +83,41 @@ export async function sendMail(msg: MailMessage): Promise<MailDispatchResult> {
         contentType: a.contentType,
       })),
     });
-    logger.info({ to: msg.to, messageId: info.messageId }, "mail.sent");
-    return { sent: true, provider: "smtp", messageId: info.messageId };
+    const norm = (xs: unknown): string[] =>
+      Array.isArray(xs)
+        ? xs
+            .map((x) =>
+              typeof x === "string"
+                ? x.trim().toLowerCase()
+                : typeof x === "object" && x !== null && "address" in x
+                  ? String((x as { address: unknown }).address ?? "")
+                      .trim()
+                      .toLowerCase()
+                  : "",
+            )
+            .filter((s) => s.length > 0)
+        : [];
+    const accepted = norm((info as { accepted?: unknown }).accepted);
+    const rejected = norm((info as { rejected?: unknown }).rejected);
+    const pending = norm((info as { pending?: unknown }).pending);
+    logger.info(
+      {
+        to: msg.to,
+        messageId: info.messageId,
+        accepted: accepted.length,
+        rejected: rejected.length,
+        pending: pending.length,
+      },
+      "mail.sent",
+    );
+    return {
+      sent: true,
+      provider: "smtp",
+      messageId: info.messageId,
+      accepted,
+      rejected,
+      pending,
+    };
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
     logger.error({ err, to: msg.to }, "mail.send_failed");

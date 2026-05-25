@@ -27,6 +27,9 @@ vi.mock("./mailer", () => ({
     sent: true as const,
     provider: "smtp" as const,
     messageId: "<test@local>",
+    accepted: [] as string[],
+    rejected: [] as string[],
+    pending: [] as string[],
   })),
 }));
 
@@ -120,6 +123,9 @@ beforeEach(() => {
     sent: true,
     provider: "smtp",
     messageId: "<test@local>",
+    accepted: [],
+    rejected: [],
+    pending: [],
   });
   vi.mocked(pdfMod.buildAlertsCleanupPdf).mockResolvedValue({
     buffer: Buffer.from("%PDF-stub"),

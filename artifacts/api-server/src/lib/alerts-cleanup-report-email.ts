@@ -32,7 +32,12 @@
  * isn't configured or the recipients list is empty.
  */
 
-import { pool, db, cleanupReportSendsTable } from "@workspace/db";
+import {
+  pool,
+  db,
+  cleanupReportSendsTable,
+  cleanupReportSendRecipientsTable,
+} from "@workspace/db";
 import { logger } from "./logger";
 import { sendMail, isMailerConfigured } from "./mailer";
 import { buildAlertsCleanupPdf } from "./alerts-cleanup-pdf";
@@ -50,20 +55,79 @@ async function recordSendAttempt(row: {
   failureReason: string | null;
   windowFrom: Date | null;
   windowTo: Date | null;
+  messageId?: string | null;
+  /**
+   * Task #204 — per-recipient SMTP envelope when the send succeeded.
+   * Addresses are matched case-insensitively against `recipients`.
+   * Anything in `recipients` that's NOT in any of these three buckets
+   * is recorded as `pending` (the SMTP transport didn't tell us
+   * either way — typical for relays that accept and forward).
+   */
+  envelope?: {
+    accepted: string[];
+    rejected: string[];
+    pending: string[];
+  } | null;
 }): Promise<void> {
   try {
-    await db.insert(cleanupReportSendsTable).values({
-      trigger: row.trigger,
-      triggeredByUserId: row.triggeredByUserId,
-      triggeredByUserName: row.triggeredByUserName,
-      recipientCount: row.recipients.length,
-      recipients: row.recipients.join(", "),
-      rowCount: row.rowCount,
-      status: row.status,
-      failureReason: row.failureReason,
-      windowFrom: row.windowFrom,
-      windowTo: row.windowTo,
+    const [inserted] = await db
+      .insert(cleanupReportSendsTable)
+      .values({
+        trigger: row.trigger,
+        triggeredByUserId: row.triggeredByUserId,
+        triggeredByUserName: row.triggeredByUserName,
+        recipientCount: row.recipients.length,
+        recipients: row.recipients.join(", "),
+        rowCount: row.rowCount,
+        status: row.status,
+        failureReason: row.failureReason,
+        windowFrom: row.windowFrom,
+        windowTo: row.windowTo,
+        messageId: row.messageId ?? null,
+      })
+      .returning({ id: cleanupReportSendsTable.id });
+    if (!inserted || row.recipients.length === 0) return;
+    const accepted = new Set(
+      (row.envelope?.accepted ?? []).map((e) => e.toLowerCase()),
+    );
+    const rejected = new Set(
+      (row.envelope?.rejected ?? []).map((e) => e.toLowerCase()),
+    );
+    const pending = new Set(
+      (row.envelope?.pending ?? []).map((e) => e.toLowerCase()),
+    );
+    const now = new Date();
+    const perRecipientRows = row.recipients.map((email) => {
+      const key = email.trim().toLowerCase();
+      let status: "delivered" | "bounced" | "pending" = "pending";
+      let reason: string | null = null;
+      let deliveredAt: Date | null = null;
+      if (row.status === "failure") {
+        status = "bounced";
+        reason = row.failureReason;
+      } else if (rejected.has(key)) {
+        status = "bounced";
+        reason = "smtp_rejected";
+      } else if (accepted.has(key)) {
+        status = "delivered";
+        deliveredAt = now;
+      } else if (pending.has(key)) {
+        status = "pending";
+      } else {
+        // No envelope info — assume the relay accepted it but we
+        // can't prove delivery without a webhook event.
+        status = "pending";
+      }
+      return {
+        sendId: inserted.id,
+        email,
+        status,
+        reason,
+        deliveredAt,
+        updatedAt: now,
+      };
     });
+    await db.insert(cleanupReportSendRecipientsTable).values(perRecipientRows);
   } catch (err) {
     logger.warn({ err }, "cleanup report: failed to record send attempt");
   }
@@ -394,6 +458,12 @@ export async function sendCleanupReportEmail(opts: {
     failureReason: null,
     windowFrom: from,
     windowTo: to,
+    messageId: result.messageId,
+    envelope: {
+      accepted: result.accepted,
+      rejected: result.rejected,
+      pending: result.pending,
+    },
   });
   logger.info(
     {
