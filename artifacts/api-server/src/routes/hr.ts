@@ -352,7 +352,11 @@ router.post("/hr/positions", hrGuard, async (req, res) => {
 // =========================================================================
 // Employees
 // =========================================================================
-router.get("/hr/employees", hrReadGuard, async (_req, res) => {
+router.get("/hr/employees", hrReadGuard, async (req, res) => {
+  // Tenant scope: every employees query MUST be filtered by companyId
+  // — employee PII (national IDs, salaries, contracts) is one of the
+  // most sensitive surfaces in the system, and the column is NOT NULL.
+  const companyId = getCompanyId(req);
   const rows = await db
     .select({
       id: employeesTable.id,
@@ -385,6 +389,7 @@ router.get("/hr/employees", hrReadGuard, async (_req, res) => {
     .leftJoin(branchesTable, eq(branchesTable.id, employeesTable.branchId))
     .leftJoin(departmentsTable, eq(departmentsTable.id, employeesTable.departmentId))
     .leftJoin(positionsTable, eq(positionsTable.id, employeesTable.positionId))
+    .where(eq(employeesTable.companyId, companyId))
     .orderBy(desc(employeesTable.createdAt));
   res.json(rows.map((r) => ({ ...r, createdAt: r.createdAt.toISOString() })));
 });
@@ -392,7 +397,14 @@ router.get("/hr/employees", hrReadGuard, async (_req, res) => {
 router.get("/hr/employees/:id", hrReadGuard, async (req, res) => {
   try {
     const { id } = IdParam.parse(req.params);
-    const [emp] = await db.select().from(employeesTable).where(eq(employeesTable.id, id)).limit(1);
+    // Cross-tenant IDOR defense: scope the lookup to (id, companyId)
+    // so probing another tenant's employee id collapses to 404.
+    const companyId = getCompanyId(req);
+    const [emp] = await db
+      .select()
+      .from(employeesTable)
+      .where(and(eq(employeesTable.id, id), eq(employeesTable.companyId, companyId)))
+      .limit(1);
     if (!emp) return res.status(404).json({ error: "الموظف غير موجود" });
     return res.json({ ...emp, createdAt: emp.createdAt.toISOString() });
   } catch (err) {
@@ -484,10 +496,13 @@ router.patch("/hr/employees/:id", hrGuard, async (req, res) => {
     for (const [k, v] of Object.entries(body)) {
       if (v !== undefined) update[k] = v;
     }
+    // Cross-tenant mutation defense: scope the UPDATE to (id, companyId)
+    // so a forged id from another tenant returns no row → 404.
+    const companyId = getCompanyId(req);
     const [row] = await db
       .update(employeesTable)
       .set(update)
-      .where(eq(employeesTable.id, id))
+      .where(and(eq(employeesTable.id, id), eq(employeesTable.companyId, companyId)))
       .returning();
     if (!row) return res.status(404).json({ error: "الموظف غير موجود" });
     // Automation hook: rules with trigger.type='record_updated' on the

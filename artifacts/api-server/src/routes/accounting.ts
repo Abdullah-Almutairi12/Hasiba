@@ -688,8 +688,12 @@ router.get("/accounting/journal-entries", reportReadGuard, async (req, res) => {
     const from = req.query.from as string | undefined;
     const to = req.query.to as string | undefined;
     const limit = Math.min(Number(req.query.limit ?? 100), 500);
+    // Tenant scope: journal entries are the canonical financial record;
+    // every list/detail/post path MUST filter by companyId so callers
+    // cannot read or act on another tenant's books.
+    const companyId = getCompanyId(req);
 
-    const wheres: SQL[] = [];
+    const wheres: SQL[] = [eq(journalEntriesTable.companyId, companyId)];
     if (status) wheres.push(eq(journalEntriesTable.status, status));
     if (source) wheres.push(eq(journalEntriesTable.source, source));
     if (from) wheres.push(gte(journalEntriesTable.entryDate, from));
@@ -726,9 +730,7 @@ router.get("/accounting/journal-entries", reportReadGuard, async (req, res) => {
       .orderBy(desc(journalEntriesTable.entryDate), desc(journalEntriesTable.id))
       .limit(limit);
 
-    const entries = wheres.length
-      ? await baseQuery.where(and(...wheres))
-      : await baseQuery;
+    const entries = await baseQuery.where(and(...wheres));
 
     let filtered = entries;
     if (accountId) {
@@ -759,10 +761,12 @@ router.get("/accounting/journal-entries", reportReadGuard, async (req, res) => {
 router.get("/accounting/journal-entries/:id", reportReadGuard, async (req, res) => {
   try {
     const id = Number(req.params.id);
+    // Cross-tenant IDOR defense: scope (id, companyId).
+    const companyId = getCompanyId(req);
     const [entry] = await db
       .select()
       .from(journalEntriesTable)
-      .where(eq(journalEntriesTable.id, id))
+      .where(and(eq(journalEntriesTable.id, id), eq(journalEntriesTable.companyId, companyId)))
       .limit(1);
     if (!entry) return res.status(404).json({ error: "القيد غير موجود" });
     const lines = await db
@@ -867,10 +871,19 @@ router.post(
     try {
       const id = Number(req.params.id);
       const userId = req.session?.userId ?? null;
+      // Cross-tenant mutation defense: load by (id, companyId) so a
+      // forged id from another tenant cannot trigger /post on books
+      // the caller doesn't own.
+      const postCompanyId = getCompanyId(req);
       const [entry] = await db
         .select()
         .from(journalEntriesTable)
-        .where(eq(journalEntriesTable.id, id))
+        .where(
+          and(
+            eq(journalEntriesTable.id, id),
+            eq(journalEntriesTable.companyId, postCompanyId),
+          ),
+        )
         .limit(1);
       if (!entry) return res.status(404).json({ error: "القيد غير موجود" });
       // Strict gate, mirrors payment_run/credit_note:
