@@ -189,4 +189,184 @@ describe("POST /api/integrations/email/webhook — bounce-tracking E2E", () => {
     expect(row?.status).toBe("bounced");
     expect(row?.reason).toBe("mailbox_full");
   });
+
+  // Task #212: provider retries.
+  it("is idempotent under provider retries — replaying the same bounced event N times leaves the row identical and delivered_at untouched", async () => {
+    // Seed a fresh send + recipient for this case so we don't depend
+    // on ordering against the previous test.
+    const localMessageId = `<${RUN_TAG}-retry@hasba.local>`;
+    const localEmail = `retry-${RUN_TAG}@test.local`;
+    const [send] = await db
+      .insert(cleanupReportSendsTable)
+      .values({
+        trigger: "manual",
+        recipientCount: 1,
+        recipients: localEmail,
+        rowCount: 0,
+        status: "success",
+        messageId: localMessageId,
+      })
+      .returning({ id: cleanupReportSendsTable.id });
+    const [rec] = await db
+      .insert(cleanupReportSendRecipientsTable)
+      .values({ sendId: send.id, email: localEmail, status: "pending" })
+      .returning({ id: cleanupReportSendRecipientsTable.id });
+
+    try {
+      const payload = JSON.stringify({
+        messageId: localMessageId,
+        recipient: localEmail,
+        event: "bounced",
+        reason: "mailbox_full",
+      });
+      const sig = sign(payload);
+
+      // First delivery — flips pending → bounced.
+      const r1 = await request(app)
+        .post("/api/integrations/email/webhook")
+        .set("Content-Type", "application/json")
+        .set("X-Webhook-Signature", sig)
+        .send(payload);
+      expect(r1.status).toBe(200);
+      expect(r1.body).toMatchObject({ ok: true, updated: 1 });
+
+      const [afterFirst] = await db
+        .select({
+          status: cleanupReportSendRecipientsTable.status,
+          reason: cleanupReportSendRecipientsTable.reason,
+          deliveredAt: cleanupReportSendRecipientsTable.deliveredAt,
+        })
+        .from(cleanupReportSendRecipientsTable)
+        .where(eq(cleanupReportSendRecipientsTable.id, rec.id));
+      expect(afterFirst?.status).toBe("bounced");
+      expect(afterFirst?.reason).toBe("mailbox_full");
+      // A bounce never sets delivered_at.
+      expect(afterFirst?.deliveredAt).toBeNull();
+
+      // Replay 4 more times — provider retry storm.
+      for (let i = 0; i < 4; i++) {
+        const r = await request(app)
+          .post("/api/integrations/email/webhook")
+          .set("Content-Type", "application/json")
+          .set("X-Webhook-Signature", sig)
+          .send(payload);
+        expect(r.status).toBe(200);
+        // Still reports updated:1 because the row matches and the
+        // values are identical, which is fine — what matters is that
+        // FINAL STATE is unchanged.
+      }
+
+      const [afterReplays] = await db
+        .select({
+          status: cleanupReportSendRecipientsTable.status,
+          reason: cleanupReportSendRecipientsTable.reason,
+          deliveredAt: cleanupReportSendRecipientsTable.deliveredAt,
+        })
+        .from(cleanupReportSendRecipientsTable)
+        .where(eq(cleanupReportSendRecipientsTable.id, rec.id));
+      expect(afterReplays?.status).toBe("bounced");
+      expect(afterReplays?.reason).toBe("mailbox_full");
+      expect(afterReplays?.deliveredAt).toBeNull();
+    } finally {
+      await db
+        .delete(cleanupReportSendRecipientsTable)
+        .where(eq(cleanupReportSendRecipientsTable.id, rec.id));
+      await db
+        .delete(cleanupReportSendsTable)
+        .where(eq(cleanupReportSendsTable.id, send.id));
+    }
+  });
+
+  // Task #212: refuse to downgrade 'delivered' → 'bounced'.
+  it("ignores a late 'bounced' event when the recipient row is already 'delivered' (admin override or earlier delivery confirmation)", async () => {
+    const localMessageId = `<${RUN_TAG}-nodowngrade@hasba.local>`;
+    const localEmail = `nodowngrade-${RUN_TAG}@test.local`;
+    const [send] = await db
+      .insert(cleanupReportSendsTable)
+      .values({
+        trigger: "manual",
+        recipientCount: 1,
+        recipients: localEmail,
+        rowCount: 0,
+        status: "success",
+        messageId: localMessageId,
+      })
+      .returning({ id: cleanupReportSendsTable.id });
+    // Pre-seed as 'delivered' to simulate either an earlier delivery
+    // webhook or an admin manually flipping the row.
+    const deliveredStampOriginal = new Date("2025-01-01T00:00:00Z");
+    const [rec] = await db
+      .insert(cleanupReportSendRecipientsTable)
+      .values({
+        sendId: send.id,
+        email: localEmail,
+        status: "delivered",
+        deliveredAt: deliveredStampOriginal,
+      })
+      .returning({ id: cleanupReportSendRecipientsTable.id });
+
+    try {
+      const bouncePayload = JSON.stringify({
+        messageId: localMessageId,
+        recipient: localEmail,
+        event: "bounced",
+        reason: "late_retry_should_be_ignored",
+      });
+      const res = await request(app)
+        .post("/api/integrations/email/webhook")
+        .set("Content-Type", "application/json")
+        .set("X-Webhook-Signature", sign(bouncePayload))
+        .send(bouncePayload);
+      expect(res.status).toBe(200);
+      // Row was matched but NOT updated — counted as 0.
+      expect(res.body).toMatchObject({ ok: true, updated: 0 });
+
+      const [row] = await db
+        .select({
+          status: cleanupReportSendRecipientsTable.status,
+          reason: cleanupReportSendRecipientsTable.reason,
+          deliveredAt: cleanupReportSendRecipientsTable.deliveredAt,
+        })
+        .from(cleanupReportSendRecipientsTable)
+        .where(eq(cleanupReportSendRecipientsTable.id, rec.id));
+      // State preserved end-to-end.
+      expect(row?.status).toBe("delivered");
+      expect(row?.reason).toBeNull();
+      expect(row?.deliveredAt?.getTime()).toBe(deliveredStampOriginal.getTime());
+
+      // And a follow-up 'delivered' replay is also idempotent — it
+      // must NOT bump delivered_at forward.
+      const deliveredPayload = JSON.stringify({
+        messageId: localMessageId,
+        recipient: localEmail,
+        event: "delivered",
+      });
+      const res2 = await request(app)
+        .post("/api/integrations/email/webhook")
+        .set("Content-Type", "application/json")
+        .set("X-Webhook-Signature", sign(deliveredPayload))
+        .send(deliveredPayload);
+      expect(res2.status).toBe(200);
+      expect(res2.body).toMatchObject({ ok: true, updated: 1 });
+
+      const [row2] = await db
+        .select({
+          status: cleanupReportSendRecipientsTable.status,
+          deliveredAt: cleanupReportSendRecipientsTable.deliveredAt,
+        })
+        .from(cleanupReportSendRecipientsTable)
+        .where(eq(cleanupReportSendRecipientsTable.id, rec.id));
+      expect(row2?.status).toBe("delivered");
+      expect(row2?.deliveredAt?.getTime()).toBe(
+        deliveredStampOriginal.getTime(),
+      );
+    } finally {
+      await db
+        .delete(cleanupReportSendRecipientsTable)
+        .where(eq(cleanupReportSendRecipientsTable.id, rec.id));
+      await db
+        .delete(cleanupReportSendsTable)
+        .where(eq(cleanupReportSendsTable.id, send.id));
+    }
+  });
 });

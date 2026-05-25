@@ -1472,36 +1472,93 @@ integrationsPublicRouter.post(
         // found, update it directly by primary key. This is what makes
         // delivery status visible for every outgoing email, not just
         // cleanup reports.
+        //
+        // Task #212: providers (Postmark, SES, SendGrid) retry webhook
+        // POSTs if they don't get a 2xx fast enough, so the same event
+        // can arrive N times. We make the update idempotent two ways:
+        //   1) `delivered_at` uses COALESCE so it's stamped exactly
+        //      once — replays don't bump the timestamp forward.
+        //   2) Non-'delivered' events (bounced/deferred) refuse to
+        //      overwrite a row that's already 'delivered'. That
+        //      protects both (a) a late retry of an old bounce that
+        //      arrives after the message actually got through, and
+        //      (b) an admin who manually marked the row delivered.
+        // We still count the row as MATCHED so we don't fall through
+        // to the cleanup-report lookup and clobber an unrelated row.
         if (messageId) {
           const upd = await db.execute(sql`
-            WITH sales_upd AS (
+            WITH sales_match AS (
+              SELECT id, delivery_status FROM sales_email_outbox
+               WHERE message_id = ${messageId}
+                 AND lower(recipient) = ${email}
+            ), sales_upd AS (
               UPDATE sales_email_outbox
                  SET delivery_status = ${status},
                      delivery_reason = ${reason ?? null},
-                     delivered_at = ${status === "delivered" ? sql`now()` : sql`delivered_at`}
+                     delivered_at = ${status === "delivered" ? sql`COALESCE(delivered_at, now())` : sql`delivered_at`}
+               WHERE id IN (
+                 SELECT id FROM sales_match
+                  WHERE delivery_status IS DISTINCT FROM 'delivered'
+                     OR ${status} = 'delivered'
+               )
+               RETURNING id
+            ), proc_match AS (
+              SELECT id, delivery_status FROM procurement_email_outbox
                WHERE message_id = ${messageId}
                  AND lower(recipient) = ${email}
-               RETURNING id
             ), proc_upd AS (
               UPDATE procurement_email_outbox
                  SET delivery_status = ${status},
                      delivery_reason = ${reason ?? null},
-                     delivered_at = ${status === "delivered" ? sql`now()` : sql`delivered_at`}
-               WHERE message_id = ${messageId}
-                 AND lower(recipient) = ${email}
+                     delivered_at = ${status === "delivered" ? sql`COALESCE(delivered_at, now())` : sql`delivered_at`}
+               WHERE id IN (
+                 SELECT id FROM proc_match
+                  WHERE delivery_status IS DISTINCT FROM 'delivered'
+                     OR ${status} = 'delivered'
+               )
                RETURNING id
             )
             SELECT
-              (SELECT count(*) FROM sales_upd)::int AS sales_count,
-              (SELECT count(*) FROM proc_upd)::int  AS proc_count;
+              (SELECT count(*) FROM sales_match)::int AS sales_matched,
+              (SELECT count(*) FROM sales_upd)::int   AS sales_updated,
+              (SELECT count(*) FROM proc_match)::int  AS proc_matched,
+              (SELECT count(*) FROM proc_upd)::int    AS proc_updated;
           `);
           const updRows =
-            (upd as unknown as { rows?: Array<{ sales_count: number; proc_count: number }> }).rows ??
-            (upd as unknown as Array<{ sales_count: number; proc_count: number }>);
+            (upd as unknown as {
+              rows?: Array<{
+                sales_matched: number;
+                sales_updated: number;
+                proc_matched: number;
+                proc_updated: number;
+              }>;
+            }).rows ??
+            (upd as unknown as Array<{
+              sales_matched: number;
+              sales_updated: number;
+              proc_matched: number;
+              proc_updated: number;
+            }>);
           const matched =
-            (updRows?.[0]?.sales_count ?? 0) + (updRows?.[0]?.proc_count ?? 0);
+            (updRows?.[0]?.sales_matched ?? 0) +
+            (updRows?.[0]?.proc_matched ?? 0);
+          const actuallyUpdated =
+            (updRows?.[0]?.sales_updated ?? 0) +
+            (updRows?.[0]?.proc_updated ?? 0);
           if (matched > 0) {
-            updated += matched;
+            if (actuallyUpdated < matched) {
+              req.log.info(
+                {
+                  messageId,
+                  email,
+                  event,
+                  matched,
+                  actuallyUpdated,
+                },
+                "email-webhook: ignored event that would downgrade an already-delivered row",
+              );
+            }
+            updated += actuallyUpdated;
             continue;
           }
         }
@@ -1549,17 +1606,36 @@ integrationsPublicRouter.post(
           targetId = row?.id ?? null;
         }
         if (!targetId) continue;
-        const result = await db
-          .update(_cleanupReportSendRecipientsTableForWebhook)
-          .set({
-            status,
-            reason: reason ?? null,
-            deliveredAt: status === "delivered" ? new Date() : undefined,
-            updatedAt: new Date(),
-          })
-          .where(eq(_cleanupReportSendRecipientsTableForWebhook.id, targetId))
-          .returning({ id: _cleanupReportSendRecipientsTableForWebhook.id });
-        updated += result.length;
+        // Task #212: idempotent + no-downgrade for cleanup-report
+        // recipients too. Replays of the same event don't bump
+        // delivered_at (COALESCE), and a late bounced/deferred event
+        // can't overwrite a row already marked 'delivered' (whether
+        // by a prior webhook or by an admin manual override).
+        const result = await db.execute(sql`
+          UPDATE cleanup_report_send_recipients
+             SET status = ${status},
+                 reason = ${reason ?? null},
+                 delivered_at = ${
+                   status === "delivered"
+                     ? sql`COALESCE(delivered_at, now())`
+                     : sql`delivered_at`
+                 },
+                 updated_at = now()
+           WHERE id = ${targetId}
+             AND (status IS DISTINCT FROM 'delivered' OR ${status} = 'delivered')
+           RETURNING id;
+        `);
+        const resultRows =
+          (result as unknown as { rows?: Array<{ id: number }> }).rows ??
+          (result as unknown as Array<{ id: number }>);
+        if (resultRows && resultRows.length > 0) {
+          updated += resultRows.length;
+        } else {
+          req.log.info(
+            { messageId, email, event, targetId },
+            "email-webhook: ignored event that would downgrade an already-delivered recipient row",
+          );
+        }
       }
       res.json({ ok: true, updated });
     } catch (err) {
