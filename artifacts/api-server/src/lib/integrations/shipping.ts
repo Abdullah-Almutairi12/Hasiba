@@ -574,14 +574,29 @@ export async function pollTracking(shipmentId: number): Promise<number> {
   // public lookup — gets the same one-off dispatch event. The
   // conditional UPDATE above ensures only one caller wins.
   if (isFirstDispatch && updated.length > 0) {
-    void notifyShipmentDispatched(shipmentId).catch((err) => {
+    void notifyShipmentEvent(shipmentId, "dispatched").catch((err) => {
       logger.warn({ err, shipmentId }, "shipment dispatch notify failed");
+    });
+  }
+  // Fire delivered notification on the transition into "delivered"
+  // (not just after polling). Conditional UPDATE above is for the
+  // dispatch edge only; for delivery we additionally gate by
+  // comparing previous vs new status.
+  if (shipment.status !== "delivered" && newStatus === "delivered") {
+    void notifyShipmentEvent(shipmentId, "delivered").catch((err) => {
+      logger.warn({ err, shipmentId }, "shipment delivered notify failed");
     });
   }
   return events.length;
 }
 
-async function notifyShipmentDispatched(shipmentId: number): Promise<void> {
+/** Templated WhatsApp notification for a shipment lifecycle event.
+ *  Exported so webhook ingestion can fire the same payload that
+ *  scheduled polling does. */
+export async function notifyShipmentEvent(
+  shipmentId: number,
+  kind: "dispatched" | "delivered",
+): Promise<void> {
   const { sendByTemplate } = await import("./messaging-templates");
   const [s] = await db
     .select()
@@ -599,7 +614,7 @@ async function notifyShipmentDispatched(shipmentId: number): Promise<void> {
     ? `${baseUrl}/track/${s.awbNumber}`
     : s.awbNumber;
   await sendByTemplate({
-    templateName: "shipment_dispatched",
+    templateName: kind === "delivered" ? "shipment_delivered" : "shipment_dispatched",
     to: to.phone,
     variables: {
       customer_name: to.name ?? "عميلنا الكريم",
@@ -610,6 +625,94 @@ async function notifyShipmentDispatched(shipmentId: number): Promise<void> {
     },
     branchId: c?.branchId ?? null,
   });
+}
+
+/**
+ * Ingest an inbound carrier webhook. Verifies HMAC-SHA256 of the
+ * raw body using the carrier's `webhook_secret`, then applies any
+ * status events to the matching shipment (by AWB) and fires the
+ * delivered/dispatched WhatsApp templates on transitions.
+ *
+ * The exact JSON shape varies per carrier, so we accept a loosely
+ * typed payload and look for the AWB + an array of events with
+ * `code`, `description`, `at`. Returns the resolved shipment id and
+ * number of events stored (0 when payload is invalid).
+ */
+export async function ingestCarrierWebhook(opts: {
+  carrierId: number;
+  rawBody: string;
+  signature: string | undefined;
+  parsed: Record<string, unknown>;
+}): Promise<{ ok: boolean; shipmentId?: number; events?: number; reason?: string }> {
+  const [carrier] = await db
+    .select()
+    .from(shippingCarriersTable)
+    .where(eq(shippingCarriersTable.id, opts.carrierId));
+  if (!carrier) return { ok: false, reason: "carrier_not_found" };
+  const secretSettings = (carrier.settings ?? {}) as { webhookSecret?: string };
+  const secret = secretSettings.webhookSecret;
+  // Signature is REQUIRED for production carriers. Sandbox carriers
+  // without a configured secret may accept unsigned payloads so QA
+  // can exercise the flow with raw curl, but production must verify.
+  if (!secret && carrier.environment === "production") {
+    return { ok: false, reason: "signature_required" };
+  }
+  if (secret) {
+    if (!opts.signature) return { ok: false, reason: "invalid_signature" };
+    const { createHmac, timingSafeEqual } = await import("node:crypto");
+    const expected = createHmac("sha256", secret).update(opts.rawBody).digest("hex");
+    const provided = opts.signature.replace(/^sha256=/, "");
+    const a = Buffer.from(expected, "hex");
+    const b = Buffer.from(provided, "hex");
+    if (a.length !== b.length || !timingSafeEqual(a, b)) {
+      return { ok: false, reason: "invalid_signature" };
+    }
+  }
+  const awb = String(opts.parsed["awb"] ?? opts.parsed["awbNumber"] ?? opts.parsed["tracking_number"] ?? "");
+  if (!awb) return { ok: false, reason: "missing_awb" };
+  const rawEvents = opts.parsed["events"];
+  const events: Array<{ code: string; description: string; at: string }> = Array.isArray(rawEvents)
+    ? (rawEvents as Array<Record<string, unknown>>).map((e) => ({
+        code: String(e["code"] ?? e["status"] ?? ""),
+        description: String(e["description"] ?? e["message"] ?? ""),
+        at: String(e["at"] ?? e["timestamp"] ?? new Date().toISOString()),
+      }))
+    : [];
+  // Bind shipment resolution to the authenticated carrier so a
+  // signed payload from carrier A cannot mutate carrier B's shipment
+  // that happens to share the same AWB number.
+  const [shipment] = await db
+    .select()
+    .from(shipmentsTable)
+    .where(and(eq(shipmentsTable.awbNumber, awb), eq(shipmentsTable.carrierId, opts.carrierId)));
+  if (!shipment) return { ok: false, reason: "shipment_not_found" };
+  const newStatus = deriveStatusFromEvents(events, shipment.status);
+  await db
+    .update(shipmentsTable)
+    .set({ trackingHistory: events, status: newStatus, updatedAt: new Date() })
+    .where(eq(shipmentsTable.id, shipment.id));
+  if (shipment.status === "created" && newStatus === "in_transit") {
+    void notifyShipmentEvent(shipment.id, "dispatched").catch((err) => {
+      logger.warn({ err, shipmentId: shipment.id }, "webhook dispatch notify failed");
+    });
+  }
+  if (shipment.status !== "delivered" && newStatus === "delivered") {
+    void notifyShipmentEvent(shipment.id, "delivered").catch((err) => {
+      logger.warn({ err, shipmentId: shipment.id }, "webhook delivered notify failed");
+    });
+  }
+  await recordIntegrationCall({
+    provider: carrier.provider,
+    endpoint: "webhook",
+    method: "POST",
+    success: true,
+    requestSummary: { awb, events: events.length },
+    responseSummary: { status: newStatus },
+    statusCode: 200,
+    durationMs: 0,
+    branchId: carrier.branchId,
+  });
+  return { ok: true, shipmentId: shipment.id, events: events.length };
 }
 
 /**

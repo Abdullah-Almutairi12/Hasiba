@@ -49,6 +49,20 @@ export const DEFAULT_TEMPLATES: DefaultTemplate[] = [
     ],
   },
   {
+    name: "shipment_delivered",
+    languageCode: "ar",
+    category: "UTILITY",
+    bodyTemplate:
+      "مرحباً {{customer_name}},\nتم تسليم طلبك رقم {{order_ref}} عبر {{carrier}}.\nرقم البوليصة: {{awb}}\nشكراً لتعاملكم معنا.",
+    variableHints: [
+      { name: "customer_name", example: "محمد العبدالله" },
+      { name: "order_ref", example: "DO-2026-0042" },
+      { name: "carrier", example: "SMSA Express" },
+      { name: "awb", example: "9100023445" },
+      { name: "tracking_url", example: "https://app.example/track/9100023445" },
+    ],
+  },
+  {
     name: "low_stock_alert",
     languageCode: "ar",
     category: "UTILITY",

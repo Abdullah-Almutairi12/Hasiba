@@ -24,7 +24,7 @@ import { adminGuard, inventoryGuard, ownerOnly, requireRole } from "../middlewar
 import { upsertCredential } from "../lib/integrations/credentials";
 import { encryptSecret } from "../lib/integrations/crypto";
 import { createCheckout, handleWebhook, refundIntent } from "../lib/integrations/payments";
-import { createAwb, pollTracking, getPublicTracking } from "../lib/integrations/shipping";
+import { createAwb, pollTracking, getPublicTracking, ingestCarrierWebhook } from "../lib/integrations/shipping";
 import { sendMessage } from "../lib/integrations/messaging";
 import {
   seedDefaultTemplates,
@@ -496,6 +496,56 @@ integrationsPublicRouter.get(
       res.setHeader("Content-Type", "image/png");
       res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
       res.send(png);
+    } catch (err) {
+      handle(res, err);
+    }
+  },
+);
+
+/**
+ * Inbound shipping-carrier webhook. Carriers (SMSA, Aramex, etc.)
+ * POST tracking events here when configured to push instead of
+ * relying on the polling worker. The raw body parser is mounted
+ * globally in `app.ts` BEFORE express.json so HMAC verification
+ * sees pristine bytes. Signature is HMAC-SHA256 of the raw body
+ * using `shipping_carriers.settings.webhookSecret`; when no secret
+ * is configured the endpoint accepts unsigned payloads (sandbox /
+ * test mode only — production carriers should always set a secret).
+ */
+integrationsPublicRouter.post(
+  "/integrations/shipping/webhook/:carrierId",
+  async (req, res) => {
+    try {
+      const carrierId = Number(req.params.carrierId);
+      if (!Number.isFinite(carrierId)) {
+        res.status(400).json({ error: "carrier_id_invalid" });
+        return;
+      }
+      const rawBody = Buffer.isBuffer(req.body)
+        ? (req.body as Buffer).toString("utf8")
+        : typeof req.body === "string"
+          ? req.body
+          : JSON.stringify(req.body);
+      const headers: Record<string, string | undefined> = {};
+      for (const [k, v] of Object.entries(req.headers)) {
+        headers[k.toLowerCase()] = Array.isArray(v) ? v[0] : (v as string | undefined);
+      }
+      const signature =
+        headers["x-signature"] ?? headers["x-aramex-signature"] ?? headers["x-smsa-signature"];
+      let parsed: Record<string, unknown> = {};
+      try { parsed = JSON.parse(rawBody) as Record<string, unknown>; } catch { /* keep empty */ }
+      const out = await ingestCarrierWebhook({ carrierId, rawBody, signature, parsed });
+      if (!out.ok) {
+        const status =
+          out.reason === "invalid_signature" || out.reason === "signature_required"
+            ? 401
+            : out.reason === "shipment_not_found" || out.reason === "carrier_not_found"
+              ? 404
+              : 400;
+        res.status(status).json({ error: out.reason ?? "rejected" });
+        return;
+      }
+      res.json(out);
     } catch (err) {
       handle(res, err);
     }

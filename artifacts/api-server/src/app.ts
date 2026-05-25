@@ -109,6 +109,12 @@ app.use(
   "/api/integrations/marketplaces/webhook",
   express.raw({ type: "*/*", limit: "2mb" }),
 );
+// Shipping-carrier webhooks (SMSA / Aramex / Saee / Naqel) verify
+// HMAC-SHA256 of the raw body using shipping_carriers.webhookSecret.
+app.use(
+  "/api/integrations/shipping/webhook",
+  express.raw({ type: "*/*", limit: "1mb" }),
+);
 
 // Default JSON limit for everything else.
 app.use(express.json({ limit: "1mb" }));

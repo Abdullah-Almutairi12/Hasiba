@@ -2695,8 +2695,14 @@ router.get("/hr/payslips/:id/pdf", async (req, res) => {
       num(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     const hijri = toHijri(period.payDate).formatted;
 
-    useBold();
-    doc.fontSize(16).text(T(`Payslip / بيان راتب — ${slip.reference}`), { align: "left" });
+    // Branded company header (logo + bilingual name + VAT) so payslips
+    // match the rest of the document set (invoices / reports / exports).
+    const { drawBrandedHeader, loadBrand } = await import("../lib/pdf/branding-header");
+    const company = await loadBrand();
+    drawBrandedHeader(doc as unknown as Parameters<typeof drawBrandedHeader>[0], company, {
+      title: `Payslip / بيان راتب — ${slip.reference}`,
+    });
+
     useReg();
     doc.fontSize(10).fillColor("#555")
       .text(T(`Run: ${run.reference}   Period: ${period.name}   Pay date: ${period.payDate} (Hijri ${hijri})`))

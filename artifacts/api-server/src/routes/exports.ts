@@ -5,6 +5,7 @@ import { db, posOrdersTable, productsTable, invoicesTable, suppliersTable, journ
 import { sql, desc, gte, and, eq, lte } from "drizzle-orm";
 import { recordAudit } from "../lib/audit";
 import { registerArabicFonts } from "../lib/pdf/arabic-font";
+import { drawBrandedHeader, drawBrandedFooter, loadBrand, BRAND } from "../lib/pdf/branding-header";
 import { exportsGuard, reportReadGuard } from "../middlewares/require-role";
 import type { Request, Response, NextFunction } from "express";
 
@@ -365,20 +366,14 @@ router.get("/exports/:type.pdf", async (req, res) => {
     res.setHeader("Content-Disposition", `attachment; filename="${type}-${new Date().toISOString().slice(0, 10)}.pdf"`);
     doc.pipe(res);
 
-    // Arabic text is reshaped and bidi-reordered, then drawn with the bundled
-    // Amiri TTF so titles/headers/cells render correctly in Arabic.
+    const company = await loadBrand();
     const { useReg, useBold, T } = registerArabicFonts(doc);
-    useBold();
-    doc.fontSize(18).text(T(title), { align: "center" });
-    doc.moveDown(0.5);
-    useReg();
-    doc.fontSize(9).fillColor("#666").text(`Generated: ${new Date().toISOString().slice(0, 19).replace("T", " ")}`, { align: "center" });
-    doc.moveDown(1);
+    const startY = drawBrandedHeader(doc, company, { title });
 
-    const tableTop = doc.y;
+    const tableTop = startY;
     const colWidth = (doc.page.width - doc.page.margins.left - doc.page.margins.right) / headers.length;
 
-    doc.fontSize(10).fillColor("#fff").rect(doc.page.margins.left, tableTop, doc.page.width - doc.page.margins.left - doc.page.margins.right, 22).fill("#2563EB");
+    doc.fontSize(10).fillColor("#fff").rect(doc.page.margins.left, tableTop, doc.page.width - doc.page.margins.left - doc.page.margins.right, 22).fill(BRAND.accent);
     doc.fillColor("#fff");
     useBold();
     headers.forEach((h, i) => {
@@ -404,6 +399,7 @@ router.get("/exports/:type.pdf", async (req, res) => {
     }
 
     doc.fontSize(9).fillColor("#666").text(`Total rows: ${rows.length}`, doc.page.margins.left, doc.page.height - doc.page.margins.bottom - 20);
+    drawBrandedFooter(doc, company, `${type} export`);
     void recordAudit(req, { action: "export", entity: "report", details: `PDF: ${type}` });
     doc.end();
     return;

@@ -4,6 +4,7 @@ import type { Response } from "express";
 import type { BuiltReport } from "./query-builder";
 import { rowsToCsv } from "./query-builder";
 import { registerArabicFonts } from "./pdf/arabic-font";
+import { drawBrandedHeader, drawBrandedFooter, loadBrand, BRAND } from "./pdf/branding-header";
 
 export function streamCsv(res: Response, name: string, report: BuiltReport): void {
   const headers = report.outputColumns.map((c) => c.label);
@@ -59,15 +60,40 @@ export function streamPdf(res: Response, name: string, report: BuiltReport): voi
   res.setHeader("Content-Disposition", `attachment; filename="${name}.pdf"`);
   doc.pipe(res);
   const { useReg, useBold, T } = registerArabicFonts(doc);
-  useBold();
-  doc.fontSize(18).text(T(name), { align: "center" });
-  doc.moveDown(0.5);
-  useReg();
-  doc.fontSize(9).fillColor("#666").text(`Generated: ${new Date().toISOString().slice(0, 19).replace("T", " ")}`, { align: "center" });
-  doc.moveDown(1);
-  const tableTop = doc.y;
+  // loadBrand() is async; consume via a guarded promise since the
+  // surrounding signature is sync. We defer the table render until
+  // branding loads, but MUST always finalise the doc on any failure
+  // path so the HTTP response never hangs.
+  doc.on("error", (err) => {
+    res.destroy(err instanceof Error ? err : new Error(String(err)));
+  });
+  renderReportPdf(doc, name, report, T, useReg, useBold).catch((err: unknown) => {
+    try {
+      doc.fontSize(10).fillColor("#b91c1c").text(
+        `Report generation failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    } catch {
+      /* doc may already be in an error state */
+    }
+    try { doc.end(); } catch { /* noop */ }
+  });
+  return;
+}
+
+async function renderReportPdf(
+  doc: PDFKit.PDFDocument,
+  name: string,
+  report: BuiltReport,
+  T: (s: string) => string,
+  useReg: () => void,
+  useBold: () => void,
+): Promise<void> {
+  const headers = report.outputColumns.map((c) => c.label);
+  const company = await loadBrand();
+  const startY = drawBrandedHeader(doc, company, { title: name });
+  const tableTop = startY;
   const colWidth = (doc.page.width - doc.page.margins.left - doc.page.margins.right) / Math.max(headers.length, 1);
-  doc.fontSize(10).rect(doc.page.margins.left, tableTop, doc.page.width - doc.page.margins.left - doc.page.margins.right, 22).fill("#2563EB");
+  doc.fontSize(10).rect(doc.page.margins.left, tableTop, doc.page.width - doc.page.margins.left - doc.page.margins.right, 22).fill(BRAND.accent);
   doc.fillColor("#fff");
   useBold();
   headers.forEach((h, i) => {
@@ -87,5 +113,6 @@ export function streamPdf(res: Response, name: string, report: BuiltReport): voi
     y += 18;
   }
   doc.fontSize(9).fillColor("#666").text(`Total rows: ${report.rowCount}`, doc.page.margins.left, doc.page.height - doc.page.margins.bottom - 20);
+  drawBrandedFooter(doc, company, name);
   doc.end();
 }

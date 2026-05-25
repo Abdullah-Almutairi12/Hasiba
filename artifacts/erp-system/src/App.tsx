@@ -1,57 +1,68 @@
-import { useEffect } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
 import { useTheme } from "@/hooks/use-theme";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import NotFound from "@/pages/not-found";
 import Layout from "@/components/layout";
-import Dashboard from "@/pages/dashboard";
-import POS from "@/pages/pos";
-import Products from "@/pages/products";
-import Invoices from "@/pages/invoices";
-import Accounting from "@/pages/accounting";
-import AccountingPeriodsPage from "@/pages/accounting-periods";
-import Reports from "@/pages/reports";
-import ReportsBuilder from "@/pages/reports-builder";
-import ReportsSaved from "@/pages/reports-saved";
-import MyDashboard from "@/pages/my-dashboard";
-import Customers from "@/pages/customers";
-import Branches from "@/pages/branches";
-import UsersPage from "@/pages/users";
-import HrPage from "@/pages/hr";
-import Settings from "@/pages/settings";
-import ProjectsPage from "@/pages/projects";
-import MarketingPage from "@/pages/marketing";
-import AdminPage from "@/pages/admin";
-import IntegrationsMarketplacesPage from "@/pages/integrations-marketplaces";
-import AnomaliesPage from "@/pages/anomalies";
-import InboxPage from "@/pages/inbox";
-import TransfersPage from "@/pages/transfers";
-import StockTakePage from "@/pages/stocktake";
-import ReorderRulesPage from "@/pages/reorder-rules";
-import ProcurementPage from "@/pages/procurement";
-import SalesPage from "@/pages/sales";
-import CrmPage from "@/pages/crm";
-import ManufacturingPage from "@/pages/manufacturing";
-import OnboardingWizard from "@/pages/onboarding-wizard";
-import CreateCompany from "@/pages/create-company";
-import Login from "@/pages/login";
-import Welcome from "@/pages/welcome";
-import InvoicePrint from "@/pages/invoice-print";
-import TrackShipmentPage from "@/pages/track-shipment";
-import DocumentsPage from "@/pages/documents";
-import PortalLogin from "@/pages/portal-login";
-import PortalCustomer from "@/pages/portal-customer";
-import PortalSupplier from "@/pages/portal-supplier";
-import PortalEmployee from "@/pages/portal-employee";
-import SignPage from "@/pages/sign";
 import ProtectedRoute from "@/components/protected-route";
 import { ErrorBoundary } from "@/components/error-boundary";
+
+// Eagerly load the highest-traffic shells so the first paint of the
+// app (Login + Dashboard + POS + public Welcome/Track) is not
+// blocked on an extra chunk request. Everything else is lazy-loaded
+// route-by-route so the initial JS bundle stays small on mobile.
+import Dashboard from "@/pages/dashboard";
+import Login from "@/pages/login";
+import Welcome from "@/pages/welcome";
+import NotFound from "@/pages/not-found";
+
+const POS = lazy(() => import("@/pages/pos"));
+const Products = lazy(() => import("@/pages/products"));
+const Invoices = lazy(() => import("@/pages/invoices"));
+const Accounting = lazy(() => import("@/pages/accounting"));
+const AccountingPeriodsPage = lazy(() => import("@/pages/accounting-periods"));
+const Reports = lazy(() => import("@/pages/reports"));
+const ReportsBuilder = lazy(() => import("@/pages/reports-builder"));
+const ReportsSaved = lazy(() => import("@/pages/reports-saved"));
+const MyDashboard = lazy(() => import("@/pages/my-dashboard"));
+const Customers = lazy(() => import("@/pages/customers"));
+const Branches = lazy(() => import("@/pages/branches"));
+const UsersPage = lazy(() => import("@/pages/users"));
+const HrPage = lazy(() => import("@/pages/hr"));
+const Settings = lazy(() => import("@/pages/settings"));
+const ProjectsPage = lazy(() => import("@/pages/projects"));
+const MarketingPage = lazy(() => import("@/pages/marketing"));
+const AdminPage = lazy(() => import("@/pages/admin"));
+const IntegrationsMarketplacesPage = lazy(() => import("@/pages/integrations-marketplaces"));
+const AnomaliesPage = lazy(() => import("@/pages/anomalies"));
+const InboxPage = lazy(() => import("@/pages/inbox"));
+const TransfersPage = lazy(() => import("@/pages/transfers"));
+const StockTakePage = lazy(() => import("@/pages/stocktake"));
+const ReorderRulesPage = lazy(() => import("@/pages/reorder-rules"));
+const ProcurementPage = lazy(() => import("@/pages/procurement"));
+const SalesPage = lazy(() => import("@/pages/sales"));
+const CrmPage = lazy(() => import("@/pages/crm"));
+const ManufacturingPage = lazy(() => import("@/pages/manufacturing"));
+const OnboardingWizard = lazy(() => import("@/pages/onboarding-wizard"));
+const CreateCompany = lazy(() => import("@/pages/create-company"));
+const InvoicePrint = lazy(() => import("@/pages/invoice-print"));
+const TrackShipmentPage = lazy(() => import("@/pages/track-shipment"));
+const DocumentsPage = lazy(() => import("@/pages/documents"));
 
 const queryClient = new QueryClient();
 
 const DARK_ROUTES = new Set(["/"]);
+
+/** Lightweight skeleton shown while a route chunk downloads. Avoids
+ *  layout shift by reserving viewport height. */
+function RouteFallback() {
+  return (
+    <div className="flex h-[60vh] items-center justify-center text-sm text-muted-foreground">
+      <div className="size-5 animate-spin rounded-full border-2 border-current border-t-transparent" />
+    </div>
+  );
+}
 
 function Protected({ children }: { children: React.ReactNode }) {
   return (
@@ -65,7 +76,6 @@ function Router() {
   const [location] = useLocation();
   const { theme } = useTheme();
 
-  // Apply theme: explicit user preference wins; "auto" falls back to per-route default
   useEffect(() => {
     let isDark: boolean;
     if (theme === "dark") isDark = true;
@@ -77,121 +87,115 @@ function Router() {
   }, [location, theme]);
 
   return (
-    <Switch>
-      {/* POS uses its own full-screen layout but still requires authentication */}
-      <Route path="/pos">
-        <ProtectedRoute><POS /></ProtectedRoute>
-      </Route>
+    <Suspense fallback={<RouteFallback />}>
+      <Switch>
+        <Route path="/pos">
+          <ProtectedRoute><POS /></ProtectedRoute>
+        </Route>
 
-      {/* Public marketing landing page */}
-      <Route path="/welcome" component={Welcome} />
+        <Route path="/welcome" component={Welcome} />
+        <Route path="/track/:awb" component={TrackShipmentPage} />
 
-      {/* Public customer-facing shipment tracking — opened from
-          WhatsApp / SMS links, no auth required. */}
-      <Route path="/track/:awb" component={TrackShipmentPage} />
+        <Route path="/invoices/:id/print">
+          <ProtectedRoute><InvoicePrint /></ProtectedRoute>
+        </Route>
 
-      {/* Invoice print uses its own full-screen layout */}
-      <Route path="/invoices/:id/print">
-        <ProtectedRoute><InvoicePrint /></ProtectedRoute>
-      </Route>
+        <Route path="/login" component={Login} />
+        <Route path="/signup" component={CreateCompany} />
+        <Route path="/onboarding" component={OnboardingWizard} />
 
-      {/* Auth + Onboarding flows are full-screen (no app shell) */}
-      <Route path="/login" component={Login} />
-      <Route path="/signup" component={CreateCompany} />
-      <Route path="/onboarding" component={OnboardingWizard} />
-
-      {/* All other routes wrapped in layout + auth guard */}
-      <Route path="/">
-        <Protected><Dashboard /></Protected>
-      </Route>
-      <Route path="/products">
-        <Protected><Products /></Protected>
-      </Route>
-      <Route path="/invoices">
-        <Protected><Invoices /></Protected>
-      </Route>
-      <Route path="/accounting">
-        <Protected><Accounting /></Protected>
-      </Route>
-      <Route path="/accounting/periods">
-        <Protected><AccountingPeriodsPage /></Protected>
-      </Route>
-      <Route path="/reports">
-        <Protected><Reports /></Protected>
-      </Route>
-      <Route path="/reports/builder">
-        <Protected><ReportsBuilder /></Protected>
-      </Route>
-      <Route path="/reports/saved">
-        <Protected><ReportsSaved /></Protected>
-      </Route>
-      <Route path="/my-dashboard">
-        <Protected><MyDashboard /></Protected>
-      </Route>
-      <Route path="/customers">
-        <Protected><Customers /></Protected>
-      </Route>
-      <Route path="/branches">
-        <Protected><Branches /></Protected>
-      </Route>
-      <Route path="/inventory/transfers">
-        <Protected><TransfersPage /></Protected>
-      </Route>
-      <Route path="/inventory/stocktake">
-        <Protected><StockTakePage /></Protected>
-      </Route>
-      <Route path="/inventory/reorder">
-        <Protected><ReorderRulesPage /></Protected>
-      </Route>
-      <Route path="/procurement">
-        <Protected><ProcurementPage /></Protected>
-      </Route>
-      <Route path="/sales">
-        <Protected><SalesPage /></Protected>
-      </Route>
-      <Route path="/crm">
-        <Protected><CrmPage /></Protected>
-      </Route>
-      <Route path="/manufacturing">
-        <Protected><ManufacturingPage /></Protected>
-      </Route>
-      <Route path="/projects">
-        <Protected><ProjectsPage /></Protected>
-      </Route>
-      <Route path="/marketing">
-        <Protected><MarketingPage /></Protected>
-      </Route>
-      <Route path="/users">
-        <Protected><UsersPage /></Protected>
-      </Route>
-      <Route path="/hr">
-        <Protected><HrPage /></Protected>
-      </Route>
-      <Route path="/documents">
-        <Protected><DocumentsPage /></Protected>
-      </Route>
-      <Route path="/admin">
-        <Protected><AdminPage /></Protected>
-      </Route>
-      <Route path="/integrations/marketplaces">
-        <Protected><IntegrationsMarketplacesPage /></Protected>
-      </Route>
-      <Route path="/anomalies">
-        <Protected><AnomaliesPage /></Protected>
-      </Route>
-      <Route path="/inbox">
-        <Protected><InboxPage /></Protected>
-      </Route>
-      <Route path="/approvals">
-        <Protected><InboxPage /></Protected>
-      </Route>
-      <Route path="/settings">
-        <Protected><Settings /></Protected>
-      </Route>
-      <Route>
-        <Protected><NotFound /></Protected>
-      </Route>
-    </Switch>
+        <Route path="/">
+          <Protected><Dashboard /></Protected>
+        </Route>
+        <Route path="/products">
+          <Protected><Products /></Protected>
+        </Route>
+        <Route path="/invoices">
+          <Protected><Invoices /></Protected>
+        </Route>
+        <Route path="/accounting">
+          <Protected><Accounting /></Protected>
+        </Route>
+        <Route path="/accounting/periods">
+          <Protected><AccountingPeriodsPage /></Protected>
+        </Route>
+        <Route path="/reports">
+          <Protected><Reports /></Protected>
+        </Route>
+        <Route path="/reports/builder">
+          <Protected><ReportsBuilder /></Protected>
+        </Route>
+        <Route path="/reports/saved">
+          <Protected><ReportsSaved /></Protected>
+        </Route>
+        <Route path="/my-dashboard">
+          <Protected><MyDashboard /></Protected>
+        </Route>
+        <Route path="/customers">
+          <Protected><Customers /></Protected>
+        </Route>
+        <Route path="/branches">
+          <Protected><Branches /></Protected>
+        </Route>
+        <Route path="/inventory/transfers">
+          <Protected><TransfersPage /></Protected>
+        </Route>
+        <Route path="/inventory/stocktake">
+          <Protected><StockTakePage /></Protected>
+        </Route>
+        <Route path="/inventory/reorder">
+          <Protected><ReorderRulesPage /></Protected>
+        </Route>
+        <Route path="/procurement">
+          <Protected><ProcurementPage /></Protected>
+        </Route>
+        <Route path="/sales">
+          <Protected><SalesPage /></Protected>
+        </Route>
+        <Route path="/crm">
+          <Protected><CrmPage /></Protected>
+        </Route>
+        <Route path="/manufacturing">
+          <Protected><ManufacturingPage /></Protected>
+        </Route>
+        <Route path="/projects">
+          <Protected><ProjectsPage /></Protected>
+        </Route>
+        <Route path="/marketing">
+          <Protected><MarketingPage /></Protected>
+        </Route>
+        <Route path="/users">
+          <Protected><UsersPage /></Protected>
+        </Route>
+        <Route path="/hr">
+          <Protected><HrPage /></Protected>
+        </Route>
+        <Route path="/documents">
+          <Protected><DocumentsPage /></Protected>
+        </Route>
+        <Route path="/admin">
+          <Protected><AdminPage /></Protected>
+        </Route>
+        <Route path="/integrations/marketplaces">
+          <Protected><IntegrationsMarketplacesPage /></Protected>
+        </Route>
+        <Route path="/anomalies">
+          <Protected><AnomaliesPage /></Protected>
+        </Route>
+        <Route path="/inbox">
+          <Protected><InboxPage /></Protected>
+        </Route>
+        <Route path="/approvals">
+          <Protected><InboxPage /></Protected>
+        </Route>
+        <Route path="/settings">
+          <Protected><Settings /></Protected>
+        </Route>
+        <Route>
+          <Protected><NotFound /></Protected>
+        </Route>
+      </Switch>
+    </Suspense>
   );
 }
 
