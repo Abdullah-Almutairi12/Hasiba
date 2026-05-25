@@ -446,8 +446,26 @@ export async function initSales(): Promise<void> {
     -- it as a hard error instead of "queued" forever.
     ALTER TABLE sales_email_outbox ADD COLUMN IF NOT EXISTS attempts integer NOT NULL DEFAULT 0;
     ALTER TABLE sales_email_outbox ADD COLUMN IF NOT EXISTS next_retry_at timestamp;
+    -- When a row is itself an auto-retry attempt, retry_of points back to
+    -- the original failed row. The background worker only walks rows
+    -- where retry_of IS NULL (the "root" of each send), so audit children
+    -- never get re-queued on their own. Children are pure audit trail.
+    ALTER TABLE sales_email_outbox ADD COLUMN IF NOT EXISTS retry_of integer
+      REFERENCES sales_email_outbox(id) ON DELETE SET NULL;
     CREATE INDEX IF NOT EXISTS sales_email_outbox_due_idx
       ON sales_email_outbox (status, kind, next_retry_at);
+    CREATE INDEX IF NOT EXISTS sales_email_outbox_retry_of_idx
+      ON sales_email_outbox (retry_of);
+    -- One-time backfill: historical invoice rows that were inserted as
+    -- 'queued' on failure (before the auto-retry worker landed) are
+    -- effectively stuck-failed. Flip them to 'failed' so the worker
+    -- picks them up under the new semantics.
+    UPDATE sales_email_outbox
+       SET status = 'failed'
+     WHERE kind = 'invoice'
+       AND status = 'queued'
+       AND sent_at IS NULL
+       AND retry_of IS NULL;
   `);
 
   // Split-bill payments per POS order (one row per tendered method).

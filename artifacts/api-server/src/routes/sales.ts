@@ -1835,8 +1835,12 @@ router.post("/sales/invoices/:id/send", financeGuard, async (req, res) => {
         body: emailBody,
         attachments: [{ filename, content: pdf, contentType: "application/pdf" }],
       });
-      const outboxStatus = dispatch.sent ? "sent" : "queued";
-      const errorMsg = dispatch.sent ? null : dispatch.reason;
+      // Failed dispatches go in as status='failed' (not 'queued') so the
+      // background retry worker in lib/invoice-email-retry-worker.ts
+      // picks them up and re-tries with exponential backoff. The worker
+      // only sweeps `failed` invoice rows where retry_of IS NULL.
+      const outboxStatus = dispatch.sent ? "sent" : "failed";
+      const errorMsg = dispatch.sent ? null : dispatch.reason ?? "delivery failed";
       const inserted = await db.execute(sql`
         INSERT INTO sales_email_outbox
           (kind, ref_id, reference, recipient, subject, body, status, error,
@@ -2023,8 +2027,12 @@ router.post(
         body: row.body,
         attachments: [{ filename, content: pdf, contentType: "application/pdf" }],
       });
-      const newStatus = dispatch.sent ? "sent" : "queued";
-      const errorMsg = dispatch.sent ? null : dispatch.reason;
+      // Manual retries that still fail must land as 'failed' (not 'queued')
+      // so the background worker can keep retrying them on its own
+      // schedule. Otherwise a one-click retry that fails would never be
+      // auto-followed-up.
+      const newStatus = dispatch.sent ? "sent" : "failed";
+      const errorMsg = dispatch.sent ? null : dispatch.reason ?? "delivery failed";
       const inserted = await db.execute(sql`
         INSERT INTO sales_email_outbox
           (kind, ref_id, reference, recipient, subject, body, status, error,
