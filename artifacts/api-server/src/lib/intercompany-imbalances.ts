@@ -24,6 +24,7 @@ import {
   intercompanyImbalancesTable,
   intercompanyLinksTable,
   companiesTable,
+  alertsTable,
 } from "@workspace/db";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import {
@@ -31,6 +32,7 @@ import {
   fetchEliminationPairsForScope,
   buildEliminationEntriesPublic,
 } from "./consolidated-reports";
+import { logger } from "./logger";
 
 export type ImbalanceBasis = "subtotal" | "open";
 
@@ -51,7 +53,33 @@ export async function recordImbalancesFromEliminations(
   const offenders = eliminations.filter(
     (e) => Math.abs(e.sourceAmount - e.targetAmount) > TOLERANCE,
   );
+
+  // Snapshot the current queue rows for these (linkId, basis) keys so
+  // we can tell, after the upsert, which offenders are genuinely new
+  // (no row before, or row existed but was 'resolved' / 'ignored').
+  // Only those should trigger a notification — re-detecting a row that
+  // was already 'open' should not spam finance every time the report
+  // is opened.
+  const offendingLinkIds = offenders.map((o) => o.linkId);
+  const preExistingStatusByLinkId = new Map<number, string>();
+  if (offendingLinkIds.length > 0) {
+    const existing = await db
+      .select({
+        linkId: intercompanyImbalancesTable.linkId,
+        status: intercompanyImbalancesTable.status,
+      })
+      .from(intercompanyImbalancesTable)
+      .where(
+        and(
+          eq(intercompanyImbalancesTable.basis, basis),
+          inArray(intercompanyImbalancesTable.linkId, offendingLinkIds),
+        ),
+      );
+    for (const r of existing) preExistingStatusByLinkId.set(r.linkId, r.status);
+  }
+
   let recorded = 0;
+  const newlyOpened: EliminationEntry[] = [];
   for (const e of offenders) {
     const diff = Number((e.sourceAmount - e.targetAmount).toFixed(4));
     const kind = kindByLinkId.get(e.linkId) ?? "sales_invoice";
@@ -89,6 +117,52 @@ export async function recordImbalancesFromEliminations(
         },
       });
     recorded += 1;
+    const prev = preExistingStatusByLinkId.get(e.linkId);
+    // Notify only when the row is genuinely new (no prior row) or
+    // when a previously cleared row has now reopened. Rows that
+    // finance has explicitly marked 'ignored' stay ignored by the
+    // upsert above (the CASE keeps status='ignored'), so we must
+    // NOT alert on them — otherwise every rescan would re-page
+    // finance for known/parked items.
+    if (prev === undefined || prev === "resolved") {
+      newlyOpened.push(e);
+    }
+  }
+
+  // Fire one in-app alert per company involved in each newly-opened
+  // (or freshly re-opened) imbalance. The dashboard /dashboard/alerts
+  // feed filters by `companyId`, so we stamp source + target so both
+  // sides' finance teams see it in their own feed. Best-effort: a
+  // failure here must not block the queue write itself.
+  if (newlyOpened.length > 0) {
+    try {
+      const basisAr = basis === "subtotal" ? "ربح/خسارة" : "ميزانية";
+      const alertRows = newlyOpened.flatMap((e) => {
+        const diff = Number((e.sourceAmount - e.targetAmount).toFixed(2));
+        const message =
+          `تم رصد فرق بين ${e.sourceRef} و ${e.targetRef} ` +
+          `بمقدار ${diff.toLocaleString("en-US")} (${basisAr}). ` +
+          `راجع الطابور في /intercompany#tab=imbalances`;
+        const title = `عدم تطابق بين الشركات: ${e.sourceRef} ↔ ${e.targetRef}`;
+        const companyIds = new Set<number>([e.sourceCompanyId, e.targetCompanyId]);
+        return Array.from(companyIds).map((cid) => ({
+          type: "warning",
+          title,
+          message,
+          companyId: cid,
+        }));
+      });
+      if (alertRows.length > 0) {
+        await db.insert(alertsTable).values(alertRows);
+      }
+    } catch (err) {
+      // Notification failure must never break the queue write itself —
+      // but do log so a silent notification outage is detectable.
+      logger.error(
+        { err, basis, count: newlyOpened.length },
+        "failed to insert intercompany imbalance notification alerts",
+      );
+    }
   }
 
   // Auto-resolve: any link present in `eliminations` whose amounts now
