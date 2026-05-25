@@ -100,6 +100,21 @@ async function buildAll() {
       "puppeteer",
       "puppeteer-core",
       "electron",
+      // Large pure-JS runtime libs we don't need to bundle. Keeping
+      // them external in node_modules drops the bundle from ~9MB
+      // to ~1MB without changing runtime behaviour (Node resolves
+      // them normally at startup). Saves cold-start parse cost.
+      "openai",
+      "exceljs",
+      "pdfkit",
+      "qrcode",
+      "arabic-reshaper",
+      "bidi-js",
+      "google-auth-library",
+      // NOTE: do NOT externalize `@peculiar/x509` / `node-forge` /
+      // `tsyringe` — they require `reflect-metadata` to be loaded
+      // before any of them resolve. Bundling guarantees esbuild's
+      // module-init order; externalizing breaks the polyfill chain.
     ],
     sourcemap: "linked",
     plugins: [
