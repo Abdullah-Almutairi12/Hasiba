@@ -559,10 +559,10 @@ function ImbalanceBanner({ amount }: { amount: number }) {
         </span>
       </div>
       <a
-        href={`${base}/intercompany`}
+        href={`${base}/intercompany#tab=imbalances`}
         className="inline-flex items-center gap-1 rounded-md border border-red-300 bg-white px-2 py-1 text-[10px] font-bold text-red-700 hover:bg-red-100"
       >
-        فتح قائمة الروابط بين الشركات <ArrowLeft className="size-3" />
+        فتح قائمة عدم التطابق <ArrowLeft className="size-3" />
       </a>
     </div>
   );

@@ -72,5 +72,37 @@ export async function initIntercompany(): Promise<void> {
     CREATE INDEX IF NOT EXISTS intercompany_links_source_company_idx
       ON intercompany_links (source_company_id);
   `);
+  // Phase-6: persisted intercompany pricing-policy mismatch queue.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS intercompany_imbalances (
+      id serial PRIMARY KEY,
+      link_id integer NOT NULL REFERENCES intercompany_links(id) ON DELETE CASCADE,
+      basis text NOT NULL,
+      kind text NOT NULL,
+      source_company_id integer NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+      source_ref text NOT NULL,
+      target_company_id integer NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+      target_ref text NOT NULL,
+      source_amount numeric(18,4) NOT NULL,
+      target_amount numeric(18,4) NOT NULL,
+      difference numeric(18,4) NOT NULL,
+      status text NOT NULL DEFAULT 'open',
+      notes text,
+      detected_at timestamp NOT NULL DEFAULT now(),
+      last_seen_at timestamp NOT NULL DEFAULT now(),
+      resolved_at timestamp,
+      resolved_by integer,
+      CONSTRAINT intercompany_imbalances_basis_chk CHECK (basis IN ('subtotal','open')),
+      CONSTRAINT intercompany_imbalances_status_chk CHECK (status IN ('open','resolved','ignored'))
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS intercompany_imbalances_link_basis_unique
+      ON intercompany_imbalances (link_id, basis);
+    CREATE INDEX IF NOT EXISTS intercompany_imbalances_status_idx
+      ON intercompany_imbalances (status);
+    CREATE INDEX IF NOT EXISTS intercompany_imbalances_source_company_idx
+      ON intercompany_imbalances (source_company_id);
+    CREATE INDEX IF NOT EXISTS intercompany_imbalances_target_company_idx
+      ON intercompany_imbalances (target_company_id);
+  `);
   logger.info("intercompany subsystem initialized");
 }

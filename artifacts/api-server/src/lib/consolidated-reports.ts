@@ -30,6 +30,8 @@ import {
   companiesTable,
 } from "@workspace/db";
 import { and, eq, gte, lte, inArray, sql } from "drizzle-orm";
+import { recordImbalancesSafe } from "./intercompany-imbalances";
+import { logger } from "./logger";
 
 // =====================================================================
 // Public types
@@ -242,6 +244,25 @@ interface EliminationFetchResult {
  * (the natural P&L period boundary). For Balance Sheet we still want
  * outstanding AR/AP up to `asOf`, which is the only date passed in.
  */
+/**
+ * Public wrapper around the private `fetchEliminationPairs` used by
+ * the imbalance scanner (no date window — it cares about every
+ * matched pair regardless of reporting period).
+ */
+export async function fetchEliminationPairsForScope(
+  companyIds: number[],
+): Promise<EliminationFetchResult> {
+  return fetchEliminationPairs(companyIds, null, null);
+}
+
+/** Public wrapper around the private `buildEliminationEntries`. */
+export function buildEliminationEntriesPublic(
+  pairs: RawIntercompanyAmounts[],
+  mode: "subtotal" | "open",
+): EliminationEntry[] {
+  return buildEliminationEntries(pairs, mode);
+}
+
 async function fetchEliminationPairs(
   companyIds: number[],
   windowFrom?: string | null,
@@ -623,6 +644,13 @@ export async function generateConsolidatedPL(
   const validation = validateIntercompanyBalance(eliminations);
   const imbalance = validation.imbalance;
 
+  // Persist pricing-policy mismatches so finance can triage them
+  // from /intercompany?tab=imbalances rather than relying on a
+  // transient banner. Fire-and-forget — failures never break the report.
+  const kindByLinkId = new Map<number, string>();
+  for (const p of pairs) kindByLinkId.set(p.linkId, "sales_invoice");
+  void recordImbalancesSafe(eliminations, "subtotal", kindByLinkId, logger);
+
   return {
     scope: { companyIds, from: from ?? null, to: to ?? null },
     revenue,
@@ -721,6 +749,11 @@ export async function generateConsolidatedBS(
   const totalEquity = equity.reduce((s, r) => s + r.amount, 0);
   const validation = validateIntercompanyBalance(eliminations);
   const imbalance = validation.imbalance;
+
+  // BS-side outstanding-AR/AP mismatches feed the persisted queue too.
+  const kindByLinkId = new Map<number, string>();
+  for (const p of pairs) kindByLinkId.set(p.linkId, "sales_invoice");
+  void recordImbalancesSafe(eliminations, "open", kindByLinkId, logger);
 
   return {
     scope: { companyIds, asOf: asOf ?? null },

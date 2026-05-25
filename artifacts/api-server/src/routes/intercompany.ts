@@ -14,6 +14,12 @@ import { handleRouteError } from "../lib/handle-error";
 import { getCompanyId } from "../lib/scoped-db";
 import { voidMirror, resyncMirror, IntercompanyMirrorError } from "../lib/intercompany-mirror";
 import { recordAudit } from "../lib/audit";
+import {
+  listImbalancesForCompany,
+  scanImbalancesForCompanies,
+  setImbalanceStatus,
+} from "../lib/intercompany-imbalances";
+import { userCompaniesTable } from "@workspace/db";
 
 const router = Router();
 
@@ -371,6 +377,148 @@ router.get("/intercompany/elimination", async (req, res) => {
     });
   } catch (err) {
     req.log.error({ err }, "intercompany elimination report failed");
+    handleRouteError(err, res);
+  }
+});
+
+/**
+ * GET /intercompany/imbalances — persisted pricing-policy mismatch queue
+ * for the active company (involved as source OR target). By default
+ * returns only `open` rows; pass `?status=open,resolved,ignored` to
+ * widen.
+ */
+router.get("/intercompany/imbalances", async (req, res) => {
+  try {
+    const companyId = getCompanyId(req);
+    const allowed: Array<"open" | "resolved" | "ignored"> = [
+      "open",
+      "resolved",
+      "ignored",
+    ];
+    const raw =
+      typeof req.query.status === "string" ? req.query.status : "open";
+    const statuses = raw
+      .split(",")
+      .map((s) => s.trim())
+      .filter((s): s is "open" | "resolved" | "ignored" =>
+        (allowed as string[]).includes(s),
+      );
+    const rows = await listImbalancesForCompany(
+      companyId,
+      statuses.length > 0 ? statuses : ["open"],
+    );
+    res.json(rows);
+  } catch (err) {
+    req.log.error({ err }, "list intercompany imbalances failed");
+    handleRouteError(err, res);
+  }
+});
+
+/**
+ * POST /intercompany/imbalances/scan — rerun the source-vs-mirror
+ * comparison across every company the caller has access to (via
+ * user_companies). Persists any new offenders and auto-resolves any
+ * previously-open rows whose amounts now agree.
+ */
+async function getAllowedCompanyIds(userId: number): Promise<number[]> {
+  const rows = await db
+    .select({ companyId: userCompaniesTable.companyId })
+    .from(userCompaniesTable)
+    .where(eq(userCompaniesTable.userId, userId));
+  return Array.from(new Set(rows.map((r) => r.companyId)));
+}
+
+router.post("/intercompany/imbalances/scan", async (req, res) => {
+  try {
+    const userId = req.session?.userId;
+    if (!userId) {
+      res.status(401).json({ error: "غير مسجل دخول" });
+      return;
+    }
+    const ids = await getAllowedCompanyIds(userId);
+    const result = await scanImbalancesForCompanies(ids);
+    void recordAudit(req, {
+      action: "scan",
+      entity: "intercompany_imbalance",
+      details: `companies=${ids.length} subtotal=${result.subtotal} open=${result.open} resolved=${result.resolved}`,
+    });
+    res.json({ ok: true, scope: ids, ...result });
+  } catch (err) {
+    req.log.error({ err }, "scan intercompany imbalances failed");
+    handleRouteError(err, res);
+  }
+});
+
+/**
+ * POST /intercompany/imbalances/:id/ignore — finance accepted the
+ * difference (e.g. legitimate FX or rounding). Row stays in history
+ * but is excluded from the default `open` queue and won't auto-reopen.
+ */
+router.post("/intercompany/imbalances/:id/ignore", async (req, res) => {
+  try {
+    const userId = req.session?.userId;
+    if (!userId) {
+      res.status(401).json({ error: "غير مسجل دخول" });
+      return;
+    }
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) {
+      res.status(400).json({ error: "bad id" });
+      return;
+    }
+    const notes =
+      typeof req.body?.notes === "string" ? (req.body.notes as string) : null;
+    const allowed = await getAllowedCompanyIds(userId);
+    const ok = await setImbalanceStatus(id, "ignored", userId, notes, allowed);
+    if (!ok) {
+      // 404 covers both "missing" and "exists-but-not-yours" so the
+      // route does not leak the existence of imbalances on other tenants.
+      res.status(404).json({ error: "not found" });
+      return;
+    }
+    void recordAudit(req, {
+      action: "ignore",
+      entity: "intercompany_imbalance",
+      details: `imbalance ${id}`,
+    });
+    res.json({ ok: true });
+  } catch (err) {
+    req.log.error({ err }, "ignore intercompany imbalance failed");
+    handleRouteError(err, res);
+  }
+});
+
+/**
+ * POST /intercompany/imbalances/:id/reopen — re-queue a previously
+ * ignored or resolved imbalance so it appears in the default queue
+ * again on the next scan.
+ */
+router.post("/intercompany/imbalances/:id/reopen", async (req, res) => {
+  try {
+    const userId = req.session?.userId;
+    if (!userId) {
+      res.status(401).json({ error: "غير مسجل دخول" });
+      return;
+    }
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) {
+      res.status(400).json({ error: "bad id" });
+      return;
+    }
+    const allowed = await getAllowedCompanyIds(userId);
+    const ok = await setImbalanceStatus(id, "open", null, null, allowed);
+    if (!ok) {
+      res.status(404).json({ error: "not found" });
+      return;
+    }
+    void recordAudit(req, {
+      action: "reopen",
+      entity: "intercompany_imbalance",
+      details: `imbalance ${id}`,
+    });
+    res.json({ ok: true });
+  } catch (err) {
+    req.log.error({ err }, "reopen intercompany imbalance failed");
     handleRouteError(err, res);
   }
 });

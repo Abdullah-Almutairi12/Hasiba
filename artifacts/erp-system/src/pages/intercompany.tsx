@@ -8,9 +8,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { usePermissions } from "@/hooks/use-permissions";
-import { Loader2, RefreshCcw, X } from "lucide-react";
+import { AlertTriangle, EyeOff, Loader2, RefreshCcw, X } from "lucide-react";
 import { Money } from "@/components/riyal";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Input } from "@/components/ui/input";
 
 interface Sibling { id: number; name: string }
@@ -345,10 +345,291 @@ async function fetchLinks(): Promise<IntercompanyLink[]> {
   return res.json();
 }
 
+interface ImbalanceRow {
+  id: number;
+  linkId: number;
+  basis: "subtotal" | "open";
+  kind: string;
+  sourceCompanyId: number;
+  sourceCompanyName: string | null;
+  sourceRef: string;
+  targetCompanyId: number;
+  targetCompanyName: string | null;
+  targetRef: string;
+  sourceAmount: number;
+  targetAmount: number;
+  difference: number;
+  status: "open" | "resolved" | "ignored";
+  detectedAt: string;
+  lastSeenAt: string;
+  resolvedAt: string | null;
+  linkStatus: string;
+  direction: "outbound" | "inbound";
+}
+
+function ImbalancesTab() {
+  const qc = useQueryClient();
+  const { toast } = useToast();
+  const [statusFilter, setStatusFilter] = useState<"open" | "all">("open");
+  const statusParam = statusFilter === "open" ? "open" : "open,resolved,ignored";
+
+  const { data = [], isLoading, refetch } = useQuery<ImbalanceRow[]>({
+    queryKey: ["intercompany-imbalances", statusFilter],
+    queryFn: () =>
+      fetchJson<ImbalanceRow[]>(
+        `/api/intercompany/imbalances?status=${statusParam}`,
+      ),
+  });
+
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: ["intercompany-imbalances"] });
+    qc.invalidateQueries({ queryKey: ["intercompany-links"] });
+  };
+
+  const scanMut = useMutation({
+    mutationFn: () =>
+      apiPost<{ subtotal: number; open: number; resolved: number }>(
+        "/intercompany/imbalances/scan",
+        {},
+      ),
+    onSuccess: (r) => {
+      toast({
+        title: "اكتمل الفحص",
+        description: `جديد: ${r.subtotal + r.open} · مُسوّى تلقائياً: ${r.resolved}`,
+      });
+      invalidate();
+    },
+    onError: (e: unknown) =>
+      toast({ title: "فشل الفحص", description: String(e), variant: "destructive" }),
+  });
+  const resyncMut = useMutation({
+    mutationFn: (linkId: number) =>
+      apiPost(`/intercompany/links/${linkId}/resync`, {}),
+    onSuccess: () => {
+      toast({ title: "تمت إعادة المزامنة" });
+      invalidate();
+    },
+    onError: (e: unknown) =>
+      toast({ title: "فشل إعادة المزامنة", description: String(e), variant: "destructive" }),
+  });
+  const voidMut = useMutation({
+    mutationFn: (linkId: number) =>
+      apiPost(`/intercompany/links/${linkId}/void`, {}),
+    onSuccess: () => {
+      toast({ title: "تم إلغاء المرآة" });
+      invalidate();
+    },
+    onError: (e: unknown) =>
+      toast({ title: "فشل الإلغاء", description: String(e), variant: "destructive" }),
+  });
+  const ignoreMut = useMutation({
+    mutationFn: (id: number) =>
+      apiPost(`/intercompany/imbalances/${id}/ignore`, {}),
+    onSuccess: () => {
+      toast({ title: "تم التجاهل" });
+      invalidate();
+    },
+    onError: (e: unknown) =>
+      toast({ title: "فشل التجاهل", description: String(e), variant: "destructive" }),
+  });
+  const reopenMut = useMutation({
+    mutationFn: (id: number) =>
+      apiPost(`/intercompany/imbalances/${id}/reopen`, {}),
+    onSuccess: () => {
+      toast({ title: "أعيد فتحه" });
+      invalidate();
+    },
+    onError: (e: unknown) =>
+      toast({ title: "فشل إعادة الفتح", description: String(e), variant: "destructive" }),
+  });
+
+  const basisLabel = (b: "subtotal" | "open") =>
+    b === "subtotal" ? "ربح/خسارة" : "ميزانية";
+  const statusLabel = (s: "open" | "resolved" | "ignored") =>
+    s === "open" ? "مفتوح" : s === "resolved" ? "تمت التسوية" : "مُتجاهل";
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <CardTitle className="text-base flex items-center gap-2">
+            <AlertTriangle className="size-4 text-red-600" />
+            قائمة عدم التطابق ({data.length})
+          </CardTitle>
+          <div className="flex items-center gap-2">
+            <Select
+              value={statusFilter}
+              onValueChange={(v) => setStatusFilter(v as "open" | "all")}
+            >
+              <SelectTrigger className="w-[160px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="open">المفتوح فقط</SelectItem>
+                <SelectItem value="all">كل الحالات</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => refetch()}
+              disabled={isLoading}
+            >
+              <RefreshCcw className="size-3.5 ml-1" /> تحديث
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => scanMut.mutate()}
+              disabled={scanMut.isPending}
+            >
+              {scanMut.isPending && <Loader2 className="size-3.5 ml-1 animate-spin" />}
+              فحص الآن
+            </Button>
+          </div>
+        </div>
+        <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+          تظهر هنا الروابط المتطابقة التي اختلفت قيمتها بين الفاتورة المصدر والمرآة المقابلة. تُحفظ هذه النتائج في قاعدة البيانات عند توليد أي تقرير موحّد أو بالضغط على "فحص الآن".
+        </p>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <div className="flex items-center justify-center py-10">
+            <Loader2 className="size-5 animate-spin" />
+          </div>
+        ) : data.length === 0 ? (
+          <div className="py-10 text-center text-sm text-muted-foreground">
+            لا توجد حالات عدم تطابق {statusFilter === "open" ? "مفتوحة" : "مسجّلة"}.
+          </div>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>الأساس</TableHead>
+                <TableHead>الاتجاه</TableHead>
+                <TableHead>مرجع المصدر</TableHead>
+                <TableHead>المصدر</TableHead>
+                <TableHead>مرجع الهدف</TableHead>
+                <TableHead>الهدف</TableHead>
+                <TableHead>قيمة المصدر</TableHead>
+                <TableHead>قيمة الهدف</TableHead>
+                <TableHead>الفرق</TableHead>
+                <TableHead>الحالة</TableHead>
+                <TableHead>آخر فحص</TableHead>
+                <TableHead>إجراءات</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {data.map((row) => {
+                const inbound = row.direction === "inbound";
+                const linkVoided = row.linkStatus === "void";
+                return (
+                  <TableRow key={row.id} className={row.status === "open" ? "bg-red-50/40" : ""}>
+                    <TableCell>
+                      <Badge variant="outline">{basisLabel(row.basis)}</Badge>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={inbound ? "secondary" : "default"}>
+                        {inbound ? "وارد" : "صادر"}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="font-mono text-xs">{row.sourceRef}</TableCell>
+                    <TableCell>{row.sourceCompanyName ?? "—"}</TableCell>
+                    <TableCell className="font-mono text-xs">{row.targetRef}</TableCell>
+                    <TableCell>{row.targetCompanyName ?? "—"}</TableCell>
+                    <TableCell><Money value={row.sourceAmount} /></TableCell>
+                    <TableCell><Money value={row.targetAmount} /></TableCell>
+                    <TableCell className="font-semibold text-red-700">
+                      <Money value={row.difference} />
+                    </TableCell>
+                    <TableCell>
+                      <Badge
+                        variant={
+                          row.status === "open"
+                            ? "destructive"
+                            : row.status === "resolved"
+                            ? "default"
+                            : "outline"
+                        }
+                      >
+                        {statusLabel(row.status)}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground">
+                      {new Date(row.lastSeenAt).toLocaleString("ar-SA")}
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex flex-wrap gap-1">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          title="إعادة مزامنة المرآة"
+                          disabled={inbound || linkVoided || resyncMut.isPending}
+                          onClick={() => resyncMut.mutate(row.linkId)}
+                        >
+                          <RefreshCcw className="size-3.5" />
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          title="إلغاء المرآة"
+                          disabled={inbound || linkVoided || voidMut.isPending}
+                          onClick={() => voidMut.mutate(row.linkId)}
+                        >
+                          <X className="size-3.5" />
+                        </Button>
+                        {row.status === "open" ? (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            title="تجاهل الفرق"
+                            disabled={ignoreMut.isPending}
+                            onClick={() => ignoreMut.mutate(row.id)}
+                          >
+                            <EyeOff className="size-3.5" />
+                          </Button>
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            title="إعادة فتح"
+                            disabled={reopenMut.isPending}
+                            onClick={() => reopenMut.mutate(row.id)}
+                          >
+                            إعادة فتح
+                          </Button>
+                        )}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function readTabFromHash(): string | null {
+  if (typeof window === "undefined") return null;
+  const m = window.location.hash.match(/tab=([a-z]+)/i);
+  return m ? m[1] : null;
+}
+
 export default function IntercompanyPage() {
   const { canManageFinance } = usePermissions();
   const qc = useQueryClient();
   const { toast } = useToast();
+  const [tab, setTab] = useState<string>(() => readTabFromHash() ?? "links");
+  useEffect(() => {
+    const onHash = () => {
+      const t = readTabFromHash();
+      if (t) setTab(t);
+    };
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
 
   const { data, isLoading } = useQuery({
     queryKey: ["intercompany-links"],
@@ -387,13 +668,17 @@ export default function IntercompanyPage() {
         </p>
       </div>
 
-      <Tabs defaultValue="links">
+      <Tabs value={tab} onValueChange={setTab}>
         <TabsList>
           <TabsTrigger value="links">الروابط</TabsTrigger>
+          <TabsTrigger value="imbalances">عدم التطابق</TabsTrigger>
           <TabsTrigger value="elimination">إلغاء الازدواج (P&amp;L)</TabsTrigger>
           <TabsTrigger value="customers">ربط العملاء</TabsTrigger>
           <TabsTrigger value="suppliers">ربط الموردين</TabsTrigger>
         </TabsList>
+        <TabsContent value="imbalances" className="mt-4">
+          <ImbalancesTab />
+        </TabsContent>
         <TabsContent value="elimination" className="mt-4">
           <EliminationTab />
         </TabsContent>
