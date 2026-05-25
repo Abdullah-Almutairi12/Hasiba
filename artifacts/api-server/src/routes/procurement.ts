@@ -1193,6 +1193,97 @@ const SendPoBody = z.object({
   message: z.string().optional(),
 });
 
+// Re-render a PO's email payload (PDF + subject + body) from the latest
+// DB state. Used by the background retry worker so each redispatch
+// reflects current line totals / supplier contact rather than the stale
+// snapshot stored on the original outbox row. Returns { ok: false } when
+// the PO no longer exists or its lifecycle no longer allows sending.
+export async function renderPurchaseOrderForRetry(id: number): Promise<
+  | {
+      ok: true;
+      pdf: Buffer;
+      po: typeof purchaseOrdersTable.$inferSelect;
+      subject: string;
+      body: string;
+      attachmentFilename: string;
+    }
+  | { ok: false; status: 400 | 404 | 409; error: string }
+> {
+  if (!Number.isFinite(id)) return { ok: false, status: 400, error: "Bad id" };
+  const [po] = await db
+    .select()
+    .from(purchaseOrdersTable)
+    .where(eq(purchaseOrdersTable.id, id));
+  if (!po) return { ok: false, status: 404, error: "أمر الشراء غير موجود" };
+  const sendable = ["confirmed", "partially_received", "fully_received", "closed"];
+  if (!sendable.includes(po.status)) {
+    return {
+      ok: false,
+      status: 409,
+      error: `لا يمكن إرسال أمر شراء بحالة "${po.status}".`,
+    };
+  }
+  const lines = await db
+    .select()
+    .from(purchaseOrderLinesTable)
+    .where(eq(purchaseOrderLinesTable.poId, id));
+  const [supplier] = await db
+    .select()
+    .from(suppliersTable)
+    .where(eq(suppliersTable.id, po.supplierId));
+  const pdf = await buildPurchaseOrderPdf(
+    {
+      reference: po.reference,
+      orderDate: po.orderDate,
+      expectedDate: po.expectedDate,
+      currencyCode: po.currencyCode,
+      subtotal: Number(po.subtotal),
+      vat: Number(po.vat),
+      total: Number(po.total),
+      notes: po.notes,
+      supplier: {
+        name: supplier?.name ?? po.supplierName,
+        email: supplier?.email ?? null,
+        phone: supplier?.phone ?? null,
+        address: supplier?.address ?? null,
+        vatNumber: supplier?.vatNumber ?? null,
+      },
+      lines: lines.map((l) => ({
+        description: l.description,
+        quantity: Number(l.quantity),
+        unitPrice: Number(l.unitPrice),
+        taxRate: Number(l.taxRate),
+        lineTotal: Number(l.lineTotal),
+      })),
+    },
+    await getCompanyInfo(),
+  );
+  const subject = `Purchase Order ${po.reference} / أمر شراء`;
+  const body = [
+    `Dear ${supplier?.name ?? po.supplierName},`,
+    ``,
+    `Please find attached purchase order ${po.reference} for ${po.total} ${po.currencyCode}.`,
+    `Kindly confirm receipt and proceed with preparation.`,
+    ``,
+    `---`,
+    ``,
+    `السلام عليكم،`,
+    ``,
+    `نرفق لكم أمر الشراء رقم ${po.reference} بقيمة ${po.total} ${po.currencyCode}.`,
+    `يرجى تأكيد الاستلام والبدء بالتجهيز.`,
+    ``,
+    `مع التحية.`,
+  ].join("\n");
+  return {
+    ok: true,
+    pdf,
+    po,
+    subject,
+    body,
+    attachmentFilename: `PO-${po.reference}.pdf`,
+  };
+}
+
 async function loadPoForPdf(id: number) {
   const [po] = await db.select().from(purchaseOrdersTable).where(eq(purchaseOrdersTable.id, id));
   if (!po) throw httpErr(404, "أمر الشراء غير موجود");

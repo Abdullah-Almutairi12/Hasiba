@@ -3290,6 +3290,42 @@ router.get("/sales/reports/summary", reportReadGuard, async (req, res) => {
   }
 });
 
+// Re-build a quotation's outgoing email body from the latest DB state.
+// Used by the background retry worker so each redispatch reflects current
+// totals/valid_until rather than the stale snapshot stored on the
+// original outbox row. Returns { ok: false } when the quotation no longer
+// exists or its lifecycle no longer allows sending (e.g. accepted /
+// rejected / expired — in those states resending would confuse the
+// customer).
+export async function renderQuotationEmailById(id: number): Promise<
+  | {
+      ok: true;
+      head: typeof quotationsTable.$inferSelect;
+      subject: string;
+      body: string;
+    }
+  | { ok: false; status: 400 | 404 | 409; error: string }
+> {
+  if (!Number.isFinite(id)) return { ok: false, status: 400, error: "Bad id" };
+  const [q] = await db
+    .select()
+    .from(quotationsTable)
+    .where(eq(quotationsTable.id, id));
+  if (!q) return { ok: false, status: 404, error: "العرض غير موجود" };
+  if (q.status !== "draft" && q.status !== "sent") {
+    return {
+      ok: false,
+      status: 409,
+      error: `لا يمكن إرسال عرض في حالة ${q.status}`,
+    };
+  }
+  const subject = `عرض سعر ${q.reference}`;
+  const body =
+    `السلام عليكم،\n\nنرفق لكم عرض السعر ${q.reference} بإجمالي ${q.total} ر.س ` +
+    `يسري حتى ${q.validUntil ?? "—"}.\n\nمع التحية.`;
+  return { ok: true, head: q, subject, body };
+}
+
 // ===================================================================
 // Quotation: send by email
 // Marks the quotation as 'sent', stamps sent_at, and (when wired to a real
@@ -3321,8 +3357,13 @@ router.post("/sales/quotations/:id/send", salesWriteGuard, async (req, res) => {
     // queue it and surface a clear reason to the caller so the user-visible
     // "send by email" action never lies about delivery.
     const dispatch = await sendMail({ to: recipient, subject, body: emailBody });
-    const outboxStatus = dispatch.sent ? "sent" : "queued";
-    const errorMsg = dispatch.sent ? null : dispatch.reason;
+    // Failed dispatches land as status='failed' (not 'queued') so the
+    // shared background retry worker in lib/invoice-email-retry-worker.ts
+    // sweeps them on the same exponential-backoff schedule used for
+    // customer invoices. The worker re-renders the latest quotation
+    // body before each retry.
+    const outboxStatus = dispatch.sent ? "sent" : "failed";
+    const errorMsg = dispatch.sent ? null : dispatch.reason ?? "delivery failed";
 
     const result = await db.transaction(async (tx) => {
       const inserted = await tx.execute(sql`

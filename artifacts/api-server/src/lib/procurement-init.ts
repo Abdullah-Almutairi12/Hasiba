@@ -252,6 +252,20 @@ export async function initProcurement(): Promise<void> {
     );
     CREATE INDEX IF NOT EXISTS procurement_email_outbox_kind_ref_idx
       ON procurement_email_outbox (kind, ref_id);
+    -- Background auto-retry bookkeeping. Mirrors sales_email_outbox so the
+    -- shared retry worker can sweep PO outbox rows the same way it sweeps
+    -- invoice/quotation rows: attempts is incremented every retry,
+    -- next_retry_at gates the next attempt (exponential backoff), and
+    -- retry_of points back to the original failed row so audit children
+    -- never get re-queued on their own.
+    ALTER TABLE procurement_email_outbox ADD COLUMN IF NOT EXISTS attempts integer NOT NULL DEFAULT 0;
+    ALTER TABLE procurement_email_outbox ADD COLUMN IF NOT EXISTS next_retry_at timestamp;
+    ALTER TABLE procurement_email_outbox ADD COLUMN IF NOT EXISTS retry_of integer
+      REFERENCES procurement_email_outbox(id) ON DELETE SET NULL;
+    CREATE INDEX IF NOT EXISTS procurement_email_outbox_due_idx
+      ON procurement_email_outbox (status, kind, next_retry_at);
+    CREATE INDEX IF NOT EXISTS procurement_email_outbox_retry_of_idx
+      ON procurement_email_outbox (retry_of);
   `);
 
   logger.info("Procurement subsystem initialized");
