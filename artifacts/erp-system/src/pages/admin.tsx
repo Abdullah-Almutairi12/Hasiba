@@ -494,6 +494,8 @@ function OverviewTab() {
         <InvoiceSendFailuresCard />
 
         <AlertsCleanupCard />
+
+        <AlertRetentionCard />
       </div>
     </div>
   );
@@ -1257,7 +1259,6 @@ function FeatureFlagsTab() {
 
   return (
     <div className="space-y-6">
-      <AlertRetentionCard />
       {Object.entries(grouped).map(([cat, items]) => (
         <div key={cat}>
           <h3 className="mb-3 flex items-center gap-2 text-sm font-bold text-muted-foreground">
