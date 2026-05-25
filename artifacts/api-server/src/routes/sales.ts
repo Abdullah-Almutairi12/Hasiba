@@ -2693,6 +2693,7 @@ router.post("/sales/invoices/:id/reverse", financeGuard, async (req, res) => {
       res.status(400).json({ error: "Bad id" }); return;
     }
     const { reason } = CustomerReverseBody.parse(req.body ?? {});
+    const reverseCompanyId = getCompanyId(req);
 
     const result = await db.transaction(async (tx) => {
       const [orig] = await tx
@@ -2803,11 +2804,15 @@ router.post("/sales/invoices/:id/reverse", financeGuard, async (req, res) => {
 
       // Find and reverse the journal entry posted at creation time. The
       // POST handler uses source='manual' + sourceRef=reference.
+      // Tenant scope REQUIRED: invoice references are unique only
+      // within a company, so without `companyId` a collision could
+      // let one tenant reverse another tenant's posted journal entry.
       const [origJe] = await tx
         .select({ id: journalEntriesTable.id })
         .from(journalEntriesTable)
         .where(
           and(
+            eq(journalEntriesTable.companyId, reverseCompanyId),
             eq(journalEntriesTable.source, "manual"),
             eq(journalEntriesTable.sourceRef, orig.reference),
             eq(journalEntriesTable.status, "posted"),
@@ -3695,17 +3700,23 @@ router.post("/sales/commissions/post", financeGuard, async (req, res) => {
     const Body = z.object({ from: z.string(), to: z.string() });
     const { from, to } = Body.parse(req.body);
     const periodRef = `COMM-${from}_${to}`;
+    const commissionCompanyId = getCompanyId(req);
 
     const result = await db.transaction(async (tx) => {
       // Idempotency: if a posted JE already exists for this period (matched
       // by reference + sourceRef), return the existing total instead of
       // re-posting commission expense / payable. This protects against
       // accidental double-clicks and replayed requests corrupting GL.
+      // Tenant scope REQUIRED: periodRef is the same string across
+      // every company (`COMM-<from>_<to>`), so without `companyId`
+      // tenant A's commission run would falsely report
+      // "already posted" the first time tenant B closes the period.
       const [existing] = await tx
         .select({ id: journalEntriesTable.id })
         .from(journalEntriesTable)
         .where(
           and(
+            eq(journalEntriesTable.companyId, commissionCompanyId),
             eq(journalEntriesTable.reference, periodRef),
             eq(journalEntriesTable.sourceRef, periodRef),
           ),

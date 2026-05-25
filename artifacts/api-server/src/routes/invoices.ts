@@ -554,11 +554,17 @@ router.post("/invoices/:id/reverse", financeGuard, async (req, res) => {
       // Reverse the matching journal entry. The original from-scan posting
       // uses sourceRef=`INV-${invoiceNumber}` — find it and flip every line.
       const originalRef = `INV-${orig.invoiceNumber}`;
+      // Tenant scope is REQUIRED here: invoice numbers (and therefore
+      // sourceRef) are unique only within a company, so without the
+      // companyId predicate a collision could let one tenant reverse
+      // another tenant's posted journal entry. Locks the lookup to the
+      // caller's company.
       const [origJe] = await tx
         .select({ id: journalEntriesTable.id })
         .from(journalEntriesTable)
         .where(
           and(
+            eq(journalEntriesTable.companyId, companyId),
             eq(journalEntriesTable.source, "supplier_invoice"),
             eq(journalEntriesTable.sourceRef, originalRef),
             eq(journalEntriesTable.status, "posted"),
