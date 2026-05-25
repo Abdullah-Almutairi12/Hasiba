@@ -81,6 +81,32 @@ export const intercompanyImbalancesTable = pgTable(
     lastSeenAt: timestamp("last_seen_at").notNull().defaultNow(),
     resolvedAt: timestamp("resolved_at"),
     resolvedBy: integer("resolved_by"),
+    /**
+     * Phase: Smart Multi-Currency Variance Analysis.
+     * Currency the source doc was issued in (e.g. "USD"). NULL when
+     * the source doc is in SAR (the base currency) — no FX analysis
+     * applies in that case.
+     */
+    sourceCurrencyCode: text("source_currency_code"),
+    /** Currency of the mirror/target doc, or NULL when SAR. */
+    targetCurrencyCode: text("target_currency_code"),
+    /** Source-currency → SAR rate at the source doc's issue date. */
+    sourceExchangeRate: numeric("source_exchange_rate", { precision: 18, scale: 8 }),
+    /** Source-currency → SAR rate at the moment the imbalance was last analyzed. */
+    currentExchangeRate: numeric("current_exchange_rate", { precision: 18, scale: 8 }),
+    /**
+     * Variance attributable to FX rate movement between the source doc
+     * date and now: sourceAmount × (currentRate − sourceRate). Positive
+     * means the source liability has appreciated against SAR (gain on
+     * monetary asset / loss on monetary liability — context-dependent).
+     */
+    fxVarianceAmount: numeric("fx_variance_amount", { precision: 18, scale: 4 }),
+    /** Total difference minus the FX-attributable portion. */
+    operationalVarianceAmount: numeric("operational_variance_amount", { precision: 18, scale: 4 }),
+    /** Journal entry id created by the One-Click FX Settle action. */
+    fxSettlementJournalId: integer("fx_settlement_journal_id"),
+    fxSettledAt: timestamp("fx_settled_at"),
+    fxSettledBy: integer("fx_settled_by"),
   },
   (t) => ({
     uniqLinkBasis: uniqueIndex("intercompany_imbalances_link_basis_unique").on(t.linkId, t.basis),

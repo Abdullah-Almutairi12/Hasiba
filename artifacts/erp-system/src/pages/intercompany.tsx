@@ -11,7 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { usePermissions } from "@/hooks/use-permissions";
-import { AlertTriangle, EyeOff, Loader2, RefreshCcw, X } from "lucide-react";
+import { AlertTriangle, EyeOff, Loader2, RefreshCcw, Wallet, X } from "lucide-react";
 import { Money } from "@/components/riyal";
 import { useEffect, useState } from "react";
 import { Input } from "@/components/ui/input";
@@ -368,6 +368,14 @@ interface ImbalanceRow {
   resolvedAt: string | null;
   linkStatus: string;
   direction: "outbound" | "inbound";
+  sourceCurrencyCode: string | null;
+  targetCurrencyCode: string | null;
+  sourceExchangeRate: number | null;
+  currentExchangeRate: number | null;
+  fxVarianceAmount: number | null;
+  operationalVarianceAmount: number | null;
+  fxSettlementJournalId: number | null;
+  fxSettledAt: string | null;
 }
 
 function formatRelativeArabic(iso: string): string {
@@ -489,6 +497,23 @@ function ImbalancesTab() {
     },
     onError: (e: unknown) =>
       toast({ title: "فشل إعادة الفتح", description: String(e), variant: "destructive" }),
+  });
+  const settleFxMut = useMutation({
+    mutationFn: (id: number) =>
+      apiPost<{
+        journalEntryNumber: string;
+        direction: "gain" | "loss";
+        amount: number;
+      }>(`/intercompany/imbalances/${id}/settle-fx`, {}),
+    onSuccess: (r) => {
+      toast({
+        title: r.direction === "gain" ? "تمت تسوية الربح" : "تمت تسوية الخسارة",
+        description: `قيد ${r.journalEntryNumber} · ${r.amount.toFixed(2)} ر.س`,
+      });
+      invalidate();
+    },
+    onError: (e: unknown) =>
+      toast({ title: "فشل تسوية الفرق", description: String(e), variant: "destructive" }),
   });
 
   const basisLabel = (b: "subtotal" | "open") =>
@@ -612,6 +637,8 @@ function ImbalancesTab() {
                 <TableHead>قيمة المصدر</TableHead>
                 <TableHead>قيمة الهدف</TableHead>
                 <TableHead>الفرق</TableHead>
+                <TableHead title="فرق صرف العملة المعزول">فرق العملة</TableHead>
+                <TableHead title="الفرق المتبقي بعد عزل FX">تشغيلي</TableHead>
                 <TableHead>الحالة</TableHead>
                 <TableHead>آخر فحص</TableHead>
                 <TableHead>إجراءات</TableHead>
@@ -639,6 +666,27 @@ function ImbalancesTab() {
                     <TableCell><Money value={row.targetAmount} /></TableCell>
                     <TableCell className="font-semibold text-red-700">
                       <Money value={row.difference} />
+                    </TableCell>
+                    <TableCell>
+                      {row.fxVarianceAmount !== null ? (
+                        <div className="flex flex-col gap-0.5">
+                          <Money value={row.fxVarianceAmount} />
+                          {row.sourceCurrencyCode && row.sourceExchangeRate !== null && row.currentExchangeRate !== null ? (
+                            <span className="text-[10px] text-muted-foreground" dir="ltr">
+                              {row.sourceCurrencyCode}: {row.sourceExchangeRate.toFixed(4)} → {row.currentExchangeRate.toFixed(4)}
+                            </span>
+                          ) : null}
+                        </div>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {row.operationalVarianceAmount !== null ? (
+                        <Money value={row.operationalVarianceAmount} />
+                      ) : (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      )}
                     </TableCell>
                     <TableCell>
                       <Badge
@@ -676,6 +724,21 @@ function ImbalancesTab() {
                         >
                           <X className="size-3.5" />
                         </Button>
+                        {row.status === "open" &&
+                        row.fxVarianceAmount !== null &&
+                        Math.abs(row.fxVarianceAmount) >= 0.01 &&
+                        row.fxSettlementJournalId === null ? (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            title="تسوية فرق صرف العملة لقيد ربح/خسارة"
+                            disabled={settleFxMut.isPending}
+                            onClick={() => settleFxMut.mutate(row.id)}
+                            data-testid={`btn-settle-fx-${row.id}`}
+                          >
+                            <Wallet className="size-3.5" />
+                          </Button>
+                        ) : null}
                         {row.status === "open" ? (
                           <Button
                             size="sm"

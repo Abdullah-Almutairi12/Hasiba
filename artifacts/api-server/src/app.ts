@@ -15,6 +15,7 @@ import { initPos } from "./lib/pos-init";
 import { initAnomaly } from "./lib/anomaly-engine";
 import { initIntercompany } from "./lib/intercompany-init";
 import { initAlertDismissals } from "./lib/alert-dismissals-init";
+import { initIntercompanyImbalanceFxColumns } from "./lib/intercompany-imbalance-fx-init";
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 
@@ -36,6 +37,7 @@ const accountingReady = initAccounting()
   .then(() => initAnomaly())
   .then(() => initIntercompany())
   .then(() => initAlertDismissals())
+  .then(() => initIntercompanyImbalanceFxColumns())
   .catch((err) => {
     accountingInitError = err;
     logger.error({ err }, "Failed to initialize accounting/inventory/procurement subsystem");

@@ -17,6 +17,7 @@ import {
   recordImbalancesFromEliminations,
   setImbalanceStatus,
 } from "./intercompany-imbalances";
+import { initIntercompanyImbalanceFxColumns } from "./intercompany-imbalance-fx-init";
 import type { EliminationEntry } from "./consolidated-reports";
 
 const TAG = `vitest-imb-${Date.now()}`;
@@ -27,6 +28,9 @@ let linkAB = 0;
 let imbId = 0;
 
 beforeAll(async () => {
+  // Ensure FX columns added by the Smart Multi-Currency Variance
+  // Analysis phase exist before any insert touches the table.
+  await initIntercompanyImbalanceFxColumns();
   const [a] = await db.insert(companiesTable).values({ name: `Imb Co A ${TAG}`, baseCurrency: "SAR" }).returning();
   const [b] = await db.insert(companiesTable).values({ name: `Imb Co B ${TAG}`, baseCurrency: "SAR" }).returning();
   const [c] = await db.insert(companiesTable).values({ name: `Imb Co C ${TAG}`, baseCurrency: "SAR" }).returning();

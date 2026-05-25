@@ -33,6 +33,7 @@ import {
   buildEliminationEntriesPublic,
 } from "./consolidated-reports";
 import { logger } from "./logger";
+import { analyzeFxVariance, type FxBreakdown } from "./intercompany-fx-variance";
 
 export type ImbalanceBasis = "subtotal" | "open";
 
@@ -83,6 +84,32 @@ export async function recordImbalancesFromEliminations(
   for (const e of offenders) {
     const diff = Number((e.sourceAmount - e.targetAmount).toFixed(4));
     const kind = kindByLinkId.get(e.linkId) ?? "sales_invoice";
+    // Best-effort FX analysis — null on SAR-only links or missing
+    // rates. Falling back to NULL columns preserves the existing
+    // "treat whole diff as operational" UX for SAR pairs.
+    const fx: FxBreakdown | null = await analyzeFxVariance({
+      linkId: e.linkId,
+      kind,
+      sourceAmount: e.sourceAmount,
+      targetAmount: e.targetAmount,
+    });
+    const fxValues = fx
+      ? {
+          sourceCurrencyCode: fx.sourceCurrencyCode,
+          targetCurrencyCode: fx.targetCurrencyCode,
+          sourceExchangeRate: fx.sourceExchangeRate.toFixed(8),
+          currentExchangeRate: fx.currentExchangeRate.toFixed(8),
+          fxVarianceAmount: fx.fxVarianceAmount.toFixed(4),
+          operationalVarianceAmount: fx.operationalVarianceAmount.toFixed(4),
+        }
+      : {
+          sourceCurrencyCode: null,
+          targetCurrencyCode: null,
+          sourceExchangeRate: null,
+          currentExchangeRate: null,
+          fxVarianceAmount: null,
+          operationalVarianceAmount: null,
+        };
     await db
       .insert(intercompanyImbalancesTable)
       .values({
@@ -97,11 +124,13 @@ export async function recordImbalancesFromEliminations(
         targetAmount: e.targetAmount.toFixed(4),
         difference: diff.toFixed(4),
         status: "open",
+        ...fxValues,
       })
       .onConflictDoUpdate({
         target: [intercompanyImbalancesTable.linkId, intercompanyImbalancesTable.basis],
         // Only reopen `resolved` rows on re-detection; never override
-        // a row finance has manually marked `ignored`.
+        // a row finance has manually marked `ignored`. FX fields are
+        // refreshed on every scan so the "current rate" reflects today.
         set: {
           kind,
           sourceCompanyId: e.sourceCompanyId,
@@ -112,6 +141,7 @@ export async function recordImbalancesFromEliminations(
           targetAmount: e.targetAmount.toFixed(4),
           difference: diff.toFixed(4),
           lastSeenAt: new Date(),
+          ...fxValues,
           status: sql`CASE WHEN ${intercompanyImbalancesTable.status} = 'ignored' THEN 'ignored' ELSE 'open' END`,
           resolvedAt: sql`CASE WHEN ${intercompanyImbalancesTable.status} = 'ignored' THEN ${intercompanyImbalancesTable.resolvedAt} ELSE NULL END`,
         },
@@ -264,6 +294,15 @@ export interface ImbalanceRow {
   resolvedAt: string | null;
   linkStatus: string;
   direction: "outbound" | "inbound";
+  /** FX analysis — all null when source doc is SAR or rates missing. */
+  sourceCurrencyCode: string | null;
+  targetCurrencyCode: string | null;
+  sourceExchangeRate: number | null;
+  currentExchangeRate: number | null;
+  fxVarianceAmount: number | null;
+  operationalVarianceAmount: number | null;
+  fxSettlementJournalId: number | null;
+  fxSettledAt: string | null;
 }
 
 /**
@@ -295,6 +334,14 @@ export async function listImbalancesForCompany(
       linkStatus: intercompanyLinksTable.status,
       sourceCompanyName: sql<string | null>`(select name from ${companiesTable} where id = ${intercompanyImbalancesTable.sourceCompanyId})`,
       targetCompanyName: sql<string | null>`(select name from ${companiesTable} where id = ${intercompanyImbalancesTable.targetCompanyId})`,
+      sourceCurrencyCode: intercompanyImbalancesTable.sourceCurrencyCode,
+      targetCurrencyCode: intercompanyImbalancesTable.targetCurrencyCode,
+      sourceExchangeRate: intercompanyImbalancesTable.sourceExchangeRate,
+      currentExchangeRate: intercompanyImbalancesTable.currentExchangeRate,
+      fxVarianceAmount: intercompanyImbalancesTable.fxVarianceAmount,
+      operationalVarianceAmount: intercompanyImbalancesTable.operationalVarianceAmount,
+      fxSettlementJournalId: intercompanyImbalancesTable.fxSettlementJournalId,
+      fxSettledAt: intercompanyImbalancesTable.fxSettledAt,
     })
     .from(intercompanyImbalancesTable)
     .innerJoin(
@@ -329,6 +376,15 @@ export async function listImbalancesForCompany(
     resolvedAt: r.resolvedAt?.toISOString() ?? null,
     linkStatus: r.linkStatus,
     direction: r.sourceCompanyId === companyId ? "outbound" : "inbound",
+    sourceCurrencyCode: r.sourceCurrencyCode,
+    targetCurrencyCode: r.targetCurrencyCode,
+    sourceExchangeRate: r.sourceExchangeRate !== null ? Number(r.sourceExchangeRate) : null,
+    currentExchangeRate: r.currentExchangeRate !== null ? Number(r.currentExchangeRate) : null,
+    fxVarianceAmount: r.fxVarianceAmount !== null ? Number(r.fxVarianceAmount) : null,
+    operationalVarianceAmount:
+      r.operationalVarianceAmount !== null ? Number(r.operationalVarianceAmount) : null,
+    fxSettlementJournalId: r.fxSettlementJournalId,
+    fxSettledAt: r.fxSettledAt?.toISOString() ?? null,
   }));
 }
 

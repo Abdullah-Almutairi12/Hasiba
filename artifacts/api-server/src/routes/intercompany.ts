@@ -21,7 +21,8 @@ import {
   scanImbalancesForCompanies,
   setImbalanceStatus,
 } from "../lib/intercompany-imbalances";
-import { userCompaniesTable } from "@workspace/db";
+import { userCompaniesTable, intercompanyImbalancesTable } from "@workspace/db";
+import { postJournalEntry } from "../lib/journal-posting";
 import {
   consumeEmailActionToken,
   resolveEmailActionToken,
@@ -661,6 +662,167 @@ router.post("/intercompany/imbalances/:id/reopen", async (req, res) => {
     res.json({ ok: true });
   } catch (err) {
     req.log.error({ err }, "reopen intercompany imbalance failed");
+    handleRouteError(err, res);
+  }
+});
+
+/**
+ * POST /intercompany/imbalances/:id/settle-fx — Smart Multi-Currency
+ * Variance Analysis: posts a Gain/Loss journal entry that recognises
+ * the FX-attributable portion of the imbalance and marks the row
+ * resolved with the new JE id stamped on `fxSettlementJournalId`.
+ *
+ * Direction matrix (source-company books):
+ *   sales_invoice  (foreign-currency RECEIVABLE)
+ *     fxVariance > 0  → Dr AR / Cr FX Gain (asset appreciated)
+ *     fxVariance < 0  → Dr FX Loss / Cr AR (asset depreciated)
+ *   purchase_order (foreign-currency PAYABLE)
+ *     fxVariance > 0  → Dr FX Loss / Cr AP (liability grew)
+ *     fxVariance < 0  → Dr AP / Cr FX Gain (liability shrunk)
+ *
+ * 400 if fxVarianceAmount is null/zero (no FX to settle).
+ * 404 if the row isn't in the caller's accessible-companies set.
+ * 409 if already settled (fxSettlementJournalId IS NOT NULL).
+ */
+router.post("/intercompany/imbalances/:id/settle-fx", async (req, res) => {
+  try {
+    const userId = req.session?.userId;
+    if (!userId) {
+      res.status(401).json({ error: "غير مسجل دخول" });
+      return;
+    }
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) {
+      res.status(400).json({ error: "bad id" });
+      return;
+    }
+    const allowed = await getAllowedCompanyIds(userId);
+    if (allowed.length === 0) {
+      res.status(404).json({ error: "not found" });
+      return;
+    }
+    const [row] = await db
+      .select()
+      .from(intercompanyImbalancesTable)
+      .where(eq(intercompanyImbalancesTable.id, id))
+      .limit(1);
+    if (!row) {
+      res.status(404).json({ error: "not found" });
+      return;
+    }
+    // Authorization: the JE is posted into the SOURCE company's books,
+    // so the actor MUST hold membership on the source company. Holding
+    // membership only on the target side is not enough — that would be
+    // a cross-tenant write into books the user doesn't own.
+    if (!allowed.includes(row.sourceCompanyId)) {
+      res.status(404).json({ error: "not found" });
+      return;
+    }
+    if (row.fxSettlementJournalId !== null) {
+      res.status(409).json({ error: "تمت تسوية الفرق سابقاً", code: "ALREADY_SETTLED" });
+      return;
+    }
+    const fx = row.fxVarianceAmount !== null ? Number(row.fxVarianceAmount) : 0;
+    if (!Number.isFinite(fx) || Math.abs(fx) < 0.01) {
+      res.status(400).json({ error: "لا يوجد فرق صرف عملة قابل للتسوية", code: "NO_FX_VARIANCE" });
+      return;
+    }
+
+    // Pick the receivable/payable leg by mirror kind.
+    const isReceivable = row.kind === "sales_invoice";
+    const counterpartyKey = isReceivable ? "ar" : "ap";
+    const amount = Math.abs(fx);
+    // FX gain when: receivable appreciates (fx>0) OR payable shrinks (fx<0)
+    const isGain = isReceivable ? fx > 0 : fx < 0;
+    const counterpartyDebit = isReceivable ? fx > 0 : fx < 0;
+
+    const description = `تسوية فرق صرف عملة — ${row.sourceRef} ↔ ${row.targetRef}`;
+    const reference = `IC-FX-${row.id}`;
+
+    const settlementResult = await db.transaction(async (tx) => {
+      // Atomically CLAIM the row by setting a sentinel
+      // (fx_settlement_journal_id = -1) gated on it still being NULL.
+      // Two concurrent settle requests race here; only one UPDATE
+      // affects a row, the other sees 0 rows and we surface 409.
+      // The sentinel is replaced with the real JE id after posting.
+      const claim = await tx
+        .update(intercompanyImbalancesTable)
+        .set({ fxSettlementJournalId: -1 })
+        .where(
+          and(
+            eq(intercompanyImbalancesTable.id, row.id),
+            sql`${intercompanyImbalancesTable.fxSettlementJournalId} IS NULL`,
+          ),
+        )
+        .returning({ id: intercompanyImbalancesTable.id });
+      if (claim.length === 0) {
+        return { conflict: true as const };
+      }
+      const je = await postJournalEntry(
+        tx,
+        {
+          entryDate: new Date(),
+          description,
+          reference,
+          source: "fx_revaluation",
+          sourceRef: `intercompany_imbalance:${row.id}`,
+          createdBy: userId,
+          companyId: row.sourceCompanyId,
+        },
+        [
+          {
+            systemKey: counterpartyKey,
+            description,
+            debit: counterpartyDebit ? amount : 0,
+            credit: counterpartyDebit ? 0 : amount,
+          },
+          {
+            systemKey: isGain ? "fx_gain" : "fx_loss",
+            description,
+            debit: isGain ? 0 : amount,
+            credit: isGain ? amount : 0,
+          },
+        ],
+      );
+      const [updated] = await tx
+        .update(intercompanyImbalancesTable)
+        .set({
+          status: "resolved",
+          resolvedAt: new Date(),
+          resolvedBy: userId,
+          fxSettlementJournalId: je.id,
+          fxSettledAt: new Date(),
+          fxSettledBy: userId,
+          notes: `${row.notes ? row.notes + "\n" : ""}تسوية FX: ${je.entryNumber}`,
+        })
+        .where(eq(intercompanyImbalancesTable.id, row.id))
+        .returning({ id: intercompanyImbalancesTable.id });
+      return { conflict: false as const, je, updatedId: updated?.id ?? row.id };
+    });
+
+    if (settlementResult.conflict) {
+      res
+        .status(409)
+        .json({ error: "تمت تسوية الفرق سابقاً", code: "ALREADY_SETTLED" });
+      return;
+    }
+    const result = settlementResult;
+
+    void recordAudit(req, {
+      action: "settle_fx",
+      entity: "intercompany_imbalance",
+      details: `imbalance ${row.id} je ${result.je.entryNumber} amount ${amount.toFixed(2)} ${isGain ? "gain" : "loss"}`,
+    });
+    res.json({
+      ok: true,
+      imbalanceId: result.updatedId,
+      journalEntryId: result.je.id,
+      journalEntryNumber: result.je.entryNumber,
+      direction: isGain ? "gain" : "loss",
+      amount,
+    });
+  } catch (err) {
+    req.log.error({ err }, "settle FX intercompany imbalance failed");
     handleRouteError(err, res);
   }
 });
