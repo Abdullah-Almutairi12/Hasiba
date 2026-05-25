@@ -35,7 +35,7 @@ import integrationsRouter, { integrationsPublicRouter } from "./integrations";
 import anomaliesRouter from "./anomalies";
 import portalAuthRouter from "./portal-auth";
 import portalRouter from "./portal";
-import intercompanyRouter from "./intercompany";
+import intercompanyRouter, { intercompanyEmailActionRouter } from "./intercompany";
 import documentsRouter, { signPublicRouter } from "./documents";
 import { requireAuth } from "../middlewares/require-auth";
 import { requireCompanyContext } from "../middlewares/require-company-context";
@@ -55,6 +55,7 @@ router.use(portalAuthRouter);
 router.use(portalRouter);
 // Public e-signature endpoints (token-authenticated, bypass session auth).
 router.use(signPublicRouter);
+router.use(intercompanyEmailActionRouter);
 
 // All business routes require an authenticated session and a tenant
 // context (Multi-Company Phase 2). A handful of cross-tenant admin

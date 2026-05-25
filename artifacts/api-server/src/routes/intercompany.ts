@@ -1,4 +1,5 @@
-import { Router } from "express";
+import { Router, type IRouter } from "express";
+import rateLimit from "express-rate-limit";
 import {
   db,
   intercompanyLinksTable,
@@ -21,6 +22,10 @@ import {
   setImbalanceStatus,
 } from "../lib/intercompany-imbalances";
 import { userCompaniesTable } from "@workspace/db";
+import {
+  consumeEmailActionToken,
+  resolveEmailActionToken,
+} from "../lib/intercompany-email-action";
 
 const router = Router();
 
@@ -609,5 +614,202 @@ router.post("/intercompany/imbalances/:id/reopen", async (req, res) => {
     handleRouteError(err, res);
   }
 });
+
+/**
+ * Task 150 — public (no session) endpoints backing the morning-digest
+ * one-click action links. Token authenticates the request: it binds
+ * (recipient user, imbalance, action) and is enforced single-use +
+ * expiring + access-revalidated by `resolveEmailActionToken`. Mounted
+ * BEFORE `requireAuth` so that opening the link from an inbox does not
+ * bounce the user through a login.
+ */
+export const intercompanyEmailActionRouter: IRouter = Router();
+
+const emailActionLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "محاولات كثيرة جداً، يرجى المحاولة لاحقاً" },
+});
+
+intercompanyEmailActionRouter.use(
+  "/intercompany/email-action",
+  emailActionLimiter,
+);
+
+/**
+ * GET /intercompany/email-action/preview?token=… — returns the action
+ * details so the confirmation modal can render the actor's intent
+ * before they confirm. Does NOT consume the token; the user still has
+ * to click "تأكيد" which POSTs to /confirm. This split is deliberate:
+ * a generic email-link prefetcher (Outlook safe-link, Gmail preview
+ * scanner) must not be able to silently consume the token by GETting
+ * the URL.
+ */
+intercompanyEmailActionRouter.get(
+  "/intercompany/email-action/preview",
+  async (req, res) => {
+    try {
+      const token = String(req.query.token ?? "");
+      const result = await resolveEmailActionToken(token);
+      if (!result.ok) {
+        const status =
+          result.error.code === "CONSUMED"
+            ? 410
+            : result.error.code === "EXPIRED"
+              ? 410
+              : result.error.code === "FORBIDDEN"
+                ? 403
+                : 404;
+        res.status(status).json({
+          ok: false,
+          error: result.error.code,
+          message: result.error.message,
+        });
+        return;
+      }
+      const { ctx } = result;
+      res.json({
+        ok: true,
+        imbalanceId: ctx.imbalanceId,
+        action: ctx.action,
+        sourceRef: ctx.sourceRef,
+        targetRef: ctx.targetRef,
+        difference: ctx.difference,
+        basis: ctx.basis,
+        status: ctx.status,
+        linkStatus: ctx.linkStatus,
+        expiresAt: ctx.expiresAt.toISOString(),
+      });
+    } catch (err) {
+      req.log.error({ err }, "intercompany email-action preview failed");
+      res.status(500).json({ ok: false, error: "SERVER", message: "حدث خطأ في الخادم" });
+    }
+  },
+);
+
+/**
+ * POST /intercompany/email-action/confirm  { token } — consumes the
+ * token (atomic flip of consumedAt under "still-null" guard so a
+ * concurrent double-click 410s on the loser) and performs the bound
+ * action. Stamps an audit row tagged `via=email` so the trail records
+ * the action originated from the morning digest.
+ */
+intercompanyEmailActionRouter.post(
+  "/intercompany/email-action/confirm",
+  async (req, res) => {
+    try {
+      const token = String(req.body?.token ?? "");
+      const resolved = await resolveEmailActionToken(token);
+      if (!resolved.ok) {
+        const status =
+          resolved.error.code === "CONSUMED"
+            ? 410
+            : resolved.error.code === "EXPIRED"
+              ? 410
+              : resolved.error.code === "FORBIDDEN"
+                ? 403
+                : 404;
+        res.status(status).json({
+          ok: false,
+          error: resolved.error.code,
+          message: resolved.error.message,
+        });
+        return;
+      }
+      const ctx = resolved.ctx;
+      const ip =
+        (req.headers["x-forwarded-for"] as string | undefined)
+          ?.split(",")[0]
+          ?.trim() ||
+        req.socket.remoteAddress ||
+        null;
+      const consumed = await consumeEmailActionToken(ctx.tokenRowId, ip);
+      if (!consumed) {
+        res.status(410).json({
+          ok: false,
+          error: "CONSUMED",
+          message: "تم استخدام هذا الرابط مسبقاً",
+        });
+        return;
+      }
+
+      const actor = { userId: ctx.userId, userName: null };
+      try {
+        if (ctx.action === "resync") {
+          if (ctx.linkStatus === "void") {
+            res.status(409).json({
+              ok: false,
+              error: "LINK_VOID",
+              message: "لا يمكن إعادة مزامنة رابط ملغى",
+            });
+            return;
+          }
+          await resyncMirror(ctx.linkId, actor);
+        } else if (ctx.action === "ignore") {
+          const ok = await setImbalanceStatus(
+            ctx.imbalanceId,
+            "ignored",
+            ctx.userId,
+            "تم التجاهل من رسالة البريد الصباحية",
+            [ctx.sourceCompanyId, ctx.targetCompanyId],
+          );
+          if (!ok) {
+            res.status(404).json({
+              ok: false,
+              error: "NOT_FOUND",
+              message: "لم يعد السجل موجوداً",
+            });
+            return;
+          }
+        }
+      } catch (err) {
+        if (err instanceof IntercompanyMirrorError) {
+          res.status(err.code === "FORBIDDEN" ? 403 : 400).json({
+            ok: false,
+            error: err.code,
+            message: err.message,
+          });
+          return;
+        }
+        throw err;
+      }
+
+      // Stamp audit row tagged via=email so the trail captures the
+      // morning-digest origin. We bypass recordAudit() because it
+      // relies on a session-bound companyId; here we stamp the
+      // source company explicitly.
+      try {
+        await db.insert(auditLogsTable).values({
+          userId: ctx.userId,
+          userName: ctx.email,
+          action: ctx.action === "resync" ? "resync" : "ignore",
+          entity: "intercompany_imbalance",
+          details:
+            `imbalance ${ctx.imbalanceId} link ${ctx.linkId} ` +
+            `via=email token=${ctx.tokenRowId}`,
+          ipAddress: ip ?? "unknown",
+          severity: "info",
+          companyId: ctx.sourceCompanyId,
+        });
+      } catch (err) {
+        req.log.warn(
+          { err, imbalanceId: ctx.imbalanceId },
+          "intercompany email-action audit insert failed",
+        );
+      }
+
+      res.json({
+        ok: true,
+        action: ctx.action,
+        imbalanceId: ctx.imbalanceId,
+      });
+    } catch (err) {
+      req.log.error({ err }, "intercompany email-action confirm failed");
+      res.status(500).json({ ok: false, error: "SERVER", message: "حدث خطأ في الخادم" });
+    }
+  },
+);
 
 export default router;

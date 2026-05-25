@@ -90,3 +90,43 @@ export const intercompanyImbalancesTable = pgTable(
 );
 
 export type IntercompanyImbalance = typeof intercompanyImbalancesTable.$inferSelect;
+
+/**
+ * Task 150 — single-use signed action tokens embedded in the morning
+ * imbalance digest email. Each row binds (recipient user, imbalance,
+ * action) → opaque token. The email link opens a confirmation modal
+ * in the app which then consumes the token via the public
+ * `/intercompany/email-action/confirm` endpoint.
+ *
+ * Single-use: enforced by `consumedAt IS NULL` on lookup; consuming
+ * stamps the row so a second click 404s.
+ * Expiry: enforced by `expiresAt`. The digest cron sets this to 7 days.
+ * Cross-tenant safety: the consumer revalidates that the bound
+ * user_id still has finance access to the imbalance's source/target
+ * company at the moment of click (memberships can be revoked between
+ * email send and click).
+ */
+export const intercompanyImbalanceActionTokensTable = pgTable(
+  "intercompany_imbalance_action_tokens",
+  {
+    id: serial("id").primaryKey(),
+    tokenHash: text("token_hash").notNull(),
+    imbalanceId: integer("imbalance_id")
+      .notNull()
+      .references(() => intercompanyImbalancesTable.id, { onDelete: "cascade" }),
+    action: text("action").notNull(),
+    userId: integer("user_id").notNull(),
+    email: text("email").notNull(),
+    expiresAt: timestamp("expires_at").notNull(),
+    consumedAt: timestamp("consumed_at"),
+    consumedIp: text("consumed_ip"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => ({
+    tokenIdx: uniqueIndex("intercompany_imbalance_action_tokens_token_idx").on(t.tokenHash),
+    imbalanceIdx: index("intercompany_imbalance_action_tokens_imbalance_idx").on(t.imbalanceId),
+  }),
+);
+
+export type IntercompanyImbalanceActionToken =
+  typeof intercompanyImbalanceActionTokensTable.$inferSelect;

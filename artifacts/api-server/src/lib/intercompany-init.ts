@@ -104,5 +104,28 @@ export async function initIntercompany(): Promise<void> {
     CREATE INDEX IF NOT EXISTS intercompany_imbalances_target_company_idx
       ON intercompany_imbalances (target_company_id);
   `);
+  // Task 150 — single-use signed action tokens embedded in the
+  // morning digest email so finance can resync/ignore a row in one
+  // click. See lib/db/src/schema/intercompany.ts for the contract.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS intercompany_imbalance_action_tokens (
+      id serial PRIMARY KEY,
+      token_hash text NOT NULL,
+      imbalance_id integer NOT NULL REFERENCES intercompany_imbalances(id) ON DELETE CASCADE,
+      action text NOT NULL,
+      user_id integer NOT NULL,
+      email text NOT NULL,
+      expires_at timestamp NOT NULL,
+      consumed_at timestamp,
+      consumed_ip text,
+      created_at timestamp NOT NULL DEFAULT now(),
+      CONSTRAINT intercompany_imbalance_action_tokens_action_chk
+        CHECK (action IN ('resync','ignore'))
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS intercompany_imbalance_action_tokens_token_idx
+      ON intercompany_imbalance_action_tokens (token_hash);
+    CREATE INDEX IF NOT EXISTS intercompany_imbalance_action_tokens_imbalance_idx
+      ON intercompany_imbalance_action_tokens (imbalance_id);
+  `);
   logger.info("intercompany subsystem initialized");
 }

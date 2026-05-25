@@ -95,6 +95,31 @@ describe("buildDigestEmail", () => {
     expect(out.body).toContain("و3 اختلال إضافي");
   });
 
+  it("renders per-imbalance resync/ignore action links when provided (Task 150)", () => {
+    const links = new Map([
+      [
+        1,
+        {
+          imbalanceId: 1,
+          resyncUrl: "https://example.com/intercompany/email-action?token=A&action=resync",
+          ignoreUrl: "https://example.com/intercompany/email-action?token=B&action=ignore",
+        },
+      ],
+    ]);
+    const out = buildDigestEmail({
+      companyNames: ["شركة الشمال"],
+      newRows: [snap({ id: 1 }), snap({ id: 2 })],
+      stillOpenCount: 0,
+      companyNameById: names,
+      baseUrl: "https://example.com",
+      actionLinksByImbalanceId: links,
+    });
+    expect(out.body).toContain("إعادة المزامنة");
+    expect(out.body).toContain("token=A&action=resync");
+    expect(out.body).toContain("تجاهل الفرق");
+    expect(out.body).toContain("token=B&action=ignore");
+  });
+
   it("falls back to #id when a company name is missing", () => {
     const out = buildDigestEmail({
       companyNames: ["A", "B"],

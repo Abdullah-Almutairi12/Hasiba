@@ -27,6 +27,7 @@ import {
 import { and, eq, inArray } from "drizzle-orm";
 import { logger } from "./logger";
 import { sendMail, isMailerConfigured } from "./mailer";
+import { mintEmailActionToken } from "./intercompany-email-action";
 
 const FINANCE_ROLES = ["owner", "manager", "accountant"];
 const MAX_LIST_ITEMS = 10;
@@ -80,9 +81,25 @@ export interface DigestEmail {
   body: string;
 }
 
+export interface RowActionLinks {
+  /** Imbalance row id this pair of action URLs is bound to. */
+  imbalanceId: number;
+  /** Single-use signed URL → opens confirm modal then resyncs the mirror. */
+  resyncUrl: string;
+  /** Single-use signed URL → opens confirm modal then marks the row ignored. */
+  ignoreUrl: string;
+}
+
 /**
  * Render the Arabic plain-text digest email. Pure function so it can
  * be unit-tested without DB or SMTP.
+ *
+ * `actionLinksByImbalanceId` is the Task-150 per-recipient signed
+ * action map. When present and the row has an entry, the email lists
+ * a one-click "إعادة المزامنة" + "تجاهل" pair under each new row so
+ * finance can act straight from the inbox; otherwise only the deep
+ * link into the queue is included (legacy behaviour, preserved so
+ * downgrades or token-mint failures still produce a usable email).
  */
 export function buildDigestEmail(input: {
   companyNames: string[];
@@ -90,9 +107,16 @@ export function buildDigestEmail(input: {
   stillOpenCount: number;
   companyNameById: Map<number, string>;
   baseUrl: string;
+  actionLinksByImbalanceId?: Map<number, RowActionLinks>;
 }): DigestEmail {
-  const { companyNames, newRows, stillOpenCount, companyNameById, baseUrl } =
-    input;
+  const {
+    companyNames,
+    newRows,
+    stillOpenCount,
+    companyNameById,
+    baseUrl,
+    actionLinksByImbalanceId,
+  } = input;
   const groupLabel = companyNames.join("، ");
   const subjectHead =
     newRows.length > 0
@@ -141,6 +165,11 @@ export function buildDigestEmail(input: {
         `  • [${basisAr}] ${src} (${r.sourceRef}) ↔ ${tgt} (${r.targetRef})` +
           ` — فرق: ${r.difference}`,
       );
+      const links = actionLinksByImbalanceId?.get(r.id);
+      if (links) {
+        lines.push(`     ↻ إعادة المزامنة: ${links.resyncUrl}`);
+        lines.push(`     ✕ تجاهل الفرق:   ${links.ignoreUrl}`);
+      }
     }
     if (newRows.length > shown.length) {
       lines.push(`  • … و${newRows.length - shown.length} اختلال إضافي`);
@@ -155,18 +184,25 @@ export function buildDigestEmail(input: {
   return { subject, body: lines.join("\n") };
 }
 
+export interface FinanceRecipient {
+  userId: number;
+  email: string;
+}
+
 /**
  * Fetch the de-duplicated finance recipients for `group`. A user is
  * included if they hold owner / manager / accountant on at least one
  * company in the group AND their account is active AND they have a
- * non-empty email.
+ * non-empty email. Returns `{ userId, email }` because the digest now
+ * mints per-recipient signed action tokens (Task 150) and needs the
+ * user id to bind each token's audit trail.
  */
 export async function loadFinanceRecipients(
   group: number[],
-): Promise<string[]> {
+): Promise<FinanceRecipient[]> {
   if (group.length === 0) return [];
   const rows = await db
-    .selectDistinct({ email: usersTable.email })
+    .selectDistinct({ userId: usersTable.id, email: usersTable.email })
     .from(userCompaniesTable)
     .innerJoin(usersTable, eq(usersTable.id, userCompaniesTable.userId))
     .where(
@@ -176,12 +212,22 @@ export async function loadFinanceRecipients(
         eq(usersTable.isActive, true),
       ),
     );
-  const out = new Set<string>();
+  const byEmail = new Map<string, FinanceRecipient>();
   for (const r of rows) {
-    const email = r.email?.trim();
-    if (email) out.add(email.toLowerCase());
+    const email = r.email?.trim().toLowerCase();
+    if (!email) continue;
+    // First occurrence wins — multiple user_companies rows for the
+    // same user produce duplicates after selectDistinct on (id,email)
+    // only if email collides across users, which the user table
+    // does not enforce. Pick the lowest userId for determinism.
+    const prev = byEmail.get(email);
+    if (!prev || r.userId < prev.userId) {
+      byEmail.set(email, { userId: r.userId, email });
+    }
   }
-  return Array.from(out).sort();
+  return Array.from(byEmail.values()).sort((a, b) =>
+    a.email.localeCompare(b.email),
+  );
 }
 
 /**
@@ -231,32 +277,79 @@ export async function sendImbalanceDigestForGroup(input: {
     const companyNames = group.map(
       (id) => companyNameById.get(id) ?? `#${id}`,
     );
-    const { subject, body } = buildDigestEmail({
-      companyNames,
-      newRows,
-      stillOpenCount,
-      companyNameById,
-      baseUrl: resolveAppBaseUrl(),
-    });
-    const result = await sendMail({
-      to: recipients.join(", "),
-      subject,
-      body,
-    });
-    if (!result.sent) {
-      logger.warn(
-        { group, reason: result.reason },
-        "intercompany_digest.send_failed",
-      );
-      return { skipped: true, reason: `send_failed:${result.reason}` };
+    const baseUrl = resolveAppBaseUrl();
+
+    // Task 150 — fan out one email per recipient so each gets their
+    // own single-use, audit-bound action tokens for the new-row
+    // entries. A failure to mint a token for one row just omits that
+    // pair of action links; the row still appears with the deep link
+    // into the queue at the bottom of the email.
+    let sentCount = 0;
+    let lastFailReason: string | null = null;
+    for (const recipient of recipients) {
+      const actionLinksByImbalanceId = new Map<number, RowActionLinks>();
+      // Only mint for the rows the email actually lists (top
+      // MAX_LIST_ITEMS); the overflow tail is summarised, not linked.
+      const linkable = newRows.slice(0, MAX_LIST_ITEMS);
+      for (const r of linkable) {
+        try {
+          const [resync, ignoreLink] = await Promise.all([
+            mintEmailActionToken({
+              imbalanceId: r.id,
+              userId: recipient.userId,
+              email: recipient.email,
+              action: "resync",
+              baseUrl,
+            }),
+            mintEmailActionToken({
+              imbalanceId: r.id,
+              userId: recipient.userId,
+              email: recipient.email,
+              action: "ignore",
+              baseUrl,
+            }),
+          ]);
+          actionLinksByImbalanceId.set(r.id, {
+            imbalanceId: r.id,
+            resyncUrl: resync.url,
+            ignoreUrl: ignoreLink.url,
+          });
+        } catch (err) {
+          logger.warn(
+            { err, imbalanceId: r.id, userId: recipient.userId },
+            "intercompany_digest.mint_token_failed",
+          );
+        }
+      }
+      const { subject, body } = buildDigestEmail({
+        companyNames,
+        newRows,
+        stillOpenCount,
+        companyNameById,
+        baseUrl,
+        actionLinksByImbalanceId,
+      });
+      const result = await sendMail({ to: recipient.email, subject, body });
+      if (result.sent) {
+        sentCount += 1;
+      } else {
+        lastFailReason = result.reason ?? "unknown";
+        logger.warn(
+          { group, recipient: recipient.email, reason: result.reason },
+          "intercompany_digest.send_failed",
+        );
+      }
+    }
+    if (sentCount === 0) {
+      return { skipped: true, reason: `send_failed:${lastFailReason ?? "unknown"}` };
     }
     logger.info(
-      { group, recipients: recipients.length, newCount: newRows.length, stillOpenCount },
+      { group, recipients: sentCount, newCount: newRows.length, stillOpenCount },
       "intercompany_digest.sent",
     );
     return {
       skipped: false,
-      recipients: recipients.length,
+      recipients: sentCount,
       newCount: newRows.length,
     };
   } catch (err) {
