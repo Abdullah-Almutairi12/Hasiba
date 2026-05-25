@@ -8,6 +8,7 @@ import {
   permissionOverridesTable,
   usersTable,
   companySettingsTable,
+  alertsTable,
 } from "@workspace/db";
 import { uploadBufferToPrivateObject } from "./storage";
 import { eq, sql, desc, and, gt, or, isNull } from "drizzle-orm";
@@ -59,6 +60,12 @@ router.get("/admin/stats", adminOnly, async (req, res) => {
       })
       .from(featureFlagsTable);
 
+    const [iStats] = await db
+      .select({
+        failedInvoiceSends: sql<number>`count(*) filter (where ${alertsTable.type} = 'invoice_send_failed' and ${alertsTable.isRead} = false)`,
+      })
+      .from(alertsTable);
+
     res.json({
       openTickets: Number(tStats.openTickets),
       criticalTickets: Number(tStats.criticalTickets),
@@ -68,6 +75,7 @@ router.get("/admin/stats", adminOnly, async (req, res) => {
       activeAnnouncements: Number(aStats.activeAnnouncements),
       enabledFeatures: Number(fStats.enabledFeatures),
       totalFeatures: Number(fStats.totalFeatures),
+      failedInvoiceSends: Number(iStats.failedInvoiceSends),
     });
   } catch (err) {
     req.log.error({ err }, "Admin stats failed");

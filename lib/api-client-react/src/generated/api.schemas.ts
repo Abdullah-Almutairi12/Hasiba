@@ -1166,6 +1166,8 @@ export interface AdminStats {
   activeAnnouncements: number;
   enabledFeatures: number;
   totalFeatures: number;
+  /** Count of unresolved (unread) "invoice send failure" alerts. */
+  failedInvoiceSends: number;
 }
 
 export interface AdminSystemHealth {

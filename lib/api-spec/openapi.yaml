@@ -3736,7 +3736,10 @@ components:
           type: integer
         totalFeatures:
           type: integer
-      required: [openTickets, criticalTickets, resolvedToday, activeUsers, totalUsers, activeAnnouncements, enabledFeatures, totalFeatures]
+        failedInvoiceSends:
+          type: integer
+          description: Count of unresolved (unread) "invoice send failure" alerts.
+      required: [openTickets, criticalTickets, resolvedToday, activeUsers, totalUsers, activeAnnouncements, enabledFeatures, totalFeatures, failedInvoiceSends]
 
     AdminSystemHealth:
       type: object

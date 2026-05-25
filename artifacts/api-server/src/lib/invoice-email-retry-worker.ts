@@ -1,4 +1,4 @@
-import { db, customerInvoicesTable } from "@workspace/db";
+import { db, customerInvoicesTable, alertsTable } from "@workspace/db";
 import { eq, sql } from "drizzle-orm";
 import { logger } from "./logger";
 import { sendMail, isMailerConfigured } from "./mailer";
@@ -64,6 +64,43 @@ async function recordAttempt(parent: QueuedRow, opts: {
   }
 }
 
+// Insert an alert into the shared `alerts` table when an outbox row
+// reaches its terminal failed state, so managers see it on the dashboard
+// instead of having to spot the red badge in the invoice list. Deduped
+// per outbox id: the worker only flips a row to "permanently failed"
+// once (attempts becomes MAX_ATTEMPTS and the row stops being polled),
+// but we still token-scan the alert messages defensively so any
+// upstream re-run can't double-notify for the same outbox row.
+async function notifyGaveUp(row: QueuedRow, reason: string): Promise<void> {
+  try {
+    const token = `[outbox#${row.id}]`;
+    const exists = await db.execute<{ exists: boolean }>(sql`
+      SELECT EXISTS (
+        SELECT 1 FROM alerts
+         WHERE type = 'invoice_send_failed'
+           AND message LIKE ${"%" + token + "%"}
+      ) AS exists
+    `);
+    const rows: Array<{ exists: boolean }> =
+      (exists as { rows?: Array<{ exists: boolean }> }).rows ??
+      (Array.isArray(exists) ? (exists as Array<{ exists: boolean }>) : []);
+    if (rows[0]?.exists) return;
+
+    await db.insert(alertsTable).values({
+      type: "invoice_send_failed",
+      title: `فشل نهائي في إرسال الفاتورة ${row.reference}`,
+      message:
+        `تعذّر إرسال الفاتورة ${row.reference} إلى ${row.recipient} بعد ` +
+        `${MAX_ATTEMPTS} محاولات. آخر خطأ: ${reason}. ${token}`,
+    });
+  } catch (err) {
+    logger.error(
+      { err, outboxId: row.id, invoiceId: row.refId },
+      "invoice.retry.alert_insert_failed",
+    );
+  }
+}
+
 async function processOne(row: QueuedRow): Promise<void> {
   // Re-render so the customer always gets the latest PDF (totals,
   // status, ZATCA QR may have changed since the original send).
@@ -85,6 +122,7 @@ async function processOne(row: QueuedRow): Promise<void> {
         { outboxId: row.id, invoiceId: row.refId, attempts: attemptsAfter, reason },
         "invoice.retry.gave_up",
       );
+      await notifyGaveUp(row, reason);
     } else {
       const delayMs = nextRetryDelayMs(attemptsAfter);
       await db.execute(sql`
@@ -159,6 +197,7 @@ async function processOne(row: QueuedRow): Promise<void> {
       { outboxId: row.id, invoiceId: row.refId, attempts: attemptsAfter, reason },
       "invoice.retry.gave_up",
     );
+    await notifyGaveUp(row, reason);
     return;
   }
 
@@ -227,6 +266,7 @@ async function sweep(): Promise<void> {
                      next_retry_at = null
                WHERE id = ${row.id};
             `);
+            await notifyGaveUp(row, reason);
           } else {
             const delayMs = nextRetryDelayMs(attemptsAfter);
             await db.execute(sql`

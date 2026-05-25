@@ -1384,6 +1384,9 @@ export const GetAdminStatsResponse = zod.object({
   activeAnnouncements: zod.number(),
   enabledFeatures: zod.number(),
   totalFeatures: zod.number(),
+  failedInvoiceSends: zod
+    .number()
+    .describe('Count of unresolved (unread) \"invoice send failure\" alerts.'),
 });
 
 /**

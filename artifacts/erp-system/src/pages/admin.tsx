@@ -188,6 +188,13 @@ function OverviewTab() {
           label="ميزات مفعّلة"
           value={`${stats?.enabledFeatures ?? 0}/${stats?.totalFeatures ?? 0}`}
         />
+        <StatCard
+          icon={AlertTriangle}
+          label="فواتير فشل إرسالها"
+          value={stats?.failedInvoiceSends ?? "—"}
+          hint="تحتاج مراجعة المدير"
+          tone={stats && stats.failedInvoiceSends > 0 ? "warn" : "default"}
+        />
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
