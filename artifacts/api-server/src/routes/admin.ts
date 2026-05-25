@@ -289,6 +289,50 @@ router.get("/admin/alerts-cleanup/last", adminOnly, async (req, res) => {
   }
 });
 
+// Task #172: full kept history exported as CSV for offline review /
+// compliance audits. Streams every retained row (admin-tunable cap)
+// with a BOM + UTF-8 encoding so Excel renders Arabic correctly.
+router.get(
+  "/admin/system-settings/alerts-cleanup-runs.csv",
+  adminOnly,
+  async (req, res) => {
+    try {
+      const rows = await db
+        .select()
+        .from(alertsCleanupRunsTable)
+        .orderBy(desc(alertsCleanupRunsTable.ranAt));
+      const escape = (v: unknown) => {
+        if (v == null) return "";
+        const s = String(v);
+        if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+        return s;
+      };
+      const headers = ["ran_at", "rows_deleted", "retention_days"];
+      const lines = [headers.join(",")];
+      for (const r of rows) {
+        lines.push(
+          [
+            escape(r.ranAt.toISOString()),
+            escape(r.rowsDeleted),
+            escape(r.retentionDays),
+          ].join(","),
+        );
+      }
+      const csv = "\uFEFF" + lines.join("\n");
+      const filename = `alerts-cleanup-runs-${new Date().toISOString().slice(0, 10)}.csv`;
+      res.setHeader("Content-Type", "text/csv; charset=utf-8");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="${filename}"`,
+      );
+      return res.send(csv);
+    } catch (err) {
+      req.log.error({ err }, "Alerts cleanup history CSV export failed");
+      return res.status(500).json({ error: "Internal server error" });
+    }
+  },
+);
+
 // Task #164: surface a short history (~14 most recent runs) so the
 // Admin Panel can render a sparkline / bar chart of nightly sweeps.
 router.get("/admin/alerts-cleanup/history", adminOnly, async (req, res) => {

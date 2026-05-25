@@ -83,6 +83,7 @@ import {
   History,
   Plus,
   Trash2,
+  FileDown,
   CheckCircle2,
   AlertTriangle,
   Sparkles,
@@ -267,6 +268,9 @@ function AlertsCleanupCard() {
     ? new Date(data.lastRunAt).toLocaleString("ar-SA")
     : null;
   const runs = history ?? [];
+  const csvHref =
+    (import.meta.env.BASE_URL || "/").replace(/\/$/, "") +
+    "/api/admin/system-settings/alerts-cleanup-runs.csv";
   const maxDeleted = runs.reduce(
     (m, r) => (r.rowsDeleted > m ? r.rowsDeleted : m),
     0,
@@ -276,13 +280,29 @@ function AlertsCleanupCard() {
   return (
     <Card data-testid="card-alerts-cleanup">
       <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base">
-          <Trash2 className="size-4 text-primary" />
-          تنظيف التنبيهات الليلي
-        </CardTitle>
-        <CardDescription>
-          آخر مرة نظّف فيها النظام التنبيهات القديمة المقروءة تلقائياً.
-        </CardDescription>
+        <div className="flex items-start justify-between gap-2">
+          <div className="space-y-1.5">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Trash2 className="size-4 text-primary" />
+              تنظيف التنبيهات الليلي
+            </CardTitle>
+            <CardDescription>
+              آخر مرة نظّف فيها النظام التنبيهات القديمة المقروءة تلقائياً.
+            </CardDescription>
+          </div>
+          <Button
+            asChild
+            variant="outline"
+            size="sm"
+            className="gap-1.5"
+            data-testid="button-export-alerts-cleanup-csv"
+          >
+            <a href={csvHref} download>
+              <FileDown className="size-3.5" />
+              تصدير CSV
+            </a>
+          </Button>
+        </div>
       </CardHeader>
       <CardContent className="space-y-2 text-sm">
         <div className="flex items-center justify-between">
