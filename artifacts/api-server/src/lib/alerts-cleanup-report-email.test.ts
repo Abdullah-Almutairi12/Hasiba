@@ -35,6 +35,14 @@ vi.mock("./alerts-cleanup-pdf", () => ({
     buffer: Buffer.from("%PDF-stub"),
     filename: "stub.pdf",
     rowCount: 0,
+    complianceAlertCount: 0,
+  })),
+}));
+
+vi.mock("./compliance/report-section", () => ({
+  loadComplianceReportSummary: vi.fn(async () => ({
+    counts: { transferPricing: 0, agreementMissing: 0, zakat: 0 },
+    alerts: [],
   })),
 }));
 
@@ -43,6 +51,7 @@ const {
   sendCleanupReportEmail,
   readCleanupReportConfig,
   defaultCleanupReportConfig,
+  renderCleanupReportEmail,
 } = await import("./alerts-cleanup-report-email");
 const mailer = await import("./mailer");
 const pdfMod = await import("./alerts-cleanup-pdf");
@@ -115,6 +124,7 @@ beforeEach(() => {
     buffer: Buffer.from("%PDF-stub"),
     filename: "stub.pdf",
     rowCount: 0,
+    complianceAlertCount: 0,
   });
 });
 
@@ -136,7 +146,13 @@ describe("isDue — cadence math", () => {
   it("returns false when schedule is 'off' regardless of lastSentAt", () => {
     expect(
       isDue(
-        { schedule: "off", recipients: ["a@b.com"], lastSentAt: null },
+        {
+          schedule: "off",
+          recipients: ["a@b.com"],
+          lastSentAt: null,
+          subject: null,
+          intro: null,
+        },
         now,
       ),
     ).toBe(false);
@@ -146,6 +162,8 @@ describe("isDue — cadence math", () => {
           schedule: "off",
           recipients: ["a@b.com"],
           lastSentAt: "2020-01-01T00:00:00.000Z",
+          subject: null,
+          intro: null,
         },
         now,
       ),
@@ -154,14 +172,29 @@ describe("isDue — cadence math", () => {
 
   it("returns false when recipients list is empty", () => {
     expect(
-      isDue({ schedule: "weekly", recipients: [], lastSentAt: null }, now),
+      isDue(
+        {
+          schedule: "weekly",
+          recipients: [],
+          lastSentAt: null,
+          subject: null,
+          intro: null,
+        },
+        now,
+      ),
     ).toBe(false);
   });
 
   it("returns true on weekly schedule when never sent before", () => {
     expect(
       isDue(
-        { schedule: "weekly", recipients: ["a@b.com"], lastSentAt: null },
+        {
+          schedule: "weekly",
+          recipients: ["a@b.com"],
+          lastSentAt: null,
+          subject: null,
+          intro: null,
+        },
         now,
       ),
     ).toBe(true);
@@ -178,6 +211,8 @@ describe("isDue — cadence math", () => {
           schedule: "weekly",
           recipients: ["a@b.com"],
           lastSentAt: justUnder.toISOString(),
+          subject: null,
+          intro: null,
         },
         now,
       ),
@@ -188,6 +223,8 @@ describe("isDue — cadence math", () => {
           schedule: "weekly",
           recipients: ["a@b.com"],
           lastSentAt: exactly.toISOString(),
+          subject: null,
+          intro: null,
         },
         now,
       ),
@@ -198,6 +235,8 @@ describe("isDue — cadence math", () => {
           schedule: "weekly",
           recipients: ["a@b.com"],
           lastSentAt: wellPast.toISOString(),
+          subject: null,
+          intro: null,
         },
         now,
       ),
@@ -215,6 +254,8 @@ describe("isDue — cadence math", () => {
           schedule: "monthly",
           recipients: ["a@b.com"],
           lastSentAt: oneWeek.toISOString(),
+          subject: null,
+          intro: null,
         },
         now,
       ),
@@ -225,6 +266,8 @@ describe("isDue — cadence math", () => {
           schedule: "monthly",
           recipients: ["a@b.com"],
           lastSentAt: justUnder.toISOString(),
+          subject: null,
+          intro: null,
         },
         now,
       ),
@@ -235,6 +278,8 @@ describe("isDue — cadence math", () => {
           schedule: "monthly",
           recipients: ["a@b.com"],
           lastSentAt: exactly.toISOString(),
+          subject: null,
+          intro: null,
         },
         now,
       ),
@@ -359,5 +404,153 @@ describe("sendCleanupReportEmail", () => {
     expect(result).toEqual({ sent: false, reason: "smtp boom" });
     const stored = await getStoredCleanupReport();
     expect(stored?.["lastSentAt"]).toBe("2026-01-01T00:00:00.000Z");
+  });
+});
+
+describe("renderCleanupReportEmail — pure rendering", () => {
+  const from = new Date("2026-05-18T00:00:00.000Z");
+  const to = new Date("2026-05-25T00:00:00.000Z");
+  const zeroCounts = {
+    transferPricing: 0,
+    agreementMissing: 0,
+    zakat: 0,
+  };
+
+  it("falls back to the default weekly subject and intro when both are null", () => {
+    const out = renderCleanupReportEmail({
+      subject: null,
+      intro: null,
+      schedule: "weekly",
+      from,
+      to,
+      rowCount: 3,
+      complianceCounts: zeroCounts,
+    });
+    expect(out.periodLabel).toBe("الأسبوعي");
+    expect(out.from).toBe("2026-05-18");
+    expect(out.to).toBe("2026-05-25");
+    expect(out.subject).toBe(
+      "تقرير تنظيف التنبيهات الأسبوعي (2026-05-18 → 2026-05-25)",
+    );
+    expect(out.body).toContain("مرفق تقرير تنظيف التنبيهات الأسبوعي.");
+    expect(out.body).toContain("النطاق: 2026-05-18 إلى 2026-05-25");
+    expect(out.body).toContain("عدد عمليات التنظيف في هذا النطاق: 3");
+    expect(out.body).toContain("تم إنشاء هذا التقرير تلقائياً");
+  });
+
+  it("uses the monthly period label when schedule is 'monthly'", () => {
+    const out = renderCleanupReportEmail({
+      subject: null,
+      intro: null,
+      schedule: "monthly",
+      from,
+      to,
+      rowCount: 0,
+      complianceCounts: zeroCounts,
+    });
+    expect(out.periodLabel).toBe("الشهري");
+    expect(out.subject).toBe(
+      "تقرير تنظيف التنبيهات الشهري (2026-05-18 → 2026-05-25)",
+    );
+    expect(out.body).toContain("مرفق تقرير تنظيف التنبيهات الشهري.");
+  });
+
+  it("treats schedule='off' as weekly for rendering (force-send path)", () => {
+    const out = renderCleanupReportEmail({
+      subject: null,
+      intro: null,
+      schedule: "off",
+      from,
+      to,
+      rowCount: 0,
+      complianceCounts: zeroCounts,
+    });
+    expect(out.periodLabel).toBe("الأسبوعي");
+  });
+
+  it("substitutes {period}, {from}, {to} tokens in a custom subject (all occurrences)", () => {
+    const out = renderCleanupReportEmail({
+      subject:
+        "[{period}] {from} → {to} | تقرير {period} من {from} حتى {to}",
+      intro: null,
+      schedule: "monthly",
+      from,
+      to,
+      rowCount: 0,
+      complianceCounts: zeroCounts,
+    });
+    expect(out.subject).toBe(
+      "[الشهري] 2026-05-18 → 2026-05-25 | تقرير الشهري من 2026-05-18 حتى 2026-05-25",
+    );
+  });
+
+  it("leaves a custom subject without tokens unchanged (no default appended)", () => {
+    const out = renderCleanupReportEmail({
+      subject: "موضوع ثابت بدون رموز",
+      intro: null,
+      schedule: "weekly",
+      from,
+      to,
+      rowCount: 0,
+      complianceCounts: zeroCounts,
+    });
+    expect(out.subject).toBe("موضوع ثابت بدون رموز");
+  });
+
+  it("uses the custom intro verbatim (no token substitution applied)", () => {
+    const out = renderCleanupReportEmail({
+      subject: null,
+      intro: "مرحباً يا فريق المراجعة — هذا التقرير {period}",
+      schedule: "weekly",
+      from,
+      to,
+      rowCount: 5,
+      complianceCounts: zeroCounts,
+    });
+    // intro tokens are intentionally NOT substituted (only subject is).
+    expect(out.body.startsWith("مرحباً يا فريق المراجعة — هذا التقرير {period}\n\n")).toBe(
+      true,
+    );
+    // Default intro line must not also appear when a custom intro is provided.
+    expect(out.body).not.toContain("مرفق تقرير تنظيف التنبيهات");
+  });
+
+  it("totals the three compliance counts and surfaces each subcategory", () => {
+    const out = renderCleanupReportEmail({
+      subject: null,
+      intro: null,
+      schedule: "weekly",
+      from,
+      to,
+      rowCount: 0,
+      complianceCounts: {
+        transferPricing: 2,
+        agreementMissing: 3,
+        zakat: 5,
+      },
+    });
+    expect(out.complianceAlertCount).toBe(10);
+    expect(out.body).toContain(
+      "تنبيهات الامتثال (تسعير تحويلي / زكاة / اتفاقيات): 10",
+    );
+    expect(out.body).toContain("• تسعير تحويلي: 2");
+    expect(out.body).toContain("• اتفاقيات مفقودة: 3");
+    expect(out.body).toContain("• زكاة: 5");
+  });
+
+  it("returns zero compliance total when all three counts are zero", () => {
+    const out = renderCleanupReportEmail({
+      subject: null,
+      intro: null,
+      schedule: "weekly",
+      from,
+      to,
+      rowCount: 0,
+      complianceCounts: zeroCounts,
+    });
+    expect(out.complianceAlertCount).toBe(0);
+    expect(out.body).toContain(
+      "تنبيهات الامتثال (تسعير تحويلي / زكاة / اتفاقيات): 0",
+    );
   });
 });
