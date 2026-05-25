@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Area,
   AreaChart,
@@ -10,10 +10,27 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { AlertTriangle, Building2, Droplets, Loader2, TrendingDown, Wallet } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowDownRight,
+  ArrowUpRight,
+  Building2,
+  Droplets,
+  Loader2,
+  Store,
+  TrendingDown,
+  Wallet,
+} from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Money } from "@/components/riyal";
 
 type ForecastPoint = { date: string; projectedBalance: number; projectedNet: number };
@@ -244,11 +261,111 @@ function CorporateMode() {
   );
 }
 
+/**
+ * Aggregated "all branches" view rendered as a synthetic RetailBranch
+ * so the same hero card can render either a single branch or the
+ * company-wide rollup without branching its JSX.
+ */
+const ALL_BRANCHES_VALUE = "__all__";
+
+function NetPositionHero({
+  title,
+  subtitle,
+  cashOnHand,
+  pendingPayables,
+  netPosition,
+  openSessions,
+}: {
+  title: string;
+  subtitle?: string;
+  cashOnHand: number;
+  pendingPayables: number;
+  netPosition: number;
+  openSessions?: number;
+}) {
+  const isPositive = netPosition >= 0;
+  // "Critical" threshold for retail: negative OR cash can't cover even
+  // half of the payable share. Drives the red hero treatment.
+  const isCritical = netPosition < 0 || (pendingPayables > 0 && cashOnHand < pendingPayables * 0.5);
+  const toneRing = isCritical
+    ? "ring-2 ring-rose-500/40 bg-gradient-to-br from-rose-50 to-white dark:from-rose-950/40 dark:to-background"
+    : isPositive
+      ? "ring-2 ring-emerald-500/40 bg-gradient-to-br from-emerald-50 to-white dark:from-emerald-950/40 dark:to-background"
+      : "ring-2 ring-amber-500/40 bg-gradient-to-br from-amber-50 to-white dark:from-amber-950/40 dark:to-background";
+  const numberTone = isCritical
+    ? "text-rose-600 dark:text-rose-400"
+    : isPositive
+      ? "text-emerald-600 dark:text-emerald-400"
+      : "text-amber-600 dark:text-amber-400";
+
+  return (
+    <Card className={toneRing} data-testid="card-net-position-hero">
+      <CardContent className="p-5 sm:p-8">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium text-muted-foreground sm:text-base">{title}</p>
+            {subtitle ? (
+              <p className="mt-0.5 text-xs text-muted-foreground/80">{subtitle}</p>
+            ) : null}
+          </div>
+          {typeof openSessions === "number" ? (
+            <Badge variant={openSessions > 0 ? "default" : "secondary"} className="shrink-0">
+              {openSessions > 0 ? `${openSessions} جلسة مفتوحة` : "مغلق"}
+            </Badge>
+          ) : null}
+        </div>
+
+        <div className="mt-3 flex items-baseline gap-2 sm:mt-4">
+          <span
+            className={`text-4xl font-extrabold leading-none tabular-nums sm:text-6xl ${numberTone}`}
+            data-testid="text-net-position"
+          >
+            <Money value={netPosition} fractionDigits={0} />
+          </span>
+        </div>
+        <p className="mt-2 text-xs uppercase tracking-wide text-muted-foreground sm:text-sm">
+          صافي الموقف (النقد − المستحقات)
+        </p>
+
+        <div className="mt-5 grid grid-cols-2 gap-3 border-t border-border/60 pt-4 sm:mt-6 sm:gap-4">
+          <div className="space-y-1">
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground sm:text-sm">
+              <ArrowUpRight className="size-3.5 text-emerald-500" />
+              النقد المتاح
+            </div>
+            <div className="text-lg font-semibold text-emerald-600 tabular-nums dark:text-emerald-400 sm:text-2xl">
+              <Money value={cashOnHand} fractionDigits={0} />
+            </div>
+          </div>
+          <div className="space-y-1">
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground sm:text-sm">
+              <ArrowDownRight className="size-3.5 text-rose-500" />
+              المستحقات
+            </div>
+            <div className="text-lg font-semibold text-rose-600 tabular-nums dark:text-rose-400 sm:text-2xl">
+              <Money value={pendingPayables} fractionDigits={0} />
+            </div>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 function RetailMode() {
   const { data, isLoading, error } = useQuery<RetailSnapshot>({
     queryKey: ["/api/liquidity/retail"],
     queryFn: () => fetchJson<RetailSnapshot>("/api/liquidity/retail"),
   });
+  const [selected, setSelected] = useState<string>(ALL_BRANCHES_VALUE);
+
+  // Default the selector to the first real branch as soon as data arrives,
+  // so a store manager with a single branch lands directly on their numbers.
+  useEffect(() => {
+    if (data && selected === ALL_BRANCHES_VALUE && data.branches.length === 1) {
+      setSelected(String(data.branches[0].branchId));
+    }
+  }, [data, selected]);
 
   if (isLoading) {
     return (
@@ -265,77 +382,120 @@ function RetailMode() {
     );
   }
 
+  const activeBranch =
+    selected === ALL_BRANCHES_VALUE
+      ? null
+      : data.branches.find((b) => String(b.branchId) === selected) ?? null;
+
+  const heroProps =
+    activeBranch === null
+      ? {
+          title: "كل الفروع",
+          subtitle: `${data.branches.length} فرع نشط`,
+          cashOnHand: data.totalCashOnHand,
+          pendingPayables: data.totalPendingPayables,
+          netPosition: data.netPosition,
+        }
+      : {
+          title: activeBranch.branchName,
+          subtitle: undefined,
+          cashOnHand: activeBranch.cashOnHand,
+          pendingPayables: activeBranch.pendingPayables,
+          netPosition: activeBranch.netPosition,
+          openSessions: activeBranch.openSessions,
+        };
+
   return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <StatCard
-          label="إجمالي النقد في الفروع"
-          value={data.totalCashOnHand}
-          icon={Wallet}
-          tone="positive"
-        />
-        <StatCard
-          label="إجمالي المستحقات"
-          value={data.totalPendingPayables}
-          icon={TrendingDown}
-          tone="negative"
-        />
-        <StatCard
-          label="صافي الموقف"
-          value={data.netPosition}
-          icon={Droplets}
-          tone={data.netPosition >= 0 ? "positive" : "negative"}
-        />
+    <div className="space-y-5">
+      {/* Native-feeling branch selector. Uses Radix Select which renders a
+          full-screen picker on touch devices and a popover on desktop. */}
+      <div className="flex items-center gap-2">
+        <Store className="size-5 shrink-0 text-muted-foreground" aria-hidden />
+        <Select value={selected} onValueChange={setSelected}>
+          <SelectTrigger
+            className="h-12 flex-1 text-base font-medium sm:max-w-sm"
+            data-testid="select-branch"
+          >
+            <SelectValue placeholder="اختر الفرع" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={ALL_BRANCHES_VALUE} data-testid="option-branch-all">
+              كل الفروع (الإجمالي)
+            </SelectItem>
+            {data.branches.map((b) => (
+              <SelectItem
+                key={b.branchId}
+                value={String(b.branchId)}
+                data-testid={`option-branch-${b.branchId}`}
+              >
+                {b.branchName}
+                {b.openSessions > 0 ? " • مفتوح" : ""}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3" data-testid="list-branches">
-        {data.branches.length === 0 ? (
-          <Card className="md:col-span-2 lg:col-span-3">
-            <CardContent className="py-8 text-center text-sm text-muted-foreground">
-              لا توجد فروع نشطة.
-            </CardContent>
-          </Card>
-        ) : (
-          data.branches.map((b) => (
-            <Card key={b.branchId} data-testid={`card-branch-${b.branchId}`}>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-base">{b.branchName}</CardTitle>
-                <Badge variant={b.openSessions > 0 ? "default" : "secondary"}>
-                  {b.openSessions > 0 ? `${b.openSessions} جلسة مفتوحة` : "مغلق"}
-                </Badge>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-muted-foreground">النقد المتاح</span>
-                  <span className="font-medium text-emerald-600 dark:text-emerald-400">
-                    <Money value={b.cashOnHand} />
+      {data.branches.length === 0 ? (
+        <Card>
+          <CardContent className="py-8 text-center text-sm text-muted-foreground">
+            لا توجد فروع نشطة.
+          </CardContent>
+        </Card>
+      ) : (
+        <NetPositionHero {...heroProps} />
+      )}
+
+      {/* Compact secondary list — only shown in "all branches" view so a
+          store manager who picked their own branch isn't distracted by the
+          rest of the company. Below `sm` it stacks to a single column so
+          numbers stay readable without zoom. */}
+      {selected === ALL_BRANCHES_VALUE && data.branches.length > 1 ? (
+        <div
+          className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3"
+          data-testid="list-branches"
+        >
+          {data.branches.map((b) => {
+            const positive = b.netPosition >= 0;
+            return (
+              <button
+                key={b.branchId}
+                type="button"
+                onClick={() => setSelected(String(b.branchId))}
+                className="rounded-lg border border-border bg-card p-4 text-start transition-colors hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                data-testid={`card-branch-${b.branchId}`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="truncate text-sm font-medium">{b.branchName}</span>
+                  <Badge
+                    variant={b.openSessions > 0 ? "default" : "secondary"}
+                    className="shrink-0 text-[10px]"
+                  >
+                    {b.openSessions > 0 ? "مفتوح" : "مغلق"}
+                  </Badge>
+                </div>
+                <div
+                  className={`mt-2 text-2xl font-bold tabular-nums ${
+                    positive
+                      ? "text-emerald-600 dark:text-emerald-400"
+                      : "text-rose-600 dark:text-rose-400"
+                  }`}
+                >
+                  <Money value={b.netPosition} fractionDigits={0} />
+                </div>
+                <div className="mt-1 flex justify-between text-xs text-muted-foreground">
+                  <span>
+                    نقد: <Money value={b.cashOnHand} fractionDigits={0} />
+                  </span>
+                  <span>
+                    مستحقات: <Money value={b.pendingPayables} fractionDigits={0} />
                   </span>
                 </div>
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-muted-foreground">حصة الفرع من المستحقات</span>
-                  <span className="font-medium text-rose-600 dark:text-rose-400">
-                    <Money value={b.pendingPayables} />
-                  </span>
-                </div>
-                <div className="border-t pt-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium">صافي الموقف</span>
-                    <span
-                      className={`text-lg font-bold ${
-                        b.netPosition >= 0
-                          ? "text-emerald-600 dark:text-emerald-400"
-                          : "text-rose-600 dark:text-rose-400"
-                      }`}
-                    >
-                      <Money value={b.netPosition} />
-                    </span>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))
-        )}
-      </div>
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -357,7 +517,7 @@ export default function LiquidityPage() {
             وضع الشركة
           </TabsTrigger>
           <TabsTrigger value="retail" data-testid="tab-retail">
-            وضع الفروع (Retail)
+            وضع المتاجر
           </TabsTrigger>
         </TabsList>
         <TabsContent value="corporate" className="mt-6">
