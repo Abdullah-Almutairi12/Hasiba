@@ -277,6 +277,99 @@ describe("POST /api/integrations/email/webhook — bounce-tracking E2E", () => {
     }
   });
 
+  // Task #223: webhook-driven bounces feed the auto-suppression sweeper.
+  it("auto-suppresses an address after N consecutive webhook-driven bounces", async () => {
+    const { pool } = await import("@workspace/db");
+    const { CLEANUP_REPORT_SUPPRESSION_THRESHOLD } = await import(
+      "./alerts-cleanup-report-email"
+    );
+    const localEmail = `wh-suppress-${RUN_TAG}@test.local`;
+    const sendIds: number[] = [];
+    const recIds: number[] = [];
+    try {
+      // Seed N consecutive sends + pending recipient rows, then POST
+      // a bounce webhook for each one. The sweeper should fire on the
+      // last POST and add the address to suppressions.
+      for (let i = 0; i < CLEANUP_REPORT_SUPPRESSION_THRESHOLD; i++) {
+        const mid = `<${RUN_TAG}-wh-sup-${i}@hasba.local>`;
+        const [send] = await db
+          .insert(cleanupReportSendsTable)
+          .values({
+            trigger: "cron",
+            recipientCount: 1,
+            recipients: localEmail,
+            rowCount: 0,
+            status: "success",
+            messageId: mid,
+          })
+          .returning({ id: cleanupReportSendsTable.id });
+        sendIds.push(send.id);
+        const [rec] = await db
+          .insert(cleanupReportSendRecipientsTable)
+          .values({ sendId: send.id, email: localEmail, status: "pending" })
+          .returning({ id: cleanupReportSendRecipientsTable.id });
+        recIds.push(rec.id);
+        const payload = JSON.stringify({
+          messageId: mid,
+          recipient: localEmail,
+          event: "bounced",
+          reason: "mailbox_full",
+        });
+        const r = await request(app)
+          .post("/api/integrations/email/webhook")
+          .set("Content-Type", "application/json")
+          .set("X-Webhook-Signature", sign(payload))
+          .send(payload);
+        expect(r.status).toBe(200);
+      }
+
+      const row = await pool.query<{ cleanup: unknown }>(
+        `SELECT system->'cleanupReport' AS cleanup FROM app_settings WHERE id = 1`,
+      );
+      const cleanup = row.rows[0]?.cleanup as
+        | { suppressions?: Array<{ email: string; bounceCount: number }> }
+        | undefined;
+      const sup = cleanup?.suppressions ?? [];
+      expect(sup.some((s) => s.email === localEmail)).toBe(true);
+    } finally {
+      if (recIds.length > 0) {
+        await db
+          .delete(cleanupReportSendRecipientsTable)
+          .where(inArray(cleanupReportSendRecipientsTable.id, recIds));
+      }
+      if (sendIds.length > 0) {
+        await db
+          .delete(cleanupReportSendsTable)
+          .where(inArray(cleanupReportSendsTable.id, sendIds));
+      }
+      // Clean the suppression entry we just created so we don't leak
+      // state into other tests / other runs.
+      await pool.query(
+        `
+        UPDATE app_settings
+           SET system = jsonb_set(
+                 COALESCE(system, '{}'::jsonb),
+                 '{cleanupReport,suppressions}',
+                 COALESCE(
+                   (
+                     SELECT jsonb_agg(s)
+                       FROM jsonb_array_elements(
+                              COALESCE(system->'cleanupReport'->'suppressions', '[]'::jsonb)
+                            ) s
+                      WHERE s->>'email' <> $1
+                   ),
+                   '[]'::jsonb
+                 ),
+                 true
+               ),
+               updated_at = NOW()
+         WHERE id = 1
+        `,
+        [localEmail],
+      );
+    }
+  });
+
   // Task #212: refuse to downgrade 'delivered' → 'bounced'.
   it("ignores a late 'bounced' event when the recipient row is already 'delivered' (admin override or earlier delivery confirmation)", async () => {
     const localMessageId = `<${RUN_TAG}-nodowngrade@hasba.local>`;

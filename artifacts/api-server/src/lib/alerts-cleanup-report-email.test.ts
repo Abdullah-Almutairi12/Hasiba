@@ -17,7 +17,14 @@ import {
   it,
   vi,
 } from "vitest";
-import { db, pool, appSettingsTable } from "@workspace/db";
+import {
+  db,
+  pool,
+  appSettingsTable,
+  cleanupReportSendsTable,
+  cleanupReportSendRecipientsTable,
+} from "@workspace/db";
+import { eq, inArray } from "drizzle-orm";
 
 // Hoisted mocks for the two side-effectful collaborators. vi.mock is
 // hoisted above imports, so the SUT below imports the mocked modules.
@@ -59,6 +66,10 @@ const {
   sweepStuckPendingRecipients,
   STUCK_PENDING_THRESHOLD_MS,
   STUCK_PENDING_BOUNCE_REASON,
+  evaluateAndSuppressBouncedRecipients,
+  unsuppressCleanupReportRecipient,
+  isCleanupReportSuppressed,
+  CLEANUP_REPORT_SUPPRESSION_THRESHOLD,
 } = await import("./alerts-cleanup-report-email");
 const mailer = await import("./mailer");
 const pdfMod = await import("./alerts-cleanup-pdf");
@@ -162,7 +173,8 @@ describe("isDue — cadence math", () => {
           lastSentAt: null,
           subject: null,
           intro: null,
-        adminNotificationEmail: null,
+          adminNotificationEmail: null,
+          suppressions: [],
         },
         now,
       ),
@@ -175,7 +187,8 @@ describe("isDue — cadence math", () => {
           lastSentAt: "2020-01-01T00:00:00.000Z",
           subject: null,
           intro: null,
-        adminNotificationEmail: null,
+          adminNotificationEmail: null,
+          suppressions: [],
         },
         now,
       ),
@@ -191,7 +204,8 @@ describe("isDue — cadence math", () => {
           lastSentAt: null,
           subject: null,
           intro: null,
-        adminNotificationEmail: null,
+          adminNotificationEmail: null,
+          suppressions: [],
         },
         now,
       ),
@@ -207,7 +221,8 @@ describe("isDue — cadence math", () => {
           lastSentAt: null,
           subject: null,
           intro: null,
-        adminNotificationEmail: null,
+          adminNotificationEmail: null,
+          suppressions: [],
         },
         now,
       ),
@@ -227,7 +242,8 @@ describe("isDue — cadence math", () => {
           lastSentAt: justUnder.toISOString(),
           subject: null,
           intro: null,
-        adminNotificationEmail: null,
+          adminNotificationEmail: null,
+          suppressions: [],
         },
         now,
       ),
@@ -240,7 +256,8 @@ describe("isDue — cadence math", () => {
           lastSentAt: exactly.toISOString(),
           subject: null,
           intro: null,
-        adminNotificationEmail: null,
+          adminNotificationEmail: null,
+          suppressions: [],
         },
         now,
       ),
@@ -253,7 +270,8 @@ describe("isDue — cadence math", () => {
           lastSentAt: wellPast.toISOString(),
           subject: null,
           intro: null,
-        adminNotificationEmail: null,
+          adminNotificationEmail: null,
+          suppressions: [],
         },
         now,
       ),
@@ -273,7 +291,8 @@ describe("isDue — cadence math", () => {
           lastSentAt: oneWeek.toISOString(),
           subject: null,
           intro: null,
-        adminNotificationEmail: null,
+          adminNotificationEmail: null,
+          suppressions: [],
         },
         now,
       ),
@@ -286,7 +305,8 @@ describe("isDue — cadence math", () => {
           lastSentAt: justUnder.toISOString(),
           subject: null,
           intro: null,
-        adminNotificationEmail: null,
+          adminNotificationEmail: null,
+          suppressions: [],
         },
         now,
       ),
@@ -299,7 +319,8 @@ describe("isDue — cadence math", () => {
           lastSentAt: exactly.toISOString(),
           subject: null,
           intro: null,
-        adminNotificationEmail: null,
+          adminNotificationEmail: null,
+          suppressions: [],
         },
         now,
       ),
@@ -711,6 +732,269 @@ describe("renderCleanupReportEmail — pure rendering", () => {
       "تنبيهات الامتثال (تسعير تحويلي / زكاة / اتفاقيات): 0",
     );
   });
+});
+
+describe("auto-suppression of bouncing recipients — task #223", () => {
+  const RUN_TAG = `sup-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+  const createdSendIds: number[] = [];
+
+  afterEach(async () => {
+    if (createdSendIds.length > 0) {
+      await db
+        .delete(cleanupReportSendRecipientsTable)
+        .where(inArray(cleanupReportSendRecipientsTable.sendId, createdSendIds));
+      await db
+        .delete(cleanupReportSendsTable)
+        .where(inArray(cleanupReportSendsTable.id, createdSendIds));
+      createdSendIds.length = 0;
+    }
+  });
+
+  async function seedBouncedHistory(
+    email: string,
+    count: number,
+  ): Promise<void> {
+    for (let i = 0; i < count; i++) {
+      const [send] = await db
+        .insert(cleanupReportSendsTable)
+        .values({
+          trigger: "cron",
+          recipientCount: 1,
+          recipients: email,
+          rowCount: 0,
+          status: "success",
+          messageId: `<${RUN_TAG}-${i}@local>`,
+        })
+        .returning({ id: cleanupReportSendsTable.id });
+      createdSendIds.push(send.id);
+      await db.insert(cleanupReportSendRecipientsTable).values({
+        sendId: send.id,
+        email,
+        status: "bounced",
+        reason: "mailbox_full",
+        updatedAt: new Date(Date.now() - (count - i) * 1000),
+      });
+    }
+  }
+
+  it("CLEANUP_REPORT_SUPPRESSION_THRESHOLD defaults to at least 2", () => {
+    expect(CLEANUP_REPORT_SUPPRESSION_THRESHOLD).toBeGreaterThanOrEqual(2);
+  });
+
+  it("isCleanupReportSuppressed normalises email and matches existing suppression entries", () => {
+    const cfg = defaultCleanupReportConfig();
+    cfg.suppressions.push({
+      email: "bounce@example.com",
+      suppressedAt: new Date().toISOString(),
+      bounceCount: 3,
+      lastReason: "mailbox_full",
+    });
+    expect(isCleanupReportSuppressed(cfg, "  Bounce@Example.COM  ")).toBe(true);
+    expect(isCleanupReportSuppressed(cfg, "other@example.com")).toBe(false);
+  });
+
+  it("does NOT suppress when fewer than threshold bounce rows exist", async () => {
+    const email = `under-${RUN_TAG}@example.test`;
+    await seedBouncedHistory(email, CLEANUP_REPORT_SUPPRESSION_THRESHOLD - 1);
+    const result = await evaluateAndSuppressBouncedRecipients([email]);
+    expect(result).toEqual([]);
+    const stored = await getStoredCleanupReport();
+    const suppressions = (stored?.["suppressions"] as unknown[] | undefined) ?? [];
+    expect(suppressions).toEqual([]);
+  });
+
+  it("suppresses an address whose last N consecutive rows are all bounced and persists to app_settings", async () => {
+    const email = `bouncer-${RUN_TAG}@example.test`;
+    await seedBouncedHistory(email, CLEANUP_REPORT_SUPPRESSION_THRESHOLD);
+
+    const result = await evaluateAndSuppressBouncedRecipients([email]);
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      email,
+      bounceCount: CLEANUP_REPORT_SUPPRESSION_THRESHOLD,
+      lastReason: "mailbox_full",
+    });
+
+    const stored = await getStoredCleanupReport();
+    const suppressions =
+      (stored?.["suppressions"] as Array<{ email: string }>) ?? [];
+    expect(suppressions.some((s) => s.email === email)).toBe(true);
+
+    // Idempotent: re-running does not duplicate.
+    const second = await evaluateAndSuppressBouncedRecipients([email]);
+    expect(second).toEqual([]);
+  });
+
+  it("skips suppression when the streak is interrupted by a successful delivery", async () => {
+    const email = `mixed-${RUN_TAG}@example.test`;
+    // Older bounce
+    const [s1] = await db
+      .insert(cleanupReportSendsTable)
+      .values({
+        trigger: "cron",
+        recipientCount: 1,
+        recipients: email,
+        rowCount: 0,
+        status: "success",
+        messageId: `<${RUN_TAG}-mix-1@local>`,
+      })
+      .returning({ id: cleanupReportSendsTable.id });
+    createdSendIds.push(s1.id);
+    await db.insert(cleanupReportSendRecipientsTable).values({
+      sendId: s1.id,
+      email,
+      status: "bounced",
+      reason: "older",
+      updatedAt: new Date(Date.now() - 30_000),
+    });
+    // Then a success
+    const [s2] = await db
+      .insert(cleanupReportSendsTable)
+      .values({
+        trigger: "cron",
+        recipientCount: 1,
+        recipients: email,
+        rowCount: 0,
+        status: "success",
+        messageId: `<${RUN_TAG}-mix-2@local>`,
+      })
+      .returning({ id: cleanupReportSendsTable.id });
+    createdSendIds.push(s2.id);
+    await db.insert(cleanupReportSendRecipientsTable).values({
+      sendId: s2.id,
+      email,
+      status: "delivered",
+      reason: null,
+      updatedAt: new Date(Date.now() - 20_000),
+    });
+    // Then enough recent bounces to almost trip the threshold, but the
+    // success above must still break the streak when threshold > 2.
+    await seedBouncedHistory(email, CLEANUP_REPORT_SUPPRESSION_THRESHOLD - 1);
+
+    const result = await evaluateAndSuppressBouncedRecipients([email]);
+    expect(result).toEqual([]);
+  });
+
+  it("sendCleanupReportEmail filters out suppressed recipients from the cron path", async () => {
+    const live = `live-${RUN_TAG}@example.test`;
+    const dead = `dead-${RUN_TAG}@example.test`;
+    await setCleanupReport({
+      schedule: "weekly",
+      recipients: [live, dead],
+      lastSentAt: null,
+    });
+    // Seed suppression directly on the config.
+    await pool.query(
+      `
+      UPDATE app_settings
+         SET system = jsonb_set(
+               system,
+               '{cleanupReport,suppressions}',
+               $1::jsonb,
+               true
+             )
+       WHERE id = 1
+      `,
+      [
+        JSON.stringify([
+          {
+            email: dead,
+            suppressedAt: new Date().toISOString(),
+            bounceCount: CLEANUP_REPORT_SUPPRESSION_THRESHOLD,
+            lastReason: "mailbox_full",
+          },
+        ]),
+      ],
+    );
+
+    const result = await sendCleanupReportEmail({ force: true });
+    expect(result.sent).toBe(true);
+    expect(result.recipients).toEqual([live]);
+    const mailArgs = vi.mocked(mailer.sendMail).mock.calls[0][0]!;
+    expect(mailArgs.to).toBe(live);
+  });
+
+  it("recipientsOverride bypasses the suppression filter so admins can deliberately retry", async () => {
+    const dead = `override-${RUN_TAG}@example.test`;
+    await setCleanupReport({
+      schedule: "weekly",
+      recipients: [dead],
+      lastSentAt: null,
+    });
+    await pool.query(
+      `
+      UPDATE app_settings
+         SET system = jsonb_set(
+               system,
+               '{cleanupReport,suppressions}',
+               $1::jsonb,
+               true
+             )
+       WHERE id = 1
+      `,
+      [
+        JSON.stringify([
+          {
+            email: dead,
+            suppressedAt: new Date().toISOString(),
+            bounceCount: CLEANUP_REPORT_SUPPRESSION_THRESHOLD,
+            lastReason: "mailbox_full",
+          },
+        ]),
+      ],
+    );
+
+    const result = await sendCleanupReportEmail({
+      force: true,
+      recipientsOverride: [dead],
+      asTest: false,
+    });
+    expect(result.sent).toBe(true);
+    expect(result.recipients).toEqual([dead]);
+  });
+
+  it("unsuppressCleanupReportRecipient removes the row and returns true; returns false when not present", async () => {
+    const email = `lift-${RUN_TAG}@example.test`;
+    await pool.query(
+      `
+      INSERT INTO app_settings (id, system, updated_at)
+      VALUES (1, jsonb_build_object('cleanupReport', $1::jsonb), NOW())
+      ON CONFLICT (id) DO UPDATE
+        SET system = COALESCE(app_settings.system, '{}'::jsonb)
+                     || jsonb_build_object(
+                          'cleanupReport',
+                          COALESCE(app_settings.system->'cleanupReport', '{}'::jsonb)
+                            || $1::jsonb
+                        ),
+            updated_at = NOW()
+      `,
+      [
+        JSON.stringify({
+          suppressions: [
+            {
+              email,
+              suppressedAt: new Date().toISOString(),
+              bounceCount: 3,
+              lastReason: "mailbox_full",
+            },
+          ],
+        }),
+      ],
+    );
+
+    expect(await unsuppressCleanupReportRecipient("  Lift-" + RUN_TAG + "@Example.TEST  "))
+      .toBe(true);
+    const stored = await getStoredCleanupReport();
+    const suppressions =
+      (stored?.["suppressions"] as Array<{ email: string }>) ?? [];
+    expect(suppressions.some((s) => s.email === email)).toBe(false);
+
+    // Second call is a no-op and returns false.
+    expect(await unsuppressCleanupReportRecipient(email)).toBe(false);
+  });
+
+  // Avoid unused-import lint flags
+  void eq;
 });
 
 describe("sweepStuckPendingRecipients — task #207", () => {

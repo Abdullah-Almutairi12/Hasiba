@@ -32,9 +32,11 @@ import {
   readCleanupReportConfig,
   renderCleanupReportEmail,
   windowDaysForSchedule,
+  unsuppressCleanupReportRecipient,
   CLEANUP_REPORT_SUBJECT_MAX,
   CLEANUP_REPORT_INTRO_MAX,
   CLEANUP_REPORT_SCHEDULES,
+  CLEANUP_REPORT_SUPPRESSION_THRESHOLD,
   type CleanupReportSchedule,
 } from "../lib/alerts-cleanup-report-email";
 import { loadComplianceReportSummary } from "../lib/compliance/report-section";
@@ -914,6 +916,9 @@ router.get("/admin/system-settings", adminOnly, async (req, res) => {
       cleanupReportSubject: cleanupReport.subject,
       cleanupReportIntro: cleanupReport.intro,
       cleanupReportAdminNotificationEmail: cleanupReport.adminNotificationEmail,
+      cleanupReportSuppressions: cleanupReport.suppressions,
+      cleanupReportSuppressionThreshold:
+        CLEANUP_REPORT_SUPPRESSION_THRESHOLD,
       cleanupReportLastTestRecipient: await readLastCleanupReportTestRecipient(
         req.session.userId,
       ),
@@ -1012,6 +1017,9 @@ router.patch("/admin/system-settings", adminOnly, async (req, res) => {
         subject: prevCleanupReport.subject,
         intro: prevCleanupReport.intro,
         adminNotificationEmail: prevCleanupReport.adminNotificationEmail,
+        // Task #223 — preserve the auto-suppression list across
+        // unrelated PATCHes (schedule / recipients / subject / intro).
+        suppressions: prevCleanupReport.suppressions,
       };
       if (body.cleanupReportAdminNotificationEmail !== undefined) {
         const v = body.cleanupReportAdminNotificationEmail?.trim() ?? "";
@@ -1476,6 +1484,52 @@ router.post(
       });
     } catch (err) {
       req.log.error({ err }, "Send cleanup report test failed");
+      return res.status(500).json({ error: "Internal server error" });
+    }
+  },
+);
+
+// Task #223: lift an auto-suppression for a single address. Once a
+// recipient has bounced N times in a row the cleanup-report sender
+// auto-quarantines them; this endpoint lets an admin clear that
+// quarantine after they've fixed the underlying delivery issue (e.g.
+// the auditor came back from leave / typo on the address / mailbox
+// restored). The address itself stays on / off the configured
+// recipients list independently — clearing the suppression just means
+// the next scheduled send will actually try delivering to them again.
+const UnsuppressCleanupReportRecipientBody = z.object({
+  email: z.string().trim().email().max(254),
+});
+
+router.post(
+  "/admin/system-settings/cleanup-report-suppressions/unsuppress",
+  adminOnly,
+  async (req, res) => {
+    const parsed = UnsuppressCleanupReportRecipientBody.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({
+        error: "بريد إلكتروني غير صحيح",
+        reason: "invalid_recipient",
+      });
+    }
+    try {
+      const email = parsed.data.email.trim().toLowerCase();
+      const removed = await unsuppressCleanupReportRecipient(email);
+      if (!removed) {
+        return res.status(404).json({
+          error: "هذا البريد ليس في قائمة الإيقاف.",
+          reason: "not_suppressed",
+        });
+      }
+      void recordAudit(req, {
+        action: "system_settings.cleanup_report_suppression_lifted",
+        entity: "app_settings#1",
+        details: `email=${email}`,
+        severity: "info",
+      });
+      return res.json({ ok: true, email });
+    } catch (err) {
+      req.log.error({ err }, "Unsuppress cleanup report recipient failed");
       return res.status(500).json({ error: "Internal server error" });
     }
   },

@@ -1586,6 +1586,22 @@ export const SystemSettingsCleanupReportSchedule = {
 } as const;
 
 /**
+ * A single auto-quarantined address. Stored on `app_settings.system.cleanupReport.suppressions` (jsonb). Address is always lower-cased.
+ */
+export interface CleanupReportSuppression {
+  email: string;
+  /** ISO timestamp of when auto-suppression was applied. */
+  suppressedAt: string;
+  /**
+   * Number of consecutive bounces observed at the moment of suppression.
+   * @minimum 0
+   */
+  bounceCount: number;
+  /** Bounce reason from the most recent rejected delivery row. */
+  lastReason: string | null;
+}
+
+/**
  * Per-admin remembered UI state for the admin panel. Persists across reloads so the panel feels sticky and admins don't have to re-enter the same filters. Stored per-user on `users.admin_prefs`.
  */
 export interface AdminPrefs {
@@ -1628,6 +1644,13 @@ export interface SystemSettings {
   cleanupReportIntro: string | null;
   /** Last one-off recipient this admin successfully sent a test cleanup report to. Used to pre-fill the test recipient input. Null when the admin has never sent a test, or explicitly cleared it by sending a test with no recipient (which falls back to their account email). */
   cleanupReportLastTestRecipient: string | null;
+  /** Addresses auto-quarantined after `cleanupReportSuppressionThreshold` consecutive bounces (no successful delivery in between). The next scheduled / "send now" run will silently skip these recipients. Admins can lift a suppression via the `unsuppressCleanupReportRecipient` endpoint. */
+  cleanupReportSuppressions: CleanupReportSuppression[];
+  /**
+   * Consecutive-bounce threshold the auto-suppression sweeper uses. Exposed so the UI can phrase the warning ("هذا العنوان تجاوز X ارتداداً متتالياً") with the live config value.
+   * @minimum 2
+   */
+  cleanupReportSuppressionThreshold: number;
   adminPrefs: AdminPrefs;
 }
 
@@ -2089,6 +2112,25 @@ export type SendCleanupReportTest200 = {
 };
 
 export type SendCleanupReportTest400 = {
+  error: string;
+  reason?: string;
+};
+
+export type UnsuppressCleanupReportRecipientBody = {
+  email: string;
+};
+
+export type UnsuppressCleanupReportRecipient200 = {
+  ok: boolean;
+  email: string;
+};
+
+export type UnsuppressCleanupReportRecipient400 = {
+  error: string;
+  reason?: string;
+};
+
+export type UnsuppressCleanupReportRecipient404 = {
   error: string;
   reason?: string;
 };

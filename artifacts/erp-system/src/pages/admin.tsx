@@ -26,6 +26,7 @@ import {
   useGetCleanupReportPreview,
   useListCleanupReportSends,
   useResendCleanupReport,
+  useUnsuppressCleanupReportRecipient,
   useListPermissionMatrix,
   useSetPermissionCell,
   useListAuditLogs,
@@ -125,6 +126,7 @@ import {
   Mail,
   MailX,
   Clock,
+  ShieldOff,
 } from "lucide-react";
 import { WorkflowTab } from "@/components/workflow-tab";
 import { IntegrationsTab } from "@/components/integrations-tab";
@@ -1596,8 +1598,37 @@ function CleanupReportEmailCard() {
   const lastSentAt = settings?.cleanupReportLastSentAt ?? null;
   const savedSubject = settings?.cleanupReportSubject ?? "";
   const savedIntro = settings?.cleanupReportIntro ?? "";
+  const suppressions = settings?.cleanupReportSuppressions ?? [];
+  const suppressionThreshold =
+    settings?.cleanupReportSuppressionThreshold ?? 3;
+  const suppressedSet = new Set(
+    suppressions.map((s) => s.email.toLowerCase()),
+  );
   const [draft, setDraft] = useState("");
   const [inputError, setInputError] = useState<string | null>(null);
+  const [inputWarning, setInputWarning] = useState<string | null>(null);
+  const unsuppressMut = useUnsuppressCleanupReportRecipient({
+    mutation: {
+      onSuccess: (data) => {
+        toast({
+          title: "تمت إعادة تفعيل العنوان",
+          description: data.email,
+        });
+        void queryClient.invalidateQueries({
+          predicate: (q) => {
+            const k = q.queryKey?.[0];
+            return typeof k === "string" && k.includes("/admin/system-settings");
+          },
+        });
+      },
+      onError: (err: unknown) => {
+        const msg =
+          (err as { response?: { data?: { error?: string } } })?.response?.data
+            ?.error ?? "تعذّر إعادة التفعيل";
+        toast({ title: msg, variant: "destructive" });
+      },
+    },
+  });
   const [subjectDraft, setSubjectDraft] = useState<string>(savedSubject);
   const [introDraft, setIntroDraft] = useState<string>(savedIntro);
 
@@ -1640,7 +1671,17 @@ function CleanupReportEmailCard() {
       setInputError("هذا البريد مضاف مسبقاً");
       return;
     }
+    // Task #223: warn-then-confirm when an address still on the
+    // suppression list is being re-added. The send loop will skip it
+    // anyway until an admin clears the suppression, so adding it back
+    // silently is a foot-gun.
+    if (suppressedSet.has(v) && inputWarning !== v) {
+      setInputError(null);
+      setInputWarning(v);
+      return;
+    }
     setInputError(null);
+    setInputWarning(null);
     setDraft("");
     updateMut.mutate({
       data: { cleanupReportRecipients: [...recipients, v] },
@@ -1709,6 +1750,7 @@ function CleanupReportEmailCard() {
               onChange={(e) => {
                 setDraft(e.target.value);
                 if (inputError) setInputError(null);
+                if (inputWarning) setInputWarning(null);
               }}
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
@@ -1734,35 +1776,131 @@ function CleanupReportEmailCard() {
           {inputError && (
             <div className="text-xs text-rose-600">{inputError}</div>
           )}
+          {inputWarning && (
+            <div
+              className="flex items-start gap-1.5 rounded-md border border-amber-300 bg-amber-50 px-2 py-1.5 text-xs text-amber-900 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-200"
+              data-testid="warning-cleanup-recipient-suppressed"
+            >
+              <AlertTriangle className="mt-[1px] size-3 shrink-0" />
+              <span>
+                هذا العنوان موقوف حالياً بسبب الارتداد (تجاوز{" "}
+                {suppressionThreshold} ارتدادات متتالية). اضغط "إضافة" مرة
+                أخرى للإضافة على أي حال، أو ألغِ الإيقاف أولاً من قائمة
+                "عناوين موقوفة".
+              </span>
+            </div>
+          )}
           {recipients.length === 0 ? (
             <div className="rounded-md border border-dashed bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
               لم تتم إضافة أي مستلم بعد.
             </div>
           ) : (
             <div className="flex flex-wrap gap-2">
-              {recipients.map((email) => (
-                <Badge
-                  key={email}
-                  variant="secondary"
-                  className="gap-1.5"
-                  data-testid={`badge-cleanup-recipient-${email}`}
-                >
-                  <span dir="ltr">{email}</span>
-                  <button
-                    type="button"
-                    onClick={() => removeRecipient(email)}
-                    disabled={updateMut.isPending}
-                    className="text-muted-foreground hover:text-rose-600"
-                    aria-label={`حذف ${email}`}
-                    data-testid={`button-remove-cleanup-recipient-${email}`}
+              {recipients.map((email) => {
+                const isSuppressed = suppressedSet.has(email.toLowerCase());
+                return (
+                  <Badge
+                    key={email}
+                    variant={isSuppressed ? "outline" : "secondary"}
+                    className={
+                      isSuppressed
+                        ? "gap-1.5 border-amber-400 bg-amber-50 text-amber-900 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-200"
+                        : "gap-1.5"
+                    }
+                    data-testid={`badge-cleanup-recipient-${email}`}
                   >
-                    <Trash2 className="size-3" />
-                  </button>
-                </Badge>
-              ))}
+                    {isSuppressed && (
+                      <ShieldOff
+                        className="size-3"
+                        aria-label="موقوف بسبب الارتداد"
+                      />
+                    )}
+                    <span dir="ltr">{email}</span>
+                    {isSuppressed && (
+                      <span className="text-[10px] font-normal">
+                        موقوف بسبب الارتداد
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => removeRecipient(email)}
+                      disabled={updateMut.isPending}
+                      className="text-muted-foreground hover:text-rose-600"
+                      aria-label={`حذف ${email}`}
+                      data-testid={`button-remove-cleanup-recipient-${email}`}
+                    >
+                      <Trash2 className="size-3" />
+                    </button>
+                  </Badge>
+                );
+              })}
             </div>
           )}
         </div>
+
+        {suppressions.length > 0 && (
+          <div
+            className="space-y-2 rounded-md border border-amber-300 bg-amber-50/40 p-3 dark:border-amber-800 dark:bg-amber-950/20"
+            data-testid="section-cleanup-report-suppressions"
+          >
+            <div className="flex items-center gap-2 text-xs font-medium text-amber-900 dark:text-amber-200">
+              <ShieldOff className="size-3.5" />
+              عناوين موقوفة بسبب الارتداد ({suppressions.length})
+            </div>
+            <p className="text-[11px] text-amber-900/80 dark:text-amber-200/80">
+              يتم إيقاف العناوين تلقائياً بعد {suppressionThreshold} ارتدادات
+              متتالية بدون أي تسليم ناجح بينها. لن يحاول النظام إرسال أي
+              تقارير قادمة إلى هذه العناوين حتى تُلغي الإيقاف يدوياً.
+            </p>
+            <div className="flex flex-col gap-1.5">
+              {suppressions.map((s) => (
+                <div
+                  key={s.email}
+                  className="flex flex-wrap items-center gap-2 rounded border border-amber-200 bg-white/60 px-2 py-1.5 text-xs dark:border-amber-800/60 dark:bg-amber-950/30"
+                  data-testid={`row-cleanup-suppression-${s.email}`}
+                >
+                  <span dir="ltr" className="font-mono">{s.email}</span>
+                  <Badge variant="outline" className="text-[10px]">
+                    {s.bounceCount} ارتداد
+                  </Badge>
+                  <span className="text-[10px] text-muted-foreground">
+                    منذ{" "}
+                    {new Date(s.suppressedAt).toLocaleString("ar", {
+                      dateStyle: "short",
+                      timeStyle: "short",
+                    })}
+                  </span>
+                  {s.lastReason && (
+                    <span
+                      className="truncate text-[10px] text-muted-foreground"
+                      title={s.lastReason}
+                    >
+                      — {s.lastReason}
+                    </span>
+                  )}
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="ms-auto h-7 px-2 text-xs"
+                    disabled={unsuppressMut.isPending}
+                    onClick={() =>
+                      unsuppressMut.mutate({ data: { email: s.email } })
+                    }
+                    data-testid={`button-unsuppress-${s.email}`}
+                  >
+                    {unsuppressMut.isPending &&
+                    unsuppressMut.variables?.data.email === s.email ? (
+                      <Loader2 className="size-3 animate-spin" />
+                    ) : (
+                      "إلغاء الإيقاف"
+                    )}
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div className="space-y-3 border-t pt-3">
           <div className="space-y-1.5">

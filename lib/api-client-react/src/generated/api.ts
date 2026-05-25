@@ -193,6 +193,10 @@ import type {
   TrialBalance,
   UndismissDashboardAlert200,
   UndismissDashboardAlertParams,
+  UnsuppressCleanupReportRecipient200,
+  UnsuppressCleanupReportRecipient400,
+  UnsuppressCleanupReportRecipient404,
+  UnsuppressCleanupReportRecipientBody,
   UpdateAdminPrefs200,
   UpdateAdminPrefsBody,
   UpdateAnomalyEventBody,
@@ -8182,6 +8186,105 @@ export const useSendCleanupReportTest = <
   TContext
 > => {
   return useMutation(getSendCleanupReportTestMutationOptions(options));
+};
+
+/**
+ * Removes the given address from `app_settings.system.cleanupReport.suppressions`. Use this once the underlying delivery problem (typo, full mailbox, retired auditor address, ...) has been resolved so the next scheduled send actually attempts delivery to the address again. Idempotent at the data layer but returns 404 when the address isn't currently suppressed so admins get clear feedback.
+ * @summary Lift an auto-suppression for a single cleanup-report recipient (admin only)
+ */
+export const getUnsuppressCleanupReportRecipientUrl = () => {
+  return `/api/admin/system-settings/cleanup-report-suppressions/unsuppress`;
+};
+
+export const unsuppressCleanupReportRecipient = async (
+  unsuppressCleanupReportRecipientBody: UnsuppressCleanupReportRecipientBody,
+  options?: RequestInit,
+): Promise<UnsuppressCleanupReportRecipient200> => {
+  return customFetch<UnsuppressCleanupReportRecipient200>(
+    getUnsuppressCleanupReportRecipientUrl(),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(unsuppressCleanupReportRecipientBody),
+    },
+  );
+};
+
+export const getUnsuppressCleanupReportRecipientMutationOptions = <
+  TError = ErrorType<
+    UnsuppressCleanupReportRecipient400 | UnsuppressCleanupReportRecipient404
+  >,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof unsuppressCleanupReportRecipient>>,
+    TError,
+    { data: BodyType<UnsuppressCleanupReportRecipientBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof unsuppressCleanupReportRecipient>>,
+  TError,
+  { data: BodyType<UnsuppressCleanupReportRecipientBody> },
+  TContext
+> => {
+  const mutationKey = ["unsuppressCleanupReportRecipient"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof unsuppressCleanupReportRecipient>>,
+    { data: BodyType<UnsuppressCleanupReportRecipientBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return unsuppressCleanupReportRecipient(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UnsuppressCleanupReportRecipientMutationResult = NonNullable<
+  Awaited<ReturnType<typeof unsuppressCleanupReportRecipient>>
+>;
+export type UnsuppressCleanupReportRecipientMutationBody =
+  BodyType<UnsuppressCleanupReportRecipientBody>;
+export type UnsuppressCleanupReportRecipientMutationError = ErrorType<
+  UnsuppressCleanupReportRecipient400 | UnsuppressCleanupReportRecipient404
+>;
+
+/**
+ * @summary Lift an auto-suppression for a single cleanup-report recipient (admin only)
+ */
+export const useUnsuppressCleanupReportRecipient = <
+  TError = ErrorType<
+    UnsuppressCleanupReportRecipient400 | UnsuppressCleanupReportRecipient404
+  >,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof unsuppressCleanupReportRecipient>>,
+    TError,
+    { data: BodyType<UnsuppressCleanupReportRecipientBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof unsuppressCleanupReportRecipient>>,
+  TError,
+  { data: BodyType<UnsuppressCleanupReportRecipientBody> },
+  TContext
+> => {
+  return useMutation(
+    getUnsuppressCleanupReportRecipientMutationOptions(options),
+  );
 };
 
 /**

@@ -1776,6 +1776,10 @@ export const UpdateFeatureFlagResponse = zod.object({
 /**
  * @summary Get system-wide admin settings (alert retention, etc.)
  */
+export const getSystemSettingsResponseCleanupReportSuppressionsItemBounceCountMin = 0;
+
+export const getSystemSettingsResponseCleanupReportSuppressionThresholdMin = 2;
+
 export const GetSystemSettingsResponse = zod.object({
   alertRetentionDays: zod
     .number()
@@ -1843,6 +1847,42 @@ export const GetSystemSettingsResponse = zod.object({
     .nullable()
     .describe(
       "Last one-off recipient this admin successfully sent a test cleanup report to. Used to pre-fill the test recipient input. Null when the admin has never sent a test, or explicitly cleared it by sending a test with no recipient (which falls back to their account email).",
+    ),
+  cleanupReportSuppressions: zod
+    .array(
+      zod
+        .object({
+          email: zod.string().email(),
+          suppressedAt: zod.coerce
+            .date()
+            .describe("ISO timestamp of when auto-suppression was applied."),
+          bounceCount: zod
+            .number()
+            .min(
+              getSystemSettingsResponseCleanupReportSuppressionsItemBounceCountMin,
+            )
+            .describe(
+              "Number of consecutive bounces observed at the moment of suppression.",
+            ),
+          lastReason: zod
+            .string()
+            .nullable()
+            .describe(
+              "Bounce reason from the most recent rejected delivery row.",
+            ),
+        })
+        .describe(
+          "A single auto-quarantined address. Stored on `app_settings.system.cleanupReport.suppressions` (jsonb). Address is always lower-cased.",
+        ),
+    )
+    .describe(
+      'Addresses auto-quarantined after `cleanupReportSuppressionThreshold` consecutive bounces (no successful delivery in between). The next scheduled \/ \"send now\" run will silently skip these recipients. Admins can lift a suppression via the `unsuppressCleanupReportRecipient` endpoint.',
+    ),
+  cleanupReportSuppressionThreshold: zod
+    .number()
+    .min(getSystemSettingsResponseCleanupReportSuppressionThresholdMin)
+    .describe(
+      'Consecutive-bounce threshold the auto-suppression sweeper uses. Exposed so the UI can phrase the warning (\"هذا العنوان تجاوز X ارتداداً متتالياً\") with the live config value.',
     ),
   adminPrefs: zod
     .object({
@@ -2042,6 +2082,19 @@ export const SendCleanupReportTestResponse = zod.object({
   sent: zod.boolean(),
   recipient: zod.string(),
   rowCount: zod.number().optional(),
+});
+
+/**
+ * Removes the given address from `app_settings.system.cleanupReport.suppressions`. Use this once the underlying delivery problem (typo, full mailbox, retired auditor address, ...) has been resolved so the next scheduled send actually attempts delivery to the address again. Idempotent at the data layer but returns 404 when the address isn't currently suppressed so admins get clear feedback.
+ * @summary Lift an auto-suppression for a single cleanup-report recipient (admin only)
+ */
+export const UnsuppressCleanupReportRecipientBody = zod.object({
+  email: zod.string().email(),
+});
+
+export const UnsuppressCleanupReportRecipientResponse = zod.object({
+  ok: zod.boolean(),
+  email: zod.string(),
 });
 
 /**

@@ -2006,6 +2006,59 @@ paths:
                   reason: { type: string }
                 required: [error]
 
+  /admin/system-settings/cleanup-report-suppressions/unsuppress:
+    post:
+      tags: [admin]
+      summary: Lift an auto-suppression for a single cleanup-report recipient (admin only)
+      description: >-
+        Removes the given address from `app_settings.system.cleanupReport.suppressions`.
+        Use this once the underlying delivery problem (typo, full mailbox,
+        retired auditor address, ...) has been resolved so the next scheduled
+        send actually attempts delivery to the address again. Idempotent at
+        the data layer but returns 404 when the address isn't currently
+        suppressed so admins get clear feedback.
+      operationId: unsuppressCleanupReportRecipient
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email: { type: string, format: email }
+              required: [email]
+      responses:
+        "200":
+          description: Suppression lifted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  email: { type: string }
+                required: [ok, email]
+        "400":
+          description: Invalid email
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error: { type: string }
+                  reason: { type: string }
+                required: [error]
+        "404":
+          description: Address is not currently suppressed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error: { type: string }
+                  reason: { type: string }
+                required: [error]
+
   /admin/system-settings/cleanup-report-sends/{id}/resend:
     post:
       tags: [admin]
@@ -5203,6 +5256,23 @@ components:
             report to. Used to pre-fill the test recipient input. Null when the
             admin has never sent a test, or explicitly cleared it by sending a
             test with no recipient (which falls back to their account email).
+        cleanupReportSuppressions:
+          type: array
+          description: >-
+            Addresses auto-quarantined after `cleanupReportSuppressionThreshold`
+            consecutive bounces (no successful delivery in between). The next
+            scheduled / "send now" run will silently skip these recipients.
+            Admins can lift a suppression via the `unsuppressCleanupReportRecipient`
+            endpoint.
+          items:
+            $ref: "#/components/schemas/CleanupReportSuppression"
+        cleanupReportSuppressionThreshold:
+          type: integer
+          minimum: 2
+          description: >-
+            Consecutive-bounce threshold the auto-suppression sweeper uses.
+            Exposed so the UI can phrase the warning ("هذا العنوان تجاوز X
+            ارتداداً متتالياً") with the live config value.
         adminPrefs:
           $ref: "#/components/schemas/AdminPrefs"
       required:
@@ -5226,8 +5296,34 @@ components:
           cleanupReportSubject,
           cleanupReportIntro,
           cleanupReportLastTestRecipient,
+          cleanupReportSuppressions,
+          cleanupReportSuppressionThreshold,
           adminPrefs,
         ]
+
+    CleanupReportSuppression:
+      type: object
+      description: >-
+        A single auto-quarantined address. Stored on
+        `app_settings.system.cleanupReport.suppressions` (jsonb). Address
+        is always lower-cased.
+      properties:
+        email: { type: string, format: email }
+        suppressedAt:
+          type: string
+          format: date-time
+          description: ISO timestamp of when auto-suppression was applied.
+        bounceCount:
+          type: integer
+          minimum: 0
+          description: >-
+            Number of consecutive bounces observed at the moment of
+            suppression.
+        lastReason:
+          type: string
+          nullable: true
+          description: Bounce reason from the most recent rejected delivery row.
+      required: [email, suppressedAt, bounceCount, lastReason]
 
     AdminPrefs:
       type: object

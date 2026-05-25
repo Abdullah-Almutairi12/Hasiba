@@ -38,7 +38,7 @@ import {
   cleanupReportSendsTable,
   cleanupReportSendRecipientsTable,
 } from "@workspace/db";
-import { and, lt, eq } from "drizzle-orm";
+import { and, lt, eq, sql, desc } from "drizzle-orm";
 import { logger } from "./logger";
 import {
   sendMail,
@@ -116,6 +116,16 @@ async function recordSendAttempt(row: {
         updatedAt: now,
       })),
     );
+    // Task #223 — re-evaluate suppression for every recipient whose
+    // row we just wrote. Cheap (one tiny query per address) and the
+    // helper is idempotent, so it's safe to run on success rows too
+    // (they'll never trip the all-bounced check).
+    const bouncedEmails = statuses
+      .filter((s) => s.status === "bounced")
+      .map((s) => s.email);
+    if (bouncedEmails.length > 0) {
+      await evaluateAndSuppressBouncedRecipients(bouncedEmails);
+    }
   } catch (err) {
     logger.warn({ err }, "cleanup report: failed to record send attempt");
   }
@@ -131,6 +141,42 @@ export type CleanupReportSchedule = (typeof CLEANUP_REPORT_SCHEDULES)[number];
 export const CLEANUP_REPORT_SUBJECT_MAX = 200;
 export const CLEANUP_REPORT_INTRO_MAX = 2000;
 
+/**
+ * Task #223 — auto-suppression of persistently bouncing addresses.
+ *
+ * When an address has bounced this many times IN A ROW (no successful
+ * delivery in between) across cleanup-report sends, we add it to the
+ * suppression list stored on `app_settings.system.cleanupReport.suppressions`.
+ * Subsequent scheduled / "send now" sends skip suppressed addresses so
+ * we stop wasting deliverability budget and stop generating false-
+ * failure noise in the history.
+ *
+ * Admins can lift the suppression manually from the UI (which calls
+ * `unsuppressCleanupReportRecipient`).
+ */
+export const CLEANUP_REPORT_SUPPRESSION_THRESHOLD = Math.max(
+  2,
+  Number(process.env.CLEANUP_REPORT_SUPPRESSION_THRESHOLD ?? 3),
+);
+
+export interface CleanupReportSuppression {
+  /** Normalised (lowercased, trimmed) email address. */
+  email: string;
+  /** ISO timestamp of when the address was auto-suppressed. */
+  suppressedAt: string;
+  /**
+   * Number of consecutive bounces observed at the moment of
+   * suppression. Always >= `CLEANUP_REPORT_SUPPRESSION_THRESHOLD`.
+   */
+  bounceCount: number;
+  /**
+   * Reason string from the most recent bounce row (e.g.
+   * `smtp_rejected`, `no_delivery_confirmation_48h`). Null if the
+   * provider didn't give us one.
+   */
+  lastReason: string | null;
+}
+
 export interface CleanupReportConfig {
   schedule: CleanupReportSchedule;
   recipients: string[];
@@ -144,6 +190,8 @@ export interface CleanupReportConfig {
    * unset, only the in-app alert is dispatched.
    */
   adminNotificationEmail: string | null;
+  /** Task #223 — addresses auto-quarantined for repeated hard bounces. */
+  suppressions: CleanupReportSuppression[];
 }
 
 export function defaultCleanupReportConfig(): CleanupReportConfig {
@@ -154,6 +202,7 @@ export function defaultCleanupReportConfig(): CleanupReportConfig {
     subject: null,
     intro: null,
     adminNotificationEmail: null,
+    suppressions: [],
   };
 }
 
@@ -193,7 +242,41 @@ export function readCleanupReportConfig(
     out.adminNotificationEmail =
       s.length > 0 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s) ? s : null;
   }
+  if (Array.isArray(o.suppressions)) {
+    const seen = new Set<string>();
+    for (const raw of o.suppressions) {
+      if (!raw || typeof raw !== "object") continue;
+      const r = raw as Record<string, unknown>;
+      const email =
+        typeof r.email === "string" ? r.email.trim().toLowerCase() : "";
+      if (!email || seen.has(email)) continue;
+      seen.add(email);
+      out.suppressions.push({
+        email,
+        suppressedAt:
+          typeof r.suppressedAt === "string"
+            ? r.suppressedAt
+            : new Date(0).toISOString(),
+        bounceCount:
+          typeof r.bounceCount === "number" && Number.isFinite(r.bounceCount)
+            ? Math.max(0, Math.trunc(r.bounceCount))
+            : 0,
+        lastReason:
+          typeof r.lastReason === "string" && r.lastReason.length > 0
+            ? r.lastReason.slice(0, 200)
+            : null,
+      });
+    }
+  }
   return out;
+}
+
+export function isCleanupReportSuppressed(
+  cfg: CleanupReportConfig,
+  email: string,
+): boolean {
+  const e = email.trim().toLowerCase();
+  return cfg.suppressions.some((s) => s.email === e);
 }
 
 async function loadConfig(): Promise<CleanupReportConfig> {
@@ -206,6 +289,130 @@ async function loadConfig(): Promise<CleanupReportConfig> {
     logger.warn({ err }, "cleanup report: failed to load config");
     return defaultCleanupReportConfig();
   }
+}
+
+/**
+ * Task #223 — overwrite the suppressions array on
+ * `app_settings.system.cleanupReport.suppressions` in place. The
+ * jsonb merge mirrors `persistLastSentAt` so we never clobber the
+ * sibling fields (schedule / recipients / lastSentAt / subject /
+ * intro).
+ */
+async function persistSuppressions(
+  suppressions: CleanupReportSuppression[],
+): Promise<void> {
+  try {
+    const payload = JSON.stringify(suppressions);
+    await pool.query(
+      `
+      INSERT INTO app_settings (id, system, updated_at)
+      VALUES (
+        1,
+        jsonb_build_object(
+          'cleanupReport',
+          jsonb_build_object('suppressions', $1::jsonb)
+        ),
+        NOW()
+      )
+      ON CONFLICT (id) DO UPDATE
+        SET system = COALESCE(app_settings.system, '{}'::jsonb)
+                     || jsonb_build_object(
+                          'cleanupReport',
+                          COALESCE(app_settings.system->'cleanupReport', '{}'::jsonb)
+                            || jsonb_build_object('suppressions', $1::jsonb)
+                        ),
+            updated_at = NOW()
+      `,
+      [payload],
+    );
+  } catch (err) {
+    logger.warn({ err }, "cleanup report: failed to persist suppressions");
+  }
+}
+
+/**
+ * Task #223 — for each candidate email, inspect the most recent
+ * `CLEANUP_REPORT_SUPPRESSION_THRESHOLD` per-recipient delivery rows
+ * across all historical sends. If every one of them is `bounced` (i.e.
+ * no successful delivery has interrupted the streak), add the address
+ * to the suppression list.
+ *
+ * Returns the list of newly-suppressed addresses so callers can log /
+ * audit them.
+ *
+ * Idempotent: addresses already in the suppression list are skipped.
+ */
+export async function evaluateAndSuppressBouncedRecipients(
+  emails: string[],
+): Promise<CleanupReportSuppression[]> {
+  const candidates = Array.from(
+    new Set(emails.map((e) => e.trim().toLowerCase()).filter(Boolean)),
+  );
+  if (candidates.length === 0) return [];
+  const cfg = await loadConfig();
+  const already = new Set(cfg.suppressions.map((s) => s.email));
+  const fresh = candidates.filter((e) => !already.has(e));
+  if (fresh.length === 0) return [];
+  const threshold = CLEANUP_REPORT_SUPPRESSION_THRESHOLD;
+  const newSuppressions: CleanupReportSuppression[] = [];
+  for (const email of fresh) {
+    try {
+      const rows = await db
+        .select({
+          status: cleanupReportSendRecipientsTable.status,
+          reason: cleanupReportSendRecipientsTable.reason,
+          updatedAt: cleanupReportSendRecipientsTable.updatedAt,
+        })
+        .from(cleanupReportSendRecipientsTable)
+        .where(
+          sql`lower(${cleanupReportSendRecipientsTable.email}) = ${email}`,
+        )
+        .orderBy(desc(cleanupReportSendRecipientsTable.updatedAt))
+        .limit(threshold);
+      if (rows.length < threshold) continue;
+      if (!rows.every((r) => r.status === "bounced")) continue;
+      newSuppressions.push({
+        email,
+        suppressedAt: new Date().toISOString(),
+        bounceCount: rows.length,
+        lastReason: rows[0]?.reason ?? null,
+      });
+    } catch (err) {
+      logger.warn(
+        { err, email },
+        "cleanup report: failed to evaluate suppression for recipient",
+      );
+    }
+  }
+  if (newSuppressions.length === 0) return [];
+  await persistSuppressions([...cfg.suppressions, ...newSuppressions]);
+  logger.info(
+    {
+      count: newSuppressions.length,
+      emails: newSuppressions.map((s) => s.email),
+      threshold,
+    },
+    "cleanup report: auto-suppressed persistently bouncing recipients",
+  );
+  return newSuppressions;
+}
+
+/**
+ * Task #223 — lift an auto-suppression manually (admin action). Returns
+ * true if a row was removed, false if the address wasn't suppressed in
+ * the first place. Always normalises the email before comparing.
+ */
+export async function unsuppressCleanupReportRecipient(
+  email: string,
+): Promise<boolean> {
+  const e = email.trim().toLowerCase();
+  if (!e) return false;
+  const cfg = await loadConfig();
+  const next = cfg.suppressions.filter((s) => s.email !== e);
+  if (next.length === cfg.suppressions.length) return false;
+  await persistSuppressions(next);
+  logger.info({ email: e }, "cleanup report: suppression manually lifted");
+  return true;
 }
 
 async function persistLastSentAt(at: Date): Promise<void> {
@@ -359,9 +566,28 @@ export async function sendCleanupReportEmail(opts: {
   if (!opts.force && !hasOverride && cfg.schedule === "off") {
     return { sent: false, reason: "schedule_off" };
   }
-  const recipients = hasOverride
+  // Task #223 — for scheduled / "send now" runs that use the saved
+  // recipients list, transparently drop any address that's currently
+  // on the auto-suppression list. Override sends (manual test, "re-
+  // send to bounced", admin-supplied subset) are NEVER filtered here:
+  // the admin is consciously choosing the recipient set and should be
+  // able to deliberately retry a previously-suppressed address.
+  const suppressedSet = new Set(cfg.suppressions.map((s) => s.email));
+  const rawRecipients = hasOverride
     ? opts.recipientsOverride!.map((r) => r.trim()).filter((r) => r.length > 0)
     : cfg.recipients;
+  const skippedSuppressed = hasOverride
+    ? []
+    : rawRecipients.filter((r) => suppressedSet.has(r.toLowerCase()));
+  const recipients = hasOverride
+    ? rawRecipients
+    : rawRecipients.filter((r) => !suppressedSet.has(r.toLowerCase()));
+  if (skippedSuppressed.length > 0) {
+    logger.info(
+      { skipped: skippedSuppressed, count: skippedSuppressed.length },
+      "cleanup report: skipping suppressed recipients",
+    );
+  }
   if (recipients.length === 0) {
     await recordSendAttempt({
       trigger,
@@ -609,7 +835,10 @@ export async function sweepStuckPendingRecipients(
           lt(cleanupReportSendRecipientsTable.updatedAt, cutoff),
         ),
       )
-      .returning({ id: cleanupReportSendRecipientsTable.id });
+      .returning({
+        id: cleanupReportSendRecipientsTable.id,
+        email: cleanupReportSendRecipientsTable.email,
+      });
     if (updated.length > 0) {
       logger.info(
         { count: updated.length, cutoff: cutoff.toISOString() },
@@ -624,6 +853,10 @@ export async function sweepStuckPendingRecipients(
       for (const row of updated) {
         await notifyAdminsOfCleanupReportBounce({ recipientId: row.id });
       }
+      // Task #223 — newly-flipped bounces may have just completed a
+      // consecutive-bounce streak. Evaluate suppression for the
+      // affected addresses.
+      await evaluateAndSuppressBouncedRecipients(updated.map((r) => r.email));
     }
     return updated.length;
   } catch (err) {

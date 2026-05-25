@@ -31,6 +31,7 @@ import {
   DEFAULT_TEMPLATES,
 } from "../lib/integrations/messaging-templates";
 import { buildZatcaQrBase64 } from "../lib/zatca-qr";
+import { evaluateAndSuppressBouncedRecipients } from "../lib/alerts-cleanup-report-email";
 import { getCompanyInfo } from "../lib/pdf/purchase-order";
 import QRCode from "qrcode";
 import { createHmac, timingSafeEqual } from "node:crypto";
@@ -1453,6 +1454,10 @@ integrationsPublicRouter.post(
       }
       const events = Array.isArray(json) ? json : [json];
       let updated = 0;
+      // Task #223: collect every cleanup-report address whose row we
+      // actually flipped to 'bounced' here, so we can re-evaluate
+      // suppression once per webhook batch (cheap, idempotent).
+      const bouncedCleanupEmails = new Set<string>();
       for (const raw of events) {
         const parsed = emailWebhookEventSchema.safeParse(raw);
         if (!parsed.success) continue;
@@ -1634,6 +1639,8 @@ integrationsPublicRouter.post(
           // actually flipped to `bounced`. The notifier dedups
           // atomically on `bounce_notified_at` so concurrent webhook
           // retries / parallel calls are safe.
+          // Task #223: also track the address for batched suppression
+          // evaluation after the loop completes.
           if (status === "bounced") {
             const { notifyAdminsOfCleanupReportBounce } = await import(
               "../lib/cleanup-report-bounce-notify"
@@ -1641,11 +1648,28 @@ integrationsPublicRouter.post(
             await notifyAdminsOfCleanupReportBounce({
               recipientId: targetId,
             });
+            bouncedCleanupEmails.add(email);
           }
         } else {
           req.log.info(
             { messageId, email, event, targetId },
             "email-webhook: ignored event that would downgrade an already-delivered recipient row",
+          );
+        }
+      }
+      // Task #223: after recording any webhook-driven bounces, ask
+      // the auto-suppression sweeper whether any of those addresses
+      // have now crossed the consecutive-bounce threshold. The helper
+      // is idempotent and skips addresses already on the list.
+      if (bouncedCleanupEmails.size > 0) {
+        try {
+          await evaluateAndSuppressBouncedRecipients(
+            Array.from(bouncedCleanupEmails),
+          );
+        } catch (err) {
+          req.log.warn(
+            { err },
+            "email-webhook: suppression evaluation failed",
           );
         }
       }
