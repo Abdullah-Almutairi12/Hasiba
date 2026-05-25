@@ -1839,6 +1839,30 @@ export const GetSystemSettingsResponse = zod.object({
     .describe(
       "Last one-off recipient this admin successfully sent a test cleanup report to. Used to pre-fill the test recipient input. Null when the admin has never sent a test, or explicitly cleared it by sending a test with no recipient (which falls back to their account email).",
     ),
+  adminPrefs: zod
+    .object({
+      lastAdminTab: zod
+        .string()
+        .nullable()
+        .describe(
+          "Last selected top-level tab on `\/admin` (e.g. `overview`, `tickets`, `features`). The admin page restores this tab on mount when present.",
+        ),
+      cleanupRunsFrom: zod
+        .string()
+        .nullable()
+        .describe(
+          'Last \"from\" date (YYYY-MM-DD) the admin used to filter the alerts-cleanup runs export \/ count card.',
+        ),
+      cleanupRunsTo: zod
+        .string()
+        .nullable()
+        .describe(
+          'Last \"to\" date (YYYY-MM-DD) the admin used to filter the alerts-cleanup runs export \/ count card.',
+        ),
+    })
+    .describe(
+      "Per-admin remembered UI state for the admin panel. Persists across reloads so the panel feels sticky and admins don't have to re-enter the same filters. Stored per-user on `users.admin_prefs`.",
+    ),
 });
 
 /**
@@ -1904,6 +1928,52 @@ export const UpdateSystemSettingsResponse = zod.object({
   cleanupReportRecipients: zod.array(zod.string()).optional(),
   cleanupReportSubject: zod.string().nullish(),
   cleanupReportIntro: zod.string().nullish(),
+});
+
+/**
+ * Persists per-admin UI state for `/admin` (selected tab, cleanup runs date filter, ...) so the panel feels sticky across reloads. Stored on `users.admin_prefs`. Pass `null` for any field to clear it. Omitted fields are left unchanged.
+ * @summary Update the current admin's remembered panel preferences
+ */
+export const updateAdminPrefsBodyLastAdminTabMax = 64;
+
+export const UpdateAdminPrefsBody = zod.object({
+  lastAdminTab: zod.string().max(updateAdminPrefsBodyLastAdminTabMax).nullish(),
+  cleanupRunsFrom: zod
+    .string()
+    .nullish()
+    .describe("ISO date (YYYY-MM-DD) or null to clear."),
+  cleanupRunsTo: zod
+    .string()
+    .nullish()
+    .describe("ISO date (YYYY-MM-DD) or null to clear."),
+});
+
+export const UpdateAdminPrefsResponse = zod.object({
+  ok: zod.boolean(),
+  adminPrefs: zod
+    .object({
+      lastAdminTab: zod
+        .string()
+        .nullable()
+        .describe(
+          "Last selected top-level tab on `\/admin` (e.g. `overview`, `tickets`, `features`). The admin page restores this tab on mount when present.",
+        ),
+      cleanupRunsFrom: zod
+        .string()
+        .nullable()
+        .describe(
+          'Last \"from\" date (YYYY-MM-DD) the admin used to filter the alerts-cleanup runs export \/ count card.',
+        ),
+      cleanupRunsTo: zod
+        .string()
+        .nullable()
+        .describe(
+          'Last \"to\" date (YYYY-MM-DD) the admin used to filter the alerts-cleanup runs export \/ count card.',
+        ),
+    })
+    .describe(
+      "Per-admin remembered UI state for the admin panel. Persists across reloads so the panel feels sticky and admins don't have to re-enter the same filters. Stored per-user on `users.admin_prefs`.",
+    ),
 });
 
 /**

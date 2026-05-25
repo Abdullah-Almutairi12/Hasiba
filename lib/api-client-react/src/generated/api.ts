@@ -189,6 +189,8 @@ import type {
   TrialBalance,
   UndismissDashboardAlert200,
   UndismissDashboardAlertParams,
+  UpdateAdminPrefs200,
+  UpdateAdminPrefsBody,
   UpdateAnomalyEventBody,
   UpdateAnomalyRuleBody,
   UpdateApprovalRule200,
@@ -7810,6 +7812,93 @@ export const useUpdateSystemSettings = <
   TContext
 > => {
   return useMutation(getUpdateSystemSettingsMutationOptions(options));
+};
+
+/**
+ * Persists per-admin UI state for `/admin` (selected tab, cleanup runs date filter, ...) so the panel feels sticky across reloads. Stored on `users.admin_prefs`. Pass `null` for any field to clear it. Omitted fields are left unchanged.
+ * @summary Update the current admin's remembered panel preferences
+ */
+export const getUpdateAdminPrefsUrl = () => {
+  return `/api/admin/me/prefs`;
+};
+
+export const updateAdminPrefs = async (
+  updateAdminPrefsBody: UpdateAdminPrefsBody,
+  options?: RequestInit,
+): Promise<UpdateAdminPrefs200> => {
+  return customFetch<UpdateAdminPrefs200>(getUpdateAdminPrefsUrl(), {
+    ...options,
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(updateAdminPrefsBody),
+  });
+};
+
+export const getUpdateAdminPrefsMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateAdminPrefs>>,
+    TError,
+    { data: BodyType<UpdateAdminPrefsBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateAdminPrefs>>,
+  TError,
+  { data: BodyType<UpdateAdminPrefsBody> },
+  TContext
+> => {
+  const mutationKey = ["updateAdminPrefs"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateAdminPrefs>>,
+    { data: BodyType<UpdateAdminPrefsBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return updateAdminPrefs(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateAdminPrefsMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updateAdminPrefs>>
+>;
+export type UpdateAdminPrefsMutationBody = BodyType<UpdateAdminPrefsBody>;
+export type UpdateAdminPrefsMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Update the current admin's remembered panel preferences
+ */
+export const useUpdateAdminPrefs = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateAdminPrefs>>,
+    TError,
+    { data: BodyType<UpdateAdminPrefsBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof updateAdminPrefs>>,
+  TError,
+  { data: BodyType<UpdateAdminPrefsBody> },
+  TContext
+> => {
+  return useMutation(getUpdateAdminPrefsMutationOptions(options));
 };
 
 /**

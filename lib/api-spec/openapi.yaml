@@ -1818,6 +1818,48 @@ paths:
                     nullable: true
                 required: [ok]
 
+  /admin/me/prefs:
+    patch:
+      tags: [admin]
+      summary: Update the current admin's remembered panel preferences
+      description: >-
+        Persists per-admin UI state for `/admin` (selected tab, cleanup
+        runs date filter, ...) so the panel feels sticky across reloads.
+        Stored on `users.admin_prefs`. Pass `null` for any field to clear
+        it. Omitted fields are left unchanged.
+      operationId: updateAdminPrefs
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                lastAdminTab:
+                  type: string
+                  nullable: true
+                  maxLength: 64
+                cleanupRunsFrom:
+                  type: string
+                  nullable: true
+                  description: ISO date (YYYY-MM-DD) or null to clear.
+                cleanupRunsTo:
+                  type: string
+                  nullable: true
+                  description: ISO date (YYYY-MM-DD) or null to clear.
+      responses:
+        "200":
+          description: Updated prefs
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  adminPrefs:
+                    $ref: "#/components/schemas/AdminPrefs"
+                required: [ok, adminPrefs]
+
   /admin/system-settings/cleanup-report-preview:
     get:
       tags: [admin]
@@ -5014,6 +5056,8 @@ components:
             report to. Used to pre-fill the test recipient input. Null when the
             admin has never sent a test, or explicitly cleared it by sending a
             test with no recipient (which falls back to their account email).
+        adminPrefs:
+          $ref: "#/components/schemas/AdminPrefs"
       required:
         [
           alertRetentionDays,
@@ -5035,7 +5079,36 @@ components:
           cleanupReportSubject,
           cleanupReportIntro,
           cleanupReportLastTestRecipient,
+          adminPrefs,
         ]
+
+    AdminPrefs:
+      type: object
+      description: >-
+        Per-admin remembered UI state for the admin panel. Persists across
+        reloads so the panel feels sticky and admins don't have to re-enter
+        the same filters. Stored per-user on `users.admin_prefs`.
+      properties:
+        lastAdminTab:
+          type: string
+          nullable: true
+          description: >-
+            Last selected top-level tab on `/admin` (e.g. `overview`,
+            `tickets`, `features`). The admin page restores this tab on
+            mount when present.
+        cleanupRunsFrom:
+          type: string
+          nullable: true
+          description: >-
+            Last "from" date (YYYY-MM-DD) the admin used to filter the
+            alerts-cleanup runs export / count card.
+        cleanupRunsTo:
+          type: string
+          nullable: true
+          description: >-
+            Last "to" date (YYYY-MM-DD) the admin used to filter the
+            alerts-cleanup runs export / count card.
+      required: [lastAdminTab, cleanupRunsFrom, cleanupRunsTo]
 
     PermissionMatrix:
       type: object

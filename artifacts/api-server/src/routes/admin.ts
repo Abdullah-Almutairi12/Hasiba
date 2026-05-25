@@ -800,6 +800,51 @@ async function readLastCleanupReportTestRecipient(
   return row[0]?.email ?? null;
 }
 
+// Task #198: read remembered admin-panel UI prefs for the current user.
+// Always returns a fully-populated shape so the OpenAPI required[] holds.
+async function readAdminPrefs(userId: number | undefined): Promise<{
+  lastAdminTab: string | null;
+  cleanupRunsFrom: string | null;
+  cleanupRunsTo: string | null;
+}> {
+  const empty = {
+    lastAdminTab: null,
+    cleanupRunsFrom: null,
+    cleanupRunsTo: null,
+  };
+  if (!userId) return empty;
+  const row = await db
+    .select({ prefs: usersTable.adminPrefs })
+    .from(usersTable)
+    .where(eq(usersTable.id, userId))
+    .limit(1);
+  const p = row[0]?.prefs ?? null;
+  if (!p || typeof p !== "object") return empty;
+  return {
+    lastAdminTab: typeof p.lastAdminTab === "string" ? p.lastAdminTab : null,
+    cleanupRunsFrom:
+      typeof p.cleanupRunsFrom === "string" ? p.cleanupRunsFrom : null,
+    cleanupRunsTo:
+      typeof p.cleanupRunsTo === "string" ? p.cleanupRunsTo : null,
+  };
+}
+
+// YYYY-MM-DD validator for date inputs persisted to admin_prefs.
+const isoDateString = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "expected YYYY-MM-DD")
+  .refine((s) => !Number.isNaN(new Date(s + "T00:00:00Z").getTime()), {
+    message: "invalid date",
+  });
+
+const adminPrefsPatchSchema = z
+  .object({
+    lastAdminTab: z.string().min(1).max(64).nullable().optional(),
+    cleanupRunsFrom: isoDateString.nullable().optional(),
+    cleanupRunsTo: isoDateString.nullable().optional(),
+  })
+  .strict();
+
 router.get("/admin/system-settings", adminOnly, async (req, res) => {
   try {
     const row = await ensureAppSettingsRow();
@@ -839,6 +884,7 @@ router.get("/admin/system-settings", adminOnly, async (req, res) => {
       cleanupReportLastTestRecipient: await readLastCleanupReportTestRecipient(
         req.session.userId,
       ),
+      adminPrefs: await readAdminPrefs(req.session.userId),
     });
   } catch (err) {
     req.log.error({ err }, "Get system settings failed");
@@ -1035,6 +1081,40 @@ router.patch("/admin/system-settings", adminOnly, async (req, res) => {
       return res.status(400).json({ error: "بيانات غير صحيحة" });
     }
     req.log.error({ err }, "Patch system settings failed");
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Task #198: persist per-admin UI prefs (selected tab, cleanup runs date
+// filter, ...) on `users.admin_prefs`. Pass `null` for any field to clear
+// it; omitted fields are left unchanged. Returns the updated full prefs.
+router.patch("/admin/me/prefs", adminOnly, async (req, res) => {
+  try {
+    const userId = req.session?.userId;
+    if (!userId) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    const body = adminPrefsPatchSchema.parse(req.body ?? {});
+    const current = await readAdminPrefs(userId);
+    const next = { ...current };
+    if (body.lastAdminTab !== undefined) next.lastAdminTab = body.lastAdminTab;
+    if (body.cleanupRunsFrom !== undefined)
+      next.cleanupRunsFrom = body.cleanupRunsFrom;
+    if (body.cleanupRunsTo !== undefined) next.cleanupRunsTo = body.cleanupRunsTo;
+    const allEmpty =
+      next.lastAdminTab == null &&
+      next.cleanupRunsFrom == null &&
+      next.cleanupRunsTo == null;
+    await db
+      .update(usersTable)
+      .set({ adminPrefs: allEmpty ? null : next })
+      .where(eq(usersTable.id, userId));
+    return res.json({ ok: true, adminPrefs: next });
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return res.status(400).json({ error: "بيانات غير صحيحة" });
+    }
+    req.log.error({ err }, "Patch admin prefs failed");
     return res.status(500).json({ error: "Internal server error" });
   }
 });

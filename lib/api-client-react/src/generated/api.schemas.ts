@@ -1579,6 +1579,18 @@ export const SystemSettingsCleanupReportSchedule = {
   monthly: "monthly",
 } as const;
 
+/**
+ * Per-admin remembered UI state for the admin panel. Persists across reloads so the panel feels sticky and admins don't have to re-enter the same filters. Stored per-user on `users.admin_prefs`.
+ */
+export interface AdminPrefs {
+  /** Last selected top-level tab on `/admin` (e.g. `overview`, `tickets`, `features`). The admin page restores this tab on mount when present. */
+  lastAdminTab: string | null;
+  /** Last "from" date (YYYY-MM-DD) the admin used to filter the alerts-cleanup runs export / count card. */
+  cleanupRunsFrom: string | null;
+  /** Last "to" date (YYYY-MM-DD) the admin used to filter the alerts-cleanup runs export / count card. */
+  cleanupRunsTo: string | null;
+}
+
 export interface SystemSettings {
   /** Admin-configured DB override (null = not set, falls through to env/default). */
   alertRetentionDays: number | null;
@@ -1610,6 +1622,7 @@ export interface SystemSettings {
   cleanupReportIntro: string | null;
   /** Last one-off recipient this admin successfully sent a test cleanup report to. Used to pre-fill the test recipient input. Null when the admin has never sent a test, or explicitly cleared it by sending a test with no recipient (which falls back to their account email). */
   cleanupReportLastTestRecipient: string | null;
+  adminPrefs: AdminPrefs;
 }
 
 export type PermissionMatrixDefaults = { [key: string]: string[] };
@@ -1988,6 +2001,20 @@ export type UpdateSystemSettings200 = {
   cleanupReportRecipients?: string[];
   cleanupReportSubject?: string | null;
   cleanupReportIntro?: string | null;
+};
+
+export type UpdateAdminPrefsBody = {
+  /** @maxLength 64 */
+  lastAdminTab?: string | null;
+  /** ISO date (YYYY-MM-DD) or null to clear. */
+  cleanupRunsFrom?: string | null;
+  /** ISO date (YYYY-MM-DD) or null to clear. */
+  cleanupRunsTo?: string | null;
+};
+
+export type UpdateAdminPrefs200 = {
+  ok: boolean;
+  adminPrefs: AdminPrefs;
 };
 
 export type GetCleanupReportPreviewParams = {

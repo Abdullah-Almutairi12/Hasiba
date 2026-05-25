@@ -17,6 +17,8 @@ import {
   useUpdateFeatureFlag,
   useGetSystemSettings,
   useUpdateSystemSettings,
+  useUpdateAdminPrefs,
+  getGetSystemSettingsQueryKey,
   useRunAlertsCleanupNow,
   useSendCleanupReportNow,
   useSendCleanupReportTest,
@@ -270,8 +272,35 @@ function InvoiceSendFailuresCard() {
 function AlertsCleanupCard() {
   const { data } = useGetAlertsCleanupLastRun();
   const { data: history } = useGetAlertsCleanupHistory();
+  // Task #198: pre-fill the cleanup runs date filter from per-admin prefs
+  // stored on `users.admin_prefs` so the range survives reloads. We hydrate
+  // once when settings first arrive and then debounce-persist any change.
+  const { data: settings } = useGetSystemSettings();
+  const updatePrefs = useUpdateAdminPrefs();
   const [csvFrom, setCsvFrom] = useState("");
   const [csvTo, setCsvTo] = useState("");
+  const [hydrated, setHydrated] = useState(false);
+  useEffect(() => {
+    if (hydrated) return;
+    if (!settings?.adminPrefs) return;
+    setCsvFrom(settings.adminPrefs.cleanupRunsFrom ?? "");
+    setCsvTo(settings.adminPrefs.cleanupRunsTo ?? "");
+    setHydrated(true);
+  }, [hydrated, settings]);
+  useEffect(() => {
+    if (!hydrated) return;
+    const t = setTimeout(() => {
+      updatePrefs.mutate({
+        data: {
+          cleanupRunsFrom: csvFrom ? csvFrom : null,
+          cleanupRunsTo: csvTo ? csvTo : null,
+        },
+      });
+    }, 500);
+    return () => clearTimeout(t);
+    // updatePrefs is stable across renders for our purposes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [csvFrom, csvTo, hydrated]);
   const lastRunAt = data?.lastRunAt
     ? new Date(data.lastRunAt).toLocaleString("ar-SA")
     : null;
@@ -2628,6 +2657,25 @@ export default function AdminPage() {
   const { user } = useAuth();
   const { isRTL } = useLanguage();
   const [, setLocation] = useLocation();
+  // Task #198: remember the last selected top-level tab per-admin so the
+  // panel feels sticky across reloads. Hydrate once when settings arrive.
+  const { data: settings } = useGetSystemSettings();
+  const updatePrefs = useUpdateAdminPrefs();
+  const [activeTab, setActiveTab] = useState<string>("overview");
+  const [tabHydrated, setTabHydrated] = useState(false);
+  useEffect(() => {
+    if (tabHydrated) return;
+    if (!settings?.adminPrefs) return;
+    const remembered = settings.adminPrefs.lastAdminTab;
+    if (remembered) setActiveTab(remembered);
+    setTabHydrated(true);
+  }, [tabHydrated, settings]);
+  const handleTabChange = (v: string) => {
+    setActiveTab(v);
+    if (tabHydrated) {
+      updatePrefs.mutate({ data: { lastAdminTab: v } });
+    }
+  };
 
   if (user && user.role !== "manager" && user.role !== "owner") {
     return <AccessDenied />;
@@ -2652,7 +2700,7 @@ export default function AdminPage() {
         </Button>
       </div>
 
-      <Tabs defaultValue="overview" className="space-y-4">
+      <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-4">
         <TabsList className="flex h-auto flex-wrap gap-1">
           <TabsTrigger value="overview" data-testid="tab-overview">
             <Activity className="me-2 size-4" />
