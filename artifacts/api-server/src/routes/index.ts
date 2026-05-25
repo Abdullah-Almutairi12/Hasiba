@@ -19,6 +19,7 @@ import securityRouter from "./security";
 import projectsRouter from "./projects";
 import marketingRouter from "./marketing";
 import adminRouter from "./admin";
+import companiesRouter from "./companies";
 import appSettingsRouter from "./app-settings";
 import aiRouter from "./ai";
 import suppliersRouter from "./suppliers";
@@ -66,6 +67,9 @@ router.use(requireAuth);
 // itself selects/joins on companies (admin panel for the tenant).
 router.use(usersRouter);
 router.use(adminRouter);
+// Multi-Company Phase 3: companies CRUD + access matrix. Owner-only and
+// cross-tenant by design — must NOT be wrapped by requireCompanyContext.
+router.use(companiesRouter);
 router.use(appSettingsRouter);
 router.use(storageRouter);
 

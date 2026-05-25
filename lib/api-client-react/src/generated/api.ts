@@ -40,6 +40,7 @@ import type {
   ApproverDelegation,
   AskAiAssistant200,
   AskAiAssistantBody,
+  AssignUserRequest,
   AuditLog,
   AutomationRule,
   AutomationRuleInput,
@@ -57,14 +58,18 @@ import type {
   CloseFiscalYearBody,
   CloseYearResult,
   ClosingEntry,
+  Company,
+  CompanyDeleteError,
   CompanySettings,
   CompanySettingsPatch,
+  CompanyUser,
   CreateAccountBody,
   CreateAnnouncementBody,
   CreateApprovalRule201,
   CreateAutomationRule201,
   CreateBankAccountBody,
   CreateBranchBody,
+  CreateCompanyRequest,
   CreateCustomerBody,
   CreateDelegation201,
   CreateDelegationBody,
@@ -134,6 +139,7 @@ import type {
   MarkAllInboxRead200,
   MarkInboxRead200,
   MatchBankStatementLineBody,
+  MeResponse,
   PermissionMatrix,
   PosOrder,
   PosSession,
@@ -155,6 +161,8 @@ import type {
   SetPermissionCellBody,
   Supplier,
   SupportTicket,
+  SwitchCompany200,
+  SwitchCompanyRequest,
   TopProduct,
   TrainAiModel200,
   TrainAllAiModels200,
@@ -163,6 +171,7 @@ import type {
   UpdateAnomalyRuleBody,
   UpdateApprovalRule200,
   UpdateAutomationRule200,
+  UpdateCompanyRequest,
   UpdateFeatureFlagBody,
   UpdateInvoiceBody,
   UpdateProductBody,
@@ -171,6 +180,7 @@ import type {
   UpsertFinancialLimit200,
   UpsertFinancialLimitBody,
   User,
+  UserCompany,
   Warehouse,
   ZatcaStatus,
 } from "./api.schemas";
@@ -10748,6 +10758,758 @@ export function useListApproverCandidates<
   request?: SecondParameter<typeof customFetch>;
 }): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getListApproverCandidatesQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary List every tenant (owner-only)
+ */
+export const getListCompaniesUrl = () => {
+  return `/api/admin/companies`;
+};
+
+export const listCompanies = async (
+  options?: RequestInit,
+): Promise<Company[]> => {
+  return customFetch<Company[]>(getListCompaniesUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListCompaniesQueryKey = () => {
+  return [`/api/admin/companies`] as const;
+};
+
+export const getListCompaniesQueryOptions = <
+  TData = Awaited<ReturnType<typeof listCompanies>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listCompanies>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListCompaniesQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof listCompanies>>> = ({
+    signal,
+  }) => listCompanies({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listCompanies>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListCompaniesQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listCompanies>>
+>;
+export type ListCompaniesQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List every tenant (owner-only)
+ */
+
+export function useListCompanies<
+  TData = Awaited<ReturnType<typeof listCompanies>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listCompanies>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListCompaniesQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Create a new tenant (owner-only)
+ */
+export const getCreateCompanyUrl = () => {
+  return `/api/admin/companies`;
+};
+
+export const createCompany = async (
+  createCompanyRequest: CreateCompanyRequest,
+  options?: RequestInit,
+): Promise<Company> => {
+  return customFetch<Company>(getCreateCompanyUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(createCompanyRequest),
+  });
+};
+
+export const getCreateCompanyMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createCompany>>,
+    TError,
+    { data: BodyType<CreateCompanyRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof createCompany>>,
+  TError,
+  { data: BodyType<CreateCompanyRequest> },
+  TContext
+> => {
+  const mutationKey = ["createCompany"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof createCompany>>,
+    { data: BodyType<CreateCompanyRequest> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return createCompany(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CreateCompanyMutationResult = NonNullable<
+  Awaited<ReturnType<typeof createCompany>>
+>;
+export type CreateCompanyMutationBody = BodyType<CreateCompanyRequest>;
+export type CreateCompanyMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Create a new tenant (owner-only)
+ */
+export const useCreateCompany = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createCompany>>,
+    TError,
+    { data: BodyType<CreateCompanyRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof createCompany>>,
+  TError,
+  { data: BodyType<CreateCompanyRequest> },
+  TContext
+> => {
+  return useMutation(getCreateCompanyMutationOptions(options));
+};
+
+/**
+ * @summary Partially update a tenant (owner-only)
+ */
+export const getUpdateCompanyUrl = (id: number) => {
+  return `/api/admin/companies/${id}`;
+};
+
+export const updateCompany = async (
+  id: number,
+  updateCompanyRequest: UpdateCompanyRequest,
+  options?: RequestInit,
+): Promise<Company> => {
+  return customFetch<Company>(getUpdateCompanyUrl(id), {
+    ...options,
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(updateCompanyRequest),
+  });
+};
+
+export const getUpdateCompanyMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateCompany>>,
+    TError,
+    { id: number; data: BodyType<UpdateCompanyRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateCompany>>,
+  TError,
+  { id: number; data: BodyType<UpdateCompanyRequest> },
+  TContext
+> => {
+  const mutationKey = ["updateCompany"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateCompany>>,
+    { id: number; data: BodyType<UpdateCompanyRequest> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return updateCompany(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateCompanyMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updateCompany>>
+>;
+export type UpdateCompanyMutationBody = BodyType<UpdateCompanyRequest>;
+export type UpdateCompanyMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Partially update a tenant (owner-only)
+ */
+export const useUpdateCompany = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateCompany>>,
+    TError,
+    { id: number; data: BodyType<UpdateCompanyRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof updateCompany>>,
+  TError,
+  { id: number; data: BodyType<UpdateCompanyRequest> },
+  TContext
+> => {
+  return useMutation(getUpdateCompanyMutationOptions(options));
+};
+
+/**
+ * @summary Soft-delete a tenant (owner-only)
+ */
+export const getDeleteCompanyUrl = (id: number) => {
+  return `/api/admin/companies/${id}`;
+};
+
+export const deleteCompany = async (
+  id: number,
+  options?: RequestInit,
+): Promise<void> => {
+  return customFetch<void>(getDeleteCompanyUrl(id), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getDeleteCompanyMutationOptions = <
+  TError = ErrorType<CompanyDeleteError>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteCompany>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof deleteCompany>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  const mutationKey = ["deleteCompany"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof deleteCompany>>,
+    { id: number }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return deleteCompany(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DeleteCompanyMutationResult = NonNullable<
+  Awaited<ReturnType<typeof deleteCompany>>
+>;
+
+export type DeleteCompanyMutationError = ErrorType<CompanyDeleteError>;
+
+/**
+ * @summary Soft-delete a tenant (owner-only)
+ */
+export const useDeleteCompany = <
+  TError = ErrorType<CompanyDeleteError>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteCompany>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof deleteCompany>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  return useMutation(getDeleteCompanyMutationOptions(options));
+};
+
+/**
+ * @summary List users with access to the tenant
+ */
+export const getListCompanyUsersUrl = (id: number) => {
+  return `/api/admin/companies/${id}/users`;
+};
+
+export const listCompanyUsers = async (
+  id: number,
+  options?: RequestInit,
+): Promise<CompanyUser[]> => {
+  return customFetch<CompanyUser[]>(getListCompanyUsersUrl(id), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListCompanyUsersQueryKey = (id: number) => {
+  return [`/api/admin/companies/${id}/users`] as const;
+};
+
+export const getListCompanyUsersQueryOptions = <
+  TData = Awaited<ReturnType<typeof listCompanyUsers>>,
+  TError = ErrorType<unknown>,
+>(
+  id: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listCompanyUsers>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListCompanyUsersQueryKey(id);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listCompanyUsers>>
+  > = ({ signal }) => listCompanyUsers(id, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof listCompanyUsers>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListCompanyUsersQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listCompanyUsers>>
+>;
+export type ListCompanyUsersQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List users with access to the tenant
+ */
+
+export function useListCompanyUsers<
+  TData = Awaited<ReturnType<typeof listCompanyUsers>>,
+  TError = ErrorType<unknown>,
+>(
+  id: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listCompanyUsers>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListCompanyUsersQueryOptions(id, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Grant or update a user's access + role for the tenant
+ */
+export const getAssignCompanyUserUrl = (id: number) => {
+  return `/api/admin/companies/${id}/users`;
+};
+
+export const assignCompanyUser = async (
+  id: number,
+  assignUserRequest: AssignUserRequest,
+  options?: RequestInit,
+): Promise<UserCompany> => {
+  return customFetch<UserCompany>(getAssignCompanyUserUrl(id), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(assignUserRequest),
+  });
+};
+
+export const getAssignCompanyUserMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof assignCompanyUser>>,
+    TError,
+    { id: number; data: BodyType<AssignUserRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof assignCompanyUser>>,
+  TError,
+  { id: number; data: BodyType<AssignUserRequest> },
+  TContext
+> => {
+  const mutationKey = ["assignCompanyUser"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof assignCompanyUser>>,
+    { id: number; data: BodyType<AssignUserRequest> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return assignCompanyUser(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type AssignCompanyUserMutationResult = NonNullable<
+  Awaited<ReturnType<typeof assignCompanyUser>>
+>;
+export type AssignCompanyUserMutationBody = BodyType<AssignUserRequest>;
+export type AssignCompanyUserMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Grant or update a user's access + role for the tenant
+ */
+export const useAssignCompanyUser = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof assignCompanyUser>>,
+    TError,
+    { id: number; data: BodyType<AssignUserRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof assignCompanyUser>>,
+  TError,
+  { id: number; data: BodyType<AssignUserRequest> },
+  TContext
+> => {
+  return useMutation(getAssignCompanyUserMutationOptions(options));
+};
+
+/**
+ * @summary Remove a user's access to the tenant
+ */
+export const getRevokeCompanyUserUrl = (id: number, userId: number) => {
+  return `/api/admin/companies/${id}/users/${userId}`;
+};
+
+export const revokeCompanyUser = async (
+  id: number,
+  userId: number,
+  options?: RequestInit,
+): Promise<void> => {
+  return customFetch<void>(getRevokeCompanyUserUrl(id, userId), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getRevokeCompanyUserMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof revokeCompanyUser>>,
+    TError,
+    { id: number; userId: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof revokeCompanyUser>>,
+  TError,
+  { id: number; userId: number },
+  TContext
+> => {
+  const mutationKey = ["revokeCompanyUser"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof revokeCompanyUser>>,
+    { id: number; userId: number }
+  > = (props) => {
+    const { id, userId } = props ?? {};
+
+    return revokeCompanyUser(id, userId, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RevokeCompanyUserMutationResult = NonNullable<
+  Awaited<ReturnType<typeof revokeCompanyUser>>
+>;
+
+export type RevokeCompanyUserMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Remove a user's access to the tenant
+ */
+export const useRevokeCompanyUser = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof revokeCompanyUser>>,
+    TError,
+    { id: number; userId: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof revokeCompanyUser>>,
+  TError,
+  { id: number; userId: number },
+  TContext
+> => {
+  return useMutation(getRevokeCompanyUserMutationOptions(options));
+};
+
+/**
+ * @summary Switch the active tenant on the session
+ */
+export const getSwitchCompanyUrl = () => {
+  return `/api/auth/switch-company`;
+};
+
+export const switchCompany = async (
+  switchCompanyRequest: SwitchCompanyRequest,
+  options?: RequestInit,
+): Promise<SwitchCompany200> => {
+  return customFetch<SwitchCompany200>(getSwitchCompanyUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(switchCompanyRequest),
+  });
+};
+
+export const getSwitchCompanyMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof switchCompany>>,
+    TError,
+    { data: BodyType<SwitchCompanyRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof switchCompany>>,
+  TError,
+  { data: BodyType<SwitchCompanyRequest> },
+  TContext
+> => {
+  const mutationKey = ["switchCompany"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof switchCompany>>,
+    { data: BodyType<SwitchCompanyRequest> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return switchCompany(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type SwitchCompanyMutationResult = NonNullable<
+  Awaited<ReturnType<typeof switchCompany>>
+>;
+export type SwitchCompanyMutationBody = BodyType<SwitchCompanyRequest>;
+export type SwitchCompanyMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Switch the active tenant on the session
+ */
+export const useSwitchCompany = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof switchCompany>>,
+    TError,
+    { data: BodyType<SwitchCompanyRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof switchCompany>>,
+  TError,
+  { data: BodyType<SwitchCompanyRequest> },
+  TContext
+> => {
+  return useMutation(getSwitchCompanyMutationOptions(options));
+};
+
+/**
+ * @summary Return the authenticated user plus their company memberships
+ */
+export const getGetCurrentUserUrl = () => {
+  return `/api/auth/me`;
+};
+
+export const getCurrentUser = async (
+  options?: RequestInit,
+): Promise<MeResponse> => {
+  return customFetch<MeResponse>(getGetCurrentUserUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetCurrentUserQueryKey = () => {
+  return [`/api/auth/me`] as const;
+};
+
+export const getGetCurrentUserQueryOptions = <
+  TData = Awaited<ReturnType<typeof getCurrentUser>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getCurrentUser>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetCurrentUserQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getCurrentUser>>> = ({
+    signal,
+  }) => getCurrentUser({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getCurrentUser>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetCurrentUserQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getCurrentUser>>
+>;
+export type GetCurrentUserQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Return the authenticated user plus their company memberships
+ */
+
+export function useGetCurrentUser<
+  TData = Awaited<ReturnType<typeof getCurrentUser>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getCurrentUser>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetCurrentUserQueryOptions(options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;

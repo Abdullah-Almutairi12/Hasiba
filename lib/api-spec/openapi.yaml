@@ -25,6 +25,10 @@ tags:
     description: Customers
   - name: branches
     description: Branches
+  - name: companies
+    description: Multi-Company management (owner-only)
+  - name: auth
+    description: Authentication & session management
 paths:
   /healthz:
     get:
@@ -2314,6 +2318,144 @@ paths:
                     role: { type: string }
                   required: [id, name, role]
 
+  # ============================================================
+  # Multi-Company (Phase 3) — owner-only company management
+  # ============================================================
+  /admin/companies:
+    get:
+      tags: [companies]
+      operationId: listCompanies
+      summary: List every tenant (owner-only)
+      responses:
+        "200":
+          description: list
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Company" }
+    post:
+      tags: [companies]
+      operationId: createCompany
+      summary: Create a new tenant (owner-only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateCompanyRequest" }
+      responses:
+        "201":
+          description: created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Company" }
+
+  /admin/companies/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: integer } }
+    patch:
+      tags: [companies]
+      operationId: updateCompany
+      summary: Partially update a tenant (owner-only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateCompanyRequest" }
+      responses:
+        "200":
+          description: updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Company" }
+    delete:
+      tags: [companies]
+      operationId: deleteCompany
+      summary: Soft-delete a tenant (owner-only)
+      responses:
+        "204": { description: deleted }
+        "409":
+          description: conflict (last company or has active data)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompanyDeleteError" }
+
+  /admin/companies/{id}/users:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: integer } }
+    get:
+      tags: [companies]
+      operationId: listCompanyUsers
+      summary: List users with access to the tenant
+      responses:
+        "200":
+          description: list
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/CompanyUser" }
+    post:
+      tags: [companies]
+      operationId: assignCompanyUser
+      summary: Grant or update a user's access + role for the tenant
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AssignUserRequest" }
+      responses:
+        "201":
+          description: assigned
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UserCompany" }
+
+  /admin/companies/{id}/users/{userId}:
+    parameters:
+      - { name: id,     in: path, required: true, schema: { type: integer } }
+      - { name: userId, in: path, required: true, schema: { type: integer } }
+    delete:
+      tags: [companies]
+      operationId: revokeCompanyUser
+      summary: Remove a user's access to the tenant
+      responses:
+        "204": { description: removed }
+
+  /auth/switch-company:
+    post:
+      tags: [auth]
+      operationId: switchCompany
+      summary: Switch the active tenant on the session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SwitchCompanyRequest" }
+      responses:
+        "200":
+          description: switched
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  companyId: { type: integer }
+                  role: { type: string }
+                required: [companyId, role]
+
+  /auth/me:
+    get:
+      tags: [auth]
+      operationId: getCurrentUser
+      summary: Return the authenticated user plus their company memberships
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MeResponse" }
+
 components:
   schemas:
     Company:
@@ -2342,6 +2484,85 @@ components:
         isDefault: { type: boolean }
         createdAt: { type: string }
       required: [id, userId, companyId, role, isDefault, createdAt]
+    CreateCompanyRequest:
+      type: object
+      properties:
+        name: { type: string, minLength: 2, maxLength: 120 }
+        nameEn: { type: string, nullable: true }
+        vatNumber: { type: string, nullable: true }
+        crNumber: { type: string, nullable: true }
+        baseCurrency: { type: string, minLength: 3, maxLength: 3 }
+        fiscalYearStartMonth: { type: integer, minimum: 1, maximum: 12 }
+        logoUrl: { type: string, nullable: true }
+        address: { type: object, additionalProperties: true }
+      required: [name]
+    UpdateCompanyRequest:
+      type: object
+      properties:
+        name: { type: string, minLength: 2, maxLength: 120 }
+        nameEn: { type: string, nullable: true }
+        vatNumber: { type: string, nullable: true }
+        crNumber: { type: string, nullable: true }
+        baseCurrency: { type: string, minLength: 3, maxLength: 3 }
+        fiscalYearStartMonth: { type: integer, minimum: 1, maximum: 12 }
+        logoUrl: { type: string, nullable: true }
+        address: { type: object, additionalProperties: true }
+    CompanyUser:
+      type: object
+      properties:
+        id: { type: integer }
+        userId: { type: integer }
+        name: { type: string }
+        email: { type: string }
+        role: { type: string }
+        isDefault: { type: boolean }
+        isActive: { type: boolean }
+        createdAt: { type: string }
+      required: [id, userId, name, email, role, isDefault, isActive, createdAt]
+    AssignUserRequest:
+      type: object
+      properties:
+        userId: { type: integer }
+        role: { type: string }
+        isDefault: { type: boolean }
+      required: [userId, role]
+    SwitchCompanyRequest:
+      type: object
+      properties:
+        companyId: { type: integer }
+      required: [companyId]
+    CompanyDeleteError:
+      type: object
+      properties:
+        error: { type: string }
+        message: { type: string }
+        counts:
+          type: object
+          additionalProperties: { type: integer }
+      required: [error, message]
+    MeCompany:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        role: { type: string }
+        isDefault: { type: boolean }
+        isActive: { type: boolean }
+      required: [id, name, role, isDefault, isActive]
+    MeResponse:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        email: { type: string }
+        role: { type: string }
+        branchId: { type: integer, nullable: true }
+        avatarUrl: { type: string, nullable: true }
+        companyId: { type: integer, nullable: true }
+        companies:
+          type: array
+          items: { $ref: "#/components/schemas/MeCompany" }
+      required: [id, name, email, role, companies]
     ApprovalStep:
       type: object
       properties:

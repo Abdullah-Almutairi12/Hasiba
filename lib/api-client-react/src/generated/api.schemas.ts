@@ -31,6 +31,104 @@ export interface UserCompany {
   createdAt: string;
 }
 
+export type CreateCompanyRequestAddress = { [key: string]: unknown };
+
+export interface CreateCompanyRequest {
+  /**
+   * @minLength 2
+   * @maxLength 120
+   */
+  name: string;
+  nameEn?: string | null;
+  vatNumber?: string | null;
+  crNumber?: string | null;
+  /**
+   * @minLength 3
+   * @maxLength 3
+   */
+  baseCurrency?: string;
+  /**
+   * @minimum 1
+   * @maximum 12
+   */
+  fiscalYearStartMonth?: number;
+  logoUrl?: string | null;
+  address?: CreateCompanyRequestAddress;
+}
+
+export type UpdateCompanyRequestAddress = { [key: string]: unknown };
+
+export interface UpdateCompanyRequest {
+  /**
+   * @minLength 2
+   * @maxLength 120
+   */
+  name?: string;
+  nameEn?: string | null;
+  vatNumber?: string | null;
+  crNumber?: string | null;
+  /**
+   * @minLength 3
+   * @maxLength 3
+   */
+  baseCurrency?: string;
+  /**
+   * @minimum 1
+   * @maximum 12
+   */
+  fiscalYearStartMonth?: number;
+  logoUrl?: string | null;
+  address?: UpdateCompanyRequestAddress;
+}
+
+export interface CompanyUser {
+  id: number;
+  userId: number;
+  name: string;
+  email: string;
+  role: string;
+  isDefault: boolean;
+  isActive: boolean;
+  createdAt: string;
+}
+
+export interface AssignUserRequest {
+  userId: number;
+  role: string;
+  isDefault?: boolean;
+}
+
+export interface SwitchCompanyRequest {
+  companyId: number;
+}
+
+export type CompanyDeleteErrorCounts = { [key: string]: number };
+
+export interface CompanyDeleteError {
+  error: string;
+  message: string;
+  counts?: CompanyDeleteErrorCounts;
+}
+
+export interface MeCompany {
+  id: number;
+  name: string;
+  role: string;
+  isDefault: boolean;
+  isActive: boolean;
+}
+
+export interface MeResponse {
+  id: number;
+  name: string;
+  email: string;
+  role: string;
+  branchId?: number | null;
+  avatarUrl?: string | null;
+  companyId?: number | null;
+  companies: MeCompany[];
+}
+
 export interface ApprovalStep {
   id?: number;
   ruleId?: number;
@@ -1867,5 +1965,10 @@ export type MarkAllInboxRead200 = {
 export type ListApproverCandidates200Item = {
   id: number;
   name: string;
+  role: string;
+};
+
+export type SwitchCompany200 = {
+  companyId: number;
   role: string;
 };

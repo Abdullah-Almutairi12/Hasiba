@@ -2414,3 +2414,189 @@ export const ListApproverCandidatesResponseItem = zod.object({
 export const ListApproverCandidatesResponse = zod.array(
   ListApproverCandidatesResponseItem,
 );
+
+/**
+ * @summary List every tenant (owner-only)
+ */
+export const ListCompaniesResponseItem = zod.object({
+  id: zod.number(),
+  name: zod.string(),
+  nameEn: zod.string().nullish(),
+  vatNumber: zod.string().nullish(),
+  crNumber: zod.string().nullish(),
+  baseCurrency: zod.string(),
+  fiscalYearStartMonth: zod.number(),
+  logoUrl: zod.string().nullish(),
+  address: zod.record(zod.string(), zod.unknown()).optional(),
+  isActive: zod.boolean(),
+  createdAt: zod.string(),
+  updatedAt: zod.string(),
+});
+export const ListCompaniesResponse = zod.array(ListCompaniesResponseItem);
+
+/**
+ * @summary Create a new tenant (owner-only)
+ */
+export const createCompanyBodyNameMin = 2;
+export const createCompanyBodyNameMax = 120;
+
+export const createCompanyBodyBaseCurrencyMin = 3;
+export const createCompanyBodyBaseCurrencyMax = 3;
+
+export const createCompanyBodyFiscalYearStartMonthMax = 12;
+
+export const CreateCompanyBody = zod.object({
+  name: zod
+    .string()
+    .min(createCompanyBodyNameMin)
+    .max(createCompanyBodyNameMax),
+  nameEn: zod.string().nullish(),
+  vatNumber: zod.string().nullish(),
+  crNumber: zod.string().nullish(),
+  baseCurrency: zod
+    .string()
+    .min(createCompanyBodyBaseCurrencyMin)
+    .max(createCompanyBodyBaseCurrencyMax)
+    .optional(),
+  fiscalYearStartMonth: zod
+    .number()
+    .min(1)
+    .max(createCompanyBodyFiscalYearStartMonthMax)
+    .optional(),
+  logoUrl: zod.string().nullish(),
+  address: zod.record(zod.string(), zod.unknown()).optional(),
+});
+
+/**
+ * @summary Partially update a tenant (owner-only)
+ */
+export const UpdateCompanyParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const updateCompanyBodyNameMin = 2;
+export const updateCompanyBodyNameMax = 120;
+
+export const updateCompanyBodyBaseCurrencyMin = 3;
+export const updateCompanyBodyBaseCurrencyMax = 3;
+
+export const updateCompanyBodyFiscalYearStartMonthMax = 12;
+
+export const UpdateCompanyBody = zod.object({
+  name: zod
+    .string()
+    .min(updateCompanyBodyNameMin)
+    .max(updateCompanyBodyNameMax)
+    .optional(),
+  nameEn: zod.string().nullish(),
+  vatNumber: zod.string().nullish(),
+  crNumber: zod.string().nullish(),
+  baseCurrency: zod
+    .string()
+    .min(updateCompanyBodyBaseCurrencyMin)
+    .max(updateCompanyBodyBaseCurrencyMax)
+    .optional(),
+  fiscalYearStartMonth: zod
+    .number()
+    .min(1)
+    .max(updateCompanyBodyFiscalYearStartMonthMax)
+    .optional(),
+  logoUrl: zod.string().nullish(),
+  address: zod.record(zod.string(), zod.unknown()).optional(),
+});
+
+export const UpdateCompanyResponse = zod.object({
+  id: zod.number(),
+  name: zod.string(),
+  nameEn: zod.string().nullish(),
+  vatNumber: zod.string().nullish(),
+  crNumber: zod.string().nullish(),
+  baseCurrency: zod.string(),
+  fiscalYearStartMonth: zod.number(),
+  logoUrl: zod.string().nullish(),
+  address: zod.record(zod.string(), zod.unknown()).optional(),
+  isActive: zod.boolean(),
+  createdAt: zod.string(),
+  updatedAt: zod.string(),
+});
+
+/**
+ * @summary Soft-delete a tenant (owner-only)
+ */
+export const DeleteCompanyParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+/**
+ * @summary List users with access to the tenant
+ */
+export const ListCompanyUsersParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const ListCompanyUsersResponseItem = zod.object({
+  id: zod.number(),
+  userId: zod.number(),
+  name: zod.string(),
+  email: zod.string(),
+  role: zod.string(),
+  isDefault: zod.boolean(),
+  isActive: zod.boolean(),
+  createdAt: zod.string(),
+});
+export const ListCompanyUsersResponse = zod.array(ListCompanyUsersResponseItem);
+
+/**
+ * @summary Grant or update a user's access + role for the tenant
+ */
+export const AssignCompanyUserParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const AssignCompanyUserBody = zod.object({
+  userId: zod.number(),
+  role: zod.string(),
+  isDefault: zod.boolean().optional(),
+});
+
+/**
+ * @summary Remove a user's access to the tenant
+ */
+export const RevokeCompanyUserParams = zod.object({
+  id: zod.coerce.number(),
+  userId: zod.coerce.number(),
+});
+
+/**
+ * @summary Switch the active tenant on the session
+ */
+export const SwitchCompanyBody = zod.object({
+  companyId: zod.number(),
+});
+
+export const SwitchCompanyResponse = zod.object({
+  companyId: zod.number(),
+  role: zod.string(),
+});
+
+/**
+ * @summary Return the authenticated user plus their company memberships
+ */
+export const GetCurrentUserResponse = zod.object({
+  id: zod.number(),
+  name: zod.string(),
+  email: zod.string(),
+  role: zod.string(),
+  branchId: zod.number().nullish(),
+  avatarUrl: zod.string().nullish(),
+  companyId: zod.number().nullish(),
+  companies: zod.array(
+    zod.object({
+      id: zod.number(),
+      name: zod.string(),
+      role: zod.string(),
+      isDefault: zod.boolean(),
+      isActive: zod.boolean(),
+    }),
+  ),
+});

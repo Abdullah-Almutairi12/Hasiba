@@ -236,6 +236,20 @@ router.get("/auth/me", async (req, res) => {
       return res.status(401).json({ error: "غير مسجل دخول" });
     }
 
+    // Multi-Company Phase 3: surface every tenant the user can switch
+    // into so the UI can render a switcher without an extra round-trip.
+    const memberships = await db
+      .select({
+        id: companiesTable.id,
+        name: companiesTable.name,
+        role: userCompaniesTable.role,
+        isDefault: userCompaniesTable.isDefault,
+        isActive: companiesTable.isActive,
+      })
+      .from(userCompaniesTable)
+      .innerJoin(companiesTable, eq(companiesTable.id, userCompaniesTable.companyId))
+      .where(eq(userCompaniesTable.userId, user.id));
+
     return res.json({
       id: user.id,
       name: user.name,
@@ -244,9 +258,83 @@ router.get("/auth/me", async (req, res) => {
       branchId: user.branchId,
       avatarUrl: user.avatarUrl,
       companyId: req.session.companyId ?? null,
+      companies: memberships.map((m) => ({
+        id: m.id,
+        name: m.name,
+        role: m.role,
+        isDefault: m.isDefault,
+        isActive: m.isActive,
+      })),
     });
   } catch (err) {
     req.log.error({ err }, "Auth me failed");
+    return res.status(500).json({ error: "حدث خطأ في الخادم" });
+  }
+});
+
+const SwitchCompanyBody = z.object({
+  companyId: z.number().int().positive(),
+});
+
+/**
+ * POST /auth/switch-company — flip the active tenant on the session.
+ * Verifies the caller has a `user_companies` row for the target company
+ * before mutating the session. Returns the new active companyId so the
+ * frontend can immediately invalidate its query cache (Phase 4).
+ */
+router.post("/auth/switch-company", async (req, res) => {
+  try {
+    if (!req.session.userId) {
+      return res.status(401).json({ error: "غير مسجل دخول" });
+    }
+    const parsed = SwitchCompanyBody.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: "بيانات غير صحيحة" });
+    }
+    const userId = req.session.userId;
+    const { companyId } = parsed.data;
+
+    const [membership] = await db
+      .select({
+        companyId: userCompaniesTable.companyId,
+        role: userCompaniesTable.role,
+        isActive: companiesTable.isActive,
+      })
+      .from(userCompaniesTable)
+      .innerJoin(companiesTable, eq(companiesTable.id, userCompaniesTable.companyId))
+      .where(
+        and(
+          eq(userCompaniesTable.userId, userId),
+          eq(userCompaniesTable.companyId, companyId),
+        ),
+      )
+      .limit(1);
+
+    if (!membership) {
+      return res.status(403).json({
+        error: "INVALID_REFERENCE",
+        message: "ليس لديك وصول إلى هذه الشركة",
+      });
+    }
+    if (!membership.isActive) {
+      return res.status(409).json({
+        error: "COMPANY_INACTIVE",
+        message: "هذه الشركة معطّلة",
+      });
+    }
+
+    req.session.companyId = companyId;
+    req.session.save((saveErr) => {
+      if (saveErr) {
+        req.log.error({ err: saveErr }, "Session save failed in switch-company");
+        res.status(500).json({ error: "حدث خطأ في الخادم" });
+        return;
+      }
+      res.json({ companyId, role: membership.role });
+    });
+    return;
+  } catch (err) {
+    req.log.error({ err }, "Switch company failed");
     return res.status(500).json({ error: "حدث خطأ في الخادم" });
   }
 });
