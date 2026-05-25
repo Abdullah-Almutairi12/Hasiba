@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db, projectsTable, projectTasksTable, customersTable } from "@workspace/db";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { adminGuard } from "../middlewares/require-role";
 import { handleRouteError } from "../lib/handle-error";

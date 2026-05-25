@@ -17,7 +17,6 @@ import { z } from "zod";
 import {
   salesWriteGuard,
   customerReadGuard,
-  adminGuard,
 } from "../middlewares/require-role";
 import { handleRouteError } from "../lib/handle-error";
 import { ScopedDb, getCompanyId } from "../lib/scoped-db";

@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db, branchesTable } from "@workspace/db";
-import { and, eq, sql } from "drizzle-orm";
+import { and, sql } from "drizzle-orm";
 import { CreateBranchBody } from "@workspace/api-zod";
 import { adminGuard } from "../middlewares/require-role";
 import { ScopedDb, getCompanyId } from "../lib/scoped-db";

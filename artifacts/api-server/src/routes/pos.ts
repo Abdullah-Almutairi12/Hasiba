@@ -339,7 +339,6 @@ router.post("/pos/sessions", posGuard, async (req, res) => {
 router.get("/pos/orders", posReadGuard, async (req, res) => {
   try {
     const { sessionId, date } = req.query;
-    let query = db.select().from(posOrdersTable);
 
     const orders = await db
       .select()
@@ -933,7 +932,6 @@ router.post(
       // every sale (POS, online, manual) shares one ledger and one A/R view.
       // Walk-in tickets (no customer entered) are routed to the system
       // "POS-WALKIN" customer seeded in sales-init.
-      const netRevenue = +(subtotal - discount).toFixed(2);
       let invoiceCustomerId = body.customerId ?? null;
       let invoiceCustomerName: string | null = null;
       if (invoiceCustomerId) {
