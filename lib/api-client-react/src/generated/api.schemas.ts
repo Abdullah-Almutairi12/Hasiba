@@ -1579,6 +1579,13 @@ export interface SystemSettings {
   maxDays: number;
   /** Summary of the most recent nightly alerts cleanup run. */
   lastAlertSweep: SystemSettingsLastAlertSweep;
+  /** Admin-configured cap on rows kept in `alerts_cleanup_runs` (null = not set, falls back to default). */
+  cleanupAuditKeepRuns: number | null;
+  /** Cap the nightly sweep will actually apply when trimming `alerts_cleanup_runs`. */
+  effectiveCleanupAuditKeepRuns: number;
+  cleanupAuditKeepDefault: number;
+  cleanupAuditKeepMin: number;
+  cleanupAuditKeepMax: number;
 }
 
 export type PermissionMatrixDefaults = { [key: string]: string[] };
@@ -1887,12 +1894,19 @@ export type UpdateSystemSettingsBody = {
    * @minimum 7
    * @maximum 3650
    */
-  alertRetentionDays: number | null;
+  alertRetentionDays?: number | null;
+  /**
+   * Cap on rows kept in `alerts_cleanup_runs`. Null clears the override and falls back to the default (365).
+   * @minimum 30
+   * @maximum 3650
+   */
+  cleanupAuditKeepRuns?: number | null;
 };
 
 export type UpdateSystemSettings200 = {
   ok: boolean;
-  alertRetentionDays: number | null;
+  alertRetentionDays?: number | null;
+  cleanupAuditKeepRuns?: number | null;
 };
 
 export type RunAlertsCleanupNow200Source =

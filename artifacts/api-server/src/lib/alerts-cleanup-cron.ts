@@ -33,7 +33,11 @@ const DEFAULT_RETENTION_DAYS = 90;
 const MIN_RETENTION_DAYS = 7;
 const MAX_RETENTION_DAYS = 3650;
 // Task #164: keep ~1 year of nightly audit rows in alerts_cleanup_runs.
-const AUDIT_KEEP = 365;
+// Task #171: the cap is admin-tunable via
+// `app_settings.system.cleanupAuditKeepRuns` (clamped to MIN/MAX).
+const DEFAULT_AUDIT_KEEP = 365;
+const MIN_AUDIT_KEEP = 30;
+const MAX_AUDIT_KEEP = 3650;
 
 export interface AlertsSweepSummary {
   deleted: number;
@@ -75,6 +79,40 @@ function clampRetention(n: number): number | null {
     return null;
   }
   return Math.floor(n);
+}
+
+function clampAuditKeep(n: number): number | null {
+  if (!Number.isFinite(n) || n < MIN_AUDIT_KEEP || n > MAX_AUDIT_KEEP) {
+    return null;
+  }
+  return Math.floor(n);
+}
+
+/**
+ * Resolve the cleanup-runs audit cap from
+ * `app_settings.system.cleanupAuditKeepRuns`, falling back to the
+ * hardcoded default if the row/value is missing or out-of-range.
+ * Best-effort: any DB error reverts to default so the sweep still runs.
+ */
+export async function resolveAuditKeepRuns(): Promise<number> {
+  try {
+    const result = await pool.query<{ value: number | null }>(
+      `SELECT (system->>'cleanupAuditKeepRuns')::int AS value
+         FROM app_settings
+        WHERE id = 1`,
+    );
+    const raw = result.rows[0]?.value;
+    if (raw != null) {
+      const v = clampAuditKeep(Number(raw));
+      if (v != null) return v;
+    }
+  } catch (err) {
+    logger.warn(
+      { err },
+      "alerts cleanup: failed to read DB audit-keep setting",
+    );
+  }
+  return DEFAULT_AUDIT_KEEP;
 }
 
 function getEnvRetentionDays(): number | null {
@@ -154,8 +192,10 @@ export async function runAlertsCleanup(): Promise<AlertsSweepSummary> {
       );
     }
     // Task #164: cap the audit table itself so it doesn't grow forever.
-    // Keep the most recent AUDIT_KEEP rows (~1 year of nightly runs).
+    // Task #171: cap is admin-tunable via
+    // `app_settings.system.cleanupAuditKeepRuns` (default 365 ~1y).
     try {
+      const auditKeep = await resolveAuditKeepRuns();
       await pool.query(
         `
         DELETE FROM alerts_cleanup_runs
@@ -165,7 +205,7 @@ export async function runAlertsCleanup(): Promise<AlertsSweepSummary> {
            OFFSET $1::int
          )
         `,
-        [AUDIT_KEEP],
+        [auditKeep],
       );
     } catch (err) {
       logger.warn(

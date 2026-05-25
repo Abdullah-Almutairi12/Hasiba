@@ -1166,9 +1166,24 @@ function AlertRetentionCard() {
     { value: "365", label: "365 يوم" },
   ];
 
+  const auditKeepOptions = [
+    { value: "default", label: "افتراضي (365 سجل)" },
+    { value: "30", label: "30 سجل" },
+    { value: "90", label: "90 سجل" },
+    { value: "180", label: "180 سجل" },
+    { value: "365", label: "365 سجل" },
+    { value: "730", label: "730 سجل" },
+    { value: "1095", label: "1095 سجل" },
+  ];
+
   const currentValue =
     settings?.alertRetentionDays != null
       ? String(settings.alertRetentionDays)
+      : "default";
+
+  const currentAuditKeep =
+    settings?.cleanupAuditKeepRuns != null
+      ? String(settings.cleanupAuditKeepRuns)
       : "default";
 
   const sourceLabel: Record<string, string> = {
@@ -1241,6 +1256,43 @@ function AlertRetentionCard() {
               {formatRelativeArabic(settings.lastAlertSweep.runAt)}
             </span>
             {" "}(باستخدام {settings.lastAlertSweep.retentionDays} يوم).
+          </div>
+        )}
+        <div className="flex flex-wrap items-center gap-3 border-t pt-3">
+          <Label className="min-w-32">عدد سجلات التنظيف المحفوظة</Label>
+          <Select
+            value={currentAuditKeep}
+            onValueChange={(v) => {
+              const next = v === "default" ? null : Number(v);
+              updateMut.mutate({ data: { cleanupAuditKeepRuns: next } });
+            }}
+            disabled={updateMut.isPending}
+          >
+            <SelectTrigger
+              className="w-56"
+              data-testid="select-cleanup-audit-keep"
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {auditKeepOptions.map((o) => (
+                <SelectItem key={o.value} value={o.value}>
+                  {o.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        {settings && (
+          <div className="rounded-md border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+            يحتفظ النظام بآخر{" "}
+            <span className="font-bold tabular-nums text-foreground">
+              {settings.effectiveCleanupAuditKeepRuns} سجل
+            </span>{" "}
+            من سجلات تنظيف التنبيهات (الافتراضي{" "}
+            {settings.cleanupAuditKeepDefault}). الحد الأدنى{" "}
+            {settings.cleanupAuditKeepMin} والأقصى{" "}
+            {settings.cleanupAuditKeepMax}.
           </div>
         )}
         <div className="flex flex-wrap items-center gap-3">

@@ -1690,7 +1690,12 @@ paths:
                   minimum: 7
                   maximum: 3650
                   description: Null clears the DB override and falls back to env/default.
-              required: [alertRetentionDays]
+                cleanupAuditKeepRuns:
+                  type: integer
+                  nullable: true
+                  minimum: 30
+                  maximum: 3650
+                  description: Cap on rows kept in `alerts_cleanup_runs`. Null clears the override and falls back to the default (365).
       responses:
         "200":
           description: Updated
@@ -1701,7 +1706,8 @@ paths:
                 properties:
                   ok: { type: boolean }
                   alertRetentionDays: { type: integer, nullable: true }
-                required: [ok, alertRetentionDays]
+                  cleanupAuditKeepRuns: { type: integer, nullable: true }
+                required: [ok]
 
   /admin/system-settings/run-alerts-cleanup:
     post:
@@ -4634,6 +4640,16 @@ components:
               type: string
               format: date-time
           required: [deleted, retentionDays, source, runAt]
+        cleanupAuditKeepRuns:
+          type: integer
+          nullable: true
+          description: Admin-configured cap on rows kept in `alerts_cleanup_runs` (null = not set, falls back to default).
+        effectiveCleanupAuditKeepRuns:
+          type: integer
+          description: Cap the nightly sweep will actually apply when trimming `alerts_cleanup_runs`.
+        cleanupAuditKeepDefault: { type: integer }
+        cleanupAuditKeepMin: { type: integer }
+        cleanupAuditKeepMax: { type: integer }
       required:
         [
           alertRetentionDays,
@@ -4644,6 +4660,11 @@ components:
           minDays,
           maxDays,
           lastAlertSweep,
+          cleanupAuditKeepRuns,
+          effectiveCleanupAuditKeepRuns,
+          cleanupAuditKeepDefault,
+          cleanupAuditKeepMin,
+          cleanupAuditKeepMax,
         ]
 
     PermissionMatrix:

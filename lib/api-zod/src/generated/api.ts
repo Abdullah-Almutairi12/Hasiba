@@ -1773,6 +1773,20 @@ export const GetSystemSettingsResponse = zod.object({
     })
     .nullable()
     .describe("Summary of the most recent nightly alerts cleanup run."),
+  cleanupAuditKeepRuns: zod
+    .number()
+    .nullable()
+    .describe(
+      "Admin-configured cap on rows kept in `alerts_cleanup_runs` (null = not set, falls back to default).",
+    ),
+  effectiveCleanupAuditKeepRuns: zod
+    .number()
+    .describe(
+      "Cap the nightly sweep will actually apply when trimming `alerts_cleanup_runs`.",
+    ),
+  cleanupAuditKeepDefault: zod.number(),
+  cleanupAuditKeepMin: zod.number(),
+  cleanupAuditKeepMax: zod.number(),
 });
 
 /**
@@ -1781,18 +1795,30 @@ export const GetSystemSettingsResponse = zod.object({
 export const updateSystemSettingsBodyAlertRetentionDaysMin = 7;
 export const updateSystemSettingsBodyAlertRetentionDaysMax = 3650;
 
+export const updateSystemSettingsBodyCleanupAuditKeepRunsMin = 30;
+export const updateSystemSettingsBodyCleanupAuditKeepRunsMax = 3650;
+
 export const UpdateSystemSettingsBody = zod.object({
   alertRetentionDays: zod
     .number()
     .min(updateSystemSettingsBodyAlertRetentionDaysMin)
     .max(updateSystemSettingsBodyAlertRetentionDaysMax)
-    .nullable()
+    .nullish()
     .describe("Null clears the DB override and falls back to env\/default."),
+  cleanupAuditKeepRuns: zod
+    .number()
+    .min(updateSystemSettingsBodyCleanupAuditKeepRunsMin)
+    .max(updateSystemSettingsBodyCleanupAuditKeepRunsMax)
+    .nullish()
+    .describe(
+      "Cap on rows kept in `alerts_cleanup_runs`. Null clears the override and falls back to the default (365).",
+    ),
 });
 
 export const UpdateSystemSettingsResponse = zod.object({
   ok: zod.boolean(),
-  alertRetentionDays: zod.number().nullable(),
+  alertRetentionDays: zod.number().nullish(),
+  cleanupAuditKeepRuns: zod.number().nullish(),
 });
 
 /**

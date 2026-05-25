@@ -569,6 +569,10 @@ router.put("/admin/permissions", adminOnly, async (req, res) => {
 const ALERT_RETENTION_MIN = 7;
 const ALERT_RETENTION_MAX = 3650;
 const ALERT_RETENTION_DEFAULT = 90;
+// Task #171: admin-tunable cap on rows kept in `alerts_cleanup_runs`.
+const CLEANUP_AUDIT_KEEP_MIN = 30;
+const CLEANUP_AUDIT_KEEP_MAX = 3650;
+const CLEANUP_AUDIT_KEEP_DEFAULT = 365;
 
 async function ensureAppSettingsRow() {
   await db
@@ -588,6 +592,14 @@ function readAlertRetention(systemBag: unknown): number | null {
   const v = (systemBag as Record<string, unknown>)["alertRetentionDays"];
   if (typeof v !== "number" || !Number.isFinite(v)) return null;
   if (v < ALERT_RETENTION_MIN || v > ALERT_RETENTION_MAX) return null;
+  return Math.floor(v);
+}
+
+function readCleanupAuditKeepRuns(systemBag: unknown): number | null {
+  if (!systemBag || typeof systemBag !== "object") return null;
+  const v = (systemBag as Record<string, unknown>)["cleanupAuditKeepRuns"];
+  if (typeof v !== "number" || !Number.isFinite(v)) return null;
+  if (v < CLEANUP_AUDIT_KEEP_MIN || v > CLEANUP_AUDIT_KEEP_MAX) return null;
   return Math.floor(v);
 }
 
@@ -634,6 +646,7 @@ router.get("/admin/system-settings", adminOnly, async (req, res) => {
     const effective = dbValue ?? envValue ?? ALERT_RETENTION_DEFAULT;
     const source: "db" | "env" | "default" =
       dbValue != null ? "db" : envValue != null ? "env" : "default";
+    const auditKeepDb = readCleanupAuditKeepRuns(row.system);
     res.json({
       alertRetentionDays: dbValue,
       effectiveAlertRetentionDays: effective,
@@ -643,6 +656,11 @@ router.get("/admin/system-settings", adminOnly, async (req, res) => {
       minDays: ALERT_RETENTION_MIN,
       maxDays: ALERT_RETENTION_MAX,
       lastAlertSweep: readLastAlertSweep(row.system),
+      cleanupAuditKeepRuns: auditKeepDb,
+      effectiveCleanupAuditKeepRuns: auditKeepDb ?? CLEANUP_AUDIT_KEEP_DEFAULT,
+      cleanupAuditKeepDefault: CLEANUP_AUDIT_KEEP_DEFAULT,
+      cleanupAuditKeepMin: CLEANUP_AUDIT_KEEP_MIN,
+      cleanupAuditKeepMax: CLEANUP_AUDIT_KEEP_MAX,
     });
   } catch (err) {
     req.log.error({ err }, "Get system settings failed");
@@ -657,7 +675,16 @@ const UpdateSystemSettingsBody = z.object({
     .int()
     .min(ALERT_RETENTION_MIN)
     .max(ALERT_RETENTION_MAX)
-    .nullable(),
+    .nullable()
+    .optional(),
+  // Task #171: null clears the override → cron falls back to default (365).
+  cleanupAuditKeepRuns: z
+    .number()
+    .int()
+    .min(CLEANUP_AUDIT_KEEP_MIN)
+    .max(CLEANUP_AUDIT_KEEP_MAX)
+    .nullable()
+    .optional(),
 });
 
 router.patch("/admin/system-settings", adminOnly, async (req, res) => {
@@ -666,31 +693,69 @@ router.patch("/admin/system-settings", adminOnly, async (req, res) => {
     const row = await ensureAppSettingsRow();
     const prevSystem = (row.system ?? {}) as Record<string, unknown>;
     const prev = readAlertRetention(prevSystem);
+    const prevAuditKeep = readCleanupAuditKeepRuns(prevSystem);
     const nextSystem: Record<string, unknown> = { ...prevSystem };
-    if (body.alertRetentionDays === null) {
-      delete nextSystem["alertRetentionDays"];
-    } else {
-      nextSystem["alertRetentionDays"] = body.alertRetentionDays;
+    if (body.alertRetentionDays !== undefined) {
+      if (body.alertRetentionDays === null) {
+        delete nextSystem["alertRetentionDays"];
+      } else {
+        nextSystem["alertRetentionDays"] = body.alertRetentionDays;
+      }
+    }
+    if (body.cleanupAuditKeepRuns !== undefined) {
+      if (body.cleanupAuditKeepRuns === null) {
+        delete nextSystem["cleanupAuditKeepRuns"];
+      } else {
+        nextSystem["cleanupAuditKeepRuns"] = body.cleanupAuditKeepRuns;
+      }
     }
     await db
       .update(appSettingsTable)
       .set({ system: nextSystem, updatedAt: new Date() })
       .where(eq(appSettingsTable.id, row.id));
-    void recordAudit(req, {
-      action: "system_settings.alert_retention_changed",
-      entity: `app_settings#${row.id}`,
-      details: `from=${prev ?? "default"} to=${body.alertRetentionDays ?? "default"}`,
-      severity: "info",
+    if (body.alertRetentionDays !== undefined) {
+      void recordAudit(req, {
+        action: "system_settings.alert_retention_changed",
+        entity: `app_settings#${row.id}`,
+        details: `from=${prev ?? "default"} to=${body.alertRetentionDays ?? "default"}`,
+        severity: "info",
+      });
+      req.log.info(
+        {
+          userId: req.session?.userId,
+          prev,
+          next: body.alertRetentionDays,
+        },
+        "admin.system_settings.alert_retention_changed",
+      );
+    }
+    if (body.cleanupAuditKeepRuns !== undefined) {
+      void recordAudit(req, {
+        action: "system_settings.cleanup_audit_keep_changed",
+        entity: `app_settings#${row.id}`,
+        details: `from=${prevAuditKeep ?? "default"} to=${body.cleanupAuditKeepRuns ?? "default"}`,
+        severity: "info",
+      });
+      req.log.info(
+        {
+          userId: req.session?.userId,
+          prev: prevAuditKeep,
+          next: body.cleanupAuditKeepRuns,
+        },
+        "admin.system_settings.cleanup_audit_keep_changed",
+      );
+    }
+    return res.json({
+      ok: true,
+      alertRetentionDays:
+        body.alertRetentionDays !== undefined
+          ? body.alertRetentionDays
+          : prev,
+      cleanupAuditKeepRuns:
+        body.cleanupAuditKeepRuns !== undefined
+          ? body.cleanupAuditKeepRuns
+          : prevAuditKeep,
     });
-    req.log.info(
-      {
-        userId: req.session?.userId,
-        prev,
-        next: body.alertRetentionDays,
-      },
-      "admin.system_settings.alert_retention_changed",
-    );
-    return res.json({ ok: true, alertRetentionDays: body.alertRetentionDays });
   } catch (err) {
     if (err instanceof z.ZodError) {
       return res.status(400).json({ error: "بيانات غير صحيحة" });
