@@ -1511,10 +1511,20 @@ router.get(
 // spamming everyone else. Only successful past sends can be re-sent —
 // failures should be re-triggered via "send now". The resend is
 // logged as its own row with trigger="manual".
+// Task #210 — `additionalRecipients` is a separate add-on channel
+// that lets an admin forward a historical report to people who were
+// NOT in the original recipient list (e.g. a new hire). They're
+// validated as emails, deduped against the resolved recipients list,
+// and audited as a distinct count so the audit log can distinguish
+// "subset send" from "forwarded to extras".
 const resendCleanupReportBodySchema = z
   .object({
     recipients: z
       .array(z.string().trim().min(1))
+      .max(50)
+      .optional(),
+    additionalRecipients: z
+      .array(z.string().trim().min(1).email())
       .max(50)
       .optional(),
   })
@@ -1534,6 +1544,7 @@ router.post(
         return res.status(400).json({ error: "طلب غير صالح" });
       }
       const subsetRaw = parsed.data.recipients;
+      const additionalRaw = parsed.data.additionalRecipients;
       const [row] = await db
         .select()
         .from(cleanupReportSendsTable)
@@ -1586,6 +1597,31 @@ router.post(
         }
         isSubset = recipients.length < originalRecipients.length;
       }
+      // Task #210 — merge in any "additional recipients" the admin
+      // wants to forward this report to. They're not required to be
+      // in the original list. We dedupe case-insensitively against
+      // the resolved recipients so the same address can't be emailed
+      // twice from one click.
+      let additionalCount = 0;
+      if (additionalRaw && additionalRaw.length > 0) {
+        const seen = new Set(recipients.map((r) => r.toLowerCase()));
+        const additions: string[] = [];
+        for (const raw of additionalRaw) {
+          const addr = raw.trim();
+          if (addr.length === 0) continue;
+          const lower = addr.toLowerCase();
+          if (seen.has(lower)) continue;
+          seen.add(lower);
+          additions.push(addr);
+        }
+        if (additions.length > 0) {
+          recipients = [...recipients, ...additions];
+          additionalCount = additions.length;
+        }
+      }
+      if (recipients.length === 0) {
+        return res.status(400).json({ error: "لم يتم اختيار أي مستلم" });
+      }
       if (!row.windowFrom || !row.windowTo) {
         // Historical rows from before task #196 didn't store the
         // window — without it we can't honour "same date window", so
@@ -1628,7 +1664,12 @@ router.post(
       void recordAudit(req, {
         action: "system_settings.cleanup_report_resent",
         entity: "cleanup_report_sends",
-        details: `source=${id} recipients=${result.recipients?.length ?? 0}/${originalRecipients.length}${isSubset ? " (subset)" : ""} rows=${result.rowCount ?? 0}`,
+        // Task #210 — audit subset and additional-recipients channels
+        // distinctly. "additional=N" only appears when the admin
+        // explicitly forwarded the report to addresses outside the
+        // original recipient list, so log readers can tell those
+        // sends apart from a plain subset re-send.
+        details: `source=${id} recipients=${result.recipients?.length ?? 0}/${originalRecipients.length}${isSubset ? " (subset)" : ""}${additionalCount > 0 ? ` additional=${additionalCount}` : ""} rows=${result.rowCount ?? 0}`,
         severity: "info",
       });
       return res.json({
@@ -1637,6 +1678,7 @@ router.post(
         recipients: result.recipients ?? [],
         rowCount: result.rowCount ?? 0,
         subset: isSubset,
+        additional: additionalCount,
       });
     } catch (err) {
       req.log.error({ err }, "Resend cleanup report failed");

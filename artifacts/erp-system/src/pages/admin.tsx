@@ -1946,8 +1946,14 @@ function ResendRecipientPicker({
    * Task #206 — passes the chosen subset (or `null` for "send to
    * everyone") AND the original recipient total so callers can report
    * "X of Y" in toasts and audit logs without re-deriving it.
+   * Task #210 — also passes any "additional" recipients the admin
+   * typed into the second tab (addresses outside the original list).
    */
-  onResend: (subset: string[] | null, originalTotal: number) => void;
+  onResend: (
+    subset: string[] | null,
+    originalTotal: number,
+    additional: string[],
+  ) => void;
   /**
    * Task #204 — per-recipient delivery status keyed by lowercased
    * email. When present, the picker highlights bounced/pending rows
@@ -1960,6 +1966,43 @@ function ResendRecipientPicker({
 }) {
   const [open, setOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  // Task #210 — second tab "إرسال إلى مستلمين إضافيين" lets the admin
+  // forward this report to addresses outside the original recipient
+  // list (e.g. a new hire). State for that tab lives alongside the
+  // existing subset picker so switching tabs preserves both inputs.
+  const [mode, setMode] = useState<"subset" | "additional">("subset");
+  const [additionalInput, setAdditionalInput] = useState("");
+  const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  const originalSetLower = new Set(recipients.map((r) => r.toLowerCase()));
+  const parseAdditional = (raw: string) => {
+    const tokens = raw
+      .split(/[\s,;\n]+/)
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
+    const seen = new Set<string>();
+    const valid: string[] = [];
+    const invalid: string[] = [];
+    const duplicates: string[] = [];
+    const outsideOriginal: string[] = [];
+    for (const t of tokens) {
+      const lower = t.toLowerCase();
+      if (seen.has(lower)) {
+        duplicates.push(t);
+        continue;
+      }
+      seen.add(lower);
+      if (!EMAIL_RE.test(t)) {
+        invalid.push(t);
+        continue;
+      }
+      valid.push(t);
+      if (!originalSetLower.has(lower)) {
+        outsideOriginal.push(t);
+      }
+    }
+    return { valid, invalid, duplicates, outsideOriginal };
+  };
+  const additionalParsed = parseAdditional(additionalInput);
   const undeliveredEmails = recipients.filter((r) => {
     const s = statusByEmail?.[r.toLowerCase()];
     return s === "bounced" || s === "pending" || s === "deferred";
@@ -1977,9 +2020,14 @@ function ResendRecipientPicker({
   const [selected, setSelected] = useState<Record<string, boolean>>(initialSelection);
   // Re-sync when the popover is opened so a stale selection from a
   // previous open doesn't carry over if the recipient list changed.
+  // Task #210 — also reset the additional-recipients tab back to a
+  // clean state so a previously typed forward can't be re-sent by
+  // accident the next time the popover opens.
   useEffect(() => {
     if (open) {
       setSelected(initialSelection());
+      setMode("subset");
+      setAdditionalInput("");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
@@ -1989,10 +2037,22 @@ function ResendRecipientPicker({
   const noneChecked = chosen.length === 0;
   const isSubset = !allChecked && !noneChecked;
   const submit = () => {
-    // If every box is ticked, send `null` so the backend takes the
-    // legacy "all original recipients" path (and the audit log
-    // doesn't flag it as a subset).
-    onResend(allChecked ? null : chosen, recipients.length);
+    // Task #210 — the two tabs are independent send modes:
+    //  - subset: pass the chosen subset (or `null` if every box is
+    //    ticked so the backend takes the legacy "all originals"
+    //    path), never any extras.
+    //  - additional: ALWAYS send to all original recipients
+    //    (subset=null) plus the typed extras. The subset checkbox
+    //    state must not leak through, otherwise the UI's promise of
+    //    "originals + extras" can silently turn into "subset +
+    //    extras" — e.g. when undelivered-only is the pre-selected
+    //    default, or when the admin tweaked checkboxes before
+    //    switching tabs.
+    if (mode === "additional") {
+      onResend(null, recipients.length, additionalParsed.valid);
+    } else {
+      onResend(allChecked ? null : chosen, recipients.length, []);
+    }
     setOpen(false);
     setConfirmOpen(false);
   };
@@ -2027,103 +2087,216 @@ function ResendRecipientPicker({
               {windowLabel}
             </div>
           </div>
-          <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-            <span data-testid={`text-resend-selection-count-${rowId}`}>
-              {chosen.length} / {recipients.length} مستلم
-            </span>
-            <div className="flex items-center gap-2">
-              {hasUndelivered && (
-                <button
-                  type="button"
-                  className="text-amber-600 hover:underline"
-                  onClick={() =>
-                    setSelected(
-                      Object.fromEntries(
-                        recipients.map((r) => [
-                          r,
-                          undeliveredEmails.includes(r),
-                        ]),
-                      ),
-                    )
-                  }
-                  data-testid={`button-resend-undelivered-only-${rowId}`}
-                >
-                  تحديد غير المُسلَّمين فقط ({undeliveredEmails.length})
-                </button>
-              )}
-              <button
-                type="button"
-                className="text-primary hover:underline disabled:opacity-50"
-                disabled={recipients.length === 0}
-                onClick={() => {
-                  const next = allChecked ? false : true;
-                  setSelected(
-                    Object.fromEntries(recipients.map((r) => [r, next])),
-                  );
-                }}
-                data-testid={`button-resend-toggle-all-${rowId}`}
-              >
-                {allChecked ? "إلغاء الكل" : "اختيار الكل"}
-              </button>
-            </div>
-          </div>
-          <div className="max-h-56 space-y-1 overflow-y-auto rounded border bg-muted/20 p-2">
-            {recipients.map((r) => {
-              const id = `resend-${rowId}-${r}`;
-              const status = statusByEmail?.[r.toLowerCase()];
-              const isUndelivered =
-                status === "bounced" ||
-                status === "pending" ||
-                status === "deferred";
-              return (
-                <label
-                  key={r}
-                  htmlFor={id}
-                  className={`flex cursor-pointer items-center gap-2 rounded px-1 py-1 text-xs hover:bg-muted/60 ${
-                    isUndelivered
-                      ? "bg-amber-50 dark:bg-amber-950/20"
-                      : ""
-                  }`}
-                  dir="ltr"
-                >
-                  <Checkbox
-                    id={id}
-                    checked={!!selected[r]}
-                    onCheckedChange={(v) =>
-                      setSelected((prev) => ({ ...prev, [r]: v === true }))
-                    }
-                    data-testid={`checkbox-resend-recipient-${rowId}-${r}`}
-                  />
-                  <span className="flex-1 truncate" title={r}>
-                    {r}
-                  </span>
-                  {status && (
-                    <RecipientStatusBadge status={status} compact />
-                  )}
-                </label>
-              );
-            })}
-          </div>
-          {isSubset && (
-            <div
-              className="rounded border border-amber-300 bg-amber-50 p-2 text-[11px] text-amber-900"
-              data-testid={`warning-resend-excluded-${rowId}`}
+          <Tabs
+            value={mode}
+            onValueChange={(v) => setMode(v as "subset" | "additional")}
+            className="space-y-2"
+          >
+            <TabsList
+              className="grid w-full grid-cols-2 h-8"
+              data-testid={`tabs-resend-mode-${rowId}`}
             >
-              <div className="flex items-start gap-1.5">
-                <AlertTriangle className="mt-[1px] size-3 shrink-0" />
-                <div className="space-y-1">
-                  <div className="font-medium">
-                    تنبيه: لن يصل هذا التقرير إلى{" "}
-                    <span className="tabular-nums">{excluded.length}</span> من
-                    المستلمين الأصليين.
-                  </div>
-                  <div className="text-amber-800" dir="ltr">
-                    {excluded.join("، ")}
-                  </div>
+              <TabsTrigger
+                value="subset"
+                className="text-[11px] h-6"
+                data-testid={`tab-resend-mode-subset-${rowId}`}
+              >
+                المستلمون الأصليون
+              </TabsTrigger>
+              <TabsTrigger
+                value="additional"
+                className="text-[11px] h-6"
+                data-testid={`tab-resend-mode-additional-${rowId}`}
+              >
+                إرسال إلى مستلمين إضافيين
+              </TabsTrigger>
+            </TabsList>
+            <TabsContent value="subset" className="mt-0 space-y-2">
+              <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+                <span data-testid={`text-resend-selection-count-${rowId}`}>
+                  {chosen.length} / {recipients.length} مستلم
+                </span>
+                <div className="flex items-center gap-2">
+                  {hasUndelivered && (
+                    <button
+                      type="button"
+                      className="text-amber-600 hover:underline"
+                      onClick={() =>
+                        setSelected(
+                          Object.fromEntries(
+                            recipients.map((r) => [
+                              r,
+                              undeliveredEmails.includes(r),
+                            ]),
+                          ),
+                        )
+                      }
+                      data-testid={`button-resend-undelivered-only-${rowId}`}
+                    >
+                      تحديد غير المُسلَّمين فقط ({undeliveredEmails.length})
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="text-primary hover:underline disabled:opacity-50"
+                    disabled={recipients.length === 0}
+                    onClick={() => {
+                      const next = allChecked ? false : true;
+                      setSelected(
+                        Object.fromEntries(
+                          recipients.map((r) => [r, next]),
+                        ),
+                      );
+                    }}
+                    data-testid={`button-resend-toggle-all-${rowId}`}
+                  >
+                    {allChecked ? "إلغاء الكل" : "اختيار الكل"}
+                  </button>
                 </div>
               </div>
-            </div>
-          )}
+              <div className="max-h-56 space-y-1 overflow-y-auto rounded border bg-muted/20 p-2">
+                {recipients.map((r) => {
+                  const id = `resend-${rowId}-${r}`;
+                  const status = statusByEmail?.[r.toLowerCase()];
+                  const isUndelivered =
+                    status === "bounced" ||
+                    status === "pending" ||
+                    status === "deferred";
+                  return (
+                    <label
+                      key={r}
+                      htmlFor={id}
+                      className={`flex cursor-pointer items-center gap-2 rounded px-1 py-1 text-xs hover:bg-muted/60 ${
+                        isUndelivered
+                          ? "bg-amber-50 dark:bg-amber-950/20"
+                          : ""
+                      }`}
+                      dir="ltr"
+                    >
+                      <Checkbox
+                        id={id}
+                        checked={!!selected[r]}
+                        onCheckedChange={(v) =>
+                          setSelected((prev) => ({
+                            ...prev,
+                            [r]: v === true,
+                          }))
+                        }
+                        data-testid={`checkbox-resend-recipient-${rowId}-${r}`}
+                      />
+                      <span className="flex-1 truncate" title={r}>
+                        {r}
+                      </span>
+                      {status && (
+                        <RecipientStatusBadge status={status} compact />
+                      )}
+                    </label>
+                  );
+                })}
+              </div>
+              {isSubset && (
+                <div
+                  className="rounded border border-amber-300 bg-amber-50 p-2 text-[11px] text-amber-900"
+                  data-testid={`warning-resend-excluded-${rowId}`}
+                >
+                  <div className="flex items-start gap-1.5">
+                    <AlertTriangle className="mt-[1px] size-3 shrink-0" />
+                    <div className="space-y-1">
+                      <div className="font-medium">
+                        تنبيه: لن يصل هذا التقرير إلى{" "}
+                        <span className="tabular-nums">
+                          {excluded.length}
+                        </span>{" "}
+                        من المستلمين الأصليين.
+                      </div>
+                      <div className="text-amber-800" dir="ltr">
+                        {excluded.join("، ")}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </TabsContent>
+            <TabsContent value="additional" className="mt-0 space-y-2">
+              <div className="text-[11px] text-muted-foreground">
+                سيتم إرسال نفس التقرير إلى المستلمين الأصليين (
+                <span className="tabular-nums">{recipients.length}</span>)
+                بالإضافة إلى العناوين التالية. افصل بينها بفواصل أو أسطر
+                جديدة.
+              </div>
+              <Textarea
+                rows={3}
+                dir="ltr"
+                placeholder="new.hire@example.com, manager@example.com"
+                value={additionalInput}
+                onChange={(e) => setAdditionalInput(e.target.value)}
+                className="text-xs font-mono"
+                data-testid={`textarea-resend-additional-${rowId}`}
+              />
+              <div
+                className="flex items-center justify-between text-[11px] text-muted-foreground"
+                data-testid={`text-resend-additional-count-${rowId}`}
+              >
+                <span>
+                  <span className="tabular-nums">
+                    {additionalParsed.valid.length}
+                  </span>{" "}
+                  عنوان صالح
+                  {additionalParsed.outsideOriginal.length > 0 && (
+                    <>
+                      {" · "}
+                      <span className="text-amber-600">
+                        <span className="tabular-nums">
+                          {additionalParsed.outsideOriginal.length}
+                        </span>{" "}
+                        خارج القائمة الأصلية
+                      </span>
+                    </>
+                  )}
+                </span>
+                {additionalParsed.invalid.length > 0 && (
+                  <span className="text-rose-600">
+                    <span className="tabular-nums">
+                      {additionalParsed.invalid.length}
+                    </span>{" "}
+                    غير صالح
+                  </span>
+                )}
+              </div>
+              {additionalParsed.outsideOriginal.length > 0 && (
+                <div
+                  className="rounded border border-amber-300 bg-amber-50 p-2 text-[11px] text-amber-900"
+                  data-testid={`warning-resend-additional-outside-${rowId}`}
+                >
+                  <div className="flex items-start gap-1.5">
+                    <AlertTriangle className="mt-[1px] size-3 shrink-0" />
+                    <div className="space-y-1">
+                      <div className="font-medium">
+                        تنبيه: ستذهب نسخة من هذا التقرير إلى عناوين لم تكن
+                        ضمن المستلمين الأصليين.
+                      </div>
+                      <div className="text-amber-800" dir="ltr">
+                        {additionalParsed.outsideOriginal.join("، ")}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+              {additionalParsed.invalid.length > 0 && (
+                <div
+                  className="rounded border border-rose-300 bg-rose-50 p-2 text-[11px] text-rose-900"
+                  data-testid={`warning-resend-additional-invalid-${rowId}`}
+                >
+                  <div className="font-medium">
+                    عناوين غير صالحة سيتم تجاهلها:
+                  </div>
+                  <div className="text-rose-800" dir="ltr">
+                    {additionalParsed.invalid.join("، ")}
+                  </div>
+                </div>
+              )}
+            </TabsContent>
+          </Tabs>
           <div className="flex items-center justify-end gap-2 pt-1">
             <Button
               type="button"
@@ -2139,9 +2312,14 @@ function ResendRecipientPicker({
               type="button"
               size="sm"
               className="h-7 px-3 text-xs"
-              disabled={noneChecked || isPending}
+              disabled={
+                isPending ||
+                (mode === "subset"
+                  ? noneChecked
+                  : additionalParsed.valid.length === 0)
+              }
               onClick={() => {
-                if (isSubset) {
+                if (mode === "subset" && isSubset) {
                   // A subset is a destructive omission — require an
                   // explicit confirmation so the admin can't quietly
                   // skip an original recipient by accident.
@@ -2310,14 +2488,27 @@ function CleanupReportSendsHistory() {
     mutation: {
       onSuccess: (resp, vars) => {
         const count = resp.recipients?.length ?? 0;
+        const additional = resp.additional ?? 0;
         const total =
           originalTotalsRef.current.get(vars.id) ?? count;
         originalTotalsRef.current.delete(vars.id);
+        // Task #210 — surface the "forwarded to N extras" framing in
+        // the toast so the admin can tell at a glance that the send
+        // included addresses outside the original recipient list.
+        const originalsCount = count - additional;
+        let description: string;
+        if (additional > 0 && resp.subset) {
+          description = `تم الإرسال إلى ${originalsCount} من ${total} من المستلمين الأصليين + ${additional} مستلم إضافي (${resp.rowCount ?? 0} عملية تنظيف).`;
+        } else if (additional > 0) {
+          description = `إلى ${originalsCount} من المستلمين الأصليين + ${additional} مستلم إضافي (${resp.rowCount ?? 0} عملية تنظيف).`;
+        } else if (resp.subset) {
+          description = `تم الإرسال إلى ${count} من ${total} من المستلمين الأصليين (${resp.rowCount ?? 0} عملية تنظيف).`;
+        } else {
+          description = `إلى ${count} مستلم (${resp.rowCount ?? 0} عملية تنظيف).`;
+        }
         toast({
           title: "تمت إعادة الإرسال",
-          description: resp.subset
-            ? `تم الإرسال إلى ${count} من ${total} من المستلمين الأصليين (${resp.rowCount ?? 0} عملية تنظيف).`
-            : `إلى ${count} مستلم (${resp.rowCount ?? 0} عملية تنظيف).`,
+          description,
         });
         void invalidateSends();
       },
@@ -2552,18 +2743,22 @@ function CleanupReportSendsHistory() {
                             resendMut.isPending &&
                             resendMut.variables?.id === r.id
                           }
-                          onResend={(subset, originalTotal) => {
+                          onResend={(subset, originalTotal, additional) => {
                             originalTotalsRef.current.set(
                               r.id,
                               originalTotal,
                             );
-                            resendMut.mutate({
-                              id: r.id,
-                              data:
-                                subset && subset.length > 0
-                                  ? { recipients: subset }
-                                  : {},
-                            });
+                            const body: {
+                              recipients?: string[];
+                              additionalRecipients?: string[];
+                            } = {};
+                            if (subset && subset.length > 0) {
+                              body.recipients = subset;
+                            }
+                            if (additional && additional.length > 0) {
+                              body.additionalRecipients = additional;
+                            }
+                            resendMut.mutate({ id: r.id, data: body });
                           }}
                         />
                       )}

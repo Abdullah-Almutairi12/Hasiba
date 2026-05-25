@@ -2088,11 +2088,13 @@ export type SendCleanupReportTest400 = {
 };
 
 /**
- * Optional subset selector (task #201). When `recipients` is omitted or empty the email goes to every recipient of the original send (legacy behaviour). When provided, the email goes only to those addresses, which must all be present in the original send's recipient list.
+ * Optional subset selector (task #201) and additional recipients list (task #210). When `recipients` is omitted or empty the email goes to every recipient of the original send (legacy behaviour). When provided, the email goes only to those addresses, which must all be present in the original send's recipient list. `additionalRecipients` (task #210) is a separate channel for forwarding the same historical PDF to addresses that were NOT in the original recipient list — e.g. a new hire who joined after the report ran. They are added on top of the resolved recipients/originals list, validated as emails, and audited distinctly.
  */
 export type ResendCleanupReportBody = {
   /** @maxItems 50 */
   recipients?: string[];
+  /** @maxItems 50 */
+  additionalRecipients?: string[];
 };
 
 export type ResendCleanupReport200 = {
@@ -2102,6 +2104,8 @@ export type ResendCleanupReport200 = {
   rowCount?: number;
   /** True when the send went to a strict subset of the original recipients (task #201). */
   subset?: boolean;
+  /** Count of recipients that were NOT in the original recipient list (task #210) — i.e. the size of the `additionalRecipients` add-on after deduping against the original list. */
+  additional?: number;
 };
 
 export type ResendCleanupReport400 = {

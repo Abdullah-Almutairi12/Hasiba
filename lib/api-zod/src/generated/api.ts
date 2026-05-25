@@ -2049,15 +2049,21 @@ export const ResendCleanupReportParams = zod.object({
 
 export const resendCleanupReportBodyRecipientsMax = 50;
 
+export const resendCleanupReportBodyAdditionalRecipientsMax = 50;
+
 export const ResendCleanupReportBody = zod
   .object({
     recipients: zod
       .array(zod.string())
       .max(resendCleanupReportBodyRecipientsMax)
       .optional(),
+    additionalRecipients: zod
+      .array(zod.string().email())
+      .max(resendCleanupReportBodyAdditionalRecipientsMax)
+      .optional(),
   })
   .describe(
-    "Optional subset selector (task #201). When `recipients` is omitted or empty the email goes to every recipient of the original send (legacy behaviour). When provided, the email goes only to those addresses, which must all be present in the original send's recipient list.",
+    "Optional subset selector (task #201) and additional recipients list (task #210). When `recipients` is omitted or empty the email goes to every recipient of the original send (legacy behaviour). When provided, the email goes only to those addresses, which must all be present in the original send's recipient list. `additionalRecipients` (task #210) is a separate channel for forwarding the same historical PDF to addresses that were NOT in the original recipient list — e.g. a new hire who joined after the report ran. They are added on top of the resolved recipients\/originals list, validated as emails, and audited distinctly.",
   );
 
 export const ResendCleanupReportResponse = zod.object({
@@ -2070,6 +2076,12 @@ export const ResendCleanupReportResponse = zod.object({
     .optional()
     .describe(
       "True when the send went to a strict subset of the original recipients (task #201).",
+    ),
+  additional: zod
+    .number()
+    .optional()
+    .describe(
+      "Count of recipients that were NOT in the original recipient list (task #210) — i.e. the size of the `additionalRecipients` add-on after deduping against the original list.",
     ),
 });
 

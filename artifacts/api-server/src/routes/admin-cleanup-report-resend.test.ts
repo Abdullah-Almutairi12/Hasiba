@@ -170,6 +170,9 @@ beforeEach(() => {
     sent: true,
     provider: "smtp",
     messageId: "<test@local>",
+    accepted: [],
+    rejected: [],
+    pending: [],
   });
 });
 
