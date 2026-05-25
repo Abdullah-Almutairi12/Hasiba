@@ -10,6 +10,7 @@ export const usersTable = pgTable("users", {
   phone: text("phone"),
   role: text("role").notNull(),
   branchId: integer("branch_id"),
+  preferredBranchId: integer("preferred_branch_id"),
   isActive: boolean("is_active").notNull().default(true),
   has2fa: boolean("has_2fa").notNull().default(false),
   avatarUrl: text("avatar_url"),

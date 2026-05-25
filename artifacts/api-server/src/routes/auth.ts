@@ -109,6 +109,7 @@ router.post("/auth/login", loginLimiter, async (req, res) => {
           email: user.email,
           role: user.role,
           branchId: user.branchId,
+          preferredBranchId: user.preferredBranchId,
           avatarUrl: user.avatarUrl,
           companyId,
         });
@@ -208,6 +209,7 @@ router.post("/auth/signup", signupLimiter, async (req, res) => {
           email: user.email,
           role: user.role,
           branchId: user.branchId,
+          preferredBranchId: user.preferredBranchId,
           avatarUrl: user.avatarUrl,
           companyId,
         });
@@ -256,6 +258,7 @@ router.get("/auth/me", async (req, res) => {
       email: user.email,
       role: user.role,
       branchId: user.branchId,
+      preferredBranchId: user.preferredBranchId,
       avatarUrl: user.avatarUrl,
       companyId: req.session.companyId ?? null,
       companies: memberships.map((m) => ({

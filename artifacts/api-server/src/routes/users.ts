@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { db, usersTable } from "@workspace/db";
+import { db, usersTable, branchesTable } from "@workspace/db";
 import { desc, eq, and, ne } from "drizzle-orm";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
@@ -21,6 +21,7 @@ const safeUserColumns = {
   phone: usersTable.phone,
   role: usersTable.role,
   branchId: usersTable.branchId,
+  preferredBranchId: usersTable.preferredBranchId,
   avatarUrl: usersTable.avatarUrl,
   has2fa: usersTable.has2fa,
   isActive: usersTable.isActive,
@@ -299,6 +300,58 @@ router.delete("/users/:id", ownerOnly, async (req, res) => {
     return res.status(500).json({ error: "Internal server error" });
   }
 });
+
+// Per-user UI preferences (e.g. preferred branch for the Retail liquidity
+// view). Stored on the users row so it follows the manager across devices
+// and browsers. Any authenticated user can read/write their own prefs.
+const UpdatePreferencesBody = z.object({
+  preferredBranchId: z.number().int().positive().nullable(),
+});
+
+router.patch(
+  "/users/me/preferences",
+  requireRole(...ALL_ROLES),
+  async (req, res) => {
+    try {
+      const userId = req.session.userId;
+      if (!userId) return res.status(401).json({ error: "غير مسجل دخول" });
+      const body = UpdatePreferencesBody.parse(req.body);
+      // When setting a non-null branch, verify it exists, is active, and
+      // belongs to the caller's current company so a forged id can't be
+      // persisted by a hostile or stale client.
+      if (body.preferredBranchId !== null) {
+        const companyId = req.session.companyId;
+        if (!companyId) {
+          return res.status(400).json({ error: "لا توجد شركة نشطة" });
+        }
+        const [branch] = await db
+          .select({ id: branchesTable.id })
+          .from(branchesTable)
+          .where(
+            and(
+              eq(branchesTable.id, body.preferredBranchId),
+              eq(branchesTable.companyId, companyId),
+              eq(branchesTable.isActive, true),
+            ),
+          )
+          .limit(1);
+        if (!branch) {
+          return res.status(400).json({ error: "الفرع غير متاح" });
+        }
+      }
+      const [updated] = await db
+        .update(usersTable)
+        .set({ preferredBranchId: body.preferredBranchId })
+        .where(eq(usersTable.id, userId))
+        .returning({ preferredBranchId: usersTable.preferredBranchId });
+      if (!updated) return res.status(404).json({ error: "المستخدم غير موجود" });
+      return res.json({ preferredBranchId: updated.preferredBranchId });
+    } catch (err) {
+      req.log.error({ err }, "Error updating user preferences");
+      return handleRouteError(err, res);
+    }
+  },
+);
 
 // Lightweight permissions endpoint — frontend uses it to drive sidebar / page guards.
 router.get("/users/permissions", requireRole(...ALL_ROLES), async (req, res) => {

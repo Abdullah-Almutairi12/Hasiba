@@ -1,5 +1,6 @@
-import { useQuery } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useAuth, ME_KEY, type AuthUser } from "@/hooks/use-auth";
 import {
   Area,
   AreaChart,
@@ -754,15 +755,62 @@ function RetailMode() {
     queryKey: ["/api/liquidity/retail"],
     queryFn: () => fetchJson<RetailSnapshot>("/api/liquidity/retail"),
   });
+  const { user } = useAuth();
+  const qc = useQueryClient();
   const [selected, setSelected] = useState<string>(ALL_BRANCHES_VALUE);
+  // Track whether we've applied the server-side preference for this
+  // (user, dataset) pair so manual changes aren't clobbered by the effect.
+  const hydratedRef = useRef<string | null>(null);
 
-  // Auto-select the only branch a single-store manager can see, so they
-  // land directly on their numbers instead of the all-branches rollup.
+  const savePreference = useMutation({
+    mutationFn: async (preferredBranchId: number | null) => {
+      const base = `${import.meta.env.BASE_URL.replace(/\/$/, "")}/api`;
+      const r = await fetch(`${base}/users/me/preferences`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ preferredBranchId }),
+      });
+      if (!r.ok) throw new Error(`PATCH preferences → ${r.status}`);
+      return (await r.json()) as { preferredBranchId: number | null };
+    },
+    onSuccess: (result) => {
+      // Keep /auth/me in sync so the next page load (or device) sees the
+      // new preference without waiting for the stale-time window.
+      qc.setQueryData<AuthUser | null>(ME_KEY, (prev) =>
+        prev ? { ...prev, preferredBranchId: result.preferredBranchId } : prev,
+      );
+    },
+  });
+
+  // Auto-select on first load:
+  //   1. Saved preference, if the branch is still active and accessible.
+  //   2. Otherwise, the only branch a single-store manager can see (so
+  //      they land directly on their numbers instead of the rollup).
   useEffect(() => {
-    if (data && selected === ALL_BRANCHES_VALUE && data.branches.length === 1) {
+    if (!data || !user) return;
+    const hydrationKey = `${user.id}:${data.branches.map((b) => b.branchId).join(",")}`;
+    if (hydratedRef.current === hydrationKey) return;
+    hydratedRef.current = hydrationKey;
+
+    const preferredId = user.preferredBranchId;
+    if (
+      preferredId != null &&
+      data.branches.some((b) => b.branchId === preferredId)
+    ) {
+      setSelected(String(preferredId));
+    } else if (data.branches.length === 1) {
       setSelected(String(data.branches[0].branchId));
     }
-  }, [data, selected]);
+  }, [data, user]);
+
+  const handleBranchChange = (next: string) => {
+    setSelected(next);
+    if (!user) return;
+    const preferredId = next === ALL_BRANCHES_VALUE ? null : Number(next);
+    if (preferredId === (user.preferredBranchId ?? null)) return;
+    savePreference.mutate(preferredId);
+  };
 
   if (isLoading) {
     return (
@@ -822,7 +870,7 @@ function RetailMode() {
         <BranchPicker
           branches={data.branches}
           value={selected}
-          onChange={setSelected}
+          onChange={handleBranchChange}
           totalCashOnHand={data.totalCashOnHand}
           totalPendingPayables={data.totalPendingPayables}
           totalNetPosition={data.netPosition}
@@ -888,7 +936,7 @@ function RetailMode() {
                     <button
                       key={b.branchId}
                       type="button"
-                      onClick={() => setSelected(String(b.branchId))}
+                      onClick={() => handleBranchChange(String(b.branchId))}
                       className={cn(
                         "min-h-[88px] rounded-lg border border-border bg-card p-4 text-start transition-colors hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                         isActive && "ring-2 ring-emerald-500/60 bg-emerald-50/40 dark:bg-emerald-950/20",
