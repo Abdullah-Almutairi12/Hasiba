@@ -49,6 +49,7 @@ vi.mock("./compliance/report-section", () => ({
 const {
   isDue,
   sendCleanupReportEmail,
+  sendCleanupReportTestEmail,
   readCleanupReportConfig,
   defaultCleanupReportConfig,
   renderCleanupReportEmail,
@@ -404,6 +405,80 @@ describe("sendCleanupReportEmail", () => {
     expect(result).toEqual({ sent: false, reason: "smtp boom" });
     const stored = await getStoredCleanupReport();
     expect(stored?.["lastSentAt"]).toBe("2026-01-01T00:00:00.000Z");
+  });
+});
+
+describe("sendCleanupReportTestEmail — one-off test send (task #189)", () => {
+  it("returns {sent:false, reason:'invalid_recipient'} when recipient is malformed", async () => {
+    const blank = await sendCleanupReportTestEmail({ recipient: "   " });
+    expect(blank).toEqual({ sent: false, reason: "invalid_recipient" });
+    const bad = await sendCleanupReportTestEmail({ recipient: "not-an-email" });
+    expect(bad).toEqual({ sent: false, reason: "invalid_recipient" });
+    // Must short-circuit before touching the mailer or PDF builder.
+    expect(mailer.sendMail).not.toHaveBeenCalled();
+    expect(pdfMod.buildAlertsCleanupPdf).not.toHaveBeenCalled();
+  });
+
+  it("returns {sent:false, reason:'mailer_not_configured'} when SMTP is missing", async () => {
+    vi.mocked(mailer.isMailerConfigured).mockReturnValue(false);
+    const result = await sendCleanupReportTestEmail({
+      recipient: "qa@example.com",
+    });
+    expect(result).toEqual({ sent: false, reason: "mailer_not_configured" });
+    expect(mailer.sendMail).not.toHaveBeenCalled();
+    expect(pdfMod.buildAlertsCleanupPdf).not.toHaveBeenCalled();
+  });
+
+  it("sends successfully with subject prefixed [TEST] and does NOT update lastSentAt", async () => {
+    // Seed an existing lastSentAt so we can prove the test path leaves
+    // it untouched (the scheduled cron must still fire on its real
+    // cadence after a verification ping).
+    const PRIOR = "2026-01-01T00:00:00.000Z";
+    await setCleanupReport({
+      schedule: "weekly",
+      recipients: ["audit@example.com"],
+      lastSentAt: PRIOR,
+    });
+
+    const result = await sendCleanupReportTestEmail({
+      recipient: "qa@example.com",
+    });
+
+    expect(result.sent).toBe(true);
+    expect(result.recipients).toEqual(["qa@example.com"]);
+    expect(mailer.sendMail).toHaveBeenCalledTimes(1);
+    const call = vi.mocked(mailer.sendMail).mock.calls[0][0];
+    // Recipient is the caller-supplied address, NOT the configured list.
+    expect(call.to).toBe("qa@example.com");
+    expect(call.subject.startsWith("[TEST] ")).toBe(true);
+    // PDF attachment is still produced exactly like the real path.
+    expect(pdfMod.buildAlertsCleanupPdf).toHaveBeenCalledTimes(1);
+    expect(call.attachments?.[0]?.contentType).toBe("application/pdf");
+
+    // lastSentAt is preserved — the cron cadence must not slip just
+    // because someone sent a test.
+    const stored = await getStoredCleanupReport();
+    expect(stored?.["lastSentAt"]).toBe(PRIOR);
+  });
+
+  it("propagates the underlying mailer failure reason without mutating lastSentAt", async () => {
+    const PRIOR = "2026-02-02T00:00:00.000Z";
+    await setCleanupReport({
+      schedule: "weekly",
+      recipients: ["audit@example.com"],
+      lastSentAt: PRIOR,
+    });
+    vi.mocked(mailer.sendMail).mockResolvedValue({
+      sent: false,
+      reason: "smtp boom",
+    });
+
+    const result = await sendCleanupReportTestEmail({
+      recipient: "qa@example.com",
+    });
+    expect(result).toEqual({ sent: false, reason: "smtp boom" });
+    const stored = await getStoredCleanupReport();
+    expect(stored?.["lastSentAt"]).toBe(PRIOR);
   });
 });
 
