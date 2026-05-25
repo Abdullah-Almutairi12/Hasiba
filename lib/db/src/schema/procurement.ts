@@ -14,12 +14,18 @@ import { warehousesTable } from "./warehouses";
 import { usersTable } from "./users";
 import { invoicesTable } from "./invoices";
 import { branchesTable } from "./branches";
+import { companiesTable } from "./companies";
 
 // =========================================================================
 // Purchase Requisitions (internal request to buy)
 // =========================================================================
 export const purchaseRequisitionsTable = pgTable("purchase_requisitions", {
   id: serial("id").primaryKey(),
+  // Tenant key. Backfilled at boot via branches.company_id; new rows
+  // must stamp it explicitly from the session.
+  companyId: integer("company_id")
+    .notNull()
+    .references(() => companiesTable.id, { onDelete: "restrict" }),
   reference: text("reference").notNull().unique(),
   requesterId: integer("requester_id").references(() => usersTable.id),
   branchId: integer("branch_id").references(() => branchesTable.id),
@@ -33,6 +39,11 @@ export const purchaseRequisitionsTable = pgTable("purchase_requisitions", {
 
 export const purchaseRequisitionLinesTable = pgTable("purchase_requisition_lines", {
   id: serial("id").primaryKey(),
+  // Denormalized tenant key so line-only queries can scope without
+  // joining the parent header.
+  companyId: integer("company_id")
+    .notNull()
+    .references(() => companiesTable.id, { onDelete: "restrict" }),
   requisitionId: integer("requisition_id")
     .notNull()
     .references(() => purchaseRequisitionsTable.id, { onDelete: "cascade" }),

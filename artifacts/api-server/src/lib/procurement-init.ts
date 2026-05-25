@@ -46,6 +46,22 @@ export async function initProcurement(): Promise<void> {
     );
     CREATE INDEX IF NOT EXISTS pr_status_idx ON purchase_requisitions (status);
 
+    -- Multi-Company P2: stamp purchase_requisitions with company_id.
+    -- Backfill from branches.company_id where possible, then default
+    -- orphans to the first company so the column can be NOT NULL.
+    ALTER TABLE purchase_requisitions
+      ADD COLUMN IF NOT EXISTS company_id integer REFERENCES companies(id) ON DELETE RESTRICT;
+    UPDATE purchase_requisitions pr
+       SET company_id = b.company_id
+      FROM branches b
+     WHERE pr.branch_id = b.id AND pr.company_id IS NULL;
+    UPDATE purchase_requisitions
+       SET company_id = (SELECT id FROM companies ORDER BY id LIMIT 1)
+     WHERE company_id IS NULL;
+    ALTER TABLE purchase_requisitions
+      ALTER COLUMN company_id SET NOT NULL;
+    CREATE INDEX IF NOT EXISTS pr_company_idx ON purchase_requisitions (company_id);
+
     CREATE TABLE IF NOT EXISTS purchase_requisition_lines (
       id serial PRIMARY KEY,
       requisition_id integer NOT NULL REFERENCES purchase_requisitions(id) ON DELETE CASCADE,
@@ -56,6 +72,21 @@ export async function initProcurement(): Promise<void> {
       needed_by date
     );
     CREATE INDEX IF NOT EXISTS prl_req_idx ON purchase_requisition_lines (requisition_id);
+
+    -- Multi-Company P2: stamp purchase_requisition_lines with company_id,
+    -- backfilled from the parent header.
+    ALTER TABLE purchase_requisition_lines
+      ADD COLUMN IF NOT EXISTS company_id integer REFERENCES companies(id) ON DELETE RESTRICT;
+    UPDATE purchase_requisition_lines prl
+       SET company_id = pr.company_id
+      FROM purchase_requisitions pr
+     WHERE prl.requisition_id = pr.id AND prl.company_id IS NULL;
+    UPDATE purchase_requisition_lines
+       SET company_id = (SELECT id FROM companies ORDER BY id LIMIT 1)
+     WHERE company_id IS NULL;
+    ALTER TABLE purchase_requisition_lines
+      ALTER COLUMN company_id SET NOT NULL;
+    CREATE INDEX IF NOT EXISTS prl_company_idx ON purchase_requisition_lines (company_id);
 
     CREATE TABLE IF NOT EXISTS rfqs (
       id serial PRIMARY KEY,

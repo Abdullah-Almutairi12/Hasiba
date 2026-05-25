@@ -20,7 +20,7 @@ import {
   blanketAgreementsTable,
   blanketAgreementItemsTable,
 } from "@workspace/db";
-import { and, desc, eq, sql, inArray } from "drizzle-orm";
+import { and, desc, eq, sql, inArray, type SQL } from "drizzle-orm";
 import {
   procurementGuard,
   financeGuard,
@@ -181,7 +181,13 @@ const CreatePrBody = z.object({
 router.get("/procurement/requisitions", async (req, res) => {
   try {
     const status = req.query.status as string | undefined;
-    const conds = status ? [eq(purchaseRequisitionsTable.status, status)] : [];
+    // Multi-Company P2: scope every requisition read to the caller's
+    // company so list/detail can never leak rows across tenants.
+    const reqCompanyId = getCompanyId(req);
+    const conds: SQL[] = [
+      eq(purchaseRequisitionsTable.companyId, reqCompanyId),
+    ];
+    if (status) conds.push(eq(purchaseRequisitionsTable.status, status));
     const rows = await db
       .select({
         id: purchaseRequisitionsTable.id,
@@ -199,7 +205,7 @@ router.get("/procurement/requisitions", async (req, res) => {
                                       WHERE ${purchaseRequisitionLinesTable.requisitionId} = ${purchaseRequisitionsTable.id})`,
       })
       .from(purchaseRequisitionsTable)
-      .where(conds.length ? and(...conds) : undefined)
+      .where(and(...conds))
       .orderBy(desc(purchaseRequisitionsTable.createdAt));
     res.json(
       rows.map((r) => ({
@@ -219,11 +225,16 @@ router.get("/procurement/requisitions", async (req, res) => {
 router.post("/procurement/requisitions", async (req, res) => {
   try {
     const body = CreatePrBody.parse(req.body);
+    // Stamp the new requisition + its lines with the caller's tenant.
+    // The client cannot influence this; any companyId in the payload
+    // is intentionally ignored.
+    const newReqCompanyId = getCompanyId(req);
     const out = await db.transaction(async (tx) => {
       const reference = await nextSeq("PR", new Date().getUTCFullYear());
       const [pr] = await tx
         .insert(purchaseRequisitionsTable)
         .values({
+          companyId: newReqCompanyId,
           reference,
           requesterId: req.session?.userId ?? null,
           branchId: body.branchId ?? null,
@@ -234,6 +245,7 @@ router.post("/procurement/requisitions", async (req, res) => {
         .returning();
       for (const ln of body.lines) {
         await tx.insert(purchaseRequisitionLinesTable).values({
+          companyId: newReqCompanyId,
           requisitionId: pr.id,
           productId: ln.productId ?? null,
           description: ln.description,
@@ -256,12 +268,29 @@ router.post("/procurement/requisitions", async (req, res) => {
 router.get("/procurement/requisitions/:id", async (req, res) => {
   try {
     const id = Number(req.params.id);
-    const [pr] = await db.select().from(purchaseRequisitionsTable).where(eq(purchaseRequisitionsTable.id, id));
+    // Scope BOTH header and lines on companyId so a foreign id
+    // collapses to 404 and lines from a different tenant cannot leak
+    // even if the parent id were somehow matched.
+    const detailCompanyId = getCompanyId(req);
+    const [pr] = await db
+      .select()
+      .from(purchaseRequisitionsTable)
+      .where(
+        and(
+          eq(purchaseRequisitionsTable.id, id),
+          eq(purchaseRequisitionsTable.companyId, detailCompanyId),
+        ),
+      );
     if (!pr) { res.status(404).json({ error: "not found" }); return; }
     const lines = await db
       .select()
       .from(purchaseRequisitionLinesTable)
-      .where(eq(purchaseRequisitionLinesTable.requisitionId, id));
+      .where(
+        and(
+          eq(purchaseRequisitionLinesTable.requisitionId, id),
+          eq(purchaseRequisitionLinesTable.companyId, detailCompanyId),
+        ),
+      );
     return res.json({
       ...pr,
       approvedAt: pr.approvedAt?.toISOString() ?? null,
@@ -281,10 +310,17 @@ router.get("/procurement/requisitions/:id", async (req, res) => {
 router.post("/procurement/requisitions/:id/submit", async (req, res) => {
   try {
     const id = Number(req.params.id);
+    const submitCompanyId = getCompanyId(req);
     const [updated] = await db
       .update(purchaseRequisitionsTable)
       .set({ status: "submitted" })
-      .where(and(eq(purchaseRequisitionsTable.id, id), eq(purchaseRequisitionsTable.status, "draft")))
+      .where(
+        and(
+          eq(purchaseRequisitionsTable.id, id),
+          eq(purchaseRequisitionsTable.companyId, submitCompanyId),
+          eq(purchaseRequisitionsTable.status, "draft"),
+        ),
+      )
       .returning();
     if (!updated) { res.status(409).json({ error: "لا يمكن تقديم هذا الطلب من حالته الحالية." }); return; }
     void recordAudit(req, { action: "submit", entity: "purchase_requisition", details: updated.reference });
@@ -298,10 +334,17 @@ router.post("/procurement/requisitions/:id/submit", async (req, res) => {
 router.post("/procurement/requisitions/:id/approve", adminGuard, async (req, res) => {
   try {
     const id = Number(req.params.id);
+    const approveCompanyId = getCompanyId(req);
     const [updated] = await db
       .update(purchaseRequisitionsTable)
       .set({ status: "approved", approvedBy: req.session?.userId ?? null, approvedAt: new Date() })
-      .where(and(eq(purchaseRequisitionsTable.id, id), eq(purchaseRequisitionsTable.status, "submitted")))
+      .where(
+        and(
+          eq(purchaseRequisitionsTable.id, id),
+          eq(purchaseRequisitionsTable.companyId, approveCompanyId),
+          eq(purchaseRequisitionsTable.status, "submitted"),
+        ),
+      )
       .returning();
     if (!updated) { res.status(409).json({ error: "لا يمكن اعتماد طلب غير مقدّم." }); return; }
     void recordAudit(req, { action: "approve", entity: "purchase_requisition", details: updated.reference });
