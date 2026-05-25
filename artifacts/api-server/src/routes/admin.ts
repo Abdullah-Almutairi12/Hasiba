@@ -26,11 +26,14 @@ import { buildAlertsCleanupPdf } from "../lib/alerts-cleanup-pdf";
 import {
   sendCleanupReportEmail,
   readCleanupReportConfig,
+  renderCleanupReportEmail,
+  windowDaysForSchedule,
   CLEANUP_REPORT_SUBJECT_MAX,
   CLEANUP_REPORT_INTRO_MAX,
   CLEANUP_REPORT_SCHEDULES,
   type CleanupReportSchedule,
 } from "../lib/alerts-cleanup-report-email";
+import { loadComplianceReportSummary } from "../lib/compliance/report-section";
 
 const router = Router();
 
@@ -1045,6 +1048,95 @@ router.post("/admin/system-settings/run-alerts-cleanup", adminOnly, async (req, 
     return res.status(500).json({ error: "Internal server error" });
   }
 });
+
+// Task #181: live preview of the resolved cleanup report email subject
+// + body. Admins can iterate on wording without spamming auditors —
+// returns exactly what the cron would mail given the current draft.
+// Query params:
+//   subject   — optional override (else stored value, else default)
+//   intro     — optional override (else stored value, else default)
+//   schedule  — optional override of the cadence/window selector
+const previewQuerySchema = z.object({
+  subject: z.string().max(CLEANUP_REPORT_SUBJECT_MAX).optional(),
+  intro: z.string().max(CLEANUP_REPORT_INTRO_MAX).optional(),
+  schedule: z.enum(CLEANUP_REPORT_SCHEDULES).optional(),
+});
+
+router.get(
+  "/admin/system-settings/cleanup-report-preview",
+  adminOnly,
+  async (req, res) => {
+    try {
+      const parsed = previewQuerySchema.safeParse(req.query);
+      if (!parsed.success) {
+        return res
+          .status(400)
+          .json({ error: "Invalid query", details: parsed.error.flatten() });
+      }
+      const settingsRow = await db
+        .select({ system: appSettingsTable.system })
+        .from(appSettingsTable)
+        .limit(1);
+      const cfg = readCleanupReportConfig(settingsRow[0]?.system);
+
+      const effectiveSchedule: CleanupReportSchedule =
+        parsed.data.schedule ??
+        (cfg.schedule === "off" ? "weekly" : cfg.schedule);
+      const days = windowDaysForSchedule(effectiveSchedule);
+      const to = new Date();
+      const from = new Date(to.getTime() - days * 24 * 60 * 60 * 1000);
+
+      // Resolve subject/intro: explicit query param wins (even if empty
+      // string -> use default), else fall back to stored config.
+      const subjectInput =
+        parsed.data.subject !== undefined
+          ? parsed.data.subject.trim() || null
+          : cfg.subject;
+      const introInput =
+        parsed.data.intro !== undefined
+          ? parsed.data.intro.trim() || null
+          : cfg.intro;
+
+      const [{ count: rowCount }] = await db
+        .select({
+          count: sql<number>`count(*)::int`,
+        })
+        .from(alertsCleanupRunsTable)
+        .where(
+          and(
+            gte(alertsCleanupRunsTable.ranAt, from),
+            lte(alertsCleanupRunsTable.ranAt, to),
+          ),
+        );
+
+      const compliance = await loadComplianceReportSummary({ from, to });
+
+      const rendered = renderCleanupReportEmail({
+        subject: subjectInput,
+        intro: introInput,
+        schedule: effectiveSchedule,
+        from,
+        to,
+        rowCount: Number(rowCount ?? 0),
+        complianceCounts: compliance.counts,
+      });
+
+      return res.json({
+        subject: rendered.subject,
+        body: rendered.body,
+        periodLabel: rendered.periodLabel,
+        from: rendered.from,
+        to: rendered.to,
+        rowCount: Number(rowCount ?? 0),
+        complianceAlertCount: rendered.complianceAlertCount,
+        schedule: effectiveSchedule,
+      });
+    } catch (err) {
+      req.log.error({ err }, "Cleanup report preview failed");
+      return res.status(500).json({ error: "Internal server error" });
+    }
+  },
+);
 
 // Task #178: manually email the cleanup PDF report to the configured
 // recipients immediately, bypassing the schedule cadence. Useful for

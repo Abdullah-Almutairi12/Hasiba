@@ -1818,6 +1818,64 @@ paths:
                     nullable: true
                 required: [ok]
 
+  /admin/system-settings/cleanup-report-preview:
+    get:
+      tags: [admin]
+      summary: Preview the resolved cleanup report email subject + body (admin only)
+      description: >-
+        Renders the email subject and body exactly as the next scheduled
+        (or manual) send would produce them, given the current draft
+        text. Uses the same window the schedule would use (7 or 30 days)
+        and the same compliance counts / cleanup-run count from the live
+        database, so admins can iterate on wording without spamming
+        auditors. Pass `subject` / `intro` to preview unsaved drafts;
+        omit them to preview the currently stored values.
+      operationId: getCleanupReportPreview
+      parameters:
+        - in: query
+          name: subject
+          required: false
+          schema: { type: string, maxLength: 200 }
+        - in: query
+          name: intro
+          required: false
+          schema: { type: string, maxLength: 2000 }
+        - in: query
+          name: schedule
+          required: false
+          schema:
+            type: string
+            enum: [off, weekly, monthly]
+      responses:
+        "200":
+          description: Rendered email preview
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  subject: { type: string }
+                  body: { type: string }
+                  periodLabel: { type: string }
+                  from: { type: string }
+                  to: { type: string }
+                  rowCount: { type: integer }
+                  complianceAlertCount: { type: integer }
+                  schedule:
+                    type: string
+                    enum: [off, weekly, monthly]
+                required:
+                  [
+                    subject,
+                    body,
+                    periodLabel,
+                    from,
+                    to,
+                    rowCount,
+                    complianceAlertCount,
+                    schedule,
+                  ]
+
   /admin/system-settings/send-cleanup-report-now:
     post:
       tags: [admin]

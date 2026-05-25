@@ -141,8 +141,78 @@ async function persistLastSentAt(at: Date): Promise<void> {
   }
 }
 
-function windowDaysForSchedule(schedule: CleanupReportSchedule): number {
+export function windowDaysForSchedule(schedule: CleanupReportSchedule): number {
   return schedule === "monthly" ? 30 : 7;
+}
+
+/**
+ * Pure helper: render the resolved subject + body for the cleanup
+ * report email. Extracted so the admin "preview" endpoint can produce
+ * exactly the same text the cron will eventually send. No I/O —
+ * counts/rowCount must be supplied by the caller.
+ */
+export interface RenderCleanupReportEmailInput {
+  subject: string | null;
+  intro: string | null;
+  schedule: CleanupReportSchedule;
+  from: Date;
+  to: Date;
+  rowCount: number;
+  complianceCounts: {
+    transferPricing: number;
+    agreementMissing: number;
+    zakat: number;
+  };
+}
+
+export interface RenderedCleanupReportEmail {
+  subject: string;
+  body: string;
+  periodLabel: string;
+  from: string;
+  to: string;
+  complianceAlertCount: number;
+}
+
+export function renderCleanupReportEmail(
+  input: RenderCleanupReportEmailInput,
+): RenderedCleanupReportEmail {
+  const effectiveSchedule: CleanupReportSchedule =
+    input.schedule === "off" ? "weekly" : input.schedule;
+  const fmt = (d: Date) => d.toISOString().slice(0, 10);
+  const fromStr = fmt(input.from);
+  const toStr = fmt(input.to);
+  const periodLabel = effectiveSchedule === "monthly" ? "الشهري" : "الأسبوعي";
+  const defaultSubject = `تقرير تنظيف التنبيهات ${periodLabel} (${fromStr} → ${toStr})`;
+  const subject = input.subject
+    ? input.subject
+        .replaceAll("{period}", periodLabel)
+        .replaceAll("{from}", fromStr)
+        .replaceAll("{to}", toStr)
+    : defaultSubject;
+  const introLine =
+    input.intro ?? `مرفق تقرير تنظيف التنبيهات ${periodLabel}.`;
+  const complianceAlertCount =
+    input.complianceCounts.transferPricing +
+    input.complianceCounts.agreementMissing +
+    input.complianceCounts.zakat;
+  const body =
+    `${introLine}\n\n` +
+    `النطاق: ${fromStr} إلى ${toStr}\n` +
+    `عدد عمليات التنظيف في هذا النطاق: ${input.rowCount}\n` +
+    `تنبيهات الامتثال (تسعير تحويلي / زكاة / اتفاقيات): ${complianceAlertCount}\n` +
+    `   • تسعير تحويلي: ${input.complianceCounts.transferPricing}\n` +
+    `   • اتفاقيات مفقودة: ${input.complianceCounts.agreementMissing}\n` +
+    `   • زكاة: ${input.complianceCounts.zakat}\n\n` +
+    `تم إنشاء هذا التقرير تلقائياً من نظام حاسبة.AI.\n`;
+  return {
+    subject,
+    body,
+    periodLabel,
+    from: fromStr,
+    to: toStr,
+    complianceAlertCount,
+  };
 }
 
 export interface CleanupReportSendResult {
@@ -181,28 +251,20 @@ export async function sendCleanupReportEmail(opts: {
   const from = new Date(to.getTime() - days * ONE_DAY_MS);
 
   const compliance = await loadComplianceReportSummary({ from, to });
-  const { buffer, filename, rowCount, complianceAlertCount } =
-    await buildAlertsCleanupPdf({ from, to }, { compliance });
+  const { buffer, filename, rowCount } = await buildAlertsCleanupPdf(
+    { from, to },
+    { compliance },
+  );
 
-  const fmt = (d: Date) => d.toISOString().slice(0, 10);
-  const periodLabel = effectiveSchedule === "monthly" ? "الشهري" : "الأسبوعي";
-  const defaultSubject = `تقرير تنظيف التنبيهات ${periodLabel} (${fmt(from)} → ${fmt(to)})`;
-  const subject = cfg.subject
-    ? cfg.subject
-        .replaceAll("{period}", periodLabel)
-        .replaceAll("{from}", fmt(from))
-        .replaceAll("{to}", fmt(to))
-    : defaultSubject;
-  const introLine = cfg.intro ?? `مرفق تقرير تنظيف التنبيهات ${periodLabel}.`;
-  const body =
-    `${introLine}\n\n` +
-    `النطاق: ${fmt(from)} إلى ${fmt(to)}\n` +
-    `عدد عمليات التنظيف في هذا النطاق: ${rowCount}\n` +
-    `تنبيهات الامتثال (تسعير تحويلي / زكاة / اتفاقيات): ${complianceAlertCount}\n` +
-    `   • تسعير تحويلي: ${compliance.counts.transferPricing}\n` +
-    `   • اتفاقيات مفقودة: ${compliance.counts.agreementMissing}\n` +
-    `   • زكاة: ${compliance.counts.zakat}\n\n` +
-    `تم إنشاء هذا التقرير تلقائياً من نظام حاسبة.AI.\n`;
+  const { subject, body } = renderCleanupReportEmail({
+    subject: cfg.subject,
+    intro: cfg.intro,
+    schedule: effectiveSchedule,
+    from,
+    to,
+    rowCount,
+    complianceCounts: compliance.counts,
+  });
 
   const result = await sendMail({
     to: cfg.recipients.join(", "),

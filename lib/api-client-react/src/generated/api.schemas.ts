@@ -1988,6 +1988,47 @@ export type UpdateSystemSettings200 = {
   cleanupReportIntro?: string | null;
 };
 
+export type GetCleanupReportPreviewParams = {
+  /**
+   * @maxLength 200
+   */
+  subject?: string;
+  /**
+   * @maxLength 2000
+   */
+  intro?: string;
+  schedule?: GetCleanupReportPreviewSchedule;
+};
+
+export type GetCleanupReportPreviewSchedule =
+  (typeof GetCleanupReportPreviewSchedule)[keyof typeof GetCleanupReportPreviewSchedule];
+
+export const GetCleanupReportPreviewSchedule = {
+  off: "off",
+  weekly: "weekly",
+  monthly: "monthly",
+} as const;
+
+export type GetCleanupReportPreview200Schedule =
+  (typeof GetCleanupReportPreview200Schedule)[keyof typeof GetCleanupReportPreview200Schedule];
+
+export const GetCleanupReportPreview200Schedule = {
+  off: "off",
+  weekly: "weekly",
+  monthly: "monthly",
+} as const;
+
+export type GetCleanupReportPreview200 = {
+  subject: string;
+  body: string;
+  periodLabel: string;
+  from: string;
+  to: string;
+  rowCount: number;
+  complianceAlertCount: number;
+  schedule: GetCleanupReportPreview200Schedule;
+};
+
 export type SendCleanupReportNow200 = {
   ok: boolean;
   sent: boolean;

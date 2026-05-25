@@ -111,6 +111,8 @@ import type {
   GetAtRiskCustomersParams,
   GetBalanceSheetParams,
   GetCashFlowParams,
+  GetCleanupReportPreview200,
+  GetCleanupReportPreviewParams,
   GetDashboardSalesChartParams,
   GetFraudAnomalies200,
   GetFraudAnomaliesParams,
@@ -7804,6 +7806,113 @@ export const useUpdateSystemSettings = <
 > => {
   return useMutation(getUpdateSystemSettingsMutationOptions(options));
 };
+
+/**
+ * Renders the email subject and body exactly as the next scheduled (or manual) send would produce them, given the current draft text. Uses the same window the schedule would use (7 or 30 days) and the same compliance counts / cleanup-run count from the live database, so admins can iterate on wording without spamming auditors. Pass `subject` / `intro` to preview unsaved drafts; omit them to preview the currently stored values.
+ * @summary Preview the resolved cleanup report email subject + body (admin only)
+ */
+export const getGetCleanupReportPreviewUrl = (
+  params?: GetCleanupReportPreviewParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/admin/system-settings/cleanup-report-preview?${stringifiedParams}`
+    : `/api/admin/system-settings/cleanup-report-preview`;
+};
+
+export const getCleanupReportPreview = async (
+  params?: GetCleanupReportPreviewParams,
+  options?: RequestInit,
+): Promise<GetCleanupReportPreview200> => {
+  return customFetch<GetCleanupReportPreview200>(
+    getGetCleanupReportPreviewUrl(params),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetCleanupReportPreviewQueryKey = (
+  params?: GetCleanupReportPreviewParams,
+) => {
+  return [
+    `/api/admin/system-settings/cleanup-report-preview`,
+    ...(params ? [params] : []),
+  ] as const;
+};
+
+export const getGetCleanupReportPreviewQueryOptions = <
+  TData = Awaited<ReturnType<typeof getCleanupReportPreview>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetCleanupReportPreviewParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getCleanupReportPreview>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetCleanupReportPreviewQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getCleanupReportPreview>>
+  > = ({ signal }) =>
+    getCleanupReportPreview(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getCleanupReportPreview>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetCleanupReportPreviewQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getCleanupReportPreview>>
+>;
+export type GetCleanupReportPreviewQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Preview the resolved cleanup report email subject + body (admin only)
+ */
+
+export function useGetCleanupReportPreview<
+  TData = Awaited<ReturnType<typeof getCleanupReportPreview>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetCleanupReportPreviewParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getCleanupReportPreview>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetCleanupReportPreviewQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
 
 /**
  * Bypasses the configured weekly/monthly cadence and emails the PDF report to the currently configured recipients right now. Used to verify a new recipient list or SMTP configuration.

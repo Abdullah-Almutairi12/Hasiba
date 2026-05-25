@@ -19,6 +19,7 @@ import {
   useUpdateSystemSettings,
   useRunAlertsCleanupNow,
   useSendCleanupReportNow,
+  useGetCleanupReportPreview,
   useListPermissionMatrix,
   useSetPermissionCell,
   useListAuditLogs,
@@ -1700,6 +1701,12 @@ function CleanupReportEmailCard() {
           </div>
         </div>
 
+        <CleanupReportPreview
+          subjectDraft={subjectDraft}
+          introDraft={introDraft}
+          schedule={schedule}
+        />
+
         {lastSentAt && (
           <div
             className="rounded-md border bg-muted/40 px-3 py-2 text-xs text-muted-foreground"
@@ -1738,6 +1745,92 @@ function CleanupReportEmailCard() {
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+/**
+ * Task #181: live preview of the resolved cleanup report email
+ * subject + body. Debounces updates so each keystroke doesn't fire a
+ * request. Falls back gracefully on error (e.g. mailer unconfigured or
+ * compliance loader hiccup — preview is non-critical).
+ */
+function CleanupReportPreview({
+  subjectDraft,
+  introDraft,
+  schedule,
+}: {
+  subjectDraft: string;
+  introDraft: string;
+  schedule: "off" | "weekly" | "monthly";
+}) {
+  const [debounced, setDebounced] = useState({
+    subject: subjectDraft,
+    intro: introDraft,
+  });
+  useEffect(() => {
+    const t = setTimeout(
+      () => setDebounced({ subject: subjectDraft, intro: introDraft }),
+      300,
+    );
+    return () => clearTimeout(t);
+  }, [subjectDraft, introDraft]);
+
+  const previewSchedule = schedule === "off" ? "weekly" : schedule;
+  const { data, isLoading, isError } = useGetCleanupReportPreview({
+    subject: debounced.subject,
+    intro: debounced.intro,
+    schedule: previewSchedule,
+  });
+
+  return (
+    <div
+      className="space-y-2 rounded-md border border-dashed bg-muted/30 p-3"
+      data-testid="panel-cleanup-report-preview"
+    >
+      <div className="flex items-center justify-between gap-2">
+        <Label className="text-xs font-medium text-muted-foreground">
+          معاينة
+        </Label>
+        {isLoading && (
+          <Loader2 className="size-3 animate-spin text-muted-foreground" />
+        )}
+      </div>
+      {isError ? (
+        <div className="text-xs text-rose-600">تعذّر تحميل المعاينة.</div>
+      ) : data ? (
+        <>
+          <div className="space-y-1">
+            <div className="text-[11px] text-muted-foreground">
+              العنوان
+            </div>
+            <div
+              className="rounded border bg-background px-2 py-1.5 text-sm font-medium"
+              data-testid="text-cleanup-report-preview-subject"
+            >
+              {data.subject}
+            </div>
+          </div>
+          <div className="space-y-1">
+            <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+              <span>المتن</span>
+              <span>
+                النطاق {data.from} → {data.to} · {data.rowCount} عملية تنظيف ·{" "}
+                {data.complianceAlertCount} تنبيه امتثال
+              </span>
+            </div>
+            <pre
+              className="max-h-56 overflow-auto whitespace-pre-wrap rounded border bg-background px-2 py-2 text-xs leading-relaxed"
+              dir="rtl"
+              data-testid="text-cleanup-report-preview-body"
+            >
+              {data.body}
+            </pre>
+          </div>
+        </>
+      ) : (
+        <div className="text-xs text-muted-foreground">جارٍ التحميل…</div>
+      )}
+    </div>
   );
 }
 

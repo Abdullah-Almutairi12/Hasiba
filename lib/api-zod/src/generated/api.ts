@@ -1901,6 +1901,37 @@ export const UpdateSystemSettingsResponse = zod.object({
 });
 
 /**
+ * Renders the email subject and body exactly as the next scheduled (or manual) send would produce them, given the current draft text. Uses the same window the schedule would use (7 or 30 days) and the same compliance counts / cleanup-run count from the live database, so admins can iterate on wording without spamming auditors. Pass `subject` / `intro` to preview unsaved drafts; omit them to preview the currently stored values.
+ * @summary Preview the resolved cleanup report email subject + body (admin only)
+ */
+export const getCleanupReportPreviewQuerySubjectMax = 200;
+
+export const getCleanupReportPreviewQueryIntroMax = 2000;
+
+export const GetCleanupReportPreviewQueryParams = zod.object({
+  subject: zod.coerce
+    .string()
+    .max(getCleanupReportPreviewQuerySubjectMax)
+    .optional(),
+  intro: zod.coerce
+    .string()
+    .max(getCleanupReportPreviewQueryIntroMax)
+    .optional(),
+  schedule: zod.enum(["off", "weekly", "monthly"]).optional(),
+});
+
+export const GetCleanupReportPreviewResponse = zod.object({
+  subject: zod.string(),
+  body: zod.string(),
+  periodLabel: zod.string(),
+  from: zod.string(),
+  to: zod.string(),
+  rowCount: zod.number(),
+  complianceAlertCount: zod.number(),
+  schedule: zod.enum(["off", "weekly", "monthly"]),
+});
+
+/**
  * Bypasses the configured weekly/monthly cadence and emails the PDF report to the currently configured recipients right now. Used to verify a new recipient list or SMTP configuration.
  * @summary Send the alerts-cleanup PDF report email immediately (admin only)
  */
