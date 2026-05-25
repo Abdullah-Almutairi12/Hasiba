@@ -174,6 +174,7 @@ import type {
   SendCleanupReportNow400,
   SendCleanupReportTest200,
   SendCleanupReportTest400,
+  SendCleanupReportTestBody,
   SetPermissionCellBody,
   Supplier,
   SupportTicket,
@@ -8000,19 +8001,22 @@ export const useSendCleanupReportNow = <
 };
 
 /**
- * Sends the same PDF the scheduled cron would send, but only to the currently logged-in admin's email address. Useful for verifying SMTP / formatting end-to-end without spamming the configured auditor recipient list. Does NOT update `lastSentAt` — the scheduled cadence is preserved.
- * @summary Send a test cleanup report email to the current admin only (admin only)
+ * Sends the same PDF the scheduled cron would send, but only to a single one-off recipient. Defaults to the currently logged-in admin's email address when `recipient` is omitted or empty, but can be overridden to dry-run against any other inbox (e.g. an external auditor account). Does NOT update `lastSentAt` and does NOT modify the saved recipient list — the scheduled cadence is preserved.
+ * @summary Send a test cleanup report email to a one-off recipient (admin only)
  */
 export const getSendCleanupReportTestUrl = () => {
   return `/api/admin/system-settings/send-cleanup-report-test`;
 };
 
 export const sendCleanupReportTest = async (
+  sendCleanupReportTestBody?: SendCleanupReportTestBody,
   options?: RequestInit,
 ): Promise<SendCleanupReportTest200> => {
   return customFetch<SendCleanupReportTest200>(getSendCleanupReportTestUrl(), {
     ...options,
     method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(sendCleanupReportTestBody),
   });
 };
 
@@ -8023,14 +8027,14 @@ export const getSendCleanupReportTestMutationOptions = <
   mutation?: UseMutationOptions<
     Awaited<ReturnType<typeof sendCleanupReportTest>>,
     TError,
-    void,
+    { data: BodyType<SendCleanupReportTestBody> },
     TContext
   >;
   request?: SecondParameter<typeof customFetch>;
 }): UseMutationOptions<
   Awaited<ReturnType<typeof sendCleanupReportTest>>,
   TError,
-  void,
+  { data: BodyType<SendCleanupReportTestBody> },
   TContext
 > => {
   const mutationKey = ["sendCleanupReportTest"];
@@ -8044,9 +8048,11 @@ export const getSendCleanupReportTestMutationOptions = <
 
   const mutationFn: MutationFunction<
     Awaited<ReturnType<typeof sendCleanupReportTest>>,
-    void
-  > = () => {
-    return sendCleanupReportTest(requestOptions);
+    { data: BodyType<SendCleanupReportTestBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return sendCleanupReportTest(data, requestOptions);
   };
 
   return { mutationFn, ...mutationOptions };
@@ -8055,12 +8061,13 @@ export const getSendCleanupReportTestMutationOptions = <
 export type SendCleanupReportTestMutationResult = NonNullable<
   Awaited<ReturnType<typeof sendCleanupReportTest>>
 >;
-
+export type SendCleanupReportTestMutationBody =
+  BodyType<SendCleanupReportTestBody>;
 export type SendCleanupReportTestMutationError =
   ErrorType<SendCleanupReportTest400>;
 
 /**
- * @summary Send a test cleanup report email to the current admin only (admin only)
+ * @summary Send a test cleanup report email to a one-off recipient (admin only)
  */
 export const useSendCleanupReportTest = <
   TError = ErrorType<SendCleanupReportTest400>,
@@ -8069,14 +8076,14 @@ export const useSendCleanupReportTest = <
   mutation?: UseMutationOptions<
     Awaited<ReturnType<typeof sendCleanupReportTest>>,
     TError,
-    void,
+    { data: BodyType<SendCleanupReportTestBody> },
     TContext
   >;
   request?: SecondParameter<typeof customFetch>;
 }): UseMutationResult<
   Awaited<ReturnType<typeof sendCleanupReportTest>>,
   TError,
-  void,
+  { data: BodyType<SendCleanupReportTestBody> },
   TContext
 > => {
   return useMutation(getSendCleanupReportTestMutationOptions(options));

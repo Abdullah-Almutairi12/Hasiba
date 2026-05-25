@@ -1444,6 +1444,8 @@ function CleanupReportEmailCard() {
       },
     },
   });
+  const [testEmail, setTestEmail] = useState("");
+  const [testEmailError, setTestEmailError] = useState<string | null>(null);
   const sendTestMut = useSendCleanupReportTest({
     mutation: {
       onSuccess: (data) => {
@@ -1451,6 +1453,8 @@ function CleanupReportEmailCard() {
           title: "تم إرسال البريد التجريبي",
           description: `إلى ${data.recipient} (${data.rowCount ?? 0} عملية تنظيف).`,
         });
+        setTestEmail("");
+        setTestEmailError(null);
       },
       onError: (err: unknown) => {
         const msg =
@@ -1460,6 +1464,15 @@ function CleanupReportEmailCard() {
       },
     },
   });
+  const sendTestEmail = () => {
+    const v = testEmail.trim().toLowerCase();
+    if (v && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) {
+      setTestEmailError("بريد إلكتروني غير صحيح");
+      return;
+    }
+    setTestEmailError(null);
+    sendTestMut.mutate({ data: v ? { recipient: v } : {} });
+  };
   const sendNowMut = useSendCleanupReportNow({
     mutation: {
       onSuccess: (data) => {
@@ -1757,27 +1770,58 @@ function CleanupReportEmailCard() {
             )}
             إرسال الآن
           </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => sendTestMut.mutate()}
-            disabled={
-              sendTestMut.isPending ||
-              sendNowMut.isPending ||
-              updateMut.isPending
-            }
-            data-testid="button-send-cleanup-report-test"
-            title="يرسل البريد إلى حسابك فقط للتحقق من الإعدادات."
-          >
-            {sendTestMut.isPending ? (
-              <Loader2 className="size-4 animate-spin" />
-            ) : (
-              <Send className="size-4" />
+          <div className="flex flex-col gap-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <Input
+                type="email"
+                placeholder="بريدك أو بريد المراجع"
+                value={testEmail}
+                onChange={(e) => {
+                  setTestEmail(e.target.value);
+                  if (testEmailError) setTestEmailError(null);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    sendTestEmail();
+                  }
+                }}
+                className="h-9 w-56"
+                dir="ltr"
+                data-testid="input-cleanup-report-test-recipient"
+              />
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={sendTestEmail}
+                disabled={
+                  sendTestMut.isPending ||
+                  sendNowMut.isPending ||
+                  updateMut.isPending
+                }
+                data-testid="button-send-cleanup-report-test"
+                title="يرسل البريد إلى العنوان أعلاه (أو إلى حسابك إن تُرك فارغاً) للتحقق من الإعدادات."
+              >
+                {sendTestMut.isPending ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <Send className="size-4" />
+                )}
+                إرسال نسخة تجريبية
+              </Button>
+            </div>
+            {testEmailError && (
+              <div
+                className="text-xs text-rose-600"
+                data-testid="text-cleanup-report-test-error"
+              >
+                {testEmailError}
+              </div>
             )}
-            إرسال نسخة تجريبية لي
-          </Button>
+          </div>
           <span className="text-xs text-muted-foreground">
-            يستخدم نفس قالب PDF الذي تنزّله من بطاقة سجل التنظيف.
+            يستخدم نفس قالب PDF الذي تنزّله من بطاقة سجل التنظيف. اتركه
+            فارغاً لإرساله إلى بريد حسابك.
           </span>
         </div>
       </CardContent>

@@ -1943,9 +1943,19 @@ export const SendCleanupReportNowResponse = zod.object({
 });
 
 /**
- * Sends the same PDF the scheduled cron would send, but only to the currently logged-in admin's email address. Useful for verifying SMTP / formatting end-to-end without spamming the configured auditor recipient list. Does NOT update `lastSentAt` — the scheduled cadence is preserved.
- * @summary Send a test cleanup report email to the current admin only (admin only)
+ * Sends the same PDF the scheduled cron would send, but only to a single one-off recipient. Defaults to the currently logged-in admin's email address when `recipient` is omitted or empty, but can be overridden to dry-run against any other inbox (e.g. an external auditor account). Does NOT update `lastSentAt` and does NOT modify the saved recipient list — the scheduled cadence is preserved.
+ * @summary Send a test cleanup report email to a one-off recipient (admin only)
  */
+export const SendCleanupReportTestBody = zod.object({
+  recipient: zod
+    .string()
+    .email()
+    .optional()
+    .describe(
+      "Optional one-off email to send the test to. When omitted or empty, defaults to the current admin's account email.",
+    ),
+});
+
 export const SendCleanupReportTestResponse = zod.object({
   ok: zod.boolean(),
   sent: zod.boolean(),

@@ -1914,14 +1914,30 @@ paths:
   /admin/system-settings/send-cleanup-report-test:
     post:
       tags: [admin]
-      summary: Send a test cleanup report email to the current admin only (admin only)
+      summary: Send a test cleanup report email to a one-off recipient (admin only)
       description: >-
         Sends the same PDF the scheduled cron would send, but only to
-        the currently logged-in admin's email address. Useful for
-        verifying SMTP / formatting end-to-end without spamming the
-        configured auditor recipient list. Does NOT update
-        `lastSentAt` — the scheduled cadence is preserved.
+        a single one-off recipient. Defaults to the currently
+        logged-in admin's email address when `recipient` is omitted or
+        empty, but can be overridden to dry-run against any other
+        inbox (e.g. an external auditor account). Does NOT update
+        `lastSentAt` and does NOT modify the saved recipient list —
+        the scheduled cadence is preserved.
       operationId: sendCleanupReportTest
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                recipient:
+                  type: string
+                  format: email
+                  description: >-
+                    Optional one-off email to send the test to. When
+                    omitted or empty, defaults to the current admin's
+                    account email.
       responses:
         "200":
           description: Test report sent

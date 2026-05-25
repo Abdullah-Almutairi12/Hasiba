@@ -2041,6 +2041,11 @@ export type SendCleanupReportNow400 = {
   reason?: string;
 };
 
+export type SendCleanupReportTestBody = {
+  /** Optional one-off email to send the test to. When omitted or empty, defaults to the current admin's account email. */
+  recipient?: string;
+};
+
 export type SendCleanupReportTest200 = {
   ok: boolean;
   sent: boolean;

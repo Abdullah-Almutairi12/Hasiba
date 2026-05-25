@@ -1181,6 +1181,16 @@ router.post(
 // them verify SMTP / formatting end-to-end without spamming the real
 // auditor recipient list. Does NOT update `lastSentAt` — this is a
 // test, not the scheduled send.
+// Task #190: admins can override the recipient with an arbitrary
+// email (e.g. an external auditor inbox or shared QA mailbox) without
+// having to add it to the saved recipient list first. Defaults to
+// the current admin's account email when omitted.
+const SendCleanupReportTestBody = z
+  .object({
+    recipient: z.string().trim().email().optional(),
+  })
+  .optional();
+
 router.post(
   "/admin/system-settings/send-cleanup-report-test",
   adminOnly,
@@ -1190,12 +1200,22 @@ router.post(
       if (!userId) {
         return res.status(401).json({ error: "غير مسجّل الدخول" });
       }
-      const row = await db
-        .select({ email: usersTable.email })
-        .from(usersTable)
-        .where(eq(usersTable.id, userId))
-        .limit(1);
-      const email = row[0]?.email?.trim();
+      const parsed = SendCleanupReportTestBody.safeParse(req.body);
+      if (!parsed.success) {
+        return res
+          .status(400)
+          .json({ error: "بريد إلكتروني غير صحيح" });
+      }
+      const overrideEmail = parsed.data?.recipient?.trim();
+      let email: string | undefined = overrideEmail || undefined;
+      if (!email) {
+        const row = await db
+          .select({ email: usersTable.email })
+          .from(usersTable)
+          .where(eq(usersTable.id, userId))
+          .limit(1);
+        email = row[0]?.email?.trim() || undefined;
+      }
       if (!email) {
         return res
           .status(400)
