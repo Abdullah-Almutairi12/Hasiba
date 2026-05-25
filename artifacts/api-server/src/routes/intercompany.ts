@@ -1,6 +1,14 @@
 import { Router } from "express";
-import { db, intercompanyLinksTable, companiesTable } from "@workspace/db";
-import { desc, eq, sql } from "drizzle-orm";
+import {
+  db,
+  intercompanyLinksTable,
+  companiesTable,
+  customerInvoicesTable,
+  invoicesTable,
+  purchaseOrdersTable,
+  salesOrdersTable,
+} from "@workspace/db";
+import { and, desc, eq, gte, lte, sql } from "drizzle-orm";
 import { financeGuard } from "../middlewares/require-role";
 import { handleRouteError } from "../lib/handle-error";
 import { getCompanyId } from "../lib/scoped-db";
@@ -109,6 +117,260 @@ router.post("/intercompany/links/:id/resync", async (req, res) => {
       return;
     }
     req.log.error({ err }, "resync intercompany link failed");
+    handleRouteError(err, res);
+  }
+});
+
+/**
+ * GET /intercompany/elimination — consolidation report for matched
+ * mirror links. For each matched link, returns the source amount, the
+ * target amount and the eliminationAmount that should be removed when
+ * consolidating sibling-company P&L (to avoid double-counting revenue +
+ * matching expense across the group).
+ *
+ * Excluded by design: status='void' and status='resynced' links — only
+ * 'matched' rows feed elimination. 'unmatched' is also skipped because
+ * amounts diverge and require manual review.
+ *
+ * Amount basis (subtotal, VAT-exclusive — VAT is recoverable and does
+ * not hit P&L):
+ *   - sales_invoice : customer_invoices.subtotal  vs  invoices.amount
+ *                     (mirror supplier invoice stores total in `amount`;
+ *                     for the matched case both equal the original total)
+ *   - purchase_order: purchase_orders.subtotal    vs  sales_orders.subtotal
+ *
+ * Query params:
+ *   - from, to (YYYY-MM-DD) — optional, defaults to last 12 months.
+ */
+router.get("/intercompany/elimination", async (req, res) => {
+  try {
+    const companyId = getCompanyId(req);
+    const to = typeof req.query.to === "string" ? new Date(req.query.to) : new Date();
+    const defaultFrom = new Date(to);
+    defaultFrom.setFullYear(defaultFrom.getFullYear() - 1);
+    const from =
+      typeof req.query.from === "string" ? new Date(req.query.from) : defaultFrom;
+    if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) {
+      res.status(400).json({ error: "invalid from/to" });
+      return;
+    }
+
+    // Date filter is applied in SQL against each kind's document date
+    // (customer_invoices.invoice_date / purchase_orders.order_date), not
+    // against intercompanyLinks.createdAt. We also do NOT cap the result
+    // set: this is a consolidation working paper, every matched link in
+    // the range must appear or the eliminations will be understated.
+    const fromIso = from.toISOString().slice(0, 10);
+    const toIso = to.toISOString().slice(0, 10);
+    const companyScope = sql`(${intercompanyLinksTable.sourceCompanyId} = ${companyId} OR ${intercompanyLinksTable.targetCompanyId} = ${companyId})`;
+    const sourceCompanyNameSql = sql<string>`(select name from ${companiesTable} where id = ${intercompanyLinksTable.sourceCompanyId})`;
+    const targetCompanyNameSql = sql<string>`(select name from ${companiesTable} where id = ${intercompanyLinksTable.targetCompanyId})`;
+
+    const [salesRows, poRows] = await Promise.all([
+      db
+        .select({
+          id: intercompanyLinksTable.id,
+          kind: intercompanyLinksTable.kind,
+          sourceCompanyId: intercompanyLinksTable.sourceCompanyId,
+          sourceRef: intercompanyLinksTable.sourceRef,
+          targetCompanyId: intercompanyLinksTable.targetCompanyId,
+          targetRef: intercompanyLinksTable.targetRef,
+          createdAt: intercompanyLinksTable.createdAt,
+          sourceCompanyName: sourceCompanyNameSql,
+          targetCompanyName: targetCompanyNameSql,
+          ciSubtotal: customerInvoicesTable.subtotal,
+          ciTotal: customerInvoicesTable.total,
+          ciInvoiceDate: customerInvoicesTable.invoiceDate,
+          invAmount: invoicesTable.amount,
+        })
+        .from(intercompanyLinksTable)
+        .innerJoin(
+          customerInvoicesTable,
+          eq(customerInvoicesTable.id, intercompanyLinksTable.sourceDocId),
+        )
+        .innerJoin(
+          invoicesTable,
+          eq(invoicesTable.id, intercompanyLinksTable.targetDocId),
+        )
+        .where(
+          and(
+            eq(intercompanyLinksTable.kind, "sales_invoice"),
+            eq(intercompanyLinksTable.status, "matched"),
+            companyScope,
+            gte(customerInvoicesTable.invoiceDate, fromIso),
+            lte(customerInvoicesTable.invoiceDate, toIso),
+          ),
+        )
+        .orderBy(desc(customerInvoicesTable.invoiceDate)),
+      db
+        .select({
+          id: intercompanyLinksTable.id,
+          kind: intercompanyLinksTable.kind,
+          sourceCompanyId: intercompanyLinksTable.sourceCompanyId,
+          sourceRef: intercompanyLinksTable.sourceRef,
+          targetCompanyId: intercompanyLinksTable.targetCompanyId,
+          targetRef: intercompanyLinksTable.targetRef,
+          createdAt: intercompanyLinksTable.createdAt,
+          sourceCompanyName: sourceCompanyNameSql,
+          targetCompanyName: targetCompanyNameSql,
+          poSubtotal: purchaseOrdersTable.subtotal,
+          poOrderDate: purchaseOrdersTable.orderDate,
+          soSubtotal: salesOrdersTable.subtotal,
+        })
+        .from(intercompanyLinksTable)
+        .innerJoin(
+          purchaseOrdersTable,
+          eq(purchaseOrdersTable.id, intercompanyLinksTable.sourceDocId),
+        )
+        .innerJoin(
+          salesOrdersTable,
+          eq(salesOrdersTable.id, intercompanyLinksTable.targetDocId),
+        )
+        .where(
+          and(
+            eq(intercompanyLinksTable.kind, "purchase_order"),
+            eq(intercompanyLinksTable.status, "matched"),
+            companyScope,
+            gte(purchaseOrdersTable.orderDate, fromIso),
+            lte(purchaseOrdersTable.orderDate, toIso),
+          ),
+        )
+        .orderBy(desc(purchaseOrdersTable.orderDate)),
+    ]);
+
+    interface Row {
+      id: number;
+      kind: string;
+      period: string; // YYYY-MM
+      docDate: string;
+      sourceCompanyId: number;
+      sourceCompanyName: string;
+      sourceRef: string;
+      targetCompanyId: number;
+      targetCompanyName: string;
+      targetRef: string;
+      sourceAmount: number;
+      targetAmount: number;
+      eliminationAmount: number;
+    }
+
+    const rows: Row[] = [];
+
+    for (const r of salesRows) {
+      const sourceAmount = Number(r.ciSubtotal);
+      // Supplier invoice mirror stores total in `amount`. If amount
+      // equals customer invoice total, both sides post the same VAT and
+      // the comparable P&L figure is the subtotal; otherwise expose
+      // amount as-is.
+      const invAmount = Number(r.invAmount);
+      const ciTotal = Number(r.ciTotal);
+      const targetAmount =
+        Math.abs(invAmount - ciTotal) < 0.01 ? Number(r.ciSubtotal) : invAmount;
+      const docDate = new Date(r.ciInvoiceDate);
+      const period = `${docDate.getUTCFullYear()}-${String(docDate.getUTCMonth() + 1).padStart(2, "0")}`;
+      rows.push({
+        id: r.id,
+        kind: r.kind,
+        period,
+        docDate: docDate.toISOString(),
+        sourceCompanyId: r.sourceCompanyId,
+        sourceCompanyName: r.sourceCompanyName ?? "",
+        sourceRef: r.sourceRef,
+        targetCompanyId: r.targetCompanyId,
+        targetCompanyName: r.targetCompanyName ?? "",
+        targetRef: r.targetRef,
+        sourceAmount,
+        targetAmount,
+        eliminationAmount: Math.min(sourceAmount, targetAmount),
+      });
+    }
+
+    for (const r of poRows) {
+      const sourceAmount = Number(r.poSubtotal);
+      const targetAmount = Number(r.soSubtotal);
+      const docDate = new Date(r.poOrderDate);
+      const period = `${docDate.getUTCFullYear()}-${String(docDate.getUTCMonth() + 1).padStart(2, "0")}`;
+      rows.push({
+        id: r.id,
+        kind: r.kind,
+        period,
+        docDate: docDate.toISOString(),
+        sourceCompanyId: r.sourceCompanyId,
+        sourceCompanyName: r.sourceCompanyName ?? "",
+        sourceRef: r.sourceRef,
+        targetCompanyId: r.targetCompanyId,
+        targetCompanyName: r.targetCompanyName ?? "",
+        targetRef: r.targetRef,
+        sourceAmount,
+        targetAmount,
+        eliminationAmount: Math.min(sourceAmount, targetAmount),
+      });
+    }
+
+    rows.sort((a, b) => b.docDate.localeCompare(a.docDate));
+
+    // Aggregate per (period, sourceCompanyId, targetCompanyId).
+    const groupKey = (r: Row) => `${r.period}|${r.sourceCompanyId}|${r.targetCompanyId}`;
+    const groupMap = new Map<
+      string,
+      {
+        period: string;
+        sourceCompanyId: number;
+        sourceCompanyName: string;
+        targetCompanyId: number;
+        targetCompanyName: string;
+        sourceAmount: number;
+        targetAmount: number;
+        eliminationAmount: number;
+        count: number;
+      }
+    >();
+    for (const r of rows) {
+      const k = groupKey(r);
+      const g = groupMap.get(k);
+      if (g) {
+        g.sourceAmount += r.sourceAmount;
+        g.targetAmount += r.targetAmount;
+        g.eliminationAmount += r.eliminationAmount;
+        g.count += 1;
+      } else {
+        groupMap.set(k, {
+          period: r.period,
+          sourceCompanyId: r.sourceCompanyId,
+          sourceCompanyName: r.sourceCompanyName,
+          targetCompanyId: r.targetCompanyId,
+          targetCompanyName: r.targetCompanyName,
+          sourceAmount: r.sourceAmount,
+          targetAmount: r.targetAmount,
+          eliminationAmount: r.eliminationAmount,
+          count: 1,
+        });
+      }
+    }
+
+    const totals = rows.reduce(
+      (acc, r) => {
+        acc.sourceAmount += r.sourceAmount;
+        acc.targetAmount += r.targetAmount;
+        acc.eliminationAmount += r.eliminationAmount;
+        return acc;
+      },
+      { sourceAmount: 0, targetAmount: 0, eliminationAmount: 0 },
+    );
+
+    res.json({
+      from: from.toISOString(),
+      to: to.toISOString(),
+      rows,
+      groups: Array.from(groupMap.values()).sort((a, b) =>
+        a.period === b.period
+          ? a.sourceCompanyId - b.sourceCompanyId
+          : b.period.localeCompare(a.period),
+      ),
+      totals: { ...totals, count: rows.length },
+    });
+  } catch (err) {
+    req.log.error({ err }, "intercompany elimination report failed");
     handleRouteError(err, res);
   }
 });

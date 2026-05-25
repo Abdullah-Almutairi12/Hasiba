@@ -9,6 +9,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/hooks/use-toast";
 import { usePermissions } from "@/hooks/use-permissions";
 import { Loader2, RefreshCcw, X } from "lucide-react";
+import { Money } from "@/components/riyal";
+import { useState } from "react";
+import { Input } from "@/components/ui/input";
 
 interface Sibling { id: number; name: string }
 interface PartyRow { id: number; name: string; linkedCompanyId: number | null }
@@ -104,6 +107,223 @@ function PartyLinkTab({ kind }: { kind: "customer" | "supplier" }) {
   );
 }
 
+interface EliminationRow {
+  id: number;
+  kind: "sales_invoice" | "purchase_order";
+  period: string;
+  docDate: string;
+  sourceCompanyId: number;
+  sourceCompanyName: string;
+  sourceRef: string;
+  targetCompanyId: number;
+  targetCompanyName: string;
+  targetRef: string;
+  sourceAmount: number;
+  targetAmount: number;
+  eliminationAmount: number;
+}
+interface EliminationGroup {
+  period: string;
+  sourceCompanyId: number;
+  sourceCompanyName: string;
+  targetCompanyId: number;
+  targetCompanyName: string;
+  sourceAmount: number;
+  targetAmount: number;
+  eliminationAmount: number;
+  count: number;
+}
+interface EliminationResponse {
+  from: string;
+  to: string;
+  rows: EliminationRow[];
+  groups: EliminationGroup[];
+  totals: { sourceAmount: number; targetAmount: number; eliminationAmount: number; count: number };
+}
+
+function todayIso() {
+  return new Date().toISOString().slice(0, 10);
+}
+function yearAgoIso() {
+  const d = new Date();
+  d.setFullYear(d.getFullYear() - 1);
+  return d.toISOString().slice(0, 10);
+}
+
+function EliminationTab() {
+  const [from, setFrom] = useState(yearAgoIso());
+  const [to, setTo] = useState(todayIso());
+  const { data, isLoading } = useQuery<EliminationResponse>({
+    queryKey: ["intercompany-elimination", from, to],
+    queryFn: () =>
+      fetchJson<EliminationResponse>(
+        `/api/intercompany/elimination?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+      ),
+  });
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardContent className="pt-6 flex flex-wrap items-end gap-3">
+          <div className="space-y-1">
+            <label className="text-xs text-muted-foreground">من تاريخ</label>
+            <Input
+              type="date"
+              value={from}
+              onChange={(e) => setFrom(e.target.value)}
+              className="w-[160px]"
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs text-muted-foreground">إلى تاريخ</label>
+            <Input
+              type="date"
+              value={to}
+              onChange={(e) => setTo(e.target.value)}
+              className="w-[160px]"
+            />
+          </div>
+          <div className="text-xs text-muted-foreground mr-auto max-w-md leading-relaxed">
+            يُحتسب الإلغاء على الروابط ذات الحالة <b>متطابق</b> فقط؛ الروابط الملغاة أو المُعاد مزامنتها مستثناة.
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <Card>
+          <CardContent className="pt-6">
+            <div className="text-xs text-muted-foreground">إجمالي المصدر</div>
+            <div className="text-2xl font-semibold mt-1">
+              <Money value={data?.totals.sourceAmount ?? 0} />
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <div className="text-xs text-muted-foreground">إجمالي الهدف</div>
+            <div className="text-2xl font-semibold mt-1">
+              <Money value={data?.totals.targetAmount ?? 0} />
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="border-amber-200 bg-amber-50/40">
+          <CardContent className="pt-6">
+            <div className="text-xs text-amber-800">إجمالي الإلغاء</div>
+            <div className="text-2xl font-semibold mt-1 text-amber-900">
+              <Money value={data?.totals.eliminationAmount ?? 0} />
+            </div>
+            <div className="text-[11px] text-amber-700 mt-1">
+              {data?.totals.count ?? 0} حركة
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">الملخص حسب الفترة وزوج الشركات</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {isLoading ? (
+            <div className="flex items-center justify-center py-10">
+              <Loader2 className="size-5 animate-spin" />
+            </div>
+          ) : !data || data.groups.length === 0 ? (
+            <div className="py-10 text-center text-sm text-muted-foreground">
+              لا توجد بيانات في هذه الفترة.
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>الفترة</TableHead>
+                  <TableHead>الشركة المصدر</TableHead>
+                  <TableHead>الشركة الهدف</TableHead>
+                  <TableHead>عدد</TableHead>
+                  <TableHead>المصدر</TableHead>
+                  <TableHead>الهدف</TableHead>
+                  <TableHead>الإلغاء</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {data.groups.map((g) => (
+                  <TableRow key={`${g.period}-${g.sourceCompanyId}-${g.targetCompanyId}`}>
+                    <TableCell className="font-mono text-xs">{g.period}</TableCell>
+                    <TableCell>{g.sourceCompanyName}</TableCell>
+                    <TableCell>{g.targetCompanyName}</TableCell>
+                    <TableCell>{g.count}</TableCell>
+                    <TableCell><Money value={g.sourceAmount} /></TableCell>
+                    <TableCell><Money value={g.targetAmount} /></TableCell>
+                    <TableCell className="font-semibold text-amber-900">
+                      <Money value={g.eliminationAmount} />
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">التفاصيل ({data?.rows.length ?? 0})</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {isLoading ? (
+            <div className="flex items-center justify-center py-10">
+              <Loader2 className="size-5 animate-spin" />
+            </div>
+          ) : !data || data.rows.length === 0 ? (
+            <div className="py-10 text-center text-sm text-muted-foreground">
+              لا توجد روابط متطابقة في هذه الفترة.
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>التاريخ</TableHead>
+                  <TableHead>النوع</TableHead>
+                  <TableHead>المرجع المصدر</TableHead>
+                  <TableHead>الشركة المصدر</TableHead>
+                  <TableHead>المرجع الهدف</TableHead>
+                  <TableHead>الشركة الهدف</TableHead>
+                  <TableHead>المصدر</TableHead>
+                  <TableHead>الهدف</TableHead>
+                  <TableHead>الإلغاء</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {data.rows.map((r) => (
+                  <TableRow key={r.id}>
+                    <TableCell className="text-xs text-muted-foreground">
+                      {r.docDate.slice(0, 10)}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="outline">
+                        {r.kind === "sales_invoice" ? "فاتورة مبيعات" : "أمر شراء"}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="font-mono text-xs">{r.sourceRef}</TableCell>
+                    <TableCell>{r.sourceCompanyName}</TableCell>
+                    <TableCell className="font-mono text-xs">{r.targetRef}</TableCell>
+                    <TableCell>{r.targetCompanyName}</TableCell>
+                    <TableCell><Money value={r.sourceAmount} /></TableCell>
+                    <TableCell><Money value={r.targetAmount} /></TableCell>
+                    <TableCell className="font-semibold text-amber-900">
+                      <Money value={r.eliminationAmount} />
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 interface IntercompanyLink {
   id: number;
   kind: "sales_invoice" | "purchase_order";
@@ -170,9 +390,13 @@ export default function IntercompanyPage() {
       <Tabs defaultValue="links">
         <TabsList>
           <TabsTrigger value="links">الروابط</TabsTrigger>
+          <TabsTrigger value="elimination">إلغاء الازدواج (P&amp;L)</TabsTrigger>
           <TabsTrigger value="customers">ربط العملاء</TabsTrigger>
           <TabsTrigger value="suppliers">ربط الموردين</TabsTrigger>
         </TabsList>
+        <TabsContent value="elimination" className="mt-4">
+          <EliminationTab />
+        </TabsContent>
         <TabsContent value="customers" className="mt-4">
           <PartyLinkTab kind="customer" />
         </TabsContent>
