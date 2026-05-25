@@ -38,6 +38,7 @@ import {
   cleanupReportSendsTable,
   cleanupReportSendRecipientsTable,
 } from "@workspace/db";
+import { and, lt, eq } from "drizzle-orm";
 import { logger } from "./logger";
 import {
   sendMail,
@@ -550,7 +551,71 @@ export function isDue(cfg: CleanupReportConfig, now: Date): boolean {
   return now.getTime() - last >= intervalMs;
 }
 
+/**
+ * Task #207: how long a per-recipient row can sit at `pending` before
+ * we assume the relay silently dropped it (no DSN, no webhook event,
+ * no delivery confirmation). Configurable for tests; defaults to 48h.
+ */
+export const STUCK_PENDING_THRESHOLD_MS = Number(
+  process.env.CLEANUP_REPORT_STUCK_PENDING_MS ?? 48 * 60 * 60 * 1000,
+);
+
+/**
+ * Task #207: reason string stamped on `cleanup_report_send_recipients`
+ * rows that we auto-bounce after the stuck-pending threshold. Kept as
+ * a named export so tests / downstream code can assert against it
+ * instead of duplicating the literal.
+ */
+export const STUCK_PENDING_BOUNCE_REASON = "no_delivery_confirmation_48h";
+
+/**
+ * Task #207: sweep `cleanup_report_send_recipients` rows that have
+ * been sitting at `status='pending'` for longer than
+ * `STUCK_PENDING_THRESHOLD_MS` and flip them to `bounced` with the
+ * `no_delivery_confirmation_48h` reason. Returns the number of rows
+ * touched so the caller can log / assert.
+ *
+ * Idempotent: only ever transitions `pending → bounced`, never
+ * overwrites a row the provider webhook later resolved.
+ */
+export async function sweepStuckPendingRecipients(
+  now: Date = new Date(),
+): Promise<number> {
+  const cutoff = new Date(now.getTime() - STUCK_PENDING_THRESHOLD_MS);
+  try {
+    const updated = await db
+      .update(cleanupReportSendRecipientsTable)
+      .set({
+        status: "bounced",
+        reason: STUCK_PENDING_BOUNCE_REASON,
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(cleanupReportSendRecipientsTable.status, "pending"),
+          lt(cleanupReportSendRecipientsTable.updatedAt, cutoff),
+        ),
+      )
+      .returning({ id: cleanupReportSendRecipientsTable.id });
+    if (updated.length > 0) {
+      logger.info(
+        { count: updated.length, cutoff: cutoff.toISOString() },
+        "cleanup report: auto-bounced stuck pending recipients",
+      );
+    }
+    return updated.length;
+  } catch (err) {
+    logger.error({ err }, "cleanup report: stuck-pending sweep failed");
+    return 0;
+  }
+}
+
 async function tick(): Promise<void> {
+  try {
+    await sweepStuckPendingRecipients();
+  } catch (err) {
+    logger.error({ err }, "cleanup report: stuck-pending sweep tick failed");
+  }
   try {
     const cfg = await loadConfig();
     if (!isDue(cfg, new Date())) return;

@@ -56,6 +56,9 @@ const {
   readCleanupReportConfig,
   defaultCleanupReportConfig,
   renderCleanupReportEmail,
+  sweepStuckPendingRecipients,
+  STUCK_PENDING_THRESHOLD_MS,
+  STUCK_PENDING_BOUNCE_REASON,
 } = await import("./alerts-cleanup-report-email");
 const mailer = await import("./mailer");
 const pdfMod = await import("./alerts-cleanup-pdf");
@@ -697,5 +700,135 @@ describe("renderCleanupReportEmail — pure rendering", () => {
     expect(out.body).toContain(
       "تنبيهات الامتثال (تسعير تحويلي / زكاة / اتفاقيات): 0",
     );
+  });
+});
+
+describe("sweepStuckPendingRecipients — task #207", () => {
+  let sendId = 0;
+  const insertedRecipientIds: number[] = [];
+
+  beforeAll(async () => {
+    // Self-heal the schema for environments whose test DB pre-dates
+    // task #204 — production app boot runs `initCleanupReportDelivery`
+    // for the same reason. We additionally make sure the base
+    // `cleanup_report_sends` table exists so the FK from the
+    // recipients table can resolve.
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS cleanup_report_sends (
+        id serial PRIMARY KEY,
+        sent_at timestamp NOT NULL DEFAULT now(),
+        trigger text NOT NULL,
+        triggered_by_user_id integer,
+        triggered_by_user_name text,
+        recipient_count integer NOT NULL DEFAULT 0,
+        recipients text NOT NULL DEFAULT '',
+        row_count integer,
+        status text NOT NULL,
+        failure_reason text,
+        window_from timestamp,
+        window_to timestamp,
+        message_id text
+      );
+    `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS cleanup_report_send_recipients (
+        id serial PRIMARY KEY,
+        send_id integer NOT NULL
+          REFERENCES cleanup_report_sends(id) ON DELETE CASCADE,
+        email text NOT NULL,
+        status text NOT NULL DEFAULT 'pending',
+        reason text,
+        delivered_at timestamp,
+        updated_at timestamp NOT NULL DEFAULT now()
+      );
+    `);
+    const inserted = await pool.query<{ id: number }>(
+      `INSERT INTO cleanup_report_sends
+         (trigger, recipient_count, recipients, status)
+       VALUES ('cron', 0, '', 'success')
+       RETURNING id`,
+    );
+    sendId = inserted.rows[0]!.id;
+  });
+
+  afterAll(async () => {
+    if (insertedRecipientIds.length > 0) {
+      await pool.query(
+        `DELETE FROM cleanup_report_send_recipients WHERE id = ANY($1::int[])`,
+        [insertedRecipientIds],
+      );
+    }
+    if (sendId) {
+      await pool.query(`DELETE FROM cleanup_report_sends WHERE id = $1`, [
+        sendId,
+      ]);
+    }
+  });
+
+  async function insertRecipient(
+    email: string,
+    status: string,
+    ageMs: number,
+  ): Promise<number> {
+    const updatedAt = new Date(Date.now() - ageMs);
+    const r = await pool.query<{ id: number }>(
+      `INSERT INTO cleanup_report_send_recipients
+         (send_id, email, status, updated_at)
+       VALUES ($1, $2, $3, $4)
+       RETURNING id`,
+      [sendId, email, status, updatedAt],
+    );
+    const id = r.rows[0]!.id;
+    insertedRecipientIds.push(id);
+    return id;
+  }
+
+  it("flips pending rows older than 48h to bounced with the expected reason", async () => {
+    const oldId = await insertRecipient(
+      "stuck-207-old@example.com",
+      "pending",
+      STUCK_PENDING_THRESHOLD_MS + 60 * 60 * 1000,
+    );
+    const freshId = await insertRecipient(
+      "stuck-207-fresh@example.com",
+      "pending",
+      60 * 60 * 1000,
+    );
+    const deliveredId = await insertRecipient(
+      "stuck-207-delivered@example.com",
+      "delivered",
+      STUCK_PENDING_THRESHOLD_MS + 60 * 60 * 1000,
+    );
+
+    const swept = await sweepStuckPendingRecipients();
+    expect(swept).toBeGreaterThanOrEqual(1);
+
+    const after = await pool.query<{
+      id: number;
+      status: string;
+      reason: string | null;
+    }>(
+      `SELECT id, status, reason
+         FROM cleanup_report_send_recipients
+        WHERE id = ANY($1::int[])`,
+      [[oldId, freshId, deliveredId]],
+    );
+    const byId = new Map(after.rows.map((r) => [r.id, r]));
+    expect(byId.get(oldId)?.status).toBe("bounced");
+    expect(byId.get(oldId)?.reason).toBe(STUCK_PENDING_BOUNCE_REASON);
+    expect(byId.get(freshId)?.status).toBe("pending");
+    expect(byId.get(deliveredId)?.status).toBe("delivered");
+  });
+
+  it("is idempotent — a second sweep does not re-touch already-bounced rows", async () => {
+    await insertRecipient(
+      "stuck-207-idem@example.com",
+      "pending",
+      STUCK_PENDING_THRESHOLD_MS + 2 * 60 * 60 * 1000,
+    );
+    const first = await sweepStuckPendingRecipients();
+    expect(first).toBeGreaterThanOrEqual(1);
+    const second = await sweepStuckPendingRecipients();
+    expect(second).toBe(0);
   });
 });
