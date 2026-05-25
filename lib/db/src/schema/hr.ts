@@ -78,6 +78,8 @@ export const employeesTable = pgTable(
     // active | on_leave | suspended | terminated
     status: text("status").notNull().default("active"),
     notes: text("notes"),
+    /** Nullable in Phase 1; becomes NOT NULL in Phase 2 once tenant scoping lands. */
+    companyId: integer("company_id"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (t) => ({

@@ -167,6 +167,8 @@ export const journalEntriesTable = pgTable(
     reversedBy: integer("reversed_by").references(() => usersTable.id),
     reversedAt: timestamp("reversed_at"),
     reversalOf: integer("reversal_of"),
+    /** Nullable in Phase 1; becomes NOT NULL in Phase 2 once tenant scoping lands. */
+    companyId: integer("company_id"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (t) => ({

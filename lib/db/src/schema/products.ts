@@ -21,6 +21,8 @@ export const productsTable = pgTable("products", {
   trackingMode: text("tracking_mode").notNull().default("none"), // none | lot | serial
   costingMethod: text("costing_method").notNull().default("average"), // fifo | average | standard
   isVariantParent: boolean("is_variant_parent").notNull().default(false),
+  /** Nullable in Phase 1; becomes NOT NULL in Phase 2 once tenant scoping lands. */
+  companyId: integer("company_id"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

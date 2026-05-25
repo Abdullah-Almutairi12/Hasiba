@@ -35,7 +35,6 @@ import { usePermissions } from "@/hooks/use-permissions";
 import { ApprovalActions } from "@/components/approval-actions";
 import { SendStatusBadge } from "@/components/send-status-badge";
 import { PdfPreviewSheet } from "@/components/pdf-preview-sheet";
-import { SendStatusBadge } from "@/components/send-status-badge";
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);

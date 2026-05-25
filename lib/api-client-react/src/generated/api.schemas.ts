@@ -5,6 +5,32 @@
  * حاسبة.AI - ERP System API
  * OpenAPI spec version: 0.1.0
  */
+export type CompanyAddress = { [key: string]: unknown };
+
+export interface Company {
+  id: number;
+  name: string;
+  nameEn?: string | null;
+  vatNumber?: string | null;
+  crNumber?: string | null;
+  baseCurrency: string;
+  fiscalYearStartMonth: number;
+  logoUrl?: string | null;
+  address?: CompanyAddress;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface UserCompany {
+  id: number;
+  userId: number;
+  companyId: number;
+  role: string;
+  isDefault: boolean;
+  createdAt: string;
+}
+
 export interface ApprovalStep {
   id?: number;
   ruleId?: number;

@@ -19,6 +19,8 @@ export const suppliersTable = pgTable("suppliers", {
   leadTimeDays: integer("lead_time_days").notNull().default(7),
   defaultTax: numeric("default_tax", { precision: 5, scale: 2 }).notNull().default("15"),
   notes: text("notes"),
+  /** Nullable in Phase 1; becomes NOT NULL in Phase 2 once tenant scoping lands. */
+  companyId: integer("company_id"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

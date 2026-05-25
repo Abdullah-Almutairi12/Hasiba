@@ -17,6 +17,8 @@ export const projectsTable = pgTable("projects", {
   startDate: date("start_date"),
   dueDate: date("due_date"),
   description: text("description"),
+  /** Nullable in Phase 1; becomes NOT NULL in Phase 2 once tenant scoping lands. */
+  companyId: integer("company_id"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

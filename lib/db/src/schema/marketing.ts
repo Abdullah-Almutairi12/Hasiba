@@ -16,6 +16,8 @@ export const campaignsTable = pgTable("campaigns", {
   startDate: date("start_date"),
   endDate: date("end_date"),
   description: text("description"),
+  /** Nullable in Phase 1; becomes NOT NULL in Phase 2 once tenant scoping lands. */
+  companyId: integer("company_id"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
@@ -33,6 +35,8 @@ export const leadsTable = pgTable("leads", {
   estimatedValue: numeric("estimated_value", { precision: 12, scale: 2 }).notNull().default("0"),
   score: integer("score").notNull().default(0), // 0–100
   notes: text("notes"),
+  /** Nullable in Phase 1; becomes NOT NULL in Phase 2 once tenant scoping lands. */
+  companyId: integer("company_id"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

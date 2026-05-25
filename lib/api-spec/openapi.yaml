@@ -2257,6 +2257,32 @@ paths:
 
 components:
   schemas:
+    Company:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        nameEn: { type: string, nullable: true }
+        vatNumber: { type: string, nullable: true }
+        crNumber: { type: string, nullable: true }
+        baseCurrency: { type: string }
+        fiscalYearStartMonth: { type: integer }
+        logoUrl: { type: string, nullable: true }
+        address: { type: object, additionalProperties: true }
+        isActive: { type: boolean }
+        createdAt: { type: string }
+        updatedAt: { type: string }
+      required: [id, name, baseCurrency, fiscalYearStartMonth, isActive, createdAt, updatedAt]
+    UserCompany:
+      type: object
+      properties:
+        id: { type: integer }
+        userId: { type: integer }
+        companyId: { type: integer }
+        role: { type: string }
+        isDefault: { type: boolean }
+        createdAt: { type: string }
+      required: [id, userId, companyId, role, isDefault, createdAt]
     ApprovalStep:
       type: object
       properties:

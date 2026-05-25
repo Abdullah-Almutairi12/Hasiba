@@ -17,6 +17,8 @@ export const customersTable = pgTable("customers", {
   taxNumber: text("tax_number"),
   billingAddress: text("billing_address"),
   shippingAddress: text("shipping_address"),
+  /** Nullable in Phase 1; becomes NOT NULL in Phase 2 once tenant scoping lands. */
+  companyId: integer("company_id"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
