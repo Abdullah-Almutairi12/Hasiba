@@ -1,162 +1,218 @@
 [
   {
-    "id": "f382bfda-0d22-4cf5-8768-be38ae2ee380",
+    "id": "0daf3a00-d22f-4689-b958-2005734a9611",
     "position": 1,
     "filepath": "src/pages/slides/Title.tsx",
     "title": "صفحة العنوان",
-    "description": "حاسبة.AI — عرض المميزات",
+    "description": "غلاف العرض مع نظام الألوان.",
     "speakerNotes": ""
   },
   {
-    "id": "2f1dd4a7-f827-4a88-8c03-63333d9ecf19",
+    "id": "16575c60-1f9e-4b2c-a3ce-3bc1a586955e",
     "position": 2,
+    "filepath": "src/pages/slides/TableOfContents.tsx",
+    "title": "فهرس الوحدات",
+    "description": "فهرس كل الوحدات المتاحة.",
+    "speakerNotes": ""
+  },
+  {
+    "id": "47ff0b3d-2726-4693-9a18-830baa34a574",
+    "position": 3,
+    "filepath": "src/pages/slides/SectionCore.tsx",
+    "title": "01 — المنصّة الأساسية",
+    "description": "فاصل القسم الأول.",
+    "speakerNotes": ""
+  },
+  {
+    "id": "7bbe73a3-d740-4a3f-ad74-d0d84cab6bb4",
+    "position": 4,
     "filepath": "src/pages/slides/Dashboard.tsx",
     "title": "01. لوحة القيادة التنفيذية",
-    "description": "Glassmorphism dashboard + AI insights",
+    "description": "لوحة قيادة Glassmorphism.",
     "speakerNotes": ""
   },
   {
-    "id": "8fb6dc1e-675f-47c6-8b8d-1a7afcd861a1",
-    "position": 3,
+    "id": "995011e2-d66b-4e2d-be61-e5a3286b49d4",
+    "position": 5,
     "filepath": "src/pages/slides/POS.tsx",
     "title": "02. نقطة البيع (POS)",
-    "description": "POS sessions, orders, discounts",
+    "description": "نظام نقطة البيع.",
     "speakerNotes": ""
   },
   {
-    "id": "6dd59a63-fd02-4179-ad97-93d58be4ae15",
-    "position": 4,
+    "id": "15f5b365-9e85-49ff-8e5f-ed9a0dfcb11c",
+    "position": 6,
     "filepath": "src/pages/slides/Inventory.tsx",
     "title": "03. المنتجات والمخزون",
-    "description": "Products, stock, low-stock alerts",
+    "description": "المنتجات وتتبع المخزون.",
     "speakerNotes": ""
   },
   {
-    "id": "5d823e77-6adb-43e6-8209-2dc1af895667",
-    "position": 5,
-    "filepath": "src/pages/slides/InvoiceAI.tsx",
-    "title": "04. فواتير الموردين بالذكاء الاصطناعي",
-    "description": "AI-powered invoice OCR + auto journal",
-    "speakerNotes": ""
-  },
-  {
-    "id": "8160dd76-116f-4d29-a16c-5057ca612901",
-    "position": 6,
-    "filepath": "src/pages/slides/Accounting.tsx",
-    "title": "05. المحاسبة والامتثال",
-    "description": "Double-entry, cash flow, ZATCA",
-    "speakerNotes": ""
-  },
-  {
-    "id": "9fc7f48e-a21e-43bc-b07c-cc824ab57c1b",
+    "id": "5b8d00f2-8516-4eb5-8329-098531a31c59",
     "position": 7,
-    "filepath": "src/pages/slides/Reports.tsx",
-    "title": "06. التقارير والتحليلات",
-    "description": "Sales/inventory/profitability reports",
+    "filepath": "src/pages/slides/Accounting.tsx",
+    "title": "04. المحاسبة والامتثال",
+    "description": "محاسبة بالقيد المزدوج وZATCA.",
     "speakerNotes": ""
   },
   {
-    "id": "b0e8b266-cb22-47e3-887f-57956e08a7be",
+    "id": "8b6607ab-2c20-4032-b628-b73666355ae2",
     "position": 8,
-    "filepath": "src/pages/slides/Customers.tsx",
-    "title": "07. العملاء",
-    "description": "Customer files, orders, loyalty",
+    "filepath": "src/pages/slides/Reports.tsx",
+    "title": "05. التقارير والتحليلات",
+    "description": "مكتبة تقارير قابلة للتصدير.",
     "speakerNotes": ""
   },
   {
-    "id": "6f47a2c4-a5ea-4591-bddc-4a899eef8a15",
+    "id": "30ad5757-823f-42d4-b881-2e0a7b8c66d6",
     "position": 9,
-    "filepath": "src/pages/slides/BranchesUsers.tsx",
-    "title": "08. الفروع والمستخدمون والإعدادات",
-    "description": "Multi-branch + 8 roles + NCA ECC",
+    "filepath": "src/pages/slides/Customers.tsx",
+    "title": "06. العملاء",
+    "description": "ملف عميل موحَّد.",
     "speakerNotes": ""
   },
   {
-    "id": "fbd84546-a488-491c-aae4-e57b8787fd10",
+    "id": "b3233b3e-dc78-4ec1-970c-b8430dfd772c",
     "position": 10,
-    "filepath": "src/pages/slides/Onboarding.tsx",
-    "title": "09. التسجيل والإعداد الموجَّه",
-    "description": "Signup + 5-step onboarding wizard",
+    "filepath": "src/pages/slides/SectionAI.tsx",
+    "title": "02 — الذكاء الاصطناعي",
+    "description": "فاصل قسم الذكاء الاصطناعي.",
     "speakerNotes": ""
   },
   {
-    "id": "0fc621d6-f095-4a0c-b7d8-0322b1b16382",
+    "id": "59963332-ad54-4e7c-8902-d6410291543f",
     "position": 11,
-    "filepath": "src/pages/slides/SmartReports.tsx",
-    "title": "10. التقارير الذكية وكشف الاحتيال",
-    "description": "AI copilot, forecast, CLV, fraud",
+    "filepath": "src/pages/slides/InvoiceAI.tsx",
+    "title": "07. فواتير الموردين بالذكاء الاصطناعي",
+    "description": "وكيل مسح الفواتير.",
     "speakerNotes": ""
   },
   {
-    "id": "a2332a14-d728-4f35-9ef7-c619bb46377f",
+    "id": "2d114da9-5033-4ef7-a801-5dcc8554d1ab",
     "position": 12,
-    "filepath": "src/pages/slides/LoyaltyZATCA.tsx",
-    "title": "11. برامج الولاء وعلامة ZATCA",
-    "description": "Loyalty points + ZATCA QR",
+    "filepath": "src/pages/slides/SmartReports.tsx",
+    "title": "08. التقارير الذكية وكشف الاحتيال",
+    "description": "مساعد ذكي وكشف شذوذ.",
     "speakerNotes": ""
   },
   {
-    "id": "4a62c6ba-5f82-49f6-a725-5859e48e8f05",
+    "id": "945aa159-0283-4761-8c2b-74459b5e2d36",
     "position": 13,
-    "filepath": "src/pages/slides/Projects.tsx",
-    "title": "12. المشاريع",
-    "description": "Kanban, budgets, progress",
-    "speakerNotes": ""
-  },
-  {
-    "id": "ea966083-81d7-42f6-88ea-98528498173b",
-    "position": 14,
-    "filepath": "src/pages/slides/Marketing.tsx",
-    "title": "13. التسويق",
-    "description": "Campaigns, leads, conversion",
-    "speakerNotes": ""
-  },
-  {
-    "id": "afe5b973-5526-4bec-8cb3-74926780b7cf",
-    "position": 15,
-    "filepath": "src/pages/slides/Landing.tsx",
-    "title": "14. صفحة البداية",
-    "description": "/welcome public landing page",
-    "speakerNotes": ""
-  },
-  {
-    "id": "401f28fc-34c8-45ea-b83c-b8605b217ecc",
-    "position": 16,
-    "filepath": "src/pages/slides/Intercompany.tsx",
-    "title": "15. المعاملات بين الشركات",
-    "description": "Auto-mirrored intercompany docs",
-    "speakerNotes": ""
-  },
-  {
-    "id": "33233486-5501-404b-bbbe-11e35f5babd6",
-    "position": 17,
-    "filepath": "src/pages/slides/TransferPricing.tsx",
-    "title": "16. تسعير التحويل والزكاة",
-    "description": "TP detection + Zakat estimation",
-    "speakerNotes": ""
-  },
-  {
-    "id": "e0e8dd16-2de7-4c97-8bd7-115c0c58ce59",
-    "position": 18,
-    "filepath": "src/pages/slides/AdminPanel.tsx",
-    "title": "17. لوحة تحكم المدير",
-    "description": "Admin panel: tickets, ads, flags, logs",
-    "speakerNotes": ""
-  },
-  {
-    "id": "b2d2943d-3e8b-4bbc-aa42-3fb4581d0f16",
-    "position": 19,
     "filepath": "src/pages/slides/AIModels.tsx",
-    "title": "نماذج الذكاء الاصطناعي",
-    "description": "5 ML models powering the platform",
+    "title": "09. نماذج الذكاء الاصطناعي الخمسة",
+    "description": "النماذج المسجَّلة في النظام.",
     "speakerNotes": ""
   },
   {
-    "id": "d0a63888-6bf4-48f1-9225-a498b1af5a4d",
+    "id": "97fd010d-304d-484e-a44d-00cb2c77b990",
+    "position": 14,
+    "filepath": "src/pages/slides/SectionCompliance.tsx",
+    "title": "03 — الامتثال والأمان",
+    "description": "فاصل قسم الامتثال.",
+    "speakerNotes": ""
+  },
+  {
+    "id": "1c092145-3514-4a05-a49c-379744478eef",
+    "position": 15,
+    "filepath": "src/pages/slides/BranchesUsers.tsx",
+    "title": "10. الفروع والمستخدمون والإعدادات",
+    "description": "إدارة متعددة الفروع وNCA ECC.",
+    "speakerNotes": ""
+  },
+  {
+    "id": "0de63e9d-bf42-4ef4-ac41-1283175d5405",
+    "position": 16,
+    "filepath": "src/pages/slides/RolesMatrix.tsx",
+    "title": "11. الأدوار وحرّاس الصلاحيات",
+    "description": "ثمانية أدوار وأربعة عشر حارسًا.",
+    "speakerNotes": ""
+  },
+  {
+    "id": "46ddea87-7666-42d3-bb59-80475ca99a90",
+    "position": 17,
+    "filepath": "src/pages/slides/LoyaltyZATCA.tsx",
+    "title": "12. برامج الولاء وعلامة ZATCA",
+    "description": "نقاط ولاء ورمز QR متوافق.",
+    "speakerNotes": ""
+  },
+  {
+    "id": "4a5bfb6f-2de7-4552-a583-4c6832622c9d",
+    "position": 18,
+    "filepath": "src/pages/slides/Intercompany.tsx",
+    "title": "13. المعاملات بين الشركات",
+    "description": "انعكاس تلقائي للفواتير.",
+    "speakerNotes": ""
+  },
+  {
+    "id": "92af62e0-3c82-49dd-9cfe-aee9a0a1561b",
+    "position": 19,
+    "filepath": "src/pages/slides/TransferPricing.tsx",
+    "title": "14. تسعير التحويل والزكاة",
+    "description": "محرّك زكاة وتنبيهات TP.",
+    "speakerNotes": ""
+  },
+  {
+    "id": "63807089-227e-400e-bb6d-c4a0d7cc4a1a",
     "position": 20,
+    "filepath": "src/pages/slides/SectionGrowth.tsx",
+    "title": "04 — النمو والإدارة",
+    "description": "فاصل قسم النمو.",
+    "speakerNotes": ""
+  },
+  {
+    "id": "6d9d1027-7363-41d4-8ecc-fb53db344827",
+    "position": 21,
+    "filepath": "src/pages/slides/Onboarding.tsx",
+    "title": "15. التسجيل والإعداد الموجَّه",
+    "description": "معالج إعداد من 5 خطوات.",
+    "speakerNotes": ""
+  },
+  {
+    "id": "80d74d62-7e9f-46aa-9f33-d94b394f1bce",
+    "position": 22,
+    "filepath": "src/pages/slides/Landing.tsx",
+    "title": "16. صفحة البداية",
+    "description": "صفحة /welcome التسويقية.",
+    "speakerNotes": ""
+  },
+  {
+    "id": "f3df8089-3abd-49b8-b988-75a409352b7e",
+    "position": 23,
+    "filepath": "src/pages/slides/Projects.tsx",
+    "title": "17. المشاريع",
+    "description": "Kanban وميزانيات.",
+    "speakerNotes": ""
+  },
+  {
+    "id": "2dbe7a70-64ee-4450-a814-dc30a1b7321c",
+    "position": 24,
+    "filepath": "src/pages/slides/Marketing.tsx",
+    "title": "18. التسويق",
+    "description": "حملات وقمع Leads.",
+    "speakerNotes": ""
+  },
+  {
+    "id": "b2ec3991-735b-4c2e-91bc-97f5301d6ed9",
+    "position": 25,
+    "filepath": "src/pages/slides/AdminPanel.tsx",
+    "title": "19. لوحة تحكم المدير",
+    "description": "إشراف المنصّة في خمس تبويبات.",
+    "speakerNotes": ""
+  },
+  {
+    "id": "83e1c2b0-5d54-4813-8513-03a6296ba0ab",
+    "position": 26,
+    "filepath": "src/pages/slides/TechStack.tsx",
+    "title": "تقنية النظام",
+    "description": "الأسس التقنية للمنصّة.",
+    "speakerNotes": ""
+  },
+  {
+    "id": "03ad44f5-3527-4c6a-a4ea-a41ad1b43cb6",
+    "position": 27,
     "filepath": "src/pages/slides/Closing.tsx",
     "title": "صفحة الختام",
-    "description": "Thank you + brand sign-off",
+    "description": "خاتمة وشكر.",
     "speakerNotes": ""
   }
 ]
