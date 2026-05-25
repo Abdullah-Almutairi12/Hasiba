@@ -1,0 +1,31 @@
+kind = "slides"
+previewPath = "/features-deck/"
+title = "حاسبة.AI — عرض المميزات"
+version = "1.0.0"
+id = "artifacts/features-deck"
+router = "path"
+
+[[integratedSkills]]
+name = "slides"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/features-deck/" ]
+localPort = 19892
+
+[services.development]
+run = "pnpm --filter @workspace/features-deck run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/features-deck", "run", "build" ]
+publicDir = "artifacts/features-deck/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "19892"
+BASE_PATH = "/features-deck/"
