@@ -1608,6 +1608,8 @@ export interface SystemSettings {
   cleanupReportSubject: string | null;
   /** Optional admin-configured intro paragraph for the cleanup report email body. */
   cleanupReportIntro: string | null;
+  /** Last one-off recipient this admin successfully sent a test cleanup report to. Used to pre-fill the test recipient input. Null when the admin has never sent a test, or explicitly cleared it by sending a test with no recipient (which falls back to their account email). */
+  cleanupReportLastTestRecipient: string | null;
 }
 
 export type PermissionMatrixDefaults = { [key: string]: string[] };

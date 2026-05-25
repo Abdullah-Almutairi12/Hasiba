@@ -786,6 +786,18 @@ function readLastAlertSweep(systemBag: unknown): LastAlertSweep | null {
   return { deleted, retentionDays, source, runAt };
 }
 
+async function readLastCleanupReportTestRecipient(
+  userId: number | undefined,
+): Promise<string | null> {
+  if (!userId) return null;
+  const row = await db
+    .select({ email: usersTable.lastCleanupReportTestEmail })
+    .from(usersTable)
+    .where(eq(usersTable.id, userId))
+    .limit(1);
+  return row[0]?.email ?? null;
+}
+
 router.get("/admin/system-settings", adminOnly, async (req, res) => {
   try {
     const row = await ensureAppSettingsRow();
@@ -822,6 +834,9 @@ router.get("/admin/system-settings", adminOnly, async (req, res) => {
       cleanupReportLastSentAt: cleanupReport.lastSentAt,
       cleanupReportSubject: cleanupReport.subject,
       cleanupReportIntro: cleanupReport.intro,
+      cleanupReportLastTestRecipient: await readLastCleanupReportTestRecipient(
+        req.session.userId,
+      ),
     });
   } catch (err) {
     req.log.error({ err }, "Get system settings failed");
@@ -1256,6 +1271,15 @@ router.post(
           reasonMap[result.reason ?? ""] ?? (result.reason ?? "تعذّر الإرسال");
         return res.status(400).json({ error: msg, reason: result.reason });
       }
+      // Task #194: remember (or clear) the last test recipient per admin so
+      // the input pre-fills on the next page load. When the admin explicitly
+      // left the field empty (i.e. used their account email by default), we
+      // clear any previously-remembered override.
+      const remembered = overrideEmail ? email : null;
+      await db
+        .update(usersTable)
+        .set({ lastCleanupReportTestEmail: remembered })
+        .where(eq(usersTable.id, userId));
       void recordAudit(req, {
         action: "system_settings.cleanup_report_sent_test",
         entity: "alerts_cleanup_runs",

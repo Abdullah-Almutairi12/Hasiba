@@ -1445,7 +1445,9 @@ function CleanupReportEmailCard() {
       },
     },
   });
-  const [testEmail, setTestEmail] = useState("");
+  const rememberedTestEmail = settings?.cleanupReportLastTestRecipient ?? "";
+  const [testEmail, setTestEmail] = useState(rememberedTestEmail);
+  const [testEmailTouched, setTestEmailTouched] = useState(false);
   const [testEmailError, setTestEmailError] = useState<string | null>(null);
   const invalidateSends = () =>
     queryClient.invalidateQueries({
@@ -1457,6 +1459,14 @@ function CleanupReportEmailCard() {
         );
       },
     });
+  // Task #194: pre-fill the test recipient with the last value this admin
+  // successfully sent a test to. Only sync from the server while the admin
+  // hasn't started editing, so we don't fight their typing.
+  useEffect(() => {
+    if (!testEmailTouched) {
+      setTestEmail(rememberedTestEmail);
+    }
+  }, [rememberedTestEmail, testEmailTouched]);
   const sendTestMut = useSendCleanupReportTest({
     mutation: {
       onSuccess: (data) => {
@@ -1464,9 +1474,19 @@ function CleanupReportEmailCard() {
           title: "تم إرسال البريد التجريبي",
           description: `إلى ${data.recipient} (${data.rowCount ?? 0} عملية تنظيف).`,
         });
-        setTestEmail("");
+        // Let the server tell us what was remembered (the override email, or
+        // null if the admin explicitly cleared it) and re-sync from there.
+        setTestEmailTouched(false);
         setTestEmailError(null);
         void invalidateSends();
+        // Task #194: refresh system-settings so the remembered test recipient
+        // (added/cleared by the server) flows back into the input.
+        void queryClient.invalidateQueries({
+          predicate: (q) => {
+            const k = q.queryKey?.[0];
+            return typeof k === "string" && k.includes("/admin/system-settings");
+          },
+        });
       },
       onError: (err: unknown) => {
         void invalidateSends();
@@ -1792,6 +1812,7 @@ function CleanupReportEmailCard() {
                 value={testEmail}
                 onChange={(e) => {
                   setTestEmail(e.target.value);
+                  setTestEmailTouched(true);
                   if (testEmailError) setTestEmailError(null);
                 }}
                 onKeyDown={(e) => {

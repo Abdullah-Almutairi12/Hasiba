@@ -15,6 +15,7 @@ export const usersTable = pgTable("users", {
   has2fa: boolean("has_2fa").notNull().default(false),
   avatarUrl: text("avatar_url"),
   lastLoginAt: timestamp("last_login_at"),
+  lastCleanupReportTestEmail: text("last_cleanup_report_test_email"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
