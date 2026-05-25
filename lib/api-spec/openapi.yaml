@@ -1428,6 +1428,41 @@ paths:
                 items:
                   $ref: "#/components/schemas/AlertsCleanupRun"
 
+  /admin/system-settings/alerts-cleanup-runs.pdf:
+    get:
+      tags: [admin]
+      summary: Download alerts-cleanup history as a PDF
+      description: >-
+        Renders the same rows as the CSV export endpoint as a branded,
+        Arabic-aware, page-numbered PDF. Uses identical `from` / `to`
+        ISO date filters so the Admin Panel's existing range inputs and
+        count preview drive both downloads. Intended for auditors and
+        compliance officers who need a print-friendly document.
+      operationId: exportAlertsCleanupRunsPdf
+      parameters:
+        - name: from
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+      responses:
+        "200":
+          description: PDF file
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        "400":
+          description: Invalid from/to date
+
   /admin/system-settings/alerts-cleanup-runs/count:
     get:
       tags: [admin]

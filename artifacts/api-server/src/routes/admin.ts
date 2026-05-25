@@ -351,6 +351,183 @@ router.get(
   },
 );
 
+// Task #176: PDF export of the same kept history. Mirrors the CSV
+// endpoint's from/to parsing so the Admin Panel's existing date inputs
+// and count preview drive both downloads. Uses the shared Amiri-based
+// Arabic font + branded header / footer helpers, and adds "Page X of Y"
+// in the footer via pdfkit's bufferPages so auditors get a print-ready
+// document.
+router.get(
+  "/admin/system-settings/alerts-cleanup-runs.pdf",
+  adminOnly,
+  async (req, res) => {
+    try {
+      const parseBoundary = (raw: unknown): Date | null => {
+        if (typeof raw !== "string" || raw.trim() === "") return null;
+        const d = new Date(raw);
+        return Number.isNaN(d.getTime()) ? null : d;
+      };
+      const from = parseBoundary(req.query.from);
+      const to = parseBoundary(req.query.to);
+      if ((req.query.from && !from) || (req.query.to && !to)) {
+        return res
+          .status(400)
+          .json({ error: "Invalid 'from' or 'to' date" });
+      }
+      const conds = [] as Array<ReturnType<typeof gte>>;
+      if (from) conds.push(gte(alertsCleanupRunsTable.ranAt, from));
+      if (to) conds.push(lte(alertsCleanupRunsTable.ranAt, to));
+      const rows = await db
+        .select()
+        .from(alertsCleanupRunsTable)
+        .where(conds.length ? and(...conds) : undefined)
+        .orderBy(desc(alertsCleanupRunsTable.ranAt));
+
+      const PDFDocument = (await import("pdfkit")).default;
+      const { registerArabicFonts } = await import(
+        "../lib/pdf/arabic-font"
+      );
+      const { drawBrandedHeader, drawBrandedFooter, loadBrand, BRAND } =
+        await import("../lib/pdf/branding-header");
+      const company = await loadBrand();
+
+      const doc = new PDFDocument({
+        size: "A4",
+        margin: 40,
+        bufferPages: true,
+        info: { Title: "Alerts Cleanup History" },
+      });
+      const filename = `alerts-cleanup-runs-${new Date()
+        .toISOString()
+        .slice(0, 10)}.pdf`;
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="${filename}"`,
+      );
+      doc.pipe(res);
+
+      const { useReg, useBold, T } = registerArabicFonts(
+        doc as unknown as Parameters<typeof registerArabicFonts>[0],
+      );
+      const fmtDate = (d: Date | null) =>
+        d ? d.toISOString().slice(0, 10) : "—";
+      const rangeLabel = T(
+        `النطاق / Range: ${fmtDate(from)} → ${fmtDate(to)}  ·  ${rows.length} تشغيل / runs`,
+      );
+      const startY = drawBrandedHeader(
+        doc as unknown as Parameters<typeof drawBrandedHeader>[0],
+        company,
+        {
+          title: "Alerts Cleanup History  /  سجل تنظيف التنبيهات",
+          subtitle: rangeLabel,
+        },
+      );
+
+      const left = doc.page.margins.left;
+      const right = doc.page.width - doc.page.margins.right;
+      const fullWidth = right - left;
+      const cols = [
+        { w: fullWidth * 0.5, label: "Ran at / وقت التشغيل" },
+        { w: fullWidth * 0.25, label: "Rows deleted / المحذوفات" },
+        { w: fullWidth * 0.25, label: "Retention / الاحتفاظ" },
+      ];
+      const colX = (i: number) =>
+        left + cols.slice(0, i).reduce((s, c) => s + c.w, 0);
+
+      const headerH = 22;
+      const rowH = 18;
+      const tableTop = startY;
+
+      doc.rect(left, tableTop, fullWidth, headerH).fill(BRAND.accent);
+      useBold();
+      doc.fillColor("#ffffff").fontSize(10);
+      cols.forEach((c, i) => {
+        doc.text(T(c.label), colX(i) + 4, tableTop + 6, {
+          width: c.w - 8,
+          align: "center",
+        });
+      });
+      useReg();
+
+      let y = tableTop + headerH;
+      const bottomLimit = doc.page.height - doc.page.margins.bottom - 30;
+      doc.fillColor("#111827").fontSize(9);
+      rows.forEach((r, idx) => {
+        if (y + rowH > bottomLimit) {
+          doc.addPage();
+          y = doc.page.margins.top;
+          doc.rect(left, y, fullWidth, headerH).fill(BRAND.accent);
+          useBold();
+          doc.fillColor("#ffffff").fontSize(10);
+          cols.forEach((c, i) => {
+            doc.text(T(c.label), colX(i) + 4, y + 6, {
+              width: c.w - 8,
+              align: "center",
+            });
+          });
+          useReg();
+          y += headerH;
+          doc.fillColor("#111827").fontSize(9);
+        }
+        if (idx % 2 === 0) {
+          doc.fillColor("#f8fafc").rect(left, y, fullWidth, rowH).fill();
+          doc.fillColor("#111827");
+        }
+        const cells = [
+          r.ranAt.toISOString().replace("T", " ").slice(0, 19),
+          String(r.rowsDeleted),
+          `${r.retentionDays} يوم / days`,
+        ];
+        cells.forEach((cell, i) => {
+          doc.text(T(cell), colX(i) + 4, y + 4, {
+            width: cols[i]!.w - 8,
+            align: "center",
+          });
+        });
+        y += rowH;
+      });
+
+      if (rows.length === 0) {
+        doc
+          .fontSize(11)
+          .fillColor(BRAND.muted)
+          .text(
+            T("لا توجد عمليات تنظيف في هذا النطاق / No cleanup runs in this range."),
+            left,
+            y + 16,
+            { width: fullWidth, align: "center" },
+          );
+      }
+
+      // Page X of Y in the footer using pdfkit's bufferPages.
+      const range = doc.bufferedPageRange();
+      for (let i = 0; i < range.count; i++) {
+        doc.switchToPage(range.start + i);
+        drawBrandedFooter(
+          doc as unknown as Parameters<typeof drawBrandedFooter>[0],
+          company,
+          `Page ${i + 1} of ${range.count}`,
+        );
+      }
+
+      doc.end();
+      return;
+    } catch (err) {
+      req.log.error({ err }, "Alerts cleanup history PDF export failed");
+      if (!res.headersSent) {
+        return res.status(500).json({ error: "Internal server error" });
+      }
+      try {
+        res.end();
+      } catch {
+        /* ignore */
+      }
+      return;
+    }
+  },
+);
+
 // Task #175: lightweight count endpoint mirroring the CSV export's
 // from/to parsing so the Admin Panel can preview how many runs the
 // chosen window will export before downloading.

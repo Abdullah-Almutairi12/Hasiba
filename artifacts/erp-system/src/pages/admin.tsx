@@ -287,13 +287,15 @@ function AlertsCleanupCard() {
   const { data: countData, isFetching: countLoading } =
     useCountAlertsCleanupRuns(csvRange);
   const matchCount = countData?.count;
-  const csvHref = (() => {
+  const baseHref = (suffix: string) => {
     const base =
       (import.meta.env.BASE_URL || "/").replace(/\/$/, "") +
-      "/api/admin/system-settings/alerts-cleanup-runs.csv";
+      `/api/admin/system-settings/alerts-cleanup-runs${suffix}`;
     const qs = new URLSearchParams(csvRange).toString();
     return qs ? `${base}?${qs}` : base;
-  })();
+  };
+  const csvHref = baseHref(".csv");
+  const pdfHref = baseHref(".pdf");
   const maxDeleted = runs.reduce(
     (m, r) => (r.rowsDeleted > m ? r.rowsDeleted : m),
     0,
@@ -344,6 +346,18 @@ function AlertsCleanupCard() {
                 <a href={csvHref} download>
                   <FileDown className="size-3.5" />
                   تصدير CSV
+                </a>
+              </Button>
+              <Button
+                asChild
+                variant="outline"
+                size="sm"
+                className="gap-1.5"
+                data-testid="button-export-alerts-cleanup-pdf"
+              >
+                <a href={pdfHref} download>
+                  <FileDown className="size-3.5" />
+                  تصدير PDF
                 </a>
               </Button>
             </div>

@@ -1571,6 +1571,15 @@ export const GetAlertsCleanupHistoryResponse = zod.array(
 );
 
 /**
+ * Renders the same rows as the CSV export endpoint as a branded, Arabic-aware, page-numbered PDF. Uses identical `from` / `to` ISO date filters so the Admin Panel's existing range inputs and count preview drive both downloads. Intended for auditors and compliance officers who need a print-friendly document.
+ * @summary Download alerts-cleanup history as a PDF
+ */
+export const ExportAlertsCleanupRunsPdfQueryParams = zod.object({
+  from: zod.date().optional(),
+  to: zod.date().optional(),
+});
+
+/**
  * Returns the number of `alerts_cleanup_runs` rows that match the given `from` / `to` ISO date filters (same parsing as the CSV export endpoint). Used by the Admin Panel to preview how many runs the chosen window would export before downloading the CSV.
  * @summary Count alerts-cleanup runs in a date range
  */

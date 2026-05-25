@@ -1841,6 +1841,11 @@ export type ListAuditLogsParams = {
   limit?: number;
 };
 
+export type ExportAlertsCleanupRunsPdfParams = {
+  from?: string;
+  to?: string;
+};
+
 export type CountAlertsCleanupRunsParams = {
   from?: string;
   to?: string;

@@ -99,6 +99,7 @@ import type {
   DismissDashboardAlertBody,
   DismissedAlert,
   ExchangeRate,
+  ExportAlertsCleanupRunsPdfParams,
   FeatureFlag,
   FinancialLimit,
   FiscalPeriod,
@@ -6575,6 +6576,113 @@ export function useGetAlertsCleanupHistory<
   request?: SecondParameter<typeof customFetch>;
 }): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getGetAlertsCleanupHistoryQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * Renders the same rows as the CSV export endpoint as a branded, Arabic-aware, page-numbered PDF. Uses identical `from` / `to` ISO date filters so the Admin Panel's existing range inputs and count preview drive both downloads. Intended for auditors and compliance officers who need a print-friendly document.
+ * @summary Download alerts-cleanup history as a PDF
+ */
+export const getExportAlertsCleanupRunsPdfUrl = (
+  params?: ExportAlertsCleanupRunsPdfParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/admin/system-settings/alerts-cleanup-runs.pdf?${stringifiedParams}`
+    : `/api/admin/system-settings/alerts-cleanup-runs.pdf`;
+};
+
+export const exportAlertsCleanupRunsPdf = async (
+  params?: ExportAlertsCleanupRunsPdfParams,
+  options?: RequestInit,
+): Promise<Blob> => {
+  return customFetch<Blob>(getExportAlertsCleanupRunsPdfUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getExportAlertsCleanupRunsPdfQueryKey = (
+  params?: ExportAlertsCleanupRunsPdfParams,
+) => {
+  return [
+    `/api/admin/system-settings/alerts-cleanup-runs.pdf`,
+    ...(params ? [params] : []),
+  ] as const;
+};
+
+export const getExportAlertsCleanupRunsPdfQueryOptions = <
+  TData = Awaited<ReturnType<typeof exportAlertsCleanupRunsPdf>>,
+  TError = ErrorType<void>,
+>(
+  params?: ExportAlertsCleanupRunsPdfParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof exportAlertsCleanupRunsPdf>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getExportAlertsCleanupRunsPdfQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof exportAlertsCleanupRunsPdf>>
+  > = ({ signal }) =>
+    exportAlertsCleanupRunsPdf(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof exportAlertsCleanupRunsPdf>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ExportAlertsCleanupRunsPdfQueryResult = NonNullable<
+  Awaited<ReturnType<typeof exportAlertsCleanupRunsPdf>>
+>;
+export type ExportAlertsCleanupRunsPdfQueryError = ErrorType<void>;
+
+/**
+ * @summary Download alerts-cleanup history as a PDF
+ */
+
+export function useExportAlertsCleanupRunsPdf<
+  TData = Awaited<ReturnType<typeof exportAlertsCleanupRunsPdf>>,
+  TError = ErrorType<void>,
+>(
+  params?: ExportAlertsCleanupRunsPdfParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof exportAlertsCleanupRunsPdf>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getExportAlertsCleanupRunsPdfQueryOptions(
+    params,
+    options,
+  );
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;
