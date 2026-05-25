@@ -1683,6 +1683,27 @@ paths:
                   alertRetentionDays: { type: integer, nullable: true }
                 required: [ok, alertRetentionDays]
 
+  /admin/system-settings/run-alerts-cleanup:
+    post:
+      tags: [admin]
+      summary: Run the alerts retention sweep immediately (admin only)
+      operationId: runAlertsCleanupNow
+      responses:
+        "200":
+          description: Sweep summary
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  deleted: { type: integer }
+                  retentionDays: { type: integer }
+                  source:
+                    type: string
+                    enum: [db, env, default]
+                required: [ok, deleted, retentionDays, source]
+
   /admin/company-settings:
     get:
       tags: [admin]

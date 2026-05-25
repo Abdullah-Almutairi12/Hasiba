@@ -1865,6 +1865,22 @@ export type UpdateSystemSettings200 = {
   alertRetentionDays: number | null;
 };
 
+export type RunAlertsCleanupNow200Source =
+  (typeof RunAlertsCleanupNow200Source)[keyof typeof RunAlertsCleanupNow200Source];
+
+export const RunAlertsCleanupNow200Source = {
+  db: "db",
+  env: "env",
+  default: "default",
+} as const;
+
+export type RunAlertsCleanupNow200 = {
+  ok: boolean;
+  deleted: number;
+  retentionDays: number;
+  source: RunAlertsCleanupNow200Source;
+};
+
 export type UploadCompanyLogoBodyContentType =
   (typeof UploadCompanyLogoBodyContentType)[keyof typeof UploadCompanyLogoBodyContentType];
 

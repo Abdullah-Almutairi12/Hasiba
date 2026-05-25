@@ -15,6 +15,7 @@ import {
   useUpdateFeatureFlag,
   useGetSystemSettings,
   useUpdateSystemSettings,
+  useRunAlertsCleanupNow,
   useListPermissionMatrix,
   useSetPermissionCell,
   useListAuditLogs,
@@ -89,6 +90,7 @@ import {
   Loader2,
   Send,
   Workflow,
+  PlayCircle,
 } from "lucide-react";
 import { WorkflowTab } from "@/components/workflow-tab";
 import { IntegrationsTab } from "@/components/integrations-tab";
@@ -1084,6 +1086,19 @@ function AlertRetentionCard() {
       },
     },
   });
+  const runCleanupMut = useRunAlertsCleanupNow({
+    mutation: {
+      onSuccess: (data) => {
+        toast({
+          title: "تم تشغيل التنظيف",
+          description: `تم حذف ${data.deleted} تنبيه (المدة ${data.retentionDays} يوم).`,
+        });
+      },
+      onError: () => {
+        toast({ title: "تعذّر تشغيل التنظيف", variant: "destructive" });
+      },
+    },
+  });
 
   const options = [
     { value: "default", label: "افتراضي (90 يوم)" },
@@ -1155,6 +1170,25 @@ function AlertRetentionCard() {
             )}
           </div>
         )}
+        <div className="flex flex-wrap items-center gap-3">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => runCleanupMut.mutate()}
+            disabled={runCleanupMut.isPending || updateMut.isPending}
+            data-testid="button-run-alerts-cleanup"
+          >
+            {runCleanupMut.isPending ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <PlayCircle className="size-4" />
+            )}
+            تشغيل التنظيف الآن
+          </Button>
+          <span className="text-xs text-muted-foreground">
+            لتطبيق المدة الجديدة فوراً بدلاً من انتظار التشغيل الليلي.
+          </span>
+        </div>
       </CardContent>
     </Card>
   );

@@ -21,6 +21,7 @@ import {
 } from "../lib/permission-overrides";
 import { z } from "zod";
 import { adminGuard } from "../middlewares/require-role";
+import { runAlertsCleanup } from "../lib/alerts-cleanup-cron";
 
 const router = Router();
 
@@ -644,6 +645,34 @@ router.patch("/admin/system-settings", adminOnly, async (req, res) => {
       return res.status(400).json({ error: "بيانات غير صحيحة" });
     }
     req.log.error({ err }, "Patch system settings failed");
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Task #166: trigger the nightly alerts retention sweep on demand so admins
+// can verify a retention change immediately instead of waiting for the
+// next nightly run.
+router.post("/admin/system-settings/run-alerts-cleanup", adminOnly, async (req, res) => {
+  try {
+    const summary = await runAlertsCleanup();
+    void recordAudit(req, {
+      action: "system_settings.alert_cleanup_run",
+      entity: "alerts",
+      details: `deleted=${summary.deleted} retentionDays=${summary.retentionDays} source=${summary.source}`,
+      severity: "info",
+    });
+    req.log.info(
+      {
+        userId: req.session?.userId,
+        deleted: summary.deleted,
+        retentionDays: summary.retentionDays,
+        source: summary.source,
+      },
+      "admin.system_settings.alert_cleanup_run",
+    );
+    return res.json({ ok: true, ...summary });
+  } catch (err) {
+    req.log.error({ err }, "Run alerts cleanup failed");
     return res.status(500).json({ error: "Internal server error" });
   }
 });

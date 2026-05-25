@@ -160,6 +160,7 @@ import type {
   ReverseJournalEntry200,
   ReverseJournalEntryBody,
   Role,
+  RunAlertsCleanupNow200,
   SalesChartPoint,
   SalesReport,
   SecurityChecklist,
@@ -7505,6 +7506,87 @@ export const useUpdateSystemSettings = <
   TContext
 > => {
   return useMutation(getUpdateSystemSettingsMutationOptions(options));
+};
+
+/**
+ * @summary Run the alerts retention sweep immediately (admin only)
+ */
+export const getRunAlertsCleanupNowUrl = () => {
+  return `/api/admin/system-settings/run-alerts-cleanup`;
+};
+
+export const runAlertsCleanupNow = async (
+  options?: RequestInit,
+): Promise<RunAlertsCleanupNow200> => {
+  return customFetch<RunAlertsCleanupNow200>(getRunAlertsCleanupNowUrl(), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getRunAlertsCleanupNowMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof runAlertsCleanupNow>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof runAlertsCleanupNow>>,
+  TError,
+  void,
+  TContext
+> => {
+  const mutationKey = ["runAlertsCleanupNow"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof runAlertsCleanupNow>>,
+    void
+  > = () => {
+    return runAlertsCleanupNow(requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RunAlertsCleanupNowMutationResult = NonNullable<
+  Awaited<ReturnType<typeof runAlertsCleanupNow>>
+>;
+
+export type RunAlertsCleanupNowMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Run the alerts retention sweep immediately (admin only)
+ */
+export const useRunAlertsCleanupNow = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof runAlertsCleanupNow>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof runAlertsCleanupNow>>,
+  TError,
+  void,
+  TContext
+> => {
+  return useMutation(getRunAlertsCleanupNowMutationOptions(options));
 };
 
 /**

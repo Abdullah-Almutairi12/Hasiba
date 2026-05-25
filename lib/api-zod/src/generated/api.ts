@@ -1770,6 +1770,16 @@ export const UpdateSystemSettingsResponse = zod.object({
 });
 
 /**
+ * @summary Run the alerts retention sweep immediately (admin only)
+ */
+export const RunAlertsCleanupNowResponse = zod.object({
+  ok: zod.boolean(),
+  deleted: zod.number(),
+  retentionDays: zod.number(),
+  source: zod.enum(["db", "env", "default"]),
+});
+
+/**
  * @summary Get company letterhead, bank and PO terms (admin only)
  */
 export const GetCompanySettingsResponse = zod.object({
