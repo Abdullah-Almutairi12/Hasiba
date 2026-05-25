@@ -289,6 +289,28 @@ router.get("/admin/alerts-cleanup/last", adminOnly, async (req, res) => {
   }
 });
 
+// Task #164: surface a short history (~14 most recent runs) so the
+// Admin Panel can render a sparkline / bar chart of nightly sweeps.
+router.get("/admin/alerts-cleanup/history", adminOnly, async (req, res) => {
+  try {
+    const rows = await db
+      .select()
+      .from(alertsCleanupRunsTable)
+      .orderBy(desc(alertsCleanupRunsTable.ranAt))
+      .limit(14);
+    return res.json(
+      rows.map((r) => ({
+        ranAt: r.ranAt.toISOString(),
+        rowsDeleted: r.rowsDeleted,
+        retentionDays: r.retentionDays,
+      })),
+    );
+  } catch (err) {
+    req.log.error({ err }, "Alerts cleanup history lookup failed");
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 // ============== Tickets ==============
 function serializeTicket(t: typeof supportTicketsTable.$inferSelect) {
   return {

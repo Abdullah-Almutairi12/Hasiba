@@ -1408,6 +1408,26 @@ paths:
               schema:
                 $ref: "#/components/schemas/AlertsCleanupLastRun"
 
+  /admin/alerts-cleanup/history:
+    get:
+      tags: [admin]
+      summary: Recent nightly alerts-cleanup sweeps
+      description: >-
+        Returns up to the last 14 rows from `alerts_cleanup_runs` so the
+        Admin Panel can render a short history (sparkline / bar chart) of
+        nightly retention sweeps. Newest first. Empty array if the cron
+        has not run yet.
+      operationId: getAlertsCleanupHistory
+      responses:
+        "200":
+          description: Recent sweep history
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AlertsCleanupRun"
+
   /admin/tickets:
     get:
       tags: [admin]
@@ -4384,6 +4404,20 @@ components:
           type: integer
           description: Retention window in days that was in effect for that run (or the currently-configured window when no run has happened yet).
       required: [lastRunAt, rowsDeleted, retentionDays]
+
+    AlertsCleanupRun:
+      type: object
+      properties:
+        ranAt:
+          type: string
+          description: ISO timestamp of when this sweep ran.
+        rowsDeleted:
+          type: integer
+          description: How many read alerts were deleted in this sweep.
+        retentionDays:
+          type: integer
+          description: Retention window in days that was in effect for this run.
+      required: [ranAt, rowsDeleted, retentionDays]
 
     AdminSystemHealth:
       type: object

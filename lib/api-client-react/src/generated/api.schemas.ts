@@ -1368,6 +1368,15 @@ export interface AlertsCleanupLastRun {
   retentionDays: number;
 }
 
+export interface AlertsCleanupRun {
+  /** ISO timestamp of when this sweep ran. */
+  ranAt: string;
+  /** How many read alerts were deleted in this sweep. */
+  rowsDeleted: number;
+  /** Retention window in days that was in effect for this run. */
+  retentionDays: number;
+}
+
 export interface AdminSystemHealth {
   databaseOk: boolean;
   databaseLatencyMs: number;

@@ -32,6 +32,8 @@ const FIRST_RUN_DELAY_MS = 150_000;
 const DEFAULT_RETENTION_DAYS = 90;
 const MIN_RETENTION_DAYS = 7;
 const MAX_RETENTION_DAYS = 3650;
+// Task #164: keep ~1 year of nightly audit rows in alerts_cleanup_runs.
+const AUDIT_KEEP = 365;
 
 export interface AlertsSweepSummary {
   deleted: number;
@@ -149,6 +151,26 @@ export async function runAlertsCleanup(): Promise<AlertsSweepSummary> {
       logger.error(
         { err },
         "alerts cleanup: failed to record run in alerts_cleanup_runs",
+      );
+    }
+    // Task #164: cap the audit table itself so it doesn't grow forever.
+    // Keep the most recent AUDIT_KEEP rows (~1 year of nightly runs).
+    try {
+      await pool.query(
+        `
+        DELETE FROM alerts_cleanup_runs
+         WHERE id IN (
+           SELECT id FROM alerts_cleanup_runs
+           ORDER BY ran_at DESC
+           OFFSET $1::int
+         )
+        `,
+        [AUDIT_KEEP],
+      );
+    } catch (err) {
+      logger.warn(
+        { err },
+        "alerts cleanup: failed to trim alerts_cleanup_runs audit history",
       );
     }
   } catch (err) {

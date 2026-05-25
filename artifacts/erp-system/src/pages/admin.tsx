@@ -5,6 +5,7 @@ import {
   useGetAdminStats,
   useGetAdminSystemHealth,
   useGetAlertsCleanupLastRun,
+  useGetAlertsCleanupHistory,
   useListSupportTickets,
   useCreateSupportTicket,
   useUpdateSupportTicket,
@@ -261,9 +262,17 @@ function InvoiceSendFailuresCard() {
 
 function AlertsCleanupCard() {
   const { data } = useGetAlertsCleanupLastRun();
+  const { data: history } = useGetAlertsCleanupHistory();
   const lastRunAt = data?.lastRunAt
     ? new Date(data.lastRunAt).toLocaleString("ar-SA")
     : null;
+  const runs = history ?? [];
+  const maxDeleted = runs.reduce(
+    (m, r) => (r.rowsDeleted > m ? r.rowsDeleted : m),
+    0,
+  );
+  // Render oldest → newest so the bars read left-to-right in time order.
+  const chronological = [...runs].reverse();
   return (
     <Card data-testid="card-alerts-cleanup">
       <CardHeader>
@@ -300,6 +309,39 @@ function AlertsCleanupCard() {
             {data?.retentionDays ?? 90} يوم
           </Badge>
         </div>
+        {chronological.length > 0 && (
+          <div
+            className="space-y-1.5 pt-1"
+            data-testid="alerts-cleanup-history"
+          >
+            <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+              <span>آخر {chronological.length} تشغيل</span>
+              <span className="tabular-nums">
+                الذروة: {maxDeleted.toLocaleString("ar-SA")}
+              </span>
+            </div>
+            <div
+              className="flex h-12 items-end gap-0.5"
+              dir="ltr"
+              aria-label="سجل آخر عمليات التنظيف"
+            >
+              {chronological.map((r, i) => {
+                const pct =
+                  maxDeleted > 0 ? (r.rowsDeleted / maxDeleted) * 100 : 0;
+                const ranAt = new Date(r.ranAt).toLocaleString("ar-SA");
+                return (
+                  <div
+                    key={`${r.ranAt}-${i}`}
+                    className="flex-1 rounded-sm bg-primary/70 transition-colors hover:bg-primary"
+                    style={{ height: `${Math.max(pct, 4)}%` }}
+                    title={`${ranAt} — حُذف ${r.rowsDeleted}`}
+                    data-testid={`alerts-cleanup-history-bar-${i}`}
+                  />
+                );
+              })}
+            </div>
+          </div>
+        )}
         <p className="text-[11px] text-muted-foreground">
           يحذف التنبيهات المقروءة الأقدم من نافذة الاحتفاظ كل ليلة.
         </p>

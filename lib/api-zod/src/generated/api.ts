@@ -1554,6 +1554,23 @@ export const GetAlertsCleanupLastRunResponse = zod.object({
 });
 
 /**
+ * Returns up to the last 14 rows from `alerts_cleanup_runs` so the Admin Panel can render a short history (sparkline / bar chart) of nightly retention sweeps. Newest first. Empty array if the cron has not run yet.
+ * @summary Recent nightly alerts-cleanup sweeps
+ */
+export const GetAlertsCleanupHistoryResponseItem = zod.object({
+  ranAt: zod.string().describe("ISO timestamp of when this sweep ran."),
+  rowsDeleted: zod
+    .number()
+    .describe("How many read alerts were deleted in this sweep."),
+  retentionDays: zod
+    .number()
+    .describe("Retention window in days that was in effect for this run."),
+});
+export const GetAlertsCleanupHistoryResponse = zod.array(
+  GetAlertsCleanupHistoryResponseItem,
+);
+
+/**
  * @summary List support tickets
  */
 export const ListSupportTicketsQueryParams = zod.object({

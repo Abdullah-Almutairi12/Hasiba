@@ -27,6 +27,7 @@ import type {
   AiReportSummary,
   Alert,
   AlertsCleanupLastRun,
+  AlertsCleanupRun,
   Announcement,
   AnomalyEvent,
   AnomalyRule,
@@ -6495,6 +6496,83 @@ export function useGetAlertsCleanupLastRun<
   request?: SecondParameter<typeof customFetch>;
 }): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getGetAlertsCleanupLastRunQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * Returns up to the last 14 rows from `alerts_cleanup_runs` so the Admin Panel can render a short history (sparkline / bar chart) of nightly retention sweeps. Newest first. Empty array if the cron has not run yet.
+ * @summary Recent nightly alerts-cleanup sweeps
+ */
+export const getGetAlertsCleanupHistoryUrl = () => {
+  return `/api/admin/alerts-cleanup/history`;
+};
+
+export const getAlertsCleanupHistory = async (
+  options?: RequestInit,
+): Promise<AlertsCleanupRun[]> => {
+  return customFetch<AlertsCleanupRun[]>(getGetAlertsCleanupHistoryUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetAlertsCleanupHistoryQueryKey = () => {
+  return [`/api/admin/alerts-cleanup/history`] as const;
+};
+
+export const getGetAlertsCleanupHistoryQueryOptions = <
+  TData = Awaited<ReturnType<typeof getAlertsCleanupHistory>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getAlertsCleanupHistory>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetAlertsCleanupHistoryQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getAlertsCleanupHistory>>
+  > = ({ signal }) => getAlertsCleanupHistory({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getAlertsCleanupHistory>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetAlertsCleanupHistoryQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getAlertsCleanupHistory>>
+>;
+export type GetAlertsCleanupHistoryQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Recent nightly alerts-cleanup sweeps
+ */
+
+export function useGetAlertsCleanupHistory<
+  TData = Awaited<ReturnType<typeof getAlertsCleanupHistory>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getAlertsCleanupHistory>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetAlertsCleanupHistoryQueryOptions(options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;
