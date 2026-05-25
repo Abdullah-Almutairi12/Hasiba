@@ -557,6 +557,13 @@ function OverviewTab() {
           hint="تحتاج مراجعة المدير"
           tone={stats && stats.failedInvoiceSends > 0 ? "warn" : "default"}
         />
+        <StatCard
+          icon={AlertTriangle}
+          label="رسائل بريد مرتدّة"
+          value={stats?.bouncedEmails ?? "—"}
+          hint="خلال آخر 30 يوماً (كل الإرسالات)"
+          tone={stats && stats.bouncedEmails > 0 ? "warn" : "default"}
+        />
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">

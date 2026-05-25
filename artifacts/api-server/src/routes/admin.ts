@@ -86,6 +86,36 @@ router.get("/admin/stats", adminOnly, async (req, res) => {
       })
       .from(alertsTable);
 
+    // Task #208: system-wide count of bounced outgoing emails in the
+    // last 30 days, summed across every send-tracking table that now
+    // carries a per-recipient delivery_status. The cleanup-report side
+    // counts recipient rows (multi-recipient table). The sales /
+    // procurement outboxes are 1-recipient-per-row so each row counts
+    // for itself. Surfaced as the "البريد المرتد" alert tile.
+    const bouncedResult = await db.execute<{ bounced: number }>(sql`
+      SELECT (
+        COALESCE((
+          SELECT count(*) FROM sales_email_outbox
+           WHERE delivery_status = 'bounced'
+             AND created_at > now() - INTERVAL '30 days'
+        ), 0) +
+        COALESCE((
+          SELECT count(*) FROM procurement_email_outbox
+           WHERE delivery_status = 'bounced'
+             AND created_at > now() - INTERVAL '30 days'
+        ), 0) +
+        COALESCE((
+          SELECT count(*) FROM cleanup_report_send_recipients
+           WHERE status = 'bounced'
+             AND updated_at > now() - INTERVAL '30 days'
+        ), 0)
+      )::int AS bounced;
+    `);
+    const bouncedRows =
+      (bouncedResult as unknown as { rows?: Array<{ bounced: number }> }).rows ??
+      (bouncedResult as unknown as Array<{ bounced: number }>);
+    const bouncedEmails = Number(bouncedRows?.[0]?.bounced ?? 0);
+
     res.json({
       openTickets: Number(tStats.openTickets),
       criticalTickets: Number(tStats.criticalTickets),
@@ -96,6 +126,7 @@ router.get("/admin/stats", adminOnly, async (req, res) => {
       enabledFeatures: Number(fStats.enabledFeatures),
       totalFeatures: Number(fStats.totalFeatures),
       failedInvoiceSends: Number(iStats.failedInvoiceSends),
+      bouncedEmails,
     });
   } catch (err) {
     req.log.error({ err }, "Admin stats failed");

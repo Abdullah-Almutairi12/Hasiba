@@ -16,6 +16,19 @@ export type MailMessage = {
   attachments?: MailAttachment[];
 };
 
+export type RecipientDeliveryStatus =
+  | "delivered"
+  | "bounced"
+  | "pending"
+  | "deferred";
+
+export interface RecipientStatusRow {
+  email: string;
+  status: RecipientDeliveryStatus;
+  reason: string | null;
+  deliveredAt: Date | null;
+}
+
 export type MailDispatchResult =
   | {
       sent: true;
@@ -123,4 +136,61 @@ export async function sendMail(msg: MailMessage): Promise<MailDispatchResult> {
     logger.error({ err, to: msg.to }, "mail.send_failed");
     return { sent: false, reason };
   }
+}
+
+/**
+ * Task #208 — generic per-recipient delivery status helper.
+ *
+ * Given the dispatch result from `sendMail` and the list of recipient
+ * addresses we tried to send to, return a `{email, status, reason,
+ * deliveredAt}` row per recipient. Used by every `sendMail` call site
+ * that persists a send record (cleanup-report, sales invoice / quotation
+ * outbox, procurement PO outbox, …) so admins get the same bounce
+ * visibility everywhere — not just the cleanup-report case where it
+ * shipped first.
+ *
+ * Semantics mirror the inline logic that used to live in
+ * `recordSendAttempt` for the cleanup report:
+ *   - dispatch failed entirely → every recipient is `bounced` with
+ *     the SMTP error as the reason. This is the SAME failure-handling
+ *     the cleanup-report path used, kept here so all outboxes agree.
+ *   - dispatch succeeded:
+ *       rejected[]  → 'bounced'  (reason='smtp_rejected')
+ *       accepted[]  → 'delivered' (deliveredAt=now)
+ *       pending[]   → 'pending'
+ *       not in any  → 'pending'   (relay accepted without telling us
+ *                                   per-recipient — typical for SMTP
+ *                                   relays that fan out async; a later
+ *                                   bounce webhook will flip the row).
+ */
+export function recipientStatusesFromDispatch(
+  dispatch: MailDispatchResult,
+  recipients: string[],
+): RecipientStatusRow[] {
+  if (!dispatch.sent) {
+    const reason = dispatch.reason ?? "send_failed";
+    return recipients.map((email) => ({
+      email,
+      status: "bounced",
+      reason,
+      deliveredAt: null,
+    }));
+  }
+  const accepted = new Set(dispatch.accepted.map((e) => e.toLowerCase()));
+  const rejected = new Set(dispatch.rejected.map((e) => e.toLowerCase()));
+  const pending = new Set(dispatch.pending.map((e) => e.toLowerCase()));
+  const now = new Date();
+  return recipients.map((email) => {
+    const key = email.trim().toLowerCase();
+    if (rejected.has(key)) {
+      return { email, status: "bounced", reason: "smtp_rejected", deliveredAt: null };
+    }
+    if (accepted.has(key)) {
+      return { email, status: "delivered", reason: null, deliveredAt: now };
+    }
+    if (pending.has(key)) {
+      return { email, status: "pending", reason: null, deliveredAt: null };
+    }
+    return { email, status: "pending", reason: null, deliveredAt: null };
+  });
 }

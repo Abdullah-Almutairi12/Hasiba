@@ -39,7 +39,12 @@ import {
   cleanupReportSendRecipientsTable,
 } from "@workspace/db";
 import { logger } from "./logger";
-import { sendMail, isMailerConfigured } from "./mailer";
+import {
+  sendMail,
+  isMailerConfigured,
+  recipientStatusesFromDispatch,
+  type MailDispatchResult,
+} from "./mailer";
 import { buildAlertsCleanupPdf } from "./alerts-cleanup-pdf";
 import { loadComplianceReportSummary } from "./compliance/report-section";
 
@@ -57,17 +62,13 @@ async function recordSendAttempt(row: {
   windowTo: Date | null;
   messageId?: string | null;
   /**
-   * Task #204 — per-recipient SMTP envelope when the send succeeded.
-   * Addresses are matched case-insensitively against `recipients`.
-   * Anything in `recipients` that's NOT in any of these three buckets
-   * is recorded as `pending` (the SMTP transport didn't tell us
-   * either way — typical for relays that accept and forward).
+   * Task #204 / #208 — full dispatch result from `sendMail`. Per-
+   * recipient delivery rows are derived via the shared
+   * `recipientStatusesFromDispatch` helper so cleanup-report,
+   * sales-invoice and procurement-PO sends all agree on what
+   * "delivered" / "bounced" / "pending" means.
    */
-  envelope?: {
-    accepted: string[];
-    rejected: string[];
-    pending: string[];
-  } | null;
+  dispatch?: MailDispatchResult | null;
 }): Promise<void> {
   try {
     const [inserted] = await db
@@ -87,47 +88,33 @@ async function recordSendAttempt(row: {
       })
       .returning({ id: cleanupReportSendsTable.id });
     if (!inserted || row.recipients.length === 0) return;
-    const accepted = new Set(
-      (row.envelope?.accepted ?? []).map((e) => e.toLowerCase()),
-    );
-    const rejected = new Set(
-      (row.envelope?.rejected ?? []).map((e) => e.toLowerCase()),
-    );
-    const pending = new Set(
-      (row.envelope?.pending ?? []).map((e) => e.toLowerCase()),
-    );
+    // Build a synthetic failure dispatch when no real one is available
+    // (e.g. mailer not configured / no recipients pre-check) so the
+    // shared helper still produces the right "bounced" rows.
+    const dispatch: MailDispatchResult =
+      row.dispatch ??
+      (row.status === "failure"
+        ? { sent: false, reason: row.failureReason ?? "send_failed" }
+        : {
+            sent: true,
+            provider: "smtp",
+            messageId: row.messageId ?? "",
+            accepted: [],
+            rejected: [],
+            pending: [],
+          });
+    const statuses = recipientStatusesFromDispatch(dispatch, row.recipients);
     const now = new Date();
-    const perRecipientRows = row.recipients.map((email) => {
-      const key = email.trim().toLowerCase();
-      let status: "delivered" | "bounced" | "pending" = "pending";
-      let reason: string | null = null;
-      let deliveredAt: Date | null = null;
-      if (row.status === "failure") {
-        status = "bounced";
-        reason = row.failureReason;
-      } else if (rejected.has(key)) {
-        status = "bounced";
-        reason = "smtp_rejected";
-      } else if (accepted.has(key)) {
-        status = "delivered";
-        deliveredAt = now;
-      } else if (pending.has(key)) {
-        status = "pending";
-      } else {
-        // No envelope info — assume the relay accepted it but we
-        // can't prove delivery without a webhook event.
-        status = "pending";
-      }
-      return {
+    await db.insert(cleanupReportSendRecipientsTable).values(
+      statuses.map((s) => ({
         sendId: inserted.id,
-        email,
-        status,
-        reason,
-        deliveredAt,
+        email: s.email,
+        status: s.status,
+        reason: s.reason,
+        deliveredAt: s.deliveredAt,
         updatedAt: now,
-      };
-    });
-    await db.insert(cleanupReportSendRecipientsTable).values(perRecipientRows);
+      })),
+    );
   } catch (err) {
     logger.warn({ err }, "cleanup report: failed to record send attempt");
   }
@@ -459,11 +446,7 @@ export async function sendCleanupReportEmail(opts: {
     windowFrom: from,
     windowTo: to,
     messageId: result.messageId,
-    envelope: {
-      accepted: result.accepted,
-      rejected: result.rejected,
-      pending: result.pending,
-    },
+    dispatch: result,
   });
   logger.info(
     {

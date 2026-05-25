@@ -4894,7 +4894,14 @@ components:
         failedInvoiceSends:
           type: integer
           description: Count of unresolved (unread) "invoice send failure" alerts.
-      required: [openTickets, criticalTickets, resolvedToday, activeUsers, totalUsers, activeAnnouncements, enabledFeatures, totalFeatures, failedInvoiceSends]
+        bouncedEmails:
+          type: integer
+          description: |
+            System-wide count of outbound emails whose per-recipient
+            delivery status is `bounced` in the last 30 days
+            (sales / procurement outboxes + cleanup-report recipients).
+            Task #208.
+      required: [openTickets, criticalTickets, resolvedToday, activeUsers, totalUsers, activeAnnouncements, enabledFeatures, totalFeatures, failedInvoiceSends, bouncedEmails]
 
     InvoiceSendFailure:
       type: object

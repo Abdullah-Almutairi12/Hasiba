@@ -7,7 +7,12 @@ import {
 } from "@workspace/db";
 import { eq, sql } from "drizzle-orm";
 import { logger } from "./logger";
-import { sendMail, isMailerConfigured } from "./mailer";
+import {
+  sendMail,
+  isMailerConfigured,
+  recipientStatusesFromDispatch,
+  type MailDispatchResult,
+} from "./mailer";
 import {
   renderCustomerInvoicePdfById,
   renderQuotationEmailById,
@@ -73,31 +78,50 @@ async function recordAttempt(parent: QueuedRow, opts: {
   status: "sent" | "failed";
   error: string | null;
   sent: boolean;
+  dispatch?: MailDispatchResult | null;
 }): Promise<void> {
+  // Task #208: derive per-recipient delivery row for this attempt so
+  // the audit child also carries delivery_status / message_id, and the
+  // bounce webhook can resolve to either parent or child by message_id.
+  const dispatch: MailDispatchResult =
+    opts.dispatch ??
+    (opts.sent
+      ? { sent: true, provider: "smtp", messageId: "", accepted: [parent.recipient], rejected: [], pending: [] }
+      : { sent: false, reason: opts.error ?? "send_failed" });
+  const [delivery] = recipientStatusesFromDispatch(dispatch, [parent.recipient]);
+  const messageId = dispatch.sent ? dispatch.messageId : null;
   try {
     if (parent.kind === "purchase_order") {
       await db.execute(sql`
         INSERT INTO procurement_email_outbox
           (kind, ref_id, reference, recipient, subject, body,
            attachment_filename, status, error, created_by, sent_at,
-           retry_of, attempts)
+           retry_of, attempts,
+           message_id, delivery_status, delivery_reason, delivered_at)
         VALUES ('purchase_order', ${parent.refId}, ${parent.reference},
                 ${parent.recipient}, ${parent.subject}, ${parent.body},
                 ${`PO-${parent.reference}.pdf`},
                 ${opts.status}, ${opts.error}, null,
                 ${opts.sent ? sql`now()` : sql`null`},
-                ${parent.id}, 0);
+                ${parent.id}, 0,
+                ${messageId}, ${delivery?.status ?? "pending"},
+                ${delivery?.reason ?? null},
+                ${delivery?.deliveredAt ?? null});
       `);
     } else {
       await db.execute(sql`
         INSERT INTO sales_email_outbox
           (kind, ref_id, reference, recipient, subject, body, status, error,
-           created_by, sent_at, retry_of, attempts)
+           created_by, sent_at, retry_of, attempts,
+           message_id, delivery_status, delivery_reason, delivered_at)
         VALUES (${parent.kind}, ${parent.refId}, ${parent.reference},
                 ${parent.recipient}, ${parent.subject}, ${parent.body},
                 ${opts.status}, ${opts.error}, null,
                 ${opts.sent ? sql`now()` : sql`null`},
-                ${parent.id}, 0);
+                ${parent.id}, 0,
+                ${messageId}, ${delivery?.status ?? "pending"},
+                ${delivery?.reason ?? null},
+                ${delivery?.deliveredAt ?? null});
       `);
     }
   } catch (err) {
@@ -188,7 +212,17 @@ async function markParentFailure(row: QueuedRow, opts: {
 // Flip the parent row to 'sent' AND stamp the parent document's
 // sent_at/email so the rest of the UI (lists, detail screens) reflects
 // successful delivery the same way the foreground /send endpoints do.
-async function markParentSent(row: QueuedRow, attemptsAfter: number): Promise<void> {
+async function markParentSent(
+  row: QueuedRow,
+  attemptsAfter: number,
+  dispatch: MailDispatchResult,
+): Promise<void> {
+  // Task #208: a successful retry should also flip the parent row's
+  // delivery_status to whatever the SMTP envelope reports for this
+  // address, and record the new message_id so future webhook events
+  // can resolve back to the parent.
+  const [delivery] = recipientStatusesFromDispatch(dispatch, [row.recipient]);
+  const messageId = dispatch.sent ? dispatch.messageId : null;
   await db.transaction(async (tx) => {
     if (row.kind === "purchase_order") {
       await tx.execute(sql`
@@ -197,7 +231,11 @@ async function markParentSent(row: QueuedRow, attemptsAfter: number): Promise<vo
                error = null,
                attempts = ${attemptsAfter},
                sent_at = now(),
-               next_retry_at = null
+               next_retry_at = null,
+               message_id = ${messageId},
+               delivery_status = ${delivery?.status ?? "pending"},
+               delivery_reason = ${delivery?.reason ?? null},
+               delivered_at = ${delivery?.deliveredAt ?? null}
          WHERE id = ${row.id};
       `);
       await tx
@@ -215,7 +253,11 @@ async function markParentSent(row: QueuedRow, attemptsAfter: number): Promise<vo
              error = null,
              attempts = ${attemptsAfter},
              sent_at = now(),
-             next_retry_at = null
+             next_retry_at = null,
+             message_id = ${messageId},
+             delivery_status = ${delivery?.status ?? "pending"},
+             delivery_reason = ${delivery?.reason ?? null},
+             delivered_at = ${delivery?.deliveredAt ?? null}
        WHERE id = ${row.id};
     `);
     if (row.kind === "invoice") {
@@ -317,8 +359,8 @@ async function processOne(row: QueuedRow): Promise<void> {
   });
 
   if (dispatch.sent) {
-    await recordAttempt(row, { status: "sent", error: null, sent: true });
-    await markParentSent(row, attemptsAfter);
+    await recordAttempt(row, { status: "sent", error: null, sent: true, dispatch });
+    await markParentSent(row, attemptsAfter, dispatch);
     logger.info(
       { outboxId: row.id, kind: row.kind, refId: row.refId, attempts: attemptsAfter },
       "email_retry.sent",

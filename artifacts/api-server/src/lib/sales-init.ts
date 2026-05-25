@@ -456,6 +456,19 @@ export async function initSales(): Promise<void> {
       ON sales_email_outbox (status, kind, next_retry_at);
     CREATE INDEX IF NOT EXISTS sales_email_outbox_retry_of_idx
       ON sales_email_outbox (retry_of);
+    -- Task #208: per-recipient delivery tracking. message_id is the
+    -- SMTP id captured at submission so an inbound bounce webhook can
+    -- match this exact send back to its outbox row. delivery_status is
+    -- 'pending' until the SMTP transport (or a later webhook) tells us
+    -- the real outcome — 'delivered' / 'bounced' / 'deferred'.
+    ALTER TABLE sales_email_outbox ADD COLUMN IF NOT EXISTS message_id text;
+    ALTER TABLE sales_email_outbox ADD COLUMN IF NOT EXISTS delivery_status text NOT NULL DEFAULT 'pending';
+    ALTER TABLE sales_email_outbox ADD COLUMN IF NOT EXISTS delivery_reason text;
+    ALTER TABLE sales_email_outbox ADD COLUMN IF NOT EXISTS delivered_at timestamp;
+    CREATE INDEX IF NOT EXISTS sales_email_outbox_message_id_idx
+      ON sales_email_outbox (message_id);
+    CREATE INDEX IF NOT EXISTS sales_email_outbox_delivery_status_idx
+      ON sales_email_outbox (delivery_status);
     -- Multi-Company Phase 1: nullable tenant scoping column. Becomes
     -- NOT NULL in Phase 2 once route handlers stamp it on insert.
     ALTER TABLE sales_email_outbox ADD COLUMN IF NOT EXISTS company_id integer

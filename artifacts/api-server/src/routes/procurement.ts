@@ -41,7 +41,11 @@ import {
 } from "../lib/workflow-engine";
 import { logger } from "../lib/logger";
 import { sendMessage } from "../lib/integrations/messaging";
-import { sendMail, isMailerConfigured } from "../lib/mailer";
+import {
+  sendMail,
+  isMailerConfigured,
+  recipientStatusesFromDispatch,
+} from "../lib/mailer";
 import { buildPurchaseOrderPdf, getCompanyInfo } from "../lib/pdf/purchase-order";
 
 const router = Router();
@@ -1485,6 +1489,9 @@ export async function dispatchPurchaseOrder(opts: {
 
   const outboxStatus = dispatch.sent ? "sent" : "failed";
   const errorMsg = dispatch.sent ? null : dispatch.reason ?? "delivery failed";
+  // Task #208
+  const [delivery] = recipientStatusesFromDispatch(dispatch, [recipient]);
+  const messageId = dispatch.sent ? dispatch.messageId : null;
 
   // Insert the outbox row (always, regardless of success) and — only when
   // the dispatch actually went out — stamp the convenience fields on the PO
@@ -1494,12 +1501,16 @@ export async function dispatchPurchaseOrder(opts: {
       INSERT INTO procurement_email_outbox
         (kind, ref_id, reference, recipient, subject, body,
          attachment_filename, status, error, created_by, sent_at,
-         retry_of, attempts)
+         retry_of, attempts,
+         message_id, delivery_status, delivery_reason, delivered_at)
       VALUES ('purchase_order', ${po.id}, ${po.reference}, ${recipient},
               ${subject}, ${emailBody}, ${attachmentFilename},
               ${outboxStatus}, ${errorMsg}, ${opts.userId},
               ${dispatch.sent ? sql`now()` : sql`null`},
-              ${opts.retryOf ?? null}, 0)
+              ${opts.retryOf ?? null}, 0,
+              ${messageId}, ${delivery?.status ?? "pending"},
+              ${delivery?.reason ?? null},
+              ${delivery?.deliveredAt ?? null})
       RETURNING id;
     `);
     const rows = (inserted as unknown as { rows?: Array<Record<string, unknown>> }).rows

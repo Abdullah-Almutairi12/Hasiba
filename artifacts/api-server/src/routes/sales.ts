@@ -56,7 +56,11 @@ import { sendByTemplate } from "../lib/integrations/messaging-templates";
 import { buildSignedInvoiceQrPath } from "./integrations";
 import { recordStockMove, getDefaultWarehouseId } from "../lib/stock-engine";
 import { mirrorSalesInvoice, mirrorCreditNote, voidMirrorForSourceTx } from "../lib/intercompany-mirror";
-import { sendMail, isMailerConfigured } from "../lib/mailer";
+import {
+  sendMail,
+  isMailerConfigured,
+  recipientStatusesFromDispatch,
+} from "../lib/mailer";
 import { MAX_ATTEMPTS as INVOICE_EMAIL_MAX_ATTEMPTS } from "../lib/invoice-email-retry-worker";
 import { warehousesTable as _warehousesTable } from "@workspace/db";
 import {
@@ -1974,14 +1978,22 @@ router.post("/sales/invoices/:id/send", financeGuard, async (req, res) => {
       // only sweeps `failed` invoice rows where retry_of IS NULL.
       const outboxStatus = dispatch.sent ? "sent" : "failed";
       const errorMsg = dispatch.sent ? null : dispatch.reason ?? "delivery failed";
+      // Task #208: per-recipient delivery status + SMTP message_id so
+      // the inbound bounce webhook can resolve this exact send back.
+      const [delivery] = recipientStatusesFromDispatch(dispatch, [recipient]);
+      const messageId = dispatch.sent ? dispatch.messageId : null;
       const inserted = await db.execute(sql`
         INSERT INTO sales_email_outbox
           (kind, ref_id, reference, recipient, subject, body, status, error,
-           created_by, sent_at)
+           created_by, sent_at,
+           message_id, delivery_status, delivery_reason, delivered_at)
         VALUES ('invoice', ${head.id}, ${head.reference}, ${recipient}, ${subject},
                 ${emailBody}, ${outboxStatus}, ${errorMsg},
                 ${req.session?.userId ?? null},
-                ${dispatch.sent ? sql`now()` : sql`null`})
+                ${dispatch.sent ? sql`now()` : sql`null`},
+                ${messageId}, ${delivery?.status ?? "pending"},
+                ${delivery?.reason ?? null},
+                ${delivery?.deliveredAt ?? null})
         RETURNING id;
       `);
       const rows = (inserted as unknown as { rows?: Array<Record<string, unknown>> }).rows
@@ -2199,14 +2211,21 @@ router.post(
       // auto-followed-up.
       const newStatus = dispatch.sent ? "sent" : "failed";
       const errorMsg = dispatch.sent ? null : dispatch.reason ?? "delivery failed";
+      // Task #208
+      const [delivery] = recipientStatusesFromDispatch(dispatch, [row.recipient]);
+      const messageId = dispatch.sent ? dispatch.messageId : null;
       const inserted = await db.execute(sql`
         INSERT INTO sales_email_outbox
           (kind, ref_id, reference, recipient, subject, body, status, error,
-           created_by, sent_at)
+           created_by, sent_at,
+           message_id, delivery_status, delivery_reason, delivered_at)
         VALUES ('invoice', ${head.id}, ${head.reference}, ${row.recipient},
                 ${row.subject}, ${row.body}, ${newStatus}, ${errorMsg},
                 ${req.session?.userId ?? null},
-                ${dispatch.sent ? sql`now()` : sql`null`})
+                ${dispatch.sent ? sql`now()` : sql`null`},
+                ${messageId}, ${delivery?.status ?? "pending"},
+                ${delivery?.reason ?? null},
+                ${delivery?.deliveredAt ?? null})
         RETURNING id;
       `);
       const insertedRows = (inserted as unknown as { rows?: Array<Record<string, unknown>> }).rows
@@ -3470,16 +3489,23 @@ router.post("/sales/quotations/:id/send", salesWriteGuard, async (req, res) => {
     // body before each retry.
     const outboxStatus = dispatch.sent ? "sent" : "failed";
     const errorMsg = dispatch.sent ? null : dispatch.reason ?? "delivery failed";
+    // Task #208
+    const [delivery] = recipientStatusesFromDispatch(dispatch, [recipient]);
+    const messageId = dispatch.sent ? dispatch.messageId : null;
 
     const result = await db.transaction(async (tx) => {
       const inserted = await tx.execute(sql`
         INSERT INTO sales_email_outbox
           (kind, ref_id, reference, recipient, subject, body, status, error,
-           created_by, sent_at)
+           created_by, sent_at,
+           message_id, delivery_status, delivery_reason, delivered_at)
         VALUES ('quotation', ${q.id}, ${q.reference}, ${recipient}, ${subject},
                 ${emailBody}, ${outboxStatus}, ${errorMsg},
                 ${req.session?.userId ?? null},
-                ${dispatch.sent ? sql`now()` : sql`null`})
+                ${dispatch.sent ? sql`now()` : sql`null`},
+                ${messageId}, ${delivery?.status ?? "pending"},
+                ${delivery?.reason ?? null},
+                ${delivery?.deliveredAt ?? null})
         RETURNING id, status, sent_at, error;
       `);
       const rows = (inserted as unknown as { rows?: Array<Record<string, unknown>> }).rows
@@ -3633,16 +3659,23 @@ router.post("/sales/invoices/:id/send", financeGuard, async (req, res) => {
     });
     const outboxStatus = dispatch.sent ? "sent" : "failed";
     const errorMsg = dispatch.sent ? null : dispatch.reason ?? "delivery failed";
+    // Task #208
+    const [delivery] = recipientStatusesFromDispatch(dispatch, [recipient]);
+    const messageId = dispatch.sent ? dispatch.messageId : null;
 
     const outboxId = await db.transaction(async (tx) => {
       const inserted = await tx.execute(sql`
         INSERT INTO sales_email_outbox
           (kind, ref_id, reference, recipient, subject, body, status, error,
-           created_by, sent_at)
+           created_by, sent_at,
+           message_id, delivery_status, delivery_reason, delivered_at)
         VALUES ('customer_invoice', ${head.id}, ${head.reference}, ${recipient},
                 ${subject}, ${emailBody}, ${outboxStatus}, ${errorMsg},
                 ${req.session?.userId ?? null},
-                ${dispatch.sent ? sql`now()` : sql`null`})
+                ${dispatch.sent ? sql`now()` : sql`null`},
+                ${messageId}, ${delivery?.status ?? "pending"},
+                ${delivery?.reason ?? null},
+                ${delivery?.deliveredAt ?? null})
         RETURNING id;
       `);
       const rows = (inserted as unknown as { rows?: Array<Record<string, unknown>> }).rows

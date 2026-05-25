@@ -1514,6 +1514,11 @@ export const GetAdminStatsResponse = zod.object({
   failedInvoiceSends: zod
     .number()
     .describe('Count of unresolved (unread) \"invoice send failure\" alerts.'),
+  bouncedEmails: zod
+    .number()
+    .describe(
+      "System-wide count of outbound emails whose per-recipient\ndelivery status is `bounced` in the last 30 days\n(sales \/ procurement outboxes + cleanup-report recipients).\nTask #208.\n",
+    ),
 });
 
 /**

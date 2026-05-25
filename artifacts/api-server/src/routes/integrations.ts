@@ -1466,6 +1466,45 @@ integrationsPublicRouter.post(
               : event === "deferred"
                 ? "deferred"
                 : "delivered"; // 'opened' implies delivered
+        // Task #208: a single message_id can resolve to ANY of our
+        // send-tracking tables (cleanup-report, sales_email_outbox,
+        // procurement_email_outbox). Try each one — when a row is
+        // found, update it directly by primary key. This is what makes
+        // delivery status visible for every outgoing email, not just
+        // cleanup reports.
+        if (messageId) {
+          const upd = await db.execute(sql`
+            WITH sales_upd AS (
+              UPDATE sales_email_outbox
+                 SET delivery_status = ${status},
+                     delivery_reason = ${reason ?? null},
+                     delivered_at = ${status === "delivered" ? sql`now()` : sql`delivered_at`}
+               WHERE message_id = ${messageId}
+                 AND lower(recipient) = ${email}
+               RETURNING id
+            ), proc_upd AS (
+              UPDATE procurement_email_outbox
+                 SET delivery_status = ${status},
+                     delivery_reason = ${reason ?? null},
+                     delivered_at = ${status === "delivered" ? sql`now()` : sql`delivered_at`}
+               WHERE message_id = ${messageId}
+                 AND lower(recipient) = ${email}
+               RETURNING id
+            )
+            SELECT
+              (SELECT count(*) FROM sales_upd)::int AS sales_count,
+              (SELECT count(*) FROM proc_upd)::int  AS proc_count;
+          `);
+          const updRows =
+            (upd as unknown as { rows?: Array<{ sales_count: number; proc_count: number }> }).rows ??
+            (upd as unknown as Array<{ sales_count: number; proc_count: number }>);
+          const matched =
+            (updRows?.[0]?.sales_count ?? 0) + (updRows?.[0]?.proc_count ?? 0);
+          if (matched > 0) {
+            updated += matched;
+            continue;
+          }
+        }
         // Resolve the target send via messageId if provided, else
         // most-recent matching pending row in the last 30 days.
         let sendId: number | null = null;

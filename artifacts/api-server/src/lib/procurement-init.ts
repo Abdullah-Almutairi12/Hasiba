@@ -318,6 +318,17 @@ export async function initProcurement(): Promise<void> {
         REFERENCES procurement_email_outbox(id) ON DELETE SET NULL;
     CREATE INDEX IF NOT EXISTS procurement_email_outbox_retry_idx
       ON procurement_email_outbox (kind, status, retry_of, next_retry_at);
+    -- Task #208: per-recipient delivery tracking. Mirrors
+    -- sales_email_outbox so the shared bounce webhook can resolve a
+    -- message_id back to either table.
+    ALTER TABLE procurement_email_outbox ADD COLUMN IF NOT EXISTS message_id text;
+    ALTER TABLE procurement_email_outbox ADD COLUMN IF NOT EXISTS delivery_status text NOT NULL DEFAULT 'pending';
+    ALTER TABLE procurement_email_outbox ADD COLUMN IF NOT EXISTS delivery_reason text;
+    ALTER TABLE procurement_email_outbox ADD COLUMN IF NOT EXISTS delivered_at timestamp;
+    CREATE INDEX IF NOT EXISTS procurement_email_outbox_message_id_idx
+      ON procurement_email_outbox (message_id);
+    CREATE INDEX IF NOT EXISTS procurement_email_outbox_delivery_status_idx
+      ON procurement_email_outbox (delivery_status);
   `);
 
   logger.info("Procurement subsystem initialized");

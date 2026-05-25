@@ -1342,6 +1342,12 @@ export interface AdminStats {
   totalFeatures: number;
   /** Count of unresolved (unread) "invoice send failure" alerts. */
   failedInvoiceSends: number;
+  /** System-wide count of outbound emails whose per-recipient
+delivery status is `bounced` in the last 30 days
+(sales / procurement outboxes + cleanup-report recipients).
+Task #208.
+ */
+  bouncedEmails: number;
 }
 
 export interface InvoiceSendFailure {
