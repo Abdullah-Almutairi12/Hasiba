@@ -12,6 +12,7 @@ import {
   appSettingsTable,
   alertsCleanupRunsTable,
   cleanupReportSendsTable,
+  auditLogsTable,
 } from "@workspace/db";
 import { uploadBufferToPrivateObject } from "./storage";
 import { eq, sql, desc, and, gt, gte, lte, or, isNull } from "drizzle-orm";
@@ -1149,6 +1150,53 @@ router.get(
       });
     } catch (err) {
       req.log.error({ err }, "Cleanup report preview failed");
+      return res.status(500).json({ error: "Internal server error" });
+    }
+  },
+);
+
+// Task #195: recent cleanup report test send history. Surfaces the
+// last 5 `system_settings.cleanup_report_sent_test` audit entries so
+// admins can see at a glance who recently dry-ran the cleanup report
+// and to which inbox, without digging through the full audit log.
+router.get(
+  "/admin/system-settings/cleanup-report-test-history",
+  adminOnly,
+  async (req, res) => {
+    try {
+      const rows = await db
+        .select({
+          id: auditLogsTable.id,
+          userName: auditLogsTable.userName,
+          details: auditLogsTable.details,
+          createdAt: auditLogsTable.createdAt,
+        })
+        .from(auditLogsTable)
+        .where(eq(auditLogsTable.action, "system_settings.cleanup_report_sent_test"))
+        .orderBy(desc(auditLogsTable.createdAt))
+        .limit(5);
+
+      const entries = rows.map((r) => {
+        // details format: `recipient=<email> rows=<n>`
+        let recipient: string | null = null;
+        let rowCount: number | null = null;
+        if (r.details) {
+          const recMatch = r.details.match(/recipient=([^\s]+)/);
+          if (recMatch) recipient = recMatch[1] ?? null;
+          const rowsMatch = r.details.match(/rows=(\d+)/);
+          if (rowsMatch) rowCount = Number(rowsMatch[1]);
+        }
+        return {
+          id: r.id,
+          userName: r.userName,
+          recipient,
+          rowCount,
+          createdAt: r.createdAt.toISOString(),
+        };
+      });
+      return res.json({ entries });
+    } catch (err) {
+      req.log.error({ err }, "Fetch cleanup report test history failed");
       return res.status(500).json({ error: "Internal server error" });
     }
   },

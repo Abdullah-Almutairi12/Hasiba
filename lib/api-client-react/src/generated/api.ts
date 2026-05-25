@@ -113,6 +113,7 @@ import type {
   GetCashFlowParams,
   GetCleanupReportPreview200,
   GetCleanupReportPreviewParams,
+  GetCleanupReportTestHistory200,
   GetDashboardSalesChartParams,
   GetFraudAnomalies200,
   GetFraudAnomaliesParams,
@@ -8162,6 +8163,87 @@ export function useListCleanupReportSends<
   request?: SecondParameter<typeof customFetch>;
 }): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getListCleanupReportSendsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * Returns the last 5 `system_settings.cleanup_report_sent_test` audit log entries so admins can see at a glance who recently dry-ran the cleanup report and to which inbox.
+ * @summary Recent cleanup report test send history (admin only)
+ */
+export const getGetCleanupReportTestHistoryUrl = () => {
+  return `/api/admin/system-settings/cleanup-report-test-history`;
+};
+
+export const getCleanupReportTestHistory = async (
+  options?: RequestInit,
+): Promise<GetCleanupReportTestHistory200> => {
+  return customFetch<GetCleanupReportTestHistory200>(
+    getGetCleanupReportTestHistoryUrl(),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetCleanupReportTestHistoryQueryKey = () => {
+  return [`/api/admin/system-settings/cleanup-report-test-history`] as const;
+};
+
+export const getGetCleanupReportTestHistoryQueryOptions = <
+  TData = Awaited<ReturnType<typeof getCleanupReportTestHistory>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getCleanupReportTestHistory>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetCleanupReportTestHistoryQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getCleanupReportTestHistory>>
+  > = ({ signal }) =>
+    getCleanupReportTestHistory({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getCleanupReportTestHistory>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetCleanupReportTestHistoryQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getCleanupReportTestHistory>>
+>;
+export type GetCleanupReportTestHistoryQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Recent cleanup report test send history (admin only)
+ */
+
+export function useGetCleanupReportTestHistory<
+  TData = Awaited<ReturnType<typeof getCleanupReportTestHistory>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getCleanupReportTestHistory>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetCleanupReportTestHistoryQueryOptions(options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;

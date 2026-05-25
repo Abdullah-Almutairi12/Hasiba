@@ -1990,6 +1990,22 @@ export const ListCleanupReportSendsResponse = zod.array(
 );
 
 /**
+ * Returns the last 5 `system_settings.cleanup_report_sent_test` audit log entries so admins can see at a glance who recently dry-ran the cleanup report and to which inbox.
+ * @summary Recent cleanup report test send history (admin only)
+ */
+export const GetCleanupReportTestHistoryResponse = zod.object({
+  entries: zod.array(
+    zod.object({
+      id: zod.number(),
+      userName: zod.string(),
+      recipient: zod.string().nullish(),
+      rowCount: zod.number().nullish(),
+      createdAt: zod.coerce.date(),
+    }),
+  ),
+});
+
+/**
  * @summary Run the alerts retention sweep immediately (admin only)
  */
 export const RunAlertsCleanupNowResponse = zod.object({

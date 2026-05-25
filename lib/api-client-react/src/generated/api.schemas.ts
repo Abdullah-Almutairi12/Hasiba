@@ -2090,6 +2090,18 @@ export type ListCleanupReportSends200Item = {
   failureReason?: string | null;
 };
 
+export type GetCleanupReportTestHistory200EntriesItem = {
+  id: number;
+  userName: string;
+  recipient?: string | null;
+  rowCount?: number | null;
+  createdAt: string;
+};
+
+export type GetCleanupReportTestHistory200 = {
+  entries: GetCleanupReportTestHistory200EntriesItem[];
+};
+
 export type RunAlertsCleanupNow200Source =
   (typeof RunAlertsCleanupNow200Source)[keyof typeof RunAlertsCleanupNow200Source];
 

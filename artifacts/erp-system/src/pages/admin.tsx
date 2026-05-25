@@ -20,6 +20,7 @@ import {
   useRunAlertsCleanupNow,
   useSendCleanupReportNow,
   useSendCleanupReportTest,
+  useGetCleanupReportTestHistory,
   useGetCleanupReportPreview,
   useListCleanupReportSends,
   useListPermissionMatrix,
@@ -1861,6 +1862,9 @@ function CleanupReportEmailCard() {
         </div>
 
         <CleanupReportSendsHistory />
+        <CleanupReportTestHistory
+          refreshKey={sendTestMut.isSuccess ? sendTestMut.data?.recipient : null}
+        />
       </CardContent>
     </Card>
   );
@@ -1996,6 +2000,79 @@ function CleanupReportSendsHistory() {
             </TableBody>
           </Table>
         </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Task #195: compact list of the last 5 cleanup report test sends so
+ * admins can see at a glance who recently dry-ran the report and to
+ * which inbox. Sourced from the existing
+ * `system_settings.cleanup_report_sent_test` audit log entries.
+ */
+function CleanupReportTestHistory({ refreshKey }: { refreshKey: unknown }) {
+  const queryClient = useQueryClient();
+  const { data, isLoading } = useGetCleanupReportTestHistory();
+  useEffect(() => {
+    if (refreshKey) {
+      void queryClient.invalidateQueries({
+        predicate: (q) => {
+          const k = q.queryKey?.[0];
+          return (
+            typeof k === "string" &&
+            k.includes("/admin/system-settings/cleanup-report-test-history")
+          );
+        },
+      });
+    }
+  }, [refreshKey, queryClient]);
+
+  const entries = data?.entries ?? [];
+
+  return (
+    <div
+      className="space-y-2 border-t pt-3"
+      data-testid="panel-cleanup-report-test-history"
+    >
+      <div className="flex items-center justify-between">
+        <Label className="text-xs text-muted-foreground">
+          آخر عمليات الإرسال التجريبي
+        </Label>
+        {isLoading && <Loader2 className="size-3 animate-spin text-muted-foreground" />}
+      </div>
+      {entries.length === 0 ? (
+        <div
+          className="rounded-md border border-dashed bg-muted/40 px-3 py-2 text-xs text-muted-foreground"
+          data-testid="text-cleanup-report-test-history-empty"
+        >
+          لا توجد عمليات إرسال تجريبية حتى الآن.
+        </div>
+      ) : (
+        <ul className="divide-y rounded-md border bg-muted/30 text-xs">
+          {entries.map((e) => (
+            <li
+              key={e.id}
+              className="flex flex-wrap items-center justify-between gap-2 px-3 py-2"
+              data-testid={`row-cleanup-report-test-history-${e.id}`}
+            >
+              <div className="flex flex-col">
+                <span className="font-medium text-foreground">{e.userName}</span>
+                {e.recipient && (
+                  <span dir="ltr" className="text-muted-foreground">
+                    {e.recipient}
+                  </span>
+                )}
+              </div>
+              <span
+                className="text-muted-foreground"
+                title={new Date(e.createdAt).toLocaleString("ar-SA")}
+              >
+                {formatRelativeArabic(e.createdAt)}
+              </span>
+            </li>
+          ))}
+        </ul>
       )}
     </div>
   );

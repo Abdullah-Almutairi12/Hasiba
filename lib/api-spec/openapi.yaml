@@ -2012,6 +2012,36 @@ paths:
                     - recipients
                     - status
 
+  /admin/system-settings/cleanup-report-test-history:
+    get:
+      tags: [admin]
+      summary: Recent cleanup report test send history (admin only)
+      description: >-
+        Returns the last 5 `system_settings.cleanup_report_sent_test`
+        audit log entries so admins can see at a glance who recently
+        dry-ran the cleanup report and to which inbox.
+      operationId: getCleanupReportTestHistory
+      responses:
+        "200":
+          description: Recent test sends
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  entries:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: integer }
+                        userName: { type: string }
+                        recipient: { type: string, nullable: true }
+                        rowCount: { type: integer, nullable: true }
+                        createdAt: { type: string, format: date-time }
+                      required: [id, userName, createdAt]
+                required: [entries]
+
   /admin/system-settings/run-alerts-cleanup:
     post:
       tags: [admin]
