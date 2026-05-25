@@ -44,6 +44,7 @@ import {
   applyLineDiscountRules,
 } from "../lib/sales-engine";
 import { postJournalEntry, reverseJournalEntry, ClosedPeriodError } from "../lib/journal-posting";
+import { getCompanyId } from "../lib/scoped-db";
 import { buildZatcaQrBase64 } from "../lib/zatca-qr";
 import { getCompanyInfo } from "../lib/pdf/purchase-order";
 import { buildCustomerInvoicePdf } from "../lib/pdf/customer-invoice";
@@ -115,6 +116,7 @@ registerOnReject("sales_order", async (recordId) => {
 async function finalizeCreditNoteCancellation(
   id: number,
   sessionUserId: number | null,
+  companyId: number,
 ): Promise<typeof creditNotesTable.$inferSelect> {
   return await db.transaction(async (tx) => {
     const [note] = await tx.select().from(creditNotesTable).where(eq(creditNotesTable.id, id));
@@ -140,6 +142,7 @@ async function finalizeCreditNoteCancellation(
           sourceRef: reverseRef,
           createdBy: sessionUserId,
           status: "posted",
+          companyId,
         },
         reverseLines,
       );
@@ -251,7 +254,18 @@ registerOnApprove("credit_note_cancel", async (recordId) => {
   // Rethrow on failure: actOnApproval rolls the request back to pending
   // and surfaces the error so workflow + document state stay consistent.
   try {
-    await finalizeCreditNoteCancellation(recordId, null);
+    // Approval callback runs outside an HTTP request; derive tenant from
+    // the credit note's customer.
+    const [row] = await db
+      .select({ companyId: customersTable.companyId })
+      .from(creditNotesTable)
+      .innerJoin(customersTable, eq(customersTable.id, creditNotesTable.customerId))
+      .where(eq(creditNotesTable.id, recordId))
+      .limit(1);
+    if (!row?.companyId) {
+      throw new Error(`credit_note_cancel ${recordId}: cannot resolve companyId from customer`);
+    }
+    await finalizeCreditNoteCancellation(recordId, null, row.companyId);
   } catch (err) {
     logger.error({ err, recordId }, "credit_note_cancel onApprove finalize failed");
     throw err;
@@ -267,6 +281,7 @@ registerOnApprove("credit_note_cancel", async (recordId) => {
 async function finalizeCreditNoteIssue(
   noteId: number,
   sessionUserId: number | null,
+  companyId: number,
 ): Promise<typeof creditNotesTable.$inferSelect> {
   return await db.transaction(async (tx) => {
     const [note] = await tx.select().from(creditNotesTable).where(eq(creditNotesTable.id, noteId));
@@ -312,6 +327,7 @@ async function finalizeCreditNoteIssue(
         sourceRef: note.reference,
         createdBy: sessionUserId,
         status: "posted",
+        companyId,
       },
       lines,
     );
@@ -405,7 +421,18 @@ async function finalizeCreditNoteIssue(
 }
 registerOnApprove("credit_note", async (recordId) => {
   try {
-    await finalizeCreditNoteIssue(recordId, null);
+    // Approval callback runs outside an HTTP request; derive tenant from
+    // the credit note's customer.
+    const [row] = await db
+      .select({ companyId: customersTable.companyId })
+      .from(creditNotesTable)
+      .innerJoin(customersTable, eq(customersTable.id, creditNotesTable.customerId))
+      .where(eq(creditNotesTable.id, recordId))
+      .limit(1);
+    if (!row?.companyId) {
+      throw new Error(`credit_note ${recordId}: cannot resolve companyId from customer`);
+    }
+    await finalizeCreditNoteIssue(recordId, null, row.companyId);
   } catch (err) {
     logger.error({ err, recordId }, "credit_note onApprove finalize failed");
     throw err;
@@ -2451,6 +2478,7 @@ router.post("/sales/invoices", financeGuard, async (req, res) => {
           sourceRef: reference,
           createdBy: req.session?.userId ?? null,
           status: "posted",
+          companyId: getCompanyId(req),
         },
         lines,
       );
@@ -2886,6 +2914,7 @@ router.post("/sales/receipts", financeGuard, async (req, res) => {
           sourceRef: reference,
           createdBy: req.session?.userId ?? null,
           status: "posted",
+          companyId: getCompanyId(req),
         },
         [
           { systemKey: cashKey, debit: body.amount, description: `قبض من ${customer.name}` },
@@ -3122,7 +3151,7 @@ router.post(
     // No approval required → finalize inline. The legacy issuance block
     // below was relocated into finalizeCreditNoteIssue() so both paths
     // (inline + onApprove) run identical logic.
-    const issued = await finalizeCreditNoteIssue(result.id, req.session?.userId ?? null);
+    const issued = await finalizeCreditNoteIssue(result.id, req.session?.userId ?? null, getCompanyId(req));
     void triggerEvent("record_created", "credit_note", { id: issued.id, total: Number(issued.total) });
     res.status(201).json(serializeMoneyDoc(issued));
     return;
@@ -3170,7 +3199,7 @@ router.post("/sales/credit-notes/:id/cancel", salesWriteGuard, async (req, res) 
     }
     // Delegated to shared finalize helper so /cancel and the
     // workflow-engine onApprove path always run identical logic.
-    const result = await finalizeCreditNoteCancellation(id, req.session?.userId ?? null);
+    const result = await finalizeCreditNoteCancellation(id, req.session?.userId ?? null, getCompanyId(req));
     res.json(serializeMoneyDoc(result));
   } catch (err) {
     req.log.error({ err }, "cancel credit note");
@@ -3668,6 +3697,7 @@ router.post("/sales/commissions/post", financeGuard, async (req, res) => {
           sourceRef: periodRef,
           createdBy: req.session?.userId ?? null,
           status: "posted",
+          companyId: getCompanyId(req),
         },
         [
           { systemKey: "commission_expense", debit: total, description: "عمولات مندوبي المبيعات" },

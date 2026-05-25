@@ -1,9 +1,10 @@
 import { Router } from "express";
 import { db, campaignsTable, leadsTable } from "@workspace/db";
-import { desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { marketingGuard } from "../middlewares/require-role";
 import { handleRouteError } from "../lib/handle-error";
+import { ScopedDb, getCompanyId } from "../lib/scoped-db";
 
 const router = Router();
 
@@ -12,7 +13,12 @@ const mktWriteGuard = marketingGuard;
 
 router.get("/marketing/campaigns", async (req, res) => {
   try {
-    const rows = await db.select().from(campaignsTable).orderBy(desc(campaignsTable.createdAt));
+    const scoped = new ScopedDb(getCompanyId(req));
+    const rows = await db
+      .select()
+      .from(campaignsTable)
+      .where(scoped.scope(campaignsTable))
+      .orderBy(desc(campaignsTable.createdAt));
     res.json(
       rows.map((r) => ({
         ...r,
@@ -40,9 +46,10 @@ const CreateCampaignBody = z.object({
 router.post("/marketing/campaigns", mktWriteGuard, async (req, res) => {
   try {
     const body = CreateCampaignBody.parse(req.body);
+    const scoped = new ScopedDb(getCompanyId(req));
     const [row] = await db
       .insert(campaignsTable)
-      .values({
+      .values(scoped.stamp({
         name: body.name,
         channel: body.channel ?? "email",
         status: body.status ?? "draft",
@@ -50,7 +57,7 @@ router.post("/marketing/campaigns", mktWriteGuard, async (req, res) => {
         startDate: body.startDate ?? null,
         endDate: body.endDate ?? null,
         description: body.description ?? null,
-      })
+      }))
       .returning();
     res.status(201).json({
       ...row,
@@ -66,6 +73,7 @@ router.post("/marketing/campaigns", mktWriteGuard, async (req, res) => {
 
 router.get("/marketing/leads", async (req, res) => {
   try {
+    const scoped = new ScopedDb(getCompanyId(req));
     const rows = await db
       .select({
         id: leadsTable.id,
@@ -85,6 +93,7 @@ router.get("/marketing/leads", async (req, res) => {
       })
       .from(leadsTable)
       .leftJoin(campaignsTable, eq(campaignsTable.id, leadsTable.campaignId))
+      .where(scoped.scope(leadsTable))
       .orderBy(desc(leadsTable.createdAt));
     res.json(
       rows.map((r) => ({
@@ -116,9 +125,10 @@ const CreateLeadBody = z.object({
 router.post("/marketing/leads", mktWriteGuard, async (req, res) => {
   try {
     const body = CreateLeadBody.parse(req.body);
+    const scoped = new ScopedDb(getCompanyId(req));
     const [row] = await db
       .insert(leadsTable)
-      .values({
+      .values(scoped.stamp({
         fullName: body.fullName,
         email: body.email ?? null,
         phone: body.phone ?? null,
@@ -130,7 +140,7 @@ router.post("/marketing/leads", mktWriteGuard, async (req, res) => {
         estimatedValue: String(body.estimatedValue ?? 0),
         score: body.score ?? 0,
         notes: body.notes ?? null,
-      })
+      }))
       .returning();
     res.status(201).json({
       ...row,
@@ -145,21 +155,27 @@ router.post("/marketing/leads", mktWriteGuard, async (req, res) => {
 
 router.get("/marketing/summary", async (req, res) => {
   try {
+    const scoped = new ScopedDb(getCompanyId(req));
     const [{ totalCampaigns }] = await db
       .select({ totalCampaigns: sql<number>`count(*)::int` })
-      .from(campaignsTable);
+      .from(campaignsTable)
+      .where(scoped.scope(campaignsTable));
     const [{ activeCampaigns }] = await db
       .select({ activeCampaigns: sql<number>`count(*) filter (where ${campaignsTable.status} = 'active')::int` })
-      .from(campaignsTable);
+      .from(campaignsTable)
+      .where(scoped.scope(campaignsTable));
     const [{ totalLeads }] = await db
       .select({ totalLeads: sql<number>`count(*)::int` })
-      .from(leadsTable);
+      .from(leadsTable)
+      .where(scoped.scope(leadsTable));
     const [{ wonLeads }] = await db
       .select({ wonLeads: sql<number>`count(*) filter (where ${leadsTable.status} = 'won')::int` })
-      .from(leadsTable);
+      .from(leadsTable)
+      .where(scoped.scope(leadsTable));
     const [{ pipelineValue }] = await db
       .select({ pipelineValue: sql<number>`coalesce(sum(${leadsTable.estimatedValue}) filter (where ${leadsTable.status} not in ('won','lost')), 0)::numeric` })
-      .from(leadsTable);
+      .from(leadsTable)
+      .where(scoped.scope(leadsTable));
     res.json({
       totalCampaigns,
       activeCampaigns,

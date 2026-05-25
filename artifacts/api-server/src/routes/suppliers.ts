@@ -4,6 +4,8 @@ import { db, suppliersTable, invoicesTable } from "@workspace/db";
 import { eq, ilike, or, sql, desc } from "drizzle-orm";
 import { requireRole, supplierReadGuard } from "../middlewares/require-role";
 import { recordAudit } from "../lib/audit";
+import { ScopedDb, getCompanyId } from "../lib/scoped-db";
+import { and } from "drizzle-orm";
 
 const router = Router();
 // Suppliers are written by both finance (accounting) and inventory (purchasing).
@@ -33,6 +35,7 @@ const CreateSupplierBody = z.object({
 router.get("/suppliers", async (req, res) => {
   try {
     const search = (req.query["search"] as string | undefined)?.trim();
+    const scoped = new ScopedDb(getCompanyId(req));
 
     const rows = await db
       .select({
@@ -51,7 +54,14 @@ router.get("/suppliers", async (req, res) => {
         createdAt: suppliersTable.createdAt,
       })
       .from(suppliersTable)
-      .where(search ? or(ilike(suppliersTable.name, `%${search}%`), ilike(suppliersTable.vatNumber, `%${search}%`)) : sql`true`)
+      .where(
+        and(
+          scoped.scope(suppliersTable),
+          search
+            ? or(ilike(suppliersTable.name, `%${search}%`), ilike(suppliersTable.vatNumber, `%${search}%`))
+            : sql`true`,
+        ),
+      )
       .orderBy(desc(suppliersTable.createdAt));
 
     res.json(
@@ -71,9 +81,10 @@ router.get("/suppliers", async (req, res) => {
 router.post("/suppliers", supplierWriteGuard, async (req, res) => {
   try {
     const body = CreateSupplierBody.parse(req.body);
+    const scoped = new ScopedDb(getCompanyId(req));
     const [created] = await db
       .insert(suppliersTable)
-      .values({
+      .values(scoped.stamp({
         name: body.name,
         vatNumber: body.vatNumber || null,
         email: body.email || null,
@@ -84,7 +95,7 @@ router.post("/suppliers", supplierWriteGuard, async (req, res) => {
         ...(body.defaultCurrency ? { defaultCurrency: body.defaultCurrency } : {}),
         ...(body.leadTimeDays != null ? { leadTimeDays: body.leadTimeDays } : {}),
         ...(body.defaultTax != null ? { defaultTax: String(body.defaultTax) } : {}),
-      })
+      }))
       .returning();
     void recordAudit(req, { action: "create", entity: "supplier", details: `أُضيف المورد ${body.name}` });
     return res.status(201).json(created);
@@ -107,7 +118,11 @@ router.get("/suppliers/:id", async (req, res) => {
     const id = Number(req.params["id"]);
     if (!Number.isFinite(id)) return res.status(400).json({ error: "bad id" });
 
-    const [supplier] = await db.select().from(suppliersTable).where(eq(suppliersTable.id, id));
+    const scoped = new ScopedDb(getCompanyId(req));
+    const [supplier] = await db
+      .select()
+      .from(suppliersTable)
+      .where(and(eq(suppliersTable.id, id), scoped.scope(suppliersTable)));
     if (!supplier) return res.status(404).json({ error: "not found" });
 
     // Field set matches the OpenAPI-generated SupplierDetail.recentInvoices schema
@@ -159,18 +174,24 @@ router.get("/suppliers/:id", async (req, res) => {
  * Returns the supplier id. Optionally accepts vatNumber to enrich an existing record.
  */
 export async function findOrCreateSupplier(opts: {
+  companyId: number;
   name: string;
   vatNumber?: string | null;
 }): Promise<number> {
   const trimmed = opts.name.trim();
   if (!trimmed) throw new Error("supplier name required");
 
-  // Try by VAT number first (most reliable identifier in KSA), then by name.
+  // Lookups MUST be tenant-scoped — two different tenants can legitimately
+  // have a supplier with the same VAT or name, and bleeding rows across
+  // tenants would create cross-tenant journal postings.
   if (opts.vatNumber) {
     const [byVat] = await db
       .select({ id: suppliersTable.id })
       .from(suppliersTable)
-      .where(eq(suppliersTable.vatNumber, opts.vatNumber))
+      .where(and(
+        eq(suppliersTable.companyId, opts.companyId),
+        eq(suppliersTable.vatNumber, opts.vatNumber),
+      ))
       .limit(1);
     if (byVat) return byVat.id;
   }
@@ -178,7 +199,10 @@ export async function findOrCreateSupplier(opts: {
   const [byName] = await db
     .select({ id: suppliersTable.id })
     .from(suppliersTable)
-    .where(eq(suppliersTable.name, trimmed))
+    .where(and(
+      eq(suppliersTable.companyId, opts.companyId),
+      eq(suppliersTable.name, trimmed),
+    ))
     .limit(1);
   if (byName) {
     if (opts.vatNumber) {
@@ -189,7 +213,7 @@ export async function findOrCreateSupplier(opts: {
 
   const [created] = await db
     .insert(suppliersTable)
-    .values({ name: trimmed, vatNumber: opts.vatNumber ?? null })
+    .values({ companyId: opts.companyId, name: trimmed, vatNumber: opts.vatNumber ?? null })
     .returning({ id: suppliersTable.id });
   if (!created) throw new Error("failed to create supplier");
   return created.id;

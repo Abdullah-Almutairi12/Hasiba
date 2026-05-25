@@ -8,13 +8,13 @@ import {
 } from "@workspace/db";
 import { inArray } from "drizzle-orm";
 import { postJournalEntry, reverseJournalEntry, ClosedPeriodError } from "../lib/journal-posting";
+import { getCompanyId } from "../lib/scoped-db";
 import { journalEntriesTable } from "@workspace/db";
 import { eq, sql, desc, ilike, and } from "drizzle-orm";
 import { CreateInvoiceBody, UpdateInvoiceBody } from "@workspace/api-zod";
 import { extractInvoiceFromImage, type ExtractedInvoice } from "../lib/invoice-extractor";
 import { requireRole, financeGuard, invoiceReadGuard } from "../middlewares/require-role";
 import { uploadBufferToPrivateObject } from "./storage";
-import { findOrCreateSupplier } from "./suppliers";
 import { recordAudit } from "../lib/audit";
 import { recordStockMove, getDefaultWarehouseId } from "../lib/stock-engine";
 import { evaluateAnomalies } from "../lib/anomaly-engine";
@@ -93,9 +93,11 @@ router.get("/invoices", invoiceReadGuard, async (req, res) => {
 router.post("/invoices", financeGuard, async (req, res) => {
   try {
     const body = CreateInvoiceBody.parse(req.body);
+    const companyId = getCompanyId(req);
     const [invoice] = await db
       .insert(invoicesTable)
       .values({
+        companyId,
         invoiceNumber: body.invoiceNumber,
         supplierName: body.supplierName,
         amount: String(body.amount),
@@ -479,6 +481,7 @@ router.post("/invoices/:id/reverse", financeGuard, async (req, res) => {
       const [reverse] = await tx
         .insert(invoicesTable)
         .values({
+          companyId: orig.companyId,
           invoiceNumber: reverseNumber,
           supplierId: orig.supplierId,
           supplierName: orig.supplierName,
@@ -804,31 +807,44 @@ router.post("/invoices/from-scan", supplierInvoiceAgent, async (req, res) => {
       // name lookup; concurrent name-only inserts may still create duplicates,
       // but those are easy to merge later by hand.
       const trimmedSupplier = body.supplierName.trim();
+      const companyId = getCompanyId(req);
       let supplierId: number | null = null;
       if (trimmedSupplier) {
         if (body.supplierVatNumber) {
-          const [row] = await tx
-            .insert(suppliersTable)
-            .values({ name: trimmedSupplier, vatNumber: body.supplierVatNumber })
-            .onConflictDoUpdate({
-              target: suppliersTable.vatNumber,
-              // Touch a column so RETURNING fires for the existing row.
-              set: { name: sql`${suppliersTable.name}` },
-            })
-            .returning({ id: suppliersTable.id });
-          supplierId = row?.id ?? null;
+          // VAT lookup must be tenant-scoped to avoid cross-tenant collisions
+          // on the (companyId, vatNumber) compound uniqueness.
+          const [byVat] = await tx
+            .select({ id: suppliersTable.id })
+            .from(suppliersTable)
+            .where(and(
+              eq(suppliersTable.companyId, companyId),
+              eq(suppliersTable.vatNumber, body.supplierVatNumber),
+            ))
+            .limit(1);
+          if (byVat) {
+            supplierId = byVat.id;
+          } else {
+            const [created] = await tx
+              .insert(suppliersTable)
+              .values({ companyId, name: trimmedSupplier, vatNumber: body.supplierVatNumber })
+              .returning({ id: suppliersTable.id });
+            supplierId = created?.id ?? null;
+          }
         } else {
           const [byName] = await tx
             .select({ id: suppliersTable.id })
             .from(suppliersTable)
-            .where(eq(suppliersTable.name, trimmedSupplier))
+            .where(and(
+              eq(suppliersTable.companyId, companyId),
+              eq(suppliersTable.name, trimmedSupplier),
+            ))
             .limit(1);
           if (byName) {
             supplierId = byName.id;
           } else {
             const [created] = await tx
               .insert(suppliersTable)
-              .values({ name: trimmedSupplier })
+              .values({ companyId, name: trimmedSupplier })
               .returning({ id: suppliersTable.id });
             supplierId = created?.id ?? null;
           }
@@ -840,6 +856,7 @@ router.post("/invoices/from-scan", supplierInvoiceAgent, async (req, res) => {
       const [invoice] = await tx
         .insert(invoicesTable)
         .values({
+          companyId,
           invoiceNumber: body.invoiceNumber,
           supplierId,
           supplierName: body.supplierName,
@@ -952,6 +969,7 @@ router.post("/invoices/from-scan", supplierInvoiceAgent, async (req, res) => {
             const [created] = await tx
               .insert(productsTable)
               .values({
+                companyId,
                 name: item.description,
                 nameAr: item.description,
                 sku: `AUTO-${invoice.id}-${autoSeq}`,
@@ -1044,6 +1062,7 @@ router.post("/invoices/from-scan", supplierInvoiceAgent, async (req, res) => {
             sourceRef: ref,
             createdBy: req.session?.userId ?? null,
             status: "posted",
+            companyId: getCompanyId(req),
           },
           lines,
         );

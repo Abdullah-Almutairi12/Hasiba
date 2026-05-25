@@ -26,6 +26,7 @@ import { decryptSecret } from "./crypto";
 import { recordIntegrationCall } from "./audit";
 import { nextRef } from "../sales-engine";
 import { postJournalEntry } from "../journal-posting";
+import { branchesTable } from "@workspace/db";
 import { buildZatcaQrBase64 } from "../zatca-qr";
 import { getCompanyInfo } from "../pdf/purchase-order";
 import { logger } from "../logger";
@@ -1049,19 +1050,34 @@ async function pushInventoryNow(
 }
 
 // ---------------- Order import → Sales Order ----------------
-async function findOrCreateCustomer(order: NormalizedOrder): Promise<{ id: number; name: string }> {
+async function findOrCreateCustomer(
+  order: NormalizedOrder,
+  companyId: number,
+): Promise<{ id: number; name: string }> {
+  // Multi-tenant: dedupe must be scoped to the owning company so two
+  // tenants with the same customer email/phone do not collide.
   if (order.customer.email) {
     const [existing] = await db
       .select({ id: customersTable.id, name: customersTable.name })
       .from(customersTable)
-      .where(eq(customersTable.email, order.customer.email));
+      .where(
+        and(
+          eq(customersTable.email, order.customer.email),
+          eq(customersTable.companyId, companyId),
+        ),
+      );
     if (existing) return existing;
   }
   if (order.customer.phone) {
     const [existing] = await db
       .select({ id: customersTable.id, name: customersTable.name })
       .from(customersTable)
-      .where(eq(customersTable.phone, order.customer.phone));
+      .where(
+        and(
+          eq(customersTable.phone, order.customer.phone),
+          eq(customersTable.companyId, companyId),
+        ),
+      );
     if (existing) return existing;
   }
   const [created] = await db
@@ -1071,9 +1087,31 @@ async function findOrCreateCustomer(order: NormalizedOrder): Promise<{ id: numbe
       email: order.customer.email ?? null,
       phone: order.customer.phone ?? null,
       shippingAddress: order.customer.addressLine ?? null,
+      companyId,
     })
     .returning({ id: customersTable.id, name: customersTable.name });
   return created!;
+}
+
+/**
+ * Marketplace webhooks run without a session, so we derive the owning
+ * tenant from the connector's branch row. Throws if the connector has
+ * no branch or the branch has no companyId (a misconfiguration we want
+ * to surface loudly rather than silently leak data across tenants).
+ */
+async function getConnectorCompanyId(branchId: number | null): Promise<number> {
+  if (branchId == null) {
+    throw new Error("Marketplace connector has no branchId — cannot resolve tenant");
+  }
+  const [row] = await db
+    .select({ companyId: branchesTable.companyId })
+    .from(branchesTable)
+    .where(eq(branchesTable.id, branchId))
+    .limit(1);
+  if (!row?.companyId) {
+    throw new Error(`Branch ${branchId} has no companyId — marketplace import refused`);
+  }
+  return row.companyId;
 }
 
 async function resolveProductId(
@@ -1181,7 +1219,8 @@ export async function importOrder(
   }
 
   try {
-    const customer = await findOrCreateCustomer(order);
+    const connectorCompanyId = await getConnectorCompanyId(connector.branchId);
+    const customer = await findOrCreateCustomer(order, connectorCompanyId);
     const company = await getCompanyInfo();
     const sellerNameForZatca =
       company.nameAr && company.nameAr !== "—"
@@ -1361,6 +1400,7 @@ export async function importOrder(
           sourceRef: invRef,
           createdBy: null,
           status: "posted",
+          companyId: connectorCompanyId,
         },
         jLines,
       );
@@ -1399,6 +1439,7 @@ export async function importOrder(
             sourceRef: rctRef,
             createdBy: null,
             status: "posted",
+            companyId: connectorCompanyId,
           },
           [
             { systemKey: "cash", debit: order.total, description: `قبض سوق ${connector.platform}` },

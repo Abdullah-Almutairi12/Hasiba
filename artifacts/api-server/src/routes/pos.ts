@@ -23,6 +23,7 @@ import { eq, gte, sql, desc, inArray, and, isNull } from "drizzle-orm";
 import { CreatePosSessionBody, CreatePosOrderBody } from "@workspace/api-zod";
 import { posGuard, posReadGuard } from "../middlewares/require-role";
 import { postJournalEntry } from "../lib/journal-posting";
+import { getCompanyId } from "../lib/scoped-db";
 import {
   customerReceiptsTable,
   customerReceiptAllocationsTable,
@@ -869,6 +870,7 @@ router.post(
       const [created] = await tx
         .insert(posOrdersTable)
         .values({
+          companyId: getCompanyId(req),
           orderNumber,
           sessionId: body.sessionId,
           items: orderItems,
@@ -1092,6 +1094,7 @@ router.post(
           sourceRef: orderNumber,
           createdBy: req.session?.userId ?? null,
           status: "posted",
+          companyId: getCompanyId(req),
         },
         invLines,
       );
@@ -1137,6 +1140,7 @@ router.post(
             sourceRef: orderNumber,
             createdBy: req.session?.userId ?? null,
             status: "posted",
+            companyId: getCompanyId(req),
           },
           [
             ...bucketEntries.map(([systemKey, amount]) => ({
@@ -1182,6 +1186,7 @@ router.post(
             sourceRef: `${orderNumber}-COGS`,
             createdBy: req.session?.userId ?? null,
             status: "posted",
+            companyId: getCompanyId(req),
           },
           [
             { systemKey: "cogs", debit: totalCost },

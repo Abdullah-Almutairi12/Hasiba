@@ -29,6 +29,7 @@ import {
 } from "../middlewares/require-role";
 import { recordAudit } from "../lib/audit";
 import { postJournalEntry } from "../lib/journal-posting";
+import { getCompanyId } from "../lib/scoped-db";
 import { recordStockMove, getDefaultWarehouseId, getOrCreateLot } from "../lib/stock-engine";
 import {
   submitForApproval,
@@ -909,6 +910,7 @@ registerOnReject("purchase_order", async (recordId) => {
 async function finalizePaymentRunExecute(
   id: number,
   sessionUserId: number | null,
+  companyId: number,
 ): Promise<{ journalEntryId: number; total: number }> {
   return await db.transaction(async (tx) => {
     const [run] = await tx.select().from(paymentRunsTable).where(eq(paymentRunsTable.id, id));
@@ -953,6 +955,7 @@ async function finalizePaymentRunExecute(
         sourceRef: run.reference,
         createdBy: sessionUserId,
         status: "posted",
+        companyId,
       },
       journalLines,
     );
@@ -984,7 +987,18 @@ registerOnApprove("payment_run", async (recordId) => {
   // and surfaces the error so workflow + document state stay consistent.
   // Logging is kept for observability.
   try {
-    await finalizePaymentRunExecute(recordId, null);
+    // Approval callback runs outside an HTTP request; derive tenant from
+    // the payment-run's first line supplier (which carries companyId).
+    const [supplierRow] = await db
+      .select({ companyId: suppliersTable.companyId })
+      .from(paymentRunLinesTable)
+      .innerJoin(suppliersTable, eq(suppliersTable.id, paymentRunLinesTable.supplierId))
+      .where(eq(paymentRunLinesTable.runId, recordId))
+      .limit(1);
+    if (!supplierRow?.companyId) {
+      throw new Error(`payment_run ${recordId}: cannot resolve companyId from supplier`);
+    }
+    await finalizePaymentRunExecute(recordId, null, supplierRow.companyId);
     void triggerEvent("state_changed", "payment_run", { id: recordId }, "executed");
   } catch (err) {
     logger.error({ err, recordId }, "payment_run onApprove finalize failed");
@@ -1734,6 +1748,7 @@ router.post("/procurement/goods-receipts", async (req, res) => {
             sourceRef: `GRN-${grn.id}`,
             createdBy: req.session?.userId ?? null,
             status: "posted",
+            companyId: getCompanyId(req),
           },
           [
             { systemKey: "inventory", debit: totalValue, description: "استلام بضاعة" },
@@ -2097,7 +2112,7 @@ router.post("/procurement/payment-runs/:id/execute", financeGuard, async (req, r
     // No rule matched → finalize inline. Delegated to the shared helper
     // so /execute and the workflow-engine onApprove path always run
     // identical logic.
-    const result = await finalizePaymentRunExecute(id, req.session?.userId ?? null);
+    const result = await finalizePaymentRunExecute(id, req.session?.userId ?? null, getCompanyId(req));
     void recordAudit(req, {
       action: "execute", entity: "payment_run",
       details: `JE#${result.journalEntryId} بإجمالي ${result.total.toFixed(2)}`,

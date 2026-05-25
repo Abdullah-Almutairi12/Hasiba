@@ -36,6 +36,7 @@ import portalAuthRouter from "./portal-auth";
 import portalRouter from "./portal";
 import documentsRouter, { signPublicRouter } from "./documents";
 import { requireAuth } from "../middlewares/require-auth";
+import { requireCompanyContext } from "../middlewares/require-company-context";
 
 const router: IRouter = Router();
 
@@ -52,8 +53,24 @@ router.use(portalRouter);
 // Public e-signature endpoints (token-authenticated, bypass session auth).
 router.use(signPublicRouter);
 
-// All business routes require an authenticated session
+// All business routes require an authenticated session and a tenant
+// context (Multi-Company Phase 2). A handful of cross-tenant admin
+// surfaces (users CRUD, companies, app_settings, admin panel) still
+// require auth but bypass company scoping — they are mounted BEFORE
+// requireCompanyContext below.
 router.use(requireAuth);
+
+// Cross-tenant routes — auth only, no company scope:
+//   /users, /companies (Phase 3), /app-settings, /admin/*, /storage
+// These manage data that is either global (app-settings) or that
+// itself selects/joins on companies (admin panel for the tenant).
+router.use(usersRouter);
+router.use(adminRouter);
+router.use(appSettingsRouter);
+router.use(storageRouter);
+
+// Everything past this point operates inside a single tenant.
+router.use(requireCompanyContext);
 
 router.use(dashboardRouter);
 router.use(productsRouter);
@@ -68,18 +85,14 @@ router.use(customersRouter);
 router.use(branchesRouter);
 router.use(warehousesRouter);
 router.use(inventoryRouter);
-router.use(usersRouter);
 router.use(securityRouter);
 router.use(projectsRouter);
 router.use(marketingRouter);
-router.use(adminRouter);
-router.use(appSettingsRouter);
 router.use(aiRouter);
 router.use(suppliersRouter);
 router.use(procurementRouter);
 router.use(salesRouter);
 router.use(crmRouter);
-router.use(storageRouter);
 router.use(exportsRouter);
 router.use(hrRouter);
 router.use(manufacturingRouter);

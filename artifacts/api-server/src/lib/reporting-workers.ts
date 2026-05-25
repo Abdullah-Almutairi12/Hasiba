@@ -116,7 +116,12 @@ async function evaluateKpiAlerts(): Promise<void> {
           threshold: String(threshold),
           message,
         });
+        // KPI alert definitions aren't tenant-scoped (reporting tables
+        // are still cross-tenant in Phase-2); the resulting alert row is
+        // logged with companyId=null so it remains visible in the
+        // operations view without leaking into a single tenant's feed.
         await db.insert(alertsTable).values({
+          companyId: null,
           type: "warning",
           title: `تنبيه KPI: ${a.name}`,
           message,

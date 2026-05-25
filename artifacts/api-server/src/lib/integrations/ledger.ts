@@ -1,10 +1,13 @@
 import {
   db,
   accountsTable,
+  branchesTable,
+  customerInvoicesTable,
   journalEntriesTable,
   journalEntryLinesTable,
   paymentGatewaysTable,
   paymentIntentsTable,
+  posOrdersTable,
 } from "@workspace/db";
 import { eq } from "drizzle-orm";
 
@@ -65,9 +68,34 @@ export async function postPaymentReceiptToLedger(intentId: number): Promise<{
   const today = new Date().toISOString().slice(0, 10);
   const entryNumber = `PAY-${intent.id}-${Date.now().toString(36)}`;
 
+  // Tenant: payment intents point at either a customer invoice or a POS
+  // order. POS orders carry companyId directly post-Phase-1; customer
+  // invoices aren't scoped yet, so we hop through their branch to find
+  // the owning company. If neither path resolves, we cannot post a
+  // tenant-scoped journal entry and must skip.
+  let companyId: number | null = null;
+  if (intent.posOrderId != null) {
+    const [ord] = await db
+      .select({ companyId: posOrdersTable.companyId })
+      .from(posOrdersTable)
+      .where(eq(posOrdersTable.id, intent.posOrderId));
+    companyId = ord?.companyId ?? null;
+  } else if (intent.invoiceId != null) {
+    const [row] = await db
+      .select({ companyId: branchesTable.companyId })
+      .from(customerInvoicesTable)
+      .leftJoin(branchesTable, eq(branchesTable.id, customerInvoicesTable.branchId))
+      .where(eq(customerInvoicesTable.id, intent.invoiceId));
+    companyId = row?.companyId ?? null;
+  }
+  if (companyId == null) {
+    return { entryId: null, skipped: "no_tenant_link" };
+  }
+
   const [entry] = await db
     .insert(journalEntriesTable)
     .values({
+      companyId,
       entryNumber,
       entryDate: today,
       description: `استلام دفعة عبر ${gateway.displayName}`,

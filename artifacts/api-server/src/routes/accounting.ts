@@ -28,6 +28,7 @@ import {
 } from "../lib/journal-posting";
 import { recordAudit } from "../lib/audit";
 import { ClosedPeriodError } from "../lib/journal-posting";
+import { getCompanyId } from "../lib/scoped-db";
 import { handleClosedPeriod } from "../lib/handle-error";
 import {
   submitForApproval,
@@ -584,6 +585,7 @@ router.post("/accounting/close-year", ownerOnly, async (req, res) => {
           sourceRef: `fiscal_year:${year.id}`,
           createdBy: userId,
           status: "posted",
+          companyId: getCompanyId(req),
         },
         lines,
       );
@@ -845,6 +847,7 @@ router.post("/accounting/journal-entries", financeGuard, async (req, res) => {
           source: "manual",
           createdBy: userId,
           status: body.status ?? "draft",
+          companyId: getCompanyId(req),
         },
         body.lines,
       );

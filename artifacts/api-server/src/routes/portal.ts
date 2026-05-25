@@ -280,11 +280,14 @@ router.post(
       if (!parsed.success) return res.status(400).json({ error: "بيانات غير صحيحة" });
       const { principalId } = req.portal!;
       const [sup] = await db
-        .select({ name: suppliersTable.name })
+        .select({ name: suppliersTable.name, companyId: suppliersTable.companyId })
         .from(suppliersTable)
         .where(eq(suppliersTable.id, principalId))
         .limit(1);
       if (!sup) return res.status(404).json({ error: "المورد غير موجود" });
+      if (sup.companyId == null) {
+        return res.status(409).json({ error: "حساب المورد غير مرتبط بشركة" });
+      }
 
       // Ensure PO belongs to this supplier if provided.
       if (parsed.data.poId) {
@@ -301,9 +304,14 @@ router.post(
         if (!po) return res.status(404).json({ error: "أمر الشراء غير موجود" });
       }
 
+      // Portal submission: derive the tenant from the supplier record
+      // itself — there is no operator session here. The supplier was
+      // already looked up via `sup` above, so its companyId is the
+      // authoritative tenant for the new invoice.
       const [inv] = await db
         .insert(invoicesTable)
         .values({
+          companyId: sup.companyId,
           invoiceNumber: parsed.data.invoiceNumber,
           supplierId: principalId,
           supplierName: sup.name,

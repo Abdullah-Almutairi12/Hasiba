@@ -20,22 +20,27 @@ import {
   adminGuard,
 } from "../middlewares/require-role";
 import { handleRouteError } from "../lib/handle-error";
+import { ScopedDb, getCompanyId } from "../lib/scoped-db";
 
 const router = Router();
 
 router.get("/customers", customerReadGuard, async (req, res) => {
   try {
     const { search } = req.query;
+    const scoped = new ScopedDb(getCompanyId(req));
     const customers = await db
       .select()
       .from(customersTable)
       .where(
-        search
-          ? or(
-              ilike(customersTable.name, `%${search}%`),
-              ilike(customersTable.phone ?? "", `%${search}%`)
-            )
-          : sql`true`
+        and(
+          scoped.scope(customersTable),
+          search
+            ? or(
+                ilike(customersTable.name, `%${search}%`),
+                ilike(customersTable.phone ?? "", `%${search}%`)
+              )
+            : sql`true`
+        )
       )
       .orderBy(desc(customersTable.createdAt));
 
@@ -65,9 +70,10 @@ router.post("/customers", salesWriteGuard, async (req, res) => {
       shippingAddress: z.string().nullable().optional(),
     });
     const body = Extended.parse(req.body);
+    const scoped = new ScopedDb(getCompanyId(req));
     const [customer] = await db
       .insert(customersTable)
-      .values({
+      .values(scoped.stamp({
         name: body.name,
         phone: body.phone ?? null,
         email: body.email ?? null,
@@ -78,7 +84,7 @@ router.post("/customers", salesWriteGuard, async (req, res) => {
         taxNumber: body.taxNumber ?? null,
         billingAddress: body.billingAddress ?? null,
         shippingAddress: body.shippingAddress ?? null,
-      })
+      }))
       .returning();
 
     res.status(201).json({
@@ -138,7 +144,11 @@ router.patch("/customers/:id", salesWriteGuard, async (req, res) => {
 router.get("/customers/:id/360", customerReadGuard, async (req, res) => {
   try {
     const id = Number(req.params.id);
-    const [customer] = await db.select().from(customersTable).where(eq(customersTable.id, id));
+    const scoped = new ScopedDb(getCompanyId(req));
+    const [customer] = await db
+      .select()
+      .from(customersTable)
+      .where(and(eq(customersTable.id, id), scoped.scope(customersTable)));
     if (!customer) { res.status(404).json({ error: "العميل غير موجود" }); return; }
 
     const role = req.session?.role;

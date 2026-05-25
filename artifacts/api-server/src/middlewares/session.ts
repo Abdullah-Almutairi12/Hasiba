@@ -59,5 +59,11 @@ declare module "express-session" {
       | "marketing"
       | "auditor"
       | "hr";
+    /**
+     * Active tenant for this session. Populated at login from
+     * `user_companies.is_default`, or lazily back-filled by
+     * `requireCompanyContext` for pre-Phase-2 sessions.
+     */
+    companyId?: number;
   }
 }

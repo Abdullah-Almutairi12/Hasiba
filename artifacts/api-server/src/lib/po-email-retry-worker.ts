@@ -1,5 +1,5 @@
-import { db, alertsTable } from "@workspace/db";
-import { sql } from "drizzle-orm";
+import { db, alertsTable, purchaseOrdersTable, warehousesTable, branchesTable } from "@workspace/db";
+import { eq, sql } from "drizzle-orm";
 import { logger } from "./logger";
 import { isMailerConfigured } from "./mailer";
 import { dispatchPurchaseOrder } from "../routes/procurement";
@@ -53,7 +53,27 @@ async function notifyGaveUp(row: QueuedRow, reason: string): Promise<void> {
       (Array.isArray(exists) ? (exists as Array<{ exists: boolean }>) : []);
     if (rows[0]?.exists) return;
 
+    // Stamp the alert with the PO's tenant when discoverable. Purchase
+    // orders themselves aren't tenant-scoped yet (Phase-1 left them
+    // unscoped), so we hop PO → warehouse → branch → company as a
+    // best-effort lookup. When that fails we fall back to
+    // companyId=null so the alert still surfaces in the (cross-tenant)
+    // operations view rather than silently being dropped.
+    let companyId: number | null = null;
+    try {
+      const [row2] = await db
+        .select({ companyId: branchesTable.companyId })
+        .from(purchaseOrdersTable)
+        .leftJoin(warehousesTable, eq(warehousesTable.id, purchaseOrdersTable.warehouseId))
+        .leftJoin(branchesTable, eq(branchesTable.id, warehousesTable.branchId))
+        .where(eq(purchaseOrdersTable.id, row.refId));
+      companyId = row2?.companyId ?? null;
+    } catch {
+      companyId = null;
+    }
+
     await db.insert(alertsTable).values({
+      companyId,
       type: "po_send_failed",
       title: `فشل نهائي في إرسال أمر الشراء ${row.reference}`,
       message:

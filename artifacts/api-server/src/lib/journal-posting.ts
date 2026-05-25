@@ -23,6 +23,12 @@ export interface PostingHeaderInput {
   sourceRef?: string | null;
   createdBy?: number | null;
   status?: "draft" | "posted";
+  /**
+   * Tenant the entry belongs to. Required for Multi-Company Phase 2 —
+   * journal_entries.company_id is NOT NULL. Callers must source this from
+   * `getCompanyId(req)` (or pass it through their existing companyId arg).
+   */
+  companyId: number;
 }
 
 const EPSILON = 0.005;
@@ -193,6 +199,7 @@ export async function postJournalEntry(
       createdBy: header.createdBy ?? null,
       postedBy: status === "posted" ? header.createdBy ?? null : null,
       postedAt: status === "posted" ? new Date() : null,
+      companyId: header.companyId,
     })
     .returning();
 
@@ -310,6 +317,8 @@ export async function reverseJournalEntry(
       postedBy: userId,
       postedAt: new Date(),
       reversalOf: orig.id,
+      // Reversals always stay inside the same tenant as the original.
+      companyId: orig.companyId,
     })
     .returning();
 

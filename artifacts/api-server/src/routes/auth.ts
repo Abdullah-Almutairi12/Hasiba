@@ -1,9 +1,30 @@
 import { Router } from "express";
 import bcrypt from "bcryptjs";
 import rateLimit from "express-rate-limit";
-import { db, usersTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { db, usersTable, userCompaniesTable, companiesTable } from "@workspace/db";
+import { and, eq, desc } from "drizzle-orm";
 import { z } from "zod";
+
+/**
+ * Look up the company the user should land in after login. Returns the
+ * `is_default = true` row when present, otherwise the most recently
+ * created membership, otherwise `null` (caller decides what to do).
+ */
+async function resolveLoginCompanyId(userId: number): Promise<number | null> {
+  const [def] = await db
+    .select({ companyId: userCompaniesTable.companyId })
+    .from(userCompaniesTable)
+    .where(and(eq(userCompaniesTable.userId, userId), eq(userCompaniesTable.isDefault, true)))
+    .limit(1);
+  if (def?.companyId) return def.companyId;
+  const [any] = await db
+    .select({ companyId: userCompaniesTable.companyId })
+    .from(userCompaniesTable)
+    .where(eq(userCompaniesTable.userId, userId))
+    .orderBy(desc(userCompaniesTable.createdAt))
+    .limit(1);
+  return any?.companyId ?? null;
+}
 
 const router = Router();
 
@@ -60,6 +81,13 @@ router.post("/auth/login", loginLimiter, async (req, res) => {
       .set({ lastLoginAt: new Date() })
       .where(eq(usersTable.id, user.id));
 
+    const companyId = await resolveLoginCompanyId(user.id);
+    if (!companyId) {
+      return res
+        .status(403)
+        .json({ error: "لا توجد شركة مرتبطة بهذا الحساب — تواصل مع المدير" });
+    }
+
     req.session.regenerate((regenErr) => {
       if (regenErr) {
         req.log.error({ err: regenErr }, "Session regenerate failed");
@@ -68,6 +96,7 @@ router.post("/auth/login", loginLimiter, async (req, res) => {
       }
       req.session.userId = user.id;
       req.session.role = user.role as typeof req.session.role;
+      req.session.companyId = companyId;
       req.session.save((saveErr) => {
         if (saveErr) {
           req.log.error({ err: saveErr }, "Session save failed");
@@ -81,6 +110,7 @@ router.post("/auth/login", loginLimiter, async (req, res) => {
           role: user.role,
           branchId: user.branchId,
           avatarUrl: user.avatarUrl,
+          companyId,
         });
       });
     });
@@ -129,16 +159,33 @@ router.post("/auth/signup", signupLimiter, async (req, res) => {
     }
 
     const passwordHash = await bcrypt.hash(password, 12);
-    const [user] = await db
-      .insert(usersTable)
-      .values({
-        name,
-        email: normalizedEmail,
-        passwordHash,
+    // New self-serve signup is treated as a brand-new tenant: we create a
+    // company row and grant the freshly-minted manager full owner-style
+    // access to it via user_companies. Phase 3 will expose a UI to invite
+    // additional users into the same company.
+    const { user, companyId } = await db.transaction(async (tx) => {
+      const [u] = await tx
+        .insert(usersTable)
+        .values({
+          name,
+          email: normalizedEmail,
+          passwordHash,
+          role: "manager",
+          isActive: true,
+        })
+        .returning();
+      const [c] = await tx
+        .insert(companiesTable)
+        .values({ name: `شركة ${name}` })
+        .returning({ id: companiesTable.id });
+      await tx.insert(userCompaniesTable).values({
+        userId: u.id,
+        companyId: c.id,
         role: "manager",
-        isActive: true,
-      })
-      .returning();
+        isDefault: true,
+      });
+      return { user: u, companyId: c.id };
+    });
 
     req.session.regenerate((regenErr) => {
       if (regenErr) {
@@ -148,6 +195,7 @@ router.post("/auth/signup", signupLimiter, async (req, res) => {
       }
       req.session.userId = user.id;
       req.session.role = user.role as typeof req.session.role;
+      req.session.companyId = companyId;
       req.session.save((saveErr) => {
         if (saveErr) {
           req.log.error({ err: saveErr }, "Session save failed");
@@ -161,6 +209,7 @@ router.post("/auth/signup", signupLimiter, async (req, res) => {
           role: user.role,
           branchId: user.branchId,
           avatarUrl: user.avatarUrl,
+          companyId,
         });
       });
     });
@@ -194,6 +243,7 @@ router.get("/auth/me", async (req, res) => {
       role: user.role,
       branchId: user.branchId,
       avatarUrl: user.avatarUrl,
+      companyId: req.session.companyId ?? null,
     });
   } catch (err) {
     req.log.error({ err }, "Auth me failed");

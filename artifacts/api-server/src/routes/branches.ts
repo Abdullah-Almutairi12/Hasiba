@@ -1,17 +1,19 @@
 import { Router } from "express";
 import { db, branchesTable } from "@workspace/db";
-import { sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { CreateBranchBody } from "@workspace/api-zod";
 import { adminGuard } from "../middlewares/require-role";
+import { ScopedDb, getCompanyId } from "../lib/scoped-db";
 
 const router = Router();
 
 router.get("/branches", async (req, res) => {
   try {
+    const scoped = new ScopedDb(getCompanyId(req));
     const branches = await db
       .select()
       .from(branchesTable)
-      .where(sql`${branchesTable.isActive} = true`);
+      .where(and(sql`${branchesTable.isActive} = true`, scoped.scope(branchesTable)));
 
     res.json(branches.map((b) => ({ ...b, createdAt: undefined })));
   } catch (err) {
@@ -23,14 +25,15 @@ router.get("/branches", async (req, res) => {
 router.post("/branches", adminGuard, async (req, res) => {
   try {
     const body = CreateBranchBody.parse(req.body);
+    const scoped = new ScopedDb(getCompanyId(req));
     const [branch] = await db
       .insert(branchesTable)
-      .values({
+      .values(scoped.stamp({
         name: body.name,
         nameAr: body.nameAr,
         city: body.city,
         isActive: body.isActive ?? true,
-      })
+      }))
       .returning();
 
     res.status(201).json({

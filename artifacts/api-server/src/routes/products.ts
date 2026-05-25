@@ -1,15 +1,17 @@
 import { Router } from "express";
 import { db, productsTable, categoriesTable } from "@workspace/db";
-import { eq, sql, desc } from "drizzle-orm";
+import { and, eq, sql, desc } from "drizzle-orm";
 import { CreateProductBody, UpdateProductBody } from "@workspace/api-zod";
 import { inventoryGuard } from "../middlewares/require-role";
 import { recordStockMove, getDefaultWarehouseId } from "../lib/stock-engine";
+import { ScopedDb, getCompanyId } from "../lib/scoped-db";
 
 const router = Router();
 
 router.get("/products", async (req, res) => {
   try {
     const { category, search, lowStock } = req.query;
+    const scoped = new ScopedDb(getCompanyId(req));
 
     const rows = await db
       .select({
@@ -34,11 +36,14 @@ router.get("/products", async (req, res) => {
       .from(productsTable)
       .leftJoin(categoriesTable, eq(productsTable.categoryId, categoriesTable.id))
       .where(
-        sql`${productsTable.isActive} = true
-          ${category ? sql`and ${categoriesTable.id} = ${Number(category)}` : sql``}
-          ${search ? sql`and (${productsTable.nameAr} ilike ${'%' + search + '%'} or ${productsTable.name} ilike ${'%' + search + '%'})` : sql``}
-          ${lowStock === 'true' ? sql`and ${productsTable.stock} <= ${productsTable.minStock}` : sql``}
-        `
+        and(
+          scoped.scope(productsTable),
+          sql`${productsTable.isActive} = true
+            ${category ? sql`and ${categoriesTable.id} = ${Number(category)}` : sql``}
+            ${search ? sql`and (${productsTable.nameAr} ilike ${'%' + search + '%'} or ${productsTable.name} ilike ${'%' + search + '%'})` : sql``}
+            ${lowStock === 'true' ? sql`and ${productsTable.stock} <= ${productsTable.minStock}` : sql``}
+          `,
+        ),
       )
       .orderBy(desc(productsTable.createdAt));
 
@@ -60,11 +65,12 @@ router.get("/products", async (req, res) => {
 router.post("/products", inventoryGuard, async (req, res) => {
   try {
     const body = CreateProductBody.parse(req.body);
+    const scoped = new ScopedDb(getCompanyId(req));
     const { broadcastProductChange } = await import("../lib/integrations/marketplaces");
     const product = await db.transaction(async (tx) => {
       const [created] = await tx
         .insert(productsTable)
-        .values({
+        .values(scoped.stamp({
           name: body.name,
           nameAr: body.nameAr,
           sku: body.sku,
@@ -78,7 +84,7 @@ router.post("/products", inventoryGuard, async (req, res) => {
           barcode: body.barcode ?? null,
           trackingMode: body.trackingMode ?? "none",
           costingMethod: body.costingMethod ?? "average",
-        })
+        }))
         .returning();
       // Initial stock is recorded as a real receipt move so quants and the
       // ledger stay in sync. Direct writes to products.stock are not allowed.
@@ -165,6 +171,7 @@ router.get("/products/stats", async (req, res) => {
 router.get("/products/:id", async (req, res) => {
   try {
     const id = Number(req.params.id);
+    const scoped = new ScopedDb(getCompanyId(req));
     const [product] = await db
       .select({
         id: productsTable.id,
@@ -187,7 +194,7 @@ router.get("/products/:id", async (req, res) => {
       })
       .from(productsTable)
       .leftJoin(categoriesTable, eq(productsTable.categoryId, categoriesTable.id))
-      .where(eq(productsTable.id, id));
+      .where(and(eq(productsTable.id, id), scoped.scope(productsTable)));
 
     if (!product) return res.status(404).json({ error: "Not found" });
 

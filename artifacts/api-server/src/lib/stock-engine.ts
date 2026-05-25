@@ -35,6 +35,7 @@ async function scheduleLowStockNotification(productId: number): Promise<void> {
         stock: productsTable.stock,
         minStock: productsTable.minStock,
         isActive: productsTable.isActive,
+        companyId: productsTable.companyId,
       })
       .from(productsTable)
       .where(eq(productsTable.id, productId));
@@ -48,6 +49,9 @@ async function scheduleLowStockNotification(productId: number): Promise<void> {
       type: "low_stock",
       title: `مخزون منخفض: ${p.nameAr}`,
       message: `المنتج #${productId} (${p.sku}) وصلت كميته إلى ${stock} وحدة (الحد الأدنى ${minStock}).`,
+      // Inherit tenant scope from the product so this alert only surfaces
+      // in the owning company's notification list.
+      companyId: p.companyId ?? null,
     });
 
     const managers = await db
@@ -227,18 +231,24 @@ interface ProductInfo {
   costPrice: number;
 }
 
-async function getProductInfo(tx: DbOrTx, productId: number): Promise<ProductInfo> {
+async function getProductInfo(tx: DbOrTx, productId: number): Promise<ProductInfo & { companyId: number | null }> {
   const [p] = await tx
     .select({
       tracking: productsTable.trackingMode,
       costingMethod: productsTable.costingMethod,
       costPrice: productsTable.costPrice,
+      companyId: productsTable.companyId,
     })
     .from(productsTable)
     .where(eq(productsTable.id, productId))
     .limit(1);
   if (!p) throw new Error("المنتج غير موجود");
-  return { tracking: p.tracking, costingMethod: p.costingMethod, costPrice: Number(p.costPrice ?? 0) };
+  return {
+    tracking: p.tracking,
+    costingMethod: p.costingMethod,
+    costPrice: Number(p.costPrice ?? 0),
+    companyId: p.companyId ?? null,
+  };
 }
 
 /**
@@ -557,6 +567,12 @@ export async function recordStockMove(
   if (!input.skipJournal && unitCost > 0 && state === "done") {
     const value = qty * unitCost;
     const ref = input.sourceRef ?? `MOVE-${move.id}`;
+    if (product.companyId == null) {
+      throw new Error(
+        `Cannot post stock-move journal: product ${input.productId} has no companyId`,
+      );
+    }
+    const moveCompanyId = product.companyId;
     const postWith = async (
       lines: Array<{ systemKey: string; debit?: number; credit?: number; description?: string }>,
       desc: string,
@@ -571,6 +587,7 @@ export async function recordStockMove(
           sourceRef: `STOCK-MOVE-${move.id}`,
           createdBy: input.createdBy ?? null,
           status: "posted",
+          companyId: moveCompanyId,
         },
         lines,
       );

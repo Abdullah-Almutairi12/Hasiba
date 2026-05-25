@@ -36,6 +36,7 @@ import {
 import { handleRouteError } from "../lib/handle-error";
 import { registerArabicFonts } from "../lib/pdf/arabic-font";
 import { postJournalEntry } from "../lib/journal-posting";
+import { getCompanyId } from "../lib/scoped-db";
 import { logger } from "../lib/logger";
 import {
   submitForApproval,
@@ -437,6 +438,7 @@ router.post("/hr/employees", hrGuard, async (req, res) => {
     const [row] = await db
       .insert(employeesTable)
       .values({
+        companyId: getCompanyId(req),
         employeeNo,
         name: body.name,
         nameAr: body.nameAr,
@@ -1840,6 +1842,7 @@ router.post("/hr/payroll-runs/:id/post", financeGuard, async (req, res) => {
         sourceRef: `payroll:${run.id}`,
         createdBy: req.session.userId ?? null,
         status: "posted",
+        companyId: getCompanyId(req),
       },
       lines,
     );
@@ -1932,6 +1935,7 @@ router.post("/hr/payroll-runs/:id/mark-paid", financeGuard, async (req, res) => 
         sourceRef: `payroll-pay:${run.id}`,
         createdBy: req.session.userId ?? null,
         status: "posted",
+        companyId: getCompanyId(req),
       },
       payJeLines,
     );
@@ -1979,6 +1983,7 @@ router.post("/hr/payroll-runs/:id/remit-gosi", financeGuard, async (req, res) =>
         sourceRef: `payroll-gosi:${run.id}`,
         createdBy: req.session.userId ?? null,
         status: "posted",
+        companyId: getCompanyId(req),
       },
       [
         { systemKey: "gosi_payable", debit: gosiTotal, description: "Remit GOSI contributions" },

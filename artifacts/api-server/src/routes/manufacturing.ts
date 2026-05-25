@@ -29,6 +29,7 @@ import {
 } from "../lib/stock-engine";
 import { stockLotsTable, stockSerialsTable } from "@workspace/db";
 import { postJournalEntry } from "../lib/journal-posting";
+import { getCompanyId } from "../lib/scoped-db";
 
 const router = Router();
 
@@ -805,6 +806,7 @@ async function consumeWork(
   woId: number,
   pickRemaining: number,
   userId: number | null,
+  companyId: number,
   picks?: ReservationPick[],
 ): Promise<number> {
   const [wo] = await tx.select().from(workOrdersTable).where(eq(workOrdersTable.id, woId)).limit(1);
@@ -922,6 +924,7 @@ async function consumeWork(
         sourceRef: `WO-CONS-${wo.id}`,
         createdBy: userId,
         status: "posted",
+        companyId,
       },
       [
         { systemKey: "wip", debit: consumedValue, description: `WIP — ${wo.reference}` },
@@ -946,6 +949,7 @@ async function produceWork(
   woId: number,
   qty: number,
   userId: number | null,
+  companyId: number,
   finished?: FinishedSelection,
 ): Promise<number> {
   const [wo] = await tx.select().from(workOrdersTable).where(eq(workOrdersTable.id, woId)).limit(1);
@@ -1058,6 +1062,7 @@ async function produceWork(
         sourceRef: `WO-PROD-${wo.id}`,
         createdBy: userId,
         status: "posted",
+        companyId,
       },
       [
         { systemKey: "finished_goods", debit: finishedValue, description: `بضاعة تامة ${wo.reference}` },
@@ -1132,6 +1137,7 @@ router.post("/manufacturing/work-orders/:id/consume", productionGuard, async (re
         id,
         body.fraction ?? 1,
         req.session?.userId ?? null,
+        getCompanyId(req),
         body.picks,
       );
     });
@@ -1187,6 +1193,7 @@ router.post("/manufacturing/work-orders/:id/produce", productionGuard, async (re
         id,
         body.quantity,
         req.session?.userId ?? null,
+        getCompanyId(req),
         body.finished,
       );
     });
@@ -1235,6 +1242,7 @@ router.post("/manufacturing/work-orders/:id/complete", productionGuard, async (r
         id,
         1,
         req.session?.userId ?? null,
+        getCompanyId(req),
         body.picks,
       );
       // Produce the full remaining planned quantity — no partial completion.
@@ -1246,6 +1254,7 @@ router.post("/manufacturing/work-orders/:id/complete", productionGuard, async (r
           id,
           remaining,
           req.session?.userId ?? null,
+          getCompanyId(req),
           body.finished,
         );
       }
@@ -1282,6 +1291,7 @@ router.post("/manufacturing/work-orders/:id/complete", productionGuard, async (r
             sourceRef: `WO-VAR-${wo.id}`,
             createdBy: req.session?.userId ?? null,
             status: "posted",
+            companyId: getCompanyId(req),
           },
           lines,
         );
@@ -1501,6 +1511,7 @@ router.post("/manufacturing/scrap", productionGuard, async (req, res) => {
             sourceRef: `SCRAP-${reference}`,
             createdBy: req.session?.userId ?? null,
             status: "posted",
+            companyId: getCompanyId(req),
           },
           [
             { systemKey: "scrap_loss", debit: value, description: `خسارة إتلاف ${body.reason}` },
@@ -1588,6 +1599,7 @@ router.post("/manufacturing/scrap/:id/rework", productionGuard, async (req, res)
             sourceRef: `REWORK-${scrap.reference}`,
             createdBy: req.session?.userId ?? null,
             status: "posted",
+            companyId: getCompanyId(req),
           },
           [
             { systemKey: "inventory", debit: value, description: `استرداد إتلاف ${scrap.reference}` },

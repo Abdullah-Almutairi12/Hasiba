@@ -1,9 +1,10 @@
 import { Router } from "express";
 import { db, projectsTable, projectTasksTable, customersTable } from "@workspace/db";
-import { desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { adminGuard } from "../middlewares/require-role";
 import { handleRouteError } from "../lib/handle-error";
+import { ScopedDb, getCompanyId } from "../lib/scoped-db";
 
 const router = Router();
 
@@ -23,6 +24,7 @@ const serializeProject = (p: typeof projectsTable.$inferSelect & { customerName?
 
 router.get("/projects", async (req, res) => {
   try {
+    const scoped = new ScopedDb(getCompanyId(req));
     const rows = await db
       .select({
         id: projectsTable.id,
@@ -43,6 +45,7 @@ router.get("/projects", async (req, res) => {
       })
       .from(projectsTable)
       .leftJoin(customersTable, eq(customersTable.id, projectsTable.customerId))
+      .where(scoped.scope(projectsTable))
       .orderBy(desc(projectsTable.createdAt));
     res.json(
       rows.map((r) => ({
@@ -74,9 +77,10 @@ const CreateProjectBody = z.object({
 router.post("/projects", projWriteGuard, async (req, res) => {
   try {
     const body = CreateProjectBody.parse(req.body);
+    const scoped = new ScopedDb(getCompanyId(req));
     const [row] = await db
       .insert(projectsTable)
-      .values({
+      .values(scoped.stamp({
         name: body.name,
         code: body.code ?? null,
         customerId: body.customerId ?? null,
@@ -87,7 +91,7 @@ router.post("/projects", projWriteGuard, async (req, res) => {
         startDate: body.startDate ?? null,
         dueDate: body.dueDate ?? null,
         description: body.description ?? null,
-      })
+      }))
       .returning();
     res.status(201).json(serializeProject(row));
   } catch (err) {
@@ -155,18 +159,23 @@ router.post("/projects/:id/tasks", projWriteGuard, async (req, res) => {
 
 router.get("/projects/summary", async (req, res) => {
   try {
+    const scoped = new ScopedDb(getCompanyId(req));
     const [{ total }] = await db
       .select({ total: sql<number>`count(*)::int` })
-      .from(projectsTable);
+      .from(projectsTable)
+      .where(scoped.scope(projectsTable));
     const [{ active }] = await db
       .select({ active: sql<number>`count(*) filter (where ${projectsTable.status} = 'active')::int` })
-      .from(projectsTable);
+      .from(projectsTable)
+      .where(scoped.scope(projectsTable));
     const [{ totalBudget }] = await db
       .select({ totalBudget: sql<number>`coalesce(sum(${projectsTable.budget}), 0)::numeric` })
-      .from(projectsTable);
+      .from(projectsTable)
+      .where(scoped.scope(projectsTable));
     const [{ totalSpent }] = await db
       .select({ totalSpent: sql<number>`coalesce(sum(${projectsTable.spent}), 0)::numeric` })
-      .from(projectsTable);
+      .from(projectsTable)
+      .where(scoped.scope(projectsTable));
     res.json({
       totalProjects: total,
       activeProjects: active,

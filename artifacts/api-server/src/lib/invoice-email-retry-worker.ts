@@ -129,7 +129,13 @@ async function notifyGaveUp(row: QueuedRow, reason: string): Promise<void> {
     if (rows[0]?.exists) return;
 
     const label = DOC_LABEL_AR[row.kind];
+    // Send/retry outbox tables aren't tenant-scoped (Phase-1 left
+    // procurement & sales document tables alone). We log the alert with
+    // companyId=null so it surfaces in the cross-tenant operations view
+    // rather than getting dropped — a follow-up phase will derive the
+    // tenant from the parent document once those tables are scoped.
     await db.insert(alertsTable).values({
+      companyId: null,
       type: "document_send_failed",
       title: `فشل نهائي في إرسال ${label} ${row.reference}`,
       message:
