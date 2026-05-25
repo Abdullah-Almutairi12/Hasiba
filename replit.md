@@ -122,6 +122,17 @@ Frontend mirror in `artifacts/erp-system/src/hooks/use-permissions.ts` (`NAV_PER
 
 **Important pitfall (fixed):** `router.use(guard)` without a path prefix runs for every request that enters the router, regardless of route matching. When applying a router-level guard, always scope it: `router.use("/reports", reportReadGuard)`.
 
+### CSRF defense-in-depth
+
+Session cookies use `SameSite=lax`, which blocks the bulk of CSRF
+vectors. On top of that, `middlewares/require-same-origin.ts` runs
+right after `requireAuth` and rejects POST/PUT/PATCH/DELETE whose
+`Origin` (or fallback `Referer`) is not in the allowlist
+(`ALLOWED_ORIGINS` + `REPLIT_DOMAINS` + localhost in dev). Header-less
+requests (curl, native mobile, S2S) pass through — they cannot forge
+cross-site requests through a browser. Webhook routes are mounted
+BEFORE this middleware and remain unaffected.
+
 ## Testing
 
 Server-side unit + integration tests live next to the code they cover
@@ -136,6 +147,18 @@ Server-side unit + integration tests live next to the code they cover
   - `lib/scoped-db.test.ts` — multi-tenant isolation invariants
     (`stamp()` overrides client `companyId`, `scope()` filters by
     bound tenant, `scoped()` composes AND with extra predicates)
+  - `lib/tenant-http.test.ts` — HTTP-level tenant isolation via
+    supertest: two real users in two real companies log in through
+    the full middleware chain and exercise `GET /api/products`,
+    `POST /api/products` with forged `companyId`, `GET /api/products/:id`
+    cross-tenant, and `GET /api/customers` per-tenant.
+  - `middlewares/require-same-origin.test.ts` — CSRF Origin/Referer
+    guard (safe-method pass-through, allowlist hit/miss, Referer
+    fallback, localhost-port dev allowance).
+
+Vitest config adds `setupFiles: ["reflect-metadata"]` so importing
+`app` from a test reproduces the same polyfill ordering the bundled
+production entry guarantees on line 1.
 
 ## Build / bundle
 

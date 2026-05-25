@@ -38,6 +38,7 @@ import portalRouter from "./portal";
 import documentsRouter, { signPublicRouter } from "./documents";
 import { requireAuth } from "../middlewares/require-auth";
 import { requireCompanyContext } from "../middlewares/require-company-context";
+import { requireSameOrigin } from "../middlewares/require-same-origin";
 
 const router: IRouter = Router();
 
@@ -60,6 +61,10 @@ router.use(signPublicRouter);
 // require auth but bypass company scoping — they are mounted BEFORE
 // requireCompanyContext below.
 router.use(requireAuth);
+// CSRF defense-in-depth: reject cross-origin POST/PUT/PATCH/DELETE on
+// every authenticated route. Webhooks and token-authenticated public
+// routes above bypass this. See middlewares/require-same-origin.ts.
+router.use(requireSameOrigin);
 
 // Cross-tenant routes — auth only, no company scope:
 //   /users, /companies (Phase 3), /app-settings, /admin/*, /storage

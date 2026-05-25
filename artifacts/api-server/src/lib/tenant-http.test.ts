@@ -24,6 +24,7 @@ import {
   userCompaniesTable,
   categoriesTable,
   productsTable,
+  customersTable,
 } from "@workspace/db";
 import app from "../app";
 
@@ -37,6 +38,8 @@ let userBId = 0;
 let categoryId = 0;
 let productAId = 0;
 let productBId = 0;
+let customerAId = 0;
+let customerBId = 0;
 
 let agentA: request.Agent;
 let agentB: request.Agent;
@@ -120,6 +123,18 @@ beforeAll(async () => {
   productAId = pA.id;
   productBId = pB.id;
 
+  // One customer per tenant
+  const [cA] = await db
+    .insert(customersTable)
+    .values({ name: `HTTP Cust A ${RUN_TAG}`, companyId: companyAId })
+    .returning();
+  const [cB] = await db
+    .insert(customersTable)
+    .values({ name: `HTTP Cust B ${RUN_TAG}`, companyId: companyBId })
+    .returning();
+  customerAId = cA.id;
+  customerBId = cB.id;
+
   // Login each via cookie-jar agents
   agentA = request.agent(app);
   agentB = request.agent(app);
@@ -149,6 +164,10 @@ afterAll(async () => {
   for (const e of extras) productIds.push(e.id);
   if (productIds.length > 0) {
     await db.delete(productsTable).where(inArray(productsTable.id, productIds));
+  }
+  const custIds = [customerAId, customerBId].filter((n) => n > 0);
+  if (custIds.length > 0) {
+    await db.delete(customersTable).where(inArray(customersTable.id, custIds));
   }
   if (categoryId) await db.delete(categoriesTable).where(eq(categoriesTable.id, categoryId));
   const uids = [userAId, userBId].filter((n) => n > 0);
@@ -219,6 +238,24 @@ describe("HTTP — POST /api/products ignores forged companyId in body", () => {
         expect(row?.companyId).not.toBe(companyBId);
       }
     }
+  });
+});
+
+describe("HTTP — GET /api/customers is tenant-scoped", () => {
+  it("Tenant A sees ONLY their own customer, never tenant B's", async () => {
+    const res = await agentA.get("/api/customers");
+    expect(res.status).toBe(200);
+    const ids = (res.body as Array<{ id: number }>).map((c) => c.id);
+    expect(ids).toContain(customerAId);
+    expect(ids).not.toContain(customerBId);
+  });
+
+  it("Tenant B sees ONLY their own customer, never tenant A's", async () => {
+    const res = await agentB.get("/api/customers");
+    expect(res.status).toBe(200);
+    const ids = (res.body as Array<{ id: number }>).map((c) => c.id);
+    expect(ids).toContain(customerBId);
+    expect(ids).not.toContain(customerAId);
   });
 });
 
