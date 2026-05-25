@@ -2041,6 +2041,18 @@ export type SendCleanupReportNow400 = {
   reason?: string;
 };
 
+export type SendCleanupReportTest200 = {
+  ok: boolean;
+  sent: boolean;
+  recipient: string;
+  rowCount?: number;
+};
+
+export type SendCleanupReportTest400 = {
+  error: string;
+  reason?: string;
+};
+
 export type RunAlertsCleanupNow200Source =
   (typeof RunAlertsCleanupNow200Source)[keyof typeof RunAlertsCleanupNow200Source];
 

@@ -172,6 +172,8 @@ import type {
   SecurityChecklist,
   SendCleanupReportNow200,
   SendCleanupReportNow400,
+  SendCleanupReportTest200,
+  SendCleanupReportTest400,
   SetPermissionCellBody,
   Supplier,
   SupportTicket,
@@ -7995,6 +7997,89 @@ export const useSendCleanupReportNow = <
   TContext
 > => {
   return useMutation(getSendCleanupReportNowMutationOptions(options));
+};
+
+/**
+ * Sends the same PDF the scheduled cron would send, but only to the currently logged-in admin's email address. Useful for verifying SMTP / formatting end-to-end without spamming the configured auditor recipient list. Does NOT update `lastSentAt` — the scheduled cadence is preserved.
+ * @summary Send a test cleanup report email to the current admin only (admin only)
+ */
+export const getSendCleanupReportTestUrl = () => {
+  return `/api/admin/system-settings/send-cleanup-report-test`;
+};
+
+export const sendCleanupReportTest = async (
+  options?: RequestInit,
+): Promise<SendCleanupReportTest200> => {
+  return customFetch<SendCleanupReportTest200>(getSendCleanupReportTestUrl(), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getSendCleanupReportTestMutationOptions = <
+  TError = ErrorType<SendCleanupReportTest400>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof sendCleanupReportTest>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof sendCleanupReportTest>>,
+  TError,
+  void,
+  TContext
+> => {
+  const mutationKey = ["sendCleanupReportTest"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof sendCleanupReportTest>>,
+    void
+  > = () => {
+    return sendCleanupReportTest(requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type SendCleanupReportTestMutationResult = NonNullable<
+  Awaited<ReturnType<typeof sendCleanupReportTest>>
+>;
+
+export type SendCleanupReportTestMutationError =
+  ErrorType<SendCleanupReportTest400>;
+
+/**
+ * @summary Send a test cleanup report email to the current admin only (admin only)
+ */
+export const useSendCleanupReportTest = <
+  TError = ErrorType<SendCleanupReportTest400>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof sendCleanupReportTest>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof sendCleanupReportTest>>,
+  TError,
+  void,
+  TContext
+> => {
+  return useMutation(getSendCleanupReportTestMutationOptions(options));
 };
 
 /**

@@ -1177,6 +1177,62 @@ router.post(
   },
 );
 
+// Task #184: send the cleanup PDF to the logged-in admin only. Lets
+// them verify SMTP / formatting end-to-end without spamming the real
+// auditor recipient list. Does NOT update `lastSentAt` — this is a
+// test, not the scheduled send.
+router.post(
+  "/admin/system-settings/send-cleanup-report-test",
+  adminOnly,
+  async (req, res) => {
+    try {
+      const userId = req.session.userId;
+      if (!userId) {
+        return res.status(401).json({ error: "غير مسجّل الدخول" });
+      }
+      const row = await db
+        .select({ email: usersTable.email })
+        .from(usersTable)
+        .where(eq(usersTable.id, userId))
+        .limit(1);
+      const email = row[0]?.email?.trim();
+      if (!email) {
+        return res
+          .status(400)
+          .json({ error: "لا يوجد بريد إلكتروني للحساب الحالي." });
+      }
+      const result = await sendCleanupReportEmail({
+        recipientsOverride: [email],
+      });
+      if (!result.sent) {
+        const reasonMap: Record<string, string> = {
+          no_recipients: "لا يوجد بريد إلكتروني للحساب الحالي.",
+          mailer_not_configured:
+            "البريد غير مُهيأ — يرجى ضبط SMTP_HOST/SMTP_PORT.",
+        };
+        const msg =
+          reasonMap[result.reason ?? ""] ?? (result.reason ?? "تعذّر الإرسال");
+        return res.status(400).json({ error: msg, reason: result.reason });
+      }
+      void recordAudit(req, {
+        action: "system_settings.cleanup_report_sent_test",
+        entity: "alerts_cleanup_runs",
+        details: `recipient=${email} rows=${result.rowCount ?? 0}`,
+        severity: "info",
+      });
+      return res.json({
+        ok: true,
+        sent: true,
+        recipient: email,
+        rowCount: result.rowCount ?? 0,
+      });
+    } catch (err) {
+      req.log.error({ err }, "Send cleanup report (test) failed");
+      return res.status(500).json({ error: "Internal server error" });
+    }
+  },
+);
+
 // ============== Company Settings (letterhead, bank, PO terms) ==============
 // Singleton row at id=1 holding the fields rendered on the PO PDF header
 // and footer. PDF generators read this with an env-var fallback so an

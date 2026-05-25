@@ -1911,6 +1911,41 @@ paths:
                   reason: { type: string }
                 required: [error]
 
+  /admin/system-settings/send-cleanup-report-test:
+    post:
+      tags: [admin]
+      summary: Send a test cleanup report email to the current admin only (admin only)
+      description: >-
+        Sends the same PDF the scheduled cron would send, but only to
+        the currently logged-in admin's email address. Useful for
+        verifying SMTP / formatting end-to-end without spamming the
+        configured auditor recipient list. Does NOT update
+        `lastSentAt` — the scheduled cadence is preserved.
+      operationId: sendCleanupReportTest
+      responses:
+        "200":
+          description: Test report sent
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  sent: { type: boolean }
+                  recipient: { type: string }
+                  rowCount: { type: integer }
+                required: [ok, sent, recipient]
+        "400":
+          description: Missing email / mailer not configured / other precondition
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error: { type: string }
+                  reason: { type: string }
+                required: [error]
+
   /admin/system-settings/run-alerts-cleanup:
     post:
       tags: [admin]

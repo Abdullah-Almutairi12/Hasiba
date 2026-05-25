@@ -19,6 +19,7 @@ import {
   useUpdateSystemSettings,
   useRunAlertsCleanupNow,
   useSendCleanupReportNow,
+  useSendCleanupReportTest,
   useGetCleanupReportPreview,
   useListPermissionMatrix,
   useSetPermissionCell,
@@ -1443,6 +1444,22 @@ function CleanupReportEmailCard() {
       },
     },
   });
+  const sendTestMut = useSendCleanupReportTest({
+    mutation: {
+      onSuccess: (data) => {
+        toast({
+          title: "تم إرسال البريد التجريبي",
+          description: `إلى ${data.recipient} (${data.rowCount ?? 0} عملية تنظيف).`,
+        });
+      },
+      onError: (err: unknown) => {
+        const msg =
+          (err as { response?: { data?: { error?: string } } })?.response?.data
+            ?.error ?? "تعذّر إرسال البريد التجريبي";
+        toast({ title: msg, variant: "destructive" });
+      },
+    },
+  });
   const sendNowMut = useSendCleanupReportNow({
     mutation: {
       onSuccess: (data) => {
@@ -1728,6 +1745,7 @@ function CleanupReportEmailCard() {
             disabled={
               sendNowMut.isPending ||
               updateMut.isPending ||
+              sendTestMut.isPending ||
               recipients.length === 0
             }
             data-testid="button-send-cleanup-report-now"
@@ -1738,6 +1756,25 @@ function CleanupReportEmailCard() {
               <Send className="size-4" />
             )}
             إرسال الآن
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => sendTestMut.mutate()}
+            disabled={
+              sendTestMut.isPending ||
+              sendNowMut.isPending ||
+              updateMut.isPending
+            }
+            data-testid="button-send-cleanup-report-test"
+            title="يرسل البريد إلى حسابك فقط للتحقق من الإعدادات."
+          >
+            {sendTestMut.isPending ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <Send className="size-4" />
+            )}
+            إرسال نسخة تجريبية لي
           </Button>
           <span className="text-xs text-muted-foreground">
             يستخدم نفس قالب PDF الذي تنزّله من بطاقة سجل التنظيف.

@@ -231,12 +231,17 @@ export interface CleanupReportSendResult {
  */
 export async function sendCleanupReportEmail(opts: {
   force?: boolean;
+  recipientsOverride?: string[];
 } = {}): Promise<CleanupReportSendResult> {
   const cfg = await loadConfig();
-  if (!opts.force && cfg.schedule === "off") {
+  const isTest = Array.isArray(opts.recipientsOverride);
+  if (!opts.force && !isTest && cfg.schedule === "off") {
     return { sent: false, reason: "schedule_off" };
   }
-  if (cfg.recipients.length === 0) {
+  const recipients = isTest
+    ? opts.recipientsOverride!.map((r) => r.trim()).filter((r) => r.length > 0)
+    : cfg.recipients;
+  if (recipients.length === 0) {
     return { sent: false, reason: "no_recipients" };
   }
   if (!isMailerConfigured()) {
@@ -267,8 +272,8 @@ export async function sendCleanupReportEmail(opts: {
   });
 
   const result = await sendMail({
-    to: cfg.recipients.join(", "),
-    subject,
+    to: recipients.join(", "),
+    subject: isTest ? `[اختبار] ${subject}` : subject,
     body,
     attachments: [
       { filename, content: buffer, contentType: "application/pdf" },
@@ -277,21 +282,26 @@ export async function sendCleanupReportEmail(opts: {
 
   if (!result.sent) {
     logger.error(
-      { reason: result.reason, recipients: cfg.recipients.length },
+      { reason: result.reason, recipients: recipients.length, isTest },
       "cleanup report: email send failed",
     );
     return { sent: false, reason: result.reason };
   }
-  await persistLastSentAt(to);
+  // Test sends don't bump `lastSentAt` — the schedule cron must still
+  // fire on its normal cadence.
+  if (!isTest) {
+    await persistLastSentAt(to);
+  }
   logger.info(
     {
-      recipients: cfg.recipients.length,
+      recipients: recipients.length,
       rowCount,
       schedule: effectiveSchedule,
+      isTest,
     },
     "cleanup report: emailed",
   );
-  return { sent: true, recipients: cfg.recipients, rowCount };
+  return { sent: true, recipients, rowCount };
 }
 
 /**
