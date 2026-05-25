@@ -21,6 +21,7 @@ import {
   useSendCleanupReportNow,
   useSendCleanupReportTest,
   useGetCleanupReportPreview,
+  useListCleanupReportSends,
   useListPermissionMatrix,
   useSetPermissionCell,
   useListAuditLogs,
@@ -1446,6 +1447,16 @@ function CleanupReportEmailCard() {
   });
   const [testEmail, setTestEmail] = useState("");
   const [testEmailError, setTestEmailError] = useState<string | null>(null);
+  const invalidateSends = () =>
+    queryClient.invalidateQueries({
+      predicate: (q) => {
+        const k = q.queryKey?.[0];
+        return (
+          typeof k === "string" &&
+          k.includes("/admin/system-settings/cleanup-report-sends")
+        );
+      },
+    });
   const sendTestMut = useSendCleanupReportTest({
     mutation: {
       onSuccess: (data) => {
@@ -1455,8 +1466,10 @@ function CleanupReportEmailCard() {
         });
         setTestEmail("");
         setTestEmailError(null);
+        void invalidateSends();
       },
       onError: (err: unknown) => {
+        void invalidateSends();
         const msg =
           (err as { response?: { data?: { error?: string } } })?.response?.data
             ?.error ?? "تعذّر إرسال البريد التجريبي";
@@ -1488,6 +1501,7 @@ function CleanupReportEmailCard() {
         });
       },
       onError: (err: unknown) => {
+        void invalidateSends();
         const msg =
           (err as { response?: { data?: { error?: string } } })?.response?.data
             ?.error ?? "تعذّر إرسال التقرير";
@@ -1824,8 +1838,145 @@ function CleanupReportEmailCard() {
             فارغاً لإرساله إلى بريد حسابك.
           </span>
         </div>
+
+        <CleanupReportSendsHistory />
       </CardContent>
     </Card>
+  );
+}
+
+/**
+ * Task #191: shows the last ~20 cleanup-report email send attempts so
+ * admins can audit who triggered each send (cron / manual / test),
+ * how many recipients it hit, and whether it succeeded.
+ */
+function CleanupReportSendsHistory() {
+  const { data, isLoading } = useListCleanupReportSends();
+  const rows = data ?? [];
+  const triggerLabel: Record<string, string> = {
+    cron: "تلقائي",
+    manual: "يدوي",
+    test: "تجريبي",
+  };
+  const triggerTone: Record<string, string> = {
+    cron: "bg-blue-50 text-blue-700 border-blue-200",
+    manual: "bg-amber-50 text-amber-700 border-amber-200",
+    test: "bg-slate-50 text-slate-700 border-slate-200",
+  };
+  const reasonLabel: Record<string, string> = {
+    no_recipients: "لا يوجد مستلمون",
+    mailer_not_configured: "البريد غير مهيأ",
+    send_failed: "فشل الإرسال",
+  };
+  return (
+    <div
+      className="space-y-2 border-t pt-3"
+      data-testid="panel-cleanup-report-sends-history"
+    >
+      <div className="flex items-center justify-between">
+        <Label className="text-xs font-medium text-muted-foreground">
+          سجل عمليات الإرسال
+        </Label>
+        <span className="text-[11px] text-muted-foreground">
+          آخر {rows.length || 0} محاولة
+        </span>
+      </div>
+      {isLoading ? (
+        <div className="rounded-md border border-dashed bg-muted/30 px-3 py-4 text-center text-xs text-muted-foreground">
+          <Loader2 className="me-1 inline size-3 animate-spin" /> جارٍ
+          التحميل…
+        </div>
+      ) : rows.length === 0 ? (
+        <div className="rounded-md border border-dashed bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+          لم يتم إرسال أي تقرير بعد.
+        </div>
+      ) : (
+        <div className="rounded-md border overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="text-xs">التاريخ</TableHead>
+                <TableHead className="text-xs">النوع</TableHead>
+                <TableHead className="text-xs">بواسطة</TableHead>
+                <TableHead className="text-xs">المستلمون</TableHead>
+                <TableHead className="text-xs">الحالة</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {rows.map((r) => {
+                const date = new Date(r.sentAt).toLocaleString("ar-SA");
+                const failTxt = r.failureReason
+                  ? reasonLabel[r.failureReason] ?? r.failureReason
+                  : null;
+                return (
+                  <TableRow
+                    key={r.id}
+                    data-testid={`row-cleanup-report-send-${r.id}`}
+                  >
+                    <TableCell className="text-xs whitespace-nowrap">
+                      {date}
+                    </TableCell>
+                    <TableCell>
+                      <Badge
+                        variant="outline"
+                        className={`text-[10px] ${triggerTone[r.trigger] ?? ""}`}
+                      >
+                        {triggerLabel[r.trigger] ?? r.trigger}
+                      </Badge>
+                    </TableCell>
+                    <TableCell
+                      className="text-xs text-muted-foreground truncate max-w-[10rem]"
+                      title={r.triggeredByUserName ?? undefined}
+                    >
+                      {r.trigger === "cron"
+                        ? "النظام"
+                        : r.triggeredByUserName ?? "—"}
+                    </TableCell>
+                    <TableCell
+                      className="text-xs truncate max-w-[14rem]"
+                      title={r.recipients}
+                      dir="ltr"
+                    >
+                      <span className="tabular-nums me-1">
+                        {r.recipientCount}
+                      </span>
+                      {r.recipients && (
+                        <span className="text-muted-foreground">
+                          · {r.recipients}
+                        </span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {r.status === "success" ? (
+                        <Badge
+                          variant="outline"
+                          className="text-[10px] bg-emerald-50 text-emerald-700 border-emerald-200"
+                        >
+                          نجح
+                          {typeof r.rowCount === "number" && (
+                            <span className="ms-1 tabular-nums">
+                              · {r.rowCount}
+                            </span>
+                          )}
+                        </Badge>
+                      ) : (
+                        <Badge
+                          variant="outline"
+                          className="text-[10px] bg-rose-50 text-rose-700 border-rose-200"
+                          title={failTxt ?? undefined}
+                        >
+                          فشل{failTxt ? ` · ${failTxt}` : ""}
+                        </Badge>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        </div>
+      )}
+    </div>
   );
 }
 

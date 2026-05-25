@@ -2058,6 +2058,36 @@ export type SendCleanupReportTest400 = {
   reason?: string;
 };
 
+export type ListCleanupReportSends200ItemTrigger =
+  (typeof ListCleanupReportSends200ItemTrigger)[keyof typeof ListCleanupReportSends200ItemTrigger];
+
+export const ListCleanupReportSends200ItemTrigger = {
+  cron: "cron",
+  manual: "manual",
+  test: "test",
+} as const;
+
+export type ListCleanupReportSends200ItemStatus =
+  (typeof ListCleanupReportSends200ItemStatus)[keyof typeof ListCleanupReportSends200ItemStatus];
+
+export const ListCleanupReportSends200ItemStatus = {
+  success: "success",
+  failure: "failure",
+} as const;
+
+export type ListCleanupReportSends200Item = {
+  id: number;
+  sentAt: string;
+  trigger: ListCleanupReportSends200ItemTrigger;
+  triggeredByUserId?: number | null;
+  triggeredByUserName?: string | null;
+  recipientCount: number;
+  recipients: string;
+  rowCount?: number | null;
+  status: ListCleanupReportSends200ItemStatus;
+  failureReason?: string | null;
+};
+
 export type RunAlertsCleanupNow200Source =
   (typeof RunAlertsCleanupNow200Source)[keyof typeof RunAlertsCleanupNow200Source];
 

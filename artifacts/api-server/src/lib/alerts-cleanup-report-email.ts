@@ -32,11 +32,38 @@
  * isn't configured or the recipients list is empty.
  */
 
-import { pool } from "@workspace/db";
+import { pool, db, cleanupReportSendsTable } from "@workspace/db";
 import { logger } from "./logger";
 import { sendMail, isMailerConfigured } from "./mailer";
 import { buildAlertsCleanupPdf } from "./alerts-cleanup-pdf";
 import { loadComplianceReportSummary } from "./compliance/report-section";
+
+export type CleanupReportTrigger = "cron" | "manual" | "test";
+
+async function recordSendAttempt(row: {
+  trigger: CleanupReportTrigger;
+  triggeredByUserId: number | null;
+  triggeredByUserName: string | null;
+  recipients: string[];
+  rowCount: number | null;
+  status: "success" | "failure";
+  failureReason: string | null;
+}): Promise<void> {
+  try {
+    await db.insert(cleanupReportSendsTable).values({
+      trigger: row.trigger,
+      triggeredByUserId: row.triggeredByUserId,
+      triggeredByUserName: row.triggeredByUserName,
+      recipientCount: row.recipients.length,
+      recipients: row.recipients.join(", "),
+      rowCount: row.rowCount,
+      status: row.status,
+      failureReason: row.failureReason,
+    });
+  } catch (err) {
+    logger.warn({ err }, "cleanup report: failed to record send attempt");
+  }
+}
 
 const ONE_HOUR_MS = 60 * 60 * 1000;
 const FIRST_RUN_DELAY_MS = 180_000;
@@ -232,9 +259,18 @@ export interface CleanupReportSendResult {
 export async function sendCleanupReportEmail(opts: {
   force?: boolean;
   recipientsOverride?: string[];
+  triggeredByUserId?: number | null;
+  triggeredByUserName?: string | null;
 } = {}): Promise<CleanupReportSendResult> {
   const cfg = await loadConfig();
   const isTest = Array.isArray(opts.recipientsOverride);
+  const trigger: CleanupReportTrigger = isTest
+    ? "test"
+    : opts.force
+      ? "manual"
+      : "cron";
+  const triggeredByUserId = opts.triggeredByUserId ?? null;
+  const triggeredByUserName = opts.triggeredByUserName ?? null;
   if (!opts.force && !isTest && cfg.schedule === "off") {
     return { sent: false, reason: "schedule_off" };
   }
@@ -242,9 +278,27 @@ export async function sendCleanupReportEmail(opts: {
     ? opts.recipientsOverride!.map((r) => r.trim()).filter((r) => r.length > 0)
     : cfg.recipients;
   if (recipients.length === 0) {
+    await recordSendAttempt({
+      trigger,
+      triggeredByUserId,
+      triggeredByUserName,
+      recipients: [],
+      rowCount: null,
+      status: "failure",
+      failureReason: "no_recipients",
+    });
     return { sent: false, reason: "no_recipients" };
   }
   if (!isMailerConfigured()) {
+    await recordSendAttempt({
+      trigger,
+      triggeredByUserId,
+      triggeredByUserName,
+      recipients,
+      rowCount: null,
+      status: "failure",
+      failureReason: "mailer_not_configured",
+    });
     return { sent: false, reason: "mailer_not_configured" };
   }
 
@@ -285,6 +339,15 @@ export async function sendCleanupReportEmail(opts: {
       { reason: result.reason, recipients: recipients.length, isTest },
       "cleanup report: email send failed",
     );
+    await recordSendAttempt({
+      trigger,
+      triggeredByUserId,
+      triggeredByUserName,
+      recipients,
+      rowCount,
+      status: "failure",
+      failureReason: result.reason ?? "send_failed",
+    });
     return { sent: false, reason: result.reason };
   }
   // Test sends don't bump `lastSentAt` — the schedule cron must still
@@ -292,6 +355,15 @@ export async function sendCleanupReportEmail(opts: {
   if (!isTest) {
     await persistLastSentAt(to);
   }
+  await recordSendAttempt({
+    trigger,
+    triggeredByUserId,
+    triggeredByUserName,
+    recipients,
+    rowCount,
+    status: "success",
+    failureReason: null,
+  });
   logger.info(
     {
       recipients: recipients.length,

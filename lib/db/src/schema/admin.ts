@@ -108,3 +108,25 @@ export const alertsCleanupRunsTable = pgTable("alerts_cleanup_runs", {
 });
 
 export type AlertsCleanupRun = typeof alertsCleanupRunsTable.$inferSelect;
+
+// Task #191 — append-only history of cleanup-report email send attempts
+// (task #178 = scheduled cron, task #184 = test send, task #178 manual
+// "send now"). Backs the per-card history table in the Admin Panel so
+// auditors can see WHO triggered each send, what kind of send it was
+// (cron / manual / test), how many recipients it hit, and whether it
+// succeeded or failed (with reason). Kept untouched by tenant rules:
+// the cron has no request context.
+export const cleanupReportSendsTable = pgTable("cleanup_report_sends", {
+  id: serial("id").primaryKey(),
+  sentAt: timestamp("sent_at").notNull().defaultNow(),
+  trigger: text("trigger").notNull(), // 'cron' | 'manual' | 'test'
+  triggeredByUserId: integer("triggered_by_user_id"),
+  triggeredByUserName: text("triggered_by_user_name"),
+  recipientCount: integer("recipient_count").notNull().default(0),
+  recipients: text("recipients").notNull().default(""), // comma-joined
+  rowCount: integer("row_count"),
+  status: text("status").notNull(), // 'success' | 'failure'
+  failureReason: text("failure_reason"),
+});
+
+export type CleanupReportSend = typeof cleanupReportSendsTable.$inferSelect;

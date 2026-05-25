@@ -1964,6 +1964,26 @@ export const SendCleanupReportTestResponse = zod.object({
 });
 
 /**
+ * Returns the last ~20 cleanup-report email sends (scheduled cron, manual "send now", and admin test sends) so admins can audit who triggered each send, what kind it was, how many recipients it reached and whether it succeeded (or why it failed).
+ * @summary List the most recent cleanup-report email send attempts (admin only)
+ */
+export const ListCleanupReportSendsResponseItem = zod.object({
+  id: zod.number(),
+  sentAt: zod.coerce.date(),
+  trigger: zod.enum(["cron", "manual", "test"]),
+  triggeredByUserId: zod.number().nullish(),
+  triggeredByUserName: zod.string().nullish(),
+  recipientCount: zod.number(),
+  recipients: zod.string(),
+  rowCount: zod.number().nullish(),
+  status: zod.enum(["success", "failure"]),
+  failureReason: zod.string().nullish(),
+});
+export const ListCleanupReportSendsResponse = zod.array(
+  ListCleanupReportSendsResponseItem,
+);
+
+/**
  * @summary Run the alerts retention sweep immediately (admin only)
  */
 export const RunAlertsCleanupNowResponse = zod.object({

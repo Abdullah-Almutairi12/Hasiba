@@ -11,6 +11,7 @@ import {
   alertsTable,
   appSettingsTable,
   alertsCleanupRunsTable,
+  cleanupReportSendsTable,
 } from "@workspace/db";
 import { uploadBufferToPrivateObject } from "./storage";
 import { eq, sql, desc, and, gt, gte, lte, or, isNull } from "drizzle-orm";
@@ -1147,7 +1148,21 @@ router.post(
   adminOnly,
   async (req, res) => {
     try {
-      const result = await sendCleanupReportEmail({ force: true });
+      const actorId = req.session?.userId ?? null;
+      let actorName: string | null = null;
+      if (actorId) {
+        const u = await db
+          .select({ name: usersTable.name })
+          .from(usersTable)
+          .where(eq(usersTable.id, actorId))
+          .limit(1);
+        actorName = u[0]?.name ?? null;
+      }
+      const result = await sendCleanupReportEmail({
+        force: true,
+        triggeredByUserId: actorId,
+        triggeredByUserName: actorName,
+      });
       if (!result.sent) {
         const reasonMap: Record<string, string> = {
           no_recipients: "لم تتم إضافة أي مستلم بعد.",
@@ -1221,8 +1236,15 @@ router.post(
           .status(400)
           .json({ error: "لا يوجد بريد إلكتروني للحساب الحالي." });
       }
+      const u = await db
+        .select({ name: usersTable.name })
+        .from(usersTable)
+        .where(eq(usersTable.id, userId))
+        .limit(1);
       const result = await sendCleanupReportEmail({
         recipientsOverride: [email],
+        triggeredByUserId: userId,
+        triggeredByUserName: u[0]?.name ?? null,
       });
       if (!result.sent) {
         const reasonMap: Record<string, string> = {
@@ -1248,6 +1270,41 @@ router.post(
       });
     } catch (err) {
       req.log.error({ err }, "Send cleanup report (test) failed");
+      return res.status(500).json({ error: "Internal server error" });
+    }
+  },
+);
+
+// Task #191: history of cleanup-report email send attempts. Returns
+// the most recent 20 rows so admins can audit who triggered each send,
+// what kind (cron / manual / test), how many recipients it reached
+// and whether it succeeded (or why it failed).
+router.get(
+  "/admin/system-settings/cleanup-report-sends",
+  adminOnly,
+  async (req, res) => {
+    try {
+      const rows = await db
+        .select()
+        .from(cleanupReportSendsTable)
+        .orderBy(desc(cleanupReportSendsTable.sentAt))
+        .limit(20);
+      return res.json(
+        rows.map((r) => ({
+          id: r.id,
+          sentAt: r.sentAt.toISOString(),
+          trigger: r.trigger,
+          triggeredByUserId: r.triggeredByUserId,
+          triggeredByUserName: r.triggeredByUserName,
+          recipientCount: r.recipientCount,
+          recipients: r.recipients,
+          rowCount: r.rowCount,
+          status: r.status,
+          failureReason: r.failureReason,
+        })),
+      );
+    } catch (err) {
+      req.log.error({ err }, "Cleanup report sends history lookup failed");
       return res.status(500).json({ error: "Internal server error" });
     }
   },

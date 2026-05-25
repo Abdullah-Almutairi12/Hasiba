@@ -1962,6 +1962,56 @@ paths:
                   reason: { type: string }
                 required: [error]
 
+  /admin/system-settings/cleanup-report-sends:
+    get:
+      tags: [admin]
+      summary: List the most recent cleanup-report email send attempts (admin only)
+      description: >-
+        Returns the last ~20 cleanup-report email sends (scheduled cron,
+        manual "send now", and admin test sends) so admins can audit
+        who triggered each send, what kind it was, how many recipients
+        it reached and whether it succeeded (or why it failed).
+      operationId: listCleanupReportSends
+      responses:
+        "200":
+          description: Recent send attempts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id: { type: integer }
+                    sentAt: { type: string, format: date-time }
+                    trigger:
+                      type: string
+                      enum: [cron, manual, test]
+                    triggeredByUserId:
+                      type: integer
+                      nullable: true
+                    triggeredByUserName:
+                      type: string
+                      nullable: true
+                    recipientCount: { type: integer }
+                    recipients: { type: string }
+                    rowCount:
+                      type: integer
+                      nullable: true
+                    status:
+                      type: string
+                      enum: [success, failure]
+                    failureReason:
+                      type: string
+                      nullable: true
+                  required:
+                    - id
+                    - sentAt
+                    - trigger
+                    - recipientCount
+                    - recipients
+                    - status
+
   /admin/system-settings/run-alerts-cleanup:
     post:
       tags: [admin]

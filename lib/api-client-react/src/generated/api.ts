@@ -137,6 +137,7 @@ import type {
   ListApproverCandidates200Item,
   ListAuditLogsParams,
   ListAutomationRunsParams,
+  ListCleanupReportSends200Item,
   ListClosingEntriesParams,
   ListCustomersParams,
   ListInboxParams,
@@ -8088,6 +8089,86 @@ export const useSendCleanupReportTest = <
 > => {
   return useMutation(getSendCleanupReportTestMutationOptions(options));
 };
+
+/**
+ * Returns the last ~20 cleanup-report email sends (scheduled cron, manual "send now", and admin test sends) so admins can audit who triggered each send, what kind it was, how many recipients it reached and whether it succeeded (or why it failed).
+ * @summary List the most recent cleanup-report email send attempts (admin only)
+ */
+export const getListCleanupReportSendsUrl = () => {
+  return `/api/admin/system-settings/cleanup-report-sends`;
+};
+
+export const listCleanupReportSends = async (
+  options?: RequestInit,
+): Promise<ListCleanupReportSends200Item[]> => {
+  return customFetch<ListCleanupReportSends200Item[]>(
+    getListCleanupReportSendsUrl(),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getListCleanupReportSendsQueryKey = () => {
+  return [`/api/admin/system-settings/cleanup-report-sends`] as const;
+};
+
+export const getListCleanupReportSendsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listCleanupReportSends>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listCleanupReportSends>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getListCleanupReportSendsQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listCleanupReportSends>>
+  > = ({ signal }) => listCleanupReportSends({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listCleanupReportSends>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListCleanupReportSendsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listCleanupReportSends>>
+>;
+export type ListCleanupReportSendsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List the most recent cleanup-report email send attempts (admin only)
+ */
+
+export function useListCleanupReportSends<
+  TData = Awaited<ReturnType<typeof listCleanupReportSends>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listCleanupReportSends>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListCleanupReportSendsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
 
 /**
  * @summary Run the alerts retention sweep immediately (admin only)
