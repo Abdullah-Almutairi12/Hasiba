@@ -137,6 +137,13 @@ export interface CleanupReportConfig {
   lastSentAt: string | null;
   subject: string | null;
   intro: string | null;
+  /**
+   * Task #222 — optional inbox that receives the "send started bouncing"
+   * proactive notification (in addition to the in-app alert). Distinct
+   * from `recipients` (those are the auditors who get the PDF). When
+   * unset, only the in-app alert is dispatched.
+   */
+  adminNotificationEmail: string | null;
 }
 
 export function defaultCleanupReportConfig(): CleanupReportConfig {
@@ -146,6 +153,7 @@ export function defaultCleanupReportConfig(): CleanupReportConfig {
     lastSentAt: null,
     subject: null,
     intro: null,
+    adminNotificationEmail: null,
   };
 }
 
@@ -179,6 +187,11 @@ export function readCleanupReportConfig(
   if (typeof o.intro === "string") {
     const s = o.intro.trim();
     out.intro = s.length > 0 ? s.slice(0, CLEANUP_REPORT_INTRO_MAX) : null;
+  }
+  if (typeof o.adminNotificationEmail === "string") {
+    const s = o.adminNotificationEmail.trim();
+    out.adminNotificationEmail =
+      s.length > 0 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s) ? s : null;
   }
   return out;
 }
@@ -602,6 +615,15 @@ export async function sweepStuckPendingRecipients(
         { count: updated.length, cutoff: cutoff.toISOString() },
         "cleanup report: auto-bounced stuck pending recipients",
       );
+      // Task #222: fan out one admin notification per newly-bounced row.
+      // The notifier dedups via `bounce_notified_at`, so even if this
+      // sweep races with the provider webhook only one notice goes out.
+      const { notifyAdminsOfCleanupReportBounce } = await import(
+        "./cleanup-report-bounce-notify"
+      );
+      for (const row of updated) {
+        await notifyAdminsOfCleanupReportBounce({ recipientId: row.id });
+      }
     }
     return updated.length;
   } catch (err) {

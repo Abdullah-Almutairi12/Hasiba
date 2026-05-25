@@ -2710,7 +2710,9 @@ function CleanupReportSendsHistory() {
                 return (
                   <Fragment key={r.id}>
                   <TableRow
+                    id={`cleanup-report-send-${r.id}`}
                     data-testid={`row-cleanup-report-send-${r.id}`}
+                    className="scroll-mt-24 transition-colors"
                   >
                     <TableCell className="p-1 align-top">
                       {hasBreakdown && (
@@ -3585,13 +3587,61 @@ export default function AdminPage() {
   const updatePrefs = useUpdateAdminPrefs();
   const [activeTab, setActiveTab] = useState<string>("overview");
   const [tabHydrated, setTabHydrated] = useState(false);
+  // Task #222: deep link from the proactive "cleanup-report bounced"
+  // admin notification. URL shape:
+  //   /admin?tab=overview&cleanupReportSendId=NN#cleanup-report-send-NN
+  // We force the tab from the query param BEFORE hydrating the
+  // remembered-tab pref so the user always lands where the email
+  // promised, then scroll/highlight the matching send-history row
+  // once it appears in the DOM.
+  const deepLinkSendId = (() => {
+    if (typeof window === "undefined") return null;
+    const sp = new URLSearchParams(window.location.search);
+    const raw = sp.get("cleanupReportSendId");
+    if (!raw) return null;
+    const n = Number.parseInt(raw, 10);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  })();
   useEffect(() => {
     if (tabHydrated) return;
+    if (deepLinkSendId !== null) {
+      // Query-param target wins over the remembered pref.
+      setActiveTab("overview");
+      setTabHydrated(true);
+      return;
+    }
     if (!settings?.adminPrefs) return;
     const remembered = settings.adminPrefs.lastAdminTab;
     if (remembered) setActiveTab(remembered);
     setTabHydrated(true);
-  }, [tabHydrated, settings]);
+  }, [tabHydrated, settings, deepLinkSendId]);
+  // After hydration, find the deep-linked row and scroll/highlight it.
+  // Retries briefly because the cleanup-report-sends query may not have
+  // resolved yet on first paint.
+  useEffect(() => {
+    if (!tabHydrated || deepLinkSendId === null) return;
+    let cancelled = false;
+    let attempts = 0;
+    const tryScroll = () => {
+      if (cancelled) return;
+      const el = document.getElementById(
+        `cleanup-report-send-${deepLinkSendId}`,
+      );
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+        el.classList.add("ring-2", "ring-primary", "bg-primary/5");
+        window.setTimeout(() => {
+          el.classList.remove("ring-2", "ring-primary", "bg-primary/5");
+        }, 4000);
+        return;
+      }
+      if (attempts++ < 20) window.setTimeout(tryScroll, 250);
+    };
+    tryScroll();
+    return () => {
+      cancelled = true;
+    };
+  }, [tabHydrated, deepLinkSendId]);
   const handleTabChange = (v: string) => {
     setActiveTab(v);
     if (tabHydrated) {

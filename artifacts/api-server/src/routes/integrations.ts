@@ -1630,6 +1630,18 @@ integrationsPublicRouter.post(
           (result as unknown as Array<{ id: number }>);
         if (resultRows && resultRows.length > 0) {
           updated += resultRows.length;
+          // Task #222: fire a one-shot admin notification when the row
+          // actually flipped to `bounced`. The notifier dedups
+          // atomically on `bounce_notified_at` so concurrent webhook
+          // retries / parallel calls are safe.
+          if (status === "bounced") {
+            const { notifyAdminsOfCleanupReportBounce } = await import(
+              "../lib/cleanup-report-bounce-notify"
+            );
+            await notifyAdminsOfCleanupReportBounce({
+              recipientId: targetId,
+            });
+          }
         } else {
           req.log.info(
             { messageId, email, event, targetId },

@@ -28,5 +28,10 @@ export async function initCleanupReportDelivery(): Promise<void> {
     CREATE UNIQUE INDEX IF NOT EXISTS cleanup_report_send_recipients_send_email_idx
       ON cleanup_report_send_recipients (send_id, email);
   `);
+  // Task #222: dedup stamp for the "bounce detected" admin notification.
+  await pool.query(`
+    ALTER TABLE cleanup_report_send_recipients
+      ADD COLUMN IF NOT EXISTS bounce_notified_at timestamp;
+  `);
   logger.info("cleanup_report_send_recipients initialized");
 }

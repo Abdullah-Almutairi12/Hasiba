@@ -165,6 +165,12 @@ export const cleanupReportSendRecipientsTable = pgTable(
     reason: text("reason"),
     deliveredAt: timestamp("delivered_at"),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
+    // Task #222 — one-shot dedup stamp for the "bounce detected" admin
+    // notification. Set the first time we transition this recipient row
+    // to `bounced` and dispatch the alert/email; subsequent webhook
+    // retries that re-assert `bounced` MUST NOT re-notify. A NULL value
+    // means we have not yet notified admins for this (sendId, email).
+    bounceNotifiedAt: timestamp("bounce_notified_at"),
   },
   (t) => ({
     sendEmailIdx: uniqueIndex("cleanup_report_send_recipients_send_email_idx").on(

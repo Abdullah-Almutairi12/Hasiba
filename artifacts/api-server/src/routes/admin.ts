@@ -913,6 +913,7 @@ router.get("/admin/system-settings", adminOnly, async (req, res) => {
       cleanupReportLastSentAt: cleanupReport.lastSentAt,
       cleanupReportSubject: cleanupReport.subject,
       cleanupReportIntro: cleanupReport.intro,
+      cleanupReportAdminNotificationEmail: cleanupReport.adminNotificationEmail,
       cleanupReportLastTestRecipient: await readLastCleanupReportTestRecipient(
         req.session.userId,
       ),
@@ -964,6 +965,14 @@ const UpdateSystemSettingsBody = z.object({
     .max(CLEANUP_REPORT_INTRO_MAX)
     .nullable()
     .optional(),
+  // Task #222: optional admin inbox that receives the "send started
+  // bouncing" notification. Null/empty clears the override.
+  cleanupReportAdminNotificationEmail: z
+    .string()
+    .email()
+    .max(320)
+    .nullable()
+    .optional(),
 });
 
 router.patch("/admin/system-settings", adminOnly, async (req, res) => {
@@ -993,7 +1002,8 @@ router.patch("/admin/system-settings", adminOnly, async (req, res) => {
       body.cleanupReportSchedule !== undefined ||
       body.cleanupReportRecipients !== undefined ||
       body.cleanupReportSubject !== undefined ||
-      body.cleanupReportIntro !== undefined
+      body.cleanupReportIntro !== undefined ||
+      body.cleanupReportAdminNotificationEmail !== undefined
     ) {
       const cleanupReport: Record<string, unknown> = {
         schedule: prevCleanupReport.schedule,
@@ -1001,7 +1011,12 @@ router.patch("/admin/system-settings", adminOnly, async (req, res) => {
         lastSentAt: prevCleanupReport.lastSentAt,
         subject: prevCleanupReport.subject,
         intro: prevCleanupReport.intro,
+        adminNotificationEmail: prevCleanupReport.adminNotificationEmail,
       };
+      if (body.cleanupReportAdminNotificationEmail !== undefined) {
+        const v = body.cleanupReportAdminNotificationEmail?.trim() ?? "";
+        cleanupReport.adminNotificationEmail = v.length > 0 ? v : null;
+      }
       if (body.cleanupReportSchedule !== undefined) {
         cleanupReport.schedule = body.cleanupReportSchedule;
       }
