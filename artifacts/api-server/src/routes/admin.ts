@@ -1409,10 +1409,12 @@ router.post(
       // left the field empty (i.e. used their account email by default), we
       // clear any previously-remembered override.
       const remembered = overrideEmail ? email : null;
-      await db
-        .update(usersTable)
-        .set({ lastCleanupReportTestEmail: remembered })
-        .where(eq(usersTable.id, userId));
+      if (userId) {
+        await db
+          .update(usersTable)
+          .set({ lastCleanupReportTestEmail: remembered })
+          .where(eq(usersTable.id, userId));
+      }
       void recordAudit(req, {
         action: "system_settings.cleanup_report_sent_test",
         entity: "alerts_cleanup_runs",
@@ -1458,10 +1460,108 @@ router.get(
           rowCount: r.rowCount,
           status: r.status,
           failureReason: r.failureReason,
+          windowFrom: r.windowFrom ? r.windowFrom.toISOString() : null,
+          windowTo: r.windowTo ? r.windowTo.toISOString() : null,
         })),
       );
     } catch (err) {
       req.log.error({ err }, "Cleanup report sends history lookup failed");
+      return res.status(500).json({ error: "Internal server error" });
+    }
+  },
+);
+
+// Task #196: re-send a specific historical cleanup-report email to
+// only the recipients of that original send (not the whole configured
+// recipient list). Lets admins satisfy "I never got the May 12 report"
+// requests without spamming everyone else. Only successful past sends
+// can be re-sent — failures should be re-triggered via "send now".
+// The resend is logged as its own row with trigger="manual".
+router.post(
+  "/admin/system-settings/cleanup-report-sends/:id/resend",
+  adminOnly,
+  async (req, res) => {
+    try {
+      const idParam = req.params["id"];
+      const id = Number.parseInt(typeof idParam === "string" ? idParam : "", 10);
+      if (!Number.isFinite(id) || id <= 0) {
+        return res.status(400).json({ error: "معرّف غير صالح" });
+      }
+      const [row] = await db
+        .select()
+        .from(cleanupReportSendsTable)
+        .where(eq(cleanupReportSendsTable.id, id))
+        .limit(1);
+      if (!row) {
+        return res.status(404).json({ error: "السجل غير موجود" });
+      }
+      if (row.status !== "success") {
+        return res
+          .status(400)
+          .json({ error: "لا يمكن إعادة إرسال محاولة فاشلة" });
+      }
+      const recipients = (row.recipients ?? "")
+        .split(",")
+        .map((r) => r.trim())
+        .filter((r) => r.length > 0);
+      if (recipients.length === 0) {
+        return res
+          .status(400)
+          .json({ error: "لا يوجد مستلمون في هذا السجل" });
+      }
+      if (!row.windowFrom || !row.windowTo) {
+        // Historical rows from before task #196 didn't store the
+        // window — without it we can't honour "same date window", so
+        // refuse rather than silently re-sending a fresh-cadence PDF.
+        return res
+          .status(400)
+          .json({
+            error:
+              "هذا السجل قديم ولا يحتوي على نطاق التاريخ — يرجى استخدام «أرسل الآن» بدلاً من ذلك.",
+          });
+      }
+      const actorId = req.session?.userId ?? null;
+      let actorName: string | null = null;
+      if (actorId) {
+        const u = await db
+          .select({ name: usersTable.name })
+          .from(usersTable)
+          .where(eq(usersTable.id, actorId))
+          .limit(1);
+        actorName = u[0]?.name ?? null;
+      }
+      const result = await sendCleanupReportEmail({
+        force: true,
+        recipientsOverride: recipients,
+        asTest: false,
+        windowOverride: { from: row.windowFrom, to: row.windowTo },
+        triggeredByUserId: actorId,
+        triggeredByUserName: actorName,
+      });
+      if (!result.sent) {
+        const reasonMap: Record<string, string> = {
+          no_recipients: "لا يوجد مستلمون في هذا السجل",
+          mailer_not_configured:
+            "البريد غير مُهيأ — يرجى ضبط SMTP_HOST/SMTP_PORT.",
+        };
+        const msg =
+          reasonMap[result.reason ?? ""] ?? (result.reason ?? "تعذّر الإرسال");
+        return res.status(400).json({ error: msg, reason: result.reason });
+      }
+      void recordAudit(req, {
+        action: "system_settings.cleanup_report_resent",
+        entity: "cleanup_report_sends",
+        details: `source=${id} recipients=${result.recipients?.length ?? 0} rows=${result.rowCount ?? 0}`,
+        severity: "info",
+      });
+      return res.json({
+        ok: true,
+        sent: true,
+        recipients: result.recipients ?? [],
+        rowCount: result.rowCount ?? 0,
+      });
+    } catch (err) {
+      req.log.error({ err }, "Resend cleanup report failed");
       return res.status(500).json({ error: "Internal server error" });
     }
   },

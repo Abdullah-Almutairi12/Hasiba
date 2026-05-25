@@ -2040,6 +2040,21 @@ export const SendCleanupReportTestResponse = zod.object({
 });
 
 /**
+ * Re-emails the cleanup PDF to the recipients of a specific historical send (by id). Only successful past sends can be re-sent. The new attempt is logged as its own row in the send history with `trigger="manual"`. Does NOT bump the schedule's `lastSentAt`, so the next scheduled cron tick still fires on its normal cadence.
+ * @summary Re-send a past cleanup-report email to its original recipients (admin only)
+ */
+export const ResendCleanupReportParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const ResendCleanupReportResponse = zod.object({
+  ok: zod.boolean(),
+  sent: zod.boolean(),
+  recipients: zod.array(zod.string()).optional(),
+  rowCount: zod.number().optional(),
+});
+
+/**
  * Returns the last ~20 cleanup-report email sends (scheduled cron, manual "send now", and admin test sends) so admins can audit who triggered each send, what kind it was, how many recipients it reached and whether it succeeded (or why it failed).
  * @summary List the most recent cleanup-report email send attempts (admin only)
  */
@@ -2054,6 +2069,16 @@ export const ListCleanupReportSendsResponseItem = zod.object({
   rowCount: zod.number().nullish(),
   status: zod.enum(["success", "failure"]),
   failureReason: zod.string().nullish(),
+  windowFrom: zod.coerce
+    .date()
+    .nullish()
+    .describe(
+      "Start of the report window the PDF covered. Nullable for rows written before task #196 and for early-failure rows where the PDF wasn't built.",
+    ),
+  windowTo: zod.coerce
+    .date()
+    .nullish()
+    .describe("End of the report window the PDF covered."),
 });
 export const ListCleanupReportSendsResponse = zod.array(
   ListCleanupReportSendsResponseItem,

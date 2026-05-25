@@ -2006,6 +2006,58 @@ paths:
                   reason: { type: string }
                 required: [error]
 
+  /admin/system-settings/cleanup-report-sends/{id}/resend:
+    post:
+      tags: [admin]
+      summary: Re-send a past cleanup-report email to its original recipients (admin only)
+      description: >-
+        Re-emails the cleanup PDF to the recipients of a specific
+        historical send (by id). Only successful past sends can be
+        re-sent. The new attempt is logged as its own row in the send
+        history with `trigger="manual"`. Does NOT bump the schedule's
+        `lastSentAt`, so the next scheduled cron tick still fires on
+        its normal cadence.
+      operationId: resendCleanupReport
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Report re-sent
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  sent: { type: boolean }
+                  recipients:
+                    type: array
+                    items: { type: string }
+                  rowCount: { type: integer }
+                required: [ok, sent]
+        "400":
+          description: Invalid id / not a success row / mailer not configured
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error: { type: string }
+                  reason: { type: string }
+                required: [error]
+        "404":
+          description: Send history row not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error: { type: string }
+                required: [error]
+
   /admin/system-settings/cleanup-report-sends:
     get:
       tags: [admin]
@@ -2048,6 +2100,20 @@ paths:
                     failureReason:
                       type: string
                       nullable: true
+                    windowFrom:
+                      type: string
+                      format: date-time
+                      nullable: true
+                      description: >-
+                        Start of the report window the PDF covered.
+                        Nullable for rows written before task #196 and
+                        for early-failure rows where the PDF wasn't
+                        built.
+                    windowTo:
+                      type: string
+                      format: date-time
+                      nullable: true
+                      description: End of the report window the PDF covered.
                   required:
                     - id
                     - sentAt

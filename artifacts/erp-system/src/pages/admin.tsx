@@ -25,6 +25,7 @@ import {
   useGetCleanupReportTestHistory,
   useGetCleanupReportPreview,
   useListCleanupReportSends,
+  useResendCleanupReport,
   useListPermissionMatrix,
   useSetPermissionCell,
   useListAuditLogs,
@@ -101,6 +102,7 @@ import {
   Send,
   Workflow,
   PlayCircle,
+  RotateCw,
 } from "lucide-react";
 import { WorkflowTab } from "@/components/workflow-tab";
 import { IntegrationsTab } from "@/components/integrations-tab";
@@ -1905,8 +1907,38 @@ function CleanupReportEmailCard() {
  * how many recipients it hit, and whether it succeeded.
  */
 function CleanupReportSendsHistory() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
   const { data, isLoading } = useListCleanupReportSends();
   const rows = data ?? [];
+  const invalidateSends = () =>
+    queryClient.invalidateQueries({
+      predicate: (q) => {
+        const k = q.queryKey?.[0];
+        return (
+          typeof k === "string" &&
+          k.includes("/admin/system-settings/cleanup-report-sends")
+        );
+      },
+    });
+  const resendMut = useResendCleanupReport({
+    mutation: {
+      onSuccess: (resp) => {
+        toast({
+          title: "تمت إعادة الإرسال",
+          description: `إلى ${resp.recipients?.length ?? 0} مستلم (${resp.rowCount ?? 0} عملية تنظيف).`,
+        });
+        void invalidateSends();
+      },
+      onError: (err: unknown) => {
+        void invalidateSends();
+        const msg =
+          (err as { response?: { data?: { error?: string } } })?.response?.data
+            ?.error ?? "تعذّر إعادة الإرسال";
+        toast({ title: msg, variant: "destructive" });
+      },
+    },
+  });
   const triggerLabel: Record<string, string> = {
     cron: "تلقائي",
     manual: "يدوي",
@@ -1950,10 +1982,12 @@ function CleanupReportSendsHistory() {
             <TableHeader>
               <TableRow>
                 <TableHead className="text-xs">التاريخ</TableHead>
+                <TableHead className="text-xs">النطاق</TableHead>
                 <TableHead className="text-xs">النوع</TableHead>
                 <TableHead className="text-xs">بواسطة</TableHead>
                 <TableHead className="text-xs">المستلمون</TableHead>
                 <TableHead className="text-xs">الحالة</TableHead>
+                <TableHead className="text-xs w-0"></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -1962,6 +1996,11 @@ function CleanupReportSendsHistory() {
                 const failTxt = r.failureReason
                   ? reasonLabel[r.failureReason] ?? r.failureReason
                   : null;
+                const windowLabel =
+                  r.windowFrom && r.windowTo
+                    ? `${new Date(r.windowFrom).toISOString().slice(0, 10)} → ${new Date(r.windowTo).toISOString().slice(0, 10)}`
+                    : null;
+                const canResend = r.status === "success" && !!windowLabel;
                 return (
                   <TableRow
                     key={r.id}
@@ -1969,6 +2008,13 @@ function CleanupReportSendsHistory() {
                   >
                     <TableCell className="text-xs whitespace-nowrap">
                       {date}
+                    </TableCell>
+                    <TableCell
+                      className="text-xs whitespace-nowrap text-muted-foreground"
+                      dir="ltr"
+                      data-testid={`text-cleanup-report-send-window-${r.id}`}
+                    >
+                      {windowLabel ?? "—"}
                     </TableCell>
                     <TableCell>
                       <Badge
@@ -2021,6 +2067,30 @@ function CleanupReportSendsHistory() {
                         >
                           فشل{failTxt ? ` · ${failTxt}` : ""}
                         </Badge>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-xs whitespace-nowrap">
+                      {canResend && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2"
+                          disabled={
+                            resendMut.isPending &&
+                            resendMut.variables?.id === r.id
+                          }
+                          onClick={() => resendMut.mutate({ id: r.id })}
+                          title={`إعادة إرسال نفس النطاق (${windowLabel}) إلى نفس المستلمين`}
+                          data-testid={`button-resend-cleanup-report-${r.id}`}
+                        >
+                          {resendMut.isPending &&
+                          resendMut.variables?.id === r.id ? (
+                            <Loader2 className="size-3 animate-spin" />
+                          ) : (
+                            <RotateCw className="size-3" />
+                          )}
+                          <span className="ms-1">إعادة الإرسال</span>
+                        </Button>
                       )}
                     </TableCell>
                   </TableRow>

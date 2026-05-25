@@ -48,6 +48,8 @@ async function recordSendAttempt(row: {
   rowCount: number | null;
   status: "success" | "failure";
   failureReason: string | null;
+  windowFrom: Date | null;
+  windowTo: Date | null;
 }): Promise<void> {
   try {
     await db.insert(cleanupReportSendsTable).values({
@@ -59,6 +61,8 @@ async function recordSendAttempt(row: {
       rowCount: row.rowCount,
       status: row.status,
       failureReason: row.failureReason,
+      windowFrom: row.windowFrom,
+      windowTo: row.windowTo,
     });
   } catch (err) {
     logger.warn({ err }, "cleanup report: failed to record send attempt");
@@ -259,22 +263,38 @@ export interface CleanupReportSendResult {
 export async function sendCleanupReportEmail(opts: {
   force?: boolean;
   recipientsOverride?: string[];
+  /**
+   * Treat an override-recipients send as a real send (trigger="manual",
+   * no `[اختبار]` subject prefix). Defaults to `true` (test) for
+   * backwards compatibility with task #184. Set to `false` for the
+   * task #196 "re-send from history" flow.
+   */
+  asTest?: boolean;
+  /**
+   * Task #196 — explicit historical from/to window. When provided,
+   * the PDF is regenerated for EXACTLY this window instead of the
+   * usual `now - N days` cadence window. Used by the "re-send a past
+   * send" flow so the recipient receives the same period the
+   * original email covered.
+   */
+  windowOverride?: { from: Date; to: Date };
   triggeredByUserId?: number | null;
   triggeredByUserName?: string | null;
 } = {}): Promise<CleanupReportSendResult> {
   const cfg = await loadConfig();
-  const isTest = Array.isArray(opts.recipientsOverride);
+  const hasOverride = Array.isArray(opts.recipientsOverride);
+  const isTest = hasOverride && (opts.asTest ?? true);
   const trigger: CleanupReportTrigger = isTest
     ? "test"
-    : opts.force
+    : opts.force || hasOverride
       ? "manual"
       : "cron";
   const triggeredByUserId = opts.triggeredByUserId ?? null;
   const triggeredByUserName = opts.triggeredByUserName ?? null;
-  if (!opts.force && !isTest && cfg.schedule === "off") {
+  if (!opts.force && !hasOverride && cfg.schedule === "off") {
     return { sent: false, reason: "schedule_off" };
   }
-  const recipients = isTest
+  const recipients = hasOverride
     ? opts.recipientsOverride!.map((r) => r.trim()).filter((r) => r.length > 0)
     : cfg.recipients;
   if (recipients.length === 0) {
@@ -286,6 +306,8 @@ export async function sendCleanupReportEmail(opts: {
       rowCount: null,
       status: "failure",
       failureReason: "no_recipients",
+      windowFrom: opts.windowOverride?.from ?? null,
+      windowTo: opts.windowOverride?.to ?? null,
     });
     return { sent: false, reason: "no_recipients" };
   }
@@ -298,6 +320,8 @@ export async function sendCleanupReportEmail(opts: {
       rowCount: null,
       status: "failure",
       failureReason: "mailer_not_configured",
+      windowFrom: opts.windowOverride?.from ?? null,
+      windowTo: opts.windowOverride?.to ?? null,
     });
     return { sent: false, reason: "mailer_not_configured" };
   }
@@ -306,8 +330,9 @@ export async function sendCleanupReportEmail(opts: {
   const effectiveSchedule: CleanupReportSchedule =
     cfg.schedule === "off" ? "weekly" : cfg.schedule;
   const days = windowDaysForSchedule(effectiveSchedule);
-  const to = new Date();
-  const from = new Date(to.getTime() - days * ONE_DAY_MS);
+  const to = opts.windowOverride?.to ?? new Date();
+  const from =
+    opts.windowOverride?.from ?? new Date(to.getTime() - days * ONE_DAY_MS);
 
   const compliance = await loadComplianceReportSummary({ from, to });
   const { buffer, filename, rowCount } = await buildAlertsCleanupPdf(
@@ -347,12 +372,16 @@ export async function sendCleanupReportEmail(opts: {
       rowCount,
       status: "failure",
       failureReason: result.reason ?? "send_failed",
+      windowFrom: from,
+      windowTo: to,
     });
     return { sent: false, reason: result.reason };
   }
-  // Test sends don't bump `lastSentAt` — the schedule cron must still
-  // fire on its normal cadence.
-  if (!isTest) {
+  // Test sends and targeted re-sends (task #196) don't bump
+  // `lastSentAt` — the schedule cron must still fire on its normal
+  // cadence. Only a full cron tick or a manual "send now" to the
+  // configured recipient list counts.
+  if (!hasOverride) {
     await persistLastSentAt(to);
   }
   await recordSendAttempt({
@@ -363,6 +392,8 @@ export async function sendCleanupReportEmail(opts: {
     rowCount,
     status: "success",
     failureReason: null,
+    windowFrom: from,
+    windowTo: to,
   });
   logger.info(
     {

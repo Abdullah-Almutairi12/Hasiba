@@ -162,6 +162,9 @@ import type {
   ProductStats,
   ProfitLoss,
   ReportInsights,
+  ResendCleanupReport200,
+  ResendCleanupReport400,
+  ResendCleanupReport404,
   RetryInvoiceSendFailure200,
   RetryInvoiceSendFailure404,
   RetryInvoiceSendFailure409,
@@ -8178,6 +8181,93 @@ export const useSendCleanupReportTest = <
   TContext
 > => {
   return useMutation(getSendCleanupReportTestMutationOptions(options));
+};
+
+/**
+ * Re-emails the cleanup PDF to the recipients of a specific historical send (by id). Only successful past sends can be re-sent. The new attempt is logged as its own row in the send history with `trigger="manual"`. Does NOT bump the schedule's `lastSentAt`, so the next scheduled cron tick still fires on its normal cadence.
+ * @summary Re-send a past cleanup-report email to its original recipients (admin only)
+ */
+export const getResendCleanupReportUrl = (id: number) => {
+  return `/api/admin/system-settings/cleanup-report-sends/${id}/resend`;
+};
+
+export const resendCleanupReport = async (
+  id: number,
+  options?: RequestInit,
+): Promise<ResendCleanupReport200> => {
+  return customFetch<ResendCleanupReport200>(getResendCleanupReportUrl(id), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getResendCleanupReportMutationOptions = <
+  TError = ErrorType<ResendCleanupReport400 | ResendCleanupReport404>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof resendCleanupReport>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof resendCleanupReport>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  const mutationKey = ["resendCleanupReport"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof resendCleanupReport>>,
+    { id: number }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return resendCleanupReport(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ResendCleanupReportMutationResult = NonNullable<
+  Awaited<ReturnType<typeof resendCleanupReport>>
+>;
+
+export type ResendCleanupReportMutationError = ErrorType<
+  ResendCleanupReport400 | ResendCleanupReport404
+>;
+
+/**
+ * @summary Re-send a past cleanup-report email to its original recipients (admin only)
+ */
+export const useResendCleanupReport = <
+  TError = ErrorType<ResendCleanupReport400 | ResendCleanupReport404>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof resendCleanupReport>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof resendCleanupReport>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  return useMutation(getResendCleanupReportMutationOptions(options));
 };
 
 /**

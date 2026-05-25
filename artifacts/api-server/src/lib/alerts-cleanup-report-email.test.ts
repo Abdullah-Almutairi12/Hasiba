@@ -390,6 +390,70 @@ describe("sendCleanupReportEmail", () => {
     expect(stored?.["recipients"]).toEqual(["ops@example.com"]);
   });
 
+  it("recipientsOverride + asTest=false (task #196 resend) sends as 'manual' without bumping lastSentAt and without the [اختبار] prefix", async () => {
+    await setCleanupReport({
+      schedule: "weekly",
+      recipients: ["full-list@example.com"],
+      lastSentAt: "2026-01-01T00:00:00.000Z",
+    });
+
+    const result = await sendCleanupReportEmail({
+      force: true,
+      recipientsOverride: ["only-me@example.com"],
+      asTest: false,
+    });
+
+    expect(result.sent).toBe(true);
+    expect(result.recipients).toEqual(["only-me@example.com"]);
+    expect(mailer.sendMail).toHaveBeenCalledTimes(1);
+    const mailArgs = vi.mocked(mailer.sendMail).mock.calls[0][0]!;
+    expect(mailArgs.to).toBe("only-me@example.com");
+    expect(mailArgs.subject.startsWith("[اختبار]")).toBe(false);
+    // Targeted re-send must NOT bump the cron's lastSentAt.
+    const stored = await getStoredCleanupReport();
+    expect(stored?.["lastSentAt"]).toBe("2026-01-01T00:00:00.000Z");
+  });
+
+  it("windowOverride is forwarded to buildAlertsCleanupPdf so a resend reproduces the exact same date window (task #196)", async () => {
+    await setCleanupReport({
+      schedule: "weekly",
+      recipients: ["full-list@example.com"],
+      lastSentAt: "2026-01-01T00:00:00.000Z",
+    });
+    const from = new Date("2026-02-10T00:00:00.000Z");
+    const to = new Date("2026-02-17T00:00:00.000Z");
+
+    const result = await sendCleanupReportEmail({
+      force: true,
+      recipientsOverride: ["only-me@example.com"],
+      asTest: false,
+      windowOverride: { from, to },
+    });
+
+    expect(result.sent).toBe(true);
+    const pdfArgs = vi.mocked(pdfMod.buildAlertsCleanupPdf).mock.calls[0][0]!;
+    expect(pdfArgs.from.toISOString()).toBe(from.toISOString());
+    expect(pdfArgs.to.toISOString()).toBe(to.toISOString());
+  });
+
+  it("recipientsOverride with default asTest (true) keeps existing test-send behavior (prefixed subject, no lastSentAt bump)", async () => {
+    await setCleanupReport({
+      schedule: "weekly",
+      recipients: ["full-list@example.com"],
+      lastSentAt: "2026-01-01T00:00:00.000Z",
+    });
+
+    const result = await sendCleanupReportEmail({
+      recipientsOverride: ["tester@example.com"],
+    });
+
+    expect(result.sent).toBe(true);
+    const mailArgs = vi.mocked(mailer.sendMail).mock.calls[0][0]!;
+    expect(mailArgs.subject.startsWith("[اختبار]")).toBe(true);
+    const stored = await getStoredCleanupReport();
+    expect(stored?.["lastSentAt"]).toBe("2026-01-01T00:00:00.000Z");
+  });
+
   it("does NOT persist lastSentAt when the underlying sendMail fails", async () => {
     await setCleanupReport({
       schedule: "weekly",

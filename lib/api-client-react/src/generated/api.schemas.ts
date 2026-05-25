@@ -2087,6 +2087,22 @@ export type SendCleanupReportTest400 = {
   reason?: string;
 };
 
+export type ResendCleanupReport200 = {
+  ok: boolean;
+  sent: boolean;
+  recipients?: string[];
+  rowCount?: number;
+};
+
+export type ResendCleanupReport400 = {
+  error: string;
+  reason?: string;
+};
+
+export type ResendCleanupReport404 = {
+  error: string;
+};
+
 export type ListCleanupReportSends200ItemTrigger =
   (typeof ListCleanupReportSends200ItemTrigger)[keyof typeof ListCleanupReportSends200ItemTrigger];
 
@@ -2115,6 +2131,10 @@ export type ListCleanupReportSends200Item = {
   rowCount?: number | null;
   status: ListCleanupReportSends200ItemStatus;
   failureReason?: string | null;
+  /** Start of the report window the PDF covered. Nullable for rows written before task #196 and for early-failure rows where the PDF wasn't built. */
+  windowFrom?: string | null;
+  /** End of the report window the PDF covered. */
+  windowTo?: string | null;
 };
 
 export type GetCleanupReportTestHistory200EntriesItem = {

@@ -127,6 +127,13 @@ export const cleanupReportSendsTable = pgTable("cleanup_report_sends", {
   rowCount: integer("row_count"),
   status: text("status").notNull(), // 'success' | 'failure'
   failureReason: text("failure_reason"),
+  // Task #196 — persist the exact from/to window the PDF was built
+  // against so the per-row "re-send" action can regenerate the SAME
+  // historical period (not a fresh cadence window). Nullable for
+  // historical rows written before this column existed and for
+  // failure rows where the PDF was never built.
+  windowFrom: timestamp("window_from"),
+  windowTo: timestamp("window_to"),
 });
 
 export type CleanupReportSend = typeof cleanupReportSendsTable.$inferSelect;
