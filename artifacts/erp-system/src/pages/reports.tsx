@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Money } from "@/components/riyal";
 import {
   useGetAiReportSummary,
@@ -210,6 +210,646 @@ function FinancialStatementsSection() {
   );
 }
 
+// ============== Consolidated group reports (Multi-Company Phase 6) ==============
+
+interface SiblingCompany {
+  id: number;
+  name: string;
+  isActive: boolean;
+}
+
+interface EliminationEntry {
+  linkId: number;
+  sourceCompanyId: number;
+  sourceCompanyName: string;
+  sourceRef: string;
+  targetCompanyId: number;
+  targetCompanyName: string;
+  targetRef: string;
+  amount: number;
+  sourceAmount: number;
+  targetAmount: number;
+  imbalance: boolean;
+}
+
+interface ConsolidatedRow {
+  code: string;
+  nameAr: string;
+  type: string;
+  gross: number;
+  eliminated: number;
+  amount: number;
+}
+
+interface InvalidReference {
+  linkId: number;
+  kind: string;
+  status: string;
+  reason:
+    | "missing_source_doc"
+    | "missing_target_doc"
+    | "missing_source_company"
+    | "missing_target_company";
+  sourceRef: string;
+  targetRef: string;
+  sourceCompanyId: number;
+  targetCompanyId: number;
+}
+
+interface PLPayload {
+  revenue: ConsolidatedRow[];
+  expenses: ConsolidatedRow[];
+  totalRevenue: number;
+  totalExpense: number;
+  netIncome: number;
+  eliminations: EliminationEntry[];
+  invalidReferences: InvalidReference[];
+  totalRevenueEliminated: number;
+  totalExpenseEliminated: number;
+  imbalance: number;
+  hasImbalance: boolean;
+}
+
+interface BSPayload {
+  assets: ConsolidatedRow[];
+  liabilities: ConsolidatedRow[];
+  equity: ConsolidatedRow[];
+  totalAssets: number;
+  totalLiabilities: number;
+  totalEquity: number;
+  netIncome: number;
+  isBalanced: boolean;
+  eliminations: EliminationEntry[];
+  invalidReferences: InvalidReference[];
+  totalArEliminated: number;
+  totalApEliminated: number;
+  imbalance: number;
+  hasImbalance: boolean;
+}
+
+interface CFPayload {
+  inflow: number;
+  outflow: number;
+  net: number;
+  bySource: { source: string; inflow: number; outflow: number; net: number }[];
+  byCompany: { companyId: number; companyName: string; amount: number }[];
+  invalidReferences: InvalidReference[];
+}
+
+const fmtMoney = (n: number) =>
+  new Intl.NumberFormat("ar-SA", {
+    style: "decimal",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(n);
+
+function ConsolidatedReportsSection() {
+  const today = new Date().toISOString().slice(0, 10);
+  const yearStart = `${new Date().getFullYear()}-01-01`;
+  const apiBase = (import.meta.env.BASE_URL || "/").replace(/\/$/, "") + "/api";
+
+  const [siblings, setSiblings] = useState<SiblingCompany[]>([]);
+  const [siblingsErr, setSiblingsErr] = useState<string | null>(null);
+  const [selected, setSelected] = useState<number[]>([]);
+  const [from, setFrom] = useState(yearStart);
+  const [to, setTo] = useState(today);
+  const [tab, setTab] = useState<"pl" | "bs" | "cf">("pl");
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [pl, setPl] = useState<PLPayload | null>(null);
+  const [bs, setBs] = useState<BSPayload | null>(null);
+  const [cf, setCf] = useState<CFPayload | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`${apiBase}/companies/siblings`, { credentials: "include" })
+      .then(async (r) => {
+        if (!r.ok) throw new Error(await r.text());
+        return (await r.json()) as SiblingCompany[];
+      })
+      .then((rows) => {
+        if (cancelled) return;
+        const active = rows.filter((r) => r.isActive);
+        setSiblings(active);
+        // Default to selecting all to give an immediate consolidated view.
+        setSelected(active.map((r) => r.id));
+      })
+      .catch((e: unknown) => {
+        if (!cancelled) setSiblingsErr(String(e));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [apiBase]);
+
+  const toggle = (id: number) =>
+    setSelected((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+    );
+
+  const run = async () => {
+    if (selected.length === 0) {
+      setErr("اختر شركة واحدة على الأقل");
+      return;
+    }
+    setLoading(true);
+    setErr(null);
+    const qs = new URLSearchParams({ companies: selected.join(",") });
+    if (tab === "bs") qs.set("asOf", to);
+    else {
+      qs.set("from", from);
+      qs.set("to", to);
+    }
+    try {
+      const r = await fetch(`${apiBase}/reports/consolidated/${tab}?${qs}`, {
+        credentials: "include",
+      });
+      if (!r.ok) {
+        const body = await r.text();
+        throw new Error(body || `HTTP ${r.status}`);
+      }
+      const data = await r.json();
+      if (tab === "pl") setPl(data as PLPayload);
+      else if (tab === "bs") setBs(data as BSPayload);
+      else setCf(data as CFPayload);
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const exportUrl = (ext: "xlsx" | "pdf") => {
+    const qs = new URLSearchParams({ companies: selected.join(",") });
+    if (tab === "bs") qs.set("asOf", to);
+    else {
+      qs.set("from", from);
+      qs.set("to", to);
+    }
+    return `${apiBase}/exports/consolidated-${tab}.${ext}?${qs}`;
+  };
+
+  const selectedNames = siblings
+    .filter((s) => selected.includes(s.id))
+    .map((s) => s.name)
+    .join(" · ");
+
+  return (
+    <div className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm">
+      <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-bold text-neutral-800">
+            التقارير الموحّدة للمجموعة
+          </h3>
+          <p className="mt-1 text-xs text-neutral-500">
+            دمج P&amp;L والميزانية والتدفقات النقدية عبر عدة شركات مع استبعاد
+            المعاملات داخل المجموعة تلقائياً.
+          </p>
+        </div>
+        <div className="flex items-end gap-2">
+          {tab !== "bs" && (
+            <div>
+              <label className="block text-[10px] font-medium text-neutral-500">
+                من
+              </label>
+              <Input
+                type="date"
+                value={from}
+                onChange={(e) => setFrom(e.target.value)}
+                className="h-9 w-36"
+              />
+            </div>
+          )}
+          <div>
+            <label className="block text-[10px] font-medium text-neutral-500">
+              {tab === "bs" ? "حتى" : "إلى"}
+            </label>
+            <Input
+              type="date"
+              value={to}
+              onChange={(e) => setTo(e.target.value)}
+              className="h-9 w-36"
+            />
+          </div>
+        </div>
+      </div>
+
+      <div className="mb-4">
+        <p className="mb-2 text-[10px] font-medium text-neutral-500">
+          الشركات في النطاق
+        </p>
+        {siblingsErr && (
+          <p className="text-xs text-red-600">تعذّر جلب الشركات: {siblingsErr}</p>
+        )}
+        <div className="flex flex-wrap gap-2">
+          {siblings.map((c) => {
+            const on = selected.includes(c.id);
+            return (
+              <button
+                key={c.id}
+                type="button"
+                onClick={() => toggle(c.id)}
+                className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                  on
+                    ? "border-[#2563EB] bg-blue-50 text-[#1D4ED8]"
+                    : "border-neutral-200 bg-neutral-50 text-neutral-600 hover:bg-neutral-100"
+                }`}
+              >
+                {c.name}
+              </button>
+            );
+          })}
+          {siblings.length === 0 && !siblingsErr && (
+            <span className="text-xs text-neutral-400">جارٍ التحميل…</span>
+          )}
+        </div>
+      </div>
+
+      <div className="mb-4 flex items-center gap-2 border-b border-neutral-100">
+        {[
+          { k: "pl" as const, label: "قائمة الدخل" },
+          { k: "bs" as const, label: "الميزانية" },
+          { k: "cf" as const, label: "التدفقات النقدية" },
+        ].map((t) => (
+          <button
+            key={t.k}
+            type="button"
+            onClick={() => setTab(t.k)}
+            className={`-mb-px border-b-2 px-3 py-2 text-xs font-medium transition-colors ${
+              tab === t.k
+                ? "border-[#2563EB] text-[#1D4ED8]"
+                : "border-transparent text-neutral-500 hover:text-neutral-700"
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+        <div className="ms-auto flex gap-2">
+          <Button
+            size="sm"
+            onClick={run}
+            disabled={loading || selected.length === 0}
+            className="h-8 bg-[#2563EB] text-xs text-white hover:bg-[#1D4ED8]"
+          >
+            {loading ? "جارٍ التوليد…" : "توليد التقرير"}
+          </Button>
+          <a
+            href={exportUrl("xlsx")}
+            className={`rounded-lg bg-emerald-600 px-3 py-1.5 text-center text-xs font-medium text-white hover:bg-emerald-700 ${
+              selected.length === 0 ? "pointer-events-none opacity-50" : ""
+            }`}
+          >
+            Excel
+          </a>
+          <a
+            href={exportUrl("pdf")}
+            className={`rounded-lg bg-red-600 px-3 py-1.5 text-center text-xs font-medium text-white hover:bg-red-700 ${
+              selected.length === 0 ? "pointer-events-none opacity-50" : ""
+            }`}
+          >
+            PDF
+          </a>
+        </div>
+      </div>
+
+      {err && (
+        <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+          {err}
+        </div>
+      )}
+
+      {selectedNames && (
+        <p className="mb-3 text-[11px] text-neutral-500">
+          النطاق: <span className="font-medium text-neutral-700">{selectedNames}</span>
+        </p>
+      )}
+
+      {tab === "pl" && pl && <ConsolidatedPLView data={pl} />}
+      {tab === "bs" && bs && <ConsolidatedBSView data={bs} />}
+      {tab === "cf" && cf && <ConsolidatedCFView data={cf} />}
+      {!loading && !pl && tab === "pl" && (
+        <p className="text-center text-xs text-neutral-400">
+          اضغط "توليد التقرير" لعرض النتائج.
+        </p>
+      )}
+      {!loading && !bs && tab === "bs" && (
+        <p className="text-center text-xs text-neutral-400">
+          اضغط "توليد التقرير" لعرض النتائج.
+        </p>
+      )}
+      {!loading && !cf && tab === "cf" && (
+        <p className="text-center text-xs text-neutral-400">
+          اضغط "توليد التقرير" لعرض النتائج.
+        </p>
+      )}
+    </div>
+  );
+}
+
+function ImbalanceBanner({ amount }: { amount: number }) {
+  const base = (import.meta.env.BASE_URL || "/").replace(/\/$/, "");
+  return (
+    <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+      <div className="flex items-center gap-2">
+        <AlertTriangle className="size-4" />
+        <span>
+          تحذير: عدم اتزان في الاستبعادات بين الشركات بمقدار{" "}
+          <span className="font-bold">{fmtMoney(amount)}</span>. راجع المعاملات
+          المعلّمة بإطار أحمر أدناه.
+        </span>
+      </div>
+      <a
+        href={`${base}/intercompany`}
+        className="inline-flex items-center gap-1 rounded-md border border-red-300 bg-white px-2 py-1 text-[10px] font-bold text-red-700 hover:bg-red-100"
+      >
+        فتح قائمة الروابط بين الشركات <ArrowLeft className="size-3" />
+      </a>
+    </div>
+  );
+}
+
+function InvalidReferencesBanner({ items }: { items: InvalidReference[] }) {
+  if (items.length === 0) return null;
+  const base = (import.meta.env.BASE_URL || "/").replace(/\/$/, "");
+  const reasonLabel: Record<InvalidReference["reason"], string> = {
+    missing_source_doc: "وثيقة المصدر مفقودة",
+    missing_target_doc: "وثيقة الهدف مفقودة",
+    missing_source_company: "شركة المصدر محذوفة",
+    missing_target_company: "شركة الهدف محذوفة",
+  };
+  return (
+    <div className="mb-3 rounded-lg border border-red-300 bg-red-50 p-3 text-xs text-red-800">
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2 font-bold">
+          <AlertTriangle className="size-4" />
+          INVALID_REFERENCE: تم العثور على {items.length} رابط داخل المجموعة بمراجع مكسورة
+        </div>
+        <a
+          href={`${base}/intercompany`}
+          className="inline-flex items-center gap-1 rounded-md border border-red-300 bg-white px-2 py-1 text-[10px] font-bold text-red-700 hover:bg-red-100"
+        >
+          مراجعة في صفحة الروابط <ArrowLeft className="size-3" />
+        </a>
+      </div>
+      <ul className="ms-5 list-disc space-y-0.5">
+        {items.slice(0, 5).map((r) => (
+          <li key={r.linkId}>
+            <span className="font-mono">#{r.linkId}</span> · {reasonLabel[r.reason]} · {r.sourceRef} / {r.targetRef}
+          </li>
+        ))}
+        {items.length > 5 && (
+          <li className="text-red-600">… و {items.length - 5} رابط آخر</li>
+        )}
+      </ul>
+    </div>
+  );
+}
+
+function RowsTable({ rows }: { rows: ConsolidatedRow[] }) {
+  return (
+    <table className="w-full text-right text-xs">
+      <thead className="border-b border-neutral-100 bg-neutral-50 text-[10px] font-medium text-neutral-500">
+        <tr>
+          <th className="px-3 py-2">الكود</th>
+          <th className="px-3 py-2">الحساب</th>
+          <th className="px-3 py-2">إجمالي</th>
+          <th className="px-3 py-2">استبعاد</th>
+          <th className="px-3 py-2">صافي</th>
+        </tr>
+      </thead>
+      <tbody className="divide-y divide-neutral-50 text-neutral-700">
+        {rows.map((r) => (
+          <tr key={r.code} className="hover:bg-neutral-50/50">
+            <td className="px-3 py-2 font-mono text-[10px]">{r.code}</td>
+            <td className="px-3 py-2">{r.nameAr}</td>
+            <td className="px-3 py-2 font-mono">{fmtMoney(r.gross)}</td>
+            <td className="px-3 py-2 font-mono text-orange-600">
+              {r.eliminated > 0 ? fmtMoney(r.eliminated) : "—"}
+            </td>
+            <td className="px-3 py-2 font-mono font-bold text-neutral-900">
+              {fmtMoney(r.amount)}
+            </td>
+          </tr>
+        ))}
+        {rows.length === 0 && (
+          <tr>
+            <td colSpan={5} className="px-3 py-4 text-center text-neutral-400">
+              لا توجد بيانات في هذا القسم.
+            </td>
+          </tr>
+        )}
+      </tbody>
+    </table>
+  );
+}
+
+function EliminationsTable({ items }: { items: EliminationEntry[] }) {
+  if (items.length === 0) return null;
+  return (
+    <div className="mt-4 rounded-lg border border-neutral-100">
+      <div className="border-b border-neutral-100 bg-neutral-50 px-3 py-2 text-xs font-bold text-neutral-700">
+        الاستبعادات داخل المجموعة ({items.length})
+      </div>
+      <table className="w-full text-right text-xs">
+        <thead className="bg-neutral-50/50 text-[10px] font-medium text-neutral-500">
+          <tr>
+            <th className="px-3 py-2">#</th>
+            <th className="px-3 py-2">من → إلى</th>
+            <th className="px-3 py-2">المرجع</th>
+            <th className="px-3 py-2">المصدر</th>
+            <th className="px-3 py-2">الهدف</th>
+            <th className="px-3 py-2">الفرق</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-neutral-50">
+          {items.map((e) => (
+            <tr
+              key={e.linkId}
+              className={
+                e.imbalance ? "bg-red-50/40 ring-1 ring-inset ring-red-200" : ""
+              }
+            >
+              <td className="px-3 py-2 font-mono text-[10px]">{e.linkId}</td>
+              <td className="px-3 py-2 text-[11px]">
+                {e.sourceCompanyName} → {e.targetCompanyName}
+              </td>
+              <td className="px-3 py-2 font-mono text-[10px] text-neutral-500">
+                {e.sourceRef} / {e.targetRef}
+              </td>
+              <td className="px-3 py-2 font-mono">{fmtMoney(e.sourceAmount)}</td>
+              <td className="px-3 py-2 font-mono">{fmtMoney(e.targetAmount)}</td>
+              <td
+                className={`px-3 py-2 font-mono font-bold ${
+                  e.imbalance ? "text-red-600" : "text-neutral-500"
+                }`}
+              >
+                {fmtMoney(e.sourceAmount - e.targetAmount)}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function ConsolidatedPLView({ data }: { data: PLPayload }) {
+  return (
+    <div>
+      {data.imbalance > 0.01 && <ImbalanceBanner amount={data.imbalance} />}
+      <InvalidReferencesBanner items={data.invalidReferences} />
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <div className="rounded-lg border border-neutral-100">
+          <div className="border-b border-neutral-100 bg-emerald-50/50 px-3 py-2 text-xs font-bold text-emerald-700">
+            الإيرادات — صافي {fmtMoney(data.totalRevenue)}
+          </div>
+          <div className="overflow-x-auto">
+            <RowsTable rows={data.revenue} />
+          </div>
+        </div>
+        <div className="rounded-lg border border-neutral-100">
+          <div className="border-b border-neutral-100 bg-red-50/50 px-3 py-2 text-xs font-bold text-red-700">
+            المصروفات — صافي {fmtMoney(data.totalExpense)}
+          </div>
+          <div className="overflow-x-auto">
+            <RowsTable rows={data.expenses} />
+          </div>
+        </div>
+      </div>
+      <div className="mt-4 flex items-center justify-between rounded-lg bg-neutral-900 px-4 py-3 text-sm text-white">
+        <span>صافي الدخل (موحّد)</span>
+        <span className="font-mono font-bold">{fmtMoney(data.netIncome)}</span>
+      </div>
+      <EliminationsTable items={data.eliminations} />
+    </div>
+  );
+}
+
+function ConsolidatedBSView({ data }: { data: BSPayload }) {
+  return (
+    <div>
+      {data.imbalance > 0.01 && <ImbalanceBanner amount={data.imbalance} />}
+      <InvalidReferencesBanner items={data.invalidReferences} />
+      {!data.isBalanced && (
+        <div className="mb-3 flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+          <AlertTriangle className="size-4" />
+          الميزانية غير متوازنة: الأصول {fmtMoney(data.totalAssets)} ≠
+          الالتزامات + حقوق الملكية{" "}
+          {fmtMoney(data.totalLiabilities + data.totalEquity)}
+        </div>
+      )}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <div className="rounded-lg border border-neutral-100">
+          <div className="border-b border-neutral-100 bg-blue-50/50 px-3 py-2 text-xs font-bold text-blue-700">
+            الأصول — صافي {fmtMoney(data.totalAssets)}
+          </div>
+          <div className="overflow-x-auto">
+            <RowsTable rows={data.assets} />
+          </div>
+        </div>
+        <div className="rounded-lg border border-neutral-100">
+          <div className="border-b border-neutral-100 bg-orange-50/50 px-3 py-2 text-xs font-bold text-orange-700">
+            الالتزامات — صافي {fmtMoney(data.totalLiabilities)}
+          </div>
+          <div className="overflow-x-auto">
+            <RowsTable rows={data.liabilities} />
+          </div>
+        </div>
+        <div className="rounded-lg border border-neutral-100">
+          <div className="border-b border-neutral-100 bg-purple-50/50 px-3 py-2 text-xs font-bold text-purple-700">
+            حقوق الملكية — صافي {fmtMoney(data.totalEquity)}
+          </div>
+          <div className="overflow-x-auto">
+            <RowsTable rows={data.equity} />
+          </div>
+        </div>
+      </div>
+      <EliminationsTable items={data.eliminations} />
+    </div>
+  );
+}
+
+function ConsolidatedCFView({ data }: { data: CFPayload }) {
+  return (
+    <div className="space-y-4">
+      <InvalidReferencesBanner items={data.invalidReferences} />
+      <div className="grid grid-cols-3 gap-3">
+        <div className="rounded-lg border border-emerald-100 bg-emerald-50 p-3">
+          <p className="text-[10px] text-emerald-700">تدفق داخل</p>
+          <p className="mt-1 font-mono text-lg font-bold text-emerald-800">
+            {fmtMoney(data.inflow)}
+          </p>
+        </div>
+        <div className="rounded-lg border border-red-100 bg-red-50 p-3">
+          <p className="text-[10px] text-red-700">تدفق خارج</p>
+          <p className="mt-1 font-mono text-lg font-bold text-red-800">
+            {fmtMoney(data.outflow)}
+          </p>
+        </div>
+        <div className="rounded-lg border border-blue-100 bg-blue-50 p-3">
+          <p className="text-[10px] text-blue-700">صافي التدفق</p>
+          <p className="mt-1 font-mono text-lg font-bold text-blue-800">
+            {fmtMoney(data.net)}
+          </p>
+        </div>
+      </div>
+      <div className="rounded-lg border border-neutral-100">
+        <div className="border-b border-neutral-100 bg-neutral-50 px-3 py-2 text-xs font-bold text-neutral-700">
+          حسب المصدر
+        </div>
+        <table className="w-full text-right text-xs">
+          <thead className="text-[10px] font-medium text-neutral-500">
+            <tr>
+              <th className="px-3 py-2">المصدر</th>
+              <th className="px-3 py-2">داخل</th>
+              <th className="px-3 py-2">خارج</th>
+              <th className="px-3 py-2">صافي</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-neutral-50">
+            {data.bySource.map((s) => (
+              <tr key={s.source}>
+                <td className="px-3 py-2">{s.source}</td>
+                <td className="px-3 py-2 font-mono">{fmtMoney(s.inflow)}</td>
+                <td className="px-3 py-2 font-mono">{fmtMoney(s.outflow)}</td>
+                <td className="px-3 py-2 font-mono font-bold">{fmtMoney(s.net)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="rounded-lg border border-neutral-100">
+        <div className="border-b border-neutral-100 bg-neutral-50 px-3 py-2 text-xs font-bold text-neutral-700">
+          حسب الشركة
+        </div>
+        <table className="w-full text-right text-xs">
+          <thead className="text-[10px] font-medium text-neutral-500">
+            <tr>
+              <th className="px-3 py-2">الشركة</th>
+              <th className="px-3 py-2">صافي التدفق</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-neutral-50">
+            {data.byCompany.map((c) => (
+              <tr key={c.companyId}>
+                <td className="px-3 py-2">{c.companyName}</td>
+                <td className="px-3 py-2 font-mono font-bold">
+                  {fmtMoney(c.amount)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="text-[10px] text-neutral-400">
+        ملاحظة: لا يتم استبعاد المدفوعات بين الشركات لأنها حركة نقدية فعلية بين
+        حسابات بنكية مختلفة.
+      </p>
+    </div>
+  );
+}
+// ============================================================================
+
 export default function Reports() {
   const [chartPeriod] = useState<"weekly" | "monthly" | "yearly">("monthly");
   const [chartTab, setChartTab] = useState<"sales" | "inventory">("sales");
@@ -279,6 +919,7 @@ export default function Reports() {
 
       <div className="flex-1 space-y-6 overflow-y-auto p-6">
         <FinancialStatementsSection />
+        <ConsolidatedReportsSection />
 
         {/* AI Copilot widget */}
         <div className="relative overflow-hidden rounded-2xl bg-gradient-to-l from-[#1E40AF] to-[#1D4ED8] p-6 text-white shadow-xl shadow-blue-900/20">

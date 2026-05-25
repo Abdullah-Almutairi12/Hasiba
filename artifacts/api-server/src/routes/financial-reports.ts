@@ -1,14 +1,86 @@
-import { Router } from "express";
+import { Router, type Request, type Response } from "express";
 import {
   db,
   accountsTable,
+  companiesTable,
   journalEntriesTable,
   journalEntryLinesTable,
+  userCompaniesTable,
 } from "@workspace/db";
-import { and, asc, eq, gte, lte, sql } from "drizzle-orm";
-import { reportReadGuard } from "../middlewares/require-role";
+import { and, asc, eq, gte, inArray, lte, sql } from "drizzle-orm";
+import { financeGuard, reportReadGuard } from "../middlewares/require-role";
+import {
+  generateConsolidatedBS,
+  generateConsolidatedCF,
+  generateConsolidatedPL,
+  type ConsolidatedBS,
+  type ConsolidatedCF,
+  type ConsolidatedPL,
+} from "../lib/consolidated-reports";
+import { renderPdf, renderXlsx, type Cell } from "../lib/report-render";
+import { recordAudit } from "../lib/audit";
 
 const router = Router();
+
+/**
+ * Parse `?companies=1,2,3` (or repeated `?companies=1&companies=2`) into
+ * a clean unique integer list. Returns null on invalid input so the
+ * handler can return 400.
+ */
+function parseCompanyIds(raw: unknown): number[] | null {
+  if (raw === undefined || raw === null || raw === "") return null;
+  const parts = Array.isArray(raw)
+    ? raw.flatMap((p) => String(p).split(","))
+    : String(raw).split(",");
+  const ids: number[] = [];
+  const seen = new Set<number>();
+  for (const p of parts) {
+    const n = Number(p.trim());
+    if (!Number.isInteger(n) || n <= 0) return null;
+    if (!seen.has(n)) {
+      seen.add(n);
+      ids.push(n);
+    }
+  }
+  return ids.length > 0 ? ids : null;
+}
+
+/**
+ * Verify the caller has at least read access (any role) on every
+ * company in `companyIds` via `user_companies`. Returns true on
+ * success and writes a 403 to `res` and returns false otherwise.
+ */
+async function assertConsolidatedAccess(
+  req: Request,
+  res: Response,
+  companyIds: number[],
+): Promise<boolean> {
+  const userId = req.session?.userId;
+  if (!userId) {
+    res.status(401).json({ error: "غير مسجل دخول" });
+    return false;
+  }
+  const rows = await db
+    .select({ companyId: userCompaniesTable.companyId })
+    .from(userCompaniesTable)
+    .where(
+      and(
+        eq(userCompaniesTable.userId, userId),
+        inArray(userCompaniesTable.companyId, companyIds),
+      ),
+    );
+  const allowed = new Set(rows.map((r) => r.companyId));
+  const missing = companyIds.filter((c) => !allowed.has(c));
+  if (missing.length > 0) {
+    res.status(403).json({
+      error: "لا تملك صلاحية على إحدى الشركات المختارة",
+      code: "FORBIDDEN",
+      missing,
+    });
+    return false;
+  }
+  return true;
+}
 
 interface AccountBalance {
   id: number;
@@ -394,5 +466,276 @@ router.get("/reports/general-ledger/:accountId", reportReadGuard, async (req, re
     return res.status(500).json({ error: "Internal server error" });
   }
 });
+
+// ============== Consolidated (Multi-Company Phase 6) ==============
+
+/**
+ * GET /reports/consolidated/pl?companies=1,2&from=...&to=...
+ * Consolidated profit & loss across `companies` with intercompany
+ * sales-invoice revenue/expense elimination.
+ */
+router.get("/reports/consolidated/pl", financeGuard, async (req, res) => {
+  try {
+    const ids = parseCompanyIds(req.query.companies);
+    if (!ids) {
+      return res
+        .status(400)
+        .json({ error: "اختر شركة واحدة على الأقل في companies" });
+    }
+    if (!(await assertConsolidatedAccess(req, res, ids))) return;
+    const from = (req.query.from as string | undefined) ?? null;
+    const to = (req.query.to as string | undefined) ?? null;
+    const report = await generateConsolidatedPL(ids, from, to);
+    return res.json(report);
+  } catch (err) {
+    req.log.error({ err }, "Consolidated P&L failed");
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+/**
+ * GET /reports/consolidated/bs?companies=1,2&asOf=...
+ * Consolidated balance sheet with intercompany AR/AP elimination.
+ */
+router.get("/reports/consolidated/bs", financeGuard, async (req, res) => {
+  try {
+    const ids = parseCompanyIds(req.query.companies);
+    if (!ids) {
+      return res
+        .status(400)
+        .json({ error: "اختر شركة واحدة على الأقل في companies" });
+    }
+    if (!(await assertConsolidatedAccess(req, res, ids))) return;
+    const asOf = (req.query.asOf as string | undefined) ?? null;
+    const report = await generateConsolidatedBS(ids, asOf);
+    return res.json(report);
+  } catch (err) {
+    req.log.error({ err }, "Consolidated BS failed");
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+/**
+ * GET /reports/consolidated/cf?companies=1,2&from=...&to=...
+ * Consolidated cash flow. No eliminations — intercompany cash movement
+ * is real and stays visible.
+ */
+router.get("/reports/consolidated/cf", financeGuard, async (req, res) => {
+  try {
+    const ids = parseCompanyIds(req.query.companies);
+    if (!ids) {
+      return res
+        .status(400)
+        .json({ error: "اختر شركة واحدة على الأقل في companies" });
+    }
+    if (!(await assertConsolidatedAccess(req, res, ids))) return;
+    const from = (req.query.from as string | undefined) ?? null;
+    const to = (req.query.to as string | undefined) ?? null;
+    const report = await generateConsolidatedCF(ids, from, to);
+    return res.json(report);
+  } catch (err) {
+    req.log.error({ err }, "Consolidated CF failed");
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ============== Consolidated exports (XLSX / PDF) ==============
+
+const fmt = (n: number): string =>
+  n.toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+
+async function loadCompanyNames(companyIds: number[]): Promise<string> {
+  if (companyIds.length === 0) return "";
+  const rows = await db
+    .select({ id: companiesTable.id, name: companiesTable.name })
+    .from(companiesTable)
+    .where(inArray(companiesTable.id, companyIds))
+    .orderBy(asc(companiesTable.name));
+  return rows.map((r) => r.name).join(" · ");
+}
+
+function appendInvalidRefs(
+  rows: Cell[][],
+  invalid: { linkId: number; reason: string; sourceRef: string; targetRef: string }[],
+  width: number,
+) {
+  if (invalid.length === 0) return;
+  const pad = (cells: Cell[]) => {
+    while (cells.length < width) cells.push("");
+    return cells.slice(0, width);
+  };
+  rows.push(pad([""]));
+  rows.push(pad(["—", "— INVALID_REFERENCE: روابط مكسورة —"]));
+  for (const r of invalid) {
+    rows.push(pad([String(r.linkId), r.reason, `${r.sourceRef} / ${r.targetRef}`]));
+  }
+}
+
+function plToTable(r: ConsolidatedPL): { headers: string[]; rows: Cell[][] } {
+  const headers = ["الكود", "الحساب", "النوع", "إجمالي", "إلغاء", "صافي"];
+  const rows: Cell[][] = [];
+  rows.push(["—", "— الإيرادات —", "", "", "", ""]);
+  for (const a of r.revenue) {
+    rows.push([a.code, a.nameAr, a.type, fmt(a.gross), fmt(a.eliminated), fmt(a.amount)]);
+  }
+  rows.push(["", "إجمالي الإيرادات", "", "", fmt(r.totalRevenueEliminated), fmt(r.totalRevenue)]);
+  rows.push(["—", "— المصروفات —", "", "", "", ""]);
+  for (const a of r.expenses) {
+    rows.push([a.code, a.nameAr, a.type, fmt(a.gross), fmt(a.eliminated), fmt(a.amount)]);
+  }
+  rows.push(["", "إجمالي المصروفات", "", "", fmt(r.totalExpenseEliminated), fmt(r.totalExpense)]);
+  rows.push(["", "صافي الدخل", "", "", "", fmt(r.netIncome)]);
+  if (r.eliminations.length > 0) {
+    rows.push(["", "", "", "", "", ""]);
+    rows.push(["—", "— استبعادات داخل المجموعة —", "", "إيراد", "مصروف", "فرق"]);
+    for (const e of r.eliminations) {
+      rows.push([
+        String(e.linkId),
+        `${e.sourceCompanyName} → ${e.targetCompanyName}`,
+        `${e.sourceRef} / ${e.targetRef}`,
+        fmt(e.sourceAmount),
+        fmt(e.targetAmount),
+        fmt(e.sourceAmount - e.targetAmount),
+      ]);
+    }
+  }
+  appendInvalidRefs(rows, r.invalidReferences, headers.length);
+  return { headers, rows };
+}
+
+function bsToTable(r: ConsolidatedBS): { headers: string[]; rows: Cell[][] } {
+  const headers = ["الكود", "الحساب", "النوع", "إجمالي", "إلغاء", "صافي"];
+  const rows: Cell[][] = [];
+  rows.push(["—", "— الأصول —", "", "", "", ""]);
+  for (const a of r.assets) {
+    rows.push([a.code, a.nameAr, a.type, fmt(a.gross), fmt(a.eliminated), fmt(a.amount)]);
+  }
+  rows.push(["", "إجمالي الأصول", "", "", fmt(r.totalArEliminated), fmt(r.totalAssets)]);
+  rows.push(["—", "— الالتزامات —", "", "", "", ""]);
+  for (const a of r.liabilities) {
+    rows.push([a.code, a.nameAr, a.type, fmt(a.gross), fmt(a.eliminated), fmt(a.amount)]);
+  }
+  rows.push(["", "إجمالي الالتزامات", "", "", fmt(r.totalApEliminated), fmt(r.totalLiabilities)]);
+  rows.push(["—", "— حقوق الملكية —", "", "", "", ""]);
+  for (const a of r.equity) {
+    rows.push([a.code, a.nameAr, a.type, fmt(a.gross), fmt(a.eliminated), fmt(a.amount)]);
+  }
+  rows.push(["", "إجمالي حقوق الملكية", "", "", "", fmt(r.totalEquity)]);
+  rows.push([
+    "",
+    r.isBalanced ? "الميزانية متوازنة ✓" : "الميزانية غير متوازنة!",
+    "",
+    "",
+    "",
+    fmt(r.totalLiabilities + r.totalEquity),
+  ]);
+  if (r.eliminations.length > 0) {
+    rows.push(["", "", "", "", "", ""]);
+    rows.push(["—", "— استبعادات AR/AP —", "", "ذمم مدينة", "ذمم دائنة", "فرق"]);
+    for (const e of r.eliminations) {
+      rows.push([
+        String(e.linkId),
+        `${e.sourceCompanyName} → ${e.targetCompanyName}`,
+        `${e.sourceRef} / ${e.targetRef}`,
+        fmt(e.sourceAmount),
+        fmt(e.targetAmount),
+        fmt(e.sourceAmount - e.targetAmount),
+      ]);
+    }
+  }
+  appendInvalidRefs(rows, r.invalidReferences, headers.length);
+  return { headers, rows };
+}
+
+function cfToTable(r: ConsolidatedCF): { headers: string[]; rows: Cell[][] } {
+  const headers = ["البند", "تفصيل", "تدفق داخل", "تدفق خارج", "صافي"];
+  const rows: Cell[][] = [];
+  rows.push(["—", "— حسب المصدر —", "", "", ""]);
+  for (const s of r.bySource) {
+    rows.push([s.source, "", fmt(s.inflow), fmt(s.outflow), fmt(s.net)]);
+  }
+  rows.push(["", "الإجمالي", fmt(r.inflow), fmt(r.outflow), fmt(r.net)]);
+  rows.push(["—", "— حسب الشركة —", "", "", ""]);
+  for (const c of r.byCompany) {
+    rows.push([c.companyName, `#${c.companyId}`, "", "", fmt(c.amount)]);
+  }
+  return { headers, rows };
+}
+
+type ConsolidatedFormat = "xlsx" | "pdf";
+type ConsolidatedKind = "pl" | "bs" | "cf";
+
+async function handleConsolidatedExport(
+  req: Request,
+  res: Response,
+  kind: ConsolidatedKind,
+  format: ConsolidatedFormat,
+): Promise<Response | void> {
+  const ids = parseCompanyIds(req.query.companies);
+  if (!ids) {
+    return res
+      .status(400)
+      .json({ error: "اختر شركة واحدة على الأقل في companies" });
+  }
+  if (!(await assertConsolidatedAccess(req, res, ids))) return;
+
+  const from = (req.query.from as string | undefined) ?? null;
+  const to = (req.query.to as string | undefined) ?? null;
+  const asOf = (req.query.asOf as string | undefined) ?? null;
+  const names = await loadCompanyNames(ids);
+
+  let title = "";
+  let table: { headers: string[]; rows: Cell[][] };
+  if (kind === "pl") {
+    title = "قائمة الدخل الموحّدة";
+    table = plToTable(await generateConsolidatedPL(ids, from, to));
+  } else if (kind === "bs") {
+    title = "الميزانية العمومية الموحّدة";
+    table = bsToTable(await generateConsolidatedBS(ids, asOf));
+  } else {
+    title = "التدفقات النقدية الموحّدة";
+    table = cfToTable(await generateConsolidatedCF(ids, from, to));
+  }
+
+  const subtitle = names ? `تقرير موحّد · الشركات: ${names}` : null;
+  const slug = `consolidated-${kind}`;
+  try {
+    if (format === "xlsx") {
+      await renderXlsx(res, { slug, title, subtitle, headers: table.headers, rows: table.rows });
+    } else {
+      await renderPdf(res, { slug, title, subtitle, headers: table.headers, rows: table.rows });
+    }
+    void recordAudit(req, {
+      action: "export",
+      entity: "report",
+      details: `${format.toUpperCase()}: ${slug} (${ids.join(",")})`,
+    });
+  } catch (err) {
+    req.log.error({ err }, `consolidated ${kind} ${format} export failed`);
+    if (!res.headersSent) res.status(500).json({ error: "فشل توليد الملف" });
+  }
+}
+
+router.get("/exports/consolidated-pl.xlsx", financeGuard, (req, res) =>
+  handleConsolidatedExport(req, res, "pl", "xlsx"),
+);
+router.get("/exports/consolidated-pl.pdf", financeGuard, (req, res) =>
+  handleConsolidatedExport(req, res, "pl", "pdf"),
+);
+router.get("/exports/consolidated-bs.xlsx", financeGuard, (req, res) =>
+  handleConsolidatedExport(req, res, "bs", "xlsx"),
+);
+router.get("/exports/consolidated-bs.pdf", financeGuard, (req, res) =>
+  handleConsolidatedExport(req, res, "bs", "pdf"),
+);
+router.get("/exports/consolidated-cf.xlsx", financeGuard, (req, res) =>
+  handleConsolidatedExport(req, res, "cf", "xlsx"),
+);
+router.get("/exports/consolidated-cf.pdf", financeGuard, (req, res) =>
+  handleConsolidatedExport(req, res, "cf", "pdf"),
+);
 
 export default router;
