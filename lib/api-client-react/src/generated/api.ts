@@ -93,6 +93,7 @@ import type {
   DeleteDelegation200,
   DismissDashboardAlert200,
   DismissDashboardAlertBody,
+  DismissedAlert,
   ExchangeRate,
   FeatureFlag,
   FinancialLimit,
@@ -170,6 +171,8 @@ import type {
   TrainAiModel200,
   TrainAllAiModels200,
   TrialBalance,
+  UndismissDashboardAlert200,
+  UndismissDashboardAlertParams,
   UpdateAnomalyEventBody,
   UpdateAnomalyRuleBody,
   UpdateApprovalRule200,
@@ -684,6 +687,188 @@ export const useDismissDashboardAlert = <
   TContext
 > => {
   return useMutation(getDismissDashboardAlertMutationOptions(options));
+};
+
+/**
+ * Returns the dismissal rows for the signed-in user within the active company, enriched with the original alert metadata (title/message/type) when the underlying alert still exists. Synthetic banners (e.g. `synthetic:stale_scan`) carry a static label so finance can recognise what was hidden.
+
+ * @summary List dashboard alerts the current user has dismissed
+ */
+export const getListDismissedDashboardAlertsUrl = () => {
+  return `/api/dashboard/alerts/dismissed`;
+};
+
+export const listDismissedDashboardAlerts = async (
+  options?: RequestInit,
+): Promise<DismissedAlert[]> => {
+  return customFetch<DismissedAlert[]>(getListDismissedDashboardAlertsUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListDismissedDashboardAlertsQueryKey = () => {
+  return [`/api/dashboard/alerts/dismissed`] as const;
+};
+
+export const getListDismissedDashboardAlertsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listDismissedDashboardAlerts>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listDismissedDashboardAlerts>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getListDismissedDashboardAlertsQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listDismissedDashboardAlerts>>
+  > = ({ signal }) =>
+    listDismissedDashboardAlerts({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listDismissedDashboardAlerts>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListDismissedDashboardAlertsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listDismissedDashboardAlerts>>
+>;
+export type ListDismissedDashboardAlertsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List dashboard alerts the current user has dismissed
+ */
+
+export function useListDismissedDashboardAlerts<
+  TData = Awaited<ReturnType<typeof listDismissedDashboardAlerts>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listDismissedDashboardAlerts>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListDismissedDashboardAlertsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * Removes the per-user dismissal row identified by `key` so the alert reappears on the next refresh (if the underlying condition still holds). Returns `{ok:true}` regardless of whether a row was deleted (idempotent).
+
+ * @summary Un-dismiss a dashboard alert for the current user
+ */
+export const getUndismissDashboardAlertUrl = (
+  params: UndismissDashboardAlertParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/dashboard/alerts/dismissed?${stringifiedParams}`
+    : `/api/dashboard/alerts/dismissed`;
+};
+
+export const undismissDashboardAlert = async (
+  params: UndismissDashboardAlertParams,
+  options?: RequestInit,
+): Promise<UndismissDashboardAlert200> => {
+  return customFetch<UndismissDashboardAlert200>(
+    getUndismissDashboardAlertUrl(params),
+    {
+      ...options,
+      method: "DELETE",
+    },
+  );
+};
+
+export const getUndismissDashboardAlertMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof undismissDashboardAlert>>,
+    TError,
+    { params: UndismissDashboardAlertParams },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof undismissDashboardAlert>>,
+  TError,
+  { params: UndismissDashboardAlertParams },
+  TContext
+> => {
+  const mutationKey = ["undismissDashboardAlert"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof undismissDashboardAlert>>,
+    { params: UndismissDashboardAlertParams }
+  > = (props) => {
+    const { params } = props ?? {};
+
+    return undismissDashboardAlert(params, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UndismissDashboardAlertMutationResult = NonNullable<
+  Awaited<ReturnType<typeof undismissDashboardAlert>>
+>;
+
+export type UndismissDashboardAlertMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Un-dismiss a dashboard alert for the current user
+ */
+export const useUndismissDashboardAlert = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof undismissDashboardAlert>>,
+    TError,
+    { params: UndismissDashboardAlertParams },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof undismissDashboardAlert>>,
+  TError,
+  { params: UndismissDashboardAlertParams },
+  TContext
+> => {
+  return useMutation(getUndismissDashboardAlertMutationOptions(options));
 };
 
 /**

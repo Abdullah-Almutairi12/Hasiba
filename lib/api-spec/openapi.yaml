@@ -141,6 +141,53 @@ paths:
                   ok: { type: boolean }
                 required: [ok]
 
+  /dashboard/alerts/dismissed:
+    get:
+      operationId: listDismissedDashboardAlerts
+      tags: [dashboard]
+      summary: List dashboard alerts the current user has dismissed
+      description: >
+        Returns the dismissal rows for the signed-in user within the
+        active company, enriched with the original alert metadata
+        (title/message/type) when the underlying alert still exists.
+        Synthetic banners (e.g. `synthetic:stale_scan`) carry a static
+        label so finance can recognise what was hidden.
+      responses:
+        "200":
+          description: Dismissed alerts list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DismissedAlert"
+    delete:
+      operationId: undismissDashboardAlert
+      tags: [dashboard]
+      summary: Un-dismiss a dashboard alert for the current user
+      description: >
+        Removes the per-user dismissal row identified by `key` so the
+        alert reappears on the next refresh (if the underlying
+        condition still holds). Returns `{ok:true}` regardless of
+        whether a row was deleted (idempotent).
+      parameters:
+        - name: key
+          in: query
+          required: true
+          schema:
+            type: string
+          description: The alert's stable `key` as returned by GET /dashboard/alerts.
+      responses:
+        "200":
+          description: Dismissal removed (or already absent)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                required: [ok]
+
   /dashboard/branch-performance:
     get:
       operationId: getBranchPerformance
@@ -2886,6 +2933,30 @@ components:
             /dashboard/alerts/dismiss. `alert:<id>` for persisted rows,
             `synthetic:<name>` for computed banners.
       required: [id, type, title, message, isRead, createdAt, key]
+
+    DismissedAlert:
+      type: object
+      properties:
+        key:
+          type: string
+          description: Stable alert key (matches the `key` from GET /dashboard/alerts).
+        type:
+          type: string
+          enum: [warning, info, danger, success]
+        title:
+          type: string
+        message:
+          type: string
+        dismissedAt:
+          type: string
+          description: ISO timestamp of when the user dismissed this alert.
+        synthetic:
+          type: boolean
+          description: True for computed banners (no row in the alerts table).
+        sourceMissing:
+          type: boolean
+          description: True when the original persisted alert row no longer exists.
+      required: [key, type, title, message, dismissedAt, synthetic, sourceMissing]
 
     BranchPerformance:
       type: object

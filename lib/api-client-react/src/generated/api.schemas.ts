@@ -397,6 +397,30 @@ export interface Alert {
   key: string;
 }
 
+export type DismissedAlertType =
+  (typeof DismissedAlertType)[keyof typeof DismissedAlertType];
+
+export const DismissedAlertType = {
+  warning: "warning",
+  info: "info",
+  danger: "danger",
+  success: "success",
+} as const;
+
+export interface DismissedAlert {
+  /** Stable alert key (matches the `key` from GET /dashboard/alerts). */
+  key: string;
+  type: DismissedAlertType;
+  title: string;
+  message: string;
+  /** ISO timestamp of when the user dismissed this alert. */
+  dismissedAt: string;
+  /** True for computed banners (no row in the alerts table). */
+  synthetic: boolean;
+  /** True when the original persisted alert row no longer exists. */
+  sourceMissing: boolean;
+}
+
 export type BranchPerformanceStatus =
   (typeof BranchPerformanceStatus)[keyof typeof BranchPerformanceStatus];
 
@@ -1602,6 +1626,17 @@ export type DismissDashboardAlertBody = {
 };
 
 export type DismissDashboardAlert200 = {
+  ok: boolean;
+};
+
+export type UndismissDashboardAlertParams = {
+  /**
+   * The alert's stable `key` as returned by GET /dashboard/alerts.
+   */
+  key: string;
+};
+
+export type UndismissDashboardAlert200 = {
   ok: boolean;
 };
 

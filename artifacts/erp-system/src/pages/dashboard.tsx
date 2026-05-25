@@ -8,7 +8,15 @@ import {
   useDismissDashboardAlert,
   getGetDashboardAlertsQueryKey,
   useGetBranchPerformance,
+  useListDismissedDashboardAlerts,
+  useUndismissDashboardAlert,
+  getListDismissedDashboardAlertsQueryKey,
 } from "@workspace/api-client-react";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -24,7 +32,9 @@ import {
   Info,
   CheckCircle2,
   AlertTriangle,
-  X
+  X,
+  EyeOff,
+  RotateCcw,
 } from "lucide-react";
 import {
   AreaChart,
@@ -94,6 +104,129 @@ function HealthScore({ score }: { score: number }) {
         <span className="text-[10px] text-muted-foreground">%</span>
       </div>
     </div>
+  );
+}
+
+function DismissedAlertIcon({ type }: { type: string }) {
+  if (type === "danger") return <AlertCircle className="size-4 text-red-500 shrink-0 mt-0.5" />;
+  if (type === "warning") return <AlertTriangle className="size-4 text-yellow-500 shrink-0 mt-0.5" />;
+  if (type === "success") return <CheckCircle2 className="size-4 text-green-500 shrink-0 mt-0.5" />;
+  return <Info className="size-4 text-cyan-500 shrink-0 mt-0.5" />;
+}
+
+function DismissedAlertsPopover() {
+  const queryClient = useQueryClient();
+  const { data: dismissed, isLoading } = useListDismissedDashboardAlerts();
+  const undismiss = useUndismissDashboardAlert({
+    mutation: {
+      // Optimistically remove the row from the dismissed list and
+      // invalidate the live alerts feed so the alert reappears on
+      // its next render (if the underlying condition still holds).
+      onMutate: async ({ params }) => {
+        const key = params.key;
+        const queryKey = getListDismissedDashboardAlertsQueryKey();
+        await queryClient.cancelQueries({ queryKey });
+        const previous = queryClient.getQueryData<typeof dismissed>(queryKey);
+        if (previous) {
+          queryClient.setQueryData(
+            queryKey,
+            previous.filter((d) => d.key !== key),
+          );
+        }
+        return { previous };
+      },
+      onError: (_err, _vars, ctx) => {
+        const queryKey = getListDismissedDashboardAlertsQueryKey();
+        if (ctx && "previous" in ctx && ctx.previous) {
+          queryClient.setQueryData(queryKey, ctx.previous);
+        }
+      },
+      onSettled: () => {
+        queryClient.invalidateQueries({
+          queryKey: getListDismissedDashboardAlertsQueryKey(),
+        });
+        queryClient.invalidateQueries({ queryKey: getGetDashboardAlertsQueryKey() });
+      },
+    },
+  });
+
+  const count = dismissed?.length ?? 0;
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-8 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+          data-testid="button-dismissed-alerts"
+          aria-label="إخفاءات سابقة"
+        >
+          <EyeOff className="size-3.5" />
+          <span>إخفاءات سابقة</span>
+          {count > 0 && (
+            <span className="ml-1 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-white/10 px-1.5 text-[10px] font-medium text-foreground">
+              {count}
+            </span>
+          )}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="end"
+        className="w-80 max-h-[60vh] overflow-y-auto p-0"
+        data-testid="popover-dismissed-alerts"
+      >
+        <div className="px-4 py-3 border-b border-border">
+          <h3 className="text-sm font-semibold">التنبيهات المخفية</h3>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            تنبيهات أخفيتها من اللوحة، يمكنك إعادة إظهار أي منها.
+          </p>
+        </div>
+        <div className="p-2 space-y-2">
+          {isLoading ? (
+            Array.from({ length: 2 }).map((_, i) => (
+              <Skeleton key={i} className="h-14 w-full rounded-md" />
+            ))
+          ) : count === 0 ? (
+            <div className="px-3 py-6 text-center text-xs text-muted-foreground">
+              لا توجد تنبيهات مخفية حالياً.
+            </div>
+          ) : (
+            dismissed!.map((d) => (
+              <div
+                key={d.key}
+                className="flex gap-2 p-2 rounded-md bg-muted/40 border border-border/50"
+                data-testid={`dismissed-alert-${d.key}`}
+              >
+                <DismissedAlertIcon type={d.type} />
+                <div className="flex-1 min-w-0">
+                  <h4 className="text-xs font-medium text-foreground truncate">{d.title}</h4>
+                  <p className="text-[11px] text-muted-foreground mt-0.5 line-clamp-2">{d.message}</p>
+                  <p className="text-[10px] text-muted-foreground/70 mt-1">
+                    أُخفي في {new Date(d.dismissedAt).toLocaleString("ar-SA")}
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 shrink-0 gap-1 px-2 text-[11px]"
+                  onClick={() => undismiss.mutate({ params: { key: d.key } })}
+                  disabled={undismiss.isPending}
+                  data-testid={`button-undismiss-${d.key}`}
+                  aria-label="إظهار من جديد"
+                  title="إظهار من جديد"
+                >
+                  <RotateCcw className="size-3" />
+                  <span>إظهار</span>
+                </Button>
+              </div>
+            ))
+          )}
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -313,6 +446,7 @@ export default function Dashboard() {
                 <Activity className="size-5 text-pink-400" />
                 تنبيهات AI الذكية
               </CardTitle>
+              <DismissedAlertsPopover />
             </CardHeader>
             <CardContent>
               <div className="space-y-3">

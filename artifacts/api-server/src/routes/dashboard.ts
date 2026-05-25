@@ -11,7 +11,7 @@ import {
   auditLogsTable,
   intercompanyLinksTable,
 } from "@workspace/db";
-import { sql, gte, desc, and, lt, eq } from "drizzle-orm";
+import { sql, gte, desc, and, lt, eq, inArray } from "drizzle-orm";
 import { z } from "zod/v4";
 import { handleRouteError } from "../lib/handle-error";
 import { adminGuard } from "../middlewares/require-role";
@@ -494,6 +494,163 @@ router.post("/dashboard/alerts/dismiss", async (req, res) => {
         ],
         set: { dismissedAt: new Date(), alertId },
       });
+
+    res.json({ ok: true });
+  } catch (err) {
+    handleRouteError(err, res);
+  }
+});
+
+/**
+ * Static labels for synthetic banners — used by the "previously
+ * dismissed" panel so the user can recognise what they hid even
+ * though the banner is only computed on the live feed.
+ */
+const SYNTHETIC_ALERT_LABELS: Record<
+  string,
+  { type: "warning" | "info" | "danger" | "success"; title: string; message: string }
+> = {
+  "synthetic:stale_scan": {
+    type: "warning",
+    title: "فحص عدم التطابق بين الشركات متأخر",
+    message:
+      "بانر يظهر تلقائياً عند تأخر الفحص الليلي لعدم التطابق بين الشركات لأكثر من 26 ساعة.",
+  },
+};
+
+router.get("/dashboard/alerts/dismissed", async (req, res) => {
+  try {
+    const userId = req.session?.userId;
+    if (typeof userId !== "number") {
+      res.status(401).json({ error: "Not authenticated" });
+      return;
+    }
+    const companyId = getCompanyId(req);
+
+    const dismissals = await db
+      .select({
+        alertKey: alertDismissalsTable.alertKey,
+        dismissedAt: alertDismissalsTable.dismissedAt,
+      })
+      .from(alertDismissalsTable)
+      .where(
+        and(
+          eq(alertDismissalsTable.userId, userId),
+          eq(alertDismissalsTable.companyId, companyId),
+        ),
+      )
+      .orderBy(desc(alertDismissalsTable.dismissedAt));
+
+    // Collect alert ids for the persisted-row keys so we can enrich
+    // the response with title/message/type in a single round-trip.
+    const alertIds: number[] = [];
+    for (const d of dismissals) {
+      if (d.alertKey.startsWith("alert:")) {
+        const n = Number(d.alertKey.slice("alert:".length));
+        if (Number.isInteger(n) && n > 0) alertIds.push(n);
+      }
+    }
+
+    const alertRows =
+      alertIds.length > 0
+        ? await db
+            .select({
+              id: alertsTable.id,
+              type: alertsTable.type,
+              title: alertsTable.title,
+              message: alertsTable.message,
+            })
+            .from(alertsTable)
+            .where(
+              and(
+                inArray(alertsTable.id, alertIds),
+                // Defence-in-depth: never reveal a sibling tenant's
+                // alert metadata even if a stale dismissal row exists.
+                eq(alertsTable.companyId, companyId),
+              ),
+            )
+        : [];
+
+    const alertById = new Map<number, (typeof alertRows)[number]>();
+    for (const a of alertRows) alertById.set(a.id, a);
+
+    const enriched = dismissals.map((d) => {
+      if (d.alertKey.startsWith("alert:")) {
+        const n = Number(d.alertKey.slice("alert:".length));
+        const row = alertById.get(n);
+        if (row) {
+          return {
+            key: d.alertKey,
+            type: row.type,
+            title: row.title,
+            message: row.message,
+            dismissedAt: d.dismissedAt.toISOString(),
+            synthetic: false,
+            sourceMissing: false,
+          };
+        }
+        // The original alert was deleted (or belongs to another
+        // tenant). Surface a placeholder so the user can still
+        // un-dismiss the stale row to clean it up.
+        return {
+          key: d.alertKey,
+          type: "info" as const,
+          title: "تنبيه محذوف",
+          message: "لم يعد التنبيه الأصلي موجوداً، يمكنك إزالة الإخفاء لتنظيف القائمة.",
+          dismissedAt: d.dismissedAt.toISOString(),
+          synthetic: false,
+          sourceMissing: true,
+        };
+      }
+      const meta = SYNTHETIC_ALERT_LABELS[d.alertKey];
+      return {
+        key: d.alertKey,
+        type: meta?.type ?? "info",
+        title: meta?.title ?? d.alertKey,
+        message: meta?.message ?? "",
+        dismissedAt: d.dismissedAt.toISOString(),
+        synthetic: true,
+        sourceMissing: false,
+      };
+    });
+
+    res.json(enriched);
+  } catch (err) {
+    req.log.error({ err }, "Error listing dismissed alerts");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+const undismissQuerySchema = z.object({
+  key: z
+    .string()
+    .min(1)
+    .max(128)
+    .regex(/^[a-z0-9:_-]+$/i, "key must be alphanumeric with : _ -"),
+});
+
+router.delete("/dashboard/alerts/dismissed", async (req, res) => {
+  try {
+    const userId = req.session?.userId;
+    if (typeof userId !== "number") {
+      res.status(401).json({ error: "Not authenticated" });
+      return;
+    }
+    const companyId = getCompanyId(req);
+    const { key } = undismissQuerySchema.parse(req.query);
+
+    // Idempotent: deleting a non-existent dismissal still returns ok.
+    // The (userId, companyId, alertKey) predicate enforces tenant +
+    // owner scoping so a user cannot un-dismiss anyone else's row.
+    await db
+      .delete(alertDismissalsTable)
+      .where(
+        and(
+          eq(alertDismissalsTable.userId, userId),
+          eq(alertDismissalsTable.companyId, companyId),
+          eq(alertDismissalsTable.alertKey, key),
+        ),
+      );
 
     res.json({ ok: true });
   } catch (err) {

@@ -110,6 +110,51 @@ export const DismissDashboardAlertResponse = zod.object({
 });
 
 /**
+ * Returns the dismissal rows for the signed-in user within the active company, enriched with the original alert metadata (title/message/type) when the underlying alert still exists. Synthetic banners (e.g. `synthetic:stale_scan`) carry a static label so finance can recognise what was hidden.
+
+ * @summary List dashboard alerts the current user has dismissed
+ */
+export const ListDismissedDashboardAlertsResponseItem = zod.object({
+  key: zod
+    .string()
+    .describe(
+      "Stable alert key (matches the `key` from GET \/dashboard\/alerts).",
+    ),
+  type: zod.enum(["warning", "info", "danger", "success"]),
+  title: zod.string(),
+  message: zod.string(),
+  dismissedAt: zod
+    .string()
+    .describe("ISO timestamp of when the user dismissed this alert."),
+  synthetic: zod
+    .boolean()
+    .describe("True for computed banners (no row in the alerts table)."),
+  sourceMissing: zod
+    .boolean()
+    .describe("True when the original persisted alert row no longer exists."),
+});
+export const ListDismissedDashboardAlertsResponse = zod.array(
+  ListDismissedDashboardAlertsResponseItem,
+);
+
+/**
+ * Removes the per-user dismissal row identified by `key` so the alert reappears on the next refresh (if the underlying condition still holds). Returns `{ok:true}` regardless of whether a row was deleted (idempotent).
+
+ * @summary Un-dismiss a dashboard alert for the current user
+ */
+export const UndismissDashboardAlertQueryParams = zod.object({
+  key: zod.coerce
+    .string()
+    .describe(
+      "The alert's stable `key` as returned by GET \/dashboard\/alerts.",
+    ),
+});
+
+export const UndismissDashboardAlertResponse = zod.object({
+  ok: zod.boolean(),
+});
+
+/**
  * @summary Get branch comparison data
  */
 export const GetBranchPerformanceResponseItem = zod.object({
