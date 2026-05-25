@@ -1821,6 +1821,18 @@ export const GetSystemSettingsResponse = zod.object({
     .date()
     .nullable()
     .describe("ISO timestamp of the most recent successful scheduled send."),
+  cleanupReportSubject: zod
+    .string()
+    .nullable()
+    .describe(
+      "Optional admin-configured subject override for the cleanup report email.",
+    ),
+  cleanupReportIntro: zod
+    .string()
+    .nullable()
+    .describe(
+      "Optional admin-configured intro paragraph for the cleanup report email body.",
+    ),
 });
 
 /**
@@ -1833,6 +1845,10 @@ export const updateSystemSettingsBodyCleanupAuditKeepRunsMin = 30;
 export const updateSystemSettingsBodyCleanupAuditKeepRunsMax = 3650;
 
 export const updateSystemSettingsBodyCleanupReportRecipientsMax = 50;
+
+export const updateSystemSettingsBodyCleanupReportSubjectMax = 200;
+
+export const updateSystemSettingsBodyCleanupReportIntroMax = 2000;
 
 export const UpdateSystemSettingsBody = zod.object({
   alertRetentionDays: zod
@@ -1858,6 +1874,20 @@ export const UpdateSystemSettingsBody = zod.object({
     .max(updateSystemSettingsBodyCleanupReportRecipientsMax)
     .optional()
     .describe("Email recipients for the scheduled cleanup PDF report."),
+  cleanupReportSubject: zod
+    .string()
+    .max(updateSystemSettingsBodyCleanupReportSubjectMax)
+    .nullish()
+    .describe(
+      "Optional override for the cleanup report email subject. Supports tokens `{period}`, `{from}`, `{to}`. Empty\/null clears the override and falls back to the default subject.",
+    ),
+  cleanupReportIntro: zod
+    .string()
+    .max(updateSystemSettingsBodyCleanupReportIntroMax)
+    .nullish()
+    .describe(
+      "Optional intro paragraph prepended to the cleanup report email body. Empty\/null falls back to the default intro.",
+    ),
 });
 
 export const UpdateSystemSettingsResponse = zod.object({
@@ -1866,6 +1896,8 @@ export const UpdateSystemSettingsResponse = zod.object({
   cleanupAuditKeepRuns: zod.number().nullish(),
   cleanupReportSchedule: zod.enum(["off", "weekly", "monthly"]).optional(),
   cleanupReportRecipients: zod.array(zod.string()).optional(),
+  cleanupReportSubject: zod.string().nullish(),
+  cleanupReportIntro: zod.string().nullish(),
 });
 
 /**

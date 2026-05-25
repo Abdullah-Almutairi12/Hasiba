@@ -26,6 +26,8 @@ import { buildAlertsCleanupPdf } from "../lib/alerts-cleanup-pdf";
 import {
   sendCleanupReportEmail,
   readCleanupReportConfig,
+  CLEANUP_REPORT_SUBJECT_MAX,
+  CLEANUP_REPORT_INTRO_MAX,
   CLEANUP_REPORT_SCHEDULES,
   type CleanupReportSchedule,
 } from "../lib/alerts-cleanup-report-email";
@@ -814,6 +816,8 @@ router.get("/admin/system-settings", adminOnly, async (req, res) => {
       cleanupReportSchedule: cleanupReport.schedule,
       cleanupReportRecipients: cleanupReport.recipients,
       cleanupReportLastSentAt: cleanupReport.lastSentAt,
+      cleanupReportSubject: cleanupReport.subject,
+      cleanupReportIntro: cleanupReport.intro,
     });
   } catch (err) {
     req.log.error({ err }, "Get system settings failed");
@@ -849,6 +853,18 @@ const UpdateSystemSettingsBody = z.object({
     .array(z.string().email().max(200))
     .max(50)
     .optional(),
+  // Task #179: optional admin-customisable subject and intro text. Null/empty
+  // string clears the override → sender falls back to the built-in defaults.
+  cleanupReportSubject: z
+    .string()
+    .max(CLEANUP_REPORT_SUBJECT_MAX)
+    .nullable()
+    .optional(),
+  cleanupReportIntro: z
+    .string()
+    .max(CLEANUP_REPORT_INTRO_MAX)
+    .nullable()
+    .optional(),
 });
 
 router.patch("/admin/system-settings", adminOnly, async (req, res) => {
@@ -876,12 +892,16 @@ router.patch("/admin/system-settings", adminOnly, async (req, res) => {
     }
     if (
       body.cleanupReportSchedule !== undefined ||
-      body.cleanupReportRecipients !== undefined
+      body.cleanupReportRecipients !== undefined ||
+      body.cleanupReportSubject !== undefined ||
+      body.cleanupReportIntro !== undefined
     ) {
       const cleanupReport: Record<string, unknown> = {
         schedule: prevCleanupReport.schedule,
         recipients: prevCleanupReport.recipients,
         lastSentAt: prevCleanupReport.lastSentAt,
+        subject: prevCleanupReport.subject,
+        intro: prevCleanupReport.intro,
       };
       if (body.cleanupReportSchedule !== undefined) {
         cleanupReport.schedule = body.cleanupReportSchedule;
@@ -890,6 +910,14 @@ router.patch("/admin/system-settings", adminOnly, async (req, res) => {
         cleanupReport.recipients = Array.from(
           new Set(body.cleanupReportRecipients.map((r) => r.trim().toLowerCase()).filter(Boolean)),
         );
+      }
+      if (body.cleanupReportSubject !== undefined) {
+        const v = body.cleanupReportSubject?.trim() ?? "";
+        cleanupReport.subject = v.length > 0 ? v : null;
+      }
+      if (body.cleanupReportIntro !== undefined) {
+        const v = body.cleanupReportIntro?.trim() ?? "";
+        cleanupReport.intro = v.length > 0 ? v : null;
       }
       nextSystem["cleanupReport"] = cleanupReport;
     }
@@ -915,14 +943,20 @@ router.patch("/admin/system-settings", adminOnly, async (req, res) => {
     }
     if (
       body.cleanupReportSchedule !== undefined ||
-      body.cleanupReportRecipients !== undefined
+      body.cleanupReportRecipients !== undefined ||
+      body.cleanupReportSubject !== undefined ||
+      body.cleanupReportIntro !== undefined
     ) {
+      const subjectChanged = body.cleanupReportSubject !== undefined;
+      const introChanged = body.cleanupReportIntro !== undefined;
       void recordAudit(req, {
         action: "system_settings.cleanup_report_changed",
         entity: `app_settings#${row.id}`,
         details:
           `schedule=${body.cleanupReportSchedule ?? prevCleanupReport.schedule}` +
-          ` recipients=${body.cleanupReportRecipients?.length ?? prevCleanupReport.recipients.length}`,
+          ` recipients=${body.cleanupReportRecipients?.length ?? prevCleanupReport.recipients.length}` +
+          (subjectChanged ? " subject=changed" : "") +
+          (introChanged ? " intro=changed" : ""),
         severity: "info",
       });
       req.log.info(
@@ -930,6 +964,8 @@ router.patch("/admin/system-settings", adminOnly, async (req, res) => {
           userId: req.session?.userId,
           schedule: body.cleanupReportSchedule,
           recipients: body.cleanupReportRecipients?.length,
+          subjectChanged,
+          introChanged,
         },
         "admin.system_settings.cleanup_report_changed",
       );
@@ -964,6 +1000,14 @@ router.patch("/admin/system-settings", adminOnly, async (req, res) => {
         body.cleanupReportSchedule ?? prevCleanupReport.schedule,
       cleanupReportRecipients:
         body.cleanupReportRecipients ?? prevCleanupReport.recipients,
+      cleanupReportSubject:
+        body.cleanupReportSubject !== undefined
+          ? (body.cleanupReportSubject?.trim() || null)
+          : prevCleanupReport.subject,
+      cleanupReportIntro:
+        body.cleanupReportIntro !== undefined
+          ? (body.cleanupReportIntro?.trim() || null)
+          : prevCleanupReport.intro,
     });
   } catch (err) {
     if (err instanceof z.ZodError) {

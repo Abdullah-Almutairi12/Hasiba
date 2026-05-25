@@ -11,7 +11,14 @@
  *     schedule: "off" | "weekly" | "monthly",
  *     recipients: string[],        // raw email addresses
  *     lastSentAt: string | null,   // ISO timestamp of last successful send
+ *     subject: string | null,      // optional override for the email subject
+ *     intro: string | null,        // optional override for the body intro
  *   }
+ *
+ * `subject` may contain the tokens `{period}`, `{from}`, `{to}` which are
+ * substituted at send time. `intro` is prepended to the default body (the
+ * scope / row-count / footer lines stay as-is so auditors always see the
+ * machine-readable summary).
  *
  * Schedule semantics:
  *   - weekly  → send if (lastSentAt is null) OR (now - lastSentAt >= 7d)
@@ -38,14 +45,25 @@ const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 export const CLEANUP_REPORT_SCHEDULES = ["off", "weekly", "monthly"] as const;
 export type CleanupReportSchedule = (typeof CLEANUP_REPORT_SCHEDULES)[number];
 
+export const CLEANUP_REPORT_SUBJECT_MAX = 200;
+export const CLEANUP_REPORT_INTRO_MAX = 2000;
+
 export interface CleanupReportConfig {
   schedule: CleanupReportSchedule;
   recipients: string[];
   lastSentAt: string | null;
+  subject: string | null;
+  intro: string | null;
 }
 
 export function defaultCleanupReportConfig(): CleanupReportConfig {
-  return { schedule: "off", recipients: [], lastSentAt: null };
+  return {
+    schedule: "off",
+    recipients: [],
+    lastSentAt: null,
+    subject: null,
+    intro: null,
+  };
 }
 
 export function readCleanupReportConfig(
@@ -70,6 +88,14 @@ export function readCleanupReportConfig(
   }
   if (typeof o.lastSentAt === "string") {
     out.lastSentAt = o.lastSentAt;
+  }
+  if (typeof o.subject === "string") {
+    const s = o.subject.trim();
+    out.subject = s.length > 0 ? s.slice(0, CLEANUP_REPORT_SUBJECT_MAX) : null;
+  }
+  if (typeof o.intro === "string") {
+    const s = o.intro.trim();
+    out.intro = s.length > 0 ? s.slice(0, CLEANUP_REPORT_INTRO_MAX) : null;
   }
   return out;
 }
@@ -160,9 +186,16 @@ export async function sendCleanupReportEmail(opts: {
 
   const fmt = (d: Date) => d.toISOString().slice(0, 10);
   const periodLabel = effectiveSchedule === "monthly" ? "الشهري" : "الأسبوعي";
-  const subject = `تقرير تنظيف التنبيهات ${periodLabel} (${fmt(from)} → ${fmt(to)})`;
+  const defaultSubject = `تقرير تنظيف التنبيهات ${periodLabel} (${fmt(from)} → ${fmt(to)})`;
+  const subject = cfg.subject
+    ? cfg.subject
+        .replaceAll("{period}", periodLabel)
+        .replaceAll("{from}", fmt(from))
+        .replaceAll("{to}", fmt(to))
+    : defaultSubject;
+  const introLine = cfg.intro ?? `مرفق تقرير تنظيف التنبيهات ${periodLabel}.`;
   const body =
-    `مرفق تقرير تنظيف التنبيهات ${periodLabel}.\n\n` +
+    `${introLine}\n\n` +
     `النطاق: ${fmt(from)} إلى ${fmt(to)}\n` +
     `عدد عمليات التنظيف في هذا النطاق: ${rowCount}\n` +
     `تنبيهات الامتثال (تسعير تحويلي / زكاة / اتفاقيات): ${complianceAlertCount}\n` +

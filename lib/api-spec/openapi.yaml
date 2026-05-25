@@ -1778,6 +1778,21 @@ paths:
                   items: { type: string, format: email }
                   maxItems: 50
                   description: Email recipients for the scheduled cleanup PDF report.
+                cleanupReportSubject:
+                  type: string
+                  nullable: true
+                  maxLength: 200
+                  description: >-
+                    Optional override for the cleanup report email subject.
+                    Supports tokens `{period}`, `{from}`, `{to}`. Empty/null
+                    clears the override and falls back to the default subject.
+                cleanupReportIntro:
+                  type: string
+                  nullable: true
+                  maxLength: 2000
+                  description: >-
+                    Optional intro paragraph prepended to the cleanup report
+                    email body. Empty/null falls back to the default intro.
       responses:
         "200":
           description: Updated
@@ -1795,6 +1810,12 @@ paths:
                   cleanupReportRecipients:
                     type: array
                     items: { type: string }
+                  cleanupReportSubject:
+                    type: string
+                    nullable: true
+                  cleanupReportIntro:
+                    type: string
+                    nullable: true
                 required: [ok]
 
   /admin/system-settings/send-cleanup-report-now:
@@ -4786,6 +4807,14 @@ components:
           format: date-time
           nullable: true
           description: ISO timestamp of the most recent successful scheduled send.
+        cleanupReportSubject:
+          type: string
+          nullable: true
+          description: Optional admin-configured subject override for the cleanup report email.
+        cleanupReportIntro:
+          type: string
+          nullable: true
+          description: Optional admin-configured intro paragraph for the cleanup report email body.
       required:
         [
           alertRetentionDays,
@@ -4804,6 +4833,8 @@ components:
           cleanupReportSchedule,
           cleanupReportRecipients,
           cleanupReportLastSentAt,
+          cleanupReportSubject,
+          cleanupReportIntro,
         ]
 
     PermissionMatrix:

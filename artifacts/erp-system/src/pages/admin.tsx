@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Money } from "@/components/riyal";
 import { useLocation } from "wouter";
 import {
@@ -1468,8 +1468,40 @@ function CleanupReportEmailCard() {
   const schedule = settings?.cleanupReportSchedule ?? "off";
   const recipients = settings?.cleanupReportRecipients ?? [];
   const lastSentAt = settings?.cleanupReportLastSentAt ?? null;
+  const savedSubject = settings?.cleanupReportSubject ?? "";
+  const savedIntro = settings?.cleanupReportIntro ?? "";
   const [draft, setDraft] = useState("");
   const [inputError, setInputError] = useState<string | null>(null);
+  const [subjectDraft, setSubjectDraft] = useState<string>(savedSubject);
+  const [introDraft, setIntroDraft] = useState<string>(savedIntro);
+
+  // Sync local drafts when the server-side values change (initial load or
+  // after a successful save).
+  useEffect(() => {
+    setSubjectDraft(savedSubject);
+  }, [savedSubject]);
+  useEffect(() => {
+    setIntroDraft(savedIntro);
+  }, [savedIntro]);
+
+  const subjectDirty = subjectDraft !== savedSubject;
+  const introDirty = introDraft !== savedIntro;
+  const textDirty = subjectDirty || introDirty;
+
+  const saveText = () => {
+    updateMut.mutate({
+      data: {
+        ...(subjectDirty ? { cleanupReportSubject: subjectDraft.trim() || null } : {}),
+        ...(introDirty ? { cleanupReportIntro: introDraft.trim() || null } : {}),
+      },
+    });
+  };
+
+  const resetText = () => {
+    updateMut.mutate({
+      data: { cleanupReportSubject: null, cleanupReportIntro: null },
+    });
+  };
 
   const addRecipient = () => {
     const v = draft.trim().toLowerCase();
@@ -1604,6 +1636,68 @@ function CleanupReportEmailCard() {
               ))}
             </div>
           )}
+        </div>
+
+        <div className="space-y-3 border-t pt-3">
+          <div className="space-y-1.5">
+            <Label htmlFor="cleanup-report-subject">عنوان البريد</Label>
+            <Input
+              id="cleanup-report-subject"
+              value={subjectDraft}
+              maxLength={200}
+              onChange={(e) => setSubjectDraft(e.target.value)}
+              placeholder="تقرير تنظيف التنبيهات {period} ({from} → {to})"
+              data-testid="input-cleanup-report-subject"
+            />
+            <p className="text-[11px] text-muted-foreground">
+              الرموز المتاحة:{" "}
+              <code dir="ltr" className="rounded bg-muted px-1">{"{period}"}</code>{" "}
+              <code dir="ltr" className="rounded bg-muted px-1">{"{from}"}</code>{" "}
+              <code dir="ltr" className="rounded bg-muted px-1">{"{to}"}</code>
+              . اتركه فارغاً لاستخدام العنوان الافتراضي.
+            </p>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="cleanup-report-intro">مقدمة الرسالة</Label>
+            <Textarea
+              id="cleanup-report-intro"
+              value={introDraft}
+              maxLength={2000}
+              rows={3}
+              onChange={(e) => setIntroDraft(e.target.value)}
+              placeholder="مرفق تقرير تنظيف التنبيهات الأسبوعي."
+              data-testid="textarea-cleanup-report-intro"
+            />
+            <p className="text-[11px] text-muted-foreground">
+              تُضاف هذه الفقرة في بداية متن الرسالة. اتركها فارغة لاستخدام المقدمة الافتراضية.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              size="sm"
+              onClick={saveText}
+              disabled={!textDirty || updateMut.isPending}
+              data-testid="button-save-cleanup-report-text"
+            >
+              {updateMut.isPending && (
+                <Loader2 className="me-1 size-4 animate-spin" />
+              )}
+              حفظ النص
+            </Button>
+            {(savedSubject || savedIntro) && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={resetText}
+                disabled={updateMut.isPending}
+                data-testid="button-reset-cleanup-report-text"
+              >
+                استعادة الافتراضي
+              </Button>
+            )}
+          </div>
         </div>
 
         {lastSentAt && (

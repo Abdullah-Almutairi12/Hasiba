@@ -1604,6 +1604,10 @@ export interface SystemSettings {
   cleanupReportRecipients: string[];
   /** ISO timestamp of the most recent successful scheduled send. */
   cleanupReportLastSentAt: string | null;
+  /** Optional admin-configured subject override for the cleanup report email. */
+  cleanupReportSubject: string | null;
+  /** Optional admin-configured intro paragraph for the cleanup report email body. */
+  cleanupReportIntro: string | null;
 }
 
 export type PermissionMatrixDefaults = { [key: string]: string[] };
@@ -1953,6 +1957,16 @@ export type UpdateSystemSettingsBody = {
    * @maxItems 50
    */
   cleanupReportRecipients?: string[];
+  /**
+   * Optional override for the cleanup report email subject. Supports tokens `{period}`, `{from}`, `{to}`. Empty/null clears the override and falls back to the default subject.
+   * @maxLength 200
+   */
+  cleanupReportSubject?: string | null;
+  /**
+   * Optional intro paragraph prepended to the cleanup report email body. Empty/null falls back to the default intro.
+   * @maxLength 2000
+   */
+  cleanupReportIntro?: string | null;
 };
 
 export type UpdateSystemSettings200CleanupReportSchedule =
@@ -1970,6 +1984,8 @@ export type UpdateSystemSettings200 = {
   cleanupAuditKeepRuns?: number | null;
   cleanupReportSchedule?: UpdateSystemSettings200CleanupReportSchedule;
   cleanupReportRecipients?: string[];
+  cleanupReportSubject?: string | null;
+  cleanupReportIntro?: string | null;
 };
 
 export type SendCleanupReportNow200 = {
