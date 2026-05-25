@@ -20,6 +20,10 @@
 import { db, intercompanyLinksTable, auditLogsTable } from "@workspace/db";
 import { logger } from "./logger";
 import { scanImbalancesForCompanies } from "./intercompany-imbalances";
+import {
+  snapshotOpenImbalances,
+  sendImbalanceDigestForGroup,
+} from "./intercompany-imbalance-digest";
 
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 const FIRST_RUN_DELAY_MS = 90_000;
@@ -80,6 +84,8 @@ export interface NightlyScanSummary {
   open: number;
   resolved: number;
   failures: number;
+  digestsSent: number;
+  digestsSkipped: number;
 }
 
 export async function runNightlyImbalanceScan(): Promise<NightlyScanSummary> {
@@ -90,6 +96,8 @@ export async function runNightlyImbalanceScan(): Promise<NightlyScanSummary> {
     open: 0,
     resolved: 0,
     failures: 0,
+    digestsSent: 0,
+    digestsSkipped: 0,
   };
   let groups: number[][];
   try {
@@ -101,11 +109,35 @@ export async function runNightlyImbalanceScan(): Promise<NightlyScanSummary> {
   summary.groups = groups.length;
   for (const group of groups) {
     try {
+      // Snapshot the open queue BEFORE the scan so we can classify
+      // each post-scan open row as either "new overnight" (id not in
+      // before-set) or "still open from a previous run".
+      const before = await snapshotOpenImbalances(group).catch((err) => {
+        logger.warn(
+          { err, group },
+          "nightly intercompany scan: pre-snapshot failed; digest will treat all open rows as new",
+        );
+        return [];
+      });
       const result = await scanImbalancesForCompanies(group);
       summary.scanned += group.length;
       summary.subtotal += result.subtotal;
       summary.open += result.open;
       summary.resolved += result.resolved;
+      const after = await snapshotOpenImbalances(group).catch((err) => {
+        logger.warn(
+          { err, group },
+          "nightly intercompany scan: post-snapshot failed; skipping digest",
+        );
+        return [];
+      });
+      const digest = await sendImbalanceDigestForGroup({
+        group,
+        before,
+        after,
+      });
+      if (digest.skipped) summary.digestsSkipped += 1;
+      else summary.digestsSent += 1;
       // audit_logs.company_id is NOT NULL — stamp the row against the
       // lowest companyId in the group so the trail lives somewhere
       // queryable. userName="نظام" mirrors the convention used by
