@@ -40,6 +40,7 @@ import intercompanyRouter, {
   intercompanyPublicRouter,
 } from "./intercompany";
 import liquidityRouter from "./liquidity";
+import complianceRouter from "./compliance";
 import documentsRouter, { signPublicRouter } from "./documents";
 import { requireAuth } from "../middlewares/require-auth";
 import { requireCompanyContext } from "../middlewares/require-company-context";
@@ -112,6 +113,7 @@ router.use(procurementRouter);
 router.use(salesRouter);
 router.use(intercompanyRouter);
 router.use(liquidityRouter);
+router.use(complianceRouter);
 router.use(crmRouter);
 router.use(exportsRouter);
 router.use(hrRouter);

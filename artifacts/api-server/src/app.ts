@@ -245,4 +245,11 @@ import("./lib/alerts-cleanup-report-email")
     logger.error({ err }, "failed to start cleanup report email cron"),
   );
 
+// Phase 3: nightly zakat-base anomaly scan across every tenant.
+import("./lib/compliance/zakat")
+  .then((m) => m.startZakatComplianceCron())
+  .catch((err) =>
+    logger.error({ err }, "failed to start zakat compliance cron"),
+  );
+
 export default app;

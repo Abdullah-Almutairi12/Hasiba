@@ -18,6 +18,7 @@ import {
 } from "@workspace/db";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import type { PgTransaction } from "drizzle-orm/pg-core";
+import { logger } from "./logger";
 
 /**
  * Drizzle transaction handle compatible with both `db` and `db.transaction`
@@ -25,7 +26,7 @@ import type { PgTransaction } from "drizzle-orm/pg-core";
  * caller's transaction (transactional integrity guardrail of Phase 5).
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Tx = typeof defaultDb | PgTransaction<any, any, any>;
+export type Tx = typeof defaultDb | PgTransaction<any, any, any>;
 
 export interface MirrorActor {
   userId: number | null;
@@ -327,6 +328,35 @@ export async function mirrorSalesInvoice(
     "intercompany_mirror_created",
     `Intercompany mirror created: ${inv.reference} → ${mirrorInvoiceNumber} (company ${targetCompanyId})`,
   );
+
+  // Phase 3 — Transfer Pricing & Agreement guardrail. Non-blocking:
+  // an alert is raised on a >±15% deviation and again if no active
+  // intercompany agreement covers the pair on the invoice date.
+  try {
+    const { runTransferPricingCheck } = await import("./compliance/transfer-pricing");
+    await runTransferPricingCheck({
+      tx,
+      sourceCompanyId: input.sourceCompanyId,
+      targetCompanyId,
+      refType: "sales_invoice",
+      refId: inv.id,
+      ref: inv.reference,
+      refDate: inv.invoiceDate ? new Date(inv.invoiceDate) : new Date(),
+      lines: lines.map((l) => ({
+        productId: l.productId ?? null,
+        description: l.description,
+        unitPrice: Number(l.unitPrice),
+        quantity: Number(l.quantity),
+      })),
+    });
+  } catch (err) {
+    // Compliance failures must NOT roll back the mirror.
+    logger.warn(
+      { err, sourceCompanyId: input.sourceCompanyId, targetCompanyId, refType: "sales_invoice", refId: inv.id },
+      "transfer-pricing check failed; mirror committed without compliance alert",
+    );
+  }
+
   return { linkId: link.id, targetInvoiceId: mirror.id };
 }
 
@@ -450,6 +480,32 @@ export async function mirrorPurchaseOrder(
     "intercompany_mirror_created",
     `Intercompany mirror created: PO ${po.reference} → SO ${mirrorRef} (company ${targetCompanyId})`,
   );
+
+  // Phase 3 — Transfer Pricing & Agreement guardrail (PO leg).
+  try {
+    const { runTransferPricingCheck } = await import("./compliance/transfer-pricing");
+    await runTransferPricingCheck({
+      tx,
+      sourceCompanyId: input.sourceCompanyId,
+      targetCompanyId,
+      refType: "purchase_order",
+      refId: po.id,
+      ref: po.reference,
+      refDate: po.orderDate ? new Date(po.orderDate) : new Date(),
+      lines: lines.map((l) => ({
+        productId: l.productId ?? null,
+        description: l.description,
+        unitPrice: Number(l.unitPrice),
+        quantity: Number(l.quantity),
+      })),
+    });
+  } catch (err) {
+    logger.warn(
+      { err, sourceCompanyId: input.sourceCompanyId, targetCompanyId, refType: "purchase_order", refId: po.id },
+      "transfer-pricing check failed; mirror committed without compliance alert",
+    );
+  }
+
   return { linkId: link.id, targetSoId: so.id };
 }
 

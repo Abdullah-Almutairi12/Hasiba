@@ -81,6 +81,7 @@ const financeNavItems = [
   { key: "accounting", url: "/accounting", icon: Calculator },
   { key: "intercompany", url: "/intercompany", icon: ArrowLeftRight },
   { key: "liquidity", url: "/liquidity", icon: Droplets },
+  { key: "compliance", url: "/compliance", icon: ShieldCheck },
   { key: "reports", url: "/reports", icon: BarChart3 },
   { key: "reports_builder", url: "/reports/builder", icon: BarChart3 },
   { key: "reports_saved", url: "/reports/saved", icon: BarChart3 },

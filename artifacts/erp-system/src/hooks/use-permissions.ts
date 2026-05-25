@@ -118,6 +118,10 @@ export const NAV_PERMISSIONS: Record<string, readonly Role[]> = {
     "cashier",
     "auditor",
   ],
+  // Phase 3 — Transfer Pricing / Agreements / Zakat compliance console.
+  // Read-side matches reportReadGuard; write-side (resolve, upload
+  // agreement, manual zakat run) is gated by financeGuard on the server.
+  compliance: GROUPS.reportRead,
 };
 
 export function useCurrentRole(): Role | null {

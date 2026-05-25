@@ -29,6 +29,7 @@ import { pool } from "@workspace/db";
 import { logger } from "./logger";
 import { sendMail, isMailerConfigured } from "./mailer";
 import { buildAlertsCleanupPdf } from "./alerts-cleanup-pdf";
+import { loadComplianceReportSummary } from "./compliance/report-section";
 
 const ONE_HOUR_MS = 60 * 60 * 1000;
 const FIRST_RUN_DELAY_MS = 180_000;
@@ -153,10 +154,9 @@ export async function sendCleanupReportEmail(opts: {
   const to = new Date();
   const from = new Date(to.getTime() - days * ONE_DAY_MS);
 
-  const { buffer, filename, rowCount } = await buildAlertsCleanupPdf({
-    from,
-    to,
-  });
+  const compliance = await loadComplianceReportSummary({ from, to });
+  const { buffer, filename, rowCount, complianceAlertCount } =
+    await buildAlertsCleanupPdf({ from, to }, { compliance });
 
   const fmt = (d: Date) => d.toISOString().slice(0, 10);
   const periodLabel = effectiveSchedule === "monthly" ? "الشهري" : "الأسبوعي";
@@ -164,7 +164,11 @@ export async function sendCleanupReportEmail(opts: {
   const body =
     `مرفق تقرير تنظيف التنبيهات ${periodLabel}.\n\n` +
     `النطاق: ${fmt(from)} إلى ${fmt(to)}\n` +
-    `عدد عمليات التنظيف في هذا النطاق: ${rowCount}\n\n` +
+    `عدد عمليات التنظيف في هذا النطاق: ${rowCount}\n` +
+    `تنبيهات الامتثال (تسعير تحويلي / زكاة / اتفاقيات): ${complianceAlertCount}\n` +
+    `   • تسعير تحويلي: ${compliance.counts.transferPricing}\n` +
+    `   • اتفاقيات مفقودة: ${compliance.counts.agreementMissing}\n` +
+    `   • زكاة: ${compliance.counts.zakat}\n\n` +
     `تم إنشاء هذا التقرير تلقائياً من نظام حاسبة.AI.\n`;
 
   const result = await sendMail({

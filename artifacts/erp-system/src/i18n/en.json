@@ -41,7 +41,8 @@
     "hr": "HR & Payroll",
     "documents": "Document Management",
     "settings": "Security & Settings",
-    "liquidity": "Liquidity & Cash Flow"
+    "liquidity": "Liquidity & Cash Flow",
+    "compliance": "Compliance & Audit"
   },
   "navGroups": {
     "main": "Main Menu",

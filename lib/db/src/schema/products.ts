@@ -12,6 +12,14 @@ export const productsTable = pgTable("products", {
   categoryId: integer("category_id").notNull().references(() => categoriesTable.id),
   price: numeric("price", { precision: 10, scale: 2 }).notNull(),
   costPrice: numeric("cost_price", { precision: 10, scale: 2 }).notNull(),
+  /**
+   * Phase 3 — external market benchmark used by the Transfer Pricing
+   * compliance check. When set, intercompany sales/purchase lines
+   * whose unit price deviates from this value by more than ±15%
+   * raise a compliance_alerts row. Nullable: products without a
+   * benchmark are skipped (no false positives).
+   */
+  marketReferencePrice: numeric("market_reference_price", { precision: 12, scale: 2 }),
   stock: numeric("stock", { precision: 18, scale: 4 }).notNull().default("0"),
   minStock: integer("min_stock").notNull().default(5),
   unit: text("unit").notNull().default("piece"),

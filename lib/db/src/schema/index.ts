@@ -27,3 +27,4 @@ export * from "./app-settings";
 export * from "./anomaly";
 export * from "./portal";
 export * from "./intercompany";
+export * from "./compliance";
