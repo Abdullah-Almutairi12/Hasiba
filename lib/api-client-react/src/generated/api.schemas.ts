@@ -342,6 +342,17 @@ export interface HealthStatus {
   status: string;
 }
 
+export interface ManagerKpiBar {
+  salesToday: number;
+  salesChange: number;
+  ordersToday: number;
+  pendingInvoicesCount: number;
+  pendingInvoicesAmount: number;
+  lowStockCount: number;
+  unreadAlertsCount: number;
+  healthScore: number;
+}
+
 export interface DashboardSummary {
   totalSalesToday: number;
   totalSalesChange: number;

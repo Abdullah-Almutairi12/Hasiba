@@ -6,8 +6,10 @@ import {
   posSessionsTable,
   alertsTable,
   branchesTable,
+  invoicesTable,
 } from "@workspace/db";
 import { sql, gte, desc, and, lt, eq } from "drizzle-orm";
+import { adminGuard } from "../middlewares/require-role";
 
 const router = Router();
 
@@ -21,6 +23,93 @@ function pctChange(current: number, previous: number): number {
   if (previous === 0) return current > 0 ? 100 : 0;
   return Number((((current - previous) / previous) * 100).toFixed(1));
 }
+
+/**
+ * Compact KPI snapshot for the sticky manager bar shown on every page.
+ * Manager/owner only. Returns five quick-glance metrics + health score.
+ */
+router.get("/dashboard/manager-bar", adminGuard, async (req, res) => {
+  try {
+    const today = startOfDay(new Date());
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+
+    const [todayAgg] = await db
+      .select({
+        total: sql<string>`coalesce(sum(${posOrdersTable.total}::numeric), 0)`,
+        orders: sql<string>`count(*)`,
+      })
+      .from(posOrdersTable)
+      .where(gte(posOrdersTable.createdAt, today));
+
+    const [yestAgg] = await db
+      .select({
+        total: sql<string>`coalesce(sum(${posOrdersTable.total}::numeric), 0)`,
+      })
+      .from(posOrdersTable)
+      .where(
+        and(gte(posOrdersTable.createdAt, yesterday), lt(posOrdersTable.createdAt, today)),
+      );
+
+    const [pendingInvoices] = await db
+      .select({
+        count: sql<string>`count(*)`,
+        amount: sql<string>`coalesce(sum(${invoicesTable.amount}::numeric), 0)`,
+      })
+      .from(invoicesTable)
+      .where(eq(invoicesTable.status, "pending"));
+
+    const [stockStats] = await db
+      .select({
+        lowStockCount: sql<string>`count(*) filter (where ${productsTable.stock} <= ${productsTable.minStock})`,
+      })
+      .from(productsTable)
+      .where(eq(productsTable.isActive, true));
+
+    const [alertsAgg] = await db
+      .select({
+        unread: sql<string>`count(*) filter (where ${alertsTable.isRead} = false)`,
+      })
+      .from(alertsTable);
+
+    const totalSales = Number(todayAgg.total);
+    const yestSales = Number(yestAgg.total);
+    const lowStockCount = Number(stockStats.lowStockCount);
+
+    const [marginRow] = await db
+      .select({
+        avgMargin: sql<string>`coalesce(avg((${productsTable.price}::numeric - ${productsTable.costPrice}::numeric) / nullif(${productsTable.price}::numeric, 0)), 0.30)`,
+      })
+      .from(productsTable)
+      .where(eq(productsTable.isActive, true));
+
+    const [productCountRow] = await db
+      .select({ count: sql<string>`count(*)` })
+      .from(productsTable)
+      .where(eq(productsTable.isActive, true));
+
+    const productCount = Number(productCountRow.count) || 1;
+    const profitMargin = Number(marginRow.avgMargin);
+    const stockHealth = Math.max(0, 100 - (lowStockCount / productCount) * 100);
+    const marginHealth = Math.min(100, profitMargin * 100 * 2);
+    const growthHealth = Math.max(0, Math.min(100, 50 + pctChange(totalSales, yestSales)));
+    const healthScore = Math.round(marginHealth * 0.4 + stockHealth * 0.3 + growthHealth * 0.3);
+
+    res.json({
+      salesToday: totalSales,
+      salesChange: pctChange(totalSales, yestSales),
+      ordersToday: Number(todayAgg.orders),
+      pendingInvoicesCount: Number(pendingInvoices.count),
+      pendingInvoicesAmount: Number(pendingInvoices.amount),
+      lowStockCount,
+      unreadAlertsCount: Number(alertsAgg.unread),
+      healthScore,
+    });
+  } catch (err) {
+    req.log.error({ err }, "Error fetching manager bar KPIs");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
 
 router.get("/dashboard/summary", async (req, res) => {
   try {

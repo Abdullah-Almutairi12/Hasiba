@@ -136,6 +136,7 @@ import type {
   ListProductsParams,
   ListSupportTicketsParams,
   ListWarehousesParams,
+  ManagerKpiBar,
   MarkAllInboxRead200,
   MarkInboxRead200,
   MatchBankStatementLineBody,
@@ -261,6 +262,81 @@ export function useHealthCheck<
   request?: SecondParameter<typeof customFetch>;
 }): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getHealthCheckQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Compact KPI snapshot for the sticky manager bar (manager/owner only)
+ */
+export const getGetManagerKpiBarUrl = () => {
+  return `/api/dashboard/manager-bar`;
+};
+
+export const getManagerKpiBar = async (
+  options?: RequestInit,
+): Promise<ManagerKpiBar> => {
+  return customFetch<ManagerKpiBar>(getGetManagerKpiBarUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetManagerKpiBarQueryKey = () => {
+  return [`/api/dashboard/manager-bar`] as const;
+};
+
+export const getGetManagerKpiBarQueryOptions = <
+  TData = Awaited<ReturnType<typeof getManagerKpiBar>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getManagerKpiBar>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetManagerKpiBarQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getManagerKpiBar>>
+  > = ({ signal }) => getManagerKpiBar({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getManagerKpiBar>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetManagerKpiBarQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getManagerKpiBar>>
+>;
+export type GetManagerKpiBarQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Compact KPI snapshot for the sticky manager bar (manager/owner only)
+ */
+
+export function useGetManagerKpiBar<
+  TData = Awaited<ReturnType<typeof getManagerKpiBar>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getManagerKpiBar>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetManagerKpiBarQueryOptions(options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;

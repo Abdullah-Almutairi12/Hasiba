@@ -15,6 +15,20 @@ export const HealthCheckResponse = zod.object({
 });
 
 /**
+ * @summary Compact KPI snapshot for the sticky manager bar (manager/owner only)
+ */
+export const GetManagerKpiBarResponse = zod.object({
+  salesToday: zod.number(),
+  salesChange: zod.number(),
+  ordersToday: zod.number(),
+  pendingInvoicesCount: zod.number(),
+  pendingInvoicesAmount: zod.number(),
+  lowStockCount: zod.number(),
+  unreadAlertsCount: zod.number(),
+  healthScore: zod.number(),
+});
+
+/**
  * @summary Get dashboard KPIs and summary
  */
 export const GetDashboardSummaryResponse = zod.object({

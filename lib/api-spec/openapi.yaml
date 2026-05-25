@@ -44,6 +44,19 @@ paths:
                 $ref: "#/components/schemas/HealthStatus"
 
   # Dashboard
+  /dashboard/manager-bar:
+    get:
+      operationId: getManagerKpiBar
+      tags: [dashboard]
+      summary: Compact KPI snapshot for the sticky manager bar (manager/owner only)
+      responses:
+        "200":
+          description: Manager KPI bar metrics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ManagerKpiBar"
+
   /dashboard/summary:
     get:
       operationId: getDashboardSummary
@@ -2751,6 +2764,27 @@ components:
         status:
           type: string
       required: [status]
+
+    ManagerKpiBar:
+      type: object
+      properties:
+        salesToday:
+          type: number
+        salesChange:
+          type: number
+        ordersToday:
+          type: integer
+        pendingInvoicesCount:
+          type: integer
+        pendingInvoicesAmount:
+          type: number
+        lowStockCount:
+          type: integer
+        unreadAlertsCount:
+          type: integer
+        healthScore:
+          type: integer
+      required: [salesToday, salesChange, ordersToday, pendingInvoicesCount, pendingInvoicesAmount, lowStockCount, unreadAlertsCount, healthScore]
 
     DashboardSummary:
       type: object
