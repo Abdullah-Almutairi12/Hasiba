@@ -106,6 +106,18 @@ export const NAV_PERMISSIONS: Record<string, readonly Role[]> = {
   settings: ALL_ROLES,
   documents: ALL_ROLES,
   intercompany: GROUPS.finance,
+  // Phase 2 — Liquidity dashboard. Visible to anyone who can read the
+  // POS/till (store managers + cashiers see retail mode) plus finance
+  // and audit roles (corporate mode). Server still enforces per-route
+  // gating: corporate = reportReadGuard, retail = posReadGuard.
+  liquidity: [
+    "owner",
+    "manager",
+    "accountant",
+    "sales",
+    "cashier",
+    "auditor",
+  ],
 };
 
 export function useCurrentRole(): Role | null {

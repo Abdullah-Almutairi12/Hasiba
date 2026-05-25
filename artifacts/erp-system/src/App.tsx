@@ -52,6 +52,7 @@ const InvoicePrint = lazy(() => import("@/pages/invoice-print"));
 const TrackShipmentPage = lazy(() => import("@/pages/track-shipment"));
 const DocumentsPage = lazy(() => import("@/pages/documents"));
 const IntercompanyPage = lazy(() => import("@/pages/intercompany"));
+const LiquidityPage = lazy(() => import("@/pages/liquidity"));
 const IntercompanyEmailActionPage = lazy(
   () => import("@/pages/intercompany-email-action"),
 );
@@ -187,6 +188,9 @@ function Router() {
         </Route>
         <Route path="/intercompany">
           <Protected><IntercompanyPage /></Protected>
+        </Route>
+        <Route path="/liquidity">
+          <Protected><LiquidityPage /></Protected>
         </Route>
         <Route path="/admin">
           <Protected><AdminPage /></Protected>

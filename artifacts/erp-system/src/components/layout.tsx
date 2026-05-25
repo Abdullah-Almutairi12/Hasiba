@@ -16,6 +16,7 @@ import {
   ArrowLeftRight,
   ClipboardList,
   TrendingDown,
+  Droplets,
   ShoppingBag,
   Receipt,
   Target,
@@ -79,6 +80,7 @@ const mainNavItems = [
 const financeNavItems = [
   { key: "accounting", url: "/accounting", icon: Calculator },
   { key: "intercompany", url: "/intercompany", icon: ArrowLeftRight },
+  { key: "liquidity", url: "/liquidity", icon: Droplets },
   { key: "reports", url: "/reports", icon: BarChart3 },
   { key: "reports_builder", url: "/reports/builder", icon: BarChart3 },
   { key: "reports_saved", url: "/reports/saved", icon: BarChart3 },

@@ -40,7 +40,8 @@
     "approvals": "Approval Requests",
     "hr": "HR & Payroll",
     "documents": "Document Management",
-    "settings": "Security & Settings"
+    "settings": "Security & Settings",
+    "liquidity": "Liquidity & Cash Flow"
   },
   "navGroups": {
     "main": "Main Menu",
