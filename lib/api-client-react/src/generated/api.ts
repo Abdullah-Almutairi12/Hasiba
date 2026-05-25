@@ -183,6 +183,8 @@ import type {
   UpdateProductBody,
   UpdateSupportTicketBody,
   UploadCompanyLogoBody,
+  UploadStorageAttachment200,
+  UploadStorageAttachmentBody,
   UpsertFinancialLimit200,
   UpsertFinancialLimitBody,
   User,
@@ -11869,3 +11871,95 @@ export function useGetCurrentUser<
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
+
+/**
+ * Accepts a base64-encoded PDF and stores it under the private object-storage namespace. Returns the relative URL the caller should persist on the owning record (e.g. an alert dismissal's `attachmentUrl`). Max file size 10MB, must start with the PDF magic bytes (%PDF).
+
+ * @summary Upload a PDF attachment (audit-trail supporting document)
+ */
+export const getUploadStorageAttachmentUrl = () => {
+  return `/api/storage/attachments`;
+};
+
+export const uploadStorageAttachment = async (
+  uploadStorageAttachmentBody: UploadStorageAttachmentBody,
+  options?: RequestInit,
+): Promise<UploadStorageAttachment200> => {
+  return customFetch<UploadStorageAttachment200>(
+    getUploadStorageAttachmentUrl(),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(uploadStorageAttachmentBody),
+    },
+  );
+};
+
+export const getUploadStorageAttachmentMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof uploadStorageAttachment>>,
+    TError,
+    { data: BodyType<UploadStorageAttachmentBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof uploadStorageAttachment>>,
+  TError,
+  { data: BodyType<UploadStorageAttachmentBody> },
+  TContext
+> => {
+  const mutationKey = ["uploadStorageAttachment"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof uploadStorageAttachment>>,
+    { data: BodyType<UploadStorageAttachmentBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return uploadStorageAttachment(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UploadStorageAttachmentMutationResult = NonNullable<
+  Awaited<ReturnType<typeof uploadStorageAttachment>>
+>;
+export type UploadStorageAttachmentMutationBody =
+  BodyType<UploadStorageAttachmentBody>;
+export type UploadStorageAttachmentMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Upload a PDF attachment (audit-trail supporting document)
+ */
+export const useUploadStorageAttachment = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof uploadStorageAttachment>>,
+    TError,
+    { data: BodyType<UploadStorageAttachmentBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof uploadStorageAttachment>>,
+  TError,
+  { data: BodyType<UploadStorageAttachmentBody> },
+  TContext
+> => {
+  return useMutation(getUploadStorageAttachmentMutationOptions(options));
+};

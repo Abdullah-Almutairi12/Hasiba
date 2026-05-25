@@ -1,9 +1,75 @@
 import { Router } from "express";
 import { randomUUID } from "crypto";
+import { z } from "zod/v4";
 import { ObjectStorageService, ObjectNotFoundError, objectStorageClient } from "../lib/objectStorage";
+import { handleRouteError } from "../lib/handle-error";
 
 const router = Router();
 const storage = new ObjectStorageService();
+
+/**
+ * Hard ceiling on attachment uploads. 10MB covers a typical
+ * multi-page supplier invoice or bank advice PDF; beyond that the
+ * request is rejected before we touch object storage.
+ */
+const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+
+const uploadAttachmentBodySchema = z.object({
+  filename: z
+    .string()
+    .min(1)
+    .max(200)
+    .regex(/^[A-Za-z0-9._\u0600-\u06FF\- ]+\.pdf$/i, "filename must end in .pdf"),
+  contentBase64: z.string().min(1),
+});
+
+/**
+ * POST /storage/attachments — upload a PDF justification document
+ * for an audit-trail attachment (e.g. supplier invoice, bank advice
+ * supporting an alert dismissal). The route is mounted behind
+ * requireAuth at the router level, so only signed-in users can
+ * upload; it does NOT enforce tenant scoping because the resulting
+ * URL is opaque (random UUID) and is bound to a specific dismissal
+ * row at write time (the dismiss endpoint validates the URL shape).
+ *
+ * Returns the relative URL (`/api/storage/objects/...`) callers
+ * persist on the owning record.
+ */
+router.post("/storage/attachments", async (req, res) => {
+  try {
+    const userId = req.session?.userId;
+    if (typeof userId !== "number") {
+      res.status(401).json({ error: "Not authenticated" });
+      return;
+    }
+    const { filename, contentBase64 } = uploadAttachmentBodySchema.parse(req.body);
+    const buffer = Buffer.from(contentBase64, "base64");
+    if (buffer.length === 0) {
+      res.status(400).json({ error: "empty file" });
+      return;
+    }
+    if (buffer.length > MAX_ATTACHMENT_BYTES) {
+      res.status(413).json({ error: "file too large (max 10MB)" });
+      return;
+    }
+    // Sniff the PDF magic bytes — base64 decoders are happy to
+    // produce arbitrary bytes from any input, so we re-check the
+    // resulting content before persisting it as a PDF.
+    if (buffer.subarray(0, 4).toString("ascii") !== "%PDF") {
+      res.status(400).json({ error: "not a PDF file" });
+      return;
+    }
+    const { url } = await uploadBufferToPrivateObject({
+      buffer,
+      contentType: "application/pdf",
+      ext: "pdf",
+      folder: "attachments",
+    });
+    res.json({ url, filename });
+  } catch (err) {
+    handleRouteError(err, res);
+  }
+});
 
 /**
  * Serve a previously-uploaded private object.
@@ -52,6 +118,8 @@ export async function uploadBufferToPrivateObject(opts: {
   buffer: Buffer;
   contentType: string;
   ext?: string;
+  /** Folder under PRIVATE_OBJECT_DIR. Defaults to "invoices" for back-compat. */
+  folder?: string;
 }): Promise<{ objectKey: string; url: string }> {
   void storage; // keep import live for tree-shaking edge cases
   const privateDir = process.env["PRIVATE_OBJECT_DIR"] ?? "";
@@ -62,7 +130,8 @@ export async function uploadBufferToPrivateObject(opts: {
   const prefix = prefixParts.join("/");
 
   const ext = (opts.ext ?? "jpg").replace(/^\./, "");
-  const key = `invoices/${new Date().toISOString().slice(0, 10)}/${randomUUID()}.${ext}`;
+  const folder = opts.folder ?? "invoices";
+  const key = `${folder}/${new Date().toISOString().slice(0, 10)}/${randomUUID()}.${ext}`;
   const objectName = prefix ? `${prefix}/${key}` : key;
 
   const file = objectStorageClient.bucket(bucketName).file(objectName);

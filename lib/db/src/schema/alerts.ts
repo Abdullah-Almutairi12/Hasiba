@@ -60,6 +60,20 @@ export const alertDismissalsTable = pgTable(
     alertId: integer("alert_id").references(() => alertsTable.id, {
       onDelete: "cascade",
     }),
+    /**
+     * Free-text justification an accountant supplies when hiding the
+     * alert. Persisted alongside the dismissal so external auditors
+     * can trace WHY a row was silenced. Capped at 2000 chars by the
+     * API layer to keep audit exports bounded.
+     */
+    justificationNotes: text("justification_notes"),
+    /**
+     * Relative URL (`/api/storage/objects/...`) to a PDF the
+     * accountant uploaded as supporting evidence (e.g. supplier
+     * invoice, bank advice). The dismiss endpoint validates the
+     * shape; the file itself lives in object storage.
+     */
+    attachmentUrl: text("attachment_url"),
     dismissedAt: timestamp("dismissed_at").notNull().defaultNow(),
   },
   (t) => [

@@ -97,6 +97,9 @@ app.use(
 // global one runs first, consumes the body, and rejects oversize payloads with 413.
 app.use("/api/invoices/scan", express.json({ limit: "20mb" }));
 app.use("/api/admin/company-settings/logo", express.json({ limit: "10mb" }));
+// Audit-trail PDF attachments are sent as base64 in JSON; ~10MB raw
+// inflates to ~13.4MB on the wire, so allow 14MB to leave headroom.
+app.use("/api/storage/attachments", express.json({ limit: "14mb" }));
 
 // Payment provider webhooks must keep the RAW body bytes so that the
 // HMAC-SHA256 signature in the X-Signature header verifies. Mount

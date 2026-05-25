@@ -443,6 +443,27 @@ const dismissAlertBodySchema = z.object({
     .min(1)
     .max(128)
     .regex(/^[a-z0-9:_-]+$/i, "key must be alphanumeric with : _ -"),
+  /**
+   * Free-text justification for the audit trail. Optional so we
+   * stay backwards-compatible with callers that just want to hide
+   * the row; required UX-side enforcement lives on the frontend.
+   */
+  justificationNotes: z.string().trim().max(2000).optional(),
+  /**
+   * Relative URL of a PDF the user uploaded via POST
+   * /storage/attachments. Validated to live under the private
+   * object-storage namespace so callers cannot bind arbitrary URLs
+   * (which would let them later "view" external resources from
+   * inside the dismissed-alerts panel UI).
+   */
+  attachmentUrl: z
+    .string()
+    .regex(
+      /^\/api\/storage\/objects\/attachments\/[A-Za-z0-9._/\-]+\.pdf$/i,
+      "attachmentUrl must point at an uploaded PDF in /api/storage/objects/attachments/",
+    )
+    .max(512)
+    .optional(),
 });
 
 router.post("/dashboard/alerts/dismiss", async (req, res) => {
@@ -453,7 +474,12 @@ router.post("/dashboard/alerts/dismiss", async (req, res) => {
       return;
     }
     const companyId = getCompanyId(req);
-    const { key } = dismissAlertBodySchema.parse(req.body);
+    const { key, justificationNotes, attachmentUrl } =
+      dismissAlertBodySchema.parse(req.body);
+    const notes = justificationNotes && justificationNotes.length > 0
+      ? justificationNotes
+      : null;
+    const attachment = attachmentUrl ?? null;
 
     // Validate the key actually corresponds to an alert visible to
     // this tenant — prevents users from poisoning the dismissals
@@ -485,14 +511,26 @@ router.post("/dashboard/alerts/dismiss", async (req, res) => {
 
     await db
       .insert(alertDismissalsTable)
-      .values({ userId, companyId, alertKey: key, alertId })
+      .values({
+        userId,
+        companyId,
+        alertKey: key,
+        alertId,
+        justificationNotes: notes,
+        attachmentUrl: attachment,
+      })
       .onConflictDoUpdate({
         target: [
           alertDismissalsTable.userId,
           alertDismissalsTable.companyId,
           alertDismissalsTable.alertKey,
         ],
-        set: { dismissedAt: new Date(), alertId },
+        set: {
+          dismissedAt: new Date(),
+          alertId,
+          justificationNotes: notes,
+          attachmentUrl: attachment,
+        },
       });
 
     res.json({ ok: true });
@@ -531,6 +569,8 @@ router.get("/dashboard/alerts/dismissed", async (req, res) => {
       .select({
         alertKey: alertDismissalsTable.alertKey,
         dismissedAt: alertDismissalsTable.dismissedAt,
+        justificationNotes: alertDismissalsTable.justificationNotes,
+        attachmentUrl: alertDismissalsTable.attachmentUrl,
       })
       .from(alertDismissalsTable)
       .where(
@@ -575,6 +615,10 @@ router.get("/dashboard/alerts/dismissed", async (req, res) => {
     for (const a of alertRows) alertById.set(a.id, a);
 
     const enriched = dismissals.map((d) => {
+      const auditTrail = {
+        justificationNotes: d.justificationNotes ?? null,
+        attachmentUrl: d.attachmentUrl ?? null,
+      };
       if (d.alertKey.startsWith("alert:")) {
         const n = Number(d.alertKey.slice("alert:".length));
         const row = alertById.get(n);
@@ -587,6 +631,7 @@ router.get("/dashboard/alerts/dismissed", async (req, res) => {
             dismissedAt: d.dismissedAt.toISOString(),
             synthetic: false,
             sourceMissing: false,
+            ...auditTrail,
           };
         }
         // The original alert was deleted (or belongs to another
@@ -600,6 +645,7 @@ router.get("/dashboard/alerts/dismissed", async (req, res) => {
           dismissedAt: d.dismissedAt.toISOString(),
           synthetic: false,
           sourceMissing: true,
+          ...auditTrail,
         };
       }
       const meta = SYNTHETIC_ALERT_LABELS[d.alertKey];
@@ -611,6 +657,7 @@ router.get("/dashboard/alerts/dismissed", async (req, res) => {
         dismissedAt: d.dismissedAt.toISOString(),
         synthetic: true,
         sourceMissing: false,
+        ...auditTrail,
       };
     });
 

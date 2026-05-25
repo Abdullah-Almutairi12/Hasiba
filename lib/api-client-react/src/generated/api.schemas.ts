@@ -419,6 +419,12 @@ export interface DismissedAlert {
   synthetic: boolean;
   /** True when the original persisted alert row no longer exists. */
   sourceMissing: boolean;
+  /** Accountant-supplied justification recorded at dismiss time. Null if the dismissal pre-dates this field or no note was given.
+   */
+  justificationNotes?: string | null;
+  /** Relative URL of a supporting PDF, or null if none. Render as a link to <baseUrl>${attachmentUrl} for the auditor preview.
+   */
+  attachmentUrl?: string | null;
 }
 
 export type BranchPerformanceStatus =
@@ -1623,6 +1629,18 @@ export const GetDashboardSalesChartPeriod = {
 export type DismissDashboardAlertBody = {
   /** The alert's stable `key` as returned by GET /dashboard/alerts. */
   key: string;
+  /**
+   * Free-text justification an accountant supplies when hiding the alert. Persisted on the dismissal row so external auditors can trace WHY a row was silenced.
+
+   * @maxLength 2000
+   */
+  justificationNotes?: string;
+  /**
+   * Relative URL of a supporting PDF (e.g. supplier invoice, bank advice) uploaded via POST /storage/attachments. Must live under /api/storage/objects/attachments/ and end in .pdf.
+
+   * @maxLength 512
+   */
+  attachmentUrl?: string;
 };
 
 export type DismissDashboardAlert200 = {
@@ -2075,4 +2093,17 @@ export type ListApproverCandidates200Item = {
 export type SwitchCompany200 = {
   companyId: number;
   role: string;
+};
+
+export type UploadStorageAttachmentBody = {
+  /** Original file name; must end in .pdf. */
+  filename: string;
+  /** Base64 encoding of the raw PDF bytes. */
+  contentBase64: string;
+};
+
+export type UploadStorageAttachment200 = {
+  /** Relative URL under /api/storage/objects/attachments/... */
+  url: string;
+  filename: string;
 };

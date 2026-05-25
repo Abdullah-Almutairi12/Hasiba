@@ -129,6 +129,21 @@ paths:
                 key:
                   type: string
                   description: The alert's stable `key` as returned by GET /dashboard/alerts.
+                justificationNotes:
+                  type: string
+                  maxLength: 2000
+                  description: >
+                    Free-text justification an accountant supplies when
+                    hiding the alert. Persisted on the dismissal row so
+                    external auditors can trace WHY a row was silenced.
+                attachmentUrl:
+                  type: string
+                  maxLength: 512
+                  description: >
+                    Relative URL of a supporting PDF (e.g. supplier
+                    invoice, bank advice) uploaded via POST
+                    /storage/attachments. Must live under
+                    /api/storage/objects/attachments/ and end in .pdf.
               required: [key]
       responses:
         "200":
@@ -2550,6 +2565,46 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/MeResponse" }
 
+  /storage/attachments:
+    post:
+      tags: [storage]
+      operationId: uploadStorageAttachment
+      summary: Upload a PDF attachment (audit-trail supporting document)
+      description: >
+        Accepts a base64-encoded PDF and stores it under the private
+        object-storage namespace. Returns the relative URL the caller
+        should persist on the owning record (e.g. an alert dismissal's
+        `attachmentUrl`). Max file size 10MB, must start with the PDF
+        magic bytes (%PDF).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                filename:
+                  type: string
+                  description: Original file name; must end in .pdf.
+                contentBase64:
+                  type: string
+                  description: Base64 encoding of the raw PDF bytes.
+              required: [filename, contentBase64]
+      responses:
+        "200":
+          description: Upload accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  url:
+                    type: string
+                    description: Relative URL under /api/storage/objects/attachments/...
+                  filename:
+                    type: string
+                required: [url, filename]
+
 components:
   schemas:
     Company:
@@ -2956,6 +3011,18 @@ components:
         sourceMissing:
           type: boolean
           description: True when the original persisted alert row no longer exists.
+        justificationNotes:
+          type: string
+          nullable: true
+          description: >
+            Accountant-supplied justification recorded at dismiss time.
+            Null if the dismissal pre-dates this field or no note was given.
+        attachmentUrl:
+          type: string
+          nullable: true
+          description: >
+            Relative URL of a supporting PDF, or null if none. Render as a
+            link to <baseUrl>${attachmentUrl} for the auditor preview.
       required: [key, type, title, message, dismissedAt, synthetic, sourceMissing]
 
     BranchPerformance:

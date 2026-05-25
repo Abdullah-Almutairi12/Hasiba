@@ -97,11 +97,29 @@ export const GetDashboardAlertsResponse = zod.array(
 
  * @summary Dismiss a dashboard alert for the current user
  */
+export const dismissDashboardAlertBodyJustificationNotesMax = 2000;
+
+export const dismissDashboardAlertBodyAttachmentUrlMax = 512;
+
 export const DismissDashboardAlertBody = zod.object({
   key: zod
     .string()
     .describe(
       "The alert's stable `key` as returned by GET \/dashboard\/alerts.",
+    ),
+  justificationNotes: zod
+    .string()
+    .max(dismissDashboardAlertBodyJustificationNotesMax)
+    .optional()
+    .describe(
+      "Free-text justification an accountant supplies when hiding the alert. Persisted on the dismissal row so external auditors can trace WHY a row was silenced.\n",
+    ),
+  attachmentUrl: zod
+    .string()
+    .max(dismissDashboardAlertBodyAttachmentUrlMax)
+    .optional()
+    .describe(
+      "Relative URL of a supporting PDF (e.g. supplier invoice, bank advice) uploaded via POST \/storage\/attachments. Must live under \/api\/storage\/objects\/attachments\/ and end in .pdf.\n",
     ),
 });
 
@@ -132,6 +150,18 @@ export const ListDismissedDashboardAlertsResponseItem = zod.object({
   sourceMissing: zod
     .boolean()
     .describe("True when the original persisted alert row no longer exists."),
+  justificationNotes: zod
+    .string()
+    .nullish()
+    .describe(
+      "Accountant-supplied justification recorded at dismiss time. Null if the dismissal pre-dates this field or no note was given.\n",
+    ),
+  attachmentUrl: zod
+    .string()
+    .nullish()
+    .describe(
+      "Relative URL of a supporting PDF, or null if none. Render as a link to <baseUrl>${attachmentUrl} for the auditor preview.\n",
+    ),
 });
 export const ListDismissedDashboardAlertsResponse = zod.array(
   ListDismissedDashboardAlertsResponseItem,
@@ -2734,4 +2764,21 @@ export const GetCurrentUserResponse = zod.object({
       isActive: zod.boolean(),
     }),
   ),
+});
+
+/**
+ * Accepts a base64-encoded PDF and stores it under the private object-storage namespace. Returns the relative URL the caller should persist on the owning record (e.g. an alert dismissal's `attachmentUrl`). Max file size 10MB, must start with the PDF magic bytes (%PDF).
+
+ * @summary Upload a PDF attachment (audit-trail supporting document)
+ */
+export const UploadStorageAttachmentBody = zod.object({
+  filename: zod.string().describe("Original file name; must end in .pdf."),
+  contentBase64: zod.string().describe("Base64 encoding of the raw PDF bytes."),
+});
+
+export const UploadStorageAttachmentResponse = zod.object({
+  url: zod
+    .string()
+    .describe("Relative URL under \/api\/storage\/objects\/attachments\/..."),
+  filename: zod.string(),
 });

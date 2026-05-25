@@ -34,6 +34,15 @@ export async function initAlertDismissals(): Promise<void> {
     ALTER TABLE alert_dismissals
       ADD COLUMN IF NOT EXISTS alert_id integer;
   `);
+  // Audit-trail columns: accountants attach a justification note and
+  // optional supporting PDF (e.g. bank advice) when dismissing an
+  // alert so external auditors can reconstruct WHY a row was hidden.
+  await pool.query(`
+    ALTER TABLE alert_dismissals
+      ADD COLUMN IF NOT EXISTS justification_notes text;
+    ALTER TABLE alert_dismissals
+      ADD COLUMN IF NOT EXISTS attachment_url text;
+  `);
   await pool.query(`
     DO $$
     BEGIN

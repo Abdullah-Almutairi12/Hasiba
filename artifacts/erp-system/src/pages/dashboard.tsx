@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import { Money } from "@/components/riyal";
 import { motion, type Variants } from "framer-motion";
 import {
@@ -11,12 +11,23 @@ import {
   useListDismissedDashboardAlerts,
   useUndismissDashboardAlert,
   getListDismissedDashboardAlertsQueryKey,
+  useUploadStorageAttachment,
 } from "@workspace/api-client-react";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
 import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -35,6 +46,9 @@ import {
   X,
   EyeOff,
   RotateCcw,
+  Paperclip,
+  FileText,
+  Loader2,
 } from "lucide-react";
 import {
   AreaChart,
@@ -112,6 +126,205 @@ function DismissedAlertIcon({ type }: { type: string }) {
   if (type === "warning") return <AlertTriangle className="size-4 text-yellow-500 shrink-0 mt-0.5" />;
   if (type === "success") return <CheckCircle2 className="size-4 text-green-500 shrink-0 mt-0.5" />;
   return <Info className="size-4 text-cyan-500 shrink-0 mt-0.5" />;
+}
+
+/**
+ * Hard ceiling that mirrors the server-side MAX_ATTACHMENT_BYTES.
+ * Keeps the UX from kicking off a doomed upload for huge files.
+ */
+const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+
+/**
+ * Read a `File` into the base64 string the upload endpoint expects.
+ * Strips the `data:...;base64,` prefix that `FileReader` produces.
+ */
+function readFileAsBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error ?? new Error("read failed"));
+    reader.onload = () => {
+      const result = reader.result;
+      if (typeof result !== "string") {
+        reject(new Error("unexpected reader result"));
+        return;
+      }
+      const comma = result.indexOf(",");
+      resolve(comma >= 0 ? result.slice(comma + 1) : result);
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+interface DismissAlertDialogProps {
+  open: boolean;
+  alertKey: string | null;
+  alertTitle: string;
+  onOpenChange: (open: boolean) => void;
+  onConfirm: (payload: {
+    justificationNotes?: string;
+    attachmentUrl?: string;
+  }) => void;
+  submitting: boolean;
+}
+
+/**
+ * Confirmation dialog shown when a finance user hides an alert. Lets
+ * them attach an audit-trail justification (free-text note + optional
+ * PDF). The PDF is uploaded via POST /storage/attachments BEFORE the
+ * dismiss call, so the resulting URL can be persisted on the
+ * dismissal row in one atomic write.
+ */
+function DismissAlertDialog({
+  open,
+  alertKey,
+  alertTitle,
+  onOpenChange,
+  onConfirm,
+  submitting,
+}: DismissAlertDialogProps) {
+  const [notes, setNotes] = useState("");
+  const [file, setFile] = useState<File | null>(null);
+  const [fileError, setFileError] = useState<string | null>(null);
+  const [uploadedUrl, setUploadedUrl] = useState<string | null>(null);
+  const uploadAttachment = useUploadStorageAttachment();
+
+  React.useEffect(() => {
+    if (!open) {
+      setNotes("");
+      setFile(null);
+      setFileError(null);
+      setUploadedUrl(null);
+    }
+  }, [open, alertKey]);
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>): void => {
+    const picked = e.target.files?.[0] ?? null;
+    setFileError(null);
+    setUploadedUrl(null);
+    if (!picked) {
+      setFile(null);
+      return;
+    }
+    if (!picked.name.toLowerCase().endsWith(".pdf")) {
+      setFile(null);
+      setFileError("الملف يجب أن يكون بصيغة PDF.");
+      return;
+    }
+    if (picked.size > MAX_ATTACHMENT_BYTES) {
+      setFile(null);
+      setFileError("حجم الملف يتجاوز 10 ميجابايت.");
+      return;
+    }
+    setFile(picked);
+  };
+
+  const handleConfirm = async (): Promise<void> => {
+    let attachmentUrl: string | undefined;
+    if (file) {
+      try {
+        const contentBase64 = await readFileAsBase64(file);
+        const result = await uploadAttachment.mutateAsync({
+          data: { filename: file.name, contentBase64 },
+        });
+        attachmentUrl = result.url;
+        setUploadedUrl(result.url);
+      } catch (err) {
+        setFileError(
+          err instanceof Error ? err.message : "تعذّر رفع الملف، حاول مرة أخرى.",
+        );
+        return;
+      }
+    }
+    const trimmed = notes.trim();
+    onConfirm({
+      justificationNotes: trimmed.length > 0 ? trimmed : undefined,
+      attachmentUrl,
+    });
+  };
+
+  const isBusy = submitting || uploadAttachment.isPending;
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md" data-testid="dialog-dismiss-alert">
+        <DialogHeader>
+          <DialogTitle>إخفاء التنبيه مع مبرر</DialogTitle>
+          <DialogDescription>
+            سجّل سبب إخفائك لهذا التنبيه وأرفق المستند الداعم (اختياري) ليُحفظ في سجل التدقيق.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4 py-2">
+          <div className="rounded-md bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+            <span className="font-medium text-foreground">التنبيه:</span> {alertTitle}
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="dismiss-notes">ملاحظات المحاسب</Label>
+            <Textarea
+              id="dismiss-notes"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              maxLength={2000}
+              placeholder="مثال: تمت تسوية الفرق يدوياً بناءً على إشعار البنك المرفق."
+              rows={4}
+              data-testid="textarea-dismiss-notes"
+            />
+            <p className="text-[10px] text-muted-foreground text-left">
+              {notes.length}/2000
+            </p>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="dismiss-attachment" className="flex items-center gap-1.5">
+              <Paperclip className="size-3.5" />
+              مستند داعم (PDF، اختياري)
+            </Label>
+            <input
+              id="dismiss-attachment"
+              type="file"
+              accept="application/pdf,.pdf"
+              onChange={handleFileChange}
+              disabled={isBusy}
+              data-testid="input-dismiss-attachment"
+              className="block w-full text-xs file:mr-2 file:rounded-md file:border-0 file:bg-muted file:px-3 file:py-1.5 file:text-xs file:text-foreground hover:file:bg-muted/80"
+            />
+            {file && (
+              <p className="text-[11px] text-muted-foreground flex items-center gap-1">
+                <FileText className="size-3" />
+                {file.name} ({Math.round(file.size / 1024)} كيلوبايت)
+              </p>
+            )}
+            {fileError && (
+              <p className="text-[11px] text-red-500" role="alert">
+                {fileError}
+              </p>
+            )}
+            {uploadedUrl && (
+              <p className="text-[11px] text-green-500">تم رفع الملف بنجاح.</p>
+            )}
+          </div>
+        </div>
+        <DialogFooter className="gap-2 sm:gap-0">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+            disabled={isBusy}
+            data-testid="button-cancel-dismiss"
+          >
+            إلغاء
+          </Button>
+          <Button
+            type="button"
+            onClick={handleConfirm}
+            disabled={isBusy}
+            data-testid="button-confirm-dismiss"
+          >
+            {isBusy && <Loader2 className="size-3.5 animate-spin" />}
+            تأكيد الإخفاء
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
 }
 
 function DismissedAlertsPopover() {
@@ -203,6 +416,30 @@ function DismissedAlertsPopover() {
                 <div className="flex-1 min-w-0">
                   <h4 className="text-xs font-medium text-foreground truncate">{d.title}</h4>
                   <p className="text-[11px] text-muted-foreground mt-0.5 line-clamp-2">{d.message}</p>
+                  {d.justificationNotes && (
+                    <div
+                      className="mt-1.5 rounded border-l-2 border-cyan-500/40 bg-cyan-500/5 px-2 py-1"
+                      data-testid={`dismissed-notes-${d.key}`}
+                    >
+                      <p className="text-[10px] font-medium text-cyan-500/90">مبرر الإخفاء</p>
+                      <p className="text-[11px] text-foreground/90 whitespace-pre-wrap break-words">
+                        {d.justificationNotes}
+                      </p>
+                    </div>
+                  )}
+                  {d.attachmentUrl && (
+                    <a
+                      href={d.attachmentUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      className="mt-1.5 inline-flex items-center gap-1 text-[11px] text-cyan-500 hover:underline"
+                      data-testid={`dismissed-attachment-${d.key}`}
+                    >
+                      <Paperclip className="size-3" />
+                      عرض المستند الداعم (PDF)
+                    </a>
+                  )}
                   <p className="text-[10px] text-muted-foreground/70 mt-1">
                     أُخفي في {new Date(d.dismissedAt).toLocaleString("ar-SA")}
                   </p>
@@ -236,6 +473,10 @@ export default function Dashboard() {
   const { data: alerts, isLoading: isLoadingAlerts } = useGetDashboardAlerts();
   const { data: branches, isLoading: isLoadingBranches } = useGetBranchPerformance();
   const queryClient = useQueryClient();
+  const [dismissTarget, setDismissTarget] = useState<{
+    key: string;
+    title: string;
+  } | null>(null);
   const dismissAlert = useDismissDashboardAlert({
     mutation: {
       // Optimistically remove the row so finance gets instant feedback;
@@ -459,7 +700,7 @@ export default function Dashboard() {
                       // user is reaching for the dismiss control.
                       e.preventDefault();
                       e.stopPropagation();
-                      dismissAlert.mutate({ data: { key: alert.key } });
+                      setDismissTarget({ key: alert.key, title: alert.title });
                     };
                     const inner = (
                       <div className="flex gap-3 p-3 rounded-lg bg-black/20 border border-white/5 hover:bg-black/30 transition-colors">
@@ -497,6 +738,36 @@ export default function Dashboard() {
           </Card>
         </motion.div>
       </div>
+
+      <DismissAlertDialog
+        open={dismissTarget !== null}
+        alertKey={dismissTarget?.key ?? null}
+        alertTitle={dismissTarget?.title ?? ""}
+        submitting={dismissAlert.isPending}
+        onOpenChange={(open) => {
+          if (!open) setDismissTarget(null);
+        }}
+        onConfirm={({ justificationNotes, attachmentUrl }) => {
+          if (!dismissTarget) return;
+          dismissAlert.mutate(
+            {
+              data: {
+                key: dismissTarget.key,
+                ...(justificationNotes ? { justificationNotes } : {}),
+                ...(attachmentUrl ? { attachmentUrl } : {}),
+              },
+            },
+            {
+              onSuccess: () => {
+                setDismissTarget(null);
+                queryClient.invalidateQueries({
+                  queryKey: getListDismissedDashboardAlertsQueryKey(),
+                });
+              },
+            },
+          );
+        }}
+      />
     </motion.div>
   );
 }
