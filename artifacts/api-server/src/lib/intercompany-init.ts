@@ -127,5 +127,39 @@ export async function initIntercompany(): Promise<void> {
     CREATE INDEX IF NOT EXISTS intercompany_imbalance_action_tokens_imbalance_idx
       ON intercompany_imbalance_action_tokens (imbalance_id);
   `);
+  // Task #151: per-group digest preferences + per-user opt-out.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS intercompany_digest_group_prefs (
+      id serial PRIMARY KEY,
+      anchor_company_id integer NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+      enabled boolean NOT NULL DEFAULT true,
+      send_hour integer NOT NULL DEFAULT 8,
+      send_minute integer NOT NULL DEFAULT 0,
+      timezone text NOT NULL DEFAULT 'Asia/Riyadh',
+      weekdays_mask integer NOT NULL DEFAULT 127,
+      cc_emails text[] NOT NULL DEFAULT '{}',
+      bcc_emails text[] NOT NULL DEFAULT '{}',
+      last_sent_at timestamp,
+      updated_at timestamp NOT NULL DEFAULT now(),
+      updated_by integer,
+      CONSTRAINT intercompany_digest_group_prefs_hour_chk CHECK (send_hour BETWEEN 0 AND 23),
+      CONSTRAINT intercompany_digest_group_prefs_minute_chk CHECK (send_minute BETWEEN 0 AND 59),
+      CONSTRAINT intercompany_digest_group_prefs_mask_chk CHECK (weekdays_mask BETWEEN 0 AND 127)
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS intercompany_digest_group_prefs_anchor_unique
+      ON intercompany_digest_group_prefs (anchor_company_id);
+
+    CREATE TABLE IF NOT EXISTS intercompany_digest_user_prefs (
+      id serial PRIMARY KEY,
+      user_id integer NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      opted_out boolean NOT NULL DEFAULT false,
+      unsubscribe_token text NOT NULL,
+      updated_at timestamp NOT NULL DEFAULT now()
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS intercompany_digest_user_prefs_user_unique
+      ON intercompany_digest_user_prefs (user_id);
+    CREATE UNIQUE INDEX IF NOT EXISTS intercompany_digest_user_prefs_token_unique
+      ON intercompany_digest_user_prefs (unsubscribe_token);
+  `);
   logger.info("intercompany subsystem initialized");
 }

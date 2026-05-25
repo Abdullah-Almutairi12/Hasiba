@@ -21,15 +21,18 @@ import {
   db,
   intercompanyImbalancesTable,
   companiesTable,
-  userCompaniesTable,
-  usersTable,
 } from "@workspace/db";
 import { and, eq, inArray } from "drizzle-orm";
 import { logger } from "./logger";
 import { sendMail, isMailerConfigured } from "./mailer";
 import { mintEmailActionToken } from "./intercompany-email-action";
+import {
+  loadGroupPrefs,
+  loadOptedInRecipients,
+  markGroupSent,
+  type GroupPrefsView,
+} from "./intercompany-digest-prefs";
 
-const FINANCE_ROLES = ["owner", "manager", "accountant"];
 const MAX_LIST_ITEMS = 10;
 
 export interface OpenImbalanceSnapshot {
@@ -108,6 +111,7 @@ export function buildDigestEmail(input: {
   companyNameById: Map<number, string>;
   baseUrl: string;
   actionLinksByImbalanceId?: Map<number, RowActionLinks>;
+  unsubscribeUrl?: string | null;
 }): DigestEmail {
   const {
     companyNames,
@@ -116,6 +120,7 @@ export function buildDigestEmail(input: {
     companyNameById,
     baseUrl,
     actionLinksByImbalanceId,
+    unsubscribeUrl,
   } = input;
   const groupLabel = companyNames.join("، ");
   const subjectHead =
@@ -180,54 +185,22 @@ export function buildDigestEmail(input: {
   lines.push(`لفتح قائمة المراجعة: ${link}`);
   lines.push("");
   lines.push("— نظام حاسبة.AI");
+  if (unsubscribeUrl) {
+    lines.push("");
+    lines.push(
+      `لإلغاء اشتراكك في هذا الموجز اضغط هنا: ${unsubscribeUrl}`,
+    );
+    lines.push(
+      "يمكنك أيضاً ضبط وقت الإرسال وأيام الإجازة من صفحة المعاملات بين الشركات ← تبويب \"تفضيلات الموجز\".",
+    );
+  }
 
   return { subject, body: lines.join("\n") };
 }
 
-export interface FinanceRecipient {
-  userId: number;
-  email: string;
-}
-
-/**
- * Fetch the de-duplicated finance recipients for `group`. A user is
- * included if they hold owner / manager / accountant on at least one
- * company in the group AND their account is active AND they have a
- * non-empty email. Returns `{ userId, email }` because the digest now
- * mints per-recipient signed action tokens (Task 150) and needs the
- * user id to bind each token's audit trail.
- */
-export async function loadFinanceRecipients(
-  group: number[],
-): Promise<FinanceRecipient[]> {
-  if (group.length === 0) return [];
-  const rows = await db
-    .selectDistinct({ userId: usersTable.id, email: usersTable.email })
-    .from(userCompaniesTable)
-    .innerJoin(usersTable, eq(usersTable.id, userCompaniesTable.userId))
-    .where(
-      and(
-        inArray(userCompaniesTable.companyId, group),
-        inArray(userCompaniesTable.role, FINANCE_ROLES),
-        eq(usersTable.isActive, true),
-      ),
-    );
-  const byEmail = new Map<string, FinanceRecipient>();
-  for (const r of rows) {
-    const email = r.email?.trim().toLowerCase();
-    if (!email) continue;
-    // First occurrence wins — multiple user_companies rows for the
-    // same user produce duplicates after selectDistinct on (id,email)
-    // only if email collides across users, which the user table
-    // does not enforce. Pick the lowest userId for determinism.
-    const prev = byEmail.get(email);
-    if (!prev || r.userId < prev.userId) {
-      byEmail.set(email, { userId: r.userId, email });
-    }
-  }
-  return Array.from(byEmail.values()).sort((a, b) =>
-    a.email.localeCompare(b.email),
-  );
+export function buildUnsubscribeUrl(baseUrl: string, token: string): string {
+  const path = `/api/intercompany/digest/unsubscribe?token=${encodeURIComponent(token)}`;
+  return baseUrl ? `${baseUrl}${path}` : path;
 }
 
 /**
@@ -239,7 +212,11 @@ export async function sendImbalanceDigestForGroup(input: {
   group: number[];
   before: OpenImbalanceSnapshot[];
   after: OpenImbalanceSnapshot[];
-}): Promise<{ skipped: true; reason: string } | { skipped: false; recipients: number; newCount: number }> {
+  prefs?: GroupPrefsView;
+}): Promise<
+  | { skipped: true; reason: string }
+  | { skipped: false; recipients: number; newCount: number }
+> {
   const { group, before, after } = input;
   try {
     if (after.length === 0) {
@@ -248,11 +225,6 @@ export async function sendImbalanceDigestForGroup(input: {
     const beforeIds = new Set(before.map((r) => r.id));
     const newRows = after.filter((r) => !beforeIds.has(r.id));
     const stillOpenCount = after.length - newRows.length;
-    // Spec: "Empty groups (no findings) skip the email so it doesn't
-    // become noise." A group with carried-over open rows is NOT empty
-    // — finance still needs the daily reminder. We only skip when the
-    // whole open queue is empty (covered by the `after.length === 0`
-    // check above).
     if (!isMailerConfigured()) {
       logger.info(
         { group, newCount: newRows.length },
@@ -260,7 +232,9 @@ export async function sendImbalanceDigestForGroup(input: {
       );
       return { skipped: true, reason: "mailer_unconfigured" };
     }
-    const recipients = await loadFinanceRecipients(group);
+    const anchor = group[0]!;
+    const prefs = input.prefs ?? (await loadGroupPrefs(anchor));
+    const recipients = await loadOptedInRecipients(group);
     if (recipients.length === 0) {
       logger.info(
         { group, newCount: newRows.length },
@@ -279,11 +253,14 @@ export async function sendImbalanceDigestForGroup(input: {
     );
     const baseUrl = resolveAppBaseUrl();
 
-    // Task 150 — fan out one email per recipient so each gets their
-    // own single-use, audit-bound action tokens for the new-row
-    // entries. A failure to mint a token for one row just omits that
-    // pair of action links; the row still appears with the deep link
-    // into the queue at the bottom of the email.
+    // Per-recipient envelope so each finance user gets:
+    //   1. Task 150 — their own single-use, audit-bound action tokens
+    //      for the new-row entries (resync/ignore in one click). A
+    //      failure to mint a token for one row just omits that pair of
+    //      action links; the row still appears with the deep link.
+    //   2. Task #151 — a personalised unsubscribe footer.
+    // cc/bcc from group prefs is shared across recipients — those are
+    // admin-configured visibility lists, not self-service.
     let sentCount = 0;
     let lastFailReason: string | null = null;
     for (const recipient of recipients) {
@@ -328,8 +305,15 @@ export async function sendImbalanceDigestForGroup(input: {
         companyNameById,
         baseUrl,
         actionLinksByImbalanceId,
+        unsubscribeUrl: buildUnsubscribeUrl(baseUrl, recipient.unsubscribeToken),
       });
-      const result = await sendMail({ to: recipient.email, subject, body });
+      const result = await sendMail({
+        to: recipient.email,
+        cc: prefs.ccEmails.length > 0 ? prefs.ccEmails.join(", ") : undefined,
+        bcc: prefs.bccEmails.length > 0 ? prefs.bccEmails.join(", ") : undefined,
+        subject,
+        body,
+      });
       if (result.sent) {
         sentCount += 1;
       } else {
@@ -343,8 +327,18 @@ export async function sendImbalanceDigestForGroup(input: {
     if (sentCount === 0) {
       return { skipped: true, reason: `send_failed:${lastFailReason ?? "unknown"}` };
     }
+    await markGroupSent(anchor, new Date()).catch((err) => {
+      logger.warn({ err, anchor }, "intercompany_digest.mark_sent_failed");
+    });
     logger.info(
-      { group, recipients: sentCount, newCount: newRows.length, stillOpenCount },
+      {
+        group,
+        recipients: sentCount,
+        newCount: newRows.length,
+        stillOpenCount,
+        cc: prefs.ccEmails.length,
+        bcc: prefs.bccEmails.length,
+      },
       "intercompany_digest.sent",
     );
     return {

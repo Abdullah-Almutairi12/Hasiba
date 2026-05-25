@@ -1,5 +1,8 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { apiPost, apiPatch } from "@/hooks/use-api";
+import { apiGet, apiPost, apiPatch } from "@/hooks/use-api";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -707,6 +710,365 @@ function ImbalancesTab() {
   );
 }
 
+// -------- Task #151: digest preferences tab --------
+
+interface DigestPrefsGroup {
+  anchorCompanyId: number;
+  companyIds: number[];
+  companyNames: string[];
+  canManage: boolean;
+  prefs: {
+    anchorCompanyId: number;
+    enabled: boolean;
+    sendHour: number;
+    sendMinute: number;
+    timezone: string;
+    weekdaysMask: number;
+    ccEmails: string[];
+    bccEmails: string[];
+    lastSentAt: string | null;
+  };
+}
+interface DigestPrefsResponse {
+  groups: DigestPrefsGroup[];
+  manageableAnchors: number[];
+  user: { optedOut: boolean };
+}
+
+const WEEKDAY_LABELS: Array<{ bit: number; label: string }> = [
+  { bit: 0, label: "الأحد" },
+  { bit: 1, label: "الإثنين" },
+  { bit: 2, label: "الثلاثاء" },
+  { bit: 3, label: "الأربعاء" },
+  { bit: 4, label: "الخميس" },
+  { bit: 5, label: "الجمعة" },
+  { bit: 6, label: "السبت" },
+];
+
+const COMMON_TIMEZONES = [
+  "Asia/Riyadh",
+  "Asia/Dubai",
+  "Asia/Kuwait",
+  "Asia/Qatar",
+  "Asia/Bahrain",
+  "Africa/Cairo",
+  "Africa/Casablanca",
+  "Europe/London",
+  "UTC",
+];
+
+function GroupPrefsCard({
+  group,
+  onSaved,
+}: {
+  group: DigestPrefsGroup;
+  onSaved: () => void;
+}) {
+  const { toast } = useToast();
+  const [enabled, setEnabled] = useState(group.prefs.enabled);
+  const [sendHour, setSendHour] = useState(group.prefs.sendHour);
+  const [sendMinute, setSendMinute] = useState(group.prefs.sendMinute);
+  const [timezone, setTimezone] = useState(group.prefs.timezone);
+  const [mask, setMask] = useState(group.prefs.weekdaysMask);
+  const [cc, setCc] = useState(group.prefs.ccEmails.join(", "));
+  const [bcc, setBcc] = useState(group.prefs.bccEmails.join(", "));
+
+  const splitEmails = (s: string) =>
+    s
+      .split(/[\s,;]+/)
+      .map((v) => v.trim())
+      .filter(Boolean);
+
+  const mut = useMutation({
+    mutationFn: () =>
+      fetch(`/api/intercompany/digest/preferences/${group.anchorCompanyId}`, {
+        method: "PUT",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          enabled,
+          sendHour,
+          sendMinute,
+          timezone,
+          weekdaysMask: mask,
+          ccEmails: splitEmails(cc),
+          bccEmails: splitEmails(bcc),
+        }),
+      }).then(async (r) => {
+        if (!r.ok) {
+          const j = await r.json().catch(() => ({}));
+          throw new Error(j.error ?? `HTTP ${r.status}`);
+        }
+        return r.json();
+      }),
+    onSuccess: () => {
+      toast({ title: "حُفظت التفضيلات" });
+      onSaved();
+    },
+    onError: (e: unknown) =>
+      toast({
+        title: "تعذّر الحفظ",
+        description: String(e),
+        variant: "destructive",
+      }),
+  });
+
+  const toggleDay = (bit: number) => {
+    setMask((m) => m ^ (1 << bit));
+  };
+  const allEnabled = mask === 127;
+  const weekdaysOnly = mask === 0b0111110; // Mon..Fri = bits 1..5
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base flex items-center justify-between gap-3 flex-wrap">
+          <span>{group.companyNames.join(" + ")}</span>
+          <div className="flex items-center gap-2 text-xs font-normal text-muted-foreground">
+            {group.prefs.lastSentAt ? (
+              <span>
+                آخر إرسال: {new Date(group.prefs.lastSentAt).toLocaleString("ar-SA")}
+              </span>
+            ) : (
+              <span>لم يُرسَل بعد</span>
+            )}
+          </div>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex items-center gap-3">
+          <Switch
+            checked={enabled}
+            onCheckedChange={setEnabled}
+            disabled={!group.canManage}
+            id={`enabled-${group.anchorCompanyId}`}
+          />
+          <Label htmlFor={`enabled-${group.anchorCompanyId}`}>
+            تفعيل الموجز اليومي لهذه المجموعة
+          </Label>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="space-y-1">
+            <Label className="text-xs">الساعة</Label>
+            <Input
+              type="number"
+              min={0}
+              max={23}
+              value={sendHour}
+              disabled={!group.canManage}
+              onChange={(e) => setSendHour(Math.max(0, Math.min(23, Number(e.target.value) || 0)))}
+            />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">الدقيقة</Label>
+            <Input
+              type="number"
+              min={0}
+              max={59}
+              value={sendMinute}
+              disabled={!group.canManage}
+              onChange={(e) =>
+                setSendMinute(Math.max(0, Math.min(59, Number(e.target.value) || 0)))
+              }
+            />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">المنطقة الزمنية</Label>
+            <Select
+              value={timezone}
+              onValueChange={setTimezone}
+              disabled={!group.canManage}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {COMMON_TIMEZONES.map((tz) => (
+                  <SelectItem key={tz} value={tz}>
+                    {tz}
+                  </SelectItem>
+                ))}
+                {COMMON_TIMEZONES.indexOf(timezone) === -1 && (
+                  <SelectItem value={timezone}>{timezone}</SelectItem>
+                )}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <Label className="text-sm">أيام الإرسال</Label>
+            <div className="flex gap-2 text-xs">
+              <button
+                type="button"
+                className="underline text-muted-foreground hover:text-foreground"
+                disabled={!group.canManage}
+                onClick={() => setMask(127)}
+              >
+                كل الأيام
+              </button>
+              <button
+                type="button"
+                className="underline text-muted-foreground hover:text-foreground"
+                disabled={!group.canManage}
+                onClick={() => setMask(0b0111110)}
+              >
+                أيام العمل فقط
+              </button>
+              <span className="text-muted-foreground">
+                {allEnabled
+                  ? "(يومياً)"
+                  : weekdaysOnly
+                  ? "(الإثنين–الجمعة)"
+                  : ""}
+              </span>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-3">
+            {WEEKDAY_LABELS.map(({ bit, label }) => {
+              const on = ((mask >> bit) & 1) === 1;
+              return (
+                <label
+                  key={bit}
+                  className={`flex items-center gap-1.5 px-2 py-1 rounded border text-xs cursor-pointer ${
+                    on
+                      ? "bg-primary/10 border-primary/40"
+                      : "bg-muted/30 border-muted"
+                  } ${group.canManage ? "" : "opacity-60 pointer-events-none"}`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={on}
+                    onChange={() => toggleDay(bit)}
+                    disabled={!group.canManage}
+                    className="accent-primary"
+                  />
+                  {label}
+                </label>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="space-y-1">
+            <Label className="text-xs">نسخة (CC) — بريد إلكتروني مفصول بفاصلة</Label>
+            <Textarea
+              value={cc}
+              onChange={(e) => setCc(e.target.value)}
+              disabled={!group.canManage}
+              rows={2}
+              placeholder="manager@example.com, audit@example.com"
+            />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">نسخة مخفية (BCC)</Label>
+            <Textarea
+              value={bcc}
+              onChange={(e) => setBcc(e.target.value)}
+              disabled={!group.canManage}
+              rows={2}
+              placeholder="archive@example.com"
+            />
+          </div>
+        </div>
+
+        {group.canManage ? (
+          <div className="flex justify-end">
+            <Button onClick={() => mut.mutate()} disabled={mut.isPending}>
+              {mut.isPending && <Loader2 className="size-3.5 ml-1 animate-spin" />}
+              حفظ التفضيلات
+            </Button>
+          </div>
+        ) : (
+          <div className="text-xs text-muted-foreground">
+            تحتاج صلاحية مالك/مدير لتعديل تفضيلات هذه المجموعة.
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function DigestPrefsTab() {
+  const qc = useQueryClient();
+  const { toast } = useToast();
+  const { data, isLoading } = useQuery<DigestPrefsResponse>({
+    queryKey: ["intercompany-digest-prefs"],
+    queryFn: () => apiGet<DigestPrefsResponse>("/intercompany/digest/preferences"),
+  });
+  const optMut = useMutation({
+    mutationFn: (optedOut: boolean) =>
+      apiPost<{ ok: true; optedOut: boolean }>("/intercompany/digest/me", {
+        optedOut,
+      }),
+    onSuccess: () => {
+      toast({ title: "تم تحديث تفضيلاتك" });
+      qc.invalidateQueries({ queryKey: ["intercompany-digest-prefs"] });
+    },
+    onError: (e: unknown) =>
+      toast({
+        title: "تعذّر التحديث",
+        description: String(e),
+        variant: "destructive",
+      }),
+  });
+  const invalidate = () =>
+    qc.invalidateQueries({ queryKey: ["intercompany-digest-prefs"] });
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-10">
+        <Loader2 className="size-5 animate-spin" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">اشتراكي الشخصي</CardTitle>
+        </CardHeader>
+        <CardContent className="flex items-center justify-between gap-3 flex-wrap">
+          <div className="text-sm text-muted-foreground leading-relaxed max-w-xl">
+            عند التعطيل، لن تصلك رسائل الموجز اليومي عبر البريد الإلكتروني. يمكنك إعادة التفعيل في أي وقت من هنا أو من رابط إلغاء الاشتراك في تذييل البريد.
+          </div>
+          <div className="flex items-center gap-2">
+            <Switch
+              checked={!data?.user.optedOut}
+              onCheckedChange={(v) => optMut.mutate(!v)}
+              disabled={optMut.isPending}
+              id="digest-self-toggle"
+            />
+            <Label htmlFor="digest-self-toggle">
+              {data?.user.optedOut ? "مُلغى" : "مُفعّل"}
+            </Label>
+          </div>
+        </CardContent>
+      </Card>
+
+      {data && data.groups.length === 0 ? (
+        <Card>
+          <CardContent className="py-10 text-center text-sm text-muted-foreground">
+            لا توجد مجموعات شركات مرتبطة بعد. أنشئ روابط بين الشركات أولاً.
+          </CardContent>
+        </Card>
+      ) : (
+        data?.groups.map((g) => (
+          <GroupPrefsCard
+            key={g.anchorCompanyId}
+            group={g}
+            onSaved={invalidate}
+          />
+        ))
+      )}
+    </div>
+  );
+}
+
 function readTabFromHash(): string | null {
   if (typeof window === "undefined") return null;
   const m = window.location.hash.match(/tab=([a-z]+)/i);
@@ -771,7 +1133,11 @@ export default function IntercompanyPage() {
           <TabsTrigger value="elimination">إلغاء الازدواج (P&amp;L)</TabsTrigger>
           <TabsTrigger value="customers">ربط العملاء</TabsTrigger>
           <TabsTrigger value="suppliers">ربط الموردين</TabsTrigger>
+          <TabsTrigger value="digest">تفضيلات الموجز</TabsTrigger>
         </TabsList>
+        <TabsContent value="digest" className="mt-4">
+          <DigestPrefsTab />
+        </TabsContent>
         <TabsContent value="imbalances" className="mt-4">
           <ImbalancesTab />
         </TabsContent>

@@ -1,5 +1,5 @@
 /**
- * Nightly intercompany imbalance scan.
+ * Periodic intercompany imbalance scan + per-group digest dispatcher.
  *
  * Walks every connected company "group" reachable through
  * `intercompany_links` and runs `scanImbalancesForCompanies` against
@@ -7,10 +7,18 @@
  * previously-open rows that now agree are auto-resolved (the lib
  * already encapsulates both behaviours).
  *
- * A short audit_logs row is written per group describing what changed
- * so finance can see when the scan last ran without opening logs.
- * audit_logs.company_id is NOT NULL, so the row is stamped with the
- * lowest companyId in the group.
+ * Scheduling (Task #151): the cron used to fire on a fixed 24h
+ * interval tied to server boot time. It now ticks every
+ * `TICK_INTERVAL_MS` (default 5 minutes) and, for each group, consults
+ * `intercompany_digest_group_prefs` to decide whether the digest
+ * should be dispatched on this tick (configured local hour/minute,
+ * allowed weekdays, no send earlier today). The scan itself is still
+ * run alongside the dispatch so the email reflects fresh state.
+ *
+ * For groups whose prefs say "not yet" we additionally run a refresh
+ * scan once per day so the in-app queue stays current even if the
+ * digest is paused — guarded by an in-memory map keyed by anchor +
+ * local-date so we don't re-scan on every tick.
  *
  * Resilience (task #153):
  *   - Per-group errors are isolated and recorded as `scan_failed`
@@ -21,8 +29,10 @@
  *     retry mechanism re-runs with exponential backoff (5min, 15min)
  *     before logging a permanent failure.
  *
- * Scheduling: first run ~90s after boot (gives the accounting init
- * tasks time to finish), then every 24 hours. The interval is
+ * A short audit_logs row is written per group after each dispatch
+ * describing what changed so finance can see when the scan last ran
+ * without opening logs. The first tick fires ~90s after boot (gives
+ * the accounting init tasks time to finish); the interval is
  * `.unref()`-ed so it doesn't block process shutdown.
  */
 
@@ -39,15 +49,20 @@ import {
   snapshotOpenImbalances,
   sendImbalanceDigestForGroup,
 } from "./intercompany-imbalance-digest";
+import {
+  loadGroupPrefsMap,
+  shouldDispatchNow,
+  type GroupPrefsView,
+} from "./intercompany-digest-prefs";
 
-const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+const TICK_INTERVAL_MS = Number(process.env.INTERCOMPANY_DIGEST_TICK_MS ?? 5 * 60 * 1000);
 const FIRST_RUN_DELAY_MS = 90_000;
 
 /**
  * Exponential-backoff delays between retry attempts when the whole
  * scan crashes (5 minutes, then 15 minutes). After the final attempt
  * fails the run is marked as a permanent failure for the day and the
- * next attempt is the next scheduled nightly tick.
+ * next attempt is the next scheduled tick.
  */
 const RETRY_DELAYS_MS: readonly number[] = [5 * 60_000, 15 * 60_000];
 
@@ -139,13 +154,6 @@ async function firstCompanyIdForFailureAudit(): Promise<number | null> {
  * what makes a silent failure visible. Wrapped in its own try/catch
  * because if the audit insert itself throws we don't want to mask
  * the original error.
- *
- * @param companyId  Tenant scope for the row (NOT NULL column).
- * @param err        The caught error to summarize.
- * @param scope      `"group"` for per-group failures, `"run"` for the
- *                   top-level wrapper failure, `"permanent"` after
- *                   all retries are exhausted.
- * @param extra      Free-form details merged into the `details` text.
  */
 async function recordScanFailedAudit(
   companyId: number,
@@ -177,13 +185,122 @@ async function recordScanFailedAudit(
   }
 }
 
+/** Local-date key (YYYY-MM-DD) in the group's configured tz. */
+function todayKey(prefs: GroupPrefsView, now: Date): string {
+  try {
+    const fmt = new Intl.DateTimeFormat("en-US", {
+      timeZone: prefs.timezone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    });
+    const parts = Object.fromEntries(
+      fmt.formatToParts(now).map((p) => [p.type, p.value]),
+    );
+    return `${parts.year}-${parts.month}-${parts.day}`;
+  } catch {
+    return now.toISOString().slice(0, 10);
+  }
+}
+
+// Memoise per-anchor "we already scanned today" to avoid scanning on
+// every 5-minute tick when the digest is paused or has already gone
+// out. Cleared on process restart, which is fine — worst case we
+// re-scan a couple of extra times after a deploy.
+const lastScannedOn = new Map<number, string>();
+
+async function processGroup(
+  group: number[],
+  prefs: GroupPrefsView,
+  summary: NightlyScanSummary,
+  options: { forceDispatch: boolean },
+): Promise<void> {
+  const anchor = group[0]!;
+  const now = new Date();
+  const dayKey = todayKey(prefs, now);
+  const dispatch =
+    options.forceDispatch || shouldDispatchNow(prefs, now);
+  const alreadyScannedToday = lastScannedOn.get(anchor) === dayKey;
+
+  // Cheap path: nothing to do this tick.
+  if (!dispatch && alreadyScannedToday) {
+    summary.digestsSkipped += 1;
+    return;
+  }
+
+  try {
+    const before = await snapshotOpenImbalances(group).catch((err) => {
+      logger.warn(
+        { err, group },
+        "intercompany_scan: pre-snapshot failed; digest will treat all open rows as new",
+      );
+      return [];
+    });
+    const result = await scanImbalancesForCompanies(group);
+    summary.scanned += group.length;
+    summary.subtotal += result.subtotal;
+    summary.open += result.open;
+    summary.resolved += result.resolved;
+    lastScannedOn.set(anchor, dayKey);
+
+    if (dispatch) {
+      const after = await snapshotOpenImbalances(group).catch((err) => {
+        logger.warn(
+          { err, group },
+          "intercompany_scan: post-snapshot failed; skipping digest",
+        );
+        return [];
+      });
+      const digest = await sendImbalanceDigestForGroup({
+        group,
+        before,
+        after,
+        prefs,
+      });
+      if (digest.skipped) summary.digestsSkipped += 1;
+      else summary.digestsSent += 1;
+    } else {
+      summary.digestsSkipped += 1;
+    }
+
+    try {
+      await db.insert(auditLogsTable).values({
+        userId: null,
+        userName: "نظام",
+        action: dispatch ? "scan_nightly" : "scan_refresh",
+        entity: "intercompany_imbalance",
+        details:
+          `group=[${group.join(",")}] ` +
+          `subtotal=${result.subtotal} open=${result.open} resolved=${result.resolved}`,
+        ipAddress: "cron",
+        severity: "info",
+        companyId: anchor,
+      });
+    } catch (err) {
+      logger.warn({ err, group }, "intercompany_scan: audit insert failed");
+    }
+  } catch (err) {
+    summary.failures += 1;
+    logger.error({ err, group }, "intercompany_scan: group failed");
+    // Surface the per-group failure through the same channel the
+    // front-end alert system uses to detect silent breakage.
+    await recordScanFailedAudit(anchor, err, "group", { group });
+  }
+}
+
 /**
- * Execute one full pass of the nightly scan. Per-group errors are
- * isolated (logged + audited + counted in `summary.failures`); a
- * catastrophic failure that prevents even the group list from
- * loading is rethrown so the caller's retry wrapper can act on it.
+ * Run one cron tick. Per-group errors are isolated (logged + audited
+ * + counted in `summary.failures`); a catastrophic failure that
+ * prevents even the group list from loading is rethrown so the
+ * caller's retry wrapper can act on it.
+ *
+ * `forceDispatch` short-circuits the prefs gate and sends regardless
+ * of the configured send-time / weekday — used by tests and by the
+ * admin-triggered "send a test digest" action.
  */
-export async function runNightlyImbalanceScan(): Promise<NightlyScanSummary> {
+export async function runNightlyImbalanceScan(
+  options: { forceDispatch?: boolean } = {},
+): Promise<NightlyScanSummary> {
   const summary: NightlyScanSummary = {
     groups: 0,
     scanned: 0,
@@ -194,69 +311,35 @@ export async function runNightlyImbalanceScan(): Promise<NightlyScanSummary> {
     digestsSent: 0,
     digestsSkipped: 0,
   };
+  // Let this throw — catastrophic failures are caught by the retry
+  // wrapper below.
   const groups = await getIntercompanyGroups();
   summary.groups = groups.length;
+  if (groups.length === 0) return summary;
+  const anchors = groups.map((g) => g[0]!);
+  const prefsByAnchor = await loadGroupPrefsMap(anchors).catch((err) => {
+    logger.warn({ err }, "intercompany_scan: prefs lookup failed; using defaults");
+    return new Map<number, GroupPrefsView>();
+  });
   for (const group of groups) {
-    const stampCompanyId = group[0]!;
-    try {
-      // Snapshot the open queue BEFORE the scan so we can classify
-      // each post-scan open row as either "new overnight" (id not in
-      // before-set) or "still open from a previous run".
-      const before = await snapshotOpenImbalances(group).catch((err) => {
-        logger.warn(
-          { err, group },
-          "nightly intercompany scan: pre-snapshot failed; digest will treat all open rows as new",
-        );
-        return [];
-      });
-      const result = await scanImbalancesForCompanies(group);
-      summary.scanned += group.length;
-      summary.subtotal += result.subtotal;
-      summary.open += result.open;
-      summary.resolved += result.resolved;
-      const after = await snapshotOpenImbalances(group).catch((err) => {
-        logger.warn(
-          { err, group },
-          "nightly intercompany scan: post-snapshot failed; skipping digest",
-        );
-        return [];
-      });
-      const digest = await sendImbalanceDigestForGroup({
-        group,
-        before,
-        after,
-      });
-      if (digest.skipped) summary.digestsSkipped += 1;
-      else summary.digestsSent += 1;
-      // audit_logs.company_id is NOT NULL — stamp the row against the
-      // lowest companyId in the group so the trail lives somewhere
-      // queryable. userName="نظام" mirrors the convention used by
-      // recordAudit() for system-initiated actions.
-      try {
-        await db.insert(auditLogsTable).values({
-          userId: null,
-          userName: "نظام",
-          action: "scan_nightly",
-          entity: "intercompany_imbalance",
-          details:
-            `group=[${group.join(",")}] ` +
-            `subtotal=${result.subtotal} open=${result.open} resolved=${result.resolved}`,
-          ipAddress: "cron",
-          severity: "info",
-          companyId: stampCompanyId,
-        });
-      } catch (err) {
-        logger.warn({ err, group }, "nightly intercompany scan: audit insert failed");
-      }
-    } catch (err) {
-      summary.failures += 1;
-      logger.error({ err, group }, "nightly intercompany scan: group failed");
-      // Surface the per-group failure through the same channel the
-      // front-end alert system uses to detect silent breakage.
-      await recordScanFailedAudit(stampCompanyId, err, "group", { group });
-    }
+    const anchor = group[0]!;
+    const prefs =
+      prefsByAnchor.get(anchor) ?? {
+        anchorCompanyId: anchor,
+        enabled: true,
+        sendHour: 8,
+        sendMinute: 0,
+        timezone: "Asia/Riyadh",
+        weekdaysMask: 127,
+        ccEmails: [],
+        bccEmails: [],
+        lastSentAt: null,
+      };
+    await processGroup(group, prefs, summary, {
+      forceDispatch: options.forceDispatch ?? false,
+    });
   }
-  logger.info(summary, "nightly intercompany imbalance scan complete");
+  logger.info(summary, "intercompany imbalance cron tick complete");
   return summary;
 }
 
@@ -270,12 +353,11 @@ function delay(ms: number): Promise<void> {
 }
 
 /**
- * Run the nightly scan with exponential-backoff retries on
- * catastrophic failures (e.g. transient DB outage during group
- * lookup). Per-group failures are NOT retried at this layer — they
- * are already isolated inside `runNightlyImbalanceScan` and reported
- * via `summary.failures`. Retries only fire when the run itself
- * throws.
+ * Run the scan with exponential-backoff retries on catastrophic
+ * failures (e.g. transient DB outage during group lookup). Per-group
+ * failures are NOT retried at this layer — they are already isolated
+ * inside `runNightlyImbalanceScan` and reported via
+ * `summary.failures`. Retries only fire when the run itself throws.
  *
  * Returns the summary of the first successful attempt, or `null` if
  * every attempt threw. A `scan_failed` audit row is written on each
@@ -322,6 +404,6 @@ export function startNightlyImbalanceScan(): void {
   started = true;
   setTimeout(() => {
     void runNightlyScanWithRetries();
-    setInterval(() => void runNightlyScanWithRetries(), ONE_DAY_MS).unref();
+    setInterval(() => void runNightlyScanWithRetries(), TICK_INTERVAL_MS).unref();
   }, FIRST_RUN_DELAY_MS).unref();
 }

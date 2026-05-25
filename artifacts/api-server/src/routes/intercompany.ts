@@ -10,8 +10,8 @@ import {
   salesOrdersTable,
   auditLogsTable,
 } from "@workspace/db";
-import { and, desc, eq, gte, lte, sql } from "drizzle-orm";
-import { financeGuard } from "../middlewares/require-role";
+import { and, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
+import { adminGuard, financeGuard } from "../middlewares/require-role";
 import { handleRouteError } from "../lib/handle-error";
 import { getCompanyId } from "../lib/scoped-db";
 import { voidMirror, resyncMirror, IntercompanyMirrorError } from "../lib/intercompany-mirror";
@@ -26,8 +26,58 @@ import {
   consumeEmailActionToken,
   resolveEmailActionToken,
 } from "../lib/intercompany-email-action";
+import { getIntercompanyGroups } from "../lib/intercompany-imbalance-cron";
+import {
+  defaultsForAnchor,
+  getOrCreateUserPrefs,
+  loadGroupPrefsMap,
+  lookupByUnsubscribeToken,
+  setUserOptedOut,
+  upsertGroupPrefs,
+  validateGroupPrefs,
+  type UpdateGroupPrefsInput,
+} from "../lib/intercompany-digest-prefs";
 
 const router = Router();
+
+/**
+ * Public router for the email-footer unsubscribe link. Mounted before
+ * the session-auth middleware so finance users can click the link
+ * from their mail client without being signed in.
+ */
+export const intercompanyPublicRouter = Router();
+
+intercompanyPublicRouter.get("/intercompany/digest/unsubscribe", async (req, res) => {
+  try {
+    const token =
+      typeof req.query.token === "string" ? req.query.token : "";
+    const match = await lookupByUnsubscribeToken(token);
+    if (!match) {
+      res.status(404).type("html").send(
+        `<!doctype html><html lang="ar" dir="rtl"><meta charset="utf-8">` +
+          `<title>رابط غير صالح</title>` +
+          `<body style="font-family:system-ui;padding:2rem;max-width:480px;margin:auto">` +
+          `<h2>رابط الإلغاء غير صالح أو منتهي</h2>` +
+          `<p>تأكد من نسخ الرابط الكامل من البريد، أو سجّل الدخول وحدّث تفضيلاتك من صفحة المعاملات بين الشركات.</p>` +
+          `</body></html>`,
+      );
+      return;
+    }
+    await setUserOptedOut(match.user.id, true);
+    res.type("html").send(
+      `<!doctype html><html lang="ar" dir="rtl"><meta charset="utf-8">` +
+        `<title>تم إلغاء الاشتراك</title>` +
+        `<body style="font-family:system-ui;padding:2rem;max-width:480px;margin:auto">` +
+        `<h2>تم إلغاء اشتراكك في موجز المعاملات بين الشركات</h2>` +
+        `<p>لن تصلك رسائل الموجز اليومية بعد الآن.</p>` +
+        `<p>يمكنك إعادة التفعيل في أي وقت من حسابك ← صفحة المعاملات بين الشركات ← تبويب "تفضيلات الموجز".</p>` +
+        `</body></html>`,
+    );
+  } catch (err) {
+    req.log.error({ err }, "intercompany digest unsubscribe failed");
+    res.status(500).type("html").send("خطأ غير متوقع");
+  }
+});
 
 router.use("/intercompany", financeGuard);
 
@@ -811,5 +861,191 @@ intercompanyEmailActionRouter.post(
     }
   },
 );
+
+// -------- Task #151: digest preferences --------
+
+/**
+ * For the caller's currently-active company, return:
+ *   - the anchor (lowest companyId) of every connected group the caller
+ *     can administer (i.e. holds owner/manager on the anchor)
+ *   - the prefs row for each (defaults if not yet persisted)
+ *   - the company names so the UI can label each group
+ *   - the caller's own user prefs (opt-out + unsubscribe token)
+ *
+ * The caller is only allowed to mutate groups whose anchor is one of
+ * `manageableAnchors` (enforced by the PUT below).
+ */
+router.get("/intercompany/digest/preferences", async (req, res) => {
+  try {
+    const userId = req.session?.userId;
+    if (!userId) {
+      res.status(401).json({ error: "غير مسجل دخول" });
+      return;
+    }
+    const groups = await getIntercompanyGroups();
+    if (groups.length === 0) {
+      const userPrefs = await getOrCreateUserPrefs(userId);
+      res.json({
+        groups: [],
+        manageableAnchors: [],
+        user: { optedOut: userPrefs.optedOut },
+      });
+      return;
+    }
+
+    // The caller can only see/manage groups they actually belong to.
+    const myMemberships = await db
+      .select({
+        companyId: userCompaniesTable.companyId,
+        role: userCompaniesTable.role,
+      })
+      .from(userCompaniesTable)
+      .where(eq(userCompaniesTable.userId, userId));
+    const myCompanyIds = new Set(myMemberships.map((m) => m.companyId));
+    const adminRoles = new Set(["owner", "manager"]);
+    const adminCompanyIds = new Set(
+      myMemberships
+        .filter((m) => adminRoles.has(m.role))
+        .map((m) => m.companyId),
+    );
+
+    const visibleGroups = groups.filter((g) =>
+      g.some((id) => myCompanyIds.has(id)),
+    );
+    const anchors = visibleGroups.map((g) => g[0]!);
+    const prefsByAnchor = await loadGroupPrefsMap(anchors);
+
+    const allCompanyIds = Array.from(
+      new Set(visibleGroups.flatMap((g) => g)),
+    );
+    const companies =
+      allCompanyIds.length > 0
+        ? await db
+            .select({ id: companiesTable.id, name: companiesTable.name })
+            .from(companiesTable)
+            .where(inArray(companiesTable.id, allCompanyIds))
+        : [];
+    const nameById = new Map(companies.map((c) => [c.id, c.name]));
+
+    const manageableAnchors = visibleGroups
+      .filter((g) => g.some((id) => adminCompanyIds.has(id)))
+      .map((g) => g[0]!);
+
+    const userPrefs = await getOrCreateUserPrefs(userId);
+
+    res.json({
+      groups: visibleGroups.map((g) => {
+        const anchor = g[0]!;
+        const prefs = prefsByAnchor.get(anchor) ?? defaultsForAnchor(anchor);
+        return {
+          anchorCompanyId: anchor,
+          companyIds: g,
+          companyNames: g.map((id) => nameById.get(id) ?? `#${id}`),
+          canManage: g.some((id) => adminCompanyIds.has(id)),
+          prefs,
+        };
+      }),
+      manageableAnchors,
+      user: { optedOut: userPrefs.optedOut },
+    });
+  } catch (err) {
+    req.log.error({ err }, "load intercompany digest prefs failed");
+    handleRouteError(err, res);
+  }
+});
+
+/**
+ * PUT /intercompany/digest/preferences/:anchorCompanyId — replace the
+ * group's prefs. The caller must hold owner/manager on at least one
+ * company in the group identified by that anchor.
+ */
+router.put(
+  "/intercompany/digest/preferences/:anchorCompanyId",
+  adminGuard,
+  async (req, res) => {
+    try {
+      const userId = req.session?.userId;
+      if (!userId) {
+        res.status(401).json({ error: "غير مسجل دخول" });
+        return;
+      }
+      const anchor = Number(req.params.anchorCompanyId);
+      if (!Number.isFinite(anchor)) {
+        res.status(400).json({ error: "bad anchor" });
+        return;
+      }
+      const groups = await getIntercompanyGroups();
+      const group = groups.find((g) => g[0] === anchor);
+      if (!group) {
+        res.status(404).json({ error: "group not found" });
+        return;
+      }
+      const adminRows = await db
+        .select({ companyId: userCompaniesTable.companyId })
+        .from(userCompaniesTable)
+        .where(
+          and(
+            eq(userCompaniesTable.userId, userId),
+            inArray(userCompaniesTable.companyId, group),
+            inArray(userCompaniesTable.role, ["owner", "manager"]),
+          ),
+        );
+      if (adminRows.length === 0) {
+        res.status(403).json({ error: "forbidden" });
+        return;
+      }
+      const body = (req.body ?? {}) as Partial<UpdateGroupPrefsInput>;
+      const input: UpdateGroupPrefsInput = {
+        enabled: Boolean(body.enabled ?? true),
+        sendHour: Number(body.sendHour ?? 8),
+        sendMinute: Number(body.sendMinute ?? 0),
+        timezone: String(body.timezone ?? "Asia/Riyadh"),
+        weekdaysMask: Number(body.weekdaysMask ?? 127),
+        ccEmails: Array.isArray(body.ccEmails) ? body.ccEmails : [],
+        bccEmails: Array.isArray(body.bccEmails) ? body.bccEmails : [],
+      };
+      const err = validateGroupPrefs(input);
+      if (err) {
+        res.status(400).json({ error: err });
+        return;
+      }
+      const prefs = await upsertGroupPrefs(anchor, input, userId);
+      void recordAudit(req, {
+        action: "update",
+        entity: "intercompany_digest_prefs",
+        details: `anchor=${anchor} enabled=${prefs.enabled} time=${prefs.sendHour}:${String(prefs.sendMinute).padStart(2, "0")} tz=${prefs.timezone} mask=${prefs.weekdaysMask}`,
+      });
+      res.json({ ok: true, prefs });
+    } catch (err) {
+      req.log.error({ err }, "update intercompany digest prefs failed");
+      handleRouteError(err, res);
+    }
+  },
+);
+
+/**
+ * PUT /intercompany/digest/me — caller toggles their own opt-out
+ * without needing to use the email unsubscribe link.
+ */
+router.put("/intercompany/digest/me", async (req, res) => {
+  try {
+    const userId = req.session?.userId;
+    if (!userId) {
+      res.status(401).json({ error: "غير مسجل دخول" });
+      return;
+    }
+    const optedOut = Boolean((req.body ?? {}).optedOut);
+    const prefs = await setUserOptedOut(userId, optedOut);
+    void recordAudit(req, {
+      action: optedOut ? "opt_out" : "opt_in",
+      entity: "intercompany_digest_prefs",
+      details: `user ${userId}`,
+    });
+    res.json({ ok: true, optedOut: prefs.optedOut });
+  } catch (err) {
+    req.log.error({ err }, "update own intercompany digest opt-out failed");
+    handleRouteError(err, res);
+  }
+});
 
 export default router;

@@ -9,6 +9,8 @@ export type MailAttachment = {
 
 export type MailMessage = {
   to: string;
+  cc?: string;
+  bcc?: string;
   subject: string;
   body: string;
   attachments?: MailAttachment[];
@@ -57,6 +59,8 @@ export async function sendMail(msg: MailMessage): Promise<MailDispatchResult> {
     const info = await transport.sendMail({
       from,
       to: msg.to,
+      cc: msg.cc,
+      bcc: msg.bcc,
       subject: msg.subject,
       text: msg.body,
       attachments: msg.attachments?.map((a) => ({

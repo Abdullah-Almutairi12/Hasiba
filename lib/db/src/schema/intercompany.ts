@@ -1,5 +1,6 @@
-import { pgTable, serial, text, integer, timestamp, index, uniqueIndex, numeric } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, integer, timestamp, index, uniqueIndex, numeric, boolean } from "drizzle-orm/pg-core";
 import { companiesTable } from "./companies";
+import { usersTable } from "./users";
 
 /**
  * Multi-Company Phase 5: links a source document (sales invoice OR
@@ -130,3 +131,73 @@ export const intercompanyImbalanceActionTokensTable = pgTable(
 
 export type IntercompanyImbalanceActionToken =
   typeof intercompanyImbalanceActionTokensTable.$inferSelect;
+
+/**
+ * Per-group preferences for the morning intercompany imbalance digest.
+ * One row per "anchor" company (lowest companyId in a connected group).
+ * The cron loads this row to decide when the group's digest should be
+ * dispatched and whether finance wants cc/bcc visibility for managers
+ * who don't want to be primary recipients.
+ *
+ * - sendHour/sendMinute + timezone: local clock the digest should aim for.
+ * - weekdaysMask: bitfield with bit i representing day i (0=Sunday … 6=Saturday).
+ *   Default 127 = every day.
+ * - lastSentAt: stamped on a successful dispatch so the cron tick can
+ *   dedupe within the same local calendar day.
+ */
+export const intercompanyDigestGroupPrefsTable = pgTable(
+  "intercompany_digest_group_prefs",
+  {
+    id: serial("id").primaryKey(),
+    anchorCompanyId: integer("anchor_company_id")
+      .notNull()
+      .references(() => companiesTable.id, { onDelete: "cascade" }),
+    enabled: boolean("enabled").notNull().default(true),
+    sendHour: integer("send_hour").notNull().default(8),
+    sendMinute: integer("send_minute").notNull().default(0),
+    timezone: text("timezone").notNull().default("Asia/Riyadh"),
+    weekdaysMask: integer("weekdays_mask").notNull().default(127),
+    ccEmails: text("cc_emails").array().notNull().default([] as never),
+    bccEmails: text("bcc_emails").array().notNull().default([] as never),
+    lastSentAt: timestamp("last_sent_at"),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+    updatedBy: integer("updated_by"),
+  },
+  (t) => ({
+    anchorUnique: uniqueIndex("intercompany_digest_group_prefs_anchor_unique").on(
+      t.anchorCompanyId,
+    ),
+  }),
+);
+
+export type IntercompanyDigestGroupPrefs =
+  typeof intercompanyDigestGroupPrefsTable.$inferSelect;
+
+/**
+ * Per-user preferences for the morning intercompany digest. Currently
+ * just an opt-out toggle and an unsubscribe token so the email footer
+ * can offer a one-click self-service link without requiring login.
+ */
+export const intercompanyDigestUserPrefsTable = pgTable(
+  "intercompany_digest_user_prefs",
+  {
+    id: serial("id").primaryKey(),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => usersTable.id, { onDelete: "cascade" }),
+    optedOut: boolean("opted_out").notNull().default(false),
+    unsubscribeToken: text("unsubscribe_token").notNull(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => ({
+    userUnique: uniqueIndex("intercompany_digest_user_prefs_user_unique").on(
+      t.userId,
+    ),
+    tokenUnique: uniqueIndex("intercompany_digest_user_prefs_token_unique").on(
+      t.unsubscribeToken,
+    ),
+  }),
+);
+
+export type IntercompanyDigestUserPrefs =
+  typeof intercompanyDigestUserPrefsTable.$inferSelect;
