@@ -6,19 +6,26 @@
   --color-bg: var(--slide-bg);
   --color-text: var(--slide-text);
   --color-muted: var(--slide-muted);
+  --color-sage: var(--slide-sage);
+  --color-cream: var(--slide-cream);
+  --color-warm: var(--slide-warm);
+  --color-line: var(--slide-line);
   --font-display: var(--font-display-family);
   --font-body: var(--font-body-family);
 }
 
 :root {
-  /* Replace these with brand colors */
-  --slide-primary: #4f46e5;
-  --slide-accent: #06b6d4;
-  --slide-bg: #f8fafc;
-  --slide-text: #0f172a;
-  --slide-muted: #64748b;
-  --font-display-family: "Inter", system-ui, sans-serif;
-  --font-body-family: "Inter", system-ui, sans-serif;
+  --slide-primary: #1A2530;
+  --slide-accent: #C27A65;
+  --slide-bg: #FAFAF7;
+  --slide-text: #1A1A1A;
+  --slide-muted: #666666;
+  --slide-sage: #8F9B8B;
+  --slide-cream: #F7F5F0;
+  --slide-warm: #EBE9E4;
+  --slide-line: #E5E5E5;
+  --font-display-family: "IBM Plex Sans Arabic", "Inter", system-ui, sans-serif;
+  --font-body-family: "IBM Plex Sans Arabic", "Inter", system-ui, sans-serif;
   color-scheme: light;
 }
 
@@ -33,6 +40,8 @@ body,
 body {
   background: var(--slide-bg);
   color: var(--slide-text);
+  font-family: var(--font-body-family);
+  text-wrap: pretty;
 }
 
 .slide {

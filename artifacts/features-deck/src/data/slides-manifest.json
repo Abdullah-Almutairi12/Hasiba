@@ -1,1 +1,162 @@
-[]
+[
+  {
+    "id": "f382bfda-0d22-4cf5-8768-be38ae2ee380",
+    "position": 1,
+    "filepath": "src/pages/slides/Title.tsx",
+    "title": "صفحة العنوان",
+    "description": "حاسبة.AI — عرض المميزات",
+    "speakerNotes": ""
+  },
+  {
+    "id": "2f1dd4a7-f827-4a88-8c03-63333d9ecf19",
+    "position": 2,
+    "filepath": "src/pages/slides/Dashboard.tsx",
+    "title": "01. لوحة القيادة التنفيذية",
+    "description": "Glassmorphism dashboard + AI insights",
+    "speakerNotes": ""
+  },
+  {
+    "id": "8fb6dc1e-675f-47c6-8b8d-1a7afcd861a1",
+    "position": 3,
+    "filepath": "src/pages/slides/POS.tsx",
+    "title": "02. نقطة البيع (POS)",
+    "description": "POS sessions, orders, discounts",
+    "speakerNotes": ""
+  },
+  {
+    "id": "6dd59a63-fd02-4179-ad97-93d58be4ae15",
+    "position": 4,
+    "filepath": "src/pages/slides/Inventory.tsx",
+    "title": "03. المنتجات والمخزون",
+    "description": "Products, stock, low-stock alerts",
+    "speakerNotes": ""
+  },
+  {
+    "id": "5d823e77-6adb-43e6-8209-2dc1af895667",
+    "position": 5,
+    "filepath": "src/pages/slides/InvoiceAI.tsx",
+    "title": "04. فواتير الموردين بالذكاء الاصطناعي",
+    "description": "AI-powered invoice OCR + auto journal",
+    "speakerNotes": ""
+  },
+  {
+    "id": "8160dd76-116f-4d29-a16c-5057ca612901",
+    "position": 6,
+    "filepath": "src/pages/slides/Accounting.tsx",
+    "title": "05. المحاسبة والامتثال",
+    "description": "Double-entry, cash flow, ZATCA",
+    "speakerNotes": ""
+  },
+  {
+    "id": "9fc7f48e-a21e-43bc-b07c-cc824ab57c1b",
+    "position": 7,
+    "filepath": "src/pages/slides/Reports.tsx",
+    "title": "06. التقارير والتحليلات",
+    "description": "Sales/inventory/profitability reports",
+    "speakerNotes": ""
+  },
+  {
+    "id": "b0e8b266-cb22-47e3-887f-57956e08a7be",
+    "position": 8,
+    "filepath": "src/pages/slides/Customers.tsx",
+    "title": "07. العملاء",
+    "description": "Customer files, orders, loyalty",
+    "speakerNotes": ""
+  },
+  {
+    "id": "6f47a2c4-a5ea-4591-bddc-4a899eef8a15",
+    "position": 9,
+    "filepath": "src/pages/slides/BranchesUsers.tsx",
+    "title": "08. الفروع والمستخدمون والإعدادات",
+    "description": "Multi-branch + 8 roles + NCA ECC",
+    "speakerNotes": ""
+  },
+  {
+    "id": "fbd84546-a488-491c-aae4-e57b8787fd10",
+    "position": 10,
+    "filepath": "src/pages/slides/Onboarding.tsx",
+    "title": "09. التسجيل والإعداد الموجَّه",
+    "description": "Signup + 5-step onboarding wizard",
+    "speakerNotes": ""
+  },
+  {
+    "id": "0fc621d6-f095-4a0c-b7d8-0322b1b16382",
+    "position": 11,
+    "filepath": "src/pages/slides/SmartReports.tsx",
+    "title": "10. التقارير الذكية وكشف الاحتيال",
+    "description": "AI copilot, forecast, CLV, fraud",
+    "speakerNotes": ""
+  },
+  {
+    "id": "a2332a14-d728-4f35-9ef7-c619bb46377f",
+    "position": 12,
+    "filepath": "src/pages/slides/LoyaltyZATCA.tsx",
+    "title": "11. برامج الولاء وعلامة ZATCA",
+    "description": "Loyalty points + ZATCA QR",
+    "speakerNotes": ""
+  },
+  {
+    "id": "4a62c6ba-5f82-49f6-a725-5859e48e8f05",
+    "position": 13,
+    "filepath": "src/pages/slides/Projects.tsx",
+    "title": "12. المشاريع",
+    "description": "Kanban, budgets, progress",
+    "speakerNotes": ""
+  },
+  {
+    "id": "ea966083-81d7-42f6-88ea-98528498173b",
+    "position": 14,
+    "filepath": "src/pages/slides/Marketing.tsx",
+    "title": "13. التسويق",
+    "description": "Campaigns, leads, conversion",
+    "speakerNotes": ""
+  },
+  {
+    "id": "afe5b973-5526-4bec-8cb3-74926780b7cf",
+    "position": 15,
+    "filepath": "src/pages/slides/Landing.tsx",
+    "title": "14. صفحة البداية",
+    "description": "/welcome public landing page",
+    "speakerNotes": ""
+  },
+  {
+    "id": "401f28fc-34c8-45ea-b83c-b8605b217ecc",
+    "position": 16,
+    "filepath": "src/pages/slides/Intercompany.tsx",
+    "title": "15. المعاملات بين الشركات",
+    "description": "Auto-mirrored intercompany docs",
+    "speakerNotes": ""
+  },
+  {
+    "id": "33233486-5501-404b-bbbe-11e35f5babd6",
+    "position": 17,
+    "filepath": "src/pages/slides/TransferPricing.tsx",
+    "title": "16. تسعير التحويل والزكاة",
+    "description": "TP detection + Zakat estimation",
+    "speakerNotes": ""
+  },
+  {
+    "id": "e0e8dd16-2de7-4c97-8bd7-115c0c58ce59",
+    "position": 18,
+    "filepath": "src/pages/slides/AdminPanel.tsx",
+    "title": "17. لوحة تحكم المدير",
+    "description": "Admin panel: tickets, ads, flags, logs",
+    "speakerNotes": ""
+  },
+  {
+    "id": "b2d2943d-3e8b-4bbc-aa42-3fb4581d0f16",
+    "position": 19,
+    "filepath": "src/pages/slides/AIModels.tsx",
+    "title": "نماذج الذكاء الاصطناعي",
+    "description": "5 ML models powering the platform",
+    "speakerNotes": ""
+  },
+  {
+    "id": "d0a63888-6bf4-48f1-9225-a498b1af5a4d",
+    "position": 20,
+    "filepath": "src/pages/slides/Closing.tsx",
+    "title": "صفحة الختام",
+    "description": "Thank you + brand sign-off",
+    "speakerNotes": ""
+  }
+]
