@@ -762,13 +762,31 @@ router.post("/invoices/from-scan", supplierInvoiceAgent, async (req, res) => {
   // line against the PO before opening the transaction so we can return a
   // clear 4xx without burning a transaction.
   const PRICE_TOLERANCE_PCT = Number(process.env.PO_INVOICE_PRICE_TOLERANCE_PCT ?? "5");
+  // Resolve the caller's tenant once; every PO/PO-line/product lookup
+  // in this multi-step flow MUST be scoped by it to prevent cross-tenant
+  // IDOR (e.g. attaching a foreign PO id to your own invoice).
+  const scanCompanyId = getCompanyId(req);
   let poLinesById: Map<number, { id: number; poId: number; quantity: string; receivedQty: string; billedQty: string; unitPrice: string }> | null = null;
   if (body.poId) {
     // Force addToInventory=false on PO-linked invoices: the linked GRN
     // already moved stock; allowing addToInventory=true here would
     // double-count inventory and post the wrong leg of the journal.
     body.addToInventory = false;
-    const [po] = await db.select().from(purchaseOrdersTable).where(eq(purchaseOrdersTable.id, body.poId));
+    // purchase_orders has no companyId column; tenant ownership is
+    // derived from the linked supplier's companyId. INNER JOIN on the
+    // supplier filtered by the caller's company collapses foreign POs
+    // to "not found" without leaking existence.
+    const poRows = await db
+      .select({ po: purchaseOrdersTable })
+      .from(purchaseOrdersTable)
+      .innerJoin(suppliersTable, eq(suppliersTable.id, purchaseOrdersTable.supplierId))
+      .where(
+        and(
+          eq(purchaseOrdersTable.id, body.poId),
+          eq(suppliersTable.companyId, scanCompanyId),
+        ),
+      );
+    const po = poRows[0]?.po;
     if (!po) {
       return res.status(400).json({ error: "أمر الشراء المحدد غير موجود." });
     }
@@ -810,10 +828,28 @@ router.post("/invoices/from-scan", supplierInvoiceAgent, async (req, res) => {
       });
     }
     {
-      const poLines = await db
-        .select()
+      // Tenant scope: load PO lines via INNER JOIN on the PO so that
+      // even a leaked line id from another company cannot be resolved
+      // here (the parent PO predicate filters it out).
+      const poLineRows = await db
+        .select({ line: purchaseOrderLinesTable })
         .from(purchaseOrderLinesTable)
-        .where(inArray(purchaseOrderLinesTable.id, linkedLineIds));
+        .innerJoin(
+          purchaseOrdersTable,
+          eq(purchaseOrdersTable.id, purchaseOrderLinesTable.poId),
+        )
+        .innerJoin(
+          suppliersTable,
+          eq(suppliersTable.id, purchaseOrdersTable.supplierId),
+        )
+        .where(
+          and(
+            inArray(purchaseOrderLinesTable.id, linkedLineIds),
+            eq(purchaseOrderLinesTable.poId, body.poId),
+            eq(suppliersTable.companyId, scanCompanyId),
+          ),
+        );
+      const poLines = poLineRows.map((r) => r.line);
       poLinesById = new Map(poLines.map((l) => [l.id, l]));
       for (const item of body.items) {
         if (!item.poLineId) continue;
@@ -922,10 +958,17 @@ router.post("/invoices/from-scan", supplierInvoiceAgent, async (req, res) => {
       // supplier — otherwise we'd be increasing one supplier's AP while
       // releasing GR-IR booked against another supplier's GRN.
       if (body.poId) {
-        const [linkedPo] = await tx
+        const linkedPoRows = await tx
           .select({ supplierId: purchaseOrdersTable.supplierId, reference: purchaseOrdersTable.reference })
           .from(purchaseOrdersTable)
-          .where(eq(purchaseOrdersTable.id, body.poId));
+          .innerJoin(suppliersTable, eq(suppliersTable.id, purchaseOrdersTable.supplierId))
+          .where(
+            and(
+              eq(purchaseOrdersTable.id, body.poId),
+              eq(suppliersTable.companyId, companyId),
+            ),
+          );
+        const linkedPo = linkedPoRows[0];
         if (!linkedPo) {
           throw new Error("PO disappeared mid-transaction");
         }
@@ -941,10 +984,19 @@ router.post("/invoices/from-scan", supplierInvoiceAgent, async (req, res) => {
       if (body.poId && poLinesById) {
         for (const item of body.items) {
           if (!item.poLineId) continue;
+          // Tenant scope: even though poLinesById was loaded via an
+          // INNER JOIN on the tenant's PO, lock the UPDATE down to lines
+          // whose parent PO belongs to this company so a swapped item
+          // payload can never mutate a foreign tenant's billed_qty.
           await tx
             .update(purchaseOrderLinesTable)
             .set({ billedQty: sql`${purchaseOrderLinesTable.billedQty} + ${item.quantity}` })
-            .where(eq(purchaseOrderLinesTable.id, item.poLineId));
+            .where(
+              and(
+                eq(purchaseOrderLinesTable.id, item.poLineId),
+                eq(purchaseOrderLinesTable.poId, body.poId),
+              ),
+            );
         }
       }
 
@@ -994,10 +1046,19 @@ router.post("/invoices/from-scan", supplierInvoiceAgent, async (req, res) => {
           let matchedName = item.description;
 
           if (!matchedId) {
+            // Tenant scope: never auto-match against another company's
+            // catalogue. Without this predicate a fuzzy ilike would let
+            // an invoice from tenant A increment stock against tenant
+            // B's products.
             const [match] = await tx
               .select({ id: productsTable.id, name: productsTable.nameAr })
               .from(productsTable)
-              .where(ilike(productsTable.nameAr, `%${item.description.trim()}%`))
+              .where(
+                and(
+                  eq(productsTable.companyId, companyId),
+                  ilike(productsTable.nameAr, `%${item.description.trim()}%`),
+                ),
+              )
               .limit(1);
             if (match) {
               matchedId = match.id;
