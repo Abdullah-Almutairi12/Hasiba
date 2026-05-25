@@ -18,6 +18,7 @@ import {
   useGetSystemSettings,
   useUpdateSystemSettings,
   useRunAlertsCleanupNow,
+  useSendCleanupReportNow,
   useListPermissionMatrix,
   useSetPermissionCell,
   useListAuditLogs,
@@ -639,6 +640,7 @@ function OverviewTab() {
         <AlertsCleanupCard />
 
         <AlertRetentionCard />
+        <CleanupReportEmailCard />
       </div>
     </div>
   );
@@ -1413,6 +1415,231 @@ function AlertRetentionCard() {
           </Button>
           <span className="text-xs text-muted-foreground">
             لتطبيق المدة الجديدة فوراً بدلاً من انتظار التشغيل الليلي.
+          </span>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function CleanupReportEmailCard() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const { data: settings } = useGetSystemSettings();
+  const updateMut = useUpdateSystemSettings({
+    mutation: {
+      onSuccess: () => {
+        toast({ title: "تم حفظ إعدادات التقرير" });
+        void queryClient.invalidateQueries({
+          predicate: (q) => {
+            const k = q.queryKey?.[0];
+            return typeof k === "string" && k.includes("/admin/system-settings");
+          },
+        });
+      },
+      onError: () => {
+        toast({ title: "تعذّر حفظ الإعداد", variant: "destructive" });
+      },
+    },
+  });
+  const sendNowMut = useSendCleanupReportNow({
+    mutation: {
+      onSuccess: (data) => {
+        toast({
+          title: "تم إرسال التقرير",
+          description: `إلى ${data.recipients?.length ?? 0} مستلم (${data.rowCount ?? 0} عملية تنظيف).`,
+        });
+        void queryClient.invalidateQueries({
+          predicate: (q) => {
+            const k = q.queryKey?.[0];
+            return typeof k === "string" && k.includes("/admin/system-settings");
+          },
+        });
+      },
+      onError: (err: unknown) => {
+        const msg =
+          (err as { response?: { data?: { error?: string } } })?.response?.data
+            ?.error ?? "تعذّر إرسال التقرير";
+        toast({ title: msg, variant: "destructive" });
+      },
+    },
+  });
+
+  const schedule = settings?.cleanupReportSchedule ?? "off";
+  const recipients = settings?.cleanupReportRecipients ?? [];
+  const lastSentAt = settings?.cleanupReportLastSentAt ?? null;
+  const [draft, setDraft] = useState("");
+  const [inputError, setInputError] = useState<string | null>(null);
+
+  const addRecipient = () => {
+    const v = draft.trim().toLowerCase();
+    if (!v) return;
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) {
+      setInputError("بريد إلكتروني غير صحيح");
+      return;
+    }
+    if (recipients.includes(v)) {
+      setInputError("هذا البريد مضاف مسبقاً");
+      return;
+    }
+    setInputError(null);
+    setDraft("");
+    updateMut.mutate({
+      data: { cleanupReportRecipients: [...recipients, v] },
+    });
+  };
+
+  const removeRecipient = (email: string) => {
+    updateMut.mutate({
+      data: {
+        cleanupReportRecipients: recipients.filter((r) => r !== email),
+      },
+    });
+  };
+
+  return (
+    <Card data-testid="card-cleanup-report-email">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Send className="size-4 text-primary" />
+          إرسال تقرير التنظيف بالبريد تلقائياً
+        </CardTitle>
+        <CardDescription>
+          يرسل النظام نفس ملف PDF الذي تنزّله يدوياً (مع نفس النطاق الزمني)
+          إلى المراجعين والمدققين على جدول دوري.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4 text-sm">
+        <div className="flex flex-wrap items-center gap-3">
+          <Label className="min-w-32">الجدولة</Label>
+          <Select
+            value={schedule}
+            onValueChange={(v) =>
+              updateMut.mutate({
+                data: {
+                  cleanupReportSchedule: v as
+                    | "off"
+                    | "weekly"
+                    | "monthly",
+                },
+              })
+            }
+            disabled={updateMut.isPending}
+          >
+            <SelectTrigger
+              className="w-56"
+              data-testid="select-cleanup-report-schedule"
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="off">معطّلة</SelectItem>
+              <SelectItem value="weekly">أسبوعياً (آخر 7 أيام)</SelectItem>
+              <SelectItem value="monthly">شهرياً (آخر 30 يوم)</SelectItem>
+            </SelectContent>
+          </Select>
+          {updateMut.isPending && <Loader2 className="size-4 animate-spin" />}
+        </div>
+
+        <div className="space-y-2">
+          <Label>المستلمون</Label>
+          <div className="flex flex-wrap items-center gap-2">
+            <Input
+              type="email"
+              placeholder="audit@example.com"
+              value={draft}
+              onChange={(e) => {
+                setDraft(e.target.value);
+                if (inputError) setInputError(null);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  addRecipient();
+                }
+              }}
+              className="h-9 max-w-xs"
+              dir="ltr"
+              data-testid="input-cleanup-report-recipient"
+            />
+            <Button
+              type="button"
+              size="sm"
+              onClick={addRecipient}
+              disabled={updateMut.isPending || !draft.trim()}
+              data-testid="button-add-cleanup-report-recipient"
+            >
+              <Plus className="me-1 size-4" />
+              إضافة
+            </Button>
+          </div>
+          {inputError && (
+            <div className="text-xs text-rose-600">{inputError}</div>
+          )}
+          {recipients.length === 0 ? (
+            <div className="rounded-md border border-dashed bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+              لم تتم إضافة أي مستلم بعد.
+            </div>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {recipients.map((email) => (
+                <Badge
+                  key={email}
+                  variant="secondary"
+                  className="gap-1.5"
+                  data-testid={`badge-cleanup-recipient-${email}`}
+                >
+                  <span dir="ltr">{email}</span>
+                  <button
+                    type="button"
+                    onClick={() => removeRecipient(email)}
+                    disabled={updateMut.isPending}
+                    className="text-muted-foreground hover:text-rose-600"
+                    aria-label={`حذف ${email}`}
+                    data-testid={`button-remove-cleanup-recipient-${email}`}
+                  >
+                    <Trash2 className="size-3" />
+                  </button>
+                </Badge>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {lastSentAt && (
+          <div
+            className="rounded-md border bg-muted/40 px-3 py-2 text-xs text-muted-foreground"
+            data-testid="text-cleanup-report-last-sent"
+          >
+            آخر إرسال{" "}
+            <span title={new Date(lastSentAt).toLocaleString("ar-SA")}>
+              {formatRelativeArabic(lastSentAt)}
+            </span>
+            .
+          </div>
+        )}
+
+        <div className="flex flex-wrap items-center gap-3 border-t pt-3">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => sendNowMut.mutate()}
+            disabled={
+              sendNowMut.isPending ||
+              updateMut.isPending ||
+              recipients.length === 0
+            }
+            data-testid="button-send-cleanup-report-now"
+          >
+            {sendNowMut.isPending ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <Send className="size-4" />
+            )}
+            إرسال الآن
+          </Button>
+          <span className="text-xs text-muted-foreground">
+            يستخدم نفس قالب PDF الذي تنزّله من بطاقة سجل التنظيف.
           </span>
         </div>
       </CardContent>

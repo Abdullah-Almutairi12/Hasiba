@@ -168,6 +168,8 @@ import type {
   SalesChartPoint,
   SalesReport,
   SecurityChecklist,
+  SendCleanupReportNow200,
+  SendCleanupReportNow400,
   SetPermissionCellBody,
   Supplier,
   SupportTicket,
@@ -7801,6 +7803,89 @@ export const useUpdateSystemSettings = <
   TContext
 > => {
   return useMutation(getUpdateSystemSettingsMutationOptions(options));
+};
+
+/**
+ * Bypasses the configured weekly/monthly cadence and emails the PDF report to the currently configured recipients right now. Used to verify a new recipient list or SMTP configuration.
+ * @summary Send the alerts-cleanup PDF report email immediately (admin only)
+ */
+export const getSendCleanupReportNowUrl = () => {
+  return `/api/admin/system-settings/send-cleanup-report-now`;
+};
+
+export const sendCleanupReportNow = async (
+  options?: RequestInit,
+): Promise<SendCleanupReportNow200> => {
+  return customFetch<SendCleanupReportNow200>(getSendCleanupReportNowUrl(), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getSendCleanupReportNowMutationOptions = <
+  TError = ErrorType<SendCleanupReportNow400>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof sendCleanupReportNow>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof sendCleanupReportNow>>,
+  TError,
+  void,
+  TContext
+> => {
+  const mutationKey = ["sendCleanupReportNow"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof sendCleanupReportNow>>,
+    void
+  > = () => {
+    return sendCleanupReportNow(requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type SendCleanupReportNowMutationResult = NonNullable<
+  Awaited<ReturnType<typeof sendCleanupReportNow>>
+>;
+
+export type SendCleanupReportNowMutationError =
+  ErrorType<SendCleanupReportNow400>;
+
+/**
+ * @summary Send the alerts-cleanup PDF report email immediately (admin only)
+ */
+export const useSendCleanupReportNow = <
+  TError = ErrorType<SendCleanupReportNow400>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof sendCleanupReportNow>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof sendCleanupReportNow>>,
+  TError,
+  void,
+  TContext
+> => {
+  return useMutation(getSendCleanupReportNowMutationOptions(options));
 };
 
 /**

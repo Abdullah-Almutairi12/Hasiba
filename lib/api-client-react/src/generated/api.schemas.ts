@@ -1567,6 +1567,18 @@ export type SystemSettingsLastAlertSweep = {
   runAt: string;
 } | null;
 
+/**
+ * Cadence on which the alerts-cleanup PDF report is emailed.
+ */
+export type SystemSettingsCleanupReportSchedule =
+  (typeof SystemSettingsCleanupReportSchedule)[keyof typeof SystemSettingsCleanupReportSchedule];
+
+export const SystemSettingsCleanupReportSchedule = {
+  off: "off",
+  weekly: "weekly",
+  monthly: "monthly",
+} as const;
+
 export interface SystemSettings {
   /** Admin-configured DB override (null = not set, falls through to env/default). */
   alertRetentionDays: number | null;
@@ -1586,6 +1598,12 @@ export interface SystemSettings {
   cleanupAuditKeepDefault: number;
   cleanupAuditKeepMin: number;
   cleanupAuditKeepMax: number;
+  /** Cadence on which the alerts-cleanup PDF report is emailed. */
+  cleanupReportSchedule: SystemSettingsCleanupReportSchedule;
+  /** Email recipients for the scheduled cleanup PDF report. */
+  cleanupReportRecipients: string[];
+  /** ISO timestamp of the most recent successful scheduled send. */
+  cleanupReportLastSentAt: string | null;
 }
 
 export type PermissionMatrixDefaults = { [key: string]: string[] };
@@ -1903,6 +1921,18 @@ export type UpdateFeatureFlagBody = {
   isEnabled: boolean;
 };
 
+/**
+ * Cadence on which the alerts-cleanup PDF report is emailed.
+ */
+export type UpdateSystemSettingsBodyCleanupReportSchedule =
+  (typeof UpdateSystemSettingsBodyCleanupReportSchedule)[keyof typeof UpdateSystemSettingsBodyCleanupReportSchedule];
+
+export const UpdateSystemSettingsBodyCleanupReportSchedule = {
+  off: "off",
+  weekly: "weekly",
+  monthly: "monthly",
+} as const;
+
 export type UpdateSystemSettingsBody = {
   /**
    * Null clears the DB override and falls back to env/default.
@@ -1916,12 +1946,42 @@ export type UpdateSystemSettingsBody = {
    * @maximum 3650
    */
   cleanupAuditKeepRuns?: number | null;
+  /** Cadence on which the alerts-cleanup PDF report is emailed. */
+  cleanupReportSchedule?: UpdateSystemSettingsBodyCleanupReportSchedule;
+  /**
+   * Email recipients for the scheduled cleanup PDF report.
+   * @maxItems 50
+   */
+  cleanupReportRecipients?: string[];
 };
+
+export type UpdateSystemSettings200CleanupReportSchedule =
+  (typeof UpdateSystemSettings200CleanupReportSchedule)[keyof typeof UpdateSystemSettings200CleanupReportSchedule];
+
+export const UpdateSystemSettings200CleanupReportSchedule = {
+  off: "off",
+  weekly: "weekly",
+  monthly: "monthly",
+} as const;
 
 export type UpdateSystemSettings200 = {
   ok: boolean;
   alertRetentionDays?: number | null;
   cleanupAuditKeepRuns?: number | null;
+  cleanupReportSchedule?: UpdateSystemSettings200CleanupReportSchedule;
+  cleanupReportRecipients?: string[];
+};
+
+export type SendCleanupReportNow200 = {
+  ok: boolean;
+  sent: boolean;
+  recipients?: string[];
+  rowCount?: number;
+};
+
+export type SendCleanupReportNow400 = {
+  error: string;
+  reason?: string;
 };
 
 export type RunAlertsCleanupNow200Source =

@@ -1769,6 +1769,15 @@ paths:
                   minimum: 30
                   maximum: 3650
                   description: Cap on rows kept in `alerts_cleanup_runs`. Null clears the override and falls back to the default (365).
+                cleanupReportSchedule:
+                  type: string
+                  enum: [off, weekly, monthly]
+                  description: Cadence on which the alerts-cleanup PDF report is emailed.
+                cleanupReportRecipients:
+                  type: array
+                  items: { type: string, format: email }
+                  maxItems: 50
+                  description: Email recipients for the scheduled cleanup PDF report.
       responses:
         "200":
           description: Updated
@@ -1780,7 +1789,48 @@ paths:
                   ok: { type: boolean }
                   alertRetentionDays: { type: integer, nullable: true }
                   cleanupAuditKeepRuns: { type: integer, nullable: true }
+                  cleanupReportSchedule:
+                    type: string
+                    enum: [off, weekly, monthly]
+                  cleanupReportRecipients:
+                    type: array
+                    items: { type: string }
                 required: [ok]
+
+  /admin/system-settings/send-cleanup-report-now:
+    post:
+      tags: [admin]
+      summary: Send the alerts-cleanup PDF report email immediately (admin only)
+      description: >-
+        Bypasses the configured weekly/monthly cadence and emails the
+        PDF report to the currently configured recipients right now.
+        Used to verify a new recipient list or SMTP configuration.
+      operationId: sendCleanupReportNow
+      responses:
+        "200":
+          description: Report sent
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  sent: { type: boolean }
+                  recipients:
+                    type: array
+                    items: { type: string }
+                  rowCount: { type: integer }
+                required: [ok, sent]
+        "400":
+          description: No recipients / mailer not configured / other precondition
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error: { type: string }
+                  reason: { type: string }
+                required: [error]
 
   /admin/system-settings/run-alerts-cleanup:
     post:
@@ -4723,6 +4773,19 @@ components:
         cleanupAuditKeepDefault: { type: integer }
         cleanupAuditKeepMin: { type: integer }
         cleanupAuditKeepMax: { type: integer }
+        cleanupReportSchedule:
+          type: string
+          enum: [off, weekly, monthly]
+          description: Cadence on which the alerts-cleanup PDF report is emailed.
+        cleanupReportRecipients:
+          type: array
+          items: { type: string, format: email }
+          description: Email recipients for the scheduled cleanup PDF report.
+        cleanupReportLastSentAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: ISO timestamp of the most recent successful scheduled send.
       required:
         [
           alertRetentionDays,
@@ -4738,6 +4801,9 @@ components:
           cleanupAuditKeepDefault,
           cleanupAuditKeepMin,
           cleanupAuditKeepMax,
+          cleanupReportSchedule,
+          cleanupReportRecipients,
+          cleanupReportLastSentAt,
         ]
 
     PermissionMatrix:

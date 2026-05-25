@@ -1811,6 +1811,16 @@ export const GetSystemSettingsResponse = zod.object({
   cleanupAuditKeepDefault: zod.number(),
   cleanupAuditKeepMin: zod.number(),
   cleanupAuditKeepMax: zod.number(),
+  cleanupReportSchedule: zod
+    .enum(["off", "weekly", "monthly"])
+    .describe("Cadence on which the alerts-cleanup PDF report is emailed."),
+  cleanupReportRecipients: zod
+    .array(zod.string().email())
+    .describe("Email recipients for the scheduled cleanup PDF report."),
+  cleanupReportLastSentAt: zod.coerce
+    .date()
+    .nullable()
+    .describe("ISO timestamp of the most recent successful scheduled send."),
 });
 
 /**
@@ -1821,6 +1831,8 @@ export const updateSystemSettingsBodyAlertRetentionDaysMax = 3650;
 
 export const updateSystemSettingsBodyCleanupAuditKeepRunsMin = 30;
 export const updateSystemSettingsBodyCleanupAuditKeepRunsMax = 3650;
+
+export const updateSystemSettingsBodyCleanupReportRecipientsMax = 50;
 
 export const UpdateSystemSettingsBody = zod.object({
   alertRetentionDays: zod
@@ -1837,12 +1849,34 @@ export const UpdateSystemSettingsBody = zod.object({
     .describe(
       "Cap on rows kept in `alerts_cleanup_runs`. Null clears the override and falls back to the default (365).",
     ),
+  cleanupReportSchedule: zod
+    .enum(["off", "weekly", "monthly"])
+    .optional()
+    .describe("Cadence on which the alerts-cleanup PDF report is emailed."),
+  cleanupReportRecipients: zod
+    .array(zod.string().email())
+    .max(updateSystemSettingsBodyCleanupReportRecipientsMax)
+    .optional()
+    .describe("Email recipients for the scheduled cleanup PDF report."),
 });
 
 export const UpdateSystemSettingsResponse = zod.object({
   ok: zod.boolean(),
   alertRetentionDays: zod.number().nullish(),
   cleanupAuditKeepRuns: zod.number().nullish(),
+  cleanupReportSchedule: zod.enum(["off", "weekly", "monthly"]).optional(),
+  cleanupReportRecipients: zod.array(zod.string()).optional(),
+});
+
+/**
+ * Bypasses the configured weekly/monthly cadence and emails the PDF report to the currently configured recipients right now. Used to verify a new recipient list or SMTP configuration.
+ * @summary Send the alerts-cleanup PDF report email immediately (admin only)
+ */
+export const SendCleanupReportNowResponse = zod.object({
+  ok: zod.boolean(),
+  sent: zod.boolean(),
+  recipients: zod.array(zod.string()).optional(),
+  rowCount: zod.number().optional(),
 });
 
 /**

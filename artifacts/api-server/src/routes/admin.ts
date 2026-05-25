@@ -22,6 +22,13 @@ import {
 import { z } from "zod";
 import { adminGuard } from "../middlewares/require-role";
 import { runAlertsCleanup } from "../lib/alerts-cleanup-cron";
+import { buildAlertsCleanupPdf } from "../lib/alerts-cleanup-pdf";
+import {
+  sendCleanupReportEmail,
+  readCleanupReportConfig,
+  CLEANUP_REPORT_SCHEDULES,
+  type CleanupReportSchedule,
+} from "../lib/alerts-cleanup-report-email";
 
 const router = Router();
 
@@ -374,145 +381,13 @@ router.get(
           .status(400)
           .json({ error: "Invalid 'from' or 'to' date" });
       }
-      const conds = [] as Array<ReturnType<typeof gte>>;
-      if (from) conds.push(gte(alertsCleanupRunsTable.ranAt, from));
-      if (to) conds.push(lte(alertsCleanupRunsTable.ranAt, to));
-      const rows = await db
-        .select()
-        .from(alertsCleanupRunsTable)
-        .where(conds.length ? and(...conds) : undefined)
-        .orderBy(desc(alertsCleanupRunsTable.ranAt));
-
-      const PDFDocument = (await import("pdfkit")).default;
-      const { registerArabicFonts } = await import(
-        "../lib/pdf/arabic-font"
-      );
-      const { drawBrandedHeader, drawBrandedFooter, loadBrand, BRAND } =
-        await import("../lib/pdf/branding-header");
-      const company = await loadBrand();
-
-      const doc = new PDFDocument({
-        size: "A4",
-        margin: 40,
-        bufferPages: true,
-        info: { Title: "Alerts Cleanup History" },
-      });
-      const filename = `alerts-cleanup-runs-${new Date()
-        .toISOString()
-        .slice(0, 10)}.pdf`;
+      const { buffer, filename } = await buildAlertsCleanupPdf({ from, to });
       res.setHeader("Content-Type", "application/pdf");
       res.setHeader(
         "Content-Disposition",
         `attachment; filename="${filename}"`,
       );
-      doc.pipe(res);
-
-      const { useReg, useBold, T } = registerArabicFonts(
-        doc as unknown as Parameters<typeof registerArabicFonts>[0],
-      );
-      const fmtDate = (d: Date | null) =>
-        d ? d.toISOString().slice(0, 10) : "—";
-      const rangeLabel = T(
-        `النطاق / Range: ${fmtDate(from)} → ${fmtDate(to)}  ·  ${rows.length} تشغيل / runs`,
-      );
-      const startY = drawBrandedHeader(
-        doc as unknown as Parameters<typeof drawBrandedHeader>[0],
-        company,
-        {
-          title: "Alerts Cleanup History  /  سجل تنظيف التنبيهات",
-          subtitle: rangeLabel,
-        },
-      );
-
-      const left = doc.page.margins.left;
-      const right = doc.page.width - doc.page.margins.right;
-      const fullWidth = right - left;
-      const cols = [
-        { w: fullWidth * 0.5, label: "Ran at / وقت التشغيل" },
-        { w: fullWidth * 0.25, label: "Rows deleted / المحذوفات" },
-        { w: fullWidth * 0.25, label: "Retention / الاحتفاظ" },
-      ];
-      const colX = (i: number) =>
-        left + cols.slice(0, i).reduce((s, c) => s + c.w, 0);
-
-      const headerH = 22;
-      const rowH = 18;
-      const tableTop = startY;
-
-      doc.rect(left, tableTop, fullWidth, headerH).fill(BRAND.accent);
-      useBold();
-      doc.fillColor("#ffffff").fontSize(10);
-      cols.forEach((c, i) => {
-        doc.text(T(c.label), colX(i) + 4, tableTop + 6, {
-          width: c.w - 8,
-          align: "center",
-        });
-      });
-      useReg();
-
-      let y = tableTop + headerH;
-      const bottomLimit = doc.page.height - doc.page.margins.bottom - 30;
-      doc.fillColor("#111827").fontSize(9);
-      rows.forEach((r, idx) => {
-        if (y + rowH > bottomLimit) {
-          doc.addPage();
-          y = doc.page.margins.top;
-          doc.rect(left, y, fullWidth, headerH).fill(BRAND.accent);
-          useBold();
-          doc.fillColor("#ffffff").fontSize(10);
-          cols.forEach((c, i) => {
-            doc.text(T(c.label), colX(i) + 4, y + 6, {
-              width: c.w - 8,
-              align: "center",
-            });
-          });
-          useReg();
-          y += headerH;
-          doc.fillColor("#111827").fontSize(9);
-        }
-        if (idx % 2 === 0) {
-          doc.fillColor("#f8fafc").rect(left, y, fullWidth, rowH).fill();
-          doc.fillColor("#111827");
-        }
-        const cells = [
-          r.ranAt.toISOString().replace("T", " ").slice(0, 19),
-          String(r.rowsDeleted),
-          `${r.retentionDays} يوم / days`,
-        ];
-        cells.forEach((cell, i) => {
-          doc.text(T(cell), colX(i) + 4, y + 4, {
-            width: cols[i]!.w - 8,
-            align: "center",
-          });
-        });
-        y += rowH;
-      });
-
-      if (rows.length === 0) {
-        doc
-          .fontSize(11)
-          .fillColor(BRAND.muted)
-          .text(
-            T("لا توجد عمليات تنظيف في هذا النطاق / No cleanup runs in this range."),
-            left,
-            y + 16,
-            { width: fullWidth, align: "center" },
-          );
-      }
-
-      // Page X of Y in the footer using pdfkit's bufferPages.
-      const range = doc.bufferedPageRange();
-      for (let i = 0; i < range.count; i++) {
-        doc.switchToPage(range.start + i);
-        drawBrandedFooter(
-          doc as unknown as Parameters<typeof drawBrandedFooter>[0],
-          company,
-          `Page ${i + 1} of ${range.count}`,
-        );
-      }
-
-      doc.end();
-      return;
+      return res.send(buffer);
     } catch (err) {
       req.log.error({ err }, "Alerts cleanup history PDF export failed");
       if (!res.headersSent) {
@@ -921,6 +796,7 @@ router.get("/admin/system-settings", adminOnly, async (req, res) => {
     const source: "db" | "env" | "default" =
       dbValue != null ? "db" : envValue != null ? "env" : "default";
     const auditKeepDb = readCleanupAuditKeepRuns(row.system);
+    const cleanupReport = readCleanupReportConfig(row.system);
     res.json({
       alertRetentionDays: dbValue,
       effectiveAlertRetentionDays: effective,
@@ -935,6 +811,9 @@ router.get("/admin/system-settings", adminOnly, async (req, res) => {
       cleanupAuditKeepDefault: CLEANUP_AUDIT_KEEP_DEFAULT,
       cleanupAuditKeepMin: CLEANUP_AUDIT_KEEP_MIN,
       cleanupAuditKeepMax: CLEANUP_AUDIT_KEEP_MAX,
+      cleanupReportSchedule: cleanupReport.schedule,
+      cleanupReportRecipients: cleanupReport.recipients,
+      cleanupReportLastSentAt: cleanupReport.lastSentAt,
     });
   } catch (err) {
     req.log.error({ err }, "Get system settings failed");
@@ -959,6 +838,17 @@ const UpdateSystemSettingsBody = z.object({
     .max(CLEANUP_AUDIT_KEEP_MAX)
     .nullable()
     .optional(),
+  // Task #178: scheduled email of the cleanup PDF report.
+  cleanupReportSchedule: z
+    .enum(CLEANUP_REPORT_SCHEDULES as readonly [
+      CleanupReportSchedule,
+      ...CleanupReportSchedule[],
+    ])
+    .optional(),
+  cleanupReportRecipients: z
+    .array(z.string().email().max(200))
+    .max(50)
+    .optional(),
 });
 
 router.patch("/admin/system-settings", adminOnly, async (req, res) => {
@@ -968,6 +858,7 @@ router.patch("/admin/system-settings", adminOnly, async (req, res) => {
     const prevSystem = (row.system ?? {}) as Record<string, unknown>;
     const prev = readAlertRetention(prevSystem);
     const prevAuditKeep = readCleanupAuditKeepRuns(prevSystem);
+    const prevCleanupReport = readCleanupReportConfig(prevSystem);
     const nextSystem: Record<string, unknown> = { ...prevSystem };
     if (body.alertRetentionDays !== undefined) {
       if (body.alertRetentionDays === null) {
@@ -982,6 +873,25 @@ router.patch("/admin/system-settings", adminOnly, async (req, res) => {
       } else {
         nextSystem["cleanupAuditKeepRuns"] = body.cleanupAuditKeepRuns;
       }
+    }
+    if (
+      body.cleanupReportSchedule !== undefined ||
+      body.cleanupReportRecipients !== undefined
+    ) {
+      const cleanupReport: Record<string, unknown> = {
+        schedule: prevCleanupReport.schedule,
+        recipients: prevCleanupReport.recipients,
+        lastSentAt: prevCleanupReport.lastSentAt,
+      };
+      if (body.cleanupReportSchedule !== undefined) {
+        cleanupReport.schedule = body.cleanupReportSchedule;
+      }
+      if (body.cleanupReportRecipients !== undefined) {
+        cleanupReport.recipients = Array.from(
+          new Set(body.cleanupReportRecipients.map((r) => r.trim().toLowerCase()).filter(Boolean)),
+        );
+      }
+      nextSystem["cleanupReport"] = cleanupReport;
     }
     await db
       .update(appSettingsTable)
@@ -1001,6 +911,27 @@ router.patch("/admin/system-settings", adminOnly, async (req, res) => {
           next: body.alertRetentionDays,
         },
         "admin.system_settings.alert_retention_changed",
+      );
+    }
+    if (
+      body.cleanupReportSchedule !== undefined ||
+      body.cleanupReportRecipients !== undefined
+    ) {
+      void recordAudit(req, {
+        action: "system_settings.cleanup_report_changed",
+        entity: `app_settings#${row.id}`,
+        details:
+          `schedule=${body.cleanupReportSchedule ?? prevCleanupReport.schedule}` +
+          ` recipients=${body.cleanupReportRecipients?.length ?? prevCleanupReport.recipients.length}`,
+        severity: "info",
+      });
+      req.log.info(
+        {
+          userId: req.session?.userId,
+          schedule: body.cleanupReportSchedule,
+          recipients: body.cleanupReportRecipients?.length,
+        },
+        "admin.system_settings.cleanup_report_changed",
       );
     }
     if (body.cleanupAuditKeepRuns !== undefined) {
@@ -1029,6 +960,10 @@ router.patch("/admin/system-settings", adminOnly, async (req, res) => {
         body.cleanupAuditKeepRuns !== undefined
           ? body.cleanupAuditKeepRuns
           : prevAuditKeep,
+      cleanupReportSchedule:
+        body.cleanupReportSchedule ?? prevCleanupReport.schedule,
+      cleanupReportRecipients:
+        body.cleanupReportRecipients ?? prevCleanupReport.recipients,
     });
   } catch (err) {
     if (err instanceof z.ZodError) {
@@ -1066,6 +1001,45 @@ router.post("/admin/system-settings/run-alerts-cleanup", adminOnly, async (req, 
     return res.status(500).json({ error: "Internal server error" });
   }
 });
+
+// Task #178: manually email the cleanup PDF report to the configured
+// recipients immediately, bypassing the schedule cadence. Useful for
+// admins to verify a new recipient list / SMTP setup without waiting
+// for the next weekly/monthly tick.
+router.post(
+  "/admin/system-settings/send-cleanup-report-now",
+  adminOnly,
+  async (req, res) => {
+    try {
+      const result = await sendCleanupReportEmail({ force: true });
+      if (!result.sent) {
+        const reasonMap: Record<string, string> = {
+          no_recipients: "لم تتم إضافة أي مستلم بعد.",
+          mailer_not_configured:
+            "البريد غير مُهيأ — يرجى ضبط SMTP_HOST/SMTP_PORT.",
+          schedule_off: "الجدولة معطّلة.",
+        };
+        const msg = reasonMap[result.reason ?? ""] ?? (result.reason ?? "تعذّر الإرسال");
+        return res.status(400).json({ error: msg, reason: result.reason });
+      }
+      void recordAudit(req, {
+        action: "system_settings.cleanup_report_sent_manual",
+        entity: "alerts_cleanup_runs",
+        details: `recipients=${result.recipients?.length ?? 0} rows=${result.rowCount ?? 0}`,
+        severity: "info",
+      });
+      return res.json({
+        ok: true,
+        sent: true,
+        recipients: result.recipients ?? [],
+        rowCount: result.rowCount ?? 0,
+      });
+    } catch (err) {
+      req.log.error({ err }, "Send cleanup report failed");
+      return res.status(500).json({ error: "Internal server error" });
+    }
+  },
+);
 
 // ============== Company Settings (letterhead, bank, PO terms) ==============
 // Singleton row at id=1 holding the fields rendered on the PO PDF header

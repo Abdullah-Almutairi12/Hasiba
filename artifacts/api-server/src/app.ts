@@ -237,4 +237,12 @@ import("./lib/alerts-cleanup-init")
     logger.error({ err }, "failed to start alerts cleanup cron"),
   );
 
+// Task #178: hourly tick that emails the alerts-cleanup PDF report to
+// the configured recipients on the configured cadence (weekly/monthly).
+import("./lib/alerts-cleanup-report-email")
+  .then((m) => m.startCleanupReportEmailCron())
+  .catch((err) =>
+    logger.error({ err }, "failed to start cleanup report email cron"),
+  );
+
 export default app;
