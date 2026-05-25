@@ -104,6 +104,7 @@ export const NAV_PERMISSIONS: Record<string, readonly Role[]> = {
   approvals: ["owner", "manager", "accountant", "auditor"],
   settings: ALL_ROLES,
   documents: ALL_ROLES,
+  intercompany: GROUPS.finance,
 };
 
 export function useCurrentRole(): Role | null {

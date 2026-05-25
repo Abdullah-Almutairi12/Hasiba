@@ -30,6 +30,8 @@ const CreateSupplierBody = z.object({
   defaultCurrency: z.string().min(3).max(3).optional(),
   leadTimeDays: z.coerce.number().int().min(0).optional(),
   defaultTax: z.coerce.number().min(0).max(100).optional(),
+  // Phase-5: linked sibling company id (intercompany mirror).
+  linkedCompanyId: z.number().int().nullable().optional(),
 });
 
 router.get("/suppliers", async (req, res) => {
@@ -95,6 +97,7 @@ router.post("/suppliers", supplierWriteGuard, async (req, res) => {
         ...(body.defaultCurrency ? { defaultCurrency: body.defaultCurrency } : {}),
         ...(body.leadTimeDays != null ? { leadTimeDays: body.leadTimeDays } : {}),
         ...(body.defaultTax != null ? { defaultTax: String(body.defaultTax) } : {}),
+        linkedCompanyId: body.linkedCompanyId ?? null,
       }))
       .returning();
     void recordAudit(req, { action: "create", entity: "supplier", details: `أُضيف المورد ${body.name}` });
@@ -109,6 +112,62 @@ router.post("/suppliers", supplierWriteGuard, async (req, res) => {
       return res.status(409).json({ error: "يوجد مورد آخر بنفس الرقم الضريبي." });
     }
     req.log.error({ err }, "create supplier failed");
+    return res.status(500).json({ error: "internal" });
+  }
+});
+
+/**
+ * PATCH /suppliers/:id — update mutable supplier fields. Phase-5 added
+ * `linkedCompanyId` so finance can link an existing supplier to a sibling
+ * company without recreating it (intercompany mirror prerequisite).
+ */
+router.patch("/suppliers/:id", supplierWriteGuard, async (req, res) => {
+  try {
+    const id = Number(req.params["id"]);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: "bad id" });
+    const Body = z.object({
+      name: z.string().min(1).optional(),
+      vatNumber: z.string().nullable().optional(),
+      email: z.string().email().or(z.literal("")).nullable().optional(),
+      phone: z.string().nullable().optional(),
+      address: z.string().nullable().optional(),
+      notes: z.string().nullable().optional(),
+      paymentTermsDays: z.coerce.number().int().min(0).optional(),
+      defaultCurrency: z.string().min(3).max(3).optional(),
+      leadTimeDays: z.coerce.number().int().min(0).optional(),
+      defaultTax: z.coerce.number().min(0).max(100).optional(),
+      linkedCompanyId: z.number().int().nullable().optional(),
+    });
+    const b = Body.parse(req.body);
+    const scoped = new ScopedDb(getCompanyId(req));
+    const patch: Partial<typeof suppliersTable.$inferInsert> = {};
+    if (b.name !== undefined) patch.name = b.name;
+    if (b.vatNumber !== undefined) patch.vatNumber = b.vatNumber || null;
+    if (b.email !== undefined) patch.email = b.email || null;
+    if (b.phone !== undefined) patch.phone = b.phone || null;
+    if (b.address !== undefined) patch.address = b.address || null;
+    if (b.notes !== undefined) patch.notes = b.notes || null;
+    if (b.paymentTermsDays !== undefined) patch.paymentTermsDays = b.paymentTermsDays;
+    if (b.defaultCurrency !== undefined) patch.defaultCurrency = b.defaultCurrency;
+    if (b.leadTimeDays !== undefined) patch.leadTimeDays = b.leadTimeDays;
+    if (b.defaultTax !== undefined) patch.defaultTax = String(b.defaultTax);
+    if (b.linkedCompanyId !== undefined) patch.linkedCompanyId = b.linkedCompanyId;
+
+    const [updated] = await db
+      .update(suppliersTable)
+      .set(patch)
+      .where(and(eq(suppliersTable.id, id), scoped.scope(suppliersTable)))
+      .returning();
+    if (!updated) return res.status(404).json({ error: "not found" });
+    void recordAudit(req, { action: "update", entity: "supplier", details: `حُدّث المورد ${updated.name}` });
+    return res.json({
+      ...updated,
+      balance: Number(updated.balance),
+      createdAt: updated.createdAt.toISOString(),
+    });
+  } catch (err) {
+    if (err instanceof ZodError) return res.status(400).json({ error: "بيانات غير صالحة", details: err.issues });
+    req.log.error({ err }, "update supplier failed");
     return res.status(500).json({ error: "internal" });
   }
 });

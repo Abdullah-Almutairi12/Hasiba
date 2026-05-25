@@ -106,6 +106,10 @@ export const purchaseOrdersTable = pgTable("purchase_orders", {
   // show "Sent on <date>" and prevent accidental double sends.
   sentToSupplierAt: timestamp("sent_to_supplier_at"),
   sentToSupplierEmail: text("sent_to_supplier_email"),
+  /** Multi-Company Phase 5: true when this PO was auto-generated as the mirror of a sales order/PO in another company (loop guard). */
+  isIntercompany: boolean("is_intercompany").notNull().default(false),
+  /** Multi-Company Phase 5: id of the counterparty company in the intercompany pair. */
+  counterpartyCompanyId: integer("counterparty_company_id"),
   createdBy: integer("created_by").references(() => usersTable.id),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });

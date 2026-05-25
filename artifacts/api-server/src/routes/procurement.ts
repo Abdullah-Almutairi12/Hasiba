@@ -29,6 +29,7 @@ import {
 } from "../middlewares/require-role";
 import { recordAudit } from "../lib/audit";
 import { postJournalEntry } from "../lib/journal-posting";
+import { mirrorPurchaseOrder } from "../lib/intercompany-mirror";
 import { getCompanyId } from "../lib/scoped-db";
 import { recordStockMove, getDefaultWarehouseId, getOrCreateLot } from "../lib/stock-engine";
 import {
@@ -714,6 +715,18 @@ router.post("/procurement/purchase-orders", async (req, res) => {
           .set({ status: "converted" })
           .where(eq(purchaseRequisitionsTable.id, body.requisitionId));
       }
+      // Phase-5 intercompany mirror: when the supplier is linked to a
+      // sibling company, auto-create the matching sales order in that
+      // company inside the same transaction.
+      await mirrorPurchaseOrder({
+        poId: po.id,
+        sourceCompanyId: getCompanyId(req),
+        actor: {
+          userId: req.session?.userId ?? null,
+          userName: null,
+        },
+        tx,
+      });
       return po;
     });
     void recordAudit(req, { action: "create", entity: "purchase_order", details: out.reference });

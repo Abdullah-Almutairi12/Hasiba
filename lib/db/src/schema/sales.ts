@@ -328,6 +328,10 @@ export const customerInvoicesTable = pgTable(
     // (mirrors `sent_to_supplier_*` on purchase_orders).
     sentToCustomerAt: timestamp("sent_to_customer_at"),
     sentToCustomerEmail: text("sent_to_customer_email"),
+    /** Multi-Company Phase 5: true when auto-generated as a mirror in this company (loop guard). */
+    isIntercompany: boolean("is_intercompany").notNull().default(false),
+    /** Multi-Company Phase 5: id of the counterparty company in the intercompany pair. */
+    counterpartyCompanyId: integer("counterparty_company_id"),
     createdBy: integer("created_by").references(() => usersTable.id),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },

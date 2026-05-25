@@ -26,3 +26,4 @@ export * from "./reporting";
 export * from "./app-settings";
 export * from "./anomaly";
 export * from "./portal";
+export * from "./intercompany";

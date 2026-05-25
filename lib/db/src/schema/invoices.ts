@@ -29,6 +29,10 @@ export const invoicesTable = pgTable("invoices", {
   reversedReason: text("reversed_reason"),
   /** Nullable in Phase 1; becomes NOT NULL in Phase 2 once tenant scoping lands. */
   companyId: integer("company_id").notNull().references(() => companiesTable.id, { onDelete: "restrict" }),
+  /** Multi-Company Phase 5: true when this supplier invoice was auto-generated as the mirror of a sales invoice in another company. */
+  isIntercompany: boolean("is_intercompany").notNull().default(false),
+  /** Multi-Company Phase 5: id of the source/destination company in the intercompany pair. */
+  counterpartyCompanyId: integer("counterparty_company_id").references(() => companiesTable.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

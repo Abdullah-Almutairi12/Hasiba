@@ -20,6 +20,13 @@ export const customersTable = pgTable("customers", {
   shippingAddress: text("shipping_address"),
   /** Nullable in Phase 1; becomes NOT NULL in Phase 2 once tenant scoping lands. */
   companyId: integer("company_id").notNull().references(() => companiesTable.id, { onDelete: "restrict" }),
+  /**
+   * Multi-Company Phase 5: when set, this customer represents another
+   * company inside the group. Sales invoices to such a customer are
+   * mirrored as supplier invoices on the linked company via
+   * lib/intercompany-mirror.ts.
+   */
+  linkedCompanyId: integer("linked_company_id").references(() => companiesTable.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

@@ -42,6 +42,12 @@ function CustomerFormDialog({ onSuccess }: { onSuccess: () => void }) {
   const [creditLimit, setCreditLimit] = useState(0);
   const [paymentTermsDays, setPaymentTermsDays] = useState(0);
   const [taxNumber, setTaxNumber] = useState("");
+  const [linkedCompanyId, setLinkedCompanyId] = useState<string>("none");
+  // Sibling companies the current user can mirror to (intercompany).
+  // Endpoint is per-user not owner-only, so non-owners see the same list.
+  const { data: siblings = [] } = useApiQuery<Array<{ id: number; name: string }>>(
+    "/companies/siblings",
+  );
 
   const submit = async () => {
     if (!name.trim()) { toast({ title: "الاسم مطلوب", variant: "destructive" }); return; }
@@ -54,6 +60,7 @@ function CustomerFormDialog({ onSuccess }: { onSuccess: () => void }) {
         creditLimit,
         paymentTermsDays,
         taxNumber: taxNumber || null,
+        linkedCompanyId: linkedCompanyId === "none" ? null : Number(linkedCompanyId),
       });
       toast({ title: "تم إنشاء العميل" });
       onSuccess();
@@ -89,6 +96,21 @@ function CustomerFormDialog({ onSuccess }: { onSuccess: () => void }) {
         <div className="grid grid-cols-2 gap-2">
           <div><Label>سقف الائتمان</Label><Input type="number" value={creditLimit} onChange={(e) => setCreditLimit(Number(e.target.value))} /></div>
           <div><Label>مدة السداد (أيام)</Label><Input type="number" value={paymentTermsDays} onChange={(e) => setPaymentTermsDays(Number(e.target.value))} /></div>
+        </div>
+        <div>
+          <Label>الشركة الشقيقة المرتبطة (اختياري)</Label>
+          <Select value={linkedCompanyId} onValueChange={setLinkedCompanyId}>
+            <SelectTrigger><SelectValue placeholder="بدون ربط" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">بدون ربط</SelectItem>
+              {siblings.map((c) => (
+                <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className="mt-1 text-xs text-muted-foreground">
+            عند الربط، تُنشأ فاتورة مورد مرآة تلقائياً في الشركة الأخرى.
+          </p>
         </div>
       </div>
       <DialogFooter><Button onClick={submit}>حفظ</Button></DialogFooter>

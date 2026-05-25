@@ -67,6 +67,9 @@ router.post("/customers", salesWriteGuard, async (req, res) => {
       taxNumber: z.string().nullable().optional(),
       billingAddress: z.string().nullable().optional(),
       shippingAddress: z.string().nullable().optional(),
+      // Phase-5: when set, sales invoices to this customer are mirrored
+      // into the linked sibling company as supplier invoices.
+      linkedCompanyId: z.number().int().nullable().optional(),
     });
     const body = Extended.parse(req.body);
     const scoped = new ScopedDb(getCompanyId(req));
@@ -83,6 +86,7 @@ router.post("/customers", salesWriteGuard, async (req, res) => {
         taxNumber: body.taxNumber ?? null,
         billingAddress: body.billingAddress ?? null,
         shippingAddress: body.shippingAddress ?? null,
+        linkedCompanyId: body.linkedCompanyId ?? null,
       }))
       .returning();
 
@@ -112,6 +116,7 @@ router.patch("/customers/:id", salesWriteGuard, async (req, res) => {
       taxNumber: z.string().nullable().optional(),
       billingAddress: z.string().nullable().optional(),
       shippingAddress: z.string().nullable().optional(),
+      linkedCompanyId: z.number().int().nullable().optional(),
     });
     const b = Body.parse(req.body);
     const scoped = new ScopedDb(getCompanyId(req));
@@ -126,6 +131,7 @@ router.patch("/customers/:id", salesWriteGuard, async (req, res) => {
     if (b.billingAddress !== undefined) patch.billingAddress = b.billingAddress;
     if (b.shippingAddress !== undefined) patch.shippingAddress = b.shippingAddress;
     if (b.creditLimit !== undefined) patch.creditLimit = String(b.creditLimit);
+    if (b.linkedCompanyId !== undefined) patch.linkedCompanyId = b.linkedCompanyId;
     // Tenant scope: prevents mutating another company's customer row.
     const [row] = await db
       .update(customersTable)

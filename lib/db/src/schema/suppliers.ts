@@ -22,6 +22,13 @@ export const suppliersTable = pgTable("suppliers", {
   notes: text("notes"),
   /** Tenant scope (Phase 2): NOT NULL with restrict to prevent silent orphans. */
   companyId: integer("company_id").notNull().references(() => companiesTable.id, { onDelete: "restrict" }),
+  /**
+   * Multi-Company Phase 5: when set, this supplier represents another
+   * company inside the group. Purchase orders to such a supplier are
+   * mirrored as sales orders on the linked company via
+   * lib/intercompany-mirror.ts.
+   */
+  linkedCompanyId: integer("linked_company_id").references(() => companiesTable.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

@@ -60,6 +60,32 @@ const IdParam = z.coerce.number().int().positive();
  * Phase 3: this is the only place that returns the full tenant list,
  * regardless of session scope.
  */
+/**
+ * GET /companies/siblings — list every company the *current user* can
+ * see (any role on `user_companies`). Phase-5 helper so accountants /
+ * managers can populate the "linked sibling company" dropdown on
+ * customer/supplier forms without needing owner-only `/admin/companies`.
+ */
+router.get("/companies/siblings", async (req, res) => {
+  try {
+    const userId = req.session?.userId;
+    if (!userId) {
+      res.status(401).json({ error: "غير مسجل دخول" });
+      return;
+    }
+    const rows = await db
+      .select({ id: companiesTable.id, name: companiesTable.name, isActive: companiesTable.isActive })
+      .from(companiesTable)
+      .innerJoin(userCompaniesTable, eq(userCompaniesTable.companyId, companiesTable.id))
+      .where(eq(userCompaniesTable.userId, userId))
+      .orderBy(asc(companiesTable.name));
+    res.json(rows);
+  } catch (err) {
+    req.log.error({ err }, "list sibling companies failed");
+    handleRouteError(err, res);
+  }
+});
+
 router.get("/admin/companies", ownerOnly, async (req, res) => {
   try {
     const rows = await db

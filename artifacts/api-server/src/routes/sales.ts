@@ -55,6 +55,7 @@ import { sendMessage } from "../lib/integrations/messaging";
 import { sendByTemplate } from "../lib/integrations/messaging-templates";
 import { buildSignedInvoiceQrPath } from "./integrations";
 import { recordStockMove, getDefaultWarehouseId } from "../lib/stock-engine";
+import { mirrorSalesInvoice } from "../lib/intercompany-mirror";
 import { sendMail, isMailerConfigured } from "../lib/mailer";
 import { MAX_ATTEMPTS as INVOICE_EMAIL_MAX_ATTEMPTS } from "../lib/invoice-email-retry-worker";
 import { warehousesTable as _warehousesTable } from "@workspace/db";
@@ -2516,6 +2517,19 @@ router.post("/sales/invoices", financeGuard, async (req, res) => {
         if (allInvoiced)
           await tx.update(salesOrdersTable).set({ status: "invoiced" }).where(eq(salesOrdersTable.id, so.id));
       }
+
+      // Phase-5 intercompany mirror: when the customer is linked to a
+      // sibling company, auto-emit a supplier invoice in that company
+      // inside this same transaction. Failures roll the whole sale back.
+      await mirrorSalesInvoice({
+        invoiceId: inv.id,
+        sourceCompanyId: getCompanyId(req),
+        actor: {
+          userId: req.session?.userId ?? null,
+          userName: null,
+        },
+        tx,
+      });
 
       return {
         inv,

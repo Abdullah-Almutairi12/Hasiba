@@ -50,6 +50,7 @@ const CreateCompany = lazy(() => import("@/pages/create-company"));
 const InvoicePrint = lazy(() => import("@/pages/invoice-print"));
 const TrackShipmentPage = lazy(() => import("@/pages/track-shipment"));
 const DocumentsPage = lazy(() => import("@/pages/documents"));
+const IntercompanyPage = lazy(() => import("@/pages/intercompany"));
 
 const queryClient = createAppQueryClient();
 
@@ -173,6 +174,9 @@ function Router() {
         </Route>
         <Route path="/documents">
           <Protected><DocumentsPage /></Protected>
+        </Route>
+        <Route path="/intercompany">
+          <Protected><IntercompanyPage /></Protected>
         </Route>
         <Route path="/admin">
           <Protected><AdminPage /></Protected>

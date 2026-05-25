@@ -46,10 +46,10 @@ async function seedBranches() {
   return db
     .insert(branchesTable)
     .values([
-      { name: "Riyadh - Olaya", nameAr: "الرياض - العليا", city: "الرياض", isActive: true },
-      { name: "Jeddah - Tahliya", nameAr: "جدة - التحلية", city: "جدة", isActive: true },
-      { name: "Dammam - Center", nameAr: "الدمام - الوسط", city: "الدمام", isActive: true },
-      { name: "Riyadh - Malaz", nameAr: "الرياض - الملز", city: "الرياض", isActive: true },
+      { companyId: 1, name: "Riyadh - Olaya", nameAr: "الرياض - العليا", city: "الرياض", isActive: true },
+      { companyId: 1, name: "Jeddah - Tahliya", nameAr: "جدة - التحلية", city: "جدة", isActive: true },
+      { companyId: 1, name: "Dammam - Center", nameAr: "الدمام - الوسط", city: "الدمام", isActive: true },
+      { companyId: 1, name: "Riyadh - Malaz", nameAr: "الرياض - الملز", city: "الرياض", isActive: true },
     ])
     .returning();
 }
@@ -57,11 +57,11 @@ async function seedBranches() {
 async function seedWarehouses(branchIds: number[]) {
   console.log("→ إضافة المستودعات...");
   const rows = [
-    { branchId: branchIds[0], name: "Olaya Main", nameAr: "مستودع العليا الرئيسي", isDefault: true },
-    { branchId: branchIds[0], name: "Olaya Backup", nameAr: "مستودع العليا الاحتياطي", isDefault: false },
-    { branchId: branchIds[1], name: "Tahliya Main", nameAr: "مستودع التحلية", isDefault: true },
-    { branchId: branchIds[2], name: "Dammam Main", nameAr: "مستودع الدمام", isDefault: true },
-    { branchId: branchIds[3], name: "Malaz Main", nameAr: "مستودع الملز", isDefault: true },
+    { companyId: 1, branchId: branchIds[0], name: "Olaya Main", nameAr: "مستودع العليا الرئيسي", isDefault: true },
+    { companyId: 1, branchId: branchIds[0], name: "Olaya Backup", nameAr: "مستودع العليا الاحتياطي", isDefault: false },
+    { companyId: 1, branchId: branchIds[1], name: "Tahliya Main", nameAr: "مستودع التحلية", isDefault: true },
+    { companyId: 1, branchId: branchIds[2], name: "Dammam Main", nameAr: "مستودع الدمام", isDefault: true },
+    { companyId: 1, branchId: branchIds[3], name: "Malaz Main", nameAr: "مستودع الملز", isDefault: true },
   ];
   return db.insert(warehousesTable).values(rows).returning();
 }
@@ -110,6 +110,7 @@ async function seedProducts(categoryIds: number[]) {
     .insert(productsTable)
     .values(
       items.map((it) => ({
+        companyId: 1,
         name: it.name,
         nameAr: it.nameAr,
         sku: it.sku,
@@ -139,6 +140,7 @@ async function seedCustomers() {
     .insert(customersTable)
     .values(
       names.map((name, i) => ({
+        companyId: 1,
         name,
         phone: `+96650${String(1000000 + i * 137).slice(0, 7)}`,
         email: `customer${i + 1}@example.sa`,
@@ -210,6 +212,7 @@ async function seedSessionsAndOrders(branchIds: number[], products: { id: number
           sessionTotal += total;
 
           orderRows.push({
+            companyId: 1,
             orderNumber: `ORD-${day}-${bi}-${s}-${o}-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
             sessionId: session.id,
             customerId: null,
@@ -243,6 +246,7 @@ async function seedInvoices() {
   const rows = [];
   for (let i = 0; i < 30; i++) {
     rows.push({
+      companyId: 1,
       invoiceNumber: `INV-${2026000 + i}`,
       supplierName: pick(suppliers),
       amount: String(rand(500, 15000) + 0.5),
@@ -323,6 +327,7 @@ async function seedAuditLogs() {
   for (let i = 0; i < 40; i++) {
     const a = pick(actions);
     rows.push({
+      companyId: 1,
       userId: rand(1, 5),
       userName: pick(users),
       action: a.action,
