@@ -563,7 +563,8 @@ router.get("/procurement/purchase-orders", async (req, res) => {
 
     // Surface the latest send attempt per PO from procurement_email_outbox
     // (kind='purchase_order') so the list can render a delivered / queued /
-    // failed badge identical to customer invoices + quotations.
+    // failed badge identical to customer invoices + quotations
+    // (see SendStatusBadge on the frontend).
     const ids = rows.map((r) => r.id);
     const lastSendById = new Map<number, {
       outboxId: number;

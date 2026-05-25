@@ -397,9 +397,10 @@ function POsTab({ onSelectPO }: { onSelectPO: (po: PO) => void }) {
                 <TableCell>{r.supplierName}</TableCell>
                 <TableCell>{fmt(r.total)}</TableCell>
                 <TableCell>
-                  <div className="flex items-center gap-1">
+                  <div className="flex flex-wrap items-center gap-1">
                     <StatusBadge status={r.status} />
                     {r.requiresApproval && !r.approvedAt && <Badge variant="outline">يحتاج اعتماد</Badge>}
+                    <SendStatusBadge doc={r} testIdPrefix="badge-po-send-status" />
                   </div>
                 </TableCell>
                 <TableCell>
