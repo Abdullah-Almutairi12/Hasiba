@@ -377,6 +377,81 @@ export async function sendCleanupReportEmail(opts: {
 }
 
 /**
+ * Task #189: send a one-off test email of the cleanup report to a
+ * single caller-supplied recipient. Mirrors `sendCleanupReportEmail`
+ * exactly (same PDF, same `renderCleanupReportEmail` path, same
+ * attachments) so what the admin sees in their own inbox is byte-for-
+ * byte what the next scheduled tick will send to the audit list.
+ *
+ * Differences vs the scheduled / "send now" path:
+ *   - Recipient list is the single address passed in (NOT the
+ *     configured `recipients` array).
+ *   - Subject is prefixed with `[TEST]` so an admin staring at their
+ *     inbox can immediately tell the real audit run apart from a
+ *     verification ping.
+ *   - Does NOT touch `lastSentAt`, so triggering a test never delays
+ *     the next scheduled real send.
+ *   - Bypasses the schedule cadence and the `recipients.length === 0`
+ *     precondition — the whole point is to validate SMTP / formatting
+ *     before going live.
+ */
+export async function sendCleanupReportTestEmail(opts: {
+  recipient: string;
+}): Promise<CleanupReportSendResult> {
+  const recipient = opts.recipient.trim();
+  if (!recipient || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipient)) {
+    return { sent: false, reason: "invalid_recipient" };
+  }
+  if (!isMailerConfigured()) {
+    return { sent: false, reason: "mailer_not_configured" };
+  }
+  const cfg = await loadConfig();
+  const effectiveSchedule: CleanupReportSchedule =
+    cfg.schedule === "off" ? "weekly" : cfg.schedule;
+  const days = windowDaysForSchedule(effectiveSchedule);
+  const to = new Date();
+  const from = new Date(to.getTime() - days * ONE_DAY_MS);
+
+  const compliance = await loadComplianceReportSummary({ from, to });
+  const { buffer, filename, rowCount } = await buildAlertsCleanupPdf(
+    { from, to },
+    { compliance },
+  );
+
+  const rendered = renderCleanupReportEmail({
+    subject: cfg.subject,
+    intro: cfg.intro,
+    schedule: effectiveSchedule,
+    from,
+    to,
+    rowCount,
+    complianceCounts: compliance.counts,
+  });
+
+  const result = await sendMail({
+    to: recipient,
+    subject: `[TEST] ${rendered.subject}`,
+    body: rendered.body,
+    attachments: [
+      { filename, content: buffer, contentType: "application/pdf" },
+    ],
+  });
+
+  if (!result.sent) {
+    logger.error(
+      { reason: result.reason, recipient },
+      "cleanup report: test email send failed",
+    );
+    return { sent: false, reason: result.reason };
+  }
+  logger.info(
+    { recipient, rowCount, schedule: effectiveSchedule },
+    "cleanup report: test emailed",
+  );
+  return { sent: true, recipients: [recipient], rowCount };
+}
+
+/**
  * Per-tick decision: should we send right now given the configured
  * cadence and the timestamp of the last successful send? Pure for
  * easier testing.

@@ -27,6 +27,7 @@ import { runAlertsCleanup } from "../lib/alerts-cleanup-cron";
 import { buildAlertsCleanupPdf } from "../lib/alerts-cleanup-pdf";
 import {
   sendCleanupReportEmail,
+  sendCleanupReportTestEmail,
   readCleanupReportConfig,
   renderCleanupReportEmail,
   windowDaysForSchedule,
@@ -1255,17 +1256,18 @@ router.post(
   },
 );
 
-// Task #184: send the cleanup PDF to the logged-in admin only. Lets
-// them verify SMTP / formatting end-to-end without spamming the real
-// auditor recipient list. Does NOT update `lastSentAt` — this is a
-// test, not the scheduled send.
-// Task #190: admins can override the recipient with an arbitrary
-// email (e.g. an external auditor inbox or shared QA mailbox) without
-// having to add it to the saved recipient list first. Defaults to
-// the current admin's account email when omitted.
+// Tasks #184/#189/#190: send a one-off TEST cleanup report email.
+// Uses the same rendering path as the scheduled cron, but does NOT
+// update `lastSentAt`, does NOT modify the saved recipients list, and
+// bypasses the recipients-empty precondition / cadence so admins can
+// validate SMTP / formatting before going live. Subject is prefixed
+// with `[TEST]`. `recipient` is optional — when omitted or empty we
+// default to the logged-in admin's account email so they can quickly
+// "send to me"; supplying an explicit address lets them dry-run
+// against any other inbox (e.g. an external auditor mailbox).
 const SendCleanupReportTestBody = z
   .object({
-    recipient: z.string().trim().email().optional(),
+    recipient: z.string().trim().email().max(254).optional(),
   })
   .optional();
 
@@ -1273,20 +1275,21 @@ router.post(
   "/admin/system-settings/send-cleanup-report-test",
   adminOnly,
   async (req, res) => {
+    const parsed = SendCleanupReportTestBody.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({
+        error: "بريد إلكتروني غير صحيح",
+        reason: "invalid_recipient",
+      });
+    }
     try {
       const userId = req.session.userId;
-      if (!userId) {
-        return res.status(401).json({ error: "غير مسجّل الدخول" });
-      }
-      const parsed = SendCleanupReportTestBody.safeParse(req.body);
-      if (!parsed.success) {
-        return res
-          .status(400)
-          .json({ error: "بريد إلكتروني غير صحيح" });
-      }
       const overrideEmail = parsed.data?.recipient?.trim();
       let email: string | undefined = overrideEmail || undefined;
       if (!email) {
+        if (!userId) {
+          return res.status(401).json({ error: "غير مسجّل الدخول" });
+        }
         const row = await db
           .select({ email: usersTable.email })
           .from(usersTable)
@@ -1299,19 +1302,21 @@ router.post(
           .status(400)
           .json({ error: "لا يوجد بريد إلكتروني للحساب الحالي." });
       }
-      const u = await db
-        .select({ name: usersTable.name })
-        .from(usersTable)
-        .where(eq(usersTable.id, userId))
-        .limit(1);
+      const u = userId
+        ? await db
+            .select({ name: usersTable.name })
+            .from(usersTable)
+            .where(eq(usersTable.id, userId))
+            .limit(1)
+        : [];
       const result = await sendCleanupReportEmail({
         recipientsOverride: [email],
-        triggeredByUserId: userId,
+        triggeredByUserId: userId ?? null,
         triggeredByUserName: u[0]?.name ?? null,
       });
       if (!result.sent) {
         const reasonMap: Record<string, string> = {
-          no_recipients: "لا يوجد بريد إلكتروني للحساب الحالي.",
+          invalid_recipient: "بريد إلكتروني غير صحيح",
           mailer_not_configured:
             "البريد غير مُهيأ — يرجى ضبط SMTP_HOST/SMTP_PORT.",
         };
@@ -1341,7 +1346,7 @@ router.post(
         rowCount: result.rowCount ?? 0,
       });
     } catch (err) {
-      req.log.error({ err }, "Send cleanup report (test) failed");
+      req.log.error({ err }, "Send cleanup report test failed");
       return res.status(500).json({ error: "Internal server error" });
     }
   },

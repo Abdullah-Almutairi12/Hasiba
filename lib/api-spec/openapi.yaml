@@ -1914,15 +1914,17 @@ paths:
   /admin/system-settings/send-cleanup-report-test:
     post:
       tags: [admin]
-      summary: Send a test cleanup report email to a one-off recipient (admin only)
+      summary: Send a one-off test cleanup report email to a single recipient (admin only)
       description: >-
-        Sends the same PDF the scheduled cron would send, but only to
-        a single one-off recipient. Defaults to the currently
-        logged-in admin's email address when `recipient` is omitted or
-        empty, but can be overridden to dry-run against any other
-        inbox (e.g. an external auditor account). Does NOT update
-        `lastSentAt` and does NOT modify the saved recipient list —
-        the scheduled cadence is preserved.
+        Renders and emails the same PDF / subject / body the next
+        scheduled tick would send, but to a single one-off recipient.
+        Lets admins validate SMTP, attachments and formatting in
+        their actual mail client before going live. Does NOT touch
+        `lastSentAt`, does NOT modify the saved recipient list, and
+        bypasses the recipients-empty precondition / schedule cadence.
+        Subject is prefixed with `[TEST]`. When `recipient` is
+        omitted or empty, defaults to the currently logged-in admin's
+        account email so they can quickly "send to me".
       operationId: sendCleanupReportTest
       requestBody:
         required: false
@@ -1952,7 +1954,7 @@ paths:
                   rowCount: { type: integer }
                 required: [ok, sent, recipient]
         "400":
-          description: Missing email / mailer not configured / other precondition
+          description: Invalid recipient / mailer not configured / other precondition
           content:
             application/json:
               schema:
