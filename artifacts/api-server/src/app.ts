@@ -193,4 +193,14 @@ import("./lib/po-email-retry-worker")
     logger.error({ err }, "failed to start PO email retry worker"),
   );
 
+// Nightly intercompany imbalance scan. Walks every connected company
+// group reachable through intercompany_links and refreshes the
+// imbalance review queue so finance walks in to an already-curated
+// list every morning. First run ~90s after boot, then every 24h.
+import("./lib/intercompany-imbalance-cron")
+  .then((m) => m.startNightlyImbalanceScan())
+  .catch((err) =>
+    logger.error({ err }, "failed to start nightly intercompany imbalance scan"),
+  );
+
 export default app;
