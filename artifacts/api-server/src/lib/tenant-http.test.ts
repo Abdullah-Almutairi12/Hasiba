@@ -523,4 +523,17 @@ describe("HTTP — /api/pos/orders is tenant-scoped", () => {
     const res = await agentA.get(`/api/pos/orders/${posOrderBId}`);
     expect(res.status).toBe(404);
   });
+
+  it("POST /api/pos/sessions with another tenant's branchId returns 404 and creates no session", async () => {
+    const res = await agentA
+      .post("/api/pos/sessions")
+      .send({ branchId: branchBId, cashierName: "intruder", openingCash: 0 });
+    expect(res.status).toBe(404);
+    const rows = await db
+      .select({ id: posSessionsTable.id })
+      .from(posSessionsTable)
+      .where(eq(posSessionsTable.branchId, branchBId));
+    // Only the seeded sessionB exists on branchB — no extra row from the forged POST.
+    expect(rows.map((r) => r.id)).toEqual([sessionBId]);
+  });
 });

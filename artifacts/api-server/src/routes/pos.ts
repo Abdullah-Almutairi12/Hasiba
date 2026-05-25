@@ -320,6 +320,19 @@ router.post("/pos/sessions", posGuard, async (req, res) => {
   try {
     const body = CreatePosSessionBody.parse(req.body);
     const sessionNumber = `WRD-${Date.now()}`;
+    // Tenant ownership: refuse to open a POS session on a branch
+    // that belongs to a different company. Returns 404 to hide
+    // existence of foreign branches.
+    const companyId = getCompanyId(req);
+    const [branchRow] = await db
+      .select()
+      .from(branchesTable)
+      .where(and(eq(branchesTable.id, body.branchId), eq(branchesTable.companyId, companyId)))
+      .limit(1);
+    if (!branchRow) {
+      res.status(404).json({ error: "الفرع غير موجود" });
+      return;
+    }
 
     const [session] = await db
       .insert(posSessionsTable)
@@ -331,7 +344,7 @@ router.post("/pos/sessions", posGuard, async (req, res) => {
       })
       .returning();
 
-    const branch = await db.select().from(branchesTable).where(eq(branchesTable.id, session.branchId)).limit(1);
+    const branch = [branchRow];
 
     res.status(201).json({
       ...session,
@@ -573,14 +586,24 @@ router.post(
       company.vatNumber && company.vatNumber !== "—"
         ? company.vatNumber
         : process.env["ZATCA_VAT_NUMBER"] ?? "300000000000003";
+    const companyId = getCompanyId(req);
     const result = await db.transaction(async (tx) => {
       // Resolve the session's branch and the warehouse to issue stock from.
       // Prefer the default warehouse for that branch; fall back to the global
       // default. We refuse to sell when no warehouse is configured rather
       // than silently bypassing the ledger.
+      // Tenant ownership: cross-tenant sessionId is rejected via INNER JOIN
+      // on branches.company_id (sessions inherit tenancy from branch).
       const [session] = await tx
         .select({ branchId: posSessionsTable.branchId })
         .from(posSessionsTable)
+        .innerJoin(
+          branchesTable,
+          and(
+            eq(branchesTable.id, posSessionsTable.branchId),
+            eq(branchesTable.companyId, companyId),
+          ),
+        )
         .where(eq(posSessionsTable.id, body.sessionId))
         .limit(1);
       if (!session) throw new Error("جلسة نقطة البيع غير موجودة");
@@ -612,10 +635,12 @@ router.post(
       let totalCost = 0;
 
       for (const item of body.items) {
+        // Tenant ownership: refuse to price/issue stock for a product
+        // that belongs to another company.
         const [product] = await tx
           .select()
           .from(productsTable)
-          .where(eq(productsTable.id, item.productId))
+          .where(and(eq(productsTable.id, item.productId), eq(productsTable.companyId, companyId)))
           .limit(1);
         if (!product) continue;
 
@@ -950,18 +975,23 @@ router.post(
       let invoiceCustomerId = body.customerId ?? null;
       let invoiceCustomerName: string | null = null;
       if (invoiceCustomerId) {
+        // Tenant ownership: refuse to bind the POS invoice to a customer
+        // who belongs to another company.
         const [c] = await tx
           .select({ name: customersTable.name })
           .from(customersTable)
-          .where(eq(customersTable.id, invoiceCustomerId))
+          .where(and(eq(customersTable.id, invoiceCustomerId), eq(customersTable.companyId, companyId)))
           .limit(1);
-        invoiceCustomerName = c?.name ?? null;
+        if (!c) throw new Error("العميل غير موجود");
+        invoiceCustomerName = c.name;
       }
       if (!invoiceCustomerId) {
+        // Walk-in customer is per-tenant: the same POS-WALKIN tax number is
+        // seeded once per company, so we scope by both fields.
         const [walkin] = await tx
           .select({ id: customersTable.id, name: customersTable.name })
           .from(customersTable)
-          .where(eq(customersTable.taxNumber, "POS-WALKIN"))
+          .where(and(eq(customersTable.taxNumber, "POS-WALKIN"), eq(customersTable.companyId, companyId)))
           .limit(1);
         if (!walkin) throw new Error("نظام: لا يوجد عميل POS-WALKIN — إعادة تشغيل مطلوبة");
         invoiceCustomerId = walkin.id;
