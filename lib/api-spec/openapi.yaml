@@ -4586,6 +4586,20 @@ components:
         defaultDays: { type: integer }
         minDays: { type: integer }
         maxDays: { type: integer }
+        lastAlertSweep:
+          nullable: true
+          type: object
+          description: Summary of the most recent nightly alerts cleanup run.
+          properties:
+            deleted: { type: integer }
+            retentionDays: { type: integer }
+            source:
+              type: string
+              enum: [db, env, default]
+            runAt:
+              type: string
+              format: date-time
+          required: [deleted, retentionDays, source, runAt]
       required:
         [
           alertRetentionDays,
@@ -4595,6 +4609,7 @@ components:
           defaultDays,
           minDays,
           maxDays,
+          lastAlertSweep,
         ]
 
     PermissionMatrix:

@@ -1747,6 +1747,15 @@ export const GetSystemSettingsResponse = zod.object({
   defaultDays: zod.number(),
   minDays: zod.number(),
   maxDays: zod.number(),
+  lastAlertSweep: zod
+    .object({
+      deleted: zod.number(),
+      retentionDays: zod.number(),
+      source: zod.enum(["db", "env", "default"]),
+      runAt: zod.coerce.date(),
+    })
+    .nullable()
+    .describe("Summary of the most recent nightly alerts cleanup run."),
 });
 
 /**

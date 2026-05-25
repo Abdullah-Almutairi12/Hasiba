@@ -569,6 +569,34 @@ function readAlertRetention(systemBag: unknown): number | null {
   return Math.floor(v);
 }
 
+interface LastAlertSweep {
+  deleted: number;
+  retentionDays: number;
+  source: "db" | "env" | "default";
+  runAt: string;
+}
+
+function readLastAlertSweep(systemBag: unknown): LastAlertSweep | null {
+  if (!systemBag || typeof systemBag !== "object") return null;
+  const raw = (systemBag as Record<string, unknown>)["lastAlertSweep"];
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  const deleted = typeof o.deleted === "number" ? o.deleted : null;
+  const retentionDays =
+    typeof o.retentionDays === "number" ? o.retentionDays : null;
+  const source = o.source;
+  const runAt = typeof o.runAt === "string" ? o.runAt : null;
+  if (
+    deleted == null ||
+    retentionDays == null ||
+    runAt == null ||
+    (source !== "db" && source !== "env" && source !== "default")
+  ) {
+    return null;
+  }
+  return { deleted, retentionDays, source, runAt };
+}
+
 router.get("/admin/system-settings", adminOnly, async (req, res) => {
   try {
     const row = await ensureAppSettingsRow();
@@ -592,6 +620,7 @@ router.get("/admin/system-settings", adminOnly, async (req, res) => {
       defaultDays: ALERT_RETENTION_DEFAULT,
       minDays: ALERT_RETENTION_MIN,
       maxDays: ALERT_RETENTION_MAX,
+      lastAlertSweep: readLastAlertSweep(row.system),
     });
   } catch (err) {
     req.log.error({ err }, "Get system settings failed");

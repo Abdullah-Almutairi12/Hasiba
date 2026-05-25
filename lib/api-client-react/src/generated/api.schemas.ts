@@ -1539,6 +1539,25 @@ export const SystemSettingsSource = {
   default: "default",
 } as const;
 
+export type SystemSettingsLastAlertSweepSource =
+  (typeof SystemSettingsLastAlertSweepSource)[keyof typeof SystemSettingsLastAlertSweepSource];
+
+export const SystemSettingsLastAlertSweepSource = {
+  db: "db",
+  env: "env",
+  default: "default",
+} as const;
+
+/**
+ * Summary of the most recent nightly alerts cleanup run.
+ */
+export type SystemSettingsLastAlertSweep = {
+  deleted: number;
+  retentionDays: number;
+  source: SystemSettingsLastAlertSweepSource;
+  runAt: string;
+} | null;
+
 export interface SystemSettings {
   /** Admin-configured DB override (null = not set, falls through to env/default). */
   alertRetentionDays: number | null;
@@ -1549,6 +1568,8 @@ export interface SystemSettings {
   defaultDays: number;
   minDays: number;
   maxDays: number;
+  /** Summary of the most recent nightly alerts cleanup run. */
+  lastAlertSweep: SystemSettingsLastAlertSweep;
 }
 
 export type PermissionMatrixDefaults = { [key: string]: string[] };

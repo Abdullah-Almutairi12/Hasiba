@@ -37,6 +37,35 @@ export interface AlertsSweepSummary {
   deleted: number;
   retentionDays: number;
   source: "db" | "env" | "default";
+  runAt: string;
+}
+
+/**
+ * Persist the last-run summary into `app_settings.system.lastAlertSweep`
+ * (singleton row id=1) so the /admin UI can show what the nightly sweep
+ * actually did. Best-effort — failures are logged and swallowed so the
+ * cron itself doesn't regress.
+ */
+async function persistLastSweep(summary: AlertsSweepSummary): Promise<void> {
+  try {
+    await pool.query(
+      `
+      INSERT INTO app_settings (id, system, updated_at)
+      VALUES (
+        1,
+        jsonb_build_object('lastAlertSweep', $1::jsonb),
+        NOW()
+      )
+      ON CONFLICT (id) DO UPDATE
+        SET system = COALESCE(app_settings.system, '{}'::jsonb)
+                     || jsonb_build_object('lastAlertSweep', $1::jsonb),
+            updated_at = NOW()
+      `,
+      [JSON.stringify(summary)],
+    );
+  } catch (err) {
+    logger.warn({ err }, "alerts cleanup: failed to persist last-run summary");
+  }
 }
 
 function clampRetention(n: number): number | null {
@@ -91,6 +120,7 @@ export async function resolveRetention(): Promise<{
  */
 export async function runAlertsCleanup(): Promise<AlertsSweepSummary> {
   const { retentionDays, source } = await resolveRetention();
+  let deleted = 0;
   try {
     const result = await pool.query(
       `
@@ -100,7 +130,7 @@ export async function runAlertsCleanup(): Promise<AlertsSweepSummary> {
       `,
       [retentionDays],
     );
-    const deleted = result.rowCount ?? 0;
+    deleted = result.rowCount ?? 0;
     if (deleted > 0) {
       logger.info(
         { deleted, retentionDays, source },
@@ -121,11 +151,17 @@ export async function runAlertsCleanup(): Promise<AlertsSweepSummary> {
         "alerts cleanup: failed to record run in alerts_cleanup_runs",
       );
     }
-    return { deleted, retentionDays, source };
   } catch (err) {
     logger.error({ err }, "alerts cleanup failed");
-    return { deleted: 0, retentionDays, source };
   }
+  const summary: AlertsSweepSummary = {
+    deleted,
+    retentionDays,
+    source,
+    runAt: new Date().toISOString(),
+  };
+  await persistLastSweep(summary);
+  return summary;
 }
 
 let started = false;

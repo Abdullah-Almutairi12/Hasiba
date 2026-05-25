@@ -1066,6 +1066,19 @@ function PermissionsMatrixTab() {
   );
 }
 
+function formatRelativeArabic(iso: string): string {
+  const then = new Date(iso).getTime();
+  if (!Number.isFinite(then)) return "";
+  const diffMs = Date.now() - then;
+  const minutes = Math.round(diffMs / 60_000);
+  if (minutes < 1) return "قبل لحظات";
+  if (minutes < 60) return `قبل ${minutes} دقيقة`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `قبل ${hours} ساعة`;
+  const days = Math.round(hours / 24);
+  return `قبل ${days} يوم`;
+}
+
 function AlertRetentionCard() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -1168,6 +1181,22 @@ function AlertRetentionCard() {
                 متغيّر البيئة المضبوط: {settings.envOverride} يوم.
               </>
             )}
+          </div>
+        )}
+        {settings?.lastAlertSweep && (
+          <div
+            className="rounded-md border bg-muted/40 px-3 py-2 text-xs text-muted-foreground"
+            data-testid="text-last-alert-sweep"
+          >
+            آخر تنظيف: حُذف{" "}
+            <span className="font-bold tabular-nums text-foreground">
+              {settings.lastAlertSweep.deleted}
+            </span>{" "}
+            تنبيه{" "}
+            <span title={new Date(settings.lastAlertSweep.runAt).toLocaleString("ar-SA")}>
+              {formatRelativeArabic(settings.lastAlertSweep.runAt)}
+            </span>
+            {" "}(باستخدام {settings.lastAlertSweep.retentionDays} يوم).
           </div>
         )}
         <div className="flex flex-wrap items-center gap-3">
