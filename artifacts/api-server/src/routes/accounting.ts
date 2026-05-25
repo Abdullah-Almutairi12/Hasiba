@@ -637,7 +637,11 @@ router.get("/accounting/closing-entries", reportReadGuard, async (req, res) => {
     const fiscalYearId = req.query.fiscalYearId
       ? Number(req.query.fiscalYearId)
       : undefined;
+    // Tenant scope: closing entries belong to a single company's books.
+    // Without `companyId` this would leak period-close JEs across tenants.
+    const closingCompanyId = getCompanyId(req);
     const wheres: SQL[] = [
+      eq(journalEntriesTable.companyId, closingCompanyId),
       eq(journalEntriesTable.source, "period_close"),
     ];
     if (fiscalYearId) {
@@ -990,6 +994,21 @@ router.post(
       const userId = req.session?.userId ?? null;
       const reason =
         typeof req.body?.reason === "string" ? req.body.reason : undefined;
+      // Cross-tenant mutation defense: confirm the target JE belongs to
+      // the caller's company BEFORE handing the id to reverseJournalEntry
+      // (which loads strictly by id). Forged ids → 404.
+      const reverseCompanyId = getCompanyId(req);
+      const [exists] = await db
+        .select({ id: journalEntriesTable.id })
+        .from(journalEntriesTable)
+        .where(
+          and(
+            eq(journalEntriesTable.id, id),
+            eq(journalEntriesTable.companyId, reverseCompanyId),
+          ),
+        )
+        .limit(1);
+      if (!exists) return res.status(404).json({ error: "القيد غير موجود" });
       const result = await db.transaction((tx) =>
         reverseJournalEntry(tx, id, userId, reason),
       );
