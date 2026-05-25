@@ -7,6 +7,7 @@ import {
   invoicesTable,
   purchaseOrdersTable,
   salesOrdersTable,
+  auditLogsTable,
 } from "@workspace/db";
 import { and, desc, eq, gte, lte, sql } from "drizzle-orm";
 import { financeGuard } from "../middlewares/require-role";
@@ -427,6 +428,59 @@ async function getAllowedCompanyIds(userId: number): Promise<number[]> {
     .where(eq(userCompaniesTable.userId, userId));
   return Array.from(new Set(rows.map((r) => r.companyId)));
 }
+
+/**
+ * GET /intercompany/imbalances/last-scan — the most recent nightly
+ * scan audit row that touched the active company. Nightly cron stamps
+ * `action=scan_nightly, entity=intercompany_imbalance` against the
+ * lowest companyId in each connected group, with details:
+ *   `group=[1,2,3] subtotal=N open=N resolved=N`
+ * We match by a word-boundary regex on the companyId inside the
+ * `group=[…]` list so non-anchor companies still see their scan.
+ * Returns `null` if there is no audit row yet (fresh tenant or scan
+ * has not run since boot).
+ */
+router.get("/intercompany/imbalances/last-scan", async (req, res) => {
+  try {
+    const companyId = getCompanyId(req);
+    const row = await db
+      .select({
+        createdAt: auditLogsTable.createdAt,
+        details: auditLogsTable.details,
+      })
+      .from(auditLogsTable)
+      .where(
+        and(
+          eq(auditLogsTable.action, "scan_nightly"),
+          eq(auditLogsTable.entity, "intercompany_imbalance"),
+          sql`${auditLogsTable.details} ~ ${`group=\\[(.*,)?${companyId}(,.*)?\\]`}`,
+        ),
+      )
+      .orderBy(desc(auditLogsTable.createdAt))
+      .limit(1);
+    if (row.length === 0) {
+      res.json(null);
+      return;
+    }
+    const r = row[0]!;
+    const details = r.details ?? "";
+    const num = (k: string): number => {
+      const m = details.match(new RegExp(`${k}=(-?\\d+)`));
+      return m ? Number(m[1]) : 0;
+    };
+    const subtotal = num("subtotal");
+    const open = num("open");
+    const resolved = num("resolved");
+    res.json({
+      ranAt: r.createdAt.toISOString(),
+      newCount: subtotal + open,
+      resolvedCount: resolved,
+    });
+  } catch (err) {
+    req.log.error({ err }, "fetch last nightly imbalance scan failed");
+    handleRouteError(err, res);
+  }
+});
 
 router.post("/intercompany/imbalances/scan", async (req, res) => {
   try {

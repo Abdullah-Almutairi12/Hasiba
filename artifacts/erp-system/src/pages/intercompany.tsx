@@ -367,6 +367,25 @@ interface ImbalanceRow {
   direction: "outbound" | "inbound";
 }
 
+function formatRelativeArabic(iso: string): string {
+  const then = new Date(iso).getTime();
+  if (!Number.isFinite(then)) return "—";
+  const diffMs = Date.now() - then;
+  if (diffMs < 0) return "الآن";
+  const sec = Math.floor(diffMs / 1000);
+  if (sec < 60) return "قبل لحظات";
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `قبل ${min} دقيقة`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `قبل ${hr} ساعة`;
+  const day = Math.floor(hr / 24);
+  if (day < 7) return `قبل ${day} يوم`;
+  const week = Math.floor(day / 7);
+  if (week < 5) return `قبل ${week} أسبوع`;
+  const month = Math.floor(day / 30);
+  return `قبل ${month} شهر`;
+}
+
 function ImbalancesTab() {
   const qc = useQueryClient();
   const { toast } = useToast();
@@ -381,8 +400,20 @@ function ImbalancesTab() {
       ),
   });
 
+  const { data: lastScan } = useQuery<
+    { ranAt: string; newCount: number; resolvedCount: number } | null
+  >({
+    queryKey: ["intercompany-imbalances-last-scan"],
+    queryFn: () =>
+      fetchJson<{ ranAt: string; newCount: number; resolvedCount: number } | null>(
+        "/api/intercompany/imbalances/last-scan",
+      ),
+    refetchInterval: 5 * 60 * 1000,
+  });
+
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ["intercompany-imbalances"] });
+    qc.invalidateQueries({ queryKey: ["intercompany-imbalances-last-scan"] });
     qc.invalidateQueries({ queryKey: ["intercompany-links"] });
   };
 
@@ -490,6 +521,26 @@ function ImbalancesTab() {
         <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
           تظهر هنا الروابط المتطابقة التي اختلفت قيمتها بين الفاتورة المصدر والمرآة المقابلة. تُحفظ هذه النتائج في قاعدة البيانات عند توليد أي تقرير موحّد أو بالضغط على "فحص الآن".
         </p>
+        <div className="text-xs text-muted-foreground mt-2">
+          {lastScan ? (
+            <span>
+              آخر فحص ليلي: {formatRelativeArabic(lastScan.ranAt)}
+              {" — "}
+              <span className="font-semibold text-foreground">
+                جديد {lastScan.newCount}
+              </span>
+              {" · "}
+              <span className="font-semibold text-foreground">
+                مُسوّى تلقائياً {lastScan.resolvedCount}
+              </span>
+              <span className="mx-1 opacity-60">
+                ({new Date(lastScan.ranAt).toLocaleString("ar-SA")})
+              </span>
+            </span>
+          ) : (
+            <span>لم يُسجَّل فحص ليلي بعد لهذه الشركة.</span>
+          )}
+        </div>
       </CardHeader>
       <CardContent>
         {isLoading ? (
