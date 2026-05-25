@@ -274,6 +274,10 @@ router.get("/pos/payment/intent/:id", posReadGuard, async (req, res) => {
 
 router.get("/pos/sessions", posReadGuard, async (req, res) => {
   try {
+    // Tenant scope: pos_sessions has no direct company_id, so we
+    // enforce isolation via INNER JOIN on branches.company_id —
+    // sessions belonging to other tenants' branches are filtered out.
+    const companyId = getCompanyId(req);
     const sessions = await db
       .select({
         id: posSessionsTable.id,
@@ -288,7 +292,13 @@ router.get("/pos/sessions", posReadGuard, async (req, res) => {
         closedAt: posSessionsTable.closedAt,
       })
       .from(posSessionsTable)
-      .leftJoin(branchesTable, eq(posSessionsTable.branchId, branchesTable.id))
+      .innerJoin(
+        branchesTable,
+        and(
+          eq(posSessionsTable.branchId, branchesTable.id),
+          eq(branchesTable.companyId, companyId),
+        ),
+      )
       .orderBy(desc(posSessionsTable.openedAt))
       .limit(20);
 
@@ -1372,6 +1382,9 @@ router.get("/pos/summary", posReadGuard, async (req, res) => {
   try {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
+    // Tenant scope: every aggregate is filtered by the caller's
+    // company so today's KPIs never include other tenants' sales.
+    const companyId = getCompanyId(req);
 
     const [summary] = await db
       .select({
@@ -1384,35 +1397,40 @@ router.get("/pos/summary", posReadGuard, async (req, res) => {
           select sum(pp.amount::numeric)
             from ${posOrderPaymentsTable} pp
             join ${posOrdersTable} po on po.id = pp.order_id
-           where po.created_at >= ${today} and pp.method = 'cash'
+           where po.created_at >= ${today} and po.company_id = ${companyId} and pp.method = 'cash'
         ), 0)`,
         cardSales: sql<number>`coalesce((
           select sum(pp.amount::numeric)
             from ${posOrderPaymentsTable} pp
             join ${posOrdersTable} po on po.id = pp.order_id
-           where po.created_at >= ${today} and pp.method = 'card'
+           where po.created_at >= ${today} and po.company_id = ${companyId} and pp.method = 'card'
         ), 0)`,
         transferSales: sql<number>`coalesce((
           select sum(pp.amount::numeric)
             from ${posOrderPaymentsTable} pp
             join ${posOrdersTable} po on po.id = pp.order_id
-           where po.created_at >= ${today} and pp.method = 'transfer'
+           where po.created_at >= ${today} and po.company_id = ${companyId} and pp.method = 'transfer'
         ), 0)`,
         stcSales: sql<number>`coalesce((
           select sum(pp.amount::numeric)
             from ${posOrderPaymentsTable} pp
             join ${posOrdersTable} po on po.id = pp.order_id
-           where po.created_at >= ${today} and pp.method = 'stc'
+           where po.created_at >= ${today} and po.company_id = ${companyId} and pp.method = 'stc'
         ), 0)`,
         deferredSales: sql<number>`coalesce((
           select sum(pp.amount::numeric)
             from ${posOrderPaymentsTable} pp
             join ${posOrdersTable} po on po.id = pp.order_id
-           where po.created_at >= ${today} and pp.method = 'deferred'
+           where po.created_at >= ${today} and po.company_id = ${companyId} and pp.method = 'deferred'
         ), 0)`,
       })
       .from(posOrdersTable)
-      .where(gte(posOrdersTable.createdAt, today));
+      .where(
+        and(
+          gte(posOrdersTable.createdAt, today),
+          eq(posOrdersTable.companyId, companyId),
+        ),
+      );
 
     const count = Number(summary.ordersCount);
     const total = Number(summary.totalSales);

@@ -826,8 +826,13 @@ router.get("/sales/quotations/:id", customerReadGuard, async (req, res) => {
 router.post("/sales/quotations", salesWriteGuard, async (req, res) => {
   try {
     const body = QuoteBody.parse(req.body);
+    const companyId = getCompanyId(req);
     const result = await db.transaction(async (tx) => {
-      const [customer] = await tx.select().from(customersTable).where(eq(customersTable.id, body.customerId));
+      // Tenant scope: cross-tenant customerId resolves to 404 (hides existence).
+      const [customer] = await tx
+        .select()
+        .from(customersTable)
+        .where(and(eq(customersTable.id, body.customerId), eq(customersTable.companyId, companyId)));
       if (!customer) throw new Error("العميل غير موجود");
       const pricelistId = body.pricelistId ?? (await resolveCustomerPricelist(tx, customer.id));
 
@@ -1070,8 +1075,13 @@ router.get("/sales/orders/:id", customerReadGuard, async (req, res) => {
 router.post("/sales/orders", salesWriteGuard, async (req, res) => {
   try {
     const body = SoBody.parse(req.body);
+    const companyId = getCompanyId(req);
     const result = await db.transaction(async (tx) => {
-      const [customer] = await tx.select().from(customersTable).where(eq(customersTable.id, body.customerId));
+      // Tenant scope: customer must belong to the caller's company.
+      const [customer] = await tx
+        .select()
+        .from(customersTable)
+        .where(and(eq(customersTable.id, body.customerId), eq(customersTable.companyId, companyId)));
       if (!customer) throw new Error("العميل غير موجود");
       const pricelistId = body.pricelistId ?? (await resolveCustomerPricelist(tx, customer.id));
 
@@ -2236,7 +2246,11 @@ router.post("/sales/invoices", financeGuard, async (req, res) => {
         customerId = foundSo.customerId;
       }
       if (!customerId) throw new Error("يجب تحديد العميل أو أمر البيع");
-      const [customer] = await tx.select().from(customersTable).where(eq(customersTable.id, customerId));
+      // Tenant scope: refuse if the resolved customer (direct or via SO) is foreign.
+      const [customer] = await tx
+        .select()
+        .from(customersTable)
+        .where(and(eq(customersTable.id, customerId), eq(customersTable.companyId, getCompanyId(req))));
       if (!customer) throw new Error("العميل غير موجود");
 
       let enriched: Parameters<typeof computeTotals>[0] = [];
@@ -2839,8 +2853,12 @@ router.post("/sales/receipts", financeGuard, async (req, res) => {
     if (Math.abs(allocSum - body.amount) > 0.01)
       { res.status(400).json({ error: "مجموع التوزيع يجب أن يساوي مبلغ السند" }); return; }
 
+    const companyId = getCompanyId(req);
     const result = await db.transaction(async (tx) => {
-      const [customer] = await tx.select().from(customersTable).where(eq(customersTable.id, body.customerId));
+      const [customer] = await tx
+        .select()
+        .from(customersTable)
+        .where(and(eq(customersTable.id, body.customerId), eq(customersTable.companyId, companyId)));
       if (!customer) throw new Error("العميل غير موجود");
 
       const reference = await nextRef(tx, "RCT");
@@ -2993,8 +3011,12 @@ router.post(
   async (req, res) => {
   try {
     const body = CreditNoteBody.parse(req.body);
+    const companyId = getCompanyId(req);
     const result = await db.transaction(async (tx) => {
-      const [customer] = await tx.select().from(customersTable).where(eq(customersTable.id, body.customerId));
+      const [customer] = await tx
+        .select()
+        .from(customersTable)
+        .where(and(eq(customersTable.id, body.customerId), eq(customersTable.companyId, companyId)));
       if (!customer) throw new Error("العميل غير موجود");
 
       // ============== Source-document validation ==============
@@ -3372,7 +3394,11 @@ router.post("/sales/quotations/:id/send", salesWriteGuard, async (req, res) => {
       res.status(409).json({ error: `لا يمكن إرسال عرض في حالة ${q.status}` });
       return;
     }
-    const [customer] = await db.select().from(customersTable).where(eq(customersTable.id, q.customerId));
+    // Tenant scope: only reveal customer details if they belong to the caller's tenant.
+    const [customer] = await db
+      .select()
+      .from(customersTable)
+      .where(and(eq(customersTable.id, q.customerId), eq(customersTable.companyId, getCompanyId(req))));
     const recipient = body.to ?? customer?.email ?? null;
     if (!recipient) { res.status(400).json({ error: "لا يوجد بريد إلكتروني للعميل" }); return; }
     const subject = body.subject ?? `عرض سعر ${q.reference}`;
