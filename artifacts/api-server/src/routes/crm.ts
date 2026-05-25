@@ -10,6 +10,7 @@ import {
 } from "@workspace/db";
 import { and, desc, eq, sql, asc, inArray } from "drizzle-orm";
 import { handleRouteError } from "../lib/handle-error";
+import { getCompanyId } from "../lib/scoped-db";
 import {
   adminGuard,
   customerReadGuard,
@@ -128,7 +129,12 @@ router.post("/crm/opportunities", salesWriteGuard, async (req, res) => {
     if (!stage) { res.status(400).json({ error: "المرحلة غير موجودة" }); return; }
     let customerName = b.customerName ?? null;
     if (b.customerId && !customerName) {
-      const [c] = await db.select().from(customersTable).where(eq(customersTable.id, b.customerId));
+      // Tenant scope: only resolve customers belonging to the caller's company.
+      const companyId = getCompanyId(req);
+      const [c] = await db
+        .select()
+        .from(customersTable)
+        .where(and(eq(customersTable.id, b.customerId), eq(customersTable.companyId, companyId)));
       customerName = c?.name ?? null;
     }
     const [row] = await db

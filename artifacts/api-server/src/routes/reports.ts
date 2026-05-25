@@ -1,7 +1,8 @@
 import { Router } from "express";
 import { db, posOrdersTable, productsTable } from "@workspace/db";
-import { sql, gte } from "drizzle-orm";
+import { sql, gte, and, eq } from "drizzle-orm";
 import { reportReadGuard } from "../middlewares/require-role";
+import { getCompanyId } from "../lib/scoped-db";
 
 const router = Router();
 
@@ -13,6 +14,11 @@ router.use("/reports", reportReadGuard);
 
 router.get("/reports/sales", async (req, res) => {
   try {
+    // Tenant scope: every aggregation below must filter by the caller's
+    // company_id. pos_orders + products both have NOT NULL company_id.
+    const companyId = getCompanyId(req);
+    const posScope = eq(posOrdersTable.companyId, companyId);
+    const prodScope = eq(productsTable.companyId, companyId);
     const period = (req.query.period as string) || "monthly";
     const now = new Date();
 
@@ -53,7 +59,7 @@ router.get("/reports/sales", async (req, res) => {
         cnt: sql<string>`count(*)`,
       })
       .from(posOrdersTable)
-      .where(gte(posOrdersTable.createdAt, startDate))
+      .where(and(gte(posOrdersTable.createdAt, startDate), posScope))
       .groupBy(sql`bucket`);
 
     const map = new Map<number, { total: number; cnt: number }>();
@@ -81,7 +87,7 @@ router.get("/reports/sales", async (req, res) => {
         avgMargin: sql<string>`coalesce(avg((${productsTable.price}::numeric - ${productsTable.costPrice}::numeric) / nullif(${productsTable.price}::numeric, 0)), 0.30)`,
       })
       .from(productsTable)
-      .where(sql`${productsTable.isActive} = true`);
+      .where(and(sql`${productsTable.isActive} = true`, prodScope));
     const margin = Number(marginRow.avgMargin);
 
     const avgOrderValue = totalOrders > 0 ? totalRevenue / totalOrders : 0;
@@ -102,6 +108,7 @@ router.get("/reports/sales", async (req, res) => {
 
 router.get("/reports/ai-summary", async (req, res) => {
   try {
+    const companyId = getCompanyId(req);
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const yesterday = new Date(today);
@@ -112,14 +119,14 @@ router.get("/reports/ai-summary", async (req, res) => {
         total: sql<string>`coalesce(sum(${posOrdersTable.total}::numeric), 0)`,
       })
       .from(posOrdersTable)
-      .where(gte(posOrdersTable.createdAt, today));
+      .where(and(gte(posOrdersTable.createdAt, today), eq(posOrdersTable.companyId, companyId)));
 
     const [marginRow] = await db
       .select({
         avgMargin: sql<string>`coalesce(avg((${productsTable.price}::numeric - ${productsTable.costPrice}::numeric) / nullif(${productsTable.price}::numeric, 0)), 0.30)`,
       })
       .from(productsTable)
-      .where(sql`${productsTable.isActive} = true`);
+      .where(and(sql`${productsTable.isActive} = true`, eq(productsTable.companyId, companyId)));
 
     const sales = Number(todayAgg.total);
     const margin = Number(marginRow.avgMargin);
@@ -237,7 +244,10 @@ router.get("/reports/fraud-detection", async (_req, res) => {
 
 router.get("/reports/top-products", async (req, res) => {
   try {
-    // Aggregate items from pos_orders.items JSONB. Each item: {productId, quantity, price}
+    // Aggregate items from pos_orders.items JSONB. Each item: {productId, quantity, price}.
+    // Tenant scope: filter both the CTE source (pos_orders) and the outer SELECT (products)
+    // by company_id so one tenant's report cannot include another tenant's lines/products.
+    const companyId = getCompanyId(req);
     const rows = await db.execute(sql`
       WITH expanded AS (
         SELECT
@@ -246,6 +256,7 @@ router.get("/reports/top-products", async (req, res) => {
           coalesce((item->>'price')::numeric, 0) AS price
         FROM ${posOrdersTable},
         jsonb_array_elements(${posOrdersTable.items}) AS item
+        WHERE ${posOrdersTable.companyId} = ${companyId}
       )
       SELECT
         p.id,
@@ -256,6 +267,7 @@ router.get("/reports/top-products", async (req, res) => {
       FROM ${productsTable} p
       LEFT JOIN expanded e ON e.product_id = p.id
       WHERE p.is_active = true
+        AND p.company_id = ${companyId}
       GROUP BY p.id, p.name, p.name_ar
       ORDER BY "salesCount" DESC
       LIMIT 5

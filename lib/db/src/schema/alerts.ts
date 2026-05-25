@@ -10,7 +10,16 @@ export const alertsTable = pgTable("alerts", {
   message: text("message").notNull(),
   isRead: boolean("is_read").notNull().default(false),
   /** Nullable in Phase 1; becomes NOT NULL in Phase 2 once tenant scoping lands. */
-  companyId: integer("company_id").notNull().references(() => companiesTable.id, { onDelete: "restrict" }),
+  /**
+   * Nullable on purpose: cross-tenant operational alerts emitted by
+   * background workers (invoice-email-retry-worker for quotation/PO
+   * outboxes, reporting-workers KPI evaluator) cannot derive a single
+   * tenant because their parent tables aren't yet tenant-scoped. The
+   * dashboard reader (/dashboard/alerts) uses strict eq(companyId,…),
+   * so NULL alerts never leak into a specific tenant's feed — they
+   * remain visible only via cross-tenant operations views.
+   */
+  companyId: integer("company_id").references(() => companiesTable.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
