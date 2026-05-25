@@ -61,6 +61,10 @@ interface Quotation {
     error: string | null;
     createdAt: string | null;
     sentAt: string | null;
+    attempts?: number;
+    nextRetryAt?: string | null;
+    exhausted?: boolean;
+    maxAttempts?: number;
   } | null;
 }
 interface SalesOrder extends Quotation {
@@ -94,6 +98,10 @@ interface Invoice extends Quotation {
     error: string | null;
     createdAt: string | null;
     sentAt: string | null;
+    attempts?: number;
+    nextRetryAt?: string | null;
+    exhausted?: boolean;
+    maxAttempts?: number;
   } | null;
 }
 interface Receipt {
@@ -709,6 +717,14 @@ function SendStatusCell({ invoice }: { invoice: Invoice }) {
 
 function InvoicesTab() {
   const { data, isLoading, refetch } = useApiQuery<Invoice[]>("/sales/invoices");
+  // Polled separately because the background email-retry worker can flip
+  // an invoice into "exhausted" state on its own schedule (no user
+  // action). A short refetch keeps the KPI banner honest without
+  // requiring a manual page refresh.
+  const { data: failureKpi, refetch: refetchKpi } = useApiQuery<{
+    exhaustedCount: number;
+    maxAttempts: number;
+  }>("/sales/invoices/email-failure-count", { refetchInterval: 60_000 });
   const [open, setOpen] = useState(false);
   const { canManageFinance } = usePermissions();
   const { toast } = useToast();
@@ -783,6 +799,8 @@ function InvoicesTab() {
     }
   }
 
+  const exhaustedCount = failureKpi?.exhaustedCount ?? 0;
+
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between">
@@ -796,6 +814,20 @@ function InvoicesTab() {
           </Dialog>
         )}
       </CardHeader>
+      {exhaustedCount > 0 && (
+        <div
+          className="mx-4 mt-2 mb-3 flex items-start gap-2 rounded-md border border-rose-300 bg-rose-50 px-3 py-2 text-sm text-rose-900"
+          data-testid="banner-invoice-email-exhausted"
+        >
+          <AlertCircle className="size-4 mt-0.5 shrink-0 text-rose-700" />
+          <div className="flex-1">
+            <span className="font-semibold" data-testid="text-invoice-email-exhausted-count">
+              {exhaustedCount} {exhaustedCount === 1 ? "فاتورة فشل" : "فواتير فشل"} إرسالها نهائياً
+            </span>{" "}
+            بعد {failureKpi?.maxAttempts ?? 5} محاولات تلقائية. افتح "سجل الإرسال" للفاتورة وأعد المحاولة يدوياً.
+          </div>
+        </div>
+      )}
       <CardContent className="p-0">
         <DocTable
           isLoading={isLoading}
@@ -941,7 +973,7 @@ function InvoicesTab() {
       <InvoiceSendHistorySheet
         target={historyTarget}
         onClose={() => setHistoryTarget(null)}
-        onAfterRetry={refetch}
+        onAfterRetry={async () => { await refetch(); await refetchKpi(); }}
       />
       <Dialog open={!!sendTarget} onOpenChange={(o) => { if (!o) { setSendTarget(null); setSendTo(""); } }}>
         <DialogContent>
@@ -1929,10 +1961,14 @@ type SendHistoryItem = {
   id: number;
   recipient: string;
   subject: string;
-  status: "sent" | "queued" | string;
+  status: "sent" | "queued" | "failed" | string;
   error: string | null;
   createdAt: string;
   sentAt: string | null;
+  attempts: number;
+  retryOf: number | null;
+  nextRetryAt: string | null;
+  attemptNumber: number | null;
 };
 
 function InvoiceSendHistorySheet({
@@ -1948,16 +1984,20 @@ function InvoiceSendHistorySheet({
   const [items, setItems] = useState<SendHistoryItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [mailerConfigured, setMailerConfigured] = useState<boolean | null>(null);
+  const [maxAttempts, setMaxAttempts] = useState<number>(5);
   const [retryingId, setRetryingId] = useState<number | null>(null);
 
   async function load(id: number) {
     setLoading(true);
     try {
-      const r = await apiGet<{ items: SendHistoryItem[]; mailerConfigured: boolean }>(
-        `/sales/invoices/${id}/send-history`,
-      );
+      const r = await apiGet<{
+        items: SendHistoryItem[];
+        mailerConfigured: boolean;
+        maxAttempts?: number;
+      }>(`/sales/invoices/${id}/send-history`);
       setItems(r.items ?? []);
       setMailerConfigured(r.mailerConfigured);
+      if (typeof r.maxAttempts === "number") setMaxAttempts(r.maxAttempts);
     } catch (e) {
       toast({ title: "تعذّر تحميل السجل", description: errMsg(e), variant: "destructive" });
     } finally {
@@ -2037,9 +2077,27 @@ function InvoiceSendHistorySheet({
           ) : (
             items.map((it) => {
               const isSent = it.status === "sent";
+              // A root row (retry_of IS NULL) is "exhausted" once its
+              // attempts counter reaches the worker's MAX and there's no
+              // next-retry scheduled. Child audit rows always have
+              // attempts=0, so this only fires for the parent that the
+              // background worker has given up on.
+              const isExhausted =
+                it.status === "failed" &&
+                it.retryOf == null &&
+                it.attempts >= maxAttempts &&
+                !it.nextRetryAt;
               const statusBadge = isSent ? (
                 <Badge variant="outline" className="bg-emerald-50 text-emerald-800 border-emerald-300 gap-1 font-normal">
                   <CheckCircle2 className="size-3" /> تم التسليم
+                </Badge>
+              ) : isExhausted ? (
+                <Badge
+                  variant="outline"
+                  className="bg-rose-100 text-rose-900 border-rose-400 gap-1 font-normal"
+                  data-testid={`badge-send-history-exhausted-${it.id}`}
+                >
+                  <XCircle className="size-3" /> تم استنفاد المحاولات
                 </Badge>
               ) : (
                 <Badge variant="outline" className="bg-rose-50 text-rose-800 border-rose-300 gap-1 font-normal">
@@ -2051,14 +2109,27 @@ function InvoiceSendHistorySheet({
                   key={it.id}
                   className="rounded-md border p-3 space-y-2"
                   data-testid={`send-history-row-${it.id}`}
+                  data-attempt-number={it.attemptNumber ?? ""}
                 >
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="flex items-center gap-2 text-sm">
+                    <div className="flex items-center gap-2 text-sm flex-wrap">
                       <Mail className="size-4 text-muted-foreground" />
                       <span className="font-medium" dir="ltr">{it.recipient}</span>
                       <Badge variant="outline" className="font-normal text-[10px] py-0 px-1.5">
                         بريد إلكتروني
                       </Badge>
+                      {it.attemptNumber != null && (
+                        <Badge
+                          variant="outline"
+                          className="font-normal text-[10px] py-0 px-1.5 bg-slate-50 text-slate-700 border-slate-300"
+                          data-testid={`badge-send-attempt-${it.id}`}
+                        >
+                          المحاولة #{it.attemptNumber}
+                          {it.retryOf == null
+                            ? " (الأصلية)"
+                            : " (إعادة تلقائية)"}
+                        </Badge>
+                      )}
                     </div>
                     {statusBadge}
                   </div>
@@ -2068,10 +2139,35 @@ function InvoiceSendHistorySheet({
                     {it.sentAt && (
                       <span>سُلّمت: {new Date(it.sentAt).toLocaleString("ar-SA")}</span>
                     )}
+                    {it.retryOf != null && (
+                      <span data-testid={`text-send-retry-of-${it.id}`}>
+                        إعادة محاولة للسجل #{it.retryOf}
+                      </span>
+                    )}
+                    {it.retryOf == null && it.attempts > 0 && (
+                      <span>عدد المحاولات حتى الآن: {it.attempts}/{maxAttempts}</span>
+                    )}
                   </div>
                   {it.error && (
                     <div className="rounded bg-rose-50 border border-rose-200 px-2 py-1 text-[11px] text-rose-900 whitespace-pre-wrap">
                       {it.error}
+                    </div>
+                  )}
+                  {it.status === "failed" && it.retryOf == null && !isExhausted && it.nextRetryAt && (
+                    <div
+                      className="rounded bg-amber-50 border border-amber-200 px-2 py-1 text-[11px] text-amber-900"
+                      data-testid={`text-send-next-retry-${it.id}`}
+                    >
+                      إعادة المحاولة التلقائية القادمة: {new Date(it.nextRetryAt).toLocaleString("ar-SA")}
+                    </div>
+                  )}
+                  {isExhausted && (
+                    <div
+                      className="rounded bg-rose-50 border border-rose-200 px-2 py-1 text-[11px] text-rose-900"
+                      data-testid={`text-send-exhausted-${it.id}`}
+                    >
+                      تم استنفاد جميع المحاولات التلقائية ({it.attempts}/{maxAttempts}).
+                      اضغط "إعادة الإرسال" لإعادة المحاولة يدوياً.
                     </div>
                   )}
                   {!isSent && (

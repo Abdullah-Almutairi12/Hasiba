@@ -13,6 +13,10 @@ export interface LastSend {
   error: string | null;
   createdAt: string | null;
   sentAt: string | null;
+  attempts?: number | null;
+  maxAttempts?: number | null;
+  nextRetryAt?: string | null;
+  exhausted?: boolean | null;
 }
 
 export function SendStatusBadge({
@@ -25,6 +29,13 @@ export function SendStatusBadge({
   const ls = doc.lastSend;
   if (!ls) return null;
   const tone: { className: string; dot: string; label: string } = (() => {
+    if (ls.status === "failed" && ls.exhausted) {
+      return {
+        className: "bg-rose-100 text-rose-900 border-rose-400",
+        dot: "bg-rose-700",
+        label: "تم استنفاد المحاولات",
+      };
+    }
     switch (ls.status) {
       case "sent":
         return {
@@ -42,7 +53,10 @@ export function SendStatusBadge({
         return {
           className: "bg-red-50 text-red-800 border-red-300",
           dot: "bg-red-500",
-          label: "فشل",
+          label:
+            ls.attempts && ls.maxAttempts
+              ? `فشل — محاولة ${ls.attempts}/${ls.maxAttempts}`
+              : "فشل",
         };
       default:
         return {
@@ -89,6 +103,17 @@ export function SendStatusBadge({
             {!ls.error && ls.status === "queued" && (
               <div className="text-amber-700 dark:text-amber-300">
                 لم يتم التأكيد بعد — البريد في قائمة الانتظار.
+              </div>
+            )}
+            {ls.status === "failed" && !ls.exhausted && ls.nextRetryAt && (
+              <div className="text-amber-700 dark:text-amber-300">
+                إعادة المحاولة التلقائية: {new Date(ls.nextRetryAt).toLocaleString("ar-SA")}
+              </div>
+            )}
+            {ls.status === "failed" && ls.exhausted && (
+              <div className="text-rose-800 dark:text-rose-200">
+                تم استنفاد جميع المحاولات التلقائية ({ls.attempts ?? 0}/{ls.maxAttempts ?? 0}).
+                يلزم إعادة إرسال يدوية من سجل الإرسال.
               </div>
             )}
           </div>

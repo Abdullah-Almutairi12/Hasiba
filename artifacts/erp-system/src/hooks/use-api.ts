@@ -51,11 +51,15 @@ export async function apiDelete<T>(path: string): Promise<T> {
   return (await res.json()) as T;
 }
 
-export function useApiQuery<T>(path: string, options?: { enabled?: boolean }) {
+export function useApiQuery<T>(
+  path: string,
+  options?: { enabled?: boolean; refetchInterval?: number },
+) {
   return useQuery<T>({
     queryKey: [path],
     queryFn: () => apiGet<T>(path),
     enabled: options?.enabled ?? true,
+    refetchInterval: options?.refetchInterval,
   });
 }
 

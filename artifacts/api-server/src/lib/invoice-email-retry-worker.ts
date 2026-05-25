@@ -17,7 +17,7 @@ import { renderCustomerInvoicePdfById } from "../routes/sales";
 // stamp is set, or (b) attempts hits MAX_ATTEMPTS, in which case the
 // original stays 'failed' permanently and the UI keeps showing it red.
 
-const MAX_ATTEMPTS = 5;
+export const MAX_ATTEMPTS = 5;
 const BACKOFF_BASE_MS = 60_000;
 const BACKOFF_CAP_MS = 60 * 60_000;
 const BATCH_SIZE = 10;

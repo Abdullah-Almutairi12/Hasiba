@@ -55,6 +55,7 @@ import { sendByTemplate } from "../lib/integrations/messaging-templates";
 import { buildSignedInvoiceQrPath } from "./integrations";
 import { recordStockMove, getDefaultWarehouseId } from "../lib/stock-engine";
 import { sendMail, isMailerConfigured } from "../lib/mailer";
+import { MAX_ATTEMPTS as INVOICE_EMAIL_MAX_ATTEMPTS } from "../lib/invoice-email-retry-worker";
 import { warehousesTable as _warehousesTable } from "@workspace/db";
 import {
   submitForApproval,
@@ -1566,6 +1567,18 @@ router.get("/sales/invoices", customerReadGuard, async (req, res) => {
       error: string | null;
       createdAt: string | null;
       sentAt: string | null;
+      attempts: number;
+      nextRetryAt: string | null;
+      exhausted: boolean;
+      maxAttempts: number;
+    }>();
+    // Per-invoice "latest root attempt" — drives the
+    // "exhausted retries" flag the UI uses to switch the badge
+    // and feed the "X فواتير فشل إرسالها نهائياً" KPI banner.
+    const latestRootById = new Map<number, {
+      status: string;
+      attempts: number;
+      nextRetryAt: string | null;
     }>();
     if (ids.length > 0) {
       // Only successfully-dispatched sends count as "تم الإرسال". Queued
@@ -1611,11 +1624,49 @@ router.get("/sales/invoices", customerReadGuard, async (req, res) => {
       `);
       const lastRows = ((lastRes as unknown as { rows?: Array<Record<string, unknown>> }).rows
         ?? (lastRes as unknown as Array<Record<string, unknown>>)) ?? [];
+      // Latest root attempt per invoice — carries the live retry counter
+      // and the next-retry timestamp set by the background worker. We
+      // need this separately from `lastRes` because the most-recent row
+      // may be an immutable child audit record (attempts=0) inserted by
+      // the worker; only the root row tracks the live `attempts` total.
+      const rootRes = await db.execute(sql`
+        SELECT DISTINCT ON (ref_id)
+          ref_id AS "refId",
+          status,
+          attempts,
+          next_retry_at AS "nextRetryAt"
+        FROM sales_email_outbox
+        WHERE kind = 'invoice'
+          AND ref_id = ANY(${ids}::int[])
+          AND retry_of IS NULL
+        ORDER BY ref_id, created_at DESC, id DESC
+      `);
+      const rootRows = ((rootRes as unknown as { rows?: Array<Record<string, unknown>> }).rows
+        ?? (rootRes as unknown as Array<Record<string, unknown>>)) ?? [];
+      for (const r of rootRows) {
+        const refId = Number((r as Record<string, unknown>)["refId"]);
+        if (!Number.isFinite(refId)) continue;
+        const nextRetryAt = (r as Record<string, unknown>)["nextRetryAt"];
+        latestRootById.set(refId, {
+          status: String((r as Record<string, unknown>)["status"] ?? ""),
+          attempts: Number((r as Record<string, unknown>)["attempts"] ?? 0),
+          nextRetryAt: nextRetryAt instanceof Date
+            ? nextRetryAt.toISOString()
+            : (nextRetryAt as string | null) ?? null,
+        });
+      }
       for (const r of lastRows) {
         const refId = Number((r as Record<string, unknown>)["refId"]);
         if (!Number.isFinite(refId)) continue;
         const createdAt = (r as Record<string, unknown>)["createdAt"];
         const sentAt = (r as Record<string, unknown>)["sentAt"];
+        const root = latestRootById.get(refId);
+        const attempts = root?.attempts ?? 0;
+        const nextRetryAt = root?.nextRetryAt ?? null;
+        const exhausted =
+          root?.status === "failed" &&
+          attempts >= INVOICE_EMAIL_MAX_ATTEMPTS &&
+          !nextRetryAt;
         lastSendById.set(refId, {
           outboxId: Number((r as Record<string, unknown>)["outboxId"]),
           status: String((r as Record<string, unknown>)["status"] ?? ""),
@@ -1631,6 +1682,10 @@ router.get("/sales/invoices", customerReadGuard, async (req, res) => {
           sentAt: sentAt instanceof Date
             ? sentAt.toISOString()
             : (sentAt as string | null) ?? null,
+          attempts,
+          nextRetryAt,
+          exhausted,
+          maxAttempts: INVOICE_EMAIL_MAX_ATTEMPTS,
         });
       }
       const waRes = await db.execute(sql`
@@ -1691,6 +1746,30 @@ router.get("/sales/invoices", customerReadGuard, async (req, res) => {
       };
     });
     res.json(out);
+  } catch (err) {
+    handleRouteError(err, res);
+  }
+});
+
+// Count of invoices whose latest email send has exhausted all auto-retry
+// attempts (status='failed', attempts >= MAX, no next_retry_at scheduled).
+// Powers the "X فواتير فشل إرسالها نهائياً" KPI banner on the invoices
+// list so staff notice without having to scroll the table.
+router.get("/sales/invoices/email-failure-count", customerReadGuard, async (_req, res) => {
+  try {
+    const result = await db.execute(sql`
+      SELECT COUNT(*)::int AS count
+      FROM sales_email_outbox
+      WHERE kind = 'invoice'
+        AND retry_of IS NULL
+        AND status = 'failed'
+        AND attempts >= ${INVOICE_EMAIL_MAX_ATTEMPTS}
+        AND next_retry_at IS NULL;
+    `);
+    const rows = (result as unknown as { rows?: Array<Record<string, unknown>> }).rows
+      ?? (result as unknown as Array<Record<string, unknown>>);
+    const count = Number(rows?.[0]?.count ?? 0);
+    res.json({ exhaustedCount: count, maxAttempts: INVOICE_EMAIL_MAX_ATTEMPTS });
   } catch (err) {
     handleRouteError(err, res);
   }
@@ -1956,15 +2035,48 @@ router.get("/sales/invoices/:id/send-history", financeGuard, async (req, res) =>
     const result = await db.execute(sql`
       SELECT id, kind, ref_id AS "refId", reference, recipient, subject,
              status, error, created_at AS "createdAt", sent_at AS "sentAt",
-             created_by AS "createdBy"
+             created_by AS "createdBy",
+             attempts, retry_of AS "retryOf", next_retry_at AS "nextRetryAt"
       FROM sales_email_outbox
       WHERE kind = 'invoice' AND ref_id = ${id}
       ORDER BY created_at DESC
       LIMIT 50;
     `);
-    const rows = (result as unknown as { rows?: Array<Record<string, unknown>> }).rows
-      ?? (result as unknown as Array<Record<string, unknown>>);
-    res.json({ items: rows ?? [], mailerConfigured: isMailerConfigured() });
+    const rows = ((result as unknown as { rows?: Array<Record<string, unknown>> }).rows
+      ?? (result as unknown as Array<Record<string, unknown>>)) ?? [];
+    // The send-history drawer needs to label each row with its sequential
+    // attempt number ("المحاولة #N"). The root row is attempt #1; each
+    // child audit row (retry_of != null) is attempt #N where N is its
+    // 1-based position among siblings ordered by created_at ASC. We
+    // compute that here so the UI doesn't have to.
+    const ascending = [...rows].sort((a, b) => {
+      const ta = new Date(String(a["createdAt"])).getTime();
+      const tb = new Date(String(b["createdAt"])).getTime();
+      return ta - tb;
+    });
+    const attemptNumberById = new Map<number, number>();
+    const childCountByRoot = new Map<number, number>();
+    for (const r of ascending) {
+      const id = Number(r["id"]);
+      const retryOf = r["retryOf"] == null ? null : Number(r["retryOf"]);
+      if (retryOf == null) {
+        attemptNumberById.set(id, 1);
+      } else {
+        const prior = childCountByRoot.get(retryOf) ?? 0;
+        const n = prior + 2; // root is #1; siblings start at #2
+        attemptNumberById.set(id, n);
+        childCountByRoot.set(retryOf, prior + 1);
+      }
+    }
+    const items = rows.map((r) => ({
+      ...r,
+      attemptNumber: attemptNumberById.get(Number(r["id"])) ?? null,
+    }));
+    res.json({
+      items,
+      mailerConfigured: isMailerConfigured(),
+      maxAttempts: INVOICE_EMAIL_MAX_ATTEMPTS,
+    });
   } catch (err) {
     handleRouteError(err, res);
   }
