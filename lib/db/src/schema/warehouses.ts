@@ -10,8 +10,8 @@ export const warehousesTable = pgTable("warehouses", {
   nameAr: text("name_ar").notNull(),
   isDefault: boolean("is_default").notNull().default(false),
   isScrap: boolean("is_scrap").notNull().default(false),
-  /** Nullable in Phase 1; becomes NOT NULL in Phase 2 once tenant scoping lands. */
-  companyId: integer("company_id").references(() => companiesTable.id, { onDelete: "set null" }),
+  /** Tenant scope (Phase 2): NOT NULL with restrict to prevent silent orphans. */
+  companyId: integer("company_id").notNull().references(() => companiesTable.id, { onDelete: "restrict" }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

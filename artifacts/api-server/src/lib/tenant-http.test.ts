@@ -30,6 +30,7 @@ import {
   branchesTable,
   posSessionsTable,
   posOrdersTable,
+  auditLogsTable,
 } from "@workspace/db";
 import app from "../app";
 
@@ -282,6 +283,10 @@ afterAll(async () => {
   }
   const coIds = [companyAId, companyBId].filter((n) => n > 0);
   if (coIds.length > 0) {
+    // audit_logs.company_id is NOT NULL post-Phase-2, so the FK
+    // ON DELETE SET NULL can no longer fire. Clear tenant-scoped
+    // audit rows explicitly before dropping the company.
+    await db.delete(auditLogsTable).where(inArray(auditLogsTable.companyId, coIds));
     await db.delete(companiesTable).where(inArray(companiesTable.id, coIds));
   }
 });
@@ -530,7 +535,9 @@ describe("HTTP — /api/pos/orders is tenant-scoped", () => {
   // visible cell value to assert per-tenant isolation.
   async function readXlsxCells(buf: Buffer): Promise<string> {
     const wb = new ExcelJS.Workbook();
-    await wb.xlsx.load(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength));
+    const ab = new ArrayBuffer(buf.byteLength);
+    new Uint8Array(ab).set(buf);
+    await wb.xlsx.load(ab);
     const out: string[] = [];
     wb.eachSheet((ws) => {
       ws.eachRow((row) => {
