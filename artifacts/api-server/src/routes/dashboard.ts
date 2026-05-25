@@ -36,12 +36,12 @@ router.get("/dashboard/manager-bar", adminGuard, async (req, res) => {
     const yesterday = new Date(today);
     yesterday.setDate(yesterday.getDate() - 1);
 
-    // Tenant scope: scoped tables use `company_id`, and rows may exist with
-    // a NULL company_id from legacy backfill — treat NULL as "any company".
-    const posScope = sql`(${posOrdersTable.companyId} = ${companyId} OR ${posOrdersTable.companyId} IS NULL)`;
-    const invScope = sql`(${invoicesTable.companyId} = ${companyId} OR ${invoicesTable.companyId} IS NULL)`;
-    const prodScope = sql`(${productsTable.companyId} = ${companyId} OR ${productsTable.companyId} IS NULL)`;
-    const alertScope = sql`(${alertsTable.companyId} = ${companyId} OR ${alertsTable.companyId} IS NULL)`;
+    // Tenant scope: strict per-company predicates. company_id is now
+    // NOT NULL on all scoped tables (migration 0007).
+    const posScope = eq(posOrdersTable.companyId, companyId);
+    const invScope = eq(invoicesTable.companyId, companyId);
+    const prodScope = eq(productsTable.companyId, companyId);
+    const alertScope = eq(alertsTable.companyId, companyId);
 
     // Run independent aggregates in parallel; consolidate product stats
     // into a single scan to reduce DB load for the polling widget.
@@ -123,11 +123,9 @@ router.get("/dashboard/manager-bar", adminGuard, async (req, res) => {
 router.get("/dashboard/summary", async (req, res) => {
   try {
     const companyId = getCompanyId(req);
-    // Tenant scope predicates — match the manager-bar handler. Rows with a
-    // NULL company_id (legacy backfill) are treated as belonging to every
-    // company so dashboards don't silently lose pre-Phase-2 data.
-    const posScope = sql`(${posOrdersTable.companyId} = ${companyId} OR ${posOrdersTable.companyId} IS NULL)`;
-    const prodScope = sql`(${productsTable.companyId} = ${companyId} OR ${productsTable.companyId} IS NULL)`;
+    // Strict tenant scope predicates (company_id NOT NULL since migration 0007).
+    const posScope = eq(posOrdersTable.companyId, companyId);
+    const prodScope = eq(productsTable.companyId, companyId);
     const today = startOfDay(new Date());
     const yesterday = new Date(today);
     yesterday.setDate(yesterday.getDate() - 1);
@@ -218,7 +216,7 @@ router.get("/dashboard/summary", async (req, res) => {
 router.get("/dashboard/sales-chart", async (req, res) => {
   try {
     const companyId = getCompanyId(req);
-    const posScope = sql`(${posOrdersTable.companyId} = ${companyId} OR ${posOrdersTable.companyId} IS NULL)`;
+    const posScope = eq(posOrdersTable.companyId, companyId);
     const period = (req.query.period as string) || "weekly";
     const now = new Date();
 
@@ -282,7 +280,7 @@ router.get("/dashboard/sales-chart", async (req, res) => {
 router.get("/dashboard/alerts", async (req, res) => {
   try {
     const companyId = getCompanyId(req);
-    const alertScope = sql`(${alertsTable.companyId} = ${companyId} OR ${alertsTable.companyId} IS NULL)`;
+    const alertScope = eq(alertsTable.companyId, companyId);
     const alerts = await db
       .select()
       .from(alertsTable)
@@ -309,8 +307,8 @@ router.get("/dashboard/alerts", async (req, res) => {
 router.get("/dashboard/branch-performance", async (req, res) => {
   try {
     const companyId = getCompanyId(req);
-    const posScope = sql`(${posOrdersTable.companyId} = ${companyId} OR ${posOrdersTable.companyId} IS NULL)`;
-    const branchScope = sql`(${branchesTable.companyId} = ${companyId} OR ${branchesTable.companyId} IS NULL)`;
+    const posScope = eq(posOrdersTable.companyId, companyId);
+    const branchScope = eq(branchesTable.companyId, companyId);
     const today = startOfDay(new Date());
     const sevenDaysAgo = new Date(today);
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);

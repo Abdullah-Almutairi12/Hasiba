@@ -31,7 +31,7 @@ export const posOrdersTable = pgTable("pos_orders", {
   total: numeric("total", { precision: 10, scale: 2 }).notNull(),
   paymentMethod: text("payment_method").notNull().default("cash"),
   /** Nullable in Phase 1; becomes NOT NULL in Phase 2 once tenant scoping lands. */
-  companyId: integer("company_id").references(() => companiesTable.id, { onDelete: "set null" }),
+  companyId: integer("company_id").notNull().references(() => companiesTable.id, { onDelete: "restrict" }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

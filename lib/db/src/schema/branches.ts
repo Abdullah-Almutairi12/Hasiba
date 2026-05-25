@@ -10,7 +10,7 @@ export const branchesTable = pgTable("branches", {
   city: text("city").notNull(),
   isActive: boolean("is_active").notNull().default(true),
   /** Nullable in Phase 1; becomes NOT NULL in Phase 2 once tenant scoping lands. */
-  companyId: integer("company_id").references(() => companiesTable.id, { onDelete: "set null" }),
+  companyId: integer("company_id").notNull().references(() => companiesTable.id, { onDelete: "restrict" }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

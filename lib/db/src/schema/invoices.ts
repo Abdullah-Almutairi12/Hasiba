@@ -28,7 +28,7 @@ export const invoicesTable = pgTable("invoices", {
   reversedById: integer("reversed_by_id"),
   reversedReason: text("reversed_reason"),
   /** Nullable in Phase 1; becomes NOT NULL in Phase 2 once tenant scoping lands. */
-  companyId: integer("company_id").references(() => companiesTable.id, { onDelete: "set null" }),
+  companyId: integer("company_id").notNull().references(() => companiesTable.id, { onDelete: "restrict" }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

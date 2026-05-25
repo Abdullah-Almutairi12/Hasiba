@@ -126,6 +126,9 @@ router.post("/products", inventoryGuard, async (req, res) => {
 
 router.get("/products/categories", async (req, res) => {
   try {
+    // Categories themselves are a shared lookup, but `productCount` must
+    // only reflect THIS tenant's products. Scope the LEFT JOIN side.
+    const scoped = new ScopedDb(getCompanyId(req));
     const categories = await db
       .select({
         id: categoriesTable.id,
@@ -134,7 +137,10 @@ router.get("/products/categories", async (req, res) => {
         productCount: sql<number>`count(${productsTable.id})`,
       })
       .from(categoriesTable)
-      .leftJoin(productsTable, eq(productsTable.categoryId, categoriesTable.id))
+      .leftJoin(
+        productsTable,
+        and(eq(productsTable.categoryId, categoriesTable.id), scoped.scope(productsTable)),
+      )
       .groupBy(categoriesTable.id);
 
     res.json(categories.map((c) => ({ ...c, productCount: Number(c.productCount) })));
@@ -146,6 +152,7 @@ router.get("/products/categories", async (req, res) => {
 
 router.get("/products/stats", async (req, res) => {
   try {
+    const scoped = new ScopedDb(getCompanyId(req));
     const [stats] = await db
       .select({
         totalProducts: sql<number>`count(*)`,
@@ -154,7 +161,7 @@ router.get("/products/stats", async (req, res) => {
         outOfStockCount: sql<number>`count(*) filter (where ${productsTable.stock} = 0)`,
       })
       .from(productsTable)
-      .where(sql`${productsTable.isActive} = true`);
+      .where(and(sql`${productsTable.isActive} = true`, scoped.scope(productsTable)));
 
     res.json({
       totalProducts: Number(stats.totalProducts),

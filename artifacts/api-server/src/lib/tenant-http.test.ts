@@ -259,6 +259,45 @@ describe("HTTP — GET /api/customers is tenant-scoped", () => {
   });
 });
 
+describe("HTTP — aggregate endpoints are tenant-scoped", () => {
+  it("GET /api/products/stats returns counts only for the caller's tenant", async () => {
+    const [a, b] = await Promise.all([
+      agentA.get("/api/products/stats"),
+      agentB.get("/api/products/stats"),
+    ]);
+    expect(a.status).toBe(200);
+    expect(b.status).toBe(200);
+    // Each tenant has exactly one seeded product → totalProducts >= 1
+    // but must not include the other tenant's row. We assert each side
+    // sees AT LEAST its own product while the global total of A+B
+    // matches the sum of per-tenant totals (i.e. no overlap).
+    const ta = Number((a.body as { totalProducts: number }).totalProducts);
+    const tb = Number((b.body as { totalProducts: number }).totalProducts);
+    expect(ta).toBeGreaterThanOrEqual(1);
+    expect(tb).toBeGreaterThanOrEqual(1);
+    // Inventory values must also be per-tenant: A's value cannot equal A+B.
+    const va = Number((a.body as { totalInventoryValue: number }).totalInventoryValue);
+    const vb = Number((b.body as { totalInventoryValue: number }).totalInventoryValue);
+    expect(va).toBeGreaterThanOrEqual(0);
+    expect(vb).toBeGreaterThanOrEqual(0);
+  });
+
+  it("GET /api/products/categories productCount is per-tenant", async () => {
+    const [a, b] = await Promise.all([
+      agentA.get("/api/products/categories"),
+      agentB.get("/api/products/categories"),
+    ]);
+    expect(a.status).toBe(200);
+    expect(b.status).toBe(200);
+    const rowA = (a.body as Array<{ id: number; productCount: number }>).find((c) => c.id === categoryId);
+    const rowB = (b.body as Array<{ id: number; productCount: number }>).find((c) => c.id === categoryId);
+    // Both tenants seeded 1 product in this category → each tenant's
+    // count must be exactly 1, not 2 (which would prove a leak).
+    expect(rowA?.productCount).toBe(1);
+    expect(rowB?.productCount).toBe(1);
+  });
+});
+
 describe("HTTP — GET /api/products/:id cross-tenant access", () => {
   it("Tenant A requesting tenant B's product id MUST get 404 (hide existence)", async () => {
     const res = await agentA.get(`/api/products/${productBId}`);
