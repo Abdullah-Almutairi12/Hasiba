@@ -175,4 +175,14 @@ import("./lib/invoice-email-retry-worker")
     logger.error({ err }, "failed to start invoice email retry worker"),
   );
 
+// Same auto-retry sweep for purchase-order email sends: drains failed rows
+// from `procurement_email_outbox` (kind='purchase_order') with capped
+// attempts + exponential backoff so transient SMTP failures self-heal
+// without buyer intervention.
+import("./lib/po-email-retry-worker")
+  .then((m) => m.startPoEmailRetryWorker())
+  .catch((err) =>
+    logger.error({ err }, "failed to start PO email retry worker"),
+  );
+
 export default app;

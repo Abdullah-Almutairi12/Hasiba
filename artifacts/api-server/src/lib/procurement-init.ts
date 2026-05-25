@@ -272,5 +272,22 @@ export async function initProcurement(): Promise<void> {
       REFERENCES companies(id) ON DELETE SET NULL;
   `);
 
+  // Retry bookkeeping on the PO outbox so a background worker can self-heal
+  // transient SMTP failures (mirrors `sales_email_outbox`). `attempts` counts
+  // retries on the parent row, `next_retry_at` gates the next sweep, and
+  // `retry_of` links a child retry attempt back to the original failed row
+  // so the audit trail is preserved.
+  await pool.query(`
+    ALTER TABLE procurement_email_outbox
+      ADD COLUMN IF NOT EXISTS attempts integer NOT NULL DEFAULT 0;
+    ALTER TABLE procurement_email_outbox
+      ADD COLUMN IF NOT EXISTS next_retry_at timestamp;
+    ALTER TABLE procurement_email_outbox
+      ADD COLUMN IF NOT EXISTS retry_of integer
+        REFERENCES procurement_email_outbox(id) ON DELETE SET NULL;
+    CREATE INDEX IF NOT EXISTS procurement_email_outbox_retry_idx
+      ON procurement_email_outbox (kind, status, retry_of, next_retry_at);
+  `);
+
   logger.info("Procurement subsystem initialized");
 }

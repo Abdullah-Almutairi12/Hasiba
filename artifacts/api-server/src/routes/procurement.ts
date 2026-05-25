@@ -1349,12 +1349,13 @@ router.get("/procurement/purchase-orders/:id/pdf", async (req, res) => {
  * retry route so every attempt — success or failure — leaves a row in the
  * outbox audit trail.
  */
-async function dispatchPurchaseOrder(opts: {
+export async function dispatchPurchaseOrder(opts: {
   poId: number;
   toOverride?: string;
   subjectOverride?: string;
   messageOverride?: string;
   userId: number | null;
+  retryOf?: number;
 }): Promise<{
   status: number;
   payload: Record<string, unknown>;
@@ -1414,11 +1415,13 @@ async function dispatchPurchaseOrder(opts: {
     const inserted = await tx.execute(sql`
       INSERT INTO procurement_email_outbox
         (kind, ref_id, reference, recipient, subject, body,
-         attachment_filename, status, error, created_by, sent_at)
+         attachment_filename, status, error, created_by, sent_at,
+         retry_of, attempts)
       VALUES ('purchase_order', ${po.id}, ${po.reference}, ${recipient},
               ${subject}, ${emailBody}, ${attachmentFilename},
               ${outboxStatus}, ${errorMsg}, ${opts.userId},
-              ${dispatch.sent ? sql`now()` : sql`null`})
+              ${dispatch.sent ? sql`now()` : sql`null`},
+              ${opts.retryOf ?? null}, 0)
       RETURNING id;
     `);
     const rows = (inserted as unknown as { rows?: Array<Record<string, unknown>> }).rows
