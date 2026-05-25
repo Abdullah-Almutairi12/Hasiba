@@ -10,6 +10,7 @@ import {
 } from "@workspace/db";
 import { sql, gte, desc, and, lt, eq } from "drizzle-orm";
 import { adminGuard } from "../middlewares/require-role";
+import { getCompanyId } from "../lib/scoped-db";
 
 const router = Router();
 
@@ -30,66 +31,74 @@ function pctChange(current: number, previous: number): number {
  */
 router.get("/dashboard/manager-bar", adminGuard, async (req, res) => {
   try {
+    const companyId = getCompanyId(req);
     const today = startOfDay(new Date());
     const yesterday = new Date(today);
     yesterday.setDate(yesterday.getDate() - 1);
 
-    const [todayAgg] = await db
-      .select({
-        total: sql<string>`coalesce(sum(${posOrdersTable.total}::numeric), 0)`,
-        orders: sql<string>`count(*)`,
-      })
-      .from(posOrdersTable)
-      .where(gte(posOrdersTable.createdAt, today));
+    // Tenant scope: scoped tables use `company_id`, and rows may exist with
+    // a NULL company_id from legacy backfill — treat NULL as "any company".
+    const posScope = sql`(${posOrdersTable.companyId} = ${companyId} OR ${posOrdersTable.companyId} IS NULL)`;
+    const invScope = sql`(${invoicesTable.companyId} = ${companyId} OR ${invoicesTable.companyId} IS NULL)`;
+    const prodScope = sql`(${productsTable.companyId} = ${companyId} OR ${productsTable.companyId} IS NULL)`;
+    const alertScope = sql`(${alertsTable.companyId} = ${companyId} OR ${alertsTable.companyId} IS NULL)`;
 
-    const [yestAgg] = await db
-      .select({
-        total: sql<string>`coalesce(sum(${posOrdersTable.total}::numeric), 0)`,
-      })
-      .from(posOrdersTable)
-      .where(
-        and(gte(posOrdersTable.createdAt, yesterday), lt(posOrdersTable.createdAt, today)),
-      );
-
-    const [pendingInvoices] = await db
-      .select({
-        count: sql<string>`count(*)`,
-        amount: sql<string>`coalesce(sum(${invoicesTable.amount}::numeric), 0)`,
-      })
-      .from(invoicesTable)
-      .where(eq(invoicesTable.status, "pending"));
-
-    const [stockStats] = await db
-      .select({
-        lowStockCount: sql<string>`count(*) filter (where ${productsTable.stock} <= ${productsTable.minStock})`,
-      })
-      .from(productsTable)
-      .where(eq(productsTable.isActive, true));
-
-    const [alertsAgg] = await db
-      .select({
-        unread: sql<string>`count(*) filter (where ${alertsTable.isRead} = false)`,
-      })
-      .from(alertsTable);
+    // Run independent aggregates in parallel; consolidate product stats
+    // into a single scan to reduce DB load for the polling widget.
+    const [
+      [todayAgg],
+      [yestAgg],
+      [pendingInvoices],
+      [productAgg],
+      [alertsAgg],
+    ] = await Promise.all([
+      db
+        .select({
+          total: sql<string>`coalesce(sum(${posOrdersTable.total}::numeric), 0)`,
+          orders: sql<string>`count(*)`,
+        })
+        .from(posOrdersTable)
+        .where(and(gte(posOrdersTable.createdAt, today), posScope)),
+      db
+        .select({
+          total: sql<string>`coalesce(sum(${posOrdersTable.total}::numeric), 0)`,
+        })
+        .from(posOrdersTable)
+        .where(
+          and(
+            gte(posOrdersTable.createdAt, yesterday),
+            lt(posOrdersTable.createdAt, today),
+            posScope,
+          ),
+        ),
+      db
+        .select({
+          count: sql<string>`count(*)`,
+          amount: sql<string>`coalesce(sum(${invoicesTable.amount}::numeric), 0)`,
+        })
+        .from(invoicesTable)
+        .where(and(eq(invoicesTable.status, "pending"), invScope)),
+      db
+        .select({
+          total: sql<string>`count(*)`,
+          lowStockCount: sql<string>`count(*) filter (where ${productsTable.stock} <= ${productsTable.minStock})`,
+          avgMargin: sql<string>`coalesce(avg((${productsTable.price}::numeric - ${productsTable.costPrice}::numeric) / nullif(${productsTable.price}::numeric, 0)), 0.30)`,
+        })
+        .from(productsTable)
+        .where(and(eq(productsTable.isActive, true), prodScope)),
+      db
+        .select({
+          unread: sql<string>`count(*) filter (where ${alertsTable.isRead} = false)`,
+        })
+        .from(alertsTable)
+        .where(alertScope),
+    ]);
 
     const totalSales = Number(todayAgg.total);
     const yestSales = Number(yestAgg.total);
-    const lowStockCount = Number(stockStats.lowStockCount);
-
-    const [marginRow] = await db
-      .select({
-        avgMargin: sql<string>`coalesce(avg((${productsTable.price}::numeric - ${productsTable.costPrice}::numeric) / nullif(${productsTable.price}::numeric, 0)), 0.30)`,
-      })
-      .from(productsTable)
-      .where(eq(productsTable.isActive, true));
-
-    const [productCountRow] = await db
-      .select({ count: sql<string>`count(*)` })
-      .from(productsTable)
-      .where(eq(productsTable.isActive, true));
-
-    const productCount = Number(productCountRow.count) || 1;
-    const profitMargin = Number(marginRow.avgMargin);
+    const lowStockCount = Number(productAgg.lowStockCount);
+    const productCount = Number(productAgg.total) || 1;
+    const profitMargin = Number(productAgg.avgMargin);
     const stockHealth = Math.max(0, 100 - (lowStockCount / productCount) * 100);
     const marginHealth = Math.min(100, profitMargin * 100 * 2);
     const growthHealth = Math.max(0, Math.min(100, 50 + pctChange(totalSales, yestSales)));

@@ -48,6 +48,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { WorkflowInboxBell } from "@/components/workflow-inbox-bell";
+import { ManagerKpiBar } from "@/components/manager-kpi-bar";
 import {
   Sidebar,
   SidebarContent,
@@ -305,6 +306,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               <UserMenu />
             </div>
           </header>
+          <ManagerKpiBar />
           <div className="flex-1 overflow-auto p-3 sm:p-4 md:p-6">{children}</div>
         </main>
       </div>
