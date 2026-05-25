@@ -10,6 +10,7 @@ import {
   companySettingsTable,
   alertsTable,
   appSettingsTable,
+  alertsCleanupRunsTable,
 } from "@workspace/db";
 import { uploadBufferToPrivateObject } from "./storage";
 import { eq, sql, desc, and, gt, or, isNull } from "drizzle-orm";
@@ -253,6 +254,37 @@ router.get("/admin/system", adminOnly, async (req, res) => {
   } catch (err) {
     req.log.error({ err }, "System health failed");
     res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ============== Alerts Cleanup (task #162) ==============
+// Surfaces the most recent run of the nightly alerts retention sweep
+// (task #158) so managers can see how much noise is being trimmed
+// and that the self-maintenance is actually running.
+router.get("/admin/alerts-cleanup/last", adminOnly, async (req, res) => {
+  try {
+    const [row] = await db
+      .select()
+      .from(alertsCleanupRunsTable)
+      .orderBy(desc(alertsCleanupRunsTable.ranAt))
+      .limit(1);
+    if (!row) {
+      const { resolveRetention } = await import("../lib/alerts-cleanup-cron");
+      const { retentionDays } = await resolveRetention();
+      return res.json({
+        lastRunAt: null,
+        rowsDeleted: null,
+        retentionDays,
+      });
+    }
+    return res.json({
+      lastRunAt: row.ranAt.toISOString(),
+      rowsDeleted: row.rowsDeleted,
+      retentionDays: row.retentionDays,
+    });
+  } catch (err) {
+    req.log.error({ err }, "Alerts cleanup last run lookup failed");
+    return res.status(500).json({ error: "Internal server error" });
   }
 });
 

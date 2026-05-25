@@ -94,3 +94,17 @@ export const companySettingsTable = pgTable("company_settings", {
 });
 
 export type CompanySettings = typeof companySettingsTable.$inferSelect;
+
+// Task #162 — append-only audit log of the nightly alerts retention
+// sweep (task #158). Each row records when the cron ran, how many
+// rows it deleted and the retention window that was in effect at the
+// time. The Admin Panel renders the latest row so managers have
+// visibility that the self-maintenance is actually running.
+export const alertsCleanupRunsTable = pgTable("alerts_cleanup_runs", {
+  id: serial("id").primaryKey(),
+  ranAt: timestamp("ran_at").notNull().defaultNow(),
+  rowsDeleted: integer("rows_deleted").notNull().default(0),
+  retentionDays: integer("retention_days").notNull(),
+});
+
+export type AlertsCleanupRun = typeof alertsCleanupRunsTable.$inferSelect;

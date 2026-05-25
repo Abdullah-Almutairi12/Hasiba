@@ -224,8 +224,13 @@ import("./lib/alert-dismissals-cleanup-cron")
 // ALERTS_RETENTION_DAYS (default 90). Cross-tenant ops alerts
 // (company_id IS NULL) follow the same rule. Cascading FK on
 // alert_dismissals.alert_id cleans dismissals for free.
-import("./lib/alerts-cleanup-cron")
-  .then((m) => m.startAlertsCleanupCron())
+import("./lib/alerts-cleanup-init")
+  .then((m) => m.initAlertsCleanupRuns())
+  .then(() =>
+    import("./lib/alerts-cleanup-cron").then((m) =>
+      m.startAlertsCleanupCron(),
+    ),
+  )
   .catch((err) =>
     logger.error({ err }, "failed to start alerts cleanup cron"),
   );

@@ -18,6 +18,10 @@
  *
  * Schedule mirrors the other nightly crons: first run ~150s after
  * boot, then every 24h. The interval is `.unref()`-ed.
+ *
+ * Task #162: every run also appends a row to `alerts_cleanup_runs`
+ * so the Admin Panel can show managers the last sweep summary
+ * (timestamp + rows deleted + retention window).
  */
 
 import { pool } from "@workspace/db";
@@ -101,6 +105,20 @@ export async function runAlertsCleanup(): Promise<AlertsSweepSummary> {
       logger.info(
         { deleted, retentionDays, source },
         "alerts cleanup: archived read alerts past retention",
+      );
+    }
+    try {
+      await pool.query(
+        `
+        INSERT INTO alerts_cleanup_runs (rows_deleted, retention_days)
+        VALUES ($1::int, $2::int)
+        `,
+        [deleted, retentionDays],
+      );
+    } catch (err) {
+      logger.error(
+        { err },
+        "alerts cleanup: failed to record run in alerts_cleanup_runs",
       );
     }
     return { deleted, retentionDays, source };

@@ -1532,6 +1532,28 @@ export const GetAdminSystemHealthResponse = zod.object({
 });
 
 /**
+ * Returns the most recent row from `alerts_cleanup_runs` so the Admin Panel can show managers when the nightly retention sweep last ran, how many rows it deleted, and the retention window that was in effect. If the cron has not run yet, `lastRunAt` and `rowsDeleted` are null and `retentionDays` reflects the currently-configured window.
+ * @summary Last nightly alerts-cleanup sweep summary
+ */
+export const GetAlertsCleanupLastRunResponse = zod.object({
+  lastRunAt: zod
+    .string()
+    .nullable()
+    .describe(
+      "ISO timestamp of the most recent sweep, or null if it has not run yet.",
+    ),
+  rowsDeleted: zod
+    .number()
+    .nullable()
+    .describe("How many read alerts were deleted in the last sweep."),
+  retentionDays: zod
+    .number()
+    .describe(
+      "Retention window in days that was in effect for that run (or the currently-configured window when no run has happened yet).",
+    ),
+});
+
+/**
  * @summary List support tickets
  */
 export const ListSupportTicketsQueryParams = zod.object({

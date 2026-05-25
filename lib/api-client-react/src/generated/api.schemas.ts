@@ -1359,6 +1359,15 @@ export interface InvoiceSendFailure {
   retriable: boolean;
 }
 
+export interface AlertsCleanupLastRun {
+  /** ISO timestamp of the most recent sweep, or null if it has not run yet. */
+  lastRunAt: string | null;
+  /** How many read alerts were deleted in the last sweep. */
+  rowsDeleted: number | null;
+  /** Retention window in days that was in effect for that run (or the currently-configured window when no run has happened yet). */
+  retentionDays: number;
+}
+
 export interface AdminSystemHealth {
   databaseOk: boolean;
   databaseLatencyMs: number;

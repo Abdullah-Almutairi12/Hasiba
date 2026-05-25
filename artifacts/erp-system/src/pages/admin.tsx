@@ -4,6 +4,7 @@ import { useLocation } from "wouter";
 import {
   useGetAdminStats,
   useGetAdminSystemHealth,
+  useGetAlertsCleanupLastRun,
   useListSupportTickets,
   useCreateSupportTicket,
   useUpdateSupportTicket,
@@ -256,6 +257,55 @@ function InvoiceSendFailuresCard() {
   );
 }
 
+function AlertsCleanupCard() {
+  const { data } = useGetAlertsCleanupLastRun();
+  const lastRunAt = data?.lastRunAt
+    ? new Date(data.lastRunAt).toLocaleString("ar-SA")
+    : null;
+  return (
+    <Card data-testid="card-alerts-cleanup">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Trash2 className="size-4 text-primary" />
+          تنظيف التنبيهات الليلي
+        </CardTitle>
+        <CardDescription>
+          آخر مرة نظّف فيها النظام التنبيهات القديمة المقروءة تلقائياً.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-2 text-sm">
+        <div className="flex items-center justify-between">
+          <span>آخر تشغيل</span>
+          <span
+            className="font-mono text-xs text-muted-foreground"
+            data-testid="alerts-cleanup-last-run-at"
+          >
+            {lastRunAt ?? "لم يُشغَّل بعد"}
+          </span>
+        </div>
+        <div className="flex items-center justify-between">
+          <span>التنبيهات المحذوفة</span>
+          <span
+            className="font-bold tabular-nums"
+            data-testid="alerts-cleanup-rows-deleted"
+          >
+            {data?.rowsDeleted ?? "—"}
+          </span>
+        </div>
+        <div className="flex items-center justify-between">
+          <span>نافذة الاحتفاظ</span>
+          <Badge variant="outline" data-testid="alerts-cleanup-retention-days">
+            {data?.retentionDays ?? 90} يوم
+          </Badge>
+        </div>
+        <p className="text-[11px] text-muted-foreground">
+          يحذف التنبيهات المقروءة الأقدم من نافذة الاحتفاظ كل ليلة.
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
+
 function OverviewTab() {
   const { data: stats } = useGetAdminStats();
   const { data: health } = useGetAdminSystemHealth();
@@ -440,6 +490,8 @@ function OverviewTab() {
         </Card>
 
         <InvoiceSendFailuresCard />
+
+        <AlertsCleanupCard />
       </div>
     </div>
   );
