@@ -4236,8 +4236,30 @@ components:
         permissions: { type: object, additionalProperties: true }
         accounting: { type: object, additionalProperties: true }
         integrations: { type: object, additionalProperties: true }
+        notifications: { type: object, additionalProperties: true }
+        localization: { type: object, additionalProperties: true }
+        numbering: { type: object, additionalProperties: true }
+        appearance: { type: object, additionalProperties: true }
+        backup: { type: object, additionalProperties: true }
+        templates: { type: object, additionalProperties: true }
         updatedAt: { type: string }
-      required: [company, tax, branches, pos, permissions, accounting, integrations, updatedAt]
+      required:
+        [
+          company,
+          tax,
+          branches,
+          pos,
+          permissions,
+          accounting,
+          integrations,
+          notifications,
+          localization,
+          numbering,
+          appearance,
+          backup,
+          templates,
+          updatedAt,
+        ]
 
     AppSettingsPatch:
       type: object
@@ -4250,6 +4272,12 @@ components:
         permissions: { type: object, additionalProperties: true }
         accounting: { type: object, additionalProperties: true }
         integrations: { type: object, additionalProperties: true }
+        notifications: { type: object, additionalProperties: true }
+        localization: { type: object, additionalProperties: true }
+        numbering: { type: object, additionalProperties: true }
+        appearance: { type: object, additionalProperties: true }
+        backup: { type: object, additionalProperties: true }
+        templates: { type: object, additionalProperties: true }
 
     PermissionMatrix:
       type: object

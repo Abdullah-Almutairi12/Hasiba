@@ -1684,6 +1684,12 @@ export const GetAppSettingsResponse = zod.object({
   permissions: zod.record(zod.string(), zod.unknown()),
   accounting: zod.record(zod.string(), zod.unknown()),
   integrations: zod.record(zod.string(), zod.unknown()),
+  notifications: zod.record(zod.string(), zod.unknown()),
+  localization: zod.record(zod.string(), zod.unknown()),
+  numbering: zod.record(zod.string(), zod.unknown()),
+  appearance: zod.record(zod.string(), zod.unknown()),
+  backup: zod.record(zod.string(), zod.unknown()),
+  templates: zod.record(zod.string(), zod.unknown()),
   updatedAt: zod.string(),
 });
 
@@ -1698,6 +1704,12 @@ export const PatchAppSettingsBody = zod.object({
   permissions: zod.record(zod.string(), zod.unknown()).optional(),
   accounting: zod.record(zod.string(), zod.unknown()).optional(),
   integrations: zod.record(zod.string(), zod.unknown()).optional(),
+  notifications: zod.record(zod.string(), zod.unknown()).optional(),
+  localization: zod.record(zod.string(), zod.unknown()).optional(),
+  numbering: zod.record(zod.string(), zod.unknown()).optional(),
+  appearance: zod.record(zod.string(), zod.unknown()).optional(),
+  backup: zod.record(zod.string(), zod.unknown()).optional(),
+  templates: zod.record(zod.string(), zod.unknown()).optional(),
 });
 
 export const PatchAppSettingsResponse = zod.object({
@@ -1708,6 +1720,12 @@ export const PatchAppSettingsResponse = zod.object({
   permissions: zod.record(zod.string(), zod.unknown()),
   accounting: zod.record(zod.string(), zod.unknown()),
   integrations: zod.record(zod.string(), zod.unknown()),
+  notifications: zod.record(zod.string(), zod.unknown()),
+  localization: zod.record(zod.string(), zod.unknown()),
+  numbering: zod.record(zod.string(), zod.unknown()),
+  appearance: zod.record(zod.string(), zod.unknown()),
+  backup: zod.record(zod.string(), zod.unknown()),
+  templates: zod.record(zod.string(), zod.unknown()),
   updatedAt: zod.string(),
 });
 

@@ -1411,6 +1411,18 @@ export type AppSettingsAccounting = { [key: string]: unknown };
 
 export type AppSettingsIntegrations = { [key: string]: unknown };
 
+export type AppSettingsNotifications = { [key: string]: unknown };
+
+export type AppSettingsLocalization = { [key: string]: unknown };
+
+export type AppSettingsNumbering = { [key: string]: unknown };
+
+export type AppSettingsAppearance = { [key: string]: unknown };
+
+export type AppSettingsBackup = { [key: string]: unknown };
+
+export type AppSettingsTemplates = { [key: string]: unknown };
+
 export interface AppSettings {
   company: AppSettingsCompany;
   tax: AppSettingsTax;
@@ -1419,6 +1431,12 @@ export interface AppSettings {
   permissions: AppSettingsPermissions;
   accounting: AppSettingsAccounting;
   integrations: AppSettingsIntegrations;
+  notifications: AppSettingsNotifications;
+  localization: AppSettingsLocalization;
+  numbering: AppSettingsNumbering;
+  appearance: AppSettingsAppearance;
+  backup: AppSettingsBackup;
+  templates: AppSettingsTemplates;
   updatedAt: string;
 }
 
@@ -1436,6 +1454,18 @@ export type AppSettingsPatchAccounting = { [key: string]: unknown };
 
 export type AppSettingsPatchIntegrations = { [key: string]: unknown };
 
+export type AppSettingsPatchNotifications = { [key: string]: unknown };
+
+export type AppSettingsPatchLocalization = { [key: string]: unknown };
+
+export type AppSettingsPatchNumbering = { [key: string]: unknown };
+
+export type AppSettingsPatchAppearance = { [key: string]: unknown };
+
+export type AppSettingsPatchBackup = { [key: string]: unknown };
+
+export type AppSettingsPatchTemplates = { [key: string]: unknown };
+
 export interface AppSettingsPatch {
   company?: AppSettingsPatchCompany;
   tax?: AppSettingsPatchTax;
@@ -1444,6 +1474,12 @@ export interface AppSettingsPatch {
   permissions?: AppSettingsPatchPermissions;
   accounting?: AppSettingsPatchAccounting;
   integrations?: AppSettingsPatchIntegrations;
+  notifications?: AppSettingsPatchNotifications;
+  localization?: AppSettingsPatchLocalization;
+  numbering?: AppSettingsPatchNumbering;
+  appearance?: AppSettingsPatchAppearance;
+  backup?: AppSettingsPatchBackup;
+  templates?: AppSettingsPatchTemplates;
 }
 
 export type PermissionMatrixDefaults = { [key: string]: string[] };

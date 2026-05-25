@@ -39,6 +39,12 @@ import {
   Save,
   ChevronLeft,
   ExternalLink,
+  Bell,
+  Globe,
+  Hash,
+  Palette,
+  Database,
+  FileText,
 } from "lucide-react";
 
 type SectionPayload = Record<string, unknown>;
@@ -63,6 +69,12 @@ type PatchableSections = {
   permissions: SectionPayload;
   accounting: SectionPayload;
   integrations: SectionPayload;
+  notifications: SectionPayload;
+  localization: SectionPayload;
+  numbering: SectionPayload;
+  appearance: SectionPayload;
+  backup: SectionPayload;
+  templates: SectionPayload;
 };
 
 function useSavePatch() {
@@ -738,6 +750,499 @@ function SecurityTab() {
   );
 }
 
+// ====================== 9. NOTIFICATIONS ======================
+const NOTIFY_EVENTS = [
+  { key: "lowStock", label: "تنبيه انخفاض المخزون" },
+  { key: "newOrder", label: "أمر بيع/فاتورة جديدة" },
+  { key: "invoiceOverdue", label: "فاتورة عميل متأخرة السداد" },
+  { key: "posSessionClosed", label: "إغلاق جلسة نقطة بيع" },
+  { key: "newLead", label: "عميل محتمل جديد" },
+  { key: "fraudAnomaly", label: "نشاط مشبوه / احتيال محتمل" },
+] as const;
+
+/**
+ * Notifications tab — controls channels (email/SMS/WhatsApp/in-app)
+ * and per-event subscriptions. Sensitive transport credentials
+ * (smtpUser/smtpPassword/smsApiKey/whatsappToken) are redacted from
+ * non-admin responses by the API.
+ */
+function NotificationsTab({ readOnly }: { readOnly: boolean }) {
+  const [draft, setDraft] = useSettingsSection<SectionPayload>("notifications", {
+    channels: { email: true, sms: false, whatsapp: false, inApp: true } as Record<string, boolean>,
+    events: NOTIFY_EVENTS.reduce<Record<string, boolean>>((a, e) => ({ ...a, [e.key]: true }), {}),
+    fromAddress: "no-reply@hasba.ai",
+    smtpHost: "",
+    smtpPort: 587,
+    smsSender: "HASBA",
+    whatsappPhone: "",
+  });
+  const save = useSavePatch();
+  const ch = (draft.channels as Record<string, boolean>) ?? {};
+  const ev = (draft.events as Record<string, boolean>) ?? {};
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Bell className="size-5 text-primary" /> التنبيهات والإشعارات
+        </CardTitle>
+        <CardDescription>اختر القنوات والأحداث التي تريد تلقّي إشعار عنها.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-5">
+        <div>
+          <Label className="mb-2 block text-sm font-bold">قنوات التسليم</Label>
+          <div className="grid gap-2 md:grid-cols-2">
+            {[
+              { k: "email", l: "البريد الإلكتروني" },
+              { k: "sms", l: "رسائل SMS" },
+              { k: "whatsapp", l: "WhatsApp" },
+              { k: "inApp", l: "داخل النظام" },
+            ].map((c) => (
+              <div key={c.k} className="flex items-center justify-between rounded-lg border p-3">
+                <span className="text-sm">{c.l}</span>
+                <Switch
+                  checked={Boolean(ch[c.k])}
+                  onCheckedChange={(v) => setDraft({ ...draft, channels: { ...ch, [c.k]: v } })}
+                  disabled={readOnly}
+                  data-testid={`switch-ch-${c.k}`}
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+        <Separator />
+        <div>
+          <Label className="mb-2 block text-sm font-bold">الأحداث المُنبَّه عنها</Label>
+          <div className="grid gap-2 md:grid-cols-2">
+            {NOTIFY_EVENTS.map((e) => (
+              <div key={e.key} className="flex items-center justify-between rounded-lg border p-3">
+                <span className="text-sm">{e.label}</span>
+                <Switch
+                  checked={Boolean(ev[e.key])}
+                  onCheckedChange={(v) => setDraft({ ...draft, events: { ...ev, [e.key]: v } })}
+                  disabled={readOnly}
+                  data-testid={`switch-ev-${e.key}`}
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+        <Separator />
+        <div className="grid gap-3 md:grid-cols-2">
+          <div>
+            <Label>عنوان المرسل</Label>
+            <Input
+              dir="ltr"
+              value={String(draft.fromAddress ?? "")}
+              onChange={(e) => setDraft({ ...draft, fromAddress: e.target.value })}
+              disabled={readOnly}
+              data-testid="input-from-address"
+            />
+          </div>
+          <div>
+            <Label>SMTP Host</Label>
+            <Input
+              dir="ltr"
+              value={String(draft.smtpHost ?? "")}
+              onChange={(e) => setDraft({ ...draft, smtpHost: e.target.value })}
+              disabled={readOnly}
+              data-testid="input-smtp-host"
+            />
+          </div>
+          <div>
+            <Label>SMTP Port</Label>
+            <Input
+              type="number"
+              dir="ltr"
+              value={Number(draft.smtpPort ?? 587)}
+              onChange={(e) => setDraft({ ...draft, smtpPort: Number(e.target.value) })}
+              disabled={readOnly}
+              data-testid="input-smtp-port"
+            />
+          </div>
+          <div>
+            <Label>اسم مرسل SMS</Label>
+            <Input
+              dir="ltr"
+              value={String(draft.smsSender ?? "")}
+              onChange={(e) => setDraft({ ...draft, smsSender: e.target.value })}
+              disabled={readOnly}
+              data-testid="input-sms-sender"
+            />
+          </div>
+        </div>
+        {!readOnly && (
+          <div className="flex justify-end">
+            <Button onClick={() => save({ notifications: draft })} data-testid="btn-save-notifications">
+              <Save className="ms-2 size-4" /> حفظ
+            </Button>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ====================== 10. LOCALIZATION ======================
+/**
+ * Localization tab — display preferences that affect every formatted
+ * number/date in the app (does NOT change the UI translation language,
+ * which is per-user via `useLanguage`).
+ */
+function LocalizationTab({ readOnly }: { readOnly: boolean }) {
+  const [draft, setDraft] = useSettingsSection<SectionPayload>("localization", {
+    dateFormat: "DD/MM/YYYY",
+    timeFormat: "24h",
+    numberFormat: "ar-SA",
+    firstDayOfWeek: "sunday",
+    currencyDisplay: "symbol",
+    decimalPlaces: 2,
+    secondaryCurrencies: "USD,AED",
+  });
+  const save = useSavePatch();
+  const set = <K extends keyof typeof draft>(k: K, v: unknown) =>
+    setDraft({ ...draft, [k]: v });
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Globe className="size-5 text-primary" /> التوطين والعرض
+        </CardTitle>
+        <CardDescription>تنسيقات التاريخ والأرقام وأسلوب عرض العملات.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid gap-3 md:grid-cols-2">
+          <div>
+            <Label>تنسيق التاريخ</Label>
+            <Input dir="ltr" value={String(draft.dateFormat ?? "")} onChange={(e) => set("dateFormat", e.target.value)} disabled={readOnly} placeholder="DD/MM/YYYY" data-testid="input-date-format" />
+          </div>
+          <div>
+            <Label>تنسيق الوقت</Label>
+            <Input dir="ltr" value={String(draft.timeFormat ?? "")} onChange={(e) => set("timeFormat", e.target.value)} disabled={readOnly} placeholder="24h | 12h" data-testid="input-time-format" />
+          </div>
+          <div>
+            <Label>تنسيق الأرقام (locale)</Label>
+            <Input dir="ltr" value={String(draft.numberFormat ?? "")} onChange={(e) => set("numberFormat", e.target.value)} disabled={readOnly} placeholder="ar-SA | en-US" data-testid="input-number-format" />
+          </div>
+          <div>
+            <Label>أول أيام الأسبوع</Label>
+            <Input dir="ltr" value={String(draft.firstDayOfWeek ?? "")} onChange={(e) => set("firstDayOfWeek", e.target.value)} disabled={readOnly} placeholder="sunday | saturday | monday" data-testid="input-first-day" />
+          </div>
+          <div>
+            <Label>عرض العملة</Label>
+            <Input dir="ltr" value={String(draft.currencyDisplay ?? "")} onChange={(e) => set("currencyDisplay", e.target.value)} disabled={readOnly} placeholder="symbol | code | name" data-testid="input-currency-display" />
+          </div>
+          <div>
+            <Label>عدد الخانات العشرية</Label>
+            <Input type="number" min={0} max={4} value={Number(draft.decimalPlaces ?? 2)} onChange={(e) => set("decimalPlaces", Number(e.target.value))} disabled={readOnly} data-testid="input-decimals" />
+          </div>
+          <div className="md:col-span-2">
+            <Label>عملات ثانوية (مفصولة بفواصل)</Label>
+            <Input dir="ltr" value={String(draft.secondaryCurrencies ?? "")} onChange={(e) => set("secondaryCurrencies", e.target.value)} disabled={readOnly} placeholder="USD,AED,EUR" data-testid="input-secondary-currencies" />
+          </div>
+        </div>
+        {!readOnly && (
+          <div className="flex justify-end">
+            <Button onClick={() => save({ localization: draft })} data-testid="btn-save-localization">
+              <Save className="ms-2 size-4" /> حفظ
+            </Button>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ====================== 11. NUMBERING SEQUENCES ======================
+const NUMBERING_DOCS = [
+  { key: "invoice", label: "فاتورة المبيعات", prefix: "INV-" },
+  { key: "creditNote", label: "إشعار دائن", prefix: "CN-" },
+  { key: "debitNote", label: "إشعار مدين", prefix: "DN-" },
+  { key: "quotation", label: "عرض سعر", prefix: "QT-" },
+  { key: "salesOrder", label: "أمر بيع", prefix: "SO-" },
+  { key: "purchaseOrder", label: "أمر شراء", prefix: "PO-" },
+  { key: "supplierInvoice", label: "فاتورة مورد", prefix: "SI-" },
+  { key: "stockTransfer", label: "تحويل مخزون", prefix: "ST-" },
+  { key: "journalEntry", label: "قيد محاسبي", prefix: "JE-" },
+] as const;
+
+/**
+ * Numbering tab — per-document prefix + next-number sequences shown
+ * to subscribers so they can match their preferred document numbering
+ * scheme.
+ */
+function NumberingTab({ readOnly }: { readOnly: boolean }) {
+  const initial = NUMBERING_DOCS.reduce<Record<string, { prefix: string; next: number; padding: number }>>((a, d) => {
+    a[d.key] = { prefix: d.prefix, next: 1, padding: 6 };
+    return a;
+  }, {});
+  const [draft, setDraft] = useSettingsSection<SectionPayload>("numbering", initial);
+  const seq = (k: string) =>
+    ((draft as Record<string, { prefix: string; next: number; padding: number }>)[k]) ??
+    { prefix: "", next: 1, padding: 6 };
+  const updateSeq = (k: string, patch: Partial<{ prefix: string; next: number; padding: number }>) =>
+    setDraft({ ...draft, [k]: { ...seq(k), ...patch } });
+  const save = useSavePatch();
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Hash className="size-5 text-primary" /> ترقيم المستندات
+        </CardTitle>
+        <CardDescription>اضبط بادئة كل مستند ورقم البداية والحشو (Padding).</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {NUMBERING_DOCS.map((d) => {
+          const s = seq(d.key);
+          return (
+            <div key={d.key} className="grid items-center gap-2 rounded-lg border p-3 md:grid-cols-4">
+              <div className="text-sm font-medium">{d.label}</div>
+              <div>
+                <Label className="text-xs">البادئة</Label>
+                <Input dir="ltr" value={String(s.prefix ?? "")} onChange={(e) => updateSeq(d.key, { prefix: e.target.value })} disabled={readOnly} data-testid={`input-prefix-${d.key}`} />
+              </div>
+              <div>
+                <Label className="text-xs">الرقم التالي</Label>
+                <Input type="number" min={1} value={Number(s.next ?? 1)} onChange={(e) => updateSeq(d.key, { next: Number(e.target.value) })} disabled={readOnly} data-testid={`input-next-${d.key}`} />
+              </div>
+              <div>
+                <Label className="text-xs">عرض الرقم (Padding)</Label>
+                <Input type="number" min={0} max={12} value={Number(s.padding ?? 6)} onChange={(e) => updateSeq(d.key, { padding: Number(e.target.value) })} disabled={readOnly} data-testid={`input-padding-${d.key}`} />
+              </div>
+              <div className="md:col-span-4 text-[11px] text-muted-foreground">
+                مثال: <span className="font-mono">{`${s.prefix}${String(s.next).padStart(Number(s.padding) || 0, "0")}`}</span>
+              </div>
+            </div>
+          );
+        })}
+        {!readOnly && (
+          <div className="flex justify-end">
+            <Button onClick={() => save({ numbering: draft })} data-testid="btn-save-numbering">
+              <Save className="ms-2 size-4" /> حفظ
+            </Button>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ====================== 12. APPEARANCE ======================
+/**
+ * Appearance tab — global defaults for theme, density, accent and
+ * sidebar behaviour. Individual users can still override via the
+ * header theme/language toggles.
+ */
+function AppearanceTab({ readOnly }: { readOnly: boolean }) {
+  const [draft, setDraft] = useSettingsSection<SectionPayload>("appearance", {
+    theme: "auto",
+    density: "comfortable",
+    accentColor: "#10b981",
+    sidebarCollapsed: false,
+    showCompanyLogo: true,
+    showWelcomeBanner: true,
+  });
+  const save = useSavePatch();
+  const set = (k: string, v: unknown) => setDraft({ ...draft, [k]: v });
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Palette className="size-5 text-primary" /> المظهر والتخصيص
+        </CardTitle>
+        <CardDescription>الإعدادات الافتراضية للمظهر التي تُطبق على كل المستخدمين الجدد.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid gap-3 md:grid-cols-2">
+          <div>
+            <Label>السمة الافتراضية</Label>
+            <Input dir="ltr" value={String(draft.theme ?? "")} onChange={(e) => set("theme", e.target.value)} disabled={readOnly} placeholder="light | dark | auto" data-testid="input-theme" />
+          </div>
+          <div>
+            <Label>الكثافة</Label>
+            <Input dir="ltr" value={String(draft.density ?? "")} onChange={(e) => set("density", e.target.value)} disabled={readOnly} placeholder="comfortable | compact" data-testid="input-density" />
+          </div>
+          <div>
+            <Label>اللون المميز (HEX)</Label>
+            <div className="flex items-center gap-2">
+              <Input dir="ltr" value={String(draft.accentColor ?? "")} onChange={(e) => set("accentColor", e.target.value)} disabled={readOnly} placeholder="#10b981" data-testid="input-accent" />
+              <div className="size-9 rounded-md border" style={{ background: String(draft.accentColor ?? "#10b981") }} />
+            </div>
+          </div>
+        </div>
+        <Separator />
+        <div className="grid gap-2 md:grid-cols-2">
+          <div className="flex items-center justify-between rounded-lg border p-3">
+            <span className="text-sm">طي القائمة الجانبية افتراضياً</span>
+            <Switch checked={Boolean(draft.sidebarCollapsed)} onCheckedChange={(v) => set("sidebarCollapsed", v)} disabled={readOnly} data-testid="switch-sidebar-collapsed" />
+          </div>
+          <div className="flex items-center justify-between rounded-lg border p-3">
+            <span className="text-sm">إظهار شعار الشركة في الترويسة</span>
+            <Switch checked={Boolean(draft.showCompanyLogo)} onCheckedChange={(v) => set("showCompanyLogo", v)} disabled={readOnly} data-testid="switch-show-logo" />
+          </div>
+          <div className="flex items-center justify-between rounded-lg border p-3">
+            <span className="text-sm">إظهار شريط الترحيب في لوحة القيادة</span>
+            <Switch checked={Boolean(draft.showWelcomeBanner)} onCheckedChange={(v) => set("showWelcomeBanner", v)} disabled={readOnly} data-testid="switch-show-welcome" />
+          </div>
+        </div>
+        {!readOnly && (
+          <div className="flex justify-end">
+            <Button onClick={() => save({ appearance: draft })} data-testid="btn-save-appearance">
+              <Save className="ms-2 size-4" /> حفظ
+            </Button>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ====================== 13. BACKUP & DATA ======================
+/**
+ * Backup tab — schedule + retention metadata for automatic backups.
+ * Storage credentials (s3AccessKey/s3SecretKey/encryptionKey) are
+ * redacted from non-admin responses by the API.
+ */
+function BackupTab({ readOnly }: { readOnly: boolean }) {
+  const [draft, setDraft] = useSettingsSection<SectionPayload>("backup", {
+    autoBackup: true,
+    frequency: "daily",
+    retentionDays: 30,
+    includeAttachments: true,
+    storageProvider: "replit",
+    s3Bucket: "",
+    s3Region: "me-south-1",
+  });
+  const save = useSavePatch();
+  const set = (k: string, v: unknown) => setDraft({ ...draft, [k]: v });
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Database className="size-5 text-primary" /> النسخ الاحتياطي والبيانات
+          </CardTitle>
+          <CardDescription>اضبط الجدولة والاحتفاظ ومكان التخزين.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center justify-between rounded-lg border p-3">
+            <div>
+              <div className="font-medium">تفعيل النسخ الاحتياطي التلقائي</div>
+              <div className="text-xs text-muted-foreground">يأخذ النظام نسخة كاملة على الجدول المحدد.</div>
+            </div>
+            <Switch checked={Boolean(draft.autoBackup)} onCheckedChange={(v) => set("autoBackup", v)} disabled={readOnly} data-testid="switch-auto-backup" />
+          </div>
+          <div className="grid gap-3 md:grid-cols-3">
+            <div>
+              <Label>التكرار</Label>
+              <Input dir="ltr" value={String(draft.frequency ?? "")} onChange={(e) => set("frequency", e.target.value)} disabled={readOnly} placeholder="daily | weekly | monthly" data-testid="input-frequency" />
+            </div>
+            <div>
+              <Label>مدة الاحتفاظ (أيام)</Label>
+              <Input type="number" min={1} value={Number(draft.retentionDays ?? 30)} onChange={(e) => set("retentionDays", Number(e.target.value))} disabled={readOnly} data-testid="input-retention" />
+            </div>
+            <div>
+              <Label>مزود التخزين</Label>
+              <Input dir="ltr" value={String(draft.storageProvider ?? "")} onChange={(e) => set("storageProvider", e.target.value)} disabled={readOnly} placeholder="replit | s3 | gcs" data-testid="input-storage-provider" />
+            </div>
+          </div>
+          <div className="flex items-center justify-between rounded-lg border p-3">
+            <span className="text-sm">شمل الملفات المرفقة (صور، PDFs)</span>
+            <Switch checked={Boolean(draft.includeAttachments)} onCheckedChange={(v) => set("includeAttachments", v)} disabled={readOnly} data-testid="switch-include-attachments" />
+          </div>
+          <Separator />
+          <div className="grid gap-3 md:grid-cols-2">
+            <div>
+              <Label>S3 Bucket (اختياري)</Label>
+              <Input dir="ltr" value={String(draft.s3Bucket ?? "")} onChange={(e) => set("s3Bucket", e.target.value)} disabled={readOnly} data-testid="input-s3-bucket" />
+            </div>
+            <div>
+              <Label>S3 Region</Label>
+              <Input dir="ltr" value={String(draft.s3Region ?? "")} onChange={(e) => set("s3Region", e.target.value)} disabled={readOnly} placeholder="me-south-1" data-testid="input-s3-region" />
+            </div>
+          </div>
+          {!readOnly && (
+            <div className="flex justify-end">
+              <Button onClick={() => save({ backup: draft })} data-testid="btn-save-backup">
+                <Save className="ms-2 size-4" /> حفظ
+              </Button>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// ====================== 14. TEMPLATES ======================
+/**
+ * Templates tab — default terms, footers, signatures and email
+ * boilerplate. Plain-text/HTML; the UI does not validate the inner
+ * content, only the wrapping shape.
+ */
+function TemplatesTab({ readOnly }: { readOnly: boolean }) {
+  const [draft, setDraft] = useSettingsSection<SectionPayload>("templates", {
+    invoiceTermsAr: "تستحق الفاتورة الدفع خلال 30 يوماً من تاريخ الإصدار.",
+    invoiceTermsEn: "Payment due within 30 days from invoice date.",
+    invoiceFooterAr: "شكراً لتعاملكم معنا.",
+    quotationTermsAr: "هذا العرض صالح لمدة 14 يوماً من تاريخ الإصدار.",
+    poTermsAr: "يرجى تأكيد الاستلام خلال 3 أيام.",
+    emailSignature: "إدارة حاسبة.AI",
+    emailReplyTo: "support@hasba.ai",
+  });
+  const save = useSavePatch();
+  const set = (k: string, v: string) => setDraft({ ...draft, [k]: v });
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <FileText className="size-5 text-primary" /> القوالب والشروط
+        </CardTitle>
+        <CardDescription>النصوص الافتراضية التي تظهر على المستندات والإيميلات الصادرة.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid gap-3 md:grid-cols-2">
+          <div>
+            <Label>شروط الفاتورة (عربي)</Label>
+            <Textarea rows={3} value={String(draft.invoiceTermsAr ?? "")} onChange={(e) => set("invoiceTermsAr", e.target.value)} disabled={readOnly} data-testid="input-inv-terms-ar" />
+          </div>
+          <div>
+            <Label>Invoice Terms (English)</Label>
+            <Textarea rows={3} dir="ltr" value={String(draft.invoiceTermsEn ?? "")} onChange={(e) => set("invoiceTermsEn", e.target.value)} disabled={readOnly} data-testid="input-inv-terms-en" />
+          </div>
+          <div className="md:col-span-2">
+            <Label>تذييل الفاتورة</Label>
+            <Textarea rows={2} value={String(draft.invoiceFooterAr ?? "")} onChange={(e) => set("invoiceFooterAr", e.target.value)} disabled={readOnly} data-testid="input-inv-footer" />
+          </div>
+          <div>
+            <Label>شروط عرض السعر</Label>
+            <Textarea rows={2} value={String(draft.quotationTermsAr ?? "")} onChange={(e) => set("quotationTermsAr", e.target.value)} disabled={readOnly} data-testid="input-qt-terms" />
+          </div>
+          <div>
+            <Label>شروط أمر الشراء</Label>
+            <Textarea rows={2} value={String(draft.poTermsAr ?? "")} onChange={(e) => set("poTermsAr", e.target.value)} disabled={readOnly} data-testid="input-po-terms" />
+          </div>
+          <div>
+            <Label>توقيع البريد الإلكتروني</Label>
+            <Textarea rows={2} value={String(draft.emailSignature ?? "")} onChange={(e) => set("emailSignature", e.target.value)} disabled={readOnly} data-testid="input-email-signature" />
+          </div>
+          <div>
+            <Label>عنوان الرد (Reply-To)</Label>
+            <Input dir="ltr" value={String(draft.emailReplyTo ?? "")} onChange={(e) => set("emailReplyTo", e.target.value)} disabled={readOnly} data-testid="input-reply-to" />
+          </div>
+        </div>
+        {!readOnly && (
+          <div className="flex justify-end">
+            <Button onClick={() => save({ templates: draft })} data-testid="btn-save-templates">
+              <Save className="ms-2 size-4" /> حفظ
+            </Button>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 // ====================== PAGE SHELL ======================
 export default function SettingsPage() {
   const { user } = useAuth();
@@ -797,6 +1302,24 @@ export default function SettingsPage() {
           <TabsTrigger value="integrations" data-testid="tab-integrations">
             <Plug className="me-2 size-4" /> الربط
           </TabsTrigger>
+          <TabsTrigger value="notifications" data-testid="tab-notifications">
+            <Bell className="me-2 size-4" /> التنبيهات
+          </TabsTrigger>
+          <TabsTrigger value="localization" data-testid="tab-localization">
+            <Globe className="me-2 size-4" /> التوطين
+          </TabsTrigger>
+          <TabsTrigger value="numbering" data-testid="tab-numbering">
+            <Hash className="me-2 size-4" /> الترقيم
+          </TabsTrigger>
+          <TabsTrigger value="appearance" data-testid="tab-appearance">
+            <Palette className="me-2 size-4" /> المظهر
+          </TabsTrigger>
+          <TabsTrigger value="backup" data-testid="tab-backup">
+            <Database className="me-2 size-4" /> النسخ الاحتياطي
+          </TabsTrigger>
+          <TabsTrigger value="templates" data-testid="tab-templates">
+            <FileText className="me-2 size-4" /> القوالب
+          </TabsTrigger>
           <TabsTrigger value="security" data-testid="tab-security">
             <ShieldCheck className="me-2 size-4" /> الأمان
           </TabsTrigger>
@@ -809,6 +1332,12 @@ export default function SettingsPage() {
         <TabsContent value="users"><UsersTab /></TabsContent>
         <TabsContent value="accounting"><AccountingTab readOnly={readOnly} /></TabsContent>
         <TabsContent value="integrations"><IntegrationsTab readOnly={readOnly} /></TabsContent>
+        <TabsContent value="notifications"><NotificationsTab readOnly={readOnly} /></TabsContent>
+        <TabsContent value="localization"><LocalizationTab readOnly={readOnly} /></TabsContent>
+        <TabsContent value="numbering"><NumberingTab readOnly={readOnly} /></TabsContent>
+        <TabsContent value="appearance"><AppearanceTab readOnly={readOnly} /></TabsContent>
+        <TabsContent value="backup"><BackupTab readOnly={readOnly} /></TabsContent>
+        <TabsContent value="templates"><TemplatesTab readOnly={readOnly} /></TabsContent>
         <TabsContent value="security"><SecurityTab /></TabsContent>
       </Tabs>
     </div>

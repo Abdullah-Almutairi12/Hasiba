@@ -32,8 +32,20 @@ async function ensureRow() {
 const SENSITIVE_FIELDS: Record<string, string[]> = {
   tax: ["zatcaApiUrl", "zatcaCsid", "zatcaPrivateKey", "zatcaSecret"],
   integrations: ["apiKey", "secret", "token", "webhookSecret", "password"],
+  notifications: ["smtpPassword", "smtpUser", "smsApiKey", "whatsappToken"],
+  backup: ["s3SecretKey", "s3AccessKey", "encryptionKey"],
 };
 
+/**
+ * Strip credentials and other admin-only fields from a settings section
+ * before serving it to non-admin readers. Operates as an exclusion list
+ * keyed by section name; nested objects under `integrations` are also
+ * scrubbed because each integration carries its own nested credentials.
+ *
+ * @param section - The section key (e.g. "tax", "integrations").
+ * @param payload - The raw jsonb payload for that section.
+ * @returns A copy of payload with sensitive keys removed.
+ */
 function redactSection(
   section: string,
   payload: Record<string, unknown>,
@@ -75,6 +87,12 @@ function serialize(
     permissions: (row.permissions ?? {}) as Record<string, unknown>,
     accounting: (row.accounting ?? {}) as Record<string, unknown>,
     integrations: (row.integrations ?? {}) as Record<string, unknown>,
+    notifications: (row.notifications ?? {}) as Record<string, unknown>,
+    localization: (row.localization ?? {}) as Record<string, unknown>,
+    numbering: (row.numbering ?? {}) as Record<string, unknown>,
+    appearance: (row.appearance ?? {}) as Record<string, unknown>,
+    backup: (row.backup ?? {}) as Record<string, unknown>,
+    templates: (row.templates ?? {}) as Record<string, unknown>,
   };
   if (!isAdmin) {
     for (const key of Object.keys(SENSITIVE_FIELDS)) {
@@ -111,6 +129,12 @@ const PatchBody = z.object({
   permissions: JsonObject.optional(),
   accounting: JsonObject.optional(),
   integrations: JsonObject.optional(),
+  notifications: JsonObject.optional(),
+  localization: JsonObject.optional(),
+  numbering: JsonObject.optional(),
+  appearance: JsonObject.optional(),
+  backup: JsonObject.optional(),
+  templates: JsonObject.optional(),
 });
 
 // Section-scoped PATCH. Each key sent is merged shallowly into the
@@ -141,6 +165,24 @@ router.patch("/settings", adminGuard, async (req, res) => {
         ...(row.integrations as object),
         ...body.integrations,
       };
+    if (body.notifications)
+      next.notifications = {
+        ...(row.notifications as object),
+        ...body.notifications,
+      };
+    if (body.localization)
+      next.localization = {
+        ...(row.localization as object),
+        ...body.localization,
+      };
+    if (body.numbering)
+      next.numbering = { ...(row.numbering as object), ...body.numbering };
+    if (body.appearance)
+      next.appearance = { ...(row.appearance as object), ...body.appearance };
+    if (body.backup)
+      next.backup = { ...(row.backup as object), ...body.backup };
+    if (body.templates)
+      next.templates = { ...(row.templates as object), ...body.templates };
     const [updated] = await db
       .update(appSettingsTable)
       .set(next)

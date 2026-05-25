@@ -13,6 +13,14 @@ export const appSettingsTable = pgTable("app_settings", {
   permissions: jsonb("permissions").notNull().default({}),
   accounting: jsonb("accounting").notNull().default({}),
   integrations: jsonb("integrations").notNull().default({}),
+  // Phase: full settings surface for subscribers. Each section is a free
+  // jsonb bag; shape is enforced by the API layer + UI, never by SQL.
+  notifications: jsonb("notifications").notNull().default({}),
+  localization: jsonb("localization").notNull().default({}),
+  numbering: jsonb("numbering").notNull().default({}),
+  appearance: jsonb("appearance").notNull().default({}),
+  backup: jsonb("backup").notNull().default({}),
+  templates: jsonb("templates").notNull().default({}),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
