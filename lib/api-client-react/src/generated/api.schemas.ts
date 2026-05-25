@@ -390,6 +390,8 @@ export interface Alert {
   message: string;
   isRead: boolean;
   createdAt: string;
+  /** Optional in-app link for click-through (e.g. synthetic alerts that point at a specific page). */
+  href?: string;
 }
 
 export type BranchPerformanceStatus =

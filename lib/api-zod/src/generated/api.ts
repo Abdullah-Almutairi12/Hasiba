@@ -76,6 +76,12 @@ export const GetDashboardAlertsResponseItem = zod.object({
   message: zod.string(),
   isRead: zod.boolean(),
   createdAt: zod.string(),
+  href: zod
+    .string()
+    .optional()
+    .describe(
+      "Optional in-app link for click-through (e.g. synthetic alerts that point at a specific page).",
+    ),
 });
 export const GetDashboardAlertsResponse = zod.array(
   GetDashboardAlertsResponseItem,

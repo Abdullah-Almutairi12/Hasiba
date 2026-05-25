@@ -7,10 +7,19 @@ import {
   alertsTable,
   branchesTable,
   invoicesTable,
+  auditLogsTable,
+  intercompanyLinksTable,
 } from "@workspace/db";
 import { sql, gte, desc, and, lt, eq } from "drizzle-orm";
 import { adminGuard } from "../middlewares/require-role";
 import { getCompanyId } from "../lib/scoped-db";
+
+/**
+ * Mirrors STALE_SCAN_MS in routes/intercompany.ts: 24h scan cadence
+ * plus 2h slack for boot delay / clock skew / long-running scans.
+ */
+const STALE_SCAN_MS = 26 * 60 * 60 * 1000;
+const FINANCE_ROLES = new Set(["owner", "manager", "accountant"]);
 
 const router = Router();
 
@@ -281,15 +290,86 @@ router.get("/dashboard/alerts", async (req, res) => {
   try {
     const companyId = getCompanyId(req);
     const alertScope = eq(alertsTable.companyId, companyId);
-    const alerts = await db
+    const role = req.session?.role;
+    const isFinance = typeof role === "string" && FINANCE_ROLES.has(role);
+
+    // Persisted alerts always come first. The stale-scan banner is
+    // synthesized at read time (not written to the alerts table) so it
+    // automatically disappears the moment the nightly cron writes a
+    // fresh `scan_nightly` audit row — no cleanup logic required.
+    const alertsPromise = db
       .select()
       .from(alertsTable)
       .where(alertScope)
       .orderBy(desc(alertsTable.createdAt))
       .limit(10);
 
-    res.json(
-      alerts.map((a) => ({
+    // Only finance roles ever see the stale-scan banner; for everyone
+    // else we skip the extra DB round-trip entirely.
+    const stalePromise = isFinance
+      ? Promise.all([
+          db
+            .select({ createdAt: auditLogsTable.createdAt })
+            .from(auditLogsTable)
+            .where(
+              and(
+                eq(auditLogsTable.action, "scan_nightly"),
+                eq(auditLogsTable.entity, "intercompany_imbalance"),
+                sql`${auditLogsTable.details} ~ ${`group=\\[(.*,)?${companyId}(,.*)?\\]`}`,
+              ),
+            )
+            .orderBy(desc(auditLogsTable.createdAt))
+            .limit(1),
+          db
+            .select({ n: sql<number>`count(*)::int` })
+            .from(intercompanyLinksTable)
+            .where(
+              sql`${intercompanyLinksTable.sourceCompanyId} = ${companyId} OR ${intercompanyLinksTable.targetCompanyId} = ${companyId}`,
+            ),
+        ])
+      : Promise.resolve(null);
+
+    const [alerts, staleData] = await Promise.all([alertsPromise, stalePromise]);
+
+    const synthetic: Array<{
+      id: number;
+      type: string;
+      title: string;
+      message: string;
+      isRead: boolean;
+      createdAt: string;
+      href?: string;
+    }> = [];
+
+    if (staleData) {
+      const [lastScanRow, linkCountRow] = staleData;
+      const hasLinks = (linkCountRow[0]?.n ?? 0) > 0;
+      const lastScan = lastScanRow[0];
+      const isStale = hasLinks
+        ? !lastScan || Date.now() - lastScan.createdAt.getTime() > STALE_SCAN_MS
+        : false;
+      if (isStale) {
+        const message = lastScan
+          ? `لم يعمل الفحص الليلي لعدم التطابق بين الشركات منذ أكثر من 26 ساعة (آخر تشغيل: ${lastScan.createdAt.toISOString()}). افتح /intercompany?tab=imbalances للمراجعة.`
+          : "لم يعمل الفحص الليلي لعدم التطابق بين الشركات بعد رغم وجود روابط بين شركات. افتح /intercompany?tab=imbalances للمراجعة.";
+        synthetic.push({
+          // Negative sentinel id keeps the synthetic row distinguishable
+          // from real alerts.id (serial, always positive) and stable for
+          // React list keys across polls.
+          id: -1,
+          type: "warning",
+          title: "فحص عدم التطابق بين الشركات متأخر",
+          message,
+          isRead: false,
+          createdAt: new Date().toISOString(),
+          href: "/intercompany?tab=imbalances",
+        });
+      }
+    }
+
+    res.json([
+      ...synthetic,
+      ...alerts.map((a) => ({
         id: a.id,
         type: a.type,
         title: a.title,
@@ -297,7 +377,7 @@ router.get("/dashboard/alerts", async (req, res) => {
         isRead: a.isRead,
         createdAt: a.createdAt.toISOString(),
       })),
-    );
+    ]);
   } catch (err) {
     req.log.error({ err }, "Error fetching alerts");
     res.status(500).json({ error: "Internal server error" });

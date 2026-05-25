@@ -287,18 +287,27 @@ export default function Dashboard() {
                 {isLoadingAlerts ? (
                   Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-12 w-full rounded-md" />)
                 ) : (
-                  alerts?.slice(0, 3).map((alert) => (
-                    <div key={alert.id} className="flex gap-3 p-3 rounded-lg bg-black/20 border border-white/5">
-                      {alert.type === 'danger' && <AlertCircle className="size-5 text-red-500 shrink-0 mt-0.5" />}
-                      {alert.type === 'warning' && <AlertTriangle className="size-5 text-yellow-500 shrink-0 mt-0.5" />}
-                      {alert.type === 'success' && <CheckCircle2 className="size-5 text-green-500 shrink-0 mt-0.5" />}
-                      {alert.type === 'info' && <Info className="size-5 text-cyan-500 shrink-0 mt-0.5" />}
-                      <div>
-                        <h4 className="text-sm font-medium text-foreground">{alert.title}</h4>
-                        <p className="text-xs text-muted-foreground mt-0.5">{alert.message}</p>
+                  alerts?.slice(0, 3).map((alert) => {
+                    const inner = (
+                      <div className="flex gap-3 p-3 rounded-lg bg-black/20 border border-white/5 hover:bg-black/30 transition-colors">
+                        {alert.type === 'danger' && <AlertCircle className="size-5 text-red-500 shrink-0 mt-0.5" />}
+                        {alert.type === 'warning' && <AlertTriangle className="size-5 text-yellow-500 shrink-0 mt-0.5" />}
+                        {alert.type === 'success' && <CheckCircle2 className="size-5 text-green-500 shrink-0 mt-0.5" />}
+                        {alert.type === 'info' && <Info className="size-5 text-cyan-500 shrink-0 mt-0.5" />}
+                        <div>
+                          <h4 className="text-sm font-medium text-foreground">{alert.title}</h4>
+                          <p className="text-xs text-muted-foreground mt-0.5">{alert.message}</p>
+                        </div>
                       </div>
-                    </div>
-                  ))
+                    );
+                    return alert.href ? (
+                      <a key={alert.id} href={alert.href} className="block" data-testid={`link-alert-${alert.id}`}>
+                        {inner}
+                      </a>
+                    ) : (
+                      <div key={alert.id}>{inner}</div>
+                    );
+                  })
                 )}
               </div>
             </CardContent>

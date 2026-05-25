@@ -2842,6 +2842,9 @@ components:
           type: boolean
         createdAt:
           type: string
+        href:
+          type: string
+          description: Optional in-app link for click-through (e.g. synthetic alerts that point at a specific page).
       required: [id, type, title, message, isRead, createdAt]
 
     BranchPerformance:
