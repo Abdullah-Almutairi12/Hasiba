@@ -31,6 +31,7 @@ import {
   posSessionsTable,
   posOrdersTable,
   auditLogsTable,
+  warehousesTable,
 } from "@workspace/db";
 import app from "../app";
 
@@ -290,6 +291,11 @@ afterAll(async () => {
     // ON DELETE SET NULL can no longer fire. Clear tenant-scoped
     // audit rows explicitly before dropping the company.
     await db.delete(auditLogsTable).where(inArray(auditLogsTable.companyId, coIds));
+    // warehouses.company_id is NOT NULL with onDelete:"restrict"
+    // (Phase-2 0008). Boot-time manufacturing-init seeds a Scrap
+    // warehouse per branch, so we must drop tenant warehouses
+    // before deleting the company or the cleanup will fail.
+    await db.delete(warehousesTable).where(inArray(warehousesTable.companyId, coIds));
     await db.delete(companiesTable).where(inArray(companiesTable.id, coIds));
   }
 });
