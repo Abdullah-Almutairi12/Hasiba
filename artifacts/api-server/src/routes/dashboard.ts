@@ -122,6 +122,12 @@ router.get("/dashboard/manager-bar", adminGuard, async (req, res) => {
 
 router.get("/dashboard/summary", async (req, res) => {
   try {
+    const companyId = getCompanyId(req);
+    // Tenant scope predicates — match the manager-bar handler. Rows with a
+    // NULL company_id (legacy backfill) are treated as belonging to every
+    // company so dashboards don't silently lose pre-Phase-2 data.
+    const posScope = sql`(${posOrdersTable.companyId} = ${companyId} OR ${posOrdersTable.companyId} IS NULL)`;
+    const prodScope = sql`(${productsTable.companyId} = ${companyId} OR ${productsTable.companyId} IS NULL)`;
     const today = startOfDay(new Date());
     const yesterday = new Date(today);
     yesterday.setDate(yesterday.getDate() - 1);
@@ -133,7 +139,7 @@ router.get("/dashboard/summary", async (req, res) => {
         count: sql<string>`count(*)`,
       })
       .from(posOrdersTable)
-      .where(gte(posOrdersTable.createdAt, today));
+      .where(and(gte(posOrdersTable.createdAt, today), posScope));
 
     const [yestAgg] = await db
       .select({
@@ -141,7 +147,7 @@ router.get("/dashboard/summary", async (req, res) => {
       })
       .from(posOrdersTable)
       .where(
-        and(gte(posOrdersTable.createdAt, yesterday), lt(posOrdersTable.createdAt, today)),
+        and(gte(posOrdersTable.createdAt, yesterday), lt(posOrdersTable.createdAt, today), posScope),
       );
 
     // Real margin from product catalog (avg)
@@ -150,7 +156,7 @@ router.get("/dashboard/summary", async (req, res) => {
         avgMargin: sql<string>`coalesce(avg((${productsTable.price}::numeric - ${productsTable.costPrice}::numeric) / nullif(${productsTable.price}::numeric, 0)), 0.30)`,
       })
       .from(productsTable)
-      .where(sql`${productsTable.isActive} = true`);
+      .where(and(sql`${productsTable.isActive} = true`, prodScope));
 
     const [productStats] = await db
       .select({
@@ -158,7 +164,7 @@ router.get("/dashboard/summary", async (req, res) => {
         lowStockCount: sql<string>`count(*) filter (where ${productsTable.stock} <= ${productsTable.minStock})`,
       })
       .from(productsTable)
-      .where(sql`${productsTable.isActive} = true`);
+      .where(and(sql`${productsTable.isActive} = true`, prodScope));
 
     const totalSales = Number(todayAgg.total);
     const yestSales = Number(yestAgg.total);
@@ -172,7 +178,7 @@ router.get("/dashboard/summary", async (req, res) => {
     const totalProducts = await db
       .select({ count: sql<string>`count(*)` })
       .from(productsTable)
-      .where(sql`${productsTable.isActive} = true`);
+      .where(and(sql`${productsTable.isActive} = true`, prodScope));
     const productCount = Number(totalProducts[0].count) || 1;
     const lowStockCount = Number(productStats.lowStockCount);
     const stockHealth = Math.max(0, 100 - (lowStockCount / productCount) * 100);
@@ -211,6 +217,8 @@ router.get("/dashboard/summary", async (req, res) => {
 
 router.get("/dashboard/sales-chart", async (req, res) => {
   try {
+    const companyId = getCompanyId(req);
+    const posScope = sql`(${posOrdersTable.companyId} = ${companyId} OR ${posOrdersTable.companyId} IS NULL)`;
     const period = (req.query.period as string) || "weekly";
     const now = new Date();
 
@@ -249,7 +257,7 @@ router.get("/dashboard/sales-chart", async (req, res) => {
         total: sql<string>`coalesce(sum(${posOrdersTable.total}::numeric), 0)`,
       })
       .from(posOrdersTable)
-      .where(gte(posOrdersTable.createdAt, startDate))
+      .where(and(gte(posOrdersTable.createdAt, startDate), posScope))
       .groupBy(sql`bucket`);
 
     const map = new Map<number, number>();
@@ -273,9 +281,12 @@ router.get("/dashboard/sales-chart", async (req, res) => {
 
 router.get("/dashboard/alerts", async (req, res) => {
   try {
+    const companyId = getCompanyId(req);
+    const alertScope = sql`(${alertsTable.companyId} = ${companyId} OR ${alertsTable.companyId} IS NULL)`;
     const alerts = await db
       .select()
       .from(alertsTable)
+      .where(alertScope)
       .orderBy(desc(alertsTable.createdAt))
       .limit(10);
 
@@ -297,6 +308,9 @@ router.get("/dashboard/alerts", async (req, res) => {
 
 router.get("/dashboard/branch-performance", async (req, res) => {
   try {
+    const companyId = getCompanyId(req);
+    const posScope = sql`(${posOrdersTable.companyId} = ${companyId} OR ${posOrdersTable.companyId} IS NULL)`;
+    const branchScope = sql`(${branchesTable.companyId} = ${companyId} OR ${branchesTable.companyId} IS NULL)`;
     const today = startOfDay(new Date());
     const sevenDaysAgo = new Date(today);
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
@@ -306,9 +320,11 @@ router.get("/dashboard/branch-performance", async (req, res) => {
     const branches = await db
       .select()
       .from(branchesTable)
-      .where(eq(branchesTable.isActive, true));
+      .where(and(eq(branchesTable.isActive, true), branchScope));
 
-    // Aggregate pos_orders → pos_sessions → branches for the last 7 days and previous 7 days
+    // Aggregate pos_orders → pos_sessions → branches for the last 7 days and previous 7 days.
+    // pos_sessions has no companyId yet; we scope through posOrders.companyId which is the
+    // authoritative tenant marker for sales data.
     const currentRows = await db
       .select({
         branchId: posSessionsTable.branchId,
@@ -316,7 +332,7 @@ router.get("/dashboard/branch-performance", async (req, res) => {
       })
       .from(posOrdersTable)
       .innerJoin(posSessionsTable, eq(posOrdersTable.sessionId, posSessionsTable.id))
-      .where(gte(posOrdersTable.createdAt, sevenDaysAgo))
+      .where(and(gte(posOrdersTable.createdAt, sevenDaysAgo), posScope))
       .groupBy(posSessionsTable.branchId);
 
     const prevRows = await db
@@ -330,6 +346,7 @@ router.get("/dashboard/branch-performance", async (req, res) => {
         and(
           gte(posOrdersTable.createdAt, fourteenDaysAgo),
           lt(posOrdersTable.createdAt, sevenDaysAgo),
+          posScope,
         ),
       )
       .groupBy(posSessionsTable.branchId);

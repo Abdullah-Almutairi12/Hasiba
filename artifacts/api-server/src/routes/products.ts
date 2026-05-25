@@ -215,6 +215,7 @@ router.patch("/products/:id", inventoryGuard, async (req, res) => {
   try {
     const id = Number(req.params.id);
     const body = UpdateProductBody.parse(req.body);
+    const scoped = new ScopedDb(getCompanyId(req));
 
     const updateData: Record<string, unknown> = {};
     if (body.name !== undefined) updateData.name = body.name;
@@ -229,7 +230,13 @@ router.patch("/products/:id", inventoryGuard, async (req, res) => {
     if (body.trackingMode !== undefined) updateData.trackingMode = body.trackingMode;
     if (body.costingMethod !== undefined) updateData.costingMethod = body.costingMethod;
 
-    const [updated] = await db.update(productsTable).set(updateData).where(eq(productsTable.id, id)).returning();
+    // Tenant scope: WHERE id = ? AND company_id = session.companyId so a
+    // user cannot mutate another tenant's product even if they know the ID.
+    const [updated] = await db
+      .update(productsTable)
+      .set(updateData)
+      .where(and(eq(productsTable.id, id), scoped.scope(productsTable)))
+      .returning();
     if (!updated) return res.status(404).json({ error: "Not found" });
 
     const { broadcastProductChange } = await import("../lib/integrations/marketplaces");
@@ -254,7 +261,19 @@ router.patch("/products/:id", inventoryGuard, async (req, res) => {
 router.delete("/products/:id", inventoryGuard, async (req, res) => {
   try {
     const id = Number(req.params.id);
-    await db.update(productsTable).set({ isActive: false }).where(eq(productsTable.id, id));
+    const scoped = new ScopedDb(getCompanyId(req));
+    // Soft-delete: tenant-scoped UPDATE. If no row matches under
+    // the caller's company scope we return 404 (hides existence of
+    // cross-tenant rows; mirrors PATCH semantics).
+    const [row] = await db
+      .update(productsTable)
+      .set({ isActive: false })
+      .where(and(eq(productsTable.id, id), scoped.scope(productsTable)))
+      .returning({ id: productsTable.id });
+    if (!row) {
+      res.status(404).json({ error: "Not found" });
+      return;
+    }
     res.status(204).send();
   } catch (err) {
     req.log.error({ err }, "Error deleting product");

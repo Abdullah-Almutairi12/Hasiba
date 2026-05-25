@@ -260,13 +260,55 @@ describe("HTTP — GET /api/customers is tenant-scoped", () => {
 });
 
 describe("HTTP — GET /api/products/:id cross-tenant access", () => {
-  it("Tenant A requesting tenant B's product id is denied (not leaked)", async () => {
+  it("Tenant A requesting tenant B's product id MUST get 404 (hide existence)", async () => {
     const res = await agentA.get(`/api/products/${productBId}`);
-    // Acceptable: 404 (preferred — hides existence) or 403.
-    // Critical: must NOT be 200 with B's data.
-    expect([403, 404]).toContain(res.status);
-    if (res.status === 200) {
-      throw new Error("cross-tenant product was leaked through GET /:id");
-    }
+    // 404 only — 403 would leak existence, 200 would leak data.
+    expect(res.status).toBe(404);
+  });
+});
+
+describe("HTTP — PATCH/DELETE cross-tenant writes (Phase 2 isolation)", () => {
+  it("PATCH /api/products/:id on another tenant's product returns 404 and does NOT mutate", async () => {
+    const before = await db
+      .select({ name: productsTable.name })
+      .from(productsTable)
+      .where(eq(productsTable.id, productBId));
+    const res = await agentA
+      .patch(`/api/products/${productBId}`)
+      .send({ name: "HACKED" });
+    expect(res.status).toBe(404);
+    const after = await db
+      .select({ name: productsTable.name })
+      .from(productsTable)
+      .where(eq(productsTable.id, productBId));
+    expect(after[0]?.name).toBe(before[0]?.name);
+    expect(after[0]?.name).not.toBe("HACKED");
+  });
+
+  it("DELETE /api/products/:id on another tenant's product returns 404 and does NOT soft-delete", async () => {
+    const res = await agentA.delete(`/api/products/${productBId}`);
+    expect(res.status).toBe(404);
+    const [row] = await db
+      .select({ isActive: productsTable.isActive })
+      .from(productsTable)
+      .where(eq(productsTable.id, productBId));
+    expect(row?.isActive).toBe(true);
+  });
+
+  it("PATCH /api/customers/:id on another tenant's customer returns 404 and does NOT mutate", async () => {
+    const before = await db
+      .select({ name: customersTable.name })
+      .from(customersTable)
+      .where(eq(customersTable.id, customerBId));
+    const res = await agentA
+      .patch(`/api/customers/${customerBId}`)
+      .send({ name: "HACKED" });
+    expect(res.status).toBe(404);
+    const after = await db
+      .select({ name: customersTable.name })
+      .from(customersTable)
+      .where(eq(customersTable.id, customerBId));
+    expect(after[0]?.name).toBe(before[0]?.name);
+    expect(after[0]?.name).not.toBe("HACKED");
   });
 });

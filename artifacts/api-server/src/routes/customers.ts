@@ -114,6 +114,7 @@ router.patch("/customers/:id", salesWriteGuard, async (req, res) => {
       shippingAddress: z.string().nullable().optional(),
     });
     const b = Body.parse(req.body);
+    const scoped = new ScopedDb(getCompanyId(req));
     const patch: Partial<typeof customersTable.$inferInsert> = {};
     if (b.name !== undefined) patch.name = b.name;
     if (b.phone !== undefined) patch.phone = b.phone;
@@ -125,7 +126,12 @@ router.patch("/customers/:id", salesWriteGuard, async (req, res) => {
     if (b.billingAddress !== undefined) patch.billingAddress = b.billingAddress;
     if (b.shippingAddress !== undefined) patch.shippingAddress = b.shippingAddress;
     if (b.creditLimit !== undefined) patch.creditLimit = String(b.creditLimit);
-    const [row] = await db.update(customersTable).set(patch).where(eq(customersTable.id, id)).returning();
+    // Tenant scope: prevents mutating another company's customer row.
+    const [row] = await db
+      .update(customersTable)
+      .set(patch)
+      .where(and(eq(customersTable.id, id), scoped.scope(customersTable)))
+      .returning();
     if (!row) { res.status(404).json({ error: "Not found" }); return; }
     res.json({ ...row, totalSpent: Number(row.totalSpent), creditLimit: Number(row.creditLimit ?? 0), createdAt: row.createdAt.toISOString() });
   } catch (err) {
