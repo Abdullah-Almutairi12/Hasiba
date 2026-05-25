@@ -215,4 +215,16 @@ import("./lib/alert-dismissals-cleanup-cron")
     logger.error({ err }, "failed to start alert_dismissals cleanup cron"),
   );
 
+// Nightly retention sweep for the `alerts` table (task #158).
+// Background workers append alerts continuously and nothing ever
+// deletes them. This cron deletes read alerts older than
+// ALERTS_RETENTION_DAYS (default 90). Cross-tenant ops alerts
+// (company_id IS NULL) follow the same rule. Cascading FK on
+// alert_dismissals.alert_id cleans dismissals for free.
+import("./lib/alerts-cleanup-cron")
+  .then((m) => m.startAlertsCleanupCron())
+  .catch((err) =>
+    logger.error({ err }, "failed to start alerts cleanup cron"),
+  );
+
 export default app;
