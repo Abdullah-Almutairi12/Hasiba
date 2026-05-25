@@ -21,9 +21,18 @@ export interface AuditEntry {
 export async function recordAudit(req: Request, entry: AuditEntry): Promise<void> {
   try {
     const sess = (req as { session?: { userId?: number; userName?: string; userRole?: string; companyId?: number } }).session;
+    const companyId = sess?.companyId;
+    // audit_logs.company_id is NOT NULL (Phase-2 tenant isolation, migration
+    // 0008). If the request reached us without a bound company (auth/public
+    // routes, webhooks, anonymous health checks…) there is no tenant scope
+    // to attach the audit row to, so we skip persistence rather than insert
+    // an orphan row that would fail the NOT NULL constraint.
+    if (typeof companyId !== "number") {
+      req.log?.debug?.({ entry }, "audit log skipped: no tenant context");
+      return;
+    }
     const userId = sess?.userId ?? null;
     const userName = sess?.userName ?? "نظام";
-    const companyId = sess?.companyId ?? null;
     const ip =
       (req.headers["x-forwarded-for"] as string | undefined)?.split(",")[0]?.trim() ||
       req.socket.remoteAddress ||
