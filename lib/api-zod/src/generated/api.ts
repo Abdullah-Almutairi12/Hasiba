@@ -1235,6 +1235,16 @@ export const ListCustomersResponseItem = zod.object({
   totalOrders: zod.number(),
   totalSpent: zod.number(),
   createdAt: zod.string(),
+  linkedCompanyId: zod
+    .number()
+    .nullish()
+    .describe("Sibling company id (intercompany mirror trigger), if any."),
+  linkedCompanyName: zod
+    .string()
+    .nullish()
+    .describe(
+      "Display name of the linked sibling company, joined server-side.",
+    ),
 });
 export const ListCustomersResponse = zod.array(ListCustomersResponseItem);
 
@@ -2045,6 +2055,16 @@ export const ListSuppliersResponseItem = zod.object({
   balance: zod.number(),
   notes: zod.string().nullish(),
   createdAt: zod.string(),
+  linkedCompanyId: zod
+    .number()
+    .nullish()
+    .describe("Sibling company id (intercompany mirror trigger), if any."),
+  linkedCompanyName: zod
+    .string()
+    .nullish()
+    .describe(
+      "Display name of the linked sibling company, joined server-side.",
+    ),
 });
 export const ListSuppliersResponse = zod.array(ListSuppliersResponseItem);
 
@@ -2075,6 +2095,16 @@ export const GetSupplierResponse = zod.object({
     balance: zod.number(),
     notes: zod.string().nullish(),
     createdAt: zod.string(),
+    linkedCompanyId: zod
+      .number()
+      .nullish()
+      .describe("Sibling company id (intercompany mirror trigger), if any."),
+    linkedCompanyName: zod
+      .string()
+      .nullish()
+      .describe(
+        "Display name of the linked sibling company, joined server-side.",
+      ),
   }),
   recentInvoices: zod.array(
     zod.object({

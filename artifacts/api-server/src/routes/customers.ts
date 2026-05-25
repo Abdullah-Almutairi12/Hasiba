@@ -10,8 +10,9 @@ import {
   opportunitiesTable,
   opportunityStagesTable,
   pricelistsTable,
+  companiesTable,
 } from "@workspace/db";
-import { ilike, or, sql, desc, eq, inArray, and } from "drizzle-orm";
+import { ilike, or, sql, desc, eq, inArray, and, isNotNull } from "drizzle-orm";
 import { CreateCustomerBody } from "@workspace/api-zod";
 import { z } from "zod";
 import {
@@ -20,16 +21,30 @@ import {
 } from "../middlewares/require-role";
 import { handleRouteError } from "../lib/handle-error";
 import { ScopedDb, getCompanyId } from "../lib/scoped-db";
+import { assertLinkedCompanyAllowed } from "../lib/assert-linked-company";
 
 const router = Router();
 
+/**
+ * GET /customers — list customers for the active tenant.
+ *
+ * `linkedOnly=1` narrows the result to customers wired to a sibling
+ * company (intercompany mirror prerequisite). `linkedCompanyName` is
+ * resolved via LEFT JOIN so the listing UI can show a "مرتبط بـ <name>"
+ * badge without N+1 lookups.
+ */
 router.get("/customers", customerReadGuard, async (req, res) => {
   try {
     const { search } = req.query;
+    const linkedOnly = req.query["linkedOnly"] === "1" || req.query["linkedOnly"] === "true";
     const scoped = new ScopedDb(getCompanyId(req));
     const customers = await db
-      .select()
+      .select({
+        row: customersTable,
+        linkedCompanyName: companiesTable.name,
+      })
       .from(customersTable)
+      .leftJoin(companiesTable, eq(companiesTable.id, customersTable.linkedCompanyId))
       .where(
         and(
           scoped.scope(customersTable),
@@ -38,17 +53,19 @@ router.get("/customers", customerReadGuard, async (req, res) => {
                 ilike(customersTable.name, `%${search}%`),
                 ilike(customersTable.phone ?? "", `%${search}%`)
               )
-            : sql`true`
+            : sql`true`,
+          linkedOnly ? isNotNull(customersTable.linkedCompanyId) : sql`true`,
         )
       )
       .orderBy(desc(customersTable.createdAt));
 
     res.json(
-      customers.map((c) => ({
+      customers.map(({ row: c, linkedCompanyName }) => ({
         ...c,
         totalSpent: Number(c.totalSpent),
         creditLimit: Number(c.creditLimit ?? 0),
         createdAt: c.createdAt.toISOString(),
+        linkedCompanyName: linkedCompanyName ?? null,
       }))
     );
   } catch (err) {
@@ -73,6 +90,9 @@ router.post("/customers", salesWriteGuard, async (req, res) => {
     });
     const body = Extended.parse(req.body);
     const scoped = new ScopedDb(getCompanyId(req));
+    const userId = req.session?.userId;
+    if (!userId) { res.status(401).json({ error: "غير مسجل دخول" }); return; }
+    const linkedCompanyId = await assertLinkedCompanyAllowed(userId, body.linkedCompanyId);
     const [customer] = await db
       .insert(customersTable)
       .values(scoped.stamp({
@@ -86,7 +106,7 @@ router.post("/customers", salesWriteGuard, async (req, res) => {
         taxNumber: body.taxNumber ?? null,
         billingAddress: body.billingAddress ?? null,
         shippingAddress: body.shippingAddress ?? null,
-        linkedCompanyId: body.linkedCompanyId ?? null,
+        linkedCompanyId,
       }))
       .returning();
 
@@ -120,6 +140,13 @@ router.patch("/customers/:id", salesWriteGuard, async (req, res) => {
     });
     const b = Body.parse(req.body);
     const scoped = new ScopedDb(getCompanyId(req));
+    const userId = req.session?.userId;
+    if (!userId) { res.status(401).json({ error: "غير مسجل دخول" }); return; }
+    // Validate the link target before touching the row so a forbidden link
+    // never half-succeeds. `undefined` means the user didn't send the field.
+    if (b.linkedCompanyId !== undefined) {
+      await assertLinkedCompanyAllowed(userId, b.linkedCompanyId);
+    }
     const patch: Partial<typeof customersTable.$inferInsert> = {};
     if (b.name !== undefined) patch.name = b.name;
     if (b.phone !== undefined) patch.phone = b.phone;

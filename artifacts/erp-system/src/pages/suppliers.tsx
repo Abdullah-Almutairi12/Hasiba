@@ -30,7 +30,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Search, Plus, Truck, Pencil } from "lucide-react";
+import { Search, Plus, Truck, Pencil, Building2 } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import { Badge } from "@/components/ui/badge";
 
 interface SupplierRow {
   id: number;
@@ -43,6 +45,9 @@ interface SupplierRow {
   balance: number;
   invoicesCount: number;
   createdAt: string;
+  /** Phase-5 intercompany linkage; resolved server-side via LEFT JOIN. */
+  linkedCompanyId: number | null;
+  linkedCompanyName: string | null;
 }
 
 interface SupplierFull extends SupplierRow {
@@ -191,15 +196,19 @@ function SupplierForm({
 
 export default function Suppliers() {
   const [search, setSearch] = useState("");
+  const [linkedOnly, setLinkedOnly] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
 
   const { data: rows, isLoading, refetch } = useQuery<SupplierRow[]>({
-    queryKey: ["/suppliers", search],
-    queryFn: () =>
-      apiGet<SupplierRow[]>(
-        `/suppliers${search ? `?search=${encodeURIComponent(search)}` : ""}`,
-      ),
+    queryKey: ["/suppliers", search, linkedOnly],
+    queryFn: () => {
+      const params = new URLSearchParams();
+      if (search) params.set("search", search);
+      if (linkedOnly) params.set("linkedOnly", "1");
+      const qs = params.toString();
+      return apiGet<SupplierRow[]>(`/suppliers${qs ? `?${qs}` : ""}`);
+    },
   });
 
   const { data: editing } = useQuery<{ supplier: SupplierFull }>({
@@ -234,7 +243,7 @@ export default function Suppliers() {
       </div>
 
       <Card>
-        <CardHeader className="pb-3 border-b">
+        <CardHeader className="pb-3 border-b flex flex-row items-center justify-between gap-3">
           <div className="flex gap-4 flex-1 max-w-md">
             <div className="relative flex-1">
               <Search className="absolute right-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
@@ -246,6 +255,14 @@ export default function Suppliers() {
               />
             </div>
           </div>
+          <label className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer select-none">
+            <Switch
+              checked={linkedOnly}
+              onCheckedChange={setLinkedOnly}
+              data-testid="switch-suppliers-linked-only"
+            />
+            مرتبطة بشركة شقيقة فقط
+          </label>
         </CardHeader>
         <CardContent className="p-0">
           <Table>
@@ -255,6 +272,7 @@ export default function Suppliers() {
                 <TableHead>الرقم الضريبي</TableHead>
                 <TableHead>الهاتف</TableHead>
                 <TableHead>البريد</TableHead>
+                <TableHead>الشركة المرتبطة</TableHead>
                 <TableHead className="text-center">الفواتير</TableHead>
                 <TableHead className="text-left">الرصيد</TableHead>
                 <TableHead className="text-end">إجراءات</TableHead>
@@ -264,14 +282,14 @@ export default function Suppliers() {
               {isLoading ? (
                 Array.from({ length: 5 }).map((_, i) => (
                   <TableRow key={i}>
-                    <TableCell colSpan={7}>
+                    <TableCell colSpan={8}>
                       <Skeleton className="h-5 w-full" />
                     </TableCell>
                   </TableRow>
                 ))
               ) : rows?.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="h-32 text-center text-muted-foreground">
+                  <TableCell colSpan={8} className="h-32 text-center text-muted-foreground">
                     <div className="flex flex-col items-center justify-center">
                       <Truck className="size-8 mb-2 opacity-20" />
                       لا يوجد موردون مطابقون للبحث
@@ -290,6 +308,16 @@ export default function Suppliers() {
                     </TableCell>
                     <TableCell className="text-muted-foreground">
                       {s.email || "—"}
+                    </TableCell>
+                    <TableCell>
+                      {s.linkedCompanyName ? (
+                        <Badge variant="outline" className="gap-1 font-normal">
+                          <Building2 className="size-3" />
+                          مرتبط بـ {s.linkedCompanyName}
+                        </Badge>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
                     </TableCell>
                     <TableCell className="text-center">{s.invoicesCount}</TableCell>
                     <TableCell className="text-left font-bold">

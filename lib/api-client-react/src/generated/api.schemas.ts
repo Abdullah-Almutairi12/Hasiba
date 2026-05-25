@@ -1151,6 +1151,10 @@ export interface Customer {
   totalOrders: number;
   totalSpent: number;
   createdAt: string;
+  /** Sibling company id (intercompany mirror trigger), if any. */
+  linkedCompanyId?: number | null;
+  /** Display name of the linked sibling company, joined server-side. */
+  linkedCompanyName?: string | null;
 }
 
 export interface CreateCustomerBody {
@@ -1559,6 +1563,10 @@ export interface Supplier {
   balance: number;
   notes?: string | null;
   createdAt: string;
+  /** Sibling company id (intercompany mirror trigger), if any. */
+  linkedCompanyId?: number | null;
+  /** Display name of the linked sibling company, joined server-side. */
+  linkedCompanyName?: string | null;
 }
 
 export interface CreateSupplierBody {

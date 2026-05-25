@@ -3773,6 +3773,14 @@ components:
           type: number
         createdAt:
           type: string
+        linkedCompanyId:
+          type: integer
+          nullable: true
+          description: Sibling company id (intercompany mirror trigger), if any.
+        linkedCompanyName:
+          type: string
+          nullable: true
+          description: Display name of the linked sibling company, joined server-side.
       required: [id, name, totalOrders, totalSpent, createdAt]
 
     CreateCustomerBody:
@@ -4377,6 +4385,14 @@ components:
         balance: { type: number }
         notes: { type: string, nullable: true }
         createdAt: { type: string }
+        linkedCompanyId:
+          type: integer
+          nullable: true
+          description: Sibling company id (intercompany mirror trigger), if any.
+        linkedCompanyName:
+          type: string
+          nullable: true
+          description: Display name of the linked sibling company, joined server-side.
       required: [id, name, balance, createdAt]
 
     CreateSupplierBody:

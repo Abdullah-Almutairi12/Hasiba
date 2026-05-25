@@ -24,25 +24,61 @@ import {
 } from "@/components/ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { Search, Plus, UserCircle, Users, Phone, Mail, FileText, Receipt, Target } from "lucide-react";
+import { Search, Plus, UserCircle, Users, Phone, Mail, FileText, Receipt, Target, Building2, Pencil } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
 import { format } from "date-fns";
 import { arSA } from "date-fns/locale";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { apiPost } from "@/hooks/use-api";
+import { apiPost, apiPatch } from "@/hooks/use-api";
 import { useToast } from "@/hooks/use-toast";
 
-function CustomerFormDialog({ onSuccess }: { onSuccess: () => void }) {
+/**
+ * Initial values for {@link CustomerFormDialog} in edit mode. When omitted,
+ * the dialog operates as a create form and submits via POST /customers; when
+ * provided, it submits via PATCH /customers/:id and only the fields the user
+ * actually changes round-trip to the server.
+ */
+export interface CustomerFormInitial {
+  id: number;
+  name: string;
+  phone: string | null;
+  email: string | null;
+  segment: "retail" | "wholesale" | "vip" | "distributor" | null;
+  creditLimit: number;
+  paymentTermsDays: number | null;
+  taxNumber: string | null;
+  linkedCompanyId: number | null;
+}
+
+/**
+ * Customer create/edit dialog. Phase-5 added the "linked sibling company"
+ * dropdown to both modes so finance can wire an existing customer to the
+ * intercompany mirror without recreating it; the underlying endpoint
+ * (PATCH /customers/:id) already accepted `linkedCompanyId`.
+ */
+function CustomerFormDialog({
+  onSuccess,
+  initial,
+}: {
+  onSuccess: () => void;
+  initial?: CustomerFormInitial;
+}) {
   const { toast } = useToast();
-  const [name, setName] = useState("");
-  const [phone, setPhone] = useState("");
-  const [email, setEmail] = useState("");
-  const [segment, setSegment] = useState<"retail" | "wholesale" | "vip" | "distributor">("retail");
-  const [creditLimit, setCreditLimit] = useState(0);
-  const [paymentTermsDays, setPaymentTermsDays] = useState(0);
-  const [taxNumber, setTaxNumber] = useState("");
-  const [linkedCompanyId, setLinkedCompanyId] = useState<string>("none");
+  const isEdit = !!initial;
+  const [name, setName] = useState(initial?.name ?? "");
+  const [phone, setPhone] = useState(initial?.phone ?? "");
+  const [email, setEmail] = useState(initial?.email ?? "");
+  const [segment, setSegment] = useState<"retail" | "wholesale" | "vip" | "distributor">(
+    initial?.segment ?? "retail",
+  );
+  const [creditLimit, setCreditLimit] = useState(initial?.creditLimit ?? 0);
+  const [paymentTermsDays, setPaymentTermsDays] = useState(initial?.paymentTermsDays ?? 0);
+  const [taxNumber, setTaxNumber] = useState(initial?.taxNumber ?? "");
+  const [linkedCompanyId, setLinkedCompanyId] = useState<string>(
+    initial?.linkedCompanyId != null ? String(initial.linkedCompanyId) : "none",
+  );
   // Sibling companies the current user can mirror to (intercompany).
   // Endpoint is per-user not owner-only, so non-owners see the same list.
   const { data: siblings = [] } = useApiQuery<Array<{ id: number; name: string }>>(
@@ -51,18 +87,24 @@ function CustomerFormDialog({ onSuccess }: { onSuccess: () => void }) {
 
   const submit = async () => {
     if (!name.trim()) { toast({ title: "الاسم مطلوب", variant: "destructive" }); return; }
+    const payload = {
+      name,
+      phone: phone || null,
+      email: email || null,
+      segment,
+      creditLimit,
+      paymentTermsDays,
+      taxNumber: taxNumber || null,
+      linkedCompanyId: linkedCompanyId === "none" ? null : Number(linkedCompanyId),
+    };
     try {
-      await apiPost("/customers", {
-        name,
-        phone: phone || null,
-        email: email || null,
-        segment,
-        creditLimit,
-        paymentTermsDays,
-        taxNumber: taxNumber || null,
-        linkedCompanyId: linkedCompanyId === "none" ? null : Number(linkedCompanyId),
-      });
-      toast({ title: "تم إنشاء العميل" });
+      if (isEdit && initial) {
+        await apiPatch(`/customers/${initial.id}`, payload);
+        toast({ title: "تم تحديث العميل" });
+      } else {
+        await apiPost("/customers", payload);
+        toast({ title: "تم إنشاء العميل" });
+      }
       onSuccess();
     } catch (e) {
       toast({ title: "خطأ", description: e instanceof Error ? e.message : String(e), variant: "destructive" });
@@ -71,7 +113,7 @@ function CustomerFormDialog({ onSuccess }: { onSuccess: () => void }) {
 
   return (
     <DialogContent>
-      <DialogHeader><DialogTitle>عميل جديد</DialogTitle></DialogHeader>
+      <DialogHeader><DialogTitle>{isEdit ? "تعديل العميل" : "عميل جديد"}</DialogTitle></DialogHeader>
       <div className="space-y-3">
         <div><Label>الاسم</Label><Input value={name} onChange={(e) => setName(e.target.value)} /></div>
         <div className="grid grid-cols-2 gap-2">
@@ -128,6 +170,8 @@ type Customer360 = {
     totalSpent: number;
     creditLimit: number;
     paymentTermsDays: number | null;
+    taxNumber: string | null;
+    linkedCompanyId: number | null;
   };
   summary: {
     // Finance-only fields are nullable: backend returns null for non-finance
@@ -163,10 +207,12 @@ function Customer360Sheet({
   customerId,
   open,
   onOpenChange,
+  onEdit,
 }: {
   customerId: number | null;
   open: boolean;
   onOpenChange: (v: boolean) => void;
+  onEdit: (initial: CustomerFormInitial) => void;
 }) {
   const { data, isLoading } = useApiQuery<Customer360>(
     customerId ? `/customers/${customerId}/360` : "/customers/0/360",
@@ -177,9 +223,34 @@ function Customer360Sheet({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="left" className="w-full sm:max-w-3xl overflow-y-auto" dir="rtl">
         <SheetHeader>
-          <SheetTitle className="text-xl">
-            {data?.customer.name ?? "تحميل..."}
-          </SheetTitle>
+          <div className="flex items-center justify-between gap-2">
+            <SheetTitle className="text-xl">
+              {data?.customer.name ?? "تحميل..."}
+            </SheetTitle>
+            {data && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  const c = data.customer;
+                  onEdit({
+                    id: c.id,
+                    name: c.name,
+                    phone: c.phone,
+                    email: c.email,
+                    segment: (c.segment as CustomerFormInitial["segment"]) ?? null,
+                    creditLimit: c.creditLimit,
+                    paymentTermsDays: c.paymentTermsDays,
+                    taxNumber: c.taxNumber,
+                    linkedCompanyId: c.linkedCompanyId,
+                  });
+                }}
+                data-testid="button-edit-customer"
+              >
+                <Pencil className="size-4 ml-1" /> تعديل
+              </Button>
+            )}
+          </div>
         </SheetHeader>
         {isLoading || !data ? (
           <div className="mt-6 space-y-3">
@@ -364,9 +435,20 @@ function Customer360Sheet({
 
 export default function Customers() {
   const [search, setSearch] = useState("");
-  const { data: customers, isLoading, refetch } = useListCustomers({ search: search || undefined });
+  const [linkedOnly, setLinkedOnly] = useState(false);
+  const { data: customers, isLoading, refetch } = useListCustomers({
+    search: search || undefined,
+    // Phase-5 filter: narrow the list to customers wired to a sibling company.
+    // Coerced to "1"/undefined because the orval-generated query param is string.
+    ...(linkedOnly ? { linkedOnly: "1" } : {}),
+  } as Parameters<typeof useListCustomers>[0]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [addOpen, setAddOpen] = useState(false);
+  // Phase-6: edit dialog seeded from the Customer 360 sheet so finance can
+  // change the linked sibling company (or any other field) without recreating
+  // the customer. Kept as a separate state slice from the create dialog so
+  // both can coexist if the user re-opens the sheet after closing the editor.
+  const [editInitial, setEditInitial] = useState<CustomerFormInitial | null>(null);
 
   return (
     <div className="space-y-6 pb-8 max-w-7xl mx-auto">
@@ -386,8 +468,17 @@ export default function Customers() {
         </Dialog>
       </div>
 
+      <Dialog open={!!editInitial} onOpenChange={(v) => { if (!v) setEditInitial(null); }}>
+        {editInitial && (
+          <CustomerFormDialog
+            initial={editInitial}
+            onSuccess={() => { setEditInitial(null); refetch(); }}
+          />
+        )}
+      </Dialog>
+
       <Card>
-        <CardHeader className="pb-3 border-b flex flex-row items-center justify-between">
+        <CardHeader className="pb-3 border-b flex flex-row items-center justify-between gap-3">
           <div className="flex gap-4 flex-1 max-w-md">
             <div className="relative flex-1">
               <Search className="absolute right-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
@@ -399,6 +490,14 @@ export default function Customers() {
               />
             </div>
           </div>
+          <label className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer select-none">
+            <Switch
+              checked={linkedOnly}
+              onCheckedChange={setLinkedOnly}
+              data-testid="switch-customers-linked-only"
+            />
+            مرتبطة بشركة شقيقة فقط
+          </label>
         </CardHeader>
         <CardContent className="p-0">
           <Table>
@@ -407,6 +506,7 @@ export default function Customers() {
                 <TableHead>العميل</TableHead>
                 <TableHead>رقم الهاتف</TableHead>
                 <TableHead>البريد الإلكتروني</TableHead>
+                <TableHead>الشركة المرتبطة</TableHead>
                 <TableHead className="text-center">إجمالي الطلبات</TableHead>
                 <TableHead className="text-left">إجمالي الإنفاق</TableHead>
                 <TableHead className="text-left">تاريخ الانضمام</TableHead>
@@ -419,6 +519,7 @@ export default function Customers() {
                     <TableCell><Skeleton className="h-5 w-32" /></TableCell>
                     <TableCell><Skeleton className="h-5 w-24" /></TableCell>
                     <TableCell><Skeleton className="h-5 w-40" /></TableCell>
+                    <TableCell><Skeleton className="h-5 w-24" /></TableCell>
                     <TableCell className="text-center"><Skeleton className="h-5 w-12 mx-auto" /></TableCell>
                     <TableCell className="text-left"><Skeleton className="h-5 w-24 ml-auto" /></TableCell>
                     <TableCell className="text-left"><Skeleton className="h-5 w-24 ml-auto" /></TableCell>
@@ -426,7 +527,7 @@ export default function Customers() {
                 ))
               ) : customers?.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="h-32 text-center text-muted-foreground">
+                  <TableCell colSpan={7} className="h-32 text-center text-muted-foreground">
                     <div className="flex flex-col items-center justify-center">
                       <Users className="size-8 mb-2 opacity-20" />
                       لا يوجد عملاء مطابقين للبحث
@@ -449,6 +550,16 @@ export default function Customers() {
                     </TableCell>
                     <TableCell dir="ltr" className="text-right text-muted-foreground">{customer.phone || '---'}</TableCell>
                     <TableCell className="text-muted-foreground">{customer.email || '---'}</TableCell>
+                    <TableCell>
+                      {customer.linkedCompanyName ? (
+                        <Badge variant="outline" className="gap-1 font-normal">
+                          <Building2 className="size-3" />
+                          مرتبط بـ {customer.linkedCompanyName}
+                        </Badge>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
                     <TableCell className="text-center font-bold">{customer.totalOrders}</TableCell>
                     <TableCell className="text-left font-bold text-primary">
                       <Money value={customer.totalSpent} />
@@ -468,6 +579,7 @@ export default function Customers() {
         customerId={selectedId}
         open={selectedId !== null}
         onOpenChange={(v) => { if (!v) setSelectedId(null); }}
+        onEdit={(init) => { setSelectedId(null); setEditInitial(init); }}
       />
     </div>
   );

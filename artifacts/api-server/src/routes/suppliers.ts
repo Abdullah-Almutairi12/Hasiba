@@ -1,10 +1,11 @@
 import { Router } from "express";
 import { z, ZodError } from "zod";
-import { db, suppliersTable, invoicesTable } from "@workspace/db";
-import { eq, ilike, or, sql, desc } from "drizzle-orm";
+import { db, suppliersTable, invoicesTable, companiesTable } from "@workspace/db";
+import { eq, ilike, or, sql, desc, isNotNull } from "drizzle-orm";
 import { requireRole, supplierReadGuard } from "../middlewares/require-role";
 import { recordAudit } from "../lib/audit";
 import { ScopedDb, getCompanyId } from "../lib/scoped-db";
+import { assertLinkedCompanyAllowed } from "../lib/assert-linked-company";
 import { and } from "drizzle-orm";
 
 const router = Router();
@@ -34,9 +35,17 @@ const CreateSupplierBody = z.object({
   linkedCompanyId: z.number().int().nullable().optional(),
 });
 
+/**
+ * GET /suppliers — list suppliers for the active tenant.
+ *
+ * `linkedOnly=1` narrows to suppliers wired to a sibling company.
+ * `linkedCompanyName` is resolved via LEFT JOIN so the listing UI can
+ * surface a "مرتبط بـ <name>" badge without N+1 lookups.
+ */
 router.get("/suppliers", async (req, res) => {
   try {
     const search = (req.query["search"] as string | undefined)?.trim();
+    const linkedOnly = req.query["linkedOnly"] === "1" || req.query["linkedOnly"] === "true";
     const scoped = new ScopedDb(getCompanyId(req));
 
     const rows = await db
@@ -52,16 +61,20 @@ router.get("/suppliers", async (req, res) => {
         defaultCurrency: suppliersTable.defaultCurrency,
         leadTimeDays: suppliersTable.leadTimeDays,
         defaultTax: suppliersTable.defaultTax,
+        linkedCompanyId: suppliersTable.linkedCompanyId,
+        linkedCompanyName: companiesTable.name,
         invoicesCount: sql<number>`(select count(*) from ${invoicesTable} where ${invoicesTable.supplierId} = ${suppliersTable.id})`,
         createdAt: suppliersTable.createdAt,
       })
       .from(suppliersTable)
+      .leftJoin(companiesTable, eq(companiesTable.id, suppliersTable.linkedCompanyId))
       .where(
         and(
           scoped.scope(suppliersTable),
           search
             ? or(ilike(suppliersTable.name, `%${search}%`), ilike(suppliersTable.vatNumber, `%${search}%`))
             : sql`true`,
+          linkedOnly ? isNotNull(suppliersTable.linkedCompanyId) : sql`true`,
         ),
       )
       .orderBy(desc(suppliersTable.createdAt));
@@ -72,6 +85,7 @@ router.get("/suppliers", async (req, res) => {
         balance: Number(r.balance),
         invoicesCount: Number(r.invoicesCount),
         createdAt: r.createdAt.toISOString(),
+        linkedCompanyName: r.linkedCompanyName ?? null,
       })),
     );
   } catch (err) {
@@ -84,6 +98,9 @@ router.post("/suppliers", supplierWriteGuard, async (req, res) => {
   try {
     const body = CreateSupplierBody.parse(req.body);
     const scoped = new ScopedDb(getCompanyId(req));
+    const userId = req.session?.userId;
+    if (!userId) return res.status(401).json({ error: "غير مسجل دخول" });
+    const linkedCompanyId = await assertLinkedCompanyAllowed(userId, body.linkedCompanyId);
     const [created] = await db
       .insert(suppliersTable)
       .values(scoped.stamp({
@@ -97,7 +114,7 @@ router.post("/suppliers", supplierWriteGuard, async (req, res) => {
         ...(body.defaultCurrency ? { defaultCurrency: body.defaultCurrency } : {}),
         ...(body.leadTimeDays != null ? { leadTimeDays: body.leadTimeDays } : {}),
         ...(body.defaultTax != null ? { defaultTax: String(body.defaultTax) } : {}),
-        linkedCompanyId: body.linkedCompanyId ?? null,
+        linkedCompanyId,
       }))
       .returning();
     void recordAudit(req, { action: "create", entity: "supplier", details: `أُضيف المورد ${body.name}` });
@@ -140,6 +157,11 @@ router.patch("/suppliers/:id", supplierWriteGuard, async (req, res) => {
     });
     const b = Body.parse(req.body);
     const scoped = new ScopedDb(getCompanyId(req));
+    const userId = req.session?.userId;
+    if (!userId) return res.status(401).json({ error: "غير مسجل دخول" });
+    if (b.linkedCompanyId !== undefined) {
+      await assertLinkedCompanyAllowed(userId, b.linkedCompanyId);
+    }
     const patch: Partial<typeof suppliersTable.$inferInsert> = {};
     if (b.name !== undefined) patch.name = b.name;
     if (b.vatNumber !== undefined) patch.vatNumber = b.vatNumber || null;

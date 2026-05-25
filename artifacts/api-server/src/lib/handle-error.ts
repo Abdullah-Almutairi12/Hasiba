@@ -19,6 +19,13 @@ export function handleRouteError(err: unknown, res: Response): void {
     res.status(403).json({ error: err.message });
     return;
   }
+  // Errors thrown by helpers (e.g. assertLinkedCompanyAllowed) carry an
+  // explicit HTTP `status` so the caller can preserve 403/404/409 etc.
+  if (err instanceof Error && typeof (err as Error & { status?: unknown }).status === "number") {
+    const status = (err as Error & { status: number }).status;
+    res.status(status).json({ error: err.message });
+    return;
+  }
   res.status(500).json({ error: "Internal server error" });
 }
 
