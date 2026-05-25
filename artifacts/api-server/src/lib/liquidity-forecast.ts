@@ -24,6 +24,8 @@ import {
   journalEntryLinesTable,
   posOrdersTable,
   posSessionsTable,
+  purchaseOrdersTable,
+  warehousesTable,
   type Branch,
 } from "@workspace/db";
 import { and, eq, gte, inArray, sql } from "drizzle-orm";
@@ -84,6 +86,10 @@ export interface RetailBranchPosition {
   branchName: string;
   cashOnHand: number;
   pendingPayables: number;
+  /** Portion of `pendingPayables` derived from supplier bills directly attributable to this branch (via PO → warehouse → branch). */
+  attributedPayables: number;
+  /** Portion of `pendingPayables` from the unattributable pool split evenly across active branches. */
+  sharedPayables: number;
   netPosition: number;
   openSessions: number;
 }
@@ -92,6 +98,10 @@ export interface RetailLiquiditySnapshot {
   currency: "SAR";
   totalCashOnHand: number;
   totalPendingPayables: number;
+  /** Sum of supplier-bill amounts that could be traced to a specific branch. */
+  attributedPayables: number;
+  /** Pool of supplier-bill amounts that couldn't be traced and were split evenly across branches. */
+  unattributedPayables: number;
   netPosition: number;
   branches: RetailBranchPosition[];
 }
@@ -401,16 +411,75 @@ export async function getCorporateLiquidity(
 }
 
 /**
+ * Per-branch pending payables, derived by tracing each open supplier
+ * invoice back to a branch through its purchase order's receiving
+ * warehouse:
+ *
+ *   invoice → purchase_orders.warehouseId → warehouses.branchId
+ *
+ * Invoices with no `poId`, with a PO that has no warehouse, or whose
+ * warehouse points at a branch not in the active list are returned in
+ * the second element of the tuple as a single "unattributed" pool —
+ * the caller decides how to distribute that pool.
+ *
+ * Returns `[attributedByBranch, unattributedAmount]`.
+ */
+async function getPayablesByBranch(
+  companyId: number,
+  activeBranchIds: number[],
+): Promise<[Map<number, number>, number]> {
+  const total = await getPendingPayables(companyId);
+  if (total === 0) return [new Map(), 0];
+
+  const rows = await db
+    .select({
+      branchId: warehousesTable.branchId,
+      total: sql<string>`coalesce(sum(${invoicesTable.amount}::numeric), 0)`,
+    })
+    .from(invoicesTable)
+    .innerJoin(
+      purchaseOrdersTable,
+      eq(invoicesTable.poId, purchaseOrdersTable.id),
+    )
+    .innerJoin(
+      warehousesTable,
+      eq(purchaseOrdersTable.warehouseId, warehousesTable.id),
+    )
+    .where(
+      and(
+        eq(invoicesTable.companyId, companyId),
+        inArray(invoicesTable.status, [...PENDING_PAYABLE_STATUSES]),
+      ),
+    )
+    .groupBy(warehousesTable.branchId);
+
+  const attributed = new Map<number, number>();
+  const activeSet = new Set(activeBranchIds);
+  let attributedTotal = 0;
+  for (const r of rows) {
+    if (!activeSet.has(r.branchId)) continue;
+    const amount = Number(r.total);
+    if (amount === 0) continue;
+    attributed.set(r.branchId, (attributed.get(r.branchId) ?? 0) + amount);
+    attributedTotal += amount;
+  }
+  const unattributed = Math.max(0, total - attributedTotal);
+  return [attributed, unattributed];
+}
+
+/**
  * Per-branch cash position derived from active POS sessions:
  *   cashOnHand(branch) = sum(opening_cash on open sessions)
  *                      + sum(pos_orders.total where payment_method='cash'
  *                            and session is open)
  *
- * Pending payables are tracked at the company level (no branchId on
- * invoices), so we divide them evenly across active branches as a
- * naive but defensible proxy — store managers see "my share of what
- * the company still owes". Total payables in the snapshot still match
- * the corporate figure.
+ * Pending payables are now attributed per branch via the supplier
+ * invoice → PO → receiving-warehouse → branch chain. Invoices that
+ * can't be traced (no PO, or PO with no warehouse) fall into an
+ * "unattributed" pool that is split evenly across active branches —
+ * the same naive proxy used previously, but applied only to the
+ * residual instead of the whole figure. Total payables in the
+ * snapshot still match the corporate figure.
  */
 export async function getRetailLiquidity(
   companyId: number,
@@ -429,10 +498,17 @@ export async function getRetailLiquidity(
       currency: "SAR",
       totalCashOnHand: 0,
       totalPendingPayables: Math.round(pendingPayables * 100) / 100,
+      attributedPayables: 0,
+      unattributedPayables: Math.round(pendingPayables * 100) / 100,
       netPosition: -Math.round(pendingPayables * 100) / 100,
       branches: [],
     };
   }
+
+  const [payablesByBranch, unattributedPool] = await getPayablesByBranch(
+    companyId,
+    branchIds,
+  );
 
   // Opening cash on currently-open sessions, by branch.
   const openingRows = await db
@@ -482,25 +558,35 @@ export async function getRetailLiquidity(
   const cashByBranch = new Map<number, number>();
   for (const r of cashRows) cashByBranch.set(r.branchId, Number(r.cash));
 
-  const share = pendingPayables / branches.length;
+  const sharedPerBranch = unattributedPool / branches.length;
   const rows: RetailBranchPosition[] = branches.map((b) => {
     const opening = openingByBranch.get(b.id) ?? { cash: 0, sessions: 0 };
     const cashOnHand = opening.cash + (cashByBranch.get(b.id) ?? 0);
+    const attributed = payablesByBranch.get(b.id) ?? 0;
+    const payables = attributed + sharedPerBranch;
     return {
       branchId: b.id,
       branchName: b.nameAr || b.name,
       cashOnHand: Math.round(cashOnHand * 100) / 100,
-      pendingPayables: Math.round(share * 100) / 100,
-      netPosition: Math.round((cashOnHand - share) * 100) / 100,
+      pendingPayables: Math.round(payables * 100) / 100,
+      attributedPayables: Math.round(attributed * 100) / 100,
+      sharedPayables: Math.round(sharedPerBranch * 100) / 100,
+      netPosition: Math.round((cashOnHand - payables) * 100) / 100,
       openSessions: opening.sessions,
     };
   });
 
   const totalCash = rows.reduce((s, r) => s + r.cashOnHand, 0);
+  const attributedTotal = Array.from(payablesByBranch.values()).reduce(
+    (s, n) => s + n,
+    0,
+  );
   return {
     currency: "SAR",
     totalCashOnHand: Math.round(totalCash * 100) / 100,
     totalPendingPayables: Math.round(pendingPayables * 100) / 100,
+    attributedPayables: Math.round(attributedTotal * 100) / 100,
+    unattributedPayables: Math.round(unattributedPool * 100) / 100,
     netPosition: Math.round((totalCash - pendingPayables) * 100) / 100,
     branches: rows,
   };

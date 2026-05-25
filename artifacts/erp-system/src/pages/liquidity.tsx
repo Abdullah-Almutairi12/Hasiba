@@ -18,6 +18,7 @@ import {
   Check,
   ChevronsUpDown,
   Droplets,
+  HelpCircle,
   Loader2,
   Search,
   Store,
@@ -40,6 +41,12 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import {
+  Tooltip as UiTooltip,
+  TooltipContent as UiTooltipContent,
+  TooltipProvider as UiTooltipProvider,
+  TooltipTrigger as UiTooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
 import { Money } from "@/components/riyal";
@@ -69,6 +76,8 @@ interface RetailBranch {
   branchName: string;
   cashOnHand: number;
   pendingPayables: number;
+  attributedPayables: number;
+  sharedPayables: number;
   netPosition: number;
   openSessions: number;
 }
@@ -77,6 +86,8 @@ interface RetailSnapshot {
   currency: "SAR";
   totalCashOnHand: number;
   totalPendingPayables: number;
+  attributedPayables: number;
+  unattributedPayables: number;
   netPosition: number;
   branches: RetailBranch[];
 }
@@ -89,6 +100,52 @@ async function fetchJson<T>(url: string): Promise<T> {
   const r = await fetch(url, { credentials: "include" });
   if (!r.ok) throw new Error(`${url} → ${r.status}`);
   return r.json();
+}
+
+function formatSar(value: number): string {
+  const rounded = Math.round(value);
+  try {
+    return `${new Intl.NumberFormat("ar-SA").format(rounded)} ر.س`;
+  } catch {
+    return `${rounded} ر.س`;
+  }
+}
+
+/**
+ * Build the "كيف نحسب هذا؟" copy for the Retail payables figure.
+ * It explains the new attribution: amounts traced from supplier bills
+ * back to this branch via their purchase order vs. an unattributed
+ * pool that is still split evenly across active branches.
+ */
+function buildPayablesHint({
+  attributed,
+  shared,
+  branchCount,
+  scope,
+}: {
+  attributed: number;
+  shared: number;
+  branchCount: number;
+  scope: "all" | "branch";
+}): string {
+  if (attributed === 0 && shared === 0) {
+    return "لا توجد فواتير موردين معلّقة حالياً.";
+  }
+  const head =
+    scope === "branch"
+      ? "نحسب نصيب هذا الفرع من فواتير الموردين بتتبّع كل فاتورة إلى أمر الشراء ثم المستودع المستلم وفرعه."
+      : "نحسب نصيب كل فرع من فواتير الموردين بتتبّع كل فاتورة إلى أمر الشراء ثم المستودع المستلم وفرعه.";
+  const parts = [
+    `منسوب مباشرة: ${formatSar(attributed)}`,
+  ];
+  if (shared > 0) {
+    parts.push(
+      scope === "branch"
+        ? `حصة من فواتير غير قابلة للنسب (مقسومة بالتساوي على ${branchCount} فرع): ${formatSar(shared)}`
+        : `فواتير غير قابلة للنسب (مقسومة بالتساوي على ${branchCount} فرع): ${formatSar(shared)}`,
+    );
+  }
+  return `${head}\n${parts.join(" • ")}`;
 }
 
 function severityBadgeVariant(s: Warning["severity"]) {
@@ -125,6 +182,7 @@ function NetPositionHero({
   pendingPayables,
   netPosition,
   openSessions,
+  payablesHint,
 }: {
   title: string;
   subtitle?: string;
@@ -132,6 +190,8 @@ function NetPositionHero({
   pendingPayables: number;
   netPosition: number;
   openSessions?: number;
+  /** Short Arabic explanation rendered in a "كيف نحسب هذا؟" tooltip next to the payables figure. */
+  payablesHint?: string;
 }) {
   const tone = classifyTone(netPosition, cashOnHand, pendingPayables);
   // Headline number is strictly binary by sign — green when Net Position
@@ -208,6 +268,30 @@ function NetPositionHero({
             <div className="flex items-center gap-1.5 text-xs text-muted-foreground sm:text-sm">
               <ArrowDownRight className="size-3.5 text-rose-500" />
               المستحقات
+              {payablesHint ? (
+                <UiTooltipProvider delayDuration={150}>
+                  <UiTooltip>
+                    <UiTooltipTrigger asChild>
+                      <button
+                        type="button"
+                        aria-label="كيف نحسب هذا؟"
+                        className="inline-flex size-4 items-center justify-center rounded-full text-muted-foreground/70 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        data-testid="button-payables-hint"
+                      >
+                        <HelpCircle className="size-3.5" />
+                      </button>
+                    </UiTooltipTrigger>
+                    <UiTooltipContent
+                      side="top"
+                      align="end"
+                      className="max-w-xs whitespace-pre-line bg-popover text-popover-foreground border border-border text-xs leading-relaxed"
+                      data-testid="tooltip-payables-hint"
+                    >
+                      {payablesHint}
+                    </UiTooltipContent>
+                  </UiTooltip>
+                </UiTooltipProvider>
+              ) : null}
             </div>
             <div className="text-lg font-semibold text-rose-600 tabular-nums dark:text-rose-400 sm:text-2xl">
               <Money value={pendingPayables} fractionDigits={0} />
@@ -708,6 +792,12 @@ function RetailMode() {
           cashOnHand: data.totalCashOnHand,
           pendingPayables: data.totalPendingPayables,
           netPosition: data.netPosition,
+          payablesHint: buildPayablesHint({
+            attributed: data.attributedPayables,
+            shared: data.unattributedPayables,
+            branchCount: data.branches.length,
+            scope: "all",
+          }),
         }
       : {
           title: activeBranch.branchName,
@@ -716,6 +806,12 @@ function RetailMode() {
           pendingPayables: activeBranch.pendingPayables,
           netPosition: activeBranch.netPosition,
           openSessions: activeBranch.openSessions,
+          payablesHint: buildPayablesHint({
+            attributed: activeBranch.attributedPayables,
+            shared: activeBranch.sharedPayables,
+            branchCount: data.branches.length,
+            scope: "branch",
+          }),
         };
 
   return (
