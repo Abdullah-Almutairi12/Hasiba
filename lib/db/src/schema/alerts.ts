@@ -50,6 +50,16 @@ export const alertDismissalsTable = pgTable(
       .notNull()
       .references(() => companiesTable.id, { onDelete: "cascade" }),
     alertKey: text("alert_key").notNull(),
+    /**
+     * FK shortcut for keys of the form `alert:<id>`. Populated on
+     * insert so that deleting the underlying `alerts` row cascades
+     * and removes the dismissal automatically. NULL for synthetic
+     * keys (e.g. `synthetic:stale_scan`) and for legacy rows written
+     * before this column existed (the nightly sweep mops those up).
+     */
+    alertId: integer("alert_id").references(() => alertsTable.id, {
+      onDelete: "cascade",
+    }),
     dismissedAt: timestamp("dismissed_at").notNull().defaultNow(),
   },
   (t) => [

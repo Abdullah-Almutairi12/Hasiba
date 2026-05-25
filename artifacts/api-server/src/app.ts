@@ -14,6 +14,7 @@ import { initWorkflow } from "./lib/workflow-init";
 import { initPos } from "./lib/pos-init";
 import { initAnomaly } from "./lib/anomaly-engine";
 import { initIntercompany } from "./lib/intercompany-init";
+import { initAlertDismissals } from "./lib/alert-dismissals-init";
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 
@@ -34,6 +35,7 @@ const accountingReady = initAccounting()
   .then(() => initPos())
   .then(() => initAnomaly())
   .then(() => initIntercompany())
+  .then(() => initAlertDismissals())
   .catch((err) => {
     accountingInitError = err;
     logger.error({ err }, "Failed to initialize accounting/inventory/procurement subsystem");
@@ -201,6 +203,16 @@ import("./lib/intercompany-imbalance-cron")
   .then((m) => m.startNightlyImbalanceScan())
   .catch((err) =>
     logger.error({ err }, "failed to start nightly intercompany imbalance scan"),
+  );
+
+// Nightly sweep of orphaned `alert_dismissals` rows (task #156). The
+// FK cascade added in `initAlertDismissals` keeps new rows tidy; this
+// cron mops up legacy rows whose `alert_id` was never stamped and
+// whose alert is already gone. Safe to run repeatedly.
+import("./lib/alert-dismissals-cleanup-cron")
+  .then((m) => m.startAlertDismissalsCleanupCron())
+  .catch((err) =>
+    logger.error({ err }, "failed to start alert_dismissals cleanup cron"),
   );
 
 export default app;

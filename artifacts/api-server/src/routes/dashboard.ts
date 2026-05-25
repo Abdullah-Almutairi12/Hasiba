@@ -458,6 +458,10 @@ router.post("/dashboard/alerts/dismiss", async (req, res) => {
     // Validate the key actually corresponds to an alert visible to
     // this tenant — prevents users from poisoning the dismissals
     // table with arbitrary keys or hiding sibling tenants' alerts.
+    // For `alert:<id>` keys we also stamp the numeric id into
+    // alert_dismissals.alert_id so the FK cascade auto-cleans the
+    // dismissal when the underlying alert row is deleted (task #156).
+    let alertId: number | null = null;
     if (key.startsWith("alert:")) {
       const numericId = Number(key.slice("alert:".length));
       if (!Number.isInteger(numericId) || numericId <= 0) {
@@ -473,6 +477,7 @@ router.post("/dashboard/alerts/dismiss", async (req, res) => {
         res.status(404).json({ error: "Alert not found" });
         return;
       }
+      alertId = numericId;
     } else if (key !== "synthetic:stale_scan") {
       res.status(400).json({ error: "Unknown alert key" });
       return;
@@ -480,14 +485,14 @@ router.post("/dashboard/alerts/dismiss", async (req, res) => {
 
     await db
       .insert(alertDismissalsTable)
-      .values({ userId, companyId, alertKey: key })
+      .values({ userId, companyId, alertKey: key, alertId })
       .onConflictDoUpdate({
         target: [
           alertDismissalsTable.userId,
           alertDismissalsTable.companyId,
           alertDismissalsTable.alertKey,
         ],
-        set: { dismissedAt: new Date() },
+        set: { dismissedAt: new Date(), alertId },
       });
 
     res.json({ ok: true });
