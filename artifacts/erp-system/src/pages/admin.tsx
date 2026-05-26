@@ -1603,6 +1603,65 @@ function CleanupReportEmailCard() {
     settings?.cleanupReportSuppressionThreshold ?? 3;
   const suppressionMaxAgeDays =
     settings?.cleanupReportSuppressionMaxAgeDays ?? 30;
+  // Task #231 — separate the raw per-tenant override (which may be null
+  // when the tenant hasn't customised it) from the effective value above.
+  // The numeric input pre-fills with the override; the placeholder shows
+  // the env-derived default so admins know what they'll fall back to.
+  const suppressionMaxAgeOverride =
+    settings?.cleanupReportSuppressionMaxAgeDaysOverride ?? null;
+  const suppressionMaxAgeDefault =
+    settings?.cleanupReportSuppressionMaxAgeDaysDefault ?? 30;
+  const suppressionMaxAgeMax =
+    settings?.cleanupReportSuppressionMaxAgeDaysMax ?? 365;
+  const [suppressionMaxAgeDraft, setSuppressionMaxAgeDraft] = useState<string>(
+    suppressionMaxAgeOverride == null ? "" : String(suppressionMaxAgeOverride),
+  );
+  const [suppressionMaxAgeError, setSuppressionMaxAgeError] = useState<
+    string | null
+  >(null);
+  useEffect(() => {
+    setSuppressionMaxAgeDraft(
+      suppressionMaxAgeOverride == null
+        ? ""
+        : String(suppressionMaxAgeOverride),
+    );
+    setSuppressionMaxAgeError(null);
+  }, [suppressionMaxAgeOverride]);
+  const suppressionMaxAgeDirty =
+    suppressionMaxAgeDraft.trim() !==
+    (suppressionMaxAgeOverride == null ? "" : String(suppressionMaxAgeOverride));
+  const saveSuppressionMaxAge = () => {
+    const raw = suppressionMaxAgeDraft.trim();
+    if (raw === "") {
+      setSuppressionMaxAgeError(null);
+      updateMut.mutate({
+        data: { cleanupReportSuppressionMaxAgeDays: null },
+      });
+      return;
+    }
+    const parsed = Number(raw);
+    if (
+      !Number.isFinite(parsed) ||
+      !Number.isInteger(parsed) ||
+      parsed < 0 ||
+      parsed > suppressionMaxAgeMax
+    ) {
+      setSuppressionMaxAgeError(
+        `أدخل عدداً صحيحاً بين 0 و${suppressionMaxAgeMax}`,
+      );
+      return;
+    }
+    setSuppressionMaxAgeError(null);
+    updateMut.mutate({
+      data: { cleanupReportSuppressionMaxAgeDays: parsed },
+    });
+  };
+  const resetSuppressionMaxAge = () => {
+    setSuppressionMaxAgeError(null);
+    updateMut.mutate({
+      data: { cleanupReportSuppressionMaxAgeDays: null },
+    });
+  };
   const suppressedSet = new Set(
     suppressions.map((s) => s.email.toLowerCase()),
   );
@@ -1838,6 +1897,93 @@ function CleanupReportEmailCard() {
               })}
             </div>
           )}
+        </div>
+
+        {/* Task #231 — per-tenant override for how long auto-suppressions
+            last. Always visible (even when no addresses are currently
+            suppressed) so admins can tune the window proactively. */}
+        <div
+          className="space-y-2 rounded-md border bg-muted/30 p-3"
+          data-testid="section-cleanup-report-suppression-max-age"
+        >
+          <Label
+            htmlFor="cleanup-report-suppression-max-age"
+            className="text-xs font-medium"
+          >
+            مدة الإيقاف التلقائي (بالأيام)
+          </Label>
+          <div className="flex flex-wrap items-center gap-2">
+            <Input
+              id="cleanup-report-suppression-max-age"
+              type="number"
+              inputMode="numeric"
+              min={0}
+              max={suppressionMaxAgeMax}
+              step={1}
+              value={suppressionMaxAgeDraft}
+              placeholder={`الافتراضي: ${suppressionMaxAgeDefault}`}
+              onChange={(e) => {
+                setSuppressionMaxAgeDraft(e.target.value);
+                if (suppressionMaxAgeError) setSuppressionMaxAgeError(null);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  if (suppressionMaxAgeDirty) saveSuppressionMaxAge();
+                }
+              }}
+              className="h-9 w-32"
+              dir="ltr"
+              data-testid="input-cleanup-report-suppression-max-age"
+            />
+            <Button
+              type="button"
+              size="sm"
+              onClick={saveSuppressionMaxAge}
+              disabled={!suppressionMaxAgeDirty || updateMut.isPending}
+              data-testid="button-save-cleanup-report-suppression-max-age"
+            >
+              {updateMut.isPending && (
+                <Loader2 className="me-1 size-4 animate-spin" />
+              )}
+              حفظ
+            </Button>
+            {suppressionMaxAgeOverride != null && (
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={resetSuppressionMaxAge}
+                disabled={updateMut.isPending}
+                data-testid="button-reset-cleanup-report-suppression-max-age"
+              >
+                استعادة الافتراضي
+              </Button>
+            )}
+          </div>
+          {suppressionMaxAgeError && (
+            <div
+              className="text-xs text-rose-600"
+              data-testid="error-cleanup-report-suppression-max-age"
+            >
+              {suppressionMaxAgeError}
+            </div>
+          )}
+          <p
+            className="text-[11px] text-muted-foreground"
+            data-testid="text-cleanup-report-suppression-max-age-effective"
+          >
+            {suppressionMaxAgeDays === 0
+              ? "إيقاف الانتهاء التلقائي: يجب إلغاء كل إيقاف يدوياً."
+              : `يتم إلغاء الإيقاف تلقائياً بعد ${suppressionMaxAgeDays} يوماً.`}
+            {" "}
+            {suppressionMaxAgeOverride == null
+              ? `(القيمة الحالية افتراضية من النظام: ${suppressionMaxAgeDefault} يوماً.)`
+              : "(تخصيص خاص بهذا الحساب.)"}
+            {" "}
+            اتركه فارغاً لاستخدام القيمة الافتراضية، أو 0 لإيقاف الانتهاء
+            التلقائي.
+          </p>
         </div>
 
         {suppressions.length > 0 && (

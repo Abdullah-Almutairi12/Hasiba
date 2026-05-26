@@ -168,6 +168,11 @@ export const CLEANUP_REPORT_SUPPRESSION_THRESHOLD = Math.max(
  * Configurable via `CLEANUP_REPORT_SUPPRESSION_MAX_AGE_DAYS`; defaults
  * to 30 days. A value of `0` disables auto-expiry entirely (admin
  * must lift every suppression by hand).
+ *
+ * Task #231 — this env-derived constant is the fallback. Admins can
+ * override it per-tenant via `app_settings.system.cleanupReport.suppressionMaxAgeDays`;
+ * `effectiveSuppressionMaxAgeDays(cfg)` resolves the override → env →
+ * default chain.
  */
 export const CLEANUP_REPORT_SUPPRESSION_MAX_AGE_DAYS = Math.max(
   0,
@@ -175,6 +180,9 @@ export const CLEANUP_REPORT_SUPPRESSION_MAX_AGE_DAYS = Math.max(
     Number(process.env.CLEANUP_REPORT_SUPPRESSION_MAX_AGE_DAYS ?? 30),
   ) || 0,
 );
+
+/** Task #231 — hard upper bound on the per-tenant override (~1 year). */
+export const CLEANUP_REPORT_SUPPRESSION_MAX_AGE_DAYS_MAX = 365;
 
 export interface CleanupReportSuppression {
   /** Normalised (lowercased, trimmed) email address. */
@@ -209,6 +217,14 @@ export interface CleanupReportConfig {
   adminNotificationEmail: string | null;
   /** Task #223 — addresses auto-quarantined for repeated hard bounces. */
   suppressions: CleanupReportSuppression[];
+  /**
+   * Task #231 — per-tenant override for how long an auto-suppression
+   * lives before the daily sweeper auto-expires it. Null means "fall
+   * back to the env constant" (`CLEANUP_REPORT_SUPPRESSION_MAX_AGE_DAYS`).
+   * Values are integers in `[0, CLEANUP_REPORT_SUPPRESSION_MAX_AGE_DAYS_MAX]`;
+   * `0` disables auto-expiry (every suppression must be lifted by hand).
+   */
+  suppressionMaxAgeDays: number | null;
 }
 
 export function defaultCleanupReportConfig(): CleanupReportConfig {
@@ -220,7 +236,29 @@ export function defaultCleanupReportConfig(): CleanupReportConfig {
     intro: null,
     adminNotificationEmail: null,
     suppressions: [],
+    suppressionMaxAgeDays: null,
   };
+}
+
+/**
+ * Task #231 — resolve the effective suppression max-age in days for a
+ * given tenant config. Override wins; otherwise fall back to the env-
+ * derived default constant.
+ */
+export function effectiveSuppressionMaxAgeDays(
+  cfg: Pick<CleanupReportConfig, "suppressionMaxAgeDays">,
+): number {
+  if (
+    typeof cfg.suppressionMaxAgeDays === "number" &&
+    Number.isFinite(cfg.suppressionMaxAgeDays) &&
+    cfg.suppressionMaxAgeDays >= 0
+  ) {
+    return Math.min(
+      CLEANUP_REPORT_SUPPRESSION_MAX_AGE_DAYS_MAX,
+      Math.trunc(cfg.suppressionMaxAgeDays),
+    );
+  }
+  return CLEANUP_REPORT_SUPPRESSION_MAX_AGE_DAYS;
 }
 
 export function readCleanupReportConfig(
@@ -258,6 +296,16 @@ export function readCleanupReportConfig(
     const s = o.adminNotificationEmail.trim();
     out.adminNotificationEmail =
       s.length > 0 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s) ? s : null;
+  }
+  if (
+    typeof o.suppressionMaxAgeDays === "number" &&
+    Number.isFinite(o.suppressionMaxAgeDays) &&
+    o.suppressionMaxAgeDays >= 0
+  ) {
+    out.suppressionMaxAgeDays = Math.min(
+      CLEANUP_REPORT_SUPPRESSION_MAX_AGE_DAYS_MAX,
+      Math.trunc(o.suppressionMaxAgeDays),
+    );
   }
   if (Array.isArray(o.suppressions)) {
     const seen = new Set<string>();
@@ -915,11 +963,13 @@ export async function sweepStuckPendingRecipients(
 export async function sweepExpiredCleanupReportSuppressions(
   now: Date = new Date(),
 ): Promise<string[]> {
-  if (CLEANUP_REPORT_SUPPRESSION_MAX_AGE_DAYS <= 0) return [];
   const cfg = await loadConfig();
   if (cfg.suppressions.length === 0) return [];
-  const cutoffMs =
-    now.getTime() - CLEANUP_REPORT_SUPPRESSION_MAX_AGE_DAYS * ONE_DAY_MS;
+  // Task #231 — per-tenant override takes precedence over the env-derived
+  // constant, so admins can choose a window without an engineer redeploy.
+  const maxAgeDays = effectiveSuppressionMaxAgeDays(cfg);
+  if (maxAgeDays <= 0) return [];
+  const cutoffMs = now.getTime() - maxAgeDays * ONE_DAY_MS;
   const expired: string[] = [];
   const kept: CleanupReportSuppression[] = [];
   for (const s of cfg.suppressions) {
@@ -936,7 +986,7 @@ export async function sweepExpiredCleanupReportSuppressions(
     {
       count: expired.length,
       emails: expired,
-      maxAgeDays: CLEANUP_REPORT_SUPPRESSION_MAX_AGE_DAYS,
+      maxAgeDays,
     },
     "cleanup report: auto-expired stale suppressions",
   );

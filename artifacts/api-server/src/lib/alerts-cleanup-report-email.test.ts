@@ -72,6 +72,8 @@ const {
   CLEANUP_REPORT_SUPPRESSION_THRESHOLD,
   sweepExpiredCleanupReportSuppressions,
   CLEANUP_REPORT_SUPPRESSION_MAX_AGE_DAYS,
+  effectiveSuppressionMaxAgeDays,
+  CLEANUP_REPORT_SUPPRESSION_MAX_AGE_DAYS_MAX,
 } = await import("./alerts-cleanup-report-email");
 const mailer = await import("./mailer");
 const pdfMod = await import("./alerts-cleanup-pdf");
@@ -177,6 +179,7 @@ describe("isDue — cadence math", () => {
           intro: null,
           adminNotificationEmail: null,
           suppressions: [],
+          suppressionMaxAgeDays: null,
         },
         now,
       ),
@@ -191,6 +194,7 @@ describe("isDue — cadence math", () => {
           intro: null,
           adminNotificationEmail: null,
           suppressions: [],
+          suppressionMaxAgeDays: null,
         },
         now,
       ),
@@ -208,6 +212,7 @@ describe("isDue — cadence math", () => {
           intro: null,
           adminNotificationEmail: null,
           suppressions: [],
+          suppressionMaxAgeDays: null,
         },
         now,
       ),
@@ -225,6 +230,7 @@ describe("isDue — cadence math", () => {
           intro: null,
           adminNotificationEmail: null,
           suppressions: [],
+          suppressionMaxAgeDays: null,
         },
         now,
       ),
@@ -246,6 +252,7 @@ describe("isDue — cadence math", () => {
           intro: null,
           adminNotificationEmail: null,
           suppressions: [],
+          suppressionMaxAgeDays: null,
         },
         now,
       ),
@@ -260,6 +267,7 @@ describe("isDue — cadence math", () => {
           intro: null,
           adminNotificationEmail: null,
           suppressions: [],
+          suppressionMaxAgeDays: null,
         },
         now,
       ),
@@ -274,6 +282,7 @@ describe("isDue — cadence math", () => {
           intro: null,
           adminNotificationEmail: null,
           suppressions: [],
+          suppressionMaxAgeDays: null,
         },
         now,
       ),
@@ -295,6 +304,7 @@ describe("isDue — cadence math", () => {
           intro: null,
           adminNotificationEmail: null,
           suppressions: [],
+          suppressionMaxAgeDays: null,
         },
         now,
       ),
@@ -309,6 +319,7 @@ describe("isDue — cadence math", () => {
           intro: null,
           adminNotificationEmail: null,
           suppressions: [],
+          suppressionMaxAgeDays: null,
         },
         now,
       ),
@@ -323,6 +334,7 @@ describe("isDue — cadence math", () => {
           intro: null,
           adminNotificationEmail: null,
           suppressions: [],
+          suppressionMaxAgeDays: null,
         },
         now,
       ),
@@ -1179,6 +1191,90 @@ describe("auto-expiry of stale suppressions — task #227", () => {
     const kept =
       (stored?.["suppressions"] as Array<{ email: string }>) ?? [];
     expect(kept.map((s) => s.email)).toEqual([fresh]);
+  });
+
+  // Task #231 — per-tenant override.
+  it("effectiveSuppressionMaxAgeDays prefers the override over the env default", () => {
+    expect(effectiveSuppressionMaxAgeDays({ suppressionMaxAgeDays: null })).toBe(
+      CLEANUP_REPORT_SUPPRESSION_MAX_AGE_DAYS,
+    );
+    expect(effectiveSuppressionMaxAgeDays({ suppressionMaxAgeDays: 14 })).toBe(14);
+    expect(effectiveSuppressionMaxAgeDays({ suppressionMaxAgeDays: 0 })).toBe(0);
+    expect(
+      effectiveSuppressionMaxAgeDays({
+        suppressionMaxAgeDays: CLEANUP_REPORT_SUPPRESSION_MAX_AGE_DAYS_MAX + 999,
+      }),
+    ).toBe(CLEANUP_REPORT_SUPPRESSION_MAX_AGE_DAYS_MAX);
+  });
+
+  it("sweep uses the per-tenant override before falling back to the env default", async () => {
+    const now = Date.now();
+    const oneDay = 24 * 60 * 60 * 1000;
+    const email = `override-231-${Date.now()}@example.test`;
+    // 20 days old — fresh under the 30-day env default but stale under
+    // a 14-day per-tenant override.
+    const suppressions = [
+      {
+        email,
+        suppressedAt: new Date(now - 20 * oneDay).toISOString(),
+        bounceCount: 3,
+        lastReason: "mailbox_full",
+      },
+    ];
+    await pool.query(
+      `
+      INSERT INTO app_settings (id, system, updated_at)
+      VALUES (1, jsonb_build_object('cleanupReport', jsonb_build_object('suppressions', $1::jsonb, 'suppressionMaxAgeDays', 14)), NOW())
+      ON CONFLICT (id) DO UPDATE
+        SET system = COALESCE(app_settings.system, '{}'::jsonb)
+                     || jsonb_build_object(
+                          'cleanupReport',
+                          COALESCE(app_settings.system->'cleanupReport', '{}'::jsonb)
+                            || jsonb_build_object('suppressions', $1::jsonb, 'suppressionMaxAgeDays', 14)
+                        ),
+            updated_at = NOW()
+      `,
+      [JSON.stringify(suppressions)],
+    );
+    const expired = await sweepExpiredCleanupReportSuppressions(new Date(now));
+    expect(expired).toEqual([email]);
+  });
+
+  it("override of 0 disables auto-expiry even if env default would have expired the row", async () => {
+    const now = Date.now();
+    const oneDay = 24 * 60 * 60 * 1000;
+    const email = `keep-231-${Date.now()}@example.test`;
+    const suppressions = [
+      {
+        email,
+        suppressedAt: new Date(
+          now - (CLEANUP_REPORT_SUPPRESSION_MAX_AGE_DAYS + 5) * oneDay,
+        ).toISOString(),
+        bounceCount: 3,
+        lastReason: null,
+      },
+    ];
+    await pool.query(
+      `
+      INSERT INTO app_settings (id, system, updated_at)
+      VALUES (1, jsonb_build_object('cleanupReport', jsonb_build_object('suppressions', $1::jsonb, 'suppressionMaxAgeDays', 0)), NOW())
+      ON CONFLICT (id) DO UPDATE
+        SET system = COALESCE(app_settings.system, '{}'::jsonb)
+                     || jsonb_build_object(
+                          'cleanupReport',
+                          COALESCE(app_settings.system->'cleanupReport', '{}'::jsonb)
+                            || jsonb_build_object('suppressions', $1::jsonb, 'suppressionMaxAgeDays', 0)
+                        ),
+            updated_at = NOW()
+      `,
+      [JSON.stringify(suppressions)],
+    );
+    const expired = await sweepExpiredCleanupReportSuppressions(new Date(now));
+    expect(expired).toEqual([]);
+    const stored = await getStoredCleanupReport();
+    const kept =
+      (stored?.["suppressions"] as Array<{ email: string }>) ?? [];
+    expect(kept.map((s) => s.email)).toEqual([email]);
   });
 
   it("is a no-op when no suppressions are stale", async () => {

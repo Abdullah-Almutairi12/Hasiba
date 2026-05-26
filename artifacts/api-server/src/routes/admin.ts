@@ -34,6 +34,8 @@ import {
   windowDaysForSchedule,
   unsuppressCleanupReportRecipient,
   CLEANUP_REPORT_SUPPRESSION_MAX_AGE_DAYS,
+  CLEANUP_REPORT_SUPPRESSION_MAX_AGE_DAYS_MAX,
+  effectiveSuppressionMaxAgeDays,
   CLEANUP_REPORT_SUBJECT_MAX,
   CLEANUP_REPORT_INTRO_MAX,
   CLEANUP_REPORT_SCHEDULES,
@@ -920,8 +922,22 @@ router.get("/admin/system-settings", adminOnly, async (req, res) => {
       cleanupReportSuppressions: cleanupReport.suppressions,
       cleanupReportSuppressionThreshold:
         CLEANUP_REPORT_SUPPRESSION_THRESHOLD,
+      // Task #231 — `cleanupReportSuppressionMaxAgeDays` remains the
+      // *effective* value the UI uses for the "days until auto-retry"
+      // hint (override → env → default). The new
+      // `cleanupReportSuppressionMaxAgeDaysOverride` exposes the raw
+      // per-tenant override (null = no override) so the settings input
+      // can pre-fill correctly, and `cleanupReportSuppressionMaxAgeDaysDefault`
+      // exposes the env-derived fallback so the UI can render
+      // "uses default of N days" placeholder text.
       cleanupReportSuppressionMaxAgeDays:
+        effectiveSuppressionMaxAgeDays(cleanupReport),
+      cleanupReportSuppressionMaxAgeDaysOverride:
+        cleanupReport.suppressionMaxAgeDays,
+      cleanupReportSuppressionMaxAgeDaysDefault:
         CLEANUP_REPORT_SUPPRESSION_MAX_AGE_DAYS,
+      cleanupReportSuppressionMaxAgeDaysMax:
+        CLEANUP_REPORT_SUPPRESSION_MAX_AGE_DAYS_MAX,
       cleanupReportLastTestRecipient: await readLastCleanupReportTestRecipient(
         req.session.userId,
       ),
@@ -981,6 +997,17 @@ const UpdateSystemSettingsBody = z.object({
     .max(320)
     .nullable()
     .optional(),
+  // Task #231: per-tenant override for the suppression auto-expiry window.
+  // Null clears the override → sweeper falls back to env/default. Bounds
+  // mirror `CLEANUP_REPORT_SUPPRESSION_MAX_AGE_DAYS_MAX` (0 disables auto-
+  // expiry entirely; 365 is the upper bound).
+  cleanupReportSuppressionMaxAgeDays: z
+    .number()
+    .int()
+    .min(0)
+    .max(CLEANUP_REPORT_SUPPRESSION_MAX_AGE_DAYS_MAX)
+    .nullable()
+    .optional(),
 });
 
 router.patch("/admin/system-settings", adminOnly, async (req, res) => {
@@ -1011,7 +1038,8 @@ router.patch("/admin/system-settings", adminOnly, async (req, res) => {
       body.cleanupReportRecipients !== undefined ||
       body.cleanupReportSubject !== undefined ||
       body.cleanupReportIntro !== undefined ||
-      body.cleanupReportAdminNotificationEmail !== undefined
+      body.cleanupReportAdminNotificationEmail !== undefined ||
+      body.cleanupReportSuppressionMaxAgeDays !== undefined
     ) {
       const cleanupReport: Record<string, unknown> = {
         schedule: prevCleanupReport.schedule,
@@ -1023,7 +1051,14 @@ router.patch("/admin/system-settings", adminOnly, async (req, res) => {
         // Task #223 — preserve the auto-suppression list across
         // unrelated PATCHes (schedule / recipients / subject / intro).
         suppressions: prevCleanupReport.suppressions,
+        // Task #231 — preserve the per-tenant suppression-max-age override
+        // across unrelated PATCHes.
+        suppressionMaxAgeDays: prevCleanupReport.suppressionMaxAgeDays,
       };
+      if (body.cleanupReportSuppressionMaxAgeDays !== undefined) {
+        cleanupReport.suppressionMaxAgeDays =
+          body.cleanupReportSuppressionMaxAgeDays;
+      }
       if (body.cleanupReportAdminNotificationEmail !== undefined) {
         const v = body.cleanupReportAdminNotificationEmail?.trim() ?? "";
         cleanupReport.adminNotificationEmail = v.length > 0 ? v : null;
@@ -1070,10 +1105,13 @@ router.patch("/admin/system-settings", adminOnly, async (req, res) => {
       body.cleanupReportSchedule !== undefined ||
       body.cleanupReportRecipients !== undefined ||
       body.cleanupReportSubject !== undefined ||
-      body.cleanupReportIntro !== undefined
+      body.cleanupReportIntro !== undefined ||
+      body.cleanupReportSuppressionMaxAgeDays !== undefined
     ) {
       const subjectChanged = body.cleanupReportSubject !== undefined;
       const introChanged = body.cleanupReportIntro !== undefined;
+      const suppressionMaxAgeChanged =
+        body.cleanupReportSuppressionMaxAgeDays !== undefined;
       void recordAudit(req, {
         action: "system_settings.cleanup_report_changed",
         entity: `app_settings#${row.id}`,
@@ -1081,7 +1119,10 @@ router.patch("/admin/system-settings", adminOnly, async (req, res) => {
           `schedule=${body.cleanupReportSchedule ?? prevCleanupReport.schedule}` +
           ` recipients=${body.cleanupReportRecipients?.length ?? prevCleanupReport.recipients.length}` +
           (subjectChanged ? " subject=changed" : "") +
-          (introChanged ? " intro=changed" : ""),
+          (introChanged ? " intro=changed" : "") +
+          (suppressionMaxAgeChanged
+            ? ` suppressionMaxAgeDays=${prevCleanupReport.suppressionMaxAgeDays ?? "default"}->${body.cleanupReportSuppressionMaxAgeDays ?? "default"}`
+            : ""),
         severity: "info",
       });
       req.log.info(
@@ -1091,6 +1132,9 @@ router.patch("/admin/system-settings", adminOnly, async (req, res) => {
           recipients: body.cleanupReportRecipients?.length,
           subjectChanged,
           introChanged,
+          suppressionMaxAgeChanged,
+          prevSuppressionMaxAgeDays: prevCleanupReport.suppressionMaxAgeDays,
+          nextSuppressionMaxAgeDays: body.cleanupReportSuppressionMaxAgeDays,
         },
         "admin.system_settings.cleanup_report_changed",
       );
@@ -1133,6 +1177,16 @@ router.patch("/admin/system-settings", adminOnly, async (req, res) => {
         body.cleanupReportIntro !== undefined
           ? (body.cleanupReportIntro?.trim() || null)
           : prevCleanupReport.intro,
+      cleanupReportSuppressionMaxAgeDaysOverride:
+        body.cleanupReportSuppressionMaxAgeDays !== undefined
+          ? body.cleanupReportSuppressionMaxAgeDays
+          : prevCleanupReport.suppressionMaxAgeDays,
+      cleanupReportSuppressionMaxAgeDays: effectiveSuppressionMaxAgeDays({
+        suppressionMaxAgeDays:
+          body.cleanupReportSuppressionMaxAgeDays !== undefined
+            ? body.cleanupReportSuppressionMaxAgeDays
+            : prevCleanupReport.suppressionMaxAgeDays,
+      }),
     });
   } catch (err) {
     if (err instanceof z.ZodError) {

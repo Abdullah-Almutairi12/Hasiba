@@ -1652,10 +1652,25 @@ export interface SystemSettings {
    */
   cleanupReportSuppressionThreshold: number;
   /**
-   * Task #227 — max age (in days) a suppression entry can live before the daily sweeper auto-expires it so the address can recover. Configurable via `CLEANUP_REPORT_SUPPRESSION_MAX_AGE_DAYS`; defaults to 30. A value of `0` disables auto-expiry (every suppression must be lifted manually). The UI uses this to render the "days until auto-retry" hint next to each suppressed address.
+   * Task #227 — *effective* max age (in days) a suppression entry can live before the daily sweeper auto-expires it so the address can recover. Resolves the per-tenant override (Task #231) → env (`CLEANUP_REPORT_SUPPRESSION_MAX_AGE_DAYS`, default 30). `0` disables auto-expiry (every suppression must be lifted manually). The UI uses this to render the "days until auto-retry" hint next to each suppressed address.
    * @minimum 0
    */
   cleanupReportSuppressionMaxAgeDays: number;
+  /**
+   * Task #231 — the *raw* per-tenant override (or null when no override has been saved). Distinct from the `cleanupReportSuppressionMaxAgeDays` field above so the settings form can pre-fill the input with the saved value (or leave it empty when falling back to the env-derived default).
+   * @minimum 0
+   */
+  cleanupReportSuppressionMaxAgeDaysOverride: number | null;
+  /**
+   * Task #231 — the env-derived fallback the sweeper uses when no per-tenant override is set. Surfaced so the UI can show "uses default of N days" placeholder text on the override input.
+   * @minimum 0
+   */
+  cleanupReportSuppressionMaxAgeDaysDefault: number;
+  /**
+   * Task #231 — hard upper bound on the override the API will accept (mirrors the PATCH body validation). Lets the UI keep its `max=` attribute in sync with the server without hard-coding.
+   * @minimum 0
+   */
+  cleanupReportSuppressionMaxAgeDaysMax: number;
   adminPrefs: AdminPrefs;
 }
 
@@ -2016,6 +2031,12 @@ export type UpdateSystemSettingsBody = {
    * @maxLength 2000
    */
   cleanupReportIntro?: string | null;
+  /**
+   * Task #231 — per-tenant override for how long an auto- suppression entry lives before the daily sweeper auto-expires it. `null` clears the override and falls back to the env-derived default (`CLEANUP_REPORT_SUPPRESSION_MAX_AGE_DAYS`, default 30). `0` disables auto-expiry (every suppression must be lifted manually). Upper bound is 365 days.
+   * @minimum 0
+   * @maximum 365
+   */
+  cleanupReportSuppressionMaxAgeDays?: number | null;
 };
 
 export type UpdateSystemSettings200CleanupReportSchedule =
@@ -2035,6 +2056,13 @@ export type UpdateSystemSettings200 = {
   cleanupReportRecipients?: string[];
   cleanupReportSubject?: string | null;
   cleanupReportIntro?: string | null;
+  /** Echoes back the saved per-tenant override (null = no override → effective value falls back to env/default). */
+  cleanupReportSuppressionMaxAgeDaysOverride?: number | null;
+  /**
+   * Effective value the sweeper will use after the update (override → env → default).
+   * @minimum 0
+   */
+  cleanupReportSuppressionMaxAgeDays?: number;
 };
 
 export type UpdateAdminPrefsBody = {

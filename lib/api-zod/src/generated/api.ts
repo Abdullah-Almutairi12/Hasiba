@@ -1782,6 +1782,12 @@ export const getSystemSettingsResponseCleanupReportSuppressionThresholdMin = 2;
 
 export const getSystemSettingsResponseCleanupReportSuppressionMaxAgeDaysMin = 0;
 
+export const getSystemSettingsResponseCleanupReportSuppressionMaxAgeDaysOverrideMin = 0;
+
+export const getSystemSettingsResponseCleanupReportSuppressionMaxAgeDaysDefaultMin = 0;
+
+export const getSystemSettingsResponseCleanupReportSuppressionMaxAgeDaysMaxMin = 0;
+
 export const GetSystemSettingsResponse = zod.object({
   alertRetentionDays: zod
     .number()
@@ -1890,7 +1896,26 @@ export const GetSystemSettingsResponse = zod.object({
     .number()
     .min(getSystemSettingsResponseCleanupReportSuppressionMaxAgeDaysMin)
     .describe(
-      'Task #227 — max age (in days) a suppression entry can live before the daily sweeper auto-expires it so the address can recover. Configurable via `CLEANUP_REPORT_SUPPRESSION_MAX_AGE_DAYS`; defaults to 30. A value of `0` disables auto-expiry (every suppression must be lifted manually). The UI uses this to render the \"days until auto-retry\" hint next to each suppressed address.',
+      'Task #227 — \*effective\* max age (in days) a suppression entry can live before the daily sweeper auto-expires it so the address can recover. Resolves the per-tenant override (Task #231) → env (`CLEANUP_REPORT_SUPPRESSION_MAX_AGE_DAYS`, default 30). `0` disables auto-expiry (every suppression must be lifted manually). The UI uses this to render the \"days until auto-retry\" hint next to each suppressed address.',
+    ),
+  cleanupReportSuppressionMaxAgeDaysOverride: zod
+    .number()
+    .min(getSystemSettingsResponseCleanupReportSuppressionMaxAgeDaysOverrideMin)
+    .nullable()
+    .describe(
+      "Task #231 — the \*raw\* per-tenant override (or null when no override has been saved). Distinct from the `cleanupReportSuppressionMaxAgeDays` field above so the settings form can pre-fill the input with the saved value (or leave it empty when falling back to the env-derived default).",
+    ),
+  cleanupReportSuppressionMaxAgeDaysDefault: zod
+    .number()
+    .min(getSystemSettingsResponseCleanupReportSuppressionMaxAgeDaysDefaultMin)
+    .describe(
+      'Task #231 — the env-derived fallback the sweeper uses when no per-tenant override is set. Surfaced so the UI can show \"uses default of N days\" placeholder text on the override input.',
+    ),
+  cleanupReportSuppressionMaxAgeDaysMax: zod
+    .number()
+    .min(getSystemSettingsResponseCleanupReportSuppressionMaxAgeDaysMaxMin)
+    .describe(
+      "Task #231 — hard upper bound on the override the API will accept (mirrors the PATCH body validation). Lets the UI keep its `max=` attribute in sync with the server without hard-coding.",
     ),
   adminPrefs: zod
     .object({
@@ -1933,6 +1958,9 @@ export const updateSystemSettingsBodyCleanupReportSubjectMax = 200;
 
 export const updateSystemSettingsBodyCleanupReportIntroMax = 2000;
 
+export const updateSystemSettingsBodyCleanupReportSuppressionMaxAgeDaysMin = 0;
+export const updateSystemSettingsBodyCleanupReportSuppressionMaxAgeDaysMax = 365;
+
 export const UpdateSystemSettingsBody = zod.object({
   alertRetentionDays: zod
     .number()
@@ -1971,7 +1999,17 @@ export const UpdateSystemSettingsBody = zod.object({
     .describe(
       "Optional intro paragraph prepended to the cleanup report email body. Empty\/null falls back to the default intro.",
     ),
+  cleanupReportSuppressionMaxAgeDays: zod
+    .number()
+    .min(updateSystemSettingsBodyCleanupReportSuppressionMaxAgeDaysMin)
+    .max(updateSystemSettingsBodyCleanupReportSuppressionMaxAgeDaysMax)
+    .nullish()
+    .describe(
+      "Task #231 — per-tenant override for how long an auto- suppression entry lives before the daily sweeper auto-expires it. `null` clears the override and falls back to the env-derived default (`CLEANUP_REPORT_SUPPRESSION_MAX_AGE_DAYS`, default 30). `0` disables auto-expiry (every suppression must be lifted manually). Upper bound is 365 days.",
+    ),
 });
+
+export const updateSystemSettingsResponseCleanupReportSuppressionMaxAgeDaysMin = 0;
 
 export const UpdateSystemSettingsResponse = zod.object({
   ok: zod.boolean(),
@@ -1981,6 +2019,19 @@ export const UpdateSystemSettingsResponse = zod.object({
   cleanupReportRecipients: zod.array(zod.string()).optional(),
   cleanupReportSubject: zod.string().nullish(),
   cleanupReportIntro: zod.string().nullish(),
+  cleanupReportSuppressionMaxAgeDaysOverride: zod
+    .number()
+    .nullish()
+    .describe(
+      "Echoes back the saved per-tenant override (null = no override → effective value falls back to env\/default).",
+    ),
+  cleanupReportSuppressionMaxAgeDays: zod
+    .number()
+    .min(updateSystemSettingsResponseCleanupReportSuppressionMaxAgeDaysMin)
+    .optional()
+    .describe(
+      "Effective value the sweeper will use after the update (override → env → default).",
+    ),
 });
 
 /**
