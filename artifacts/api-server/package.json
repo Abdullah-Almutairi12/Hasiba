@@ -16,6 +16,7 @@
     "@swc/helpers": "^0.5.21",
     "@workspace/api-zod": "workspace:*",
     "@workspace/db": "workspace:*",
+    "@workspace/docs-content": "workspace:*",
     "arabic-reshaper": "^1.1.0",
     "bcryptjs": "^3.0.3",
     "bidi-js": "^1.0.3",

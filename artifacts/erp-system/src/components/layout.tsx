@@ -30,6 +30,7 @@ import {
   User as UserIcon,
   AlertTriangle,
   Truck,
+  HelpCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useTheme, type ThemeMode } from "@/hooks/use-theme";
@@ -107,6 +108,7 @@ const adminNavItems = [
   { key: "admin", url: "/admin", icon: ShieldCheck },
   { key: "integrations_marketplaces", url: "/integrations/marketplaces", icon: ShieldCheck },
   { key: "anomalies", url: "/anomalies", icon: AlertTriangle },
+  { key: "help", url: "/help", icon: HelpCircle },
   { key: "settings", url: "/settings", icon: Settings },
 ] as const;
 

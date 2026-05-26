@@ -7,10 +7,12 @@
     "hello": "tsx ./src/hello.ts",
     "seed": "tsx ./src/seed.ts",
     "backfill-multi-company": "tsx ./src/backfill-multi-company.ts",
+    "capture-docs-screenshots": "tsx ./src/capture-docs-screenshots.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@workspace/db": "workspace:*",
+    "@workspace/docs-content": "workspace:*",
     "bcryptjs": "^3.0.3",
     "drizzle-orm": "catalog:"
   },

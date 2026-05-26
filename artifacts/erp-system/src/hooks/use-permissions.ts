@@ -103,6 +103,7 @@ export const NAV_PERMISSIONS: Record<string, readonly Role[]> = {
   // are the canonical approvers; auditors get read access. Everyone else
   // accesses their own pending items via the bell icon instead.
   approvals: ["owner", "manager", "accountant", "auditor"],
+  help: ALL_ROLES,
   settings: ALL_ROLES,
   documents: ALL_ROLES,
   intercompany: GROUPS.finance,

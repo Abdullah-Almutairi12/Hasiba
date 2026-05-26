@@ -43,6 +43,7 @@ import liquidityRouter from "./liquidity";
 import complianceRouter from "./compliance";
 import vatRouter from "./vat";
 import documentsRouter, { signPublicRouter } from "./documents";
+import docsRouter from "./docs";
 import { requireAuth } from "../middlewares/require-auth";
 import { requireCompanyContext } from "../middlewares/require-company-context";
 import { requireSameOrigin } from "../middlewares/require-same-origin";
@@ -52,6 +53,11 @@ const router: IRouter = Router();
 // Public routes (no auth required)
 router.use(healthRouter);
 router.use(authRouter);
+
+// Public user-manual endpoints (PDF export + JSON manifest). Mounted
+// BEFORE requireAuth so the docs site and external links work without
+// a session — they only expose static text from @workspace/docs-content.
+router.use(docsRouter);
 // HR device webhook is API-key authenticated and must bypass session auth.
 router.use(hrPublicRouter);
 // Payment provider webhooks verify HMAC and must bypass session auth.
