@@ -208,8 +208,16 @@
     "speakerNotes": ""
   },
   {
-    "id": "03ad44f5-3527-4c6a-a4ea-a41ad1b43cb6",
+    "id": "c4f1e07a-9b32-4a8d-8e1c-2f6a1b3d5e90",
     "position": 27,
+    "filepath": "src/pages/slides/FAQ.tsx",
+    "title": "الأسئلة الشائعة — الصفحة 1",
+    "description": "ستّة أسئلة شائعة قبل الاشتراك.",
+    "speakerNotes": ""
+  },
+  {
+    "id": "03ad44f5-3527-4c6a-a4ea-a41ad1b43cb6",
+    "position": 28,
     "filepath": "src/pages/slides/Closing.tsx",
     "title": "صفحة الختام",
     "description": "خاتمة وشكر.",

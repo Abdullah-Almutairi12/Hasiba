@@ -43,7 +43,7 @@ export default function Closing() {
       <div className="absolute bottom-[8vh] right-[8vw] text-[1vw] text-cream/60">
         حاسبة.AI — منصّة تخطيط موارد المؤسسات
       </div>
-      <div className="absolute bottom-[8vh] left-[8vw] text-[1vw] font-semibold text-cream">27</div>
+      <div className="absolute bottom-[8vh] left-[8vw] text-[1vw] font-semibold text-cream">28</div>
     </div>
   );
 }
