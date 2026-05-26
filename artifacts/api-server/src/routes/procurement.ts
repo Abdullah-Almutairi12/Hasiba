@@ -58,6 +58,21 @@ const router = Router();
  * blocked. No-ops gracefully when the supplier has no phone or no
  * messaging credentials are configured.
  */
+async function isVatEnabledForSupplier(
+  companyId: number | null | undefined,
+): Promise<boolean> {
+  if (!companyId) return true;
+  const [row] = await db
+    .select({ vatRegistrationStatus: companiesTable.vatRegistrationStatus })
+    .from(companiesTable)
+    .where(eq(companiesTable.id, companyId))
+    .limit(1);
+  return (
+    row?.vatRegistrationStatus === "registered" ||
+    row?.vatRegistrationStatus === "voluntary"
+  );
+}
+
 async function notifySupplierPoConfirmed(poId: number): Promise<void> {
   try {
     const [po] = await db
@@ -1341,6 +1356,7 @@ export async function renderPurchaseOrderForRetry(id: number): Promise<
     .select()
     .from(suppliersTable)
     .where(eq(suppliersTable.id, po.supplierId));
+  const vatEnabled = await isVatEnabledForSupplier(supplier?.companyId);
   const pdf = await buildPurchaseOrderPdf(
     {
       reference: po.reference,
@@ -1365,6 +1381,7 @@ export async function renderPurchaseOrderForRetry(id: number): Promise<
         taxRate: Number(l.taxRate),
         lineTotal: Number(l.lineTotal),
       })),
+      vatEnabled,
     },
     await getCompanyInfo(),
   );
@@ -1405,6 +1422,7 @@ async function loadPoForPdf(id: number) {
     .select()
     .from(suppliersTable)
     .where(eq(suppliersTable.id, po.supplierId));
+  const vatEnabled = await isVatEnabledForSupplier(supplier?.companyId);
   return {
     po,
     supplier,
@@ -1431,6 +1449,7 @@ async function loadPoForPdf(id: number) {
         taxRate: Number(l.taxRate),
         lineTotal: Number(l.lineTotal),
       })),
+      vatEnabled,
     },
   };
 }

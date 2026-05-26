@@ -34,6 +34,9 @@ export type SupplierInvoicePdfInput = {
    *  the PDF prints a single summary row using the invoice total. */
   lines: SupplierInvoicePdfLine[];
   zatcaQrDataUrl?: string | null;
+  /** When false (tenant is not VAT-registered), the PDF omits the
+   *  VAT% column from the lines table and skips the ZATCA QR block. */
+  vatEnabled?: boolean;
 };
 
 const fmtMoney = (n: number, currency: string) =>
@@ -132,14 +135,22 @@ export function buildSupplierInvoicePdf(
     doc.x = 40;
 
     // ----- Lines table -----
+    const vatEnabled = input.vatEnabled !== false;
     const tableTop = doc.y + 5;
-    const cols = [
-      { x: 40, w: 230, label: "Description / الوصف", align: "left" as const },
-      { x: 270, w: 50, label: "Qty / كمية", align: "right" as const },
-      { x: 320, w: 70, label: "Unit / السعر", align: "right" as const },
-      { x: 390, w: 50, label: "VAT% / ض.", align: "right" as const },
-      { x: 440, w: 115, label: "Total / الإجمالي", align: "right" as const },
-    ];
+    const cols = vatEnabled
+      ? [
+          { x: 40, w: 230, label: "Description / الوصف", align: "left" as const },
+          { x: 270, w: 50, label: "Qty / كمية", align: "right" as const },
+          { x: 320, w: 70, label: "Unit / السعر", align: "right" as const },
+          { x: 390, w: 50, label: "VAT% / ض.", align: "right" as const },
+          { x: 440, w: 115, label: "Total / الإجمالي", align: "right" as const },
+        ]
+      : [
+          { x: 40, w: 260, label: "Description / الوصف", align: "left" as const },
+          { x: 300, w: 60, label: "Qty / كمية", align: "right" as const },
+          { x: 360, w: 90, label: "Unit / السعر", align: "right" as const },
+          { x: 450, w: 105, label: "Total / الإجمالي", align: "right" as const },
+        ];
 
     doc.rect(40, tableTop, 515, 22).fill("#1e3a8a");
     useBold();
@@ -173,8 +184,12 @@ export function buildSupplierInvoicePdf(
       doc.text(desc, cols[0].x + 4, y + 4, { width: cols[0].w - 8 });
       doc.text(String(ln.quantity), cols[1].x + 4, y + 4, { width: cols[1].w - 8, align: "right" });
       doc.text(fmtMoney(ln.unitPrice, input.currencyCode), cols[2].x + 4, y + 4, { width: cols[2].w - 8, align: "right" });
-      doc.text(`${ln.taxRate}%`, cols[3].x + 4, y + 4, { width: cols[3].w - 8, align: "right" });
-      doc.text(fmtMoney(ln.lineTotal, input.currencyCode), cols[4].x + 4, y + 4, { width: cols[4].w - 8, align: "right" });
+      if (vatEnabled) {
+        doc.text(`${ln.taxRate}%`, cols[3].x + 4, y + 4, { width: cols[3].w - 8, align: "right" });
+        doc.text(fmtMoney(ln.lineTotal, input.currencyCode), cols[4].x + 4, y + 4, { width: cols[4].w - 8, align: "right" });
+      } else {
+        doc.text(fmtMoney(ln.lineTotal, input.currencyCode), cols[3].x + 4, y + 4, { width: cols[3].w - 8, align: "right" });
+      }
       y += rowH;
       if (y > 720) {
         doc.addPage();
@@ -205,7 +220,7 @@ export function buildSupplierInvoicePdf(
     }
 
     // ----- ZATCA QR -----
-    if (input.zatcaQrDataUrl) {
+    if (vatEnabled && input.zatcaQrDataUrl) {
       y = Math.max(y, doc.y) + 12;
       if (y > 680) { doc.addPage(); y = 40; }
       try {

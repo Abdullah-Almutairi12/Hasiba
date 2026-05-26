@@ -511,6 +511,8 @@ function PODetailDialog({ po, onClose }: { po: PO | null; onClose: () => void })
     },
   });
 
+  const vatEnabled = useVatEnabled();
+
   const previewPdf = () => {
     if (!po) return;
     window.open(`/api/procurement/purchase-orders/${po.id}/pdf`, "_blank");
@@ -526,7 +528,15 @@ function PODetailDialog({ po, onClose }: { po: PO | null; onClose: () => void })
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
               <div><span className="text-muted-foreground">الحالة:</span> <StatusBadge status={data.status} /></div>
-              <div><span className="text-muted-foreground">الإجمالي:</span> <strong>{fmt(data.total)}</strong></div>
+              {vatEnabled ? (
+                <>
+                  <div><span className="text-muted-foreground">المجموع:</span> {fmt(data.subtotal)}</div>
+                  <div><span className="text-muted-foreground">الضريبة:</span> {fmt(data.vat)}</div>
+                  <div><span className="text-muted-foreground">الإجمالي:</span> <strong>{fmt(data.total)}</strong></div>
+                </>
+              ) : (
+                <div><span className="text-muted-foreground">الإجمالي:</span> <strong>{fmt(data.total)}</strong></div>
+              )}
               <div><span className="text-muted-foreground">التاريخ:</span> {data.orderDate}</div>
               <div><span className="text-muted-foreground">المتوقع:</span> {data.expectedDate ?? "—"}</div>
             </div>

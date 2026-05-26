@@ -26,6 +26,10 @@ export type PoPdfInput = {
     vatNumber: string | null;
   };
   lines: PoPdfLine[];
+  /** When false (tenant is not VAT-registered), the PDF omits the
+   *  VAT% column from the lines table and the Subtotal/VAT rows
+   *  from the totals block, showing only a single Total line. */
+  vatEnabled?: boolean;
 };
 
 export type CompanyInfo = {
@@ -228,14 +232,22 @@ export function buildPurchaseOrderPdf(
     doc.x = 40;
 
     // ----- Lines table -----
+    const vatEnabled = input.vatEnabled !== false;
     const tableTop = doc.y + 5;
-    const cols = [
-      { x: 40, w: 230, label: "Description / الوصف", align: "left" as const },
-      { x: 270, w: 50, label: "Qty / كمية", align: "right" as const },
-      { x: 320, w: 70, label: "Unit / السعر", align: "right" as const },
-      { x: 390, w: 50, label: "VAT% / ض.", align: "right" as const },
-      { x: 440, w: 115, label: "Total / الإجمالي", align: "right" as const },
-    ];
+    const cols = vatEnabled
+      ? [
+          { x: 40, w: 230, label: "Description / الوصف", align: "left" as const },
+          { x: 270, w: 50, label: "Qty / كمية", align: "right" as const },
+          { x: 320, w: 70, label: "Unit / السعر", align: "right" as const },
+          { x: 390, w: 50, label: "VAT% / ض.", align: "right" as const },
+          { x: 440, w: 115, label: "Total / الإجمالي", align: "right" as const },
+        ]
+      : [
+          { x: 40, w: 260, label: "Description / الوصف", align: "left" as const },
+          { x: 300, w: 60, label: "Qty / كمية", align: "right" as const },
+          { x: 360, w: 90, label: "Unit / السعر", align: "right" as const },
+          { x: 450, w: 105, label: "Total / الإجمالي", align: "right" as const },
+        ];
 
     doc.rect(40, tableTop, 515, 22).fill("#1e3a8a");
     useBold();
@@ -260,8 +272,12 @@ export function buildPurchaseOrderPdf(
       doc.text(desc, cols[0].x + 4, y + 4, { width: cols[0].w - 8 });
       doc.text(String(ln.quantity), cols[1].x + 4, y + 4, { width: cols[1].w - 8, align: "right" });
       doc.text(fmtMoney(ln.unitPrice, input.currencyCode), cols[2].x + 4, y + 4, { width: cols[2].w - 8, align: "right" });
-      doc.text(`${ln.taxRate}%`, cols[3].x + 4, y + 4, { width: cols[3].w - 8, align: "right" });
-      doc.text(fmtMoney(ln.lineTotal, input.currencyCode), cols[4].x + 4, y + 4, { width: cols[4].w - 8, align: "right" });
+      if (vatEnabled) {
+        doc.text(`${ln.taxRate}%`, cols[3].x + 4, y + 4, { width: cols[3].w - 8, align: "right" });
+        doc.text(fmtMoney(ln.lineTotal, input.currencyCode), cols[4].x + 4, y + 4, { width: cols[4].w - 8, align: "right" });
+      } else {
+        doc.text(fmtMoney(ln.lineTotal, input.currencyCode), cols[3].x + 4, y + 4, { width: cols[3].w - 8, align: "right" });
+      }
       y += rowH;
       if (y > 720) {
         doc.addPage();
@@ -273,11 +289,13 @@ export function buildPurchaseOrderPdf(
     y += 8;
 
     // ----- Totals -----
-    const totRows: Array<[string, string]> = [
-      ["Subtotal / المجموع قبل الضريبة", fmtMoney(input.subtotal, input.currencyCode)],
-      ["VAT / ضريبة القيمة المضافة", fmtMoney(input.vat, input.currencyCode)],
-      ["Total / الإجمالي", fmtMoney(input.total, input.currencyCode)],
-    ];
+    const totRows: Array<[string, string]> = vatEnabled
+      ? [
+          ["Subtotal / المجموع قبل الضريبة", fmtMoney(input.subtotal, input.currencyCode)],
+          ["VAT / ضريبة القيمة المضافة", fmtMoney(input.vat, input.currencyCode)],
+          ["Total / الإجمالي", fmtMoney(input.total, input.currencyCode)],
+        ]
+      : [["Total / الإجمالي", fmtMoney(input.total, input.currencyCode)]];
     doc.fontSize(10).fillColor("#111827");
     for (const [label, val] of totRows) {
       const isTotal = label.startsWith("Total");

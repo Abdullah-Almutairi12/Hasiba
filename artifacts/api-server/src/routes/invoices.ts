@@ -453,6 +453,7 @@ router.get("/invoices/:id/pdf", invoiceReadGuard, async (req, res) => {
         },
         lines: poLines,
         zatcaQrDataUrl: qrDataUrl,
+        vatEnabled: pdfVatEnabled,
       },
       company,
     );
