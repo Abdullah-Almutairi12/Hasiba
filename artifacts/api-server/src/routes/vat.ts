@@ -7,6 +7,8 @@ import { recordAudit } from "../lib/audit";
 import { getCompanyId } from "../lib/scoped-db";
 import {
   getVatThresholdSnapshot,
+  computeRolling12mSales,
+  simulateVatTrajectory,
   type VatRegistrationStatus,
 } from "../lib/vat-threshold";
 import { evaluateAndEmit } from "../lib/vat-threshold-sweep";
@@ -156,6 +158,45 @@ router.get("/vat/return", financeGuard, async (req, res) => {
     res.json(vr);
   } catch (err) {
     req.log.error({ err }, "GET /vat/return failed");
+    handleRouteError(err, res);
+  }
+});
+
+/**
+ * POST /vat/simulate — "what-if" VAT trajectory simulator.
+ *
+ * Owner/manager/accountant only. Defaults the baseline to the live
+ * rolling-12m sales for the current tenant; clients can override (e.g.
+ * for hypothetical scenarios where the user wants to model a yet-to-be
+ * acquired business line). Returns a 12-36 month projection plus the
+ * crossing month for the voluntary / mandatory thresholds.
+ *
+ * Pure compute on top of `simulateVatTrajectory` — no DB writes.
+ */
+const SimulateBody = z.object({
+  baselineRolling12mSales: z.number().min(0).max(1e12).optional(),
+  monthlyGrowthRate: z.number().min(-0.5).max(1).optional(),
+  months: z.number().int().min(1).max(36).optional(),
+  oneOffBoost: z.number().min(0).max(1e12).optional(),
+  cashImpactRate: z.number().min(0).max(1).optional(),
+});
+
+router.post("/vat/simulate", financeGuard, async (req, res) => {
+  try {
+    const companyId = getCompanyId(req);
+    const body = SimulateBody.parse(req.body ?? {});
+    const baseline =
+      body.baselineRolling12mSales ?? (await computeRolling12mSales(companyId));
+    const result = simulateVatTrajectory({
+      baselineRolling12mSales: baseline,
+      monthlyGrowthRate: body.monthlyGrowthRate,
+      months: body.months,
+      oneOffBoost: body.oneOffBoost,
+      cashImpactRate: body.cashImpactRate,
+    });
+    res.json(result);
+  } catch (err) {
+    req.log.error({ err }, "POST /vat/simulate failed");
     handleRouteError(err, res);
   }
 });

@@ -27,6 +27,7 @@ import {
   Monitor,
   LogOut,
   Languages,
+  Sparkles,
   User as UserIcon,
   AlertTriangle,
   Truck,
@@ -36,6 +37,7 @@ import { Button } from "@/components/ui/button";
 import { useTheme, type ThemeMode } from "@/hooks/use-theme";
 import { useAuth } from "@/hooks/use-auth";
 import { useLanguage } from "@/hooks/use-language";
+import { useInsightMode } from "@/hooks/use-insight-mode";
 import { usePermissions } from "@/hooks/use-permissions";
 import {
   Tooltip,
@@ -230,6 +232,35 @@ function LanguageToggle() {
   );
 }
 
+function InsightModeToggle() {
+  const { enabled, toggle } = useInsightMode();
+  const { t } = useLanguage();
+  const label = enabled ? t("insight.toggleOff") : t("insight.toggleOn");
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          variant={enabled ? "default" : "ghost"}
+          size="sm"
+          onClick={toggle}
+          className={
+            enabled
+              ? "rounded-full gap-1.5 bg-teal-600 hover:bg-teal-700 text-white"
+              : "rounded-full gap-1.5"
+          }
+          data-testid="button-insight-mode-toggle"
+          aria-pressed={enabled}
+          aria-label={label}
+        >
+          <Sparkles className="size-4" />
+          <span className="text-xs font-medium">{t("insight.pill")}</span>
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent side="bottom">{label}</TooltipContent>
+    </Tooltip>
+  );
+}
+
 function UserMenu() {
   const { user, logout, isLoggingOut } = useAuth();
   const [, setLocation] = useLocation();
@@ -311,6 +342,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             <CompanySwitcher />
             <div className="flex flex-1 items-center justify-end gap-1 sm:gap-2">
               <WorkflowInboxBell />
+              <InsightModeToggle />
               <LanguageToggle />
               <ThemeToggle />
               <UserMenu />

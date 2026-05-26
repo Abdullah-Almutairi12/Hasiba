@@ -24,10 +24,38 @@ export const usersTable = pgTable("users", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+/**
+ * Per-user audit consent. Owners and admins can read any audit row;
+ * everyone else (auditor / accountant / etc.) sees rows whose actor
+ * has these flags ON for the corresponding facet. Toggling a flag OFF
+ * does NOT erase past rows — it only redacts them at read time, so
+ * audit integrity is preserved while still respecting GDPR/PDPL-style
+ * "right to limit visibility".
+ *
+ * Defaults (when unset / null): every flag is `true` for backwards
+ * compatibility with the pre-Insight-Mode behaviour.
+ */
+export type AuditConsent = {
+  /** When false: monetary figures in audit `details` are redacted. */
+  salesDetails?: boolean;
+  /** When false: actor `userName` + emails/phones in `details` are redacted. */
+  customerPii?: boolean;
+  /** When false: `ipAddress` on the audit row is dropped. */
+  locationContext?: boolean;
+};
+
 export type AdminPrefs = {
   lastAdminTab?: string | null;
   cleanupRunsFrom?: string | null;
   cleanupRunsTo?: string | null;
+  /**
+   * Task #259 — "Insight Mode" reframes alerts from monitoring/red
+   * copy to opportunity/teal copy. Per-user. Default OFF (classic
+   * compliance tone) for backwards compatibility.
+   */
+  insightMode?: boolean;
+  /** Task #259 — per-user audit visibility consent (see AuditConsent). */
+  auditConsent?: AuditConsent;
 };
 
 export const insertUserSchema = createInsertSchema(usersTable).omit({ id: true, createdAt: true, lastLoginAt: true, passwordHash: true });

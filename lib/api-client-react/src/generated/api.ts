@@ -43,6 +43,7 @@ import type {
   AskAiAssistant200,
   AskAiAssistantBody,
   AssignUserRequest,
+  AuditConsent,
   AuditLog,
   AutomationRule,
   AutomationRuleInput,
@@ -187,6 +188,7 @@ import type {
   SendCleanupReportTest400,
   SendCleanupReportTestBody,
   SetPermissionCellBody,
+  SimulateVatTrajectoryBody,
   Supplier,
   SupportTicket,
   SwitchCompany200,
@@ -215,6 +217,7 @@ import type {
   UpdateSupportTicketBody,
   UpdateSystemSettings200,
   UpdateSystemSettingsBody,
+  UpdateUserPreferencesRequest,
   UpdateVatRegistration200,
   UpdateVatRegistrationRequest,
   UploadCompanyLogoBody,
@@ -224,7 +227,9 @@ import type {
   UpsertFinancialLimitBody,
   User,
   UserCompany,
+  UserPreferencesResponse,
   VatReturnResponse,
+  VatSimulationResult,
   VatStatusResponse,
   Warehouse,
   ZatcaStatus,
@@ -6215,6 +6220,7 @@ export function useGetSecurityChecklist<
 }
 
 /**
+ * Owner role sees raw rows. All other roles see rows redacted at read time per each actor's `auditConsent` (Task #259): monetary figures, customer PII and IP addresses are scrubbed when the corresponding consent flag is off.
  * @summary List recent audit logs
  */
 export const getListAuditLogsUrl = (params?: ListAuditLogsParams) => {
@@ -6300,6 +6306,245 @@ export function useListAuditLogs<
   },
 ): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getListAuditLogsQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * Returns the last 50 audit rows whose actor is NOT the current viewer. The same per-actor `auditConsent` redaction is applied as `/security/audit-logs` for non-owner viewers.
+ * @summary Who else has been active in your tenant's audit trail (Task #259)
+ */
+export const getListAuditAccessUrl = () => {
+  return `/api/security/audit-access`;
+};
+
+export const listAuditAccess = async (
+  options?: RequestInit,
+): Promise<AuditLog[]> => {
+  return customFetch<AuditLog[]>(getListAuditAccessUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListAuditAccessQueryKey = () => {
+  return [`/api/security/audit-access`] as const;
+};
+
+export const getListAuditAccessQueryOptions = <
+  TData = Awaited<ReturnType<typeof listAuditAccess>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listAuditAccess>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListAuditAccessQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof listAuditAccess>>> = ({
+    signal,
+  }) => listAuditAccess({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listAuditAccess>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListAuditAccessQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listAuditAccess>>
+>;
+export type ListAuditAccessQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Who else has been active in your tenant's audit trail (Task #259)
+ */
+
+export function useListAuditAccess<
+  TData = Awaited<ReturnType<typeof listAuditAccess>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listAuditAccess>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListAuditAccessQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * Per-user UI state stored on `users.admin_prefs` (jsonb) plus the scalar `preferred_branch_id` column. Task #259 added `insightMode` and per-facet `auditConsent`. All fields are optional; omitted ones are left unchanged.
+ * @summary Update the current user's UI preferences
+ */
+export const getUpdateMyPreferencesUrl = () => {
+  return `/api/users/me/preferences`;
+};
+
+export const updateMyPreferences = async (
+  updateUserPreferencesRequest: UpdateUserPreferencesRequest,
+  options?: RequestInit,
+): Promise<UserPreferencesResponse> => {
+  return customFetch<UserPreferencesResponse>(getUpdateMyPreferencesUrl(), {
+    ...options,
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(updateUserPreferencesRequest),
+  });
+};
+
+export const getUpdateMyPreferencesMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateMyPreferences>>,
+    TError,
+    { data: BodyType<UpdateUserPreferencesRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateMyPreferences>>,
+  TError,
+  { data: BodyType<UpdateUserPreferencesRequest> },
+  TContext
+> => {
+  const mutationKey = ["updateMyPreferences"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateMyPreferences>>,
+    { data: BodyType<UpdateUserPreferencesRequest> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return updateMyPreferences(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateMyPreferencesMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updateMyPreferences>>
+>;
+export type UpdateMyPreferencesMutationBody =
+  BodyType<UpdateUserPreferencesRequest>;
+export type UpdateMyPreferencesMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Update the current user's UI preferences
+ */
+export const useUpdateMyPreferences = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateMyPreferences>>,
+    TError,
+    { data: BodyType<UpdateUserPreferencesRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof updateMyPreferences>>,
+  TError,
+  { data: BodyType<UpdateUserPreferencesRequest> },
+  TContext
+> => {
+  return useMutation(getUpdateMyPreferencesMutationOptions(options));
+};
+
+/**
+ * @summary Read the current user's audit consent settings (Task
+ */
+export const getGetMyAuditConsentUrl = () => {
+  return `/api/users/me/audit-consent`;
+};
+
+export const getMyAuditConsent = async (
+  options?: RequestInit,
+): Promise<AuditConsent> => {
+  return customFetch<AuditConsent>(getGetMyAuditConsentUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetMyAuditConsentQueryKey = () => {
+  return [`/api/users/me/audit-consent`] as const;
+};
+
+export const getGetMyAuditConsentQueryOptions = <
+  TData = Awaited<ReturnType<typeof getMyAuditConsent>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getMyAuditConsent>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetMyAuditConsentQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getMyAuditConsent>>
+  > = ({ signal }) => getMyAuditConsent({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getMyAuditConsent>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetMyAuditConsentQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getMyAuditConsent>>
+>;
+export type GetMyAuditConsentQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Read the current user's audit consent settings (Task
+ */
+
+export function useGetMyAuditConsent<
+  TData = Awaited<ReturnType<typeof getMyAuditConsent>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getMyAuditConsent>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetMyAuditConsentQueryOptions(options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;
@@ -13695,6 +13940,94 @@ export function useGetVatReturn<
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
+
+/**
+ * Task #259 — pure compute on top of the same rolling-12m engine the dashboard counter uses. Defaults `baselineRolling12mSales` to the live tenant value; clients can override for hypothetical scenarios. Returns the projected trajectory plus the month at which the voluntary / mandatory line will be crossed.
+ * @summary What-if projection of rolling-12m sales against VAT thresholds
+ */
+export const getSimulateVatTrajectoryUrl = () => {
+  return `/api/vat/simulate`;
+};
+
+export const simulateVatTrajectory = async (
+  simulateVatTrajectoryBody?: SimulateVatTrajectoryBody,
+  options?: RequestInit,
+): Promise<VatSimulationResult> => {
+  return customFetch<VatSimulationResult>(getSimulateVatTrajectoryUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(simulateVatTrajectoryBody),
+  });
+};
+
+export const getSimulateVatTrajectoryMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof simulateVatTrajectory>>,
+    TError,
+    { data: BodyType<SimulateVatTrajectoryBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof simulateVatTrajectory>>,
+  TError,
+  { data: BodyType<SimulateVatTrajectoryBody> },
+  TContext
+> => {
+  const mutationKey = ["simulateVatTrajectory"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof simulateVatTrajectory>>,
+    { data: BodyType<SimulateVatTrajectoryBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return simulateVatTrajectory(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type SimulateVatTrajectoryMutationResult = NonNullable<
+  Awaited<ReturnType<typeof simulateVatTrajectory>>
+>;
+export type SimulateVatTrajectoryMutationBody =
+  BodyType<SimulateVatTrajectoryBody>;
+export type SimulateVatTrajectoryMutationError = ErrorType<unknown>;
+
+/**
+ * @summary What-if projection of rolling-12m sales against VAT thresholds
+ */
+export const useSimulateVatTrajectory = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof simulateVatTrajectory>>,
+    TError,
+    { data: BodyType<SimulateVatTrajectoryBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof simulateVatTrajectory>>,
+  TError,
+  { data: BodyType<SimulateVatTrajectoryBody> },
+  TContext
+> => {
+  return useMutation(getSimulateVatTrajectoryMutationOptions(options));
+};
 
 /**
  * @summary Manually sweep the rolling 12m threshold and emit alerts if crossed

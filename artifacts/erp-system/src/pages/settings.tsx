@@ -9,6 +9,13 @@ import {
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
+import { useInsightMode } from "@/hooks/use-insight-mode";
+import { useAuditConsent } from "@/hooks/use-audit-consent";
+import { useLanguage } from "@/hooks/use-language";
+import {
+  useListAuditAccess,
+  getListAuditAccessQueryKey,
+} from "@workspace/api-client-react";
 import { useCurrentCompany } from "@/hooks/use-current-company";
 import { usePermissions } from "@/hooks/use-permissions";
 import { useToast } from "@/hooks/use-toast";
@@ -1085,6 +1092,8 @@ function AppearanceTab({ readOnly }: { readOnly: boolean }) {
             <Switch checked={Boolean(draft.showWelcomeBanner)} onCheckedChange={(v) => set("showWelcomeBanner", v)} disabled={readOnly} data-testid="switch-show-welcome" />
           </div>
         </div>
+        <Separator />
+        <InsightModeRow />
         {!readOnly && (
           <div className="flex justify-end">
             <Button onClick={() => save({ appearance: draft })} data-testid="btn-save-appearance">
@@ -1096,6 +1105,134 @@ function AppearanceTab({ readOnly }: { readOnly: boolean }) {
     </Card>
   );
 }
+
+/**
+ * Task #259 — per-user Insight Mode preference, surfaced alongside the
+ * (tenant-wide) appearance defaults so the user sees one consistent
+ * "look & feel" page.
+ */
+function InsightModeRow() {
+  const { enabled, setMode } = useInsightMode();
+  const { t } = useLanguage();
+  return (
+    <div className="flex items-center justify-between rounded-lg border p-3">
+      <div className="space-y-0.5">
+        <div className="text-sm font-medium">
+          {t("appearance_extra.insightModeTitle")}
+        </div>
+        <div className="text-xs text-muted-foreground">
+          {t("appearance_extra.insightModeHint")}
+        </div>
+      </div>
+      <Switch
+        checked={enabled}
+        onCheckedChange={(v) => void setMode(Boolean(v))}
+        data-testid="switch-insight-mode"
+      />
+    </div>
+  );
+}
+
+/**
+ * Task #259 — Privacy & Consent tab. Per-user consent flags + a
+ * "who viewed your trail" ledger from /security/audit-access. The
+ * owner role bypasses redaction on the server side; we flag this to
+ * the user so they understand the limits of their toggles.
+ */
+function PrivacyConsentTab() {
+  const { t } = useLanguage();
+  const { consent, setConsent, isLoading } = useAuditConsent();
+  const { toast } = useToast();
+  const ledger = useListAuditAccess({
+    query: { queryKey: getListAuditAccessQueryKey(), staleTime: 30_000 },
+  });
+
+  const onToggle = (key: keyof typeof consent) => (v: boolean) => {
+    setConsent({ [key]: v }).catch((e) =>
+      toast({
+        title: "Failed",
+        description: String(e),
+        variant: "destructive",
+      }),
+    );
+  };
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <ShieldCheck className="size-5 text-primary" />
+            {t("privacy.title")}
+          </CardTitle>
+          <CardDescription>{t("privacy.description")}</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {(
+            [
+              ["salesDetails", "privacy.salesDetails", "privacy.salesDetailsHint"],
+              ["customerPii", "privacy.customerPii", "privacy.customerPiiHint"],
+              [
+                "locationContext",
+                "privacy.locationContext",
+                "privacy.locationContextHint",
+              ],
+            ] as const
+          ).map(([key, labelKey, hintKey]) => (
+            <div
+              key={key}
+              className="flex items-center justify-between rounded-lg border p-3"
+            >
+              <div className="space-y-0.5">
+                <div className="text-sm font-medium">{t(labelKey)}</div>
+                <div className="text-xs text-muted-foreground">{t(hintKey)}</div>
+              </div>
+              <Switch
+                checked={consent[key]}
+                onCheckedChange={onToggle(key)}
+                disabled={isLoading}
+                data-testid={`switch-consent-${key}`}
+              />
+            </div>
+          ))}
+          <p className="text-xs text-muted-foreground">{t("privacy.ownerNote")}</p>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm">{t("privacy.ledgerTitle")}</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {!ledger.data || ledger.data.length === 0 ? (
+            <div className="text-sm text-muted-foreground">
+              {t("privacy.ledgerEmpty")}
+            </div>
+          ) : (
+            <ul className="space-y-1 text-xs">
+              {ledger.data.slice(0, 25).map((row) => (
+                <li
+                  key={row.id}
+                  className="flex items-center justify-between rounded border-b py-1"
+                  data-testid={`row-audit-access-${row.id}`}
+                >
+                  <span className="font-medium">{row.userName}</span>
+                  <span className="text-muted-foreground">
+                    {row.action} · {row.entity}
+                  </span>
+                  <span className="font-mono text-[10px] text-muted-foreground">
+                    {new Date(row.createdAt).toLocaleString()}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 
 // ====================== 13. BACKUP & DATA ======================
 /**
@@ -1323,6 +1460,9 @@ export default function SettingsPage() {
           <TabsTrigger value="security" data-testid="tab-security">
             <ShieldCheck className="me-2 size-4" /> الأمان
           </TabsTrigger>
+          <TabsTrigger value="privacy" data-testid="tab-privacy">
+            <ShieldCheck className="me-2 size-4" /> الخصوصية والموافقة
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="company"><CompanyTab readOnly={readOnly} /></TabsContent>
@@ -1339,6 +1479,7 @@ export default function SettingsPage() {
         <TabsContent value="backup"><BackupTab readOnly={readOnly} /></TabsContent>
         <TabsContent value="templates"><TemplatesTab readOnly={readOnly} /></TabsContent>
         <TabsContent value="security"><SecurityTab /></TabsContent>
+        <TabsContent value="privacy"><PrivacyConsentTab /></TabsContent>
       </Tabs>
     </div>
   );

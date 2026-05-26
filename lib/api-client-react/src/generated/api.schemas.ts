@@ -1677,6 +1677,15 @@ export interface CleanupReportSuppression {
 }
 
 /**
+ * Per-user audit visibility consent (Task #259). When a flag is false, the matching facet is redacted in `/security/audit-logs` and `/security/audit-access` for non-owner viewers.
+ */
+export interface AuditConsent {
+  salesDetails?: boolean;
+  customerPii?: boolean;
+  locationContext?: boolean;
+}
+
+/**
  * Per-admin remembered UI state for the admin panel. Persists across reloads so the panel feels sticky and admins don't have to re-enter the same filters. Stored per-user on `users.admin_prefs`.
  */
 export interface AdminPrefs {
@@ -1686,6 +1695,9 @@ export interface AdminPrefs {
   cleanupRunsFrom: string | null;
   /** Last "to" date (YYYY-MM-DD) the admin used to filter the alerts-cleanup runs export / count card. */
   cleanupRunsTo: string | null;
+  /** Task #259 — per-user "Insight Mode" flag. When true, the UI reframes alerts in opportunity tone (teal). Default false. */
+  insightMode?: boolean;
+  auditConsent?: AuditConsent;
 }
 
 export interface SystemSettings {
@@ -1747,6 +1759,38 @@ export interface SystemSettings {
    */
   cleanupReportSuppressionMaxAgeDaysMax: number;
   adminPrefs: AdminPrefs;
+}
+
+export interface UpdateUserPreferencesRequest {
+  preferredBranchId?: number | null;
+  insightMode?: boolean;
+  auditConsent?: AuditConsent;
+}
+
+export interface UserPreferencesResponse {
+  preferredBranchId?: number | null;
+  adminPrefs: AdminPrefs;
+}
+
+export interface VatSimulationPoint {
+  /** @minimum 1 */
+  month: number;
+  rolling12mSales: number;
+  percentOfMandatory: number;
+  estimatedMonthlyVatCash: number;
+}
+
+export interface VatSimulationResult {
+  baselineRolling12mSales: number;
+  monthlyGrowthRate: number;
+  months: number;
+  oneOffBoost: number;
+  cashImpactRate: number;
+  voluntaryCrossedAtMonth: number | null;
+  mandatoryCrossedAtMonth: number | null;
+  trajectory: VatSimulationPoint[];
+  mandatoryThreshold: number;
+  voluntaryThreshold: number;
 }
 
 export type PermissionMatrixDefaults = { [key: string]: string[] };
@@ -2708,6 +2752,28 @@ export const GetVatReturnFormat = {
   json: "json",
   pdf: "pdf",
 } as const;
+
+export type SimulateVatTrajectoryBody = {
+  /** @minimum 0 */
+  baselineRolling12mSales?: number;
+  /**
+   * @minimum -0.5
+   * @maximum 1
+   */
+  monthlyGrowthRate?: number;
+  /**
+   * @minimum 1
+   * @maximum 36
+   */
+  months?: number;
+  /** @minimum 0 */
+  oneOffBoost?: number;
+  /**
+   * @minimum 0
+   * @maximum 1
+   */
+  cashImpactRate?: number;
+};
 
 export type RunVatThresholdCheck200AlertEmitted =
   | (typeof RunVatThresholdCheck200AlertEmitted)[keyof typeof RunVatThresholdCheck200AlertEmitted]

@@ -304,8 +304,18 @@ router.delete("/users/:id", ownerOnly, async (req, res) => {
 // Per-user UI preferences (e.g. preferred branch for the Retail liquidity
 // view). Stored on the users row so it follows the manager across devices
 // and browsers. Any authenticated user can read/write their own prefs.
+const AuditConsentSchema = z
+  .object({
+    salesDetails: z.boolean().optional(),
+    customerPii: z.boolean().optional(),
+    locationContext: z.boolean().optional(),
+  })
+  .partial();
+
 const UpdatePreferencesBody = z.object({
-  preferredBranchId: z.number().int().positive().nullable(),
+  preferredBranchId: z.number().int().positive().nullable().optional(),
+  insightMode: z.boolean().optional(),
+  auditConsent: AuditConsentSchema.optional(),
 });
 
 router.patch(
@@ -319,7 +329,7 @@ router.patch(
       // When setting a non-null branch, verify it exists, is active, and
       // belongs to the caller's current company so a forged id can't be
       // persisted by a hostile or stale client.
-      if (body.preferredBranchId !== null) {
+      if (body.preferredBranchId !== undefined && body.preferredBranchId !== null) {
         const companyId = req.session.companyId;
         if (!companyId) {
           return res.status(400).json({ error: "لا توجد شركة نشطة" });
@@ -339,15 +349,92 @@ router.patch(
           return res.status(400).json({ error: "الفرع غير متاح" });
         }
       }
+
+      // Build a partial patch — adminPrefs is a jsonb bag we merge into
+      // so updating insightMode does not wipe lastAdminTab and vice
+      // versa. preferredBranchId stays on its own column.
+      const patch: Record<string, unknown> = {};
+      if (body.preferredBranchId !== undefined) {
+        patch["preferredBranchId"] = body.preferredBranchId;
+      }
+      if (body.insightMode !== undefined || body.auditConsent !== undefined) {
+        const [existing] = await db
+          .select({ adminPrefs: usersTable.adminPrefs })
+          .from(usersTable)
+          .where(eq(usersTable.id, userId))
+          .limit(1);
+        const merged = { ...(existing?.adminPrefs ?? {}) };
+        if (body.insightMode !== undefined) merged.insightMode = body.insightMode;
+        if (body.auditConsent !== undefined) {
+          merged.auditConsent = {
+            ...(merged.auditConsent ?? {}),
+            ...body.auditConsent,
+          };
+        }
+        patch["adminPrefs"] = merged;
+      }
+
+      // No-op safe-guard: if nothing was sent, just echo the current state.
+      if (Object.keys(patch).length === 0) {
+        const [current] = await db
+          .select({
+            preferredBranchId: usersTable.preferredBranchId,
+            adminPrefs: usersTable.adminPrefs,
+          })
+          .from(usersTable)
+          .where(eq(usersTable.id, userId))
+          .limit(1);
+        if (!current) return res.status(404).json({ error: "المستخدم غير موجود" });
+        return res.json({
+          preferredBranchId: current.preferredBranchId,
+          adminPrefs: current.adminPrefs ?? {},
+        });
+      }
+
       const [updated] = await db
         .update(usersTable)
-        .set({ preferredBranchId: body.preferredBranchId })
+        .set(patch)
         .where(eq(usersTable.id, userId))
-        .returning({ preferredBranchId: usersTable.preferredBranchId });
+        .returning({
+          preferredBranchId: usersTable.preferredBranchId,
+          adminPrefs: usersTable.adminPrefs,
+        });
       if (!updated) return res.status(404).json({ error: "المستخدم غير موجود" });
-      return res.json({ preferredBranchId: updated.preferredBranchId });
+      return res.json({
+        preferredBranchId: updated.preferredBranchId,
+        adminPrefs: updated.adminPrefs ?? {},
+      });
     } catch (err) {
       req.log.error({ err }, "Error updating user preferences");
+      return handleRouteError(err, res);
+    }
+  },
+);
+
+// GET current user's audit consent (Task #259). Returns defaults
+// (everything allowed) merged with any stored adminPrefs.auditConsent
+// so the Privacy & Consent UI always has a defined shape to render.
+router.get(
+  "/users/me/audit-consent",
+  requireRole(...ALL_ROLES),
+  async (req, res) => {
+    try {
+      const userId = req.session.userId;
+      if (!userId) return res.status(401).json({ error: "غير مسجل دخول" });
+      const [row] = await db
+        .select({ adminPrefs: usersTable.adminPrefs })
+        .from(usersTable)
+        .where(eq(usersTable.id, userId))
+        .limit(1);
+      if (!row) return res.status(404).json({ error: "المستخدم غير موجود" });
+      const stored = row.adminPrefs?.auditConsent ?? {};
+      return res.json({
+        salesDetails: stored.salesDetails ?? true,
+        customerPii: stored.customerPii ?? true,
+        locationContext: stored.locationContext ?? true,
+      });
+    } catch (err) {
+      req.log.error({ err }, "Error fetching audit consent");
       return handleRouteError(err, res);
     }
   },

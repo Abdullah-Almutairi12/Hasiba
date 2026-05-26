@@ -145,3 +145,127 @@ function isVatStatus(v: string): v is VatRegistrationStatus {
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
+
+// ============================================================
+// Task #259 — VAT what-if simulator (pure, no DB access).
+//
+// Given a baseline rolling-12m sales number and a few owner-tunable
+// knobs (monthly growth %, # of months to look ahead, optional one-off
+// boost), project the rolling-12m total month-by-month and report when
+// each threshold (voluntary 187.5K / mandatory 375K) will be crossed.
+//
+// We model "rolling 12m" as a moving window: each projected month
+// REPLACES the oldest month of the baseline with `monthly * (1+g)^i`.
+// Baseline monthly sales = rolling12mSales / 12 (uniform). This is the
+// same heuristic ZATCA-themed planning spreadsheets use; it is
+// intentionally optimistic on the upside (no churn) and pessimistic on
+// stickiness (replaces full month, not partial). Documented in the UI.
+//
+// `cashImpactRate` (default 0.15) approximates the SAR amount the
+// tenant will start owing in monthly net VAT once registered, computed
+// as `projectedMonthlySales * rate * 0.5` (only ~half of expenses are
+// VATable on net basis for an SMB) — surfaced so owners can see the
+// cash-flow trade-off of voluntary early registration.
+// ============================================================
+export interface SimulationInput {
+  baselineRolling12mSales: number;
+  /** Monthly growth rate (decimal, e.g. 0.05 = +5% m/m). Default 0. */
+  monthlyGrowthRate?: number;
+  /** Number of future months to project (1-36). Default 12. */
+  months?: number;
+  /** One-off SAR added on month 1 (e.g. seasonal spike). Default 0. */
+  oneOffBoost?: number;
+  /** Approximate net-VAT-payable / sales ratio for cash impact. */
+  cashImpactRate?: number;
+}
+
+export interface SimulationPoint {
+  /** 1-indexed month offset from now. */
+  month: number;
+  /** Projected rolling-12-month sales at end of this month (SAR). */
+  rolling12mSales: number;
+  /** % of mandatory threshold. */
+  percentOfMandatory: number;
+  /** Approx monthly VAT cash outflow once registered (SAR). */
+  estimatedMonthlyVatCash: number;
+}
+
+export interface SimulationResult {
+  baselineRolling12mSales: number;
+  monthlyGrowthRate: number;
+  months: number;
+  oneOffBoost: number;
+  cashImpactRate: number;
+  /** Month offset (1-based) when voluntary line is first crossed, or null. */
+  voluntaryCrossedAtMonth: number | null;
+  /** Month offset (1-based) when mandatory line is first crossed, or null. */
+  mandatoryCrossedAtMonth: number | null;
+  /** Per-month projected snapshot. */
+  trajectory: SimulationPoint[];
+  /** Echo of the constants for client-side rendering. */
+  mandatoryThreshold: number;
+  voluntaryThreshold: number;
+}
+
+export function simulateVatTrajectory(input: SimulationInput): SimulationResult {
+  const baseline = Math.max(0, Number(input.baselineRolling12mSales) || 0);
+  const growth = clamp(Number(input.monthlyGrowthRate) || 0, -0.5, 1);
+  const months = Math.min(36, Math.max(1, Math.floor(input.months ?? 12)));
+  const boost = Math.max(0, Number(input.oneOffBoost) || 0);
+  const cashRate = clamp(Number(input.cashImpactRate ?? 0.15), 0, 1);
+
+  // Baseline uniform monthly slice.
+  const baselineMonthly = baseline / 12;
+
+  let voluntaryAt: number | null = null;
+  let mandatoryAt: number | null = null;
+  const trajectory: SimulationPoint[] = [];
+
+  // True 12-month rolling window: seed it with the baseline uniform
+  // months, then each iteration push the new projected month and shift
+  // the oldest entry off. This stays correct beyond month 12 (where
+  // the original baseline slices are fully gone and the window is
+  // entirely composed of projected months).
+  const window: number[] = Array.from({ length: 12 }, () => baselineMonthly);
+  for (let m = 1; m <= months; m++) {
+    const projectedMonth =
+      baselineMonthly * Math.pow(1 + growth, m) + (m === 1 ? boost : 0);
+    window.push(projectedMonth);
+    window.shift();
+    const running = window.reduce((s, v) => s + v, 0);
+    // Guard against negative growth dragging below zero.
+    const rolling = Math.max(0, round2(running));
+    const pct = round2((rolling / VAT_MANDATORY_THRESHOLD_SAR) * 100);
+
+    if (voluntaryAt === null && rolling >= VAT_VOLUNTARY_THRESHOLD_SAR) {
+      voluntaryAt = m;
+    }
+    if (mandatoryAt === null && rolling >= VAT_MANDATORY_THRESHOLD_SAR) {
+      mandatoryAt = m;
+    }
+
+    trajectory.push({
+      month: m,
+      rolling12mSales: rolling,
+      percentOfMandatory: pct,
+      estimatedMonthlyVatCash: round2(projectedMonth * cashRate * 0.5),
+    });
+  }
+
+  return {
+    baselineRolling12mSales: round2(baseline),
+    monthlyGrowthRate: growth,
+    months,
+    oneOffBoost: round2(boost),
+    cashImpactRate: cashRate,
+    voluntaryCrossedAtMonth: voluntaryAt,
+    mandatoryCrossedAtMonth: mandatoryAt,
+    trajectory,
+    mandatoryThreshold: VAT_MANDATORY_THRESHOLD_SAR,
+    voluntaryThreshold: VAT_VOLUNTARY_THRESHOLD_SAR,
+  };
+}
+
+function clamp(n: number, lo: number, hi: number): number {
+  return Math.min(hi, Math.max(lo, n));
+}

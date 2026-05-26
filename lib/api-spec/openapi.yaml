@@ -1345,6 +1345,11 @@ paths:
       operationId: listAuditLogs
       tags: [security]
       summary: List recent audit logs
+      description: >-
+        Owner role sees raw rows. All other roles see rows redacted at
+        read time per each actor's `auditConsent` (Task #259): monetary
+        figures, customer PII and IP addresses are scrubbed when the
+        corresponding consent flag is off.
       parameters:
         - in: query
           name: limit
@@ -1360,6 +1365,62 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/AuditLog"
+
+  /security/audit-access:
+    get:
+      operationId: listAuditAccess
+      tags: [security]
+      summary: "Who else has been active in your tenant's audit trail (Task #259)"
+      description: >-
+        Returns the last 50 audit rows whose actor is NOT the current
+        viewer. The same per-actor `auditConsent` redaction is applied
+        as `/security/audit-logs` for non-owner viewers.
+      responses:
+        "200":
+          description: Audit access ledger
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AuditLog"
+
+  /users/me/preferences:
+    patch:
+      operationId: updateMyPreferences
+      tags: [users]
+      summary: Update the current user's UI preferences
+      description: >-
+        Per-user UI state stored on `users.admin_prefs` (jsonb) plus the
+        scalar `preferred_branch_id` column. Task #259 added
+        `insightMode` and per-facet `auditConsent`. All fields are
+        optional; omitted ones are left unchanged.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateUserPreferencesRequest"
+      responses:
+        "200":
+          description: Updated preferences
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserPreferencesResponse"
+
+  /users/me/audit-consent:
+    get:
+      operationId: getMyAuditConsent
+      tags: [users]
+      summary: Read the current user's audit consent settings (Task #259)
+      responses:
+        "200":
+          description: Current audit consent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuditConsent"
 
   # ===== Admin Control Panel =====
   /admin/stats:
@@ -3469,6 +3530,36 @@ paths:
               schema: { $ref: "#/components/schemas/VatReturnResponse" }
             application/pdf:
               schema: { type: string, format: binary }
+
+  /vat/simulate:
+    post:
+      tags: [companies]
+      operationId: simulateVatTrajectory
+      summary: What-if projection of rolling-12m sales against VAT thresholds
+      description: >-
+        Task #259 — pure compute on top of the same rolling-12m engine
+        the dashboard counter uses. Defaults `baselineRolling12mSales`
+        to the live tenant value; clients can override for hypothetical
+        scenarios. Returns the projected trajectory plus the month at
+        which the voluntary / mandatory line will be crossed.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                baselineRolling12mSales: { type: number, minimum: 0 }
+                monthlyGrowthRate: { type: number, minimum: -0.5, maximum: 1 }
+                months: { type: integer, minimum: 1, maximum: 36 }
+                oneOffBoost: { type: number, minimum: 0 }
+                cashImpactRate: { type: number, minimum: 0, maximum: 1 }
+      responses:
+        "200":
+          description: simulation
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/VatSimulationResult" }
 
   /vat/threshold/check:
     post:
@@ -5661,7 +5752,82 @@ components:
           description: >-
             Last "to" date (YYYY-MM-DD) the admin used to filter the
             alerts-cleanup runs export / count card.
+        insightMode:
+          type: boolean
+          description: >-
+            Task #259 — per-user "Insight Mode" flag. When true, the UI
+            reframes alerts in opportunity tone (teal). Default false.
+        auditConsent:
+          $ref: "#/components/schemas/AuditConsent"
       required: [lastAdminTab, cleanupRunsFrom, cleanupRunsTo]
+
+    AuditConsent:
+      type: object
+      description: >-
+        Per-user audit visibility consent (Task #259). When a flag is
+        false, the matching facet is redacted in `/security/audit-logs`
+        and `/security/audit-access` for non-owner viewers.
+      properties:
+        salesDetails: { type: boolean, default: true }
+        customerPii: { type: boolean, default: true }
+        locationContext: { type: boolean, default: true }
+
+    UpdateUserPreferencesRequest:
+      type: object
+      properties:
+        preferredBranchId:
+          type: integer
+          nullable: true
+        insightMode: { type: boolean }
+        auditConsent: { $ref: "#/components/schemas/AuditConsent" }
+
+    UserPreferencesResponse:
+      type: object
+      properties:
+        preferredBranchId:
+          type: integer
+          nullable: true
+        adminPrefs:
+          $ref: "#/components/schemas/AdminPrefs"
+      required: [adminPrefs]
+
+    VatSimulationPoint:
+      type: object
+      properties:
+        month: { type: integer, minimum: 1 }
+        rolling12mSales: { type: number }
+        percentOfMandatory: { type: number }
+        estimatedMonthlyVatCash: { type: number }
+      required: [month, rolling12mSales, percentOfMandatory, estimatedMonthlyVatCash]
+
+    VatSimulationResult:
+      type: object
+      properties:
+        baselineRolling12mSales: { type: number }
+        monthlyGrowthRate: { type: number }
+        months: { type: integer }
+        oneOffBoost: { type: number }
+        cashImpactRate: { type: number }
+        voluntaryCrossedAtMonth: { type: integer, nullable: true }
+        mandatoryCrossedAtMonth: { type: integer, nullable: true }
+        trajectory:
+          type: array
+          items: { $ref: "#/components/schemas/VatSimulationPoint" }
+        mandatoryThreshold: { type: number }
+        voluntaryThreshold: { type: number }
+      required:
+        [
+          baselineRolling12mSales,
+          monthlyGrowthRate,
+          months,
+          oneOffBoost,
+          cashImpactRate,
+          voluntaryCrossedAtMonth,
+          mandatoryCrossedAtMonth,
+          trajectory,
+          mandatoryThreshold,
+          voluntaryThreshold,
+        ]
 
     PermissionMatrix:
       type: object

@@ -27,7 +27,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { ShieldCheck, AlertTriangle, FileText, Loader2 } from "lucide-react";
+import { ShieldCheck, FileText, Loader2 } from "lucide-react";
+import { InsightAlert } from "@/components/insight-alert";
+import { VatSimulatorDialog } from "@/components/vat-simulator-dialog";
+import { useLanguage } from "@/hooks/use-language";
 
 type Status = "registered" | "voluntary" | "not_registered";
 
@@ -49,6 +52,7 @@ function statusBadge(s: Status) {
  * registration flow when ≥ 80%.
  */
 export function VatThresholdCard() {
+  const { t } = useLanguage();
   const { data, isLoading } = useGetVatStatus({
     query: { queryKey: getGetVatStatusQueryKey(), staleTime: 60_000 },
   });
@@ -158,18 +162,18 @@ export function VatThresholdCard() {
         </div>
 
         {d.status === "not_registered" && d.crossedMandatory && (
-          <div className="flex items-start gap-2 rounded-md border border-red-500/40 bg-red-500/10 p-2 text-xs text-red-700 dark:text-red-300">
-            <AlertTriangle className="size-4 shrink-0 mt-0.5" />
-            <span>
-              تجاوزت الحد الإلزامي — يجب التسجيل في ZATCA خلال 30 يومًا.
-            </span>
-          </div>
+          <InsightAlert
+            tone="danger"
+            alertText={t("vat.mandatory_warning")}
+            insightText={t("insight.vat_crossed_insight")}
+          />
         )}
         {d.status === "not_registered" && d.near80 && !d.crossedMandatory && (
-          <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-xs text-amber-700 dark:text-amber-300">
-            <AlertTriangle className="size-4 shrink-0 mt-0.5" />
-            <span>اقتربت من الحد الإلزامي. يُنصح بالاستعداد للتسجيل.</span>
-          </div>
+          <InsightAlert
+            tone="warning"
+            alertText={t("vat.near80_warning")}
+            insightText={t("insight.vat_near80_insight")}
+          />
         )}
 
         <div className="flex items-center justify-between text-xs">
@@ -182,6 +186,8 @@ export function VatThresholdCard() {
             <span className="font-mono">{d.vatNumber}</span>
           </div>
         )}
+
+        <VatSimulatorDialog baseline={d.rolling12mSales} />
 
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild>

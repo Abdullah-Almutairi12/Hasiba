@@ -1479,6 +1479,7 @@ export const GetSecurityChecklistResponse = zod.object({
 });
 
 /**
+ * Owner role sees raw rows. All other roles see rows redacted at read time per each actor's `auditConsent` (Task #259): monetary figures, customer PII and IP addresses are scrubbed when the corresponding consent flag is off.
  * @summary List recent audit logs
  */
 export const listAuditLogsQueryLimitDefault = 20;
@@ -1498,6 +1499,134 @@ export const ListAuditLogsResponseItem = zod.object({
   createdAt: zod.string(),
 });
 export const ListAuditLogsResponse = zod.array(ListAuditLogsResponseItem);
+
+/**
+ * Returns the last 50 audit rows whose actor is NOT the current viewer. The same per-actor `auditConsent` redaction is applied as `/security/audit-logs` for non-owner viewers.
+ * @summary Who else has been active in your tenant's audit trail (Task #259)
+ */
+export const ListAuditAccessResponseItem = zod.object({
+  id: zod.number(),
+  userName: zod.string(),
+  action: zod.string(),
+  entity: zod.string(),
+  details: zod.string().nullish(),
+  ipAddress: zod.string().nullish(),
+  severity: zod.string(),
+  createdAt: zod.string(),
+});
+export const ListAuditAccessResponse = zod.array(ListAuditAccessResponseItem);
+
+/**
+ * Per-user UI state stored on `users.admin_prefs` (jsonb) plus the scalar `preferred_branch_id` column. Task #259 added `insightMode` and per-facet `auditConsent`. All fields are optional; omitted ones are left unchanged.
+ * @summary Update the current user's UI preferences
+ */
+export const updateMyPreferencesBodyAuditConsentSalesDetailsDefault = true;
+export const updateMyPreferencesBodyAuditConsentCustomerPiiDefault = true;
+export const updateMyPreferencesBodyAuditConsentLocationContextDefault = true;
+
+export const UpdateMyPreferencesBody = zod.object({
+  preferredBranchId: zod.number().nullish(),
+  insightMode: zod.boolean().optional(),
+  auditConsent: zod
+    .object({
+      salesDetails: zod
+        .boolean()
+        .default(updateMyPreferencesBodyAuditConsentSalesDetailsDefault),
+      customerPii: zod
+        .boolean()
+        .default(updateMyPreferencesBodyAuditConsentCustomerPiiDefault),
+      locationContext: zod
+        .boolean()
+        .default(updateMyPreferencesBodyAuditConsentLocationContextDefault),
+    })
+    .optional()
+    .describe(
+      "Per-user audit visibility consent (Task #259). When a flag is false, the matching facet is redacted in `\/security\/audit-logs` and `\/security\/audit-access` for non-owner viewers.",
+    ),
+});
+
+export const updateMyPreferencesResponseAdminPrefsAuditConsentSalesDetailsDefault = true;
+export const updateMyPreferencesResponseAdminPrefsAuditConsentCustomerPiiDefault = true;
+export const updateMyPreferencesResponseAdminPrefsAuditConsentLocationContextDefault = true;
+
+export const UpdateMyPreferencesResponse = zod.object({
+  preferredBranchId: zod.number().nullish(),
+  adminPrefs: zod
+    .object({
+      lastAdminTab: zod
+        .string()
+        .nullable()
+        .describe(
+          "Last selected top-level tab on `\/admin` (e.g. `overview`, `tickets`, `features`). The admin page restores this tab on mount when present.",
+        ),
+      cleanupRunsFrom: zod
+        .string()
+        .nullable()
+        .describe(
+          'Last \"from\" date (YYYY-MM-DD) the admin used to filter the alerts-cleanup runs export \/ count card.',
+        ),
+      cleanupRunsTo: zod
+        .string()
+        .nullable()
+        .describe(
+          'Last \"to\" date (YYYY-MM-DD) the admin used to filter the alerts-cleanup runs export \/ count card.',
+        ),
+      insightMode: zod
+        .boolean()
+        .optional()
+        .describe(
+          'Task #259 — per-user \"Insight Mode\" flag. When true, the UI reframes alerts in opportunity tone (teal). Default false.',
+        ),
+      auditConsent: zod
+        .object({
+          salesDetails: zod
+            .boolean()
+            .default(
+              updateMyPreferencesResponseAdminPrefsAuditConsentSalesDetailsDefault,
+            ),
+          customerPii: zod
+            .boolean()
+            .default(
+              updateMyPreferencesResponseAdminPrefsAuditConsentCustomerPiiDefault,
+            ),
+          locationContext: zod
+            .boolean()
+            .default(
+              updateMyPreferencesResponseAdminPrefsAuditConsentLocationContextDefault,
+            ),
+        })
+        .optional()
+        .describe(
+          "Per-user audit visibility consent (Task #259). When a flag is false, the matching facet is redacted in `\/security\/audit-logs` and `\/security\/audit-access` for non-owner viewers.",
+        ),
+    })
+    .describe(
+      "Per-admin remembered UI state for the admin panel. Persists across reloads so the panel feels sticky and admins don't have to re-enter the same filters. Stored per-user on `users.admin_prefs`.",
+    ),
+});
+
+/**
+ * @summary Read the current user's audit consent settings (Task
+ */
+export const getMyAuditConsentResponseSalesDetailsDefault = true;
+export const getMyAuditConsentResponseCustomerPiiDefault = true;
+export const getMyAuditConsentResponseLocationContextDefault = true;
+
+export const GetMyAuditConsentResponse = zod
+  .object({
+    salesDetails: zod
+      .boolean()
+      .default(getMyAuditConsentResponseSalesDetailsDefault),
+    customerPii: zod
+      .boolean()
+      .default(getMyAuditConsentResponseCustomerPiiDefault),
+    locationContext: zod
+      .boolean()
+      .default(getMyAuditConsentResponseLocationContextDefault),
+  })
+  .describe(
+    "Per-user audit visibility consent (Task #259). When a flag is false, the matching facet is redacted in `\/security\/audit-logs` and `\/security\/audit-access` for non-owner viewers.",
+  );
 
 /**
  * @summary Admin dashboard KPIs
@@ -1788,6 +1917,10 @@ export const getSystemSettingsResponseCleanupReportSuppressionMaxAgeDaysDefaultM
 
 export const getSystemSettingsResponseCleanupReportSuppressionMaxAgeDaysMaxMin = 0;
 
+export const getSystemSettingsResponseAdminPrefsAuditConsentSalesDetailsDefault = true;
+export const getSystemSettingsResponseAdminPrefsAuditConsentCustomerPiiDefault = true;
+export const getSystemSettingsResponseAdminPrefsAuditConsentLocationContextDefault = true;
+
 export const GetSystemSettingsResponse = zod.object({
   alertRetentionDays: zod
     .number()
@@ -1937,6 +2070,34 @@ export const GetSystemSettingsResponse = zod.object({
         .describe(
           'Last \"to\" date (YYYY-MM-DD) the admin used to filter the alerts-cleanup runs export \/ count card.',
         ),
+      insightMode: zod
+        .boolean()
+        .optional()
+        .describe(
+          'Task #259 — per-user \"Insight Mode\" flag. When true, the UI reframes alerts in opportunity tone (teal). Default false.',
+        ),
+      auditConsent: zod
+        .object({
+          salesDetails: zod
+            .boolean()
+            .default(
+              getSystemSettingsResponseAdminPrefsAuditConsentSalesDetailsDefault,
+            ),
+          customerPii: zod
+            .boolean()
+            .default(
+              getSystemSettingsResponseAdminPrefsAuditConsentCustomerPiiDefault,
+            ),
+          locationContext: zod
+            .boolean()
+            .default(
+              getSystemSettingsResponseAdminPrefsAuditConsentLocationContextDefault,
+            ),
+        })
+        .optional()
+        .describe(
+          "Per-user audit visibility consent (Task #259). When a flag is false, the matching facet is redacted in `\/security\/audit-logs` and `\/security\/audit-access` for non-owner viewers.",
+        ),
     })
     .describe(
       "Per-admin remembered UI state for the admin panel. Persists across reloads so the panel feels sticky and admins don't have to re-enter the same filters. Stored per-user on `users.admin_prefs`.",
@@ -2052,6 +2213,10 @@ export const UpdateAdminPrefsBody = zod.object({
     .describe("ISO date (YYYY-MM-DD) or null to clear."),
 });
 
+export const updateAdminPrefsResponseAdminPrefsAuditConsentSalesDetailsDefault = true;
+export const updateAdminPrefsResponseAdminPrefsAuditConsentCustomerPiiDefault = true;
+export const updateAdminPrefsResponseAdminPrefsAuditConsentLocationContextDefault = true;
+
 export const UpdateAdminPrefsResponse = zod.object({
   ok: zod.boolean(),
   adminPrefs: zod
@@ -2073,6 +2238,34 @@ export const UpdateAdminPrefsResponse = zod.object({
         .nullable()
         .describe(
           'Last \"to\" date (YYYY-MM-DD) the admin used to filter the alerts-cleanup runs export \/ count card.',
+        ),
+      insightMode: zod
+        .boolean()
+        .optional()
+        .describe(
+          'Task #259 — per-user \"Insight Mode\" flag. When true, the UI reframes alerts in opportunity tone (teal). Default false.',
+        ),
+      auditConsent: zod
+        .object({
+          salesDetails: zod
+            .boolean()
+            .default(
+              updateAdminPrefsResponseAdminPrefsAuditConsentSalesDetailsDefault,
+            ),
+          customerPii: zod
+            .boolean()
+            .default(
+              updateAdminPrefsResponseAdminPrefsAuditConsentCustomerPiiDefault,
+            ),
+          locationContext: zod
+            .boolean()
+            .default(
+              updateAdminPrefsResponseAdminPrefsAuditConsentLocationContextDefault,
+            ),
+        })
+        .optional()
+        .describe(
+          "Per-user audit visibility consent (Task #259). When a flag is false, the matching facet is redacted in `\/security\/audit-logs` and `\/security\/audit-access` for non-owner viewers.",
         ),
     })
     .describe(
@@ -3485,6 +3678,68 @@ export const GetVatReturnResponse = zod.object({
   }),
   netPayable: zod.number(),
   generatedAt: zod.string(),
+});
+
+/**
+ * Task #259 — pure compute on top of the same rolling-12m engine the dashboard counter uses. Defaults `baselineRolling12mSales` to the live tenant value; clients can override for hypothetical scenarios. Returns the projected trajectory plus the month at which the voluntary / mandatory line will be crossed.
+ * @summary What-if projection of rolling-12m sales against VAT thresholds
+ */
+export const simulateVatTrajectoryBodyBaselineRolling12mSalesMin = 0;
+
+export const simulateVatTrajectoryBodyMonthlyGrowthRateMin = -0.5;
+export const simulateVatTrajectoryBodyMonthlyGrowthRateMax = 1;
+
+export const simulateVatTrajectoryBodyMonthsMax = 36;
+
+export const simulateVatTrajectoryBodyOneOffBoostMin = 0;
+
+export const simulateVatTrajectoryBodyCashImpactRateMin = 0;
+export const simulateVatTrajectoryBodyCashImpactRateMax = 1;
+
+export const SimulateVatTrajectoryBody = zod.object({
+  baselineRolling12mSales: zod
+    .number()
+    .min(simulateVatTrajectoryBodyBaselineRolling12mSalesMin)
+    .optional(),
+  monthlyGrowthRate: zod
+    .number()
+    .min(simulateVatTrajectoryBodyMonthlyGrowthRateMin)
+    .max(simulateVatTrajectoryBodyMonthlyGrowthRateMax)
+    .optional(),
+  months: zod
+    .number()
+    .min(1)
+    .max(simulateVatTrajectoryBodyMonthsMax)
+    .optional(),
+  oneOffBoost: zod
+    .number()
+    .min(simulateVatTrajectoryBodyOneOffBoostMin)
+    .optional(),
+  cashImpactRate: zod
+    .number()
+    .min(simulateVatTrajectoryBodyCashImpactRateMin)
+    .max(simulateVatTrajectoryBodyCashImpactRateMax)
+    .optional(),
+});
+
+export const SimulateVatTrajectoryResponse = zod.object({
+  baselineRolling12mSales: zod.number(),
+  monthlyGrowthRate: zod.number(),
+  months: zod.number(),
+  oneOffBoost: zod.number(),
+  cashImpactRate: zod.number(),
+  voluntaryCrossedAtMonth: zod.number().nullable(),
+  mandatoryCrossedAtMonth: zod.number().nullable(),
+  trajectory: zod.array(
+    zod.object({
+      month: zod.number().min(1),
+      rolling12mSales: zod.number(),
+      percentOfMandatory: zod.number(),
+      estimatedMonthlyVatCash: zod.number(),
+    }),
+  ),
+  mandatoryThreshold: zod.number(),
+  voluntaryThreshold: zod.number(),
 });
 
 /**
