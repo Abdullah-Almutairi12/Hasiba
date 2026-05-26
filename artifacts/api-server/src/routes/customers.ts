@@ -12,6 +12,7 @@ import {
   pricelistsTable,
   companiesTable,
   usersTable,
+  userCompaniesTable,
 } from "@workspace/db";
 import type { AuditConsent } from "@workspace/db";
 import { ilike, or, sql, desc, eq, inArray, and, isNotNull } from "drizzle-orm";
@@ -29,23 +30,38 @@ const router = Router();
 
 /**
  * Task #259 — read-time PII / sales-figure redaction for customer
- * endpoints, driven by the VIEWER's own `auditConsent`. Owners always
- * bypass redaction (accountable for the company). For every other
- * role:
- *   - `customerPii=false` → phone/email/billing/shipping addresses /
- *     tax number replaced with "—"
+ * endpoints, applied DATA-SUBJECT first.
+ *
+ * Customers are tenant-owned and have no per-record `userId`, so the
+ * effective "data subject" is the company's owner — the user
+ * accountable for the customer roster. We resolve the owner via
+ * `user_companies.role = 'owner'` for the active tenant, then apply
+ * THAT user's `auditConsent` to non-owner viewers:
+ *   - `customerPii=false`  → phone / email / taxNumber /
+ *     billingAddress / shippingAddress collapsed to "—"
  *   - `salesDetails=false` → totalSpent / creditLimit collapsed to 0
- * Consent is a per-user opt-in; rows themselves are never mutated.
+ *
+ * Owner-role viewers always bypass redaction (consistent with
+ * /security/audit-logs). If no owner is provisioned (legacy single-
+ * tenant), redaction is a no-op so historic behavior is preserved.
+ * Cached per-request via `req.app.locals` so list responses do one
+ * lookup, not N.
  */
 const REDACTED = "—";
-async function loadViewerConsent(
-  userId: number | undefined,
+async function loadCompanyOwnerConsent(
+  companyId: number,
 ): Promise<AuditConsent | null> {
-  if (typeof userId !== "number") return null;
   const [row] = await db
     .select({ adminPrefs: usersTable.adminPrefs })
-    .from(usersTable)
-    .where(eq(usersTable.id, userId))
+    .from(userCompaniesTable)
+    .innerJoin(usersTable, eq(usersTable.id, userCompaniesTable.userId))
+    .where(
+      and(
+        eq(userCompaniesTable.companyId, companyId),
+        eq(userCompaniesTable.role, "owner"),
+      ),
+    )
+    .orderBy(userCompaniesTable.id)
     .limit(1);
   return row?.adminPrefs?.auditConsent ?? null;
 }
@@ -112,7 +128,7 @@ router.get("/customers", customerReadGuard, async (req, res) => {
       )
       .orderBy(desc(customersTable.createdAt));
 
-    const consent = await loadViewerConsent(req.session?.userId);
+    const consent = await loadCompanyOwnerConsent(getCompanyId(req));
     const role = req.session?.role;
     res.json(
       customers.map(({ row: c, linkedCompanyName }) =>
@@ -329,7 +345,7 @@ router.get("/customers/:id/360", customerReadGuard, async (req, res) => {
       .filter((i) => (i.dueDate ?? i.invoiceDate) < today)
       .reduce((a, i) => a + outstanding(i), 0);
 
-    const consent = await loadViewerConsent(req.session?.userId);
+    const consent = await loadCompanyOwnerConsent(getCompanyId(req));
     res.json({
       customer: redactCustomer(
         {
