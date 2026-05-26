@@ -10,14 +10,32 @@
  *   - Re-invoking the notifier after dedup is a no-op (returns false,
  *     no extra alert row)
  */
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { eq, inArray, like } from "drizzle-orm";
 import {
   db,
+  pool,
   alertsTable,
   cleanupReportSendsTable,
   cleanupReportSendRecipientsTable,
 } from "@workspace/db";
+
+// Mock the mailer so task #230's dispatch tests can flip between
+// "send succeeds" and "send fails" branches without touching SMTP.
+// The pre-existing notifyAdminsOfCleanupReportBounce tests don't
+// configure an admin notification email, so they never hit sendMail
+// regardless of the mock state.
+vi.mock("./mailer", () => ({
+  isMailerConfigured: vi.fn(() => true),
+  sendMail: vi.fn(async () => ({
+    sent: true as const,
+    provider: "smtp" as const,
+    messageId: "<test@local>",
+    accepted: [] as string[],
+    rejected: [] as string[],
+    pending: [] as string[],
+  })),
+}));
 
 const RUN_TAG = `vitest-bounce-notify-${Date.now()}`;
 
@@ -26,6 +44,8 @@ let renderBounceNotification: typeof import("./cleanup-report-bounce-notify").re
 let buildBounceDeepLink: typeof import("./cleanup-report-bounce-notify").buildBounceDeepLink;
 let renderSuppressionsNotification: typeof import("./cleanup-report-bounce-notify").renderSuppressionsNotification;
 let buildSuppressionsDeepLink: typeof import("./cleanup-report-bounce-notify").buildSuppressionsDeepLink;
+let renderExpiredSuppressionsNotification: typeof import("./cleanup-report-bounce-notify").renderExpiredSuppressionsNotification;
+let notifyAdminsOfExpiredCleanupReportSuppressions: typeof import("./cleanup-report-bounce-notify").notifyAdminsOfExpiredCleanupReportSuppressions;
 const createdSendIds: number[] = [];
 
 beforeAll(async () => {
@@ -56,6 +76,8 @@ beforeAll(async () => {
     buildBounceDeepLink,
     renderSuppressionsNotification,
     buildSuppressionsDeepLink,
+    renderExpiredSuppressionsNotification,
+    notifyAdminsOfExpiredCleanupReportSuppressions,
   } = await import("./cleanup-report-bounce-notify"));
 });
 
@@ -193,6 +215,254 @@ describe("renderSuppressionsNotification", () => {
     expect(out.body).toContain("a@example.com");
     expect(out.body).toContain("b@example.com");
     expect(out.body).toContain("غير محدد");
+  });
+});
+
+describe("renderExpiredSuppressionsNotification", () => {
+  it("formats a single-recipient expiry digest with max-age and deep link", () => {
+    const out = renderExpiredSuppressionsNotification(
+      [
+        {
+          email: "ghost@example.com",
+          suppressedAt: "2026-01-01T00:00:00.000Z",
+          bounceCount: 3,
+          lastReason: "mailbox_full",
+        },
+      ],
+      buildSuppressionsDeepLink(),
+      30,
+    );
+    expect(out.subject).toContain("ghost@example.com");
+    expect(out.body).toContain("ghost@example.com");
+    expect(out.body).toContain("2026-01-01");
+    expect(out.body).toContain("mailbox_full");
+    expect(out.body).toContain("30");
+    expect(out.body).toContain("#cleanup-report-suppressions");
+    expect(out.alertTitle).toContain("ghost@example.com");
+    expect(out.alertMessage).toContain("30");
+  });
+
+  it("collapses many expired addresses into one combined notification", () => {
+    const out = renderExpiredSuppressionsNotification(
+      [
+        {
+          email: "a@example.com",
+          suppressedAt: "2026-01-01T00:00:00.000Z",
+          bounceCount: 3,
+          lastReason: "mailbox_full",
+        },
+        {
+          email: "b@example.com",
+          suppressedAt: "2026-01-02T00:00:00.000Z",
+          bounceCount: 5,
+          lastReason: null,
+        },
+      ],
+      "https://app.example/admin#cleanup-report-suppressions",
+      45,
+    );
+    expect(out.subject).toContain("2 عناوين");
+    expect(out.body).toContain("a@example.com");
+    expect(out.body).toContain("b@example.com");
+    expect(out.body).toContain("غير محدد");
+    expect(out.body).toContain("45");
+    expect(out.alertTitle).toContain("2");
+  });
+});
+
+describe("notifyAdminsOfExpiredCleanupReportSuppressions", () => {
+  let mailer: typeof import("./mailer");
+
+  beforeAll(async () => {
+    mailer = await import("./mailer");
+  });
+
+  async function setAdminEmail(email: string | null): Promise<void> {
+    await pool.query(
+      `
+      INSERT INTO app_settings (id, system, updated_at)
+      VALUES (
+        1,
+        jsonb_build_object(
+          'cleanupReport',
+          jsonb_build_object('adminNotificationEmail', to_jsonb($1::text))
+        ),
+        NOW()
+      )
+      ON CONFLICT (id) DO UPDATE
+        SET system = COALESCE(app_settings.system, '{}'::jsonb)
+                     || jsonb_build_object(
+                          'cleanupReport',
+                          COALESCE(app_settings.system->'cleanupReport', '{}'::jsonb)
+                            || jsonb_build_object('adminNotificationEmail', to_jsonb($1::text))
+                        ),
+            updated_at = NOW()
+      `,
+      [email ?? ""],
+    );
+  }
+
+  async function clearAdminEmail(): Promise<void> {
+    await pool.query(
+      `
+      UPDATE app_settings
+         SET system = jsonb_set(
+               COALESCE(system, '{}'::jsonb),
+               '{cleanupReport,adminNotificationEmail}',
+               'null'::jsonb,
+               true
+             ),
+             updated_at = NOW()
+       WHERE id = 1
+      `,
+    );
+  }
+
+  const sampleExpired = (tag: string) => [
+    {
+      email: `expired-a-${tag}@example.test`,
+      suppressedAt: "2026-01-01T00:00:00.000Z",
+      bounceCount: 3,
+      lastReason: "mailbox_full",
+    },
+    {
+      email: `expired-b-${tag}@example.test`,
+      suppressedAt: "2026-01-02T00:00:00.000Z",
+      bounceCount: 4,
+      lastReason: null,
+    },
+  ];
+
+  it("sends ONE combined email when adminNotificationEmail is configured and SMTP works", async () => {
+    const adminEmail = `admin-${RUN_TAG}-ok@example.test`;
+    await setAdminEmail(adminEmail);
+    vi.mocked(mailer.isMailerConfigured).mockReturnValue(true);
+    vi.mocked(mailer.sendMail).mockClear();
+    vi.mocked(mailer.sendMail).mockResolvedValue({
+      sent: true,
+      provider: "smtp",
+      messageId: "<expiry@test>",
+      accepted: [],
+      rejected: [],
+      pending: [],
+    });
+
+    const expired = sampleExpired(`${RUN_TAG}-ok`);
+    const result = await notifyAdminsOfExpiredCleanupReportSuppressions(
+      expired,
+      30,
+    );
+    expect(result).toBe(true);
+    expect(vi.mocked(mailer.sendMail)).toHaveBeenCalledTimes(1);
+    const call = vi.mocked(mailer.sendMail).mock.calls[0][0]!;
+    expect(call.to).toBe(adminEmail);
+    expect(call.body).toContain(expired[0].email);
+    expect(call.body).toContain(expired[1].email);
+    expect(call.body).toContain("30");
+
+    // No in-app alert should have been emitted on the happy path.
+    const alerts = await db
+      .select({ id: alertsTable.id, title: alertsTable.title })
+      .from(alertsTable)
+      .where(eq(alertsTable.type, "cleanup_report_suppression_expired"));
+    const ours = alerts.filter((a) =>
+      a.title.includes(`${RUN_TAG}-ok`),
+    );
+    expect(ours.length).toBe(0);
+    await clearAdminEmail();
+  });
+
+  it("falls back to ONE in-app alert listing the addresses when no admin email is configured", async () => {
+    await clearAdminEmail();
+    vi.mocked(mailer.sendMail).mockClear();
+
+    const expired = sampleExpired(`${RUN_TAG}-noemail`);
+    const result = await notifyAdminsOfExpiredCleanupReportSuppressions(
+      expired,
+      30,
+    );
+    expect(result).toBe(true);
+    expect(vi.mocked(mailer.sendMail)).not.toHaveBeenCalled();
+
+    const alerts = await db
+      .select({
+        id: alertsTable.id,
+        title: alertsTable.title,
+        message: alertsTable.message,
+      })
+      .from(alertsTable)
+      .where(eq(alertsTable.type, "cleanup_report_suppression_expired"));
+    const ours = alerts.filter((a) =>
+      a.message.includes(`${RUN_TAG}-noemail`),
+    );
+    expect(ours.length).toBe(1);
+    expect(ours[0].message).toContain(expired[0].email);
+    expect(ours[0].message).toContain(expired[1].email);
+    expect(ours[0].message).toContain("#cleanup-report-suppressions");
+  });
+
+  it("falls back to an in-app alert (with addresses) when the admin email send fails", async () => {
+    const adminEmail = `admin-${RUN_TAG}-fail@example.test`;
+    await setAdminEmail(adminEmail);
+    vi.mocked(mailer.isMailerConfigured).mockReturnValue(true);
+    vi.mocked(mailer.sendMail).mockClear();
+    vi.mocked(mailer.sendMail).mockResolvedValue({
+      sent: false,
+      reason: "smtp_rejected",
+    });
+
+    const expired = sampleExpired(`${RUN_TAG}-fail`);
+    const result = await notifyAdminsOfExpiredCleanupReportSuppressions(
+      expired,
+      45,
+    );
+    expect(result).toBe(true);
+    expect(vi.mocked(mailer.sendMail)).toHaveBeenCalledTimes(1);
+
+    const alerts = await db
+      .select({
+        id: alertsTable.id,
+        message: alertsTable.message,
+      })
+      .from(alertsTable)
+      .where(eq(alertsTable.type, "cleanup_report_suppression_expired"));
+    const ours = alerts.filter((a) =>
+      a.message.includes(`${RUN_TAG}-fail`),
+    );
+    expect(ours.length).toBe(1);
+    expect(ours[0].message).toContain(expired[0].email);
+    expect(ours[0].message).toContain(expired[1].email);
+    expect(ours[0].message).toContain("45");
+    await clearAdminEmail();
+  });
+
+  it("no-ops on an empty expired list", async () => {
+    vi.mocked(mailer.sendMail).mockClear();
+    const result = await notifyAdminsOfExpiredCleanupReportSuppressions(
+      [],
+      30,
+    );
+    expect(result).toBe(false);
+    expect(vi.mocked(mailer.sendMail)).not.toHaveBeenCalled();
+  });
+
+  it("truncates very long expired lists in the in-app alert with a '+N more' tail", () => {
+    const many = Array.from({ length: 15 }, (_, i) => ({
+      email: `m${i}@example.com`,
+      suppressedAt: "2026-01-01T00:00:00.000Z",
+      bounceCount: 3,
+      lastReason: null,
+    }));
+    const out = renderExpiredSuppressionsNotification(
+      many,
+      "https://app.example/admin#cleanup-report-suppressions",
+      30,
+    );
+    // First 10 listed, +5 إضافي tail.
+    expect(out.alertMessage).toContain("m0@example.com");
+    expect(out.alertMessage).toContain("m9@example.com");
+    expect(out.alertMessage).not.toContain("m10@example.com");
+    expect(out.alertMessage).toContain("+5 إضافي");
   });
 });
 

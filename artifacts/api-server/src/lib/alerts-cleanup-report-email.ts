@@ -940,6 +940,31 @@ export async function sweepExpiredCleanupReportSuppressions(
     },
     "cleanup report: auto-expired stale suppressions",
   );
+  // Task #230 — close the loop with admins: one combined notification
+  // (email when `adminNotificationEmail` is configured, otherwise a
+  // single in-app alert) listing every address the sweep just removed.
+  // Lazy import to avoid the module cycle with
+  // `cleanup-report-bounce-notify.ts`, which imports
+  // `readCleanupReportConfig` from this module. Best-effort: failures
+  // here must not block the suppression bookkeeping that already
+  // committed.
+  try {
+    const expiredSuppressions = cfg.suppressions.filter((s) =>
+      expired.includes(s.email),
+    );
+    const { notifyAdminsOfExpiredCleanupReportSuppressions } = await import(
+      "./cleanup-report-bounce-notify"
+    );
+    await notifyAdminsOfExpiredCleanupReportSuppressions(
+      expiredSuppressions,
+      CLEANUP_REPORT_SUPPRESSION_MAX_AGE_DAYS,
+    );
+  } catch (err) {
+    logger.warn(
+      { err, count: expired.length },
+      "cleanup report: stale-suppression admin-notification dispatch failed",
+    );
+  }
   return expired;
 }
 

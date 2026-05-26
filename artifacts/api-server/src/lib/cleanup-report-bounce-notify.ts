@@ -190,6 +190,139 @@ export async function notifyAdminsOfCleanupReportSuppressions(
   }
 }
 
+/**
+ * Task #230 — render the "stale suppressions auto-expired" digest.
+ * One message lists every address the daily sweeper just removed so
+ * an expiry sweep that touches many addresses still produces a single
+ * combined notification, not one per address.
+ */
+export function renderExpiredSuppressionsNotification(
+  expired: CleanupReportSuppression[],
+  deepLink: string,
+  maxAgeDays: number,
+): { subject: string; body: string; alertTitle: string; alertMessage: string } {
+  const lines = expired.map((s) => {
+    const reason = s.lastReason ? s.lastReason : "غير محدد";
+    const suppressedAt = s.suppressedAt.slice(0, 10);
+    return `   • ${s.email} — مُوقف منذ ${suppressedAt} (آخر سبب: ${reason})`;
+  });
+  const subjectAddr =
+    expired.length === 1
+      ? expired[0]!.email
+      : `${expired.length} عناوين`;
+  const subject = `[إشعار] انتهاء إيقاف إرسال تقرير التنظيف لـ ${subjectAddr}`;
+  const intro =
+    expired.length === 1
+      ? `تم رفع الإيقاف التلقائي عن العنوان التالي بعد مرور أكثر من ${maxAgeDays} يوماً على إيقافه، وسيعود ضمن مستلمي تقرير تنظيف التنبيهات:`
+      : `تم رفع الإيقاف التلقائي عن العناوين التالية بعد مرور أكثر من ${maxAgeDays} يوماً على إيقافها، وستعود ضمن مستلمي تقرير تنظيف التنبيهات:`;
+  const body =
+    `${intro}\n\n` +
+    `${lines.join("\n")}\n\n` +
+    `راجع القائمة من لوحة الإدارة وأعد الإيقاف يدوياً إن لزم:\n` +
+    `${deepLink}\n\n` +
+    `تم إرسال هذا التنبيه تلقائياً من نظام حاسبة.AI.\n`;
+  const alertTitle =
+    expired.length === 1
+      ? `انتهاء إيقاف إرسال تقرير التنظيف: ${expired[0]!.email}`
+      : `انتهاء إيقاف إرسال تقرير التنظيف لـ ${expired.length} عناوين`;
+  // The in-app fallback must list the actual addresses so an admin
+  // who only ever sees the alert (no admin email configured, or SMTP
+  // down) still knows which auditors will start receiving the report
+  // again. Long batches are truncated with a "+N more" tail to keep
+  // the alert message readable in the UI.
+  const ALERT_EMAIL_CAP = 10;
+  const shownEmails = expired.slice(0, ALERT_EMAIL_CAP).map((s) => s.email);
+  const overflow = expired.length - shownEmails.length;
+  const emailList =
+    overflow > 0
+      ? `${shownEmails.join("، ")} (+${overflow} إضافي)`
+      : shownEmails.join("، ");
+  const alertMessage =
+    `تمت إعادة ${expired.length === 1 ? "العنوان" : `${expired.length} عناوين`} ` +
+    `إلى قائمة مستلمي تقرير تنظيف التنبيهات بعد انتهاء فترة الإيقاف ` +
+    `(${maxAgeDays} يوماً): ${emailList}. ` +
+    `افتح قائمة الإيقاف في لوحة الإدارة للمراجعة.`;
+  return { subject, body, alertTitle, alertMessage };
+}
+
+/**
+ * Task #230 — notify admins that one or more stale suppression entries
+ * just auto-expired. Sends a single combined email to
+ * `cleanupReport.adminNotificationEmail` when configured (and SMTP is
+ * up); otherwise falls back to a single in-app alert so admins always
+ * find out without having to re-open the suppressions list.
+ *
+ * Best-effort: never throws — the suppression sweep itself must not
+ * regress when alerts/SMTP are flaky.
+ */
+export async function notifyAdminsOfExpiredCleanupReportSuppressions(
+  expired: CleanupReportSuppression[],
+  maxAgeDays: number,
+): Promise<boolean> {
+  if (expired.length === 0) return false;
+  try {
+    const deepLink = buildSuppressionsDeepLink();
+    const rendered = renderExpiredSuppressionsNotification(
+      expired,
+      deepLink,
+      maxAgeDays,
+    );
+    const adminEmail = await loadAdminNotificationEmail();
+    if (adminEmail && isMailerConfigured()) {
+      const result = await sendMail({
+        to: adminEmail,
+        subject: rendered.subject,
+        body: rendered.body,
+      });
+      if (result.sent) {
+        logger.info(
+          {
+            adminEmail,
+            count: expired.length,
+            emails: expired.map((s) => s.email),
+          },
+          "cleanup-report expiry-notify: dispatched via email",
+        );
+        return true;
+      }
+      logger.warn(
+        { reason: result.reason, adminEmail, count: expired.length },
+        "cleanup-report expiry-notify: admin email send failed, falling back to in-app alert",
+      );
+    }
+    // Fallback (or primary, when no admin email is configured):
+    // single in-app alert listing every expired address.
+    try {
+      await db.insert(alertsTable).values({
+        companyId: null,
+        type: "cleanup_report_suppression_expired",
+        title: rendered.alertTitle,
+        message: `${rendered.alertMessage} ${deepLink}`,
+      });
+      logger.info(
+        {
+          count: expired.length,
+          emails: expired.map((s) => s.email),
+        },
+        "cleanup-report expiry-notify: dispatched via in-app alert",
+      );
+      return true;
+    } catch (err) {
+      logger.error(
+        { err, count: expired.length },
+        "cleanup-report expiry-notify: alert insert failed",
+      );
+      return false;
+    }
+  } catch (err) {
+    logger.error(
+      { err, count: expired.length },
+      "cleanup-report expiry-notify: dispatch failed",
+    );
+    return false;
+  }
+}
+
 async function loadAdminNotificationEmail(): Promise<string | null> {
   try {
     const r = await pool.query<{ system: unknown }>(
