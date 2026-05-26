@@ -1696,16 +1696,61 @@ router.get(
         .where(conds.length > 0 ? and(...conds) : undefined)
         .orderBy(desc(cleanupReportSuppressionExpiriesTable.expiredAt))
         .limit(limit ?? 50);
+      // Task #236 — for each expiry, look up whether the address has
+      // since received any successful cleanup-report delivery. Lets the
+      // admin tab answer "did the address we auto-re-enabled actually
+      // start delivering again?" without spelunking through the send
+      // history table. One batched query keyed by row id so the cost
+      // is O(1) regardless of page size.
+      const deliveryByExpiryId = new Map<
+        number,
+        { lastDeliveryAt: Date; deliveryCount: number }
+      >();
+      if (rows.length > 0) {
+        const ids = rows.map((r) => r.id);
+        const recoveryRows = await db.execute(sql`
+          SELECT e.id AS expiry_id,
+                 MAX(COALESCE(r.delivered_at, r.updated_at)) AS last_delivery_at,
+                 COUNT(*)::int AS delivery_count
+          FROM ${cleanupReportSuppressionExpiriesTable} e
+          JOIN ${cleanupReportSendRecipientsTable} r
+            ON lower(r.email) = lower(e.email)
+           AND r.status = 'delivered'
+           AND COALESCE(r.delivered_at, r.updated_at) > e.expired_at
+          WHERE e.id IN (${sql.join(ids.map((i) => sql`${i}`), sql`, `)})
+          GROUP BY e.id
+        `);
+        for (const raw of recoveryRows.rows as Array<{
+          expiry_id: number;
+          last_delivery_at: Date | string | null;
+          delivery_count: number;
+        }>) {
+          const last = raw.last_delivery_at;
+          if (!last) continue;
+          deliveryByExpiryId.set(Number(raw.expiry_id), {
+            lastDeliveryAt: last instanceof Date ? last : new Date(last),
+            deliveryCount: Number(raw.delivery_count) || 0,
+          });
+        }
+      }
       return res.json(
-        rows.map((r) => ({
-          id: r.id,
-          email: r.email,
-          suppressedAt: r.suppressedAt ? r.suppressedAt.toISOString() : null,
-          lastReason: r.lastReason,
-          bounceCount: r.bounceCount,
-          expiredAt: r.expiredAt.toISOString(),
-          maxAgeDays: r.maxAgeDays,
-        })),
+        rows.map((r) => {
+          const recovered = deliveryByExpiryId.get(r.id);
+          return {
+            id: r.id,
+            email: r.email,
+            suppressedAt: r.suppressedAt ? r.suppressedAt.toISOString() : null,
+            lastReason: r.lastReason,
+            bounceCount: r.bounceCount,
+            expiredAt: r.expiredAt.toISOString(),
+            maxAgeDays: r.maxAgeDays,
+            // Task #236 — recovery signal for the admin UI.
+            subsequentDeliveryCount: recovered?.deliveryCount ?? 0,
+            lastSubsequentDeliveryAt: recovered
+              ? recovered.lastDeliveryAt.toISOString()
+              : null,
+          };
+        }),
       );
     } catch (err) {
       req.log.error(

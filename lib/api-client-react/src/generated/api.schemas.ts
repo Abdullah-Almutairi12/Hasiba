@@ -2197,6 +2197,10 @@ export type ListCleanupReportSuppressionExpiries200Item = {
   expiredAt: string;
   /** Snapshot of `CLEANUP_REPORT_SUPPRESSION_MAX_AGE_DAYS` at sweep time. */
   maxAgeDays: number;
+  /** Task #236 — number of successful cleanup-report deliveries this address has received SINCE the sweeper auto-expired its suppression. `0` means the recovered address has not yet been proven deliverable. */
+  subsequentDeliveryCount: number;
+  /** Task #236 — timestamp of the most recent successful delivery after `expiredAt`, or null if none has happened yet. */
+  lastSubsequentDeliveryAt: string | null;
 };
 
 export type ListCleanupReportSuppressionExpiries400 = {

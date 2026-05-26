@@ -2196,6 +2196,17 @@ export const ListCleanupReportSuppressionExpiriesResponseItem = zod.object({
     .describe(
       "Snapshot of `CLEANUP_REPORT_SUPPRESSION_MAX_AGE_DAYS` at sweep time.",
     ),
+  subsequentDeliveryCount: zod
+    .number()
+    .describe(
+      "Task #236 — number of successful cleanup-report deliveries this address has received SINCE the sweeper auto-expired its suppression. `0` means the recovered address has not yet been proven deliverable.",
+    ),
+  lastSubsequentDeliveryAt: zod.coerce
+    .date()
+    .nullable()
+    .describe(
+      "Task #236 — timestamp of the most recent successful delivery after `expiredAt`, or null if none has happened yet.",
+    ),
 });
 export const ListCleanupReportSuppressionExpiriesResponse = zod.array(
   ListCleanupReportSuppressionExpiriesResponseItem,

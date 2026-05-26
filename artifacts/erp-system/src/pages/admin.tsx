@@ -3498,6 +3498,28 @@ function CleanupReportSuppressionExpiriesPanel() {
                   — {r.lastReason}
                 </span>
               )}
+              {/* Task #236 — recovery indicator: did the address
+                 actually start delivering again after the sweeper
+                 lifted its suppression? */}
+              {r.lastSubsequentDeliveryAt ? (
+                <Badge
+                  variant="default"
+                  className="bg-emerald-600 text-[10px] text-white hover:bg-emerald-600"
+                  title={`آخر تسليم ناجح: ${new Date(r.lastSubsequentDeliveryAt).toLocaleString("ar-SA")}`}
+                  data-testid={`badge-cleanup-expiry-recovered-${r.id}`}
+                >
+                  عاد للتسليم ({r.subsequentDeliveryCount})
+                </Badge>
+              ) : (
+                <Badge
+                  variant="outline"
+                  className="border-amber-400 text-[10px] text-amber-700 dark:border-amber-700 dark:text-amber-300"
+                  title="لم يُسجَّل أي تسليم ناجح بعد إعادة التفعيل"
+                  data-testid={`badge-cleanup-expiry-pending-${r.id}`}
+                >
+                  بانتظار أول تسليم
+                </Badge>
+              )}
             </div>
           ))}
         </div>
