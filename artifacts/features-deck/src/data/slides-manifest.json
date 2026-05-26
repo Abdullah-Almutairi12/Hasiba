@@ -152,24 +152,32 @@
     "speakerNotes": ""
   },
   {
-    "id": "a1d4f8e2-6c93-4b51-8e7a-9f3c2b6d4a17",
+    "id": "d7c1f4b8-9a52-4e36-b8d4-1f7a5c9e3b82",
     "position": 20,
+    "filepath": "src/pages/slides/ZakatEngine.tsx",
+    "title": "15. محرّك الزكاة السنوي",
+    "description": "وعاء زكوي وتذكير بموعد التقديم.",
+    "speakerNotes": ""
+  },
+  {
+    "id": "a1d4f8e2-6c93-4b51-8e7a-9f3c2b6d4a17",
+    "position": 21,
     "filepath": "src/pages/slides/VatThreshold.tsx",
-    "title": "15. عدّاد التسجيل في ضريبة القيمة المضافة",
+    "title": "16. عدّاد التسجيل في ضريبة القيمة المضافة",
     "description": "تنبيه مبكّر عند 80% وسقف 375K.",
     "speakerNotes": ""
   },
   {
     "id": "b2e5a9f3-7d84-4c62-9a1b-0e4d3c7f8b29",
-    "position": 21,
+    "position": 22,
     "filepath": "src/pages/slides/VatAutoHide.tsx",
-    "title": "16. إخفاء تلقائي لحقول الضريبة",
+    "title": "17. إخفاء تلقائي لحقول الضريبة",
     "description": "قبل/بعد للكاشير للمنشأة غير المسجَّلة.",
     "speakerNotes": ""
   },
   {
     "id": "63807089-227e-400e-bb6d-c4a0d7cc4a1a",
-    "position": 22,
+    "position": 23,
     "filepath": "src/pages/slides/SectionGrowth.tsx",
     "title": "04 — النمو والإدارة",
     "description": "فاصل قسم النمو.",
@@ -177,47 +185,47 @@
   },
   {
     "id": "6d9d1027-7363-41d4-8ecc-fb53db344827",
-    "position": 23,
+    "position": 24,
     "filepath": "src/pages/slides/Onboarding.tsx",
-    "title": "17. التسجيل والإعداد الموجَّه",
+    "title": "18. التسجيل والإعداد الموجَّه",
     "description": "معالج إعداد من 5 خطوات.",
     "speakerNotes": ""
   },
   {
     "id": "80d74d62-7e9f-46aa-9f33-d94b394f1bce",
-    "position": 24,
+    "position": 25,
     "filepath": "src/pages/slides/Landing.tsx",
-    "title": "18. صفحة البداية",
+    "title": "19. صفحة البداية",
     "description": "صفحة /welcome التسويقية.",
     "speakerNotes": ""
   },
   {
     "id": "f3df8089-3abd-49b8-b988-75a409352b7e",
-    "position": 25,
+    "position": 26,
     "filepath": "src/pages/slides/Projects.tsx",
-    "title": "19. المشاريع",
+    "title": "20. المشاريع",
     "description": "Kanban وميزانيات.",
     "speakerNotes": ""
   },
   {
     "id": "2dbe7a70-64ee-4450-a814-dc30a1b7321c",
-    "position": 26,
+    "position": 27,
     "filepath": "src/pages/slides/Marketing.tsx",
-    "title": "20. التسويق",
+    "title": "21. التسويق",
     "description": "حملات وقمع Leads.",
     "speakerNotes": ""
   },
   {
     "id": "b2ec3991-735b-4c2e-91bc-97f5301d6ed9",
-    "position": 27,
+    "position": 28,
     "filepath": "src/pages/slides/AdminPanel.tsx",
-    "title": "21. لوحة تحكم المدير",
+    "title": "22. لوحة تحكم المدير",
     "description": "إشراف المنصّة في خمس تبويبات.",
     "speakerNotes": ""
   },
   {
     "id": "83e1c2b0-5d54-4813-8513-03a6296ba0ab",
-    "position": 28,
+    "position": 29,
     "filepath": "src/pages/slides/TechStack.tsx",
     "title": "تقنية النظام",
     "description": "الأسس التقنية للمنصّة.",
@@ -225,7 +233,7 @@
   },
   {
     "id": "c4f1e07a-9b32-4a8d-8e1c-2f6a1b3d5e90",
-    "position": 29,
+    "position": 30,
     "filepath": "src/pages/slides/FAQ.tsx",
     "title": "الأسئلة الشائعة — الصفحة 1",
     "description": "ستّة أسئلة شائعة قبل الاشتراك.",
@@ -233,7 +241,7 @@
   },
   {
     "id": "03ad44f5-3527-4c6a-a4ea-a41ad1b43cb6",
-    "position": 30,
+    "position": 31,
     "filepath": "src/pages/slides/Closing.tsx",
     "title": "صفحة الختام",
     "description": "خاتمة وشكر.",
