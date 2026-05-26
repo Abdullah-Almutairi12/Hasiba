@@ -212,21 +212,37 @@ router.get(
         res.status(400).json({ error: "لا توجد شركة نشطة" });
         return;
       }
-      // "Who viewed YOUR data" is reconstructed from two real
-      // event sources journaled into `audit_logs`:
-      //   (a) explicit `action='read'` rows fired by read endpoints
-      //       that consume tenant data (currently /customers list +
-      //       detail, see customers.ts). These represent *another
-      //       user* in the same tenant accessing the viewer's data
-      //       roster.
-      //   (b) `action IN ('export','scan','send')` rows — bulk
-      //       reads / OCR scans / external forwarding that by
-      //       definition include the viewer's data.
-      //   (c) Any direct write whose `entity` targets the viewer's
-      //       own user row (`user#<viewerId>`).
-      // Filtered to companyId and excluding the viewer's own
-      // actions; capped at 50 rows for the UI ledger.
-      const READ_ACTIONS = ["read", "export", "scan", "send"] as const;
+      // "Who viewed YOUR data" requires PROVABLE subject linkage —
+      // a row should only appear in a viewer's ledger if the viewer
+      // is genuinely the data subject. We define the subject in two
+      // tiers:
+      //
+      //   (1) For every viewer: rows whose `entity` explicitly
+      //       targets their user row (`user#<viewerId>%`). This is
+      //       always-correct: profile reads, security events, and
+      //       writes against their account.
+      //
+      //   (2) Additionally, for OWNER viewers only: roster-wide
+      //       read events on tenant-owned data (currently
+      //       `customer#listing` / `customer#<id>` from
+      //       customers.ts), because per task #259 the company
+      //       owner is the effective data subject for customer
+      //       PII. Non-owners are never the subject for these
+      //       rows, so we exclude them to avoid leaking
+      //       teammates' activity into an unrelated user's panel.
+      //
+      // Bulk-read action heuristics (export/scan/send) are
+      // intentionally NOT included here — they lack subject
+      // linkage and would over-report. If a future feature
+      // journals row-level subject on those rows, extend the OR.
+      const viewerRole = req.session?.role;
+      const subjectFilter =
+        viewerRole === "owner"
+          ? or(
+              like(auditLogsTable.entity, `user#${viewerId}%`),
+              eq(auditLogsTable.action, "read"),
+            )
+          : like(auditLogsTable.entity, `user#${viewerId}%`);
       const rows = await db
         .select()
         .from(auditLogsTable)
@@ -234,25 +250,46 @@ router.get(
           and(
             eq(auditLogsTable.companyId, companyId),
             ne(auditLogsTable.userId, viewerId),
-            or(
-              inArray(
-                auditLogsTable.action,
-                READ_ACTIONS as unknown as string[],
-              ),
-              like(auditLogsTable.entity, `user#${viewerId}%`),
-            ),
+            subjectFilter,
           ),
         )
         .orderBy(desc(auditLogsTable.createdAt))
         .limit(50);
 
-      // On /security/audit-access the viewer IS the data subject by
-      // construction (the WHERE filters to rows touching their data),
-      // so no consent redaction applies — they're reading their own
-      // privacy ledger. The same row, read on /security/audit-logs by
-      // a teammate, IS redacted by the viewer's consent there.
+      // Owner viewers bypass redaction (consistent with
+      // /security/audit-logs). Non-owners get the same per-actor
+      // consent redaction here as on /security/audit-logs, so
+      // even if subject-linkage is broadened later, a row's
+      // details never leak past the actor's auditConsent.
+      if (viewerRole === "owner") {
+        res.json(
+          rows.map((r) => ({ ...r, createdAt: r.createdAt.toISOString() })),
+        );
+        return;
+      }
+      const subjectIds = [
+        ...new Set(
+          rows.map(subjectIdForRow).filter((id): id is number => id !== null),
+        ),
+      ];
+      const consentByUserId = new Map<number, AuditConsent | undefined>();
+      if (subjectIds.length > 0) {
+        const consentRows = await db
+          .select({ id: usersTable.id, adminPrefs: usersTable.adminPrefs })
+          .from(usersTable)
+          .where(inArray(usersTable.id, subjectIds));
+        for (const cr of consentRows) {
+          consentByUserId.set(cr.id, cr.adminPrefs?.auditConsent);
+        }
+      }
       res.json(
-        rows.map((r) => ({ ...r, createdAt: r.createdAt.toISOString() })),
+        rows.map((r) => {
+          const sid = subjectIdForRow(r);
+          return redactRow(
+            r,
+            sid !== null ? consentByUserId.get(sid) : undefined,
+          );
+        }),
       );
     } catch (err) {
       req.log.error({ err }, "Error fetching audit access ledger");
