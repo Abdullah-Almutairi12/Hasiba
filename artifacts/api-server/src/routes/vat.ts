@@ -175,12 +175,12 @@ router.get("/vat/return", financeGuard, async (req, res) => {
  */
 const SimulateBody = z.object({
   baselineRolling12mSales: z.number().min(0).max(1e12).optional(),
-  monthlyGrowthRate: z.number().min(-0.5).max(1).optional(),
+  monthlyGrowthRate: z.number().min(-0.5).max(2).optional(),
   months: z.number().int().min(1).max(36).optional(),
   oneOffBoost: z.number().min(0).max(1e12).optional(),
   cashImpactRate: z.number().min(0).max(1).optional(),
   voluntaryRegistrationChoice: z.boolean().optional(),
-  priceChangePct: z.number().min(-0.5).max(1).optional(),
+  priceChangePct: z.number().min(-0.5).max(2).optional(),
 });
 
 router.post("/vat/simulate", financeGuard, async (req, res) => {

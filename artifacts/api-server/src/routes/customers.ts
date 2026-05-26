@@ -11,7 +11,9 @@ import {
   opportunityStagesTable,
   pricelistsTable,
   companiesTable,
+  usersTable,
 } from "@workspace/db";
+import type { AuditConsent } from "@workspace/db";
 import { ilike, or, sql, desc, eq, inArray, and, isNotNull } from "drizzle-orm";
 import { CreateCustomerBody } from "@workspace/api-zod";
 import { z } from "zod";
@@ -24,6 +26,57 @@ import { ScopedDb, getCompanyId } from "../lib/scoped-db";
 import { assertLinkedCompanyAllowed } from "../lib/assert-linked-company";
 
 const router = Router();
+
+/**
+ * Task #259 — read-time PII / sales-figure redaction for customer
+ * endpoints, driven by the VIEWER's own `auditConsent`. Owners always
+ * bypass redaction (accountable for the company). For every other
+ * role:
+ *   - `customerPii=false` → phone/email/billing/shipping addresses /
+ *     tax number replaced with "—"
+ *   - `salesDetails=false` → totalSpent / creditLimit collapsed to 0
+ * Consent is a per-user opt-in; rows themselves are never mutated.
+ */
+const REDACTED = "—";
+async function loadViewerConsent(
+  userId: number | undefined,
+): Promise<AuditConsent | null> {
+  if (typeof userId !== "number") return null;
+  const [row] = await db
+    .select({ adminPrefs: usersTable.adminPrefs })
+    .from(usersTable)
+    .where(eq(usersTable.id, userId))
+    .limit(1);
+  return row?.adminPrefs?.auditConsent ?? null;
+}
+function redactCustomer<T extends Record<string, unknown>>(
+  c: T,
+  consent: AuditConsent | null,
+  role: string | undefined,
+): T {
+  if (role === "owner") return c;
+  const piiOff = consent?.customerPii === false;
+  const salesOff = consent?.salesDetails === false;
+  if (!piiOff && !salesOff) return c;
+  return {
+    ...c,
+    ...(piiOff
+      ? {
+          phone: REDACTED,
+          email: REDACTED,
+          taxNumber: REDACTED,
+          billingAddress: REDACTED,
+          shippingAddress: REDACTED,
+        }
+      : {}),
+    ...(salesOff
+      ? {
+          totalSpent: 0,
+          creditLimit: 0,
+        }
+      : {}),
+  };
+}
 
 /**
  * GET /customers — list customers for the active tenant.
@@ -59,14 +112,22 @@ router.get("/customers", customerReadGuard, async (req, res) => {
       )
       .orderBy(desc(customersTable.createdAt));
 
+    const consent = await loadViewerConsent(req.session?.userId);
+    const role = req.session?.role;
     res.json(
-      customers.map(({ row: c, linkedCompanyName }) => ({
-        ...c,
-        totalSpent: Number(c.totalSpent),
-        creditLimit: Number(c.creditLimit ?? 0),
-        createdAt: c.createdAt.toISOString(),
-        linkedCompanyName: linkedCompanyName ?? null,
-      }))
+      customers.map(({ row: c, linkedCompanyName }) =>
+        redactCustomer(
+          {
+            ...c,
+            totalSpent: Number(c.totalSpent),
+            creditLimit: Number(c.creditLimit ?? 0),
+            createdAt: c.createdAt.toISOString(),
+            linkedCompanyName: linkedCompanyName ?? null,
+          },
+          consent,
+          role,
+        ),
+      ),
     );
   } catch (err) {
     req.log.error({ err }, "Error fetching customers");
@@ -268,13 +329,18 @@ router.get("/customers/:id/360", customerReadGuard, async (req, res) => {
       .filter((i) => (i.dueDate ?? i.invoiceDate) < today)
       .reduce((a, i) => a + outstanding(i), 0);
 
+    const consent = await loadViewerConsent(req.session?.userId);
     res.json({
-      customer: {
-        ...customer,
-        totalSpent: Number(customer.totalSpent),
-        creditLimit: Number(customer.creditLimit ?? 0),
-        createdAt: customer.createdAt.toISOString(),
-      },
+      customer: redactCustomer(
+        {
+          ...customer,
+          totalSpent: Number(customer.totalSpent),
+          creditLimit: Number(customer.creditLimit ?? 0),
+          createdAt: customer.createdAt.toISOString(),
+        },
+        consent,
+        role,
+      ),
       pricelist: pricelist[0] ?? null,
       summary: {
         // Finance-only fields: omitted (null) for sales/cashier/marketing/

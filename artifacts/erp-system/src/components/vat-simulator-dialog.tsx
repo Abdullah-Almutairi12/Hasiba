@@ -132,8 +132,8 @@ export function VatSimulatorDialog({
               {t("vat.simulator.growth")} ({growth}%)
             </Label>
             <Slider
-              min={-20}
-              max={50}
+              min={-50}
+              max={200}
               step={1}
               value={[growth]}
               onValueChange={(v) => setGrowth(v[0] ?? 0)}
@@ -171,8 +171,8 @@ export function VatSimulatorDialog({
               {t("vat.simulator.priceChange")} ({priceChange}%)
             </Label>
             <Slider
-              min={-20}
-              max={40}
+              min={-50}
+              max={200}
               step={1}
               value={[priceChange]}
               onValueChange={(v) => setPriceChange(v[0] ?? 0)}
@@ -217,6 +217,60 @@ export function VatSimulatorDialog({
 
         {data && (
           <div className="space-y-3">
+            {(() => {
+              const traj = data.trajectory ?? [];
+              const projectedEnd = traj.length
+                ? traj[traj.length - 1]!.rolling12mSales
+                : 0;
+              const sumCollected = traj.reduce(
+                (s, p) => s + (p.vatCollected ?? 0),
+                0,
+              );
+              const sumPaid = traj.reduce(
+                (s, p) => s + (p.vatPaid ?? 0),
+                0,
+              );
+              return (
+                <div
+                  className="grid grid-cols-3 gap-2 text-xs"
+                  data-testid="panel-vat-sim-aggregates"
+                >
+                  <div className="rounded-md border p-2 bg-muted/30">
+                    <div className="text-muted-foreground">
+                      {t("vat.simulator.projectedRolling12m")}
+                    </div>
+                    <div
+                      className="font-mono text-sm"
+                      data-testid="text-vat-sim-projected-rolling"
+                    >
+                      {Math.round(projectedEnd).toLocaleString()} SAR
+                    </div>
+                  </div>
+                  <div className="rounded-md border p-2 bg-teal-500/5 border-teal-500/30">
+                    <div className="text-muted-foreground">
+                      {t("vat.simulator.sumVatCollected")}
+                    </div>
+                    <div
+                      className="font-mono text-sm"
+                      data-testid="text-vat-sim-sum-collected"
+                    >
+                      {Math.round(sumCollected).toLocaleString()} SAR
+                    </div>
+                  </div>
+                  <div className="rounded-md border p-2 bg-amber-500/5 border-amber-500/30">
+                    <div className="text-muted-foreground">
+                      {t("vat.simulator.sumVatPaid")}
+                    </div>
+                    <div
+                      className="font-mono text-sm"
+                      data-testid="text-vat-sim-sum-paid"
+                    >
+                      {Math.round(sumPaid).toLocaleString()} SAR
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
             <div className="grid grid-cols-2 gap-2 text-xs">
               <div className="rounded-md border p-2">
                 <div className="text-muted-foreground">

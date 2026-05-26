@@ -3750,7 +3750,7 @@ export const GetVatReturnResponse = zod.object({
 export const simulateVatTrajectoryBodyBaselineRolling12mSalesMin = 0;
 
 export const simulateVatTrajectoryBodyMonthlyGrowthRateMin = -0.5;
-export const simulateVatTrajectoryBodyMonthlyGrowthRateMax = 1;
+export const simulateVatTrajectoryBodyMonthlyGrowthRateMax = 2;
 
 export const simulateVatTrajectoryBodyMonthsMax = 36;
 
@@ -3760,7 +3760,7 @@ export const simulateVatTrajectoryBodyCashImpactRateMin = 0;
 export const simulateVatTrajectoryBodyCashImpactRateMax = 1;
 
 export const simulateVatTrajectoryBodyPriceChangePctMin = -0.5;
-export const simulateVatTrajectoryBodyPriceChangePctMax = 1;
+export const simulateVatTrajectoryBodyPriceChangePctMax = 2;
 
 export const SimulateVatTrajectoryBody = zod.object({
   baselineRolling12mSales: zod

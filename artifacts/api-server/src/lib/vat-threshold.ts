@@ -247,12 +247,12 @@ const INPUT_VAT_EXPENSE_RATIO = 0.5;
 
 export function simulateVatTrajectory(input: SimulationInput): SimulationResult {
   const baseline = Math.max(0, Number(input.baselineRolling12mSales) || 0);
-  const growth = clamp(Number(input.monthlyGrowthRate) || 0, -0.5, 1);
+  const growth = clamp(Number(input.monthlyGrowthRate) || 0, -0.5, 2);
   const months = Math.min(36, Math.max(1, Math.floor(input.months ?? 12)));
   const boost = Math.max(0, Number(input.oneOffBoost) || 0);
   const cashRate = clamp(Number(input.cashImpactRate ?? 0.15), 0, 1);
   const voluntaryChoice = Boolean(input.voluntaryRegistrationChoice ?? false);
-  const priceChange = clamp(Number(input.priceChangePct) || 0, -0.5, 1);
+  const priceChange = clamp(Number(input.priceChangePct) || 0, -0.5, 2);
 
   // Baseline uniform monthly slice.
   const baselineMonthly = baseline / 12;

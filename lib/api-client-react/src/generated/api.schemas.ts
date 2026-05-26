@@ -2767,7 +2767,7 @@ export type SimulateVatTrajectoryBody = {
   baselineRolling12mSales?: number;
   /**
    * @minimum -0.5
-   * @maximum 1
+   * @maximum 2
    */
   monthlyGrowthRate?: number;
   /**
@@ -2785,7 +2785,7 @@ export type SimulateVatTrajectoryBody = {
   voluntaryRegistrationChoice?: boolean;
   /**
    * @minimum -0.5
-   * @maximum 1
+   * @maximum 2
    */
   priceChangePct?: number;
 };

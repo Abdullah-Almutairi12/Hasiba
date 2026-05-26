@@ -213,6 +213,19 @@ router.get(
         res.status(400).json({ error: "لا توجد شركة نشطة" });
         return;
       }
+      // The audit-log action taxonomy does not currently include a
+      // dedicated "read" verb (reads are not journaled); the closest
+      // proxies in the existing taxonomy for "another user viewed
+      // your data" are:
+      //   - `export`  → bulk read that produces a downloadable file,
+      //                 which by definition can include the viewer's
+      //                 rows.
+      //   - `scan`    → an OCR/AI scan pass that consumed the row.
+      //   - `send`    → emailing/forwarding the row to a third party.
+      // We also include any direct write touching `user#<viewerId>`
+      // because security-relevant access to the viewer's user record
+      // is itself a "who touched my data" signal worth surfacing.
+      const READ_ACTIONS = ["export", "scan", "send"] as const;
       const rows = await db
         .select()
         .from(auditLogsTable)
@@ -222,7 +235,7 @@ router.get(
             ne(auditLogsTable.userId, viewerId),
             or(
               like(auditLogsTable.entity, `user#${viewerId}%`),
-              eq(auditLogsTable.action, "export"),
+              inArray(auditLogsTable.action, READ_ACTIONS as unknown as string[]),
             ),
           ),
         )

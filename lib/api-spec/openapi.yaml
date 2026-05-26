@@ -3561,12 +3561,12 @@ paths:
               type: object
               properties:
                 baselineRolling12mSales: { type: number, minimum: 0 }
-                monthlyGrowthRate: { type: number, minimum: -0.5, maximum: 1 }
+                monthlyGrowthRate: { type: number, minimum: -0.5, maximum: 2 }
                 months: { type: integer, minimum: 1, maximum: 36 }
                 oneOffBoost: { type: number, minimum: 0 }
                 cashImpactRate: { type: number, minimum: 0, maximum: 1 }
                 voluntaryRegistrationChoice: { type: boolean }
-                priceChangePct: { type: number, minimum: -0.5, maximum: 1 }
+                priceChangePct: { type: number, minimum: -0.5, maximum: 2 }
       responses:
         "200":
           description: simulation

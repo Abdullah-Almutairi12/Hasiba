@@ -40,6 +40,9 @@
       "vatCollected": "VAT collected",
       "vatPaid": "VAT paid",
       "netCashEarly": "Net cash from registering early",
+      "projectedRolling12m": "Projected rolling-12m sales (end)",
+      "sumVatCollected": "Total VAT collected (12-mo)",
+      "sumVatPaid": "Total VAT paid (12-mo)",
       "month": "Month",
       "disclaimer": "Planning estimate only. Not a substitute for an actual ZATCA filing — figures are indicative.",
       "close": "Close"

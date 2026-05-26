@@ -243,7 +243,7 @@ describe("vat-threshold service", () => {
       );
     });
 
-    it("clamps months to 1-36 and growth to [-0.5, 1]", () => {
+    it("clamps months to 1-36 and growth/priceChange to [-0.5, 2]", () => {
       const tooMany = simulateVatTrajectory({
         baselineRolling12mSales: 1000,
         months: 999,
@@ -254,7 +254,13 @@ describe("vat-threshold service", () => {
         monthlyGrowthRate: 5,
         months: 1,
       });
-      expect(tooFast.monthlyGrowthRate).toBe(1);
+      expect(tooFast.monthlyGrowthRate).toBe(2);
+      const tooSteep = simulateVatTrajectory({
+        baselineRolling12mSales: 1000,
+        priceChangePct: 5,
+        months: 1,
+      });
+      expect(tooSteep.priceChangePct).toBe(2);
     });
 
     it("uses a true 12-month rolling window beyond month 12", () => {
