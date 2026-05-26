@@ -69,6 +69,9 @@ export default function Welcome() {
           <a href="#how-it-works" className="transition-colors hover:text-[#2563EB]">
             كيف يعمل
           </a>
+          <a href="#faq" className="transition-colors hover:text-[#2563EB]">
+            الأسئلة الشائعة
+          </a>
           <a href="#cta" className="transition-colors hover:text-[#2563EB]">
             ابدأ
           </a>
@@ -509,6 +512,105 @@ export default function Welcome() {
               شاهد كيف يعمل
               <PlayCircle className="size-5" />
             </button>
+          </div>
+        </div>
+      </section>
+
+      {/* FAQ */}
+      <section id="faq" className="relative bg-white py-16 sm:py-24">
+        <div className="mx-auto max-w-[1200px] px-6 md:px-12">
+          <div className="mx-auto mb-10 max-w-3xl text-center sm:mb-14">
+            <span className="mb-2 block text-xs font-semibold uppercase tracking-wide text-[#2563EB] sm:text-sm">
+              قبل ما تبدأ
+            </span>
+            <h2 className="mb-4 text-2xl font-bold text-neutral-900 sm:mb-5 sm:text-3xl md:text-5xl">
+              الأسئلة الشائعة
+            </h2>
+            <p className="text-base text-neutral-500 sm:text-lg">
+              كل ما يسأل عنه العملاء قبل الاشتراك — الامتثال، الأمان، التهيئة، والدعم.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 gap-5 sm:gap-6 md:grid-cols-2">
+            {[
+              {
+                q: "هل النظام معتمد من هيئة الزكاة والضريبة (ZATCA)؟",
+                a: "نعم. نُصدر فواتير ضريبية إلكترونية متوافقة مع المرحلة الثانية، وتتضمن رمز QR وفق المواصفة السعودية، مع تكامل مباشر مع بوّابة فاتورة.",
+              },
+              {
+                q: "كم تستغرق عملية التهيئة الأولى؟",
+                a: "معالج تهيئة موجّه من 5 خطوات يكتمل عادة في أقل من 30 دقيقة: بيانات الشركة، الفروع، المخزون، المستخدمون، والربط الضريبي.",
+              },
+              {
+                q: "هل تدعمون الفروع المتعدّدة والشركات المرتبطة؟",
+                a: "نعم. عزل كامل لبيانات كل شركة، مع وحدة المعاملات بين الشركات التي تُنشئ القيد المُقابل آلياً في الشركة الأخرى وتربط المستندَين معاً.",
+              },
+              {
+                q: "كيف تعمل ميزة استخراج فواتير الموردين بالذكاء الاصطناعي؟",
+                a: "صوّر الفاتورة بالجوال أو ارفعها صورة، فيستخرج النموذج اسم المورّد، البنود، الضريبة والإجمالي خلال ثوانٍ — مع مراجعة المستخدم قبل الترحيل.",
+              },
+              {
+                q: "هل بياناتي محميّة ومن يطّلع عليها؟",
+                a: "نظام صلاحيات من 8 أدوار مع 14 حارساً على الخادم، جلسات مشفّرة، حماية CSRF، وسجل تدقيق كامل لكل عملية حسّاسة.",
+              },
+              {
+                q: "هل أستطيع تجربة النظام قبل الاشتراك؟",
+                a: "نعم. اشترك مجاناً، أنشئ شركة تجريبيّة، واستعرض كل الوحدات ببيانات وهمية. لا حاجة لبطاقة ائتمان للبدء.",
+              },
+              {
+                q: "هل يعمل النظام بدون إنترنت؟",
+                a: "شاشة نقطة البيع تواصل العمل في وضع عدم الاتصال وتزامن العمليات تلقائياً عند عودة الشبكة، حتى لا تتوقّف المبيعات أبداً.",
+              },
+              {
+                q: "هل ينطبق على نشاطي؟ (تجزئة / مطاعم / خدمات / B2B)",
+                a: "نعم — حاسبة مصممة كنظام ERP متعدّد القطاعات: نقطة بيع للتجزئة والمطاعم، فواتير وعروض أسعار لـ B2B، مشاريع وفوترة للخدمات.",
+              },
+              {
+                q: "كيف يتم نقل بياناتي من نظامي الحالي؟",
+                a: "ندعم استيراد المنتجات والعملاء والموردين عبر Excel/CSV، مع فريق دعم لمساعدتك في تنظيف ومطابقة البيانات قبل الإطلاق.",
+              },
+              {
+                q: "ما هي خيارات الدعم الفني؟",
+                a: "دعم باللغة العربية عبر تذاكر داخل النظام، قاعدة معرفة، وفريق فني خلال ساعات العمل السعودية. خطط Enterprise تشمل دعم على مدار الساعة.",
+              },
+              {
+                q: "هل أستطيع الإلغاء في أي وقت؟",
+                a: "نعم — لا عقود طويلة الأمد. تستطيع الترقية أو تخفيض الباقة أو الإلغاء من لوحة الإعدادات متى شئت، مع تصدير كامل لبياناتك.",
+              },
+              {
+                q: "هل توجد ضرائب أو رسوم خفية؟",
+                a: "لا. الأسعار شفافة وشاملة. تشمل التحديثات، الاستضافة، النسخ الاحتياطي، وامتثال ZATCA دون أي رسوم إضافية.",
+              },
+            ].map((item, i) => (
+              <div
+                key={item.q}
+                className="group rounded-2xl border border-slate-100 bg-slate-50 p-5 transition-all duration-300 hover:-translate-y-1 hover:border-blue-200 hover:bg-white hover:shadow-xl sm:p-6"
+              >
+                <div className="mb-3 flex items-start gap-3">
+                  <div className="grid size-9 shrink-0 place-items-center rounded-lg bg-white text-sm font-extrabold text-[#2563EB] shadow-sm">
+                    {String(i + 1).padStart(2, "0")}
+                  </div>
+                  <h3 className="pt-1 text-base font-bold leading-snug text-neutral-900 sm:text-lg">
+                    {item.q}
+                  </h3>
+                </div>
+                <p className="text-sm leading-relaxed text-slate-600 sm:text-[15px]">
+                  {item.a}
+                </p>
+              </div>
+            ))}
+          </div>
+
+          <div className="mx-auto mt-12 max-w-2xl rounded-2xl border border-blue-100 bg-blue-50/60 p-6 text-center sm:mt-16">
+            <p className="mb-4 text-sm font-semibold text-neutral-700 sm:text-base">
+              لم تجد إجابتك؟ فريقنا جاهز للرد خلال ساعة عمل واحدة.
+            </p>
+            <Button
+              onClick={() => setLocation("/signup")}
+              className="h-11 bg-[#2563EB] px-6 font-bold text-white shadow-md shadow-blue-500/20 hover:bg-[#1D4ED8]"
+            >
+              تواصل معنا
+            </Button>
           </div>
         </div>
       </section>
