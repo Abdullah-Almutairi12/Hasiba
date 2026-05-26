@@ -139,6 +139,9 @@ import type {
   ListAuditLogsParams,
   ListAutomationRunsParams,
   ListCleanupReportSends200Item,
+  ListCleanupReportSuppressionExpiries200Item,
+  ListCleanupReportSuppressionExpiries400,
+  ListCleanupReportSuppressionExpiriesParams,
   ListClosingEntriesParams,
   ListCustomersParams,
   ListInboxParams,
@@ -8286,6 +8289,118 @@ export const useUnsuppressCleanupReportRecipient = <
     getUnsuppressCleanupReportRecipientMutationOptions(options),
   );
 };
+
+/**
+ * Task #232 — returns the suppression entries that the daily sweeper (`sweepExpiredCleanupReportSuppressions`) lifted automatically because they had been on the quarantine list longer than `CLEANUP_REPORT_SUPPRESSION_MAX_AGE_DAYS`. Filter by `from` / `to` (inclusive bounds on `expiredAt`) when investigating a specific window — e.g. "did the sweeper re-enable this auditor's address in the last week?".
+ * @summary List recently auto-expired cleanup-report suppressions (admin only)
+ */
+export const getListCleanupReportSuppressionExpiriesUrl = (
+  params?: ListCleanupReportSuppressionExpiriesParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/admin/system-settings/cleanup-report-suppression-expiries?${stringifiedParams}`
+    : `/api/admin/system-settings/cleanup-report-suppression-expiries`;
+};
+
+export const listCleanupReportSuppressionExpiries = async (
+  params?: ListCleanupReportSuppressionExpiriesParams,
+  options?: RequestInit,
+): Promise<ListCleanupReportSuppressionExpiries200Item[]> => {
+  return customFetch<ListCleanupReportSuppressionExpiries200Item[]>(
+    getListCleanupReportSuppressionExpiriesUrl(params),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getListCleanupReportSuppressionExpiriesQueryKey = (
+  params?: ListCleanupReportSuppressionExpiriesParams,
+) => {
+  return [
+    `/api/admin/system-settings/cleanup-report-suppression-expiries`,
+    ...(params ? [params] : []),
+  ] as const;
+};
+
+export const getListCleanupReportSuppressionExpiriesQueryOptions = <
+  TData = Awaited<ReturnType<typeof listCleanupReportSuppressionExpiries>>,
+  TError = ErrorType<ListCleanupReportSuppressionExpiries400>,
+>(
+  params?: ListCleanupReportSuppressionExpiriesParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listCleanupReportSuppressionExpiries>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ??
+    getListCleanupReportSuppressionExpiriesQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listCleanupReportSuppressionExpiries>>
+  > = ({ signal }) =>
+    listCleanupReportSuppressionExpiries(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listCleanupReportSuppressionExpiries>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListCleanupReportSuppressionExpiriesQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listCleanupReportSuppressionExpiries>>
+>;
+export type ListCleanupReportSuppressionExpiriesQueryError =
+  ErrorType<ListCleanupReportSuppressionExpiries400>;
+
+/**
+ * @summary List recently auto-expired cleanup-report suppressions (admin only)
+ */
+
+export function useListCleanupReportSuppressionExpiries<
+  TData = Awaited<ReturnType<typeof listCleanupReportSuppressionExpiries>>,
+  TError = ErrorType<ListCleanupReportSuppressionExpiries400>,
+>(
+  params?: ListCleanupReportSuppressionExpiriesParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listCleanupReportSuppressionExpiries>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListCleanupReportSuppressionExpiriesQueryOptions(
+    params,
+    options,
+  );
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
 
 /**
  * Re-emails the cleanup PDF to the recipients of a specific historical send (by id). Only successful past sends can be re-sent. The new attempt is logged as its own row in the send history with `trigger="manual"`. Does NOT bump the schedule's `lastSentAt`, so the next scheduled cron tick still fires on its normal cadence.

@@ -2157,6 +2157,51 @@ export const UnsuppressCleanupReportRecipientResponse = zod.object({
 });
 
 /**
+ * Task #232 — returns the suppression entries that the daily sweeper (`sweepExpiredCleanupReportSuppressions`) lifted automatically because they had been on the quarantine list longer than `CLEANUP_REPORT_SUPPRESSION_MAX_AGE_DAYS`. Filter by `from` / `to` (inclusive bounds on `expiredAt`) when investigating a specific window — e.g. "did the sweeper re-enable this auditor's address in the last week?".
+ * @summary List recently auto-expired cleanup-report suppressions (admin only)
+ */
+export const listCleanupReportSuppressionExpiriesQueryLimitMax = 200;
+
+export const ListCleanupReportSuppressionExpiriesQueryParams = zod.object({
+  from: zod
+    .date()
+    .optional()
+    .describe("Lower bound (inclusive) on `expiredAt`."),
+  to: zod.date().optional().describe("Upper bound (inclusive) on `expiredAt`."),
+  limit: zod.coerce
+    .number()
+    .min(1)
+    .max(listCleanupReportSuppressionExpiriesQueryLimitMax)
+    .optional()
+    .describe("Max rows to return. Defaults to 50."),
+});
+
+export const ListCleanupReportSuppressionExpiriesResponseItem = zod.object({
+  id: zod.number(),
+  email: zod.string(),
+  suppressedAt: zod.coerce
+    .date()
+    .nullish()
+    .describe("When the address was originally auto-suppressed."),
+  lastReason: zod
+    .string()
+    .nullish()
+    .describe("Bounce reason that originally triggered the suppression."),
+  bounceCount: zod.number(),
+  expiredAt: zod.coerce
+    .date()
+    .describe("When the daily sweeper expired the suppression."),
+  maxAgeDays: zod
+    .number()
+    .describe(
+      "Snapshot of `CLEANUP_REPORT_SUPPRESSION_MAX_AGE_DAYS` at sweep time.",
+    ),
+});
+export const ListCleanupReportSuppressionExpiriesResponse = zod.array(
+  ListCleanupReportSuppressionExpiriesResponseItem,
+);
+
+/**
  * Re-emails the cleanup PDF to the recipients of a specific historical send (by id). Only successful past sends can be re-sent. The new attempt is logged as its own row in the send history with `trigger="manual"`. Does NOT bump the schedule's `lastSentAt`, so the next scheduled cron tick still fires on its normal cadence.
  * @summary Re-send a past cleanup-report email to its original recipients (admin only)
  */

@@ -1277,6 +1277,57 @@ describe("auto-expiry of stale suppressions — task #227", () => {
     expect(kept.map((s) => s.email)).toEqual([email]);
   });
 
+  it("records auto-expired suppressions in the history table (task #232)", async () => {
+    const { cleanupReportSuppressionExpiriesTable } = await import(
+      "@workspace/db"
+    );
+    const { desc } = await import("drizzle-orm");
+    const now = Date.now();
+    const oneDay = 24 * 60 * 60 * 1000;
+    const stale = `histexp-232-${now}@example.test`;
+    const suppressedAtISO = new Date(
+      now - (CLEANUP_REPORT_SUPPRESSION_MAX_AGE_DAYS + 5) * oneDay,
+    ).toISOString();
+    await pool.query(
+      `
+      INSERT INTO app_settings (id, system, updated_at)
+      VALUES (1, jsonb_build_object('cleanupReport', jsonb_build_object('suppressions', $1::jsonb)), NOW())
+      ON CONFLICT (id) DO UPDATE
+        SET system = COALESCE(app_settings.system, '{}'::jsonb)
+                     || jsonb_build_object(
+                          'cleanupReport',
+                          COALESCE(app_settings.system->'cleanupReport', '{}'::jsonb)
+                            || jsonb_build_object('suppressions', $1::jsonb)
+                        ),
+            updated_at = NOW()
+      `,
+      [
+        JSON.stringify([
+          {
+            email: stale,
+            suppressedAt: suppressedAtISO,
+            bounceCount: 4,
+            lastReason: "mailbox_full",
+          },
+        ]),
+      ],
+    );
+    const expired = await sweepExpiredCleanupReportSuppressions(new Date(now));
+    expect(expired).toEqual([stale]);
+    const rows = await db
+      .select()
+      .from(cleanupReportSuppressionExpiriesTable)
+      .orderBy(desc(cleanupReportSuppressionExpiriesTable.id))
+      .limit(5);
+    const row = rows.find((r) => r.email === stale);
+    expect(row).toBeTruthy();
+    expect(row!.bounceCount).toBe(4);
+    expect(row!.lastReason).toBe("mailbox_full");
+    expect(row!.maxAgeDays).toBe(CLEANUP_REPORT_SUPPRESSION_MAX_AGE_DAYS);
+    expect(row!.suppressedAt?.toISOString()).toBe(suppressedAtISO);
+    expect(row!.expiredAt).toBeInstanceOf(Date);
+  });
+
   it("is a no-op when no suppressions are stale", async () => {
     const fresh = `nostale-227-${Date.now()}@example.test`;
     const suppressions = [

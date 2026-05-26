@@ -2084,6 +2084,78 @@ paths:
                   reason: { type: string }
                 required: [error]
 
+  /admin/system-settings/cleanup-report-suppression-expiries:
+    get:
+      tags: [admin]
+      summary: List recently auto-expired cleanup-report suppressions (admin only)
+      description: >-
+        Task #232 — returns the suppression entries that the daily
+        sweeper (`sweepExpiredCleanupReportSuppressions`) lifted
+        automatically because they had been on the quarantine list
+        longer than `CLEANUP_REPORT_SUPPRESSION_MAX_AGE_DAYS`. Filter
+        by `from` / `to` (inclusive bounds on `expiredAt`) when
+        investigating a specific window — e.g. "did the sweeper
+        re-enable this auditor's address in the last week?".
+      operationId: listCleanupReportSuppressionExpiries
+      parameters:
+        - name: from
+          in: query
+          required: false
+          schema: { type: string, format: date-time }
+          description: Lower bound (inclusive) on `expiredAt`.
+        - name: to
+          in: query
+          required: false
+          schema: { type: string, format: date-time }
+          description: Upper bound (inclusive) on `expiredAt`.
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 200 }
+          description: Max rows to return. Defaults to 50.
+      responses:
+        "200":
+          description: Recently auto-expired suppressions, newest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id: { type: integer }
+                    email: { type: string }
+                    suppressedAt:
+                      type: string
+                      format: date-time
+                      nullable: true
+                      description: When the address was originally auto-suppressed.
+                    lastReason:
+                      type: string
+                      nullable: true
+                      description: Bounce reason that originally triggered the suppression.
+                    bounceCount: { type: integer }
+                    expiredAt:
+                      type: string
+                      format: date-time
+                      description: When the daily sweeper expired the suppression.
+                    maxAgeDays:
+                      type: integer
+                      description: >-
+                        Snapshot of `CLEANUP_REPORT_SUPPRESSION_MAX_AGE_DAYS`
+                        at sweep time.
+                  required: [id, email, bounceCount, expiredAt, maxAgeDays]
+        "400":
+          description: Invalid query parameters
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error: { type: string }
+                  reason: { type: string }
+                required: [error]
+
   /admin/system-settings/cleanup-report-sends/{id}/resend:
     post:
       tags: [admin]

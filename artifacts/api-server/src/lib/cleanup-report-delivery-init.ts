@@ -33,5 +33,20 @@ export async function initCleanupReportDelivery(): Promise<void> {
     ALTER TABLE cleanup_report_send_recipients
       ADD COLUMN IF NOT EXISTS bounce_notified_at timestamp;
   `);
+  // Task #232: append-only history of auto-expired suppressions so
+  // admins can audit which addresses the daily sweep recently lifted.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS cleanup_report_suppression_expiries (
+      id serial PRIMARY KEY,
+      email text NOT NULL,
+      suppressed_at timestamp,
+      last_reason text,
+      bounce_count integer NOT NULL DEFAULT 0,
+      expired_at timestamp NOT NULL DEFAULT now(),
+      max_age_days integer NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS cleanup_report_suppression_expiries_expired_at_idx
+      ON cleanup_report_suppression_expiries (expired_at DESC);
+  `);
   logger.info("cleanup_report_send_recipients initialized");
 }

@@ -2168,6 +2168,42 @@ export type UnsuppressCleanupReportRecipient404 = {
   reason?: string;
 };
 
+export type ListCleanupReportSuppressionExpiriesParams = {
+  /**
+   * Lower bound (inclusive) on `expiredAt`.
+   */
+  from?: string;
+  /**
+   * Upper bound (inclusive) on `expiredAt`.
+   */
+  to?: string;
+  /**
+   * Max rows to return. Defaults to 50.
+   * @minimum 1
+   * @maximum 200
+   */
+  limit?: number;
+};
+
+export type ListCleanupReportSuppressionExpiries200Item = {
+  id: number;
+  email: string;
+  /** When the address was originally auto-suppressed. */
+  suppressedAt?: string | null;
+  /** Bounce reason that originally triggered the suppression. */
+  lastReason?: string | null;
+  bounceCount: number;
+  /** When the daily sweeper expired the suppression. */
+  expiredAt: string;
+  /** Snapshot of `CLEANUP_REPORT_SUPPRESSION_MAX_AGE_DAYS` at sweep time. */
+  maxAgeDays: number;
+};
+
+export type ListCleanupReportSuppressionExpiries400 = {
+  error: string;
+  reason?: string;
+};
+
 /**
  * Optional subset selector (task #201) and additional recipients list (task #210). When `recipients` is omitted or empty the email goes to every recipient of the original send (legacy behaviour). When provided, the email goes only to those addresses, which must all be present in the original send's recipient list. `additionalRecipients` (task #210) is a separate channel for forwarding the same historical PDF to addresses that were NOT in the original recipient list — e.g. a new hire who joined after the report ran. They are added on top of the resolved recipients/originals list, validated as emails, and audited distinctly.
  */

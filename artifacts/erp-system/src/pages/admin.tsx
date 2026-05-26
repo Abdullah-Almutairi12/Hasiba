@@ -27,6 +27,7 @@ import {
   useListCleanupReportSends,
   useResendCleanupReport,
   useUnsuppressCleanupReportRecipient,
+  useListCleanupReportSuppressionExpiries,
   useListPermissionMatrix,
   useSetPermissionCell,
   useListAuditLogs,
@@ -1986,6 +1987,7 @@ function CleanupReportEmailCard() {
           </p>
         </div>
 
+        <div id="cleanup-report-suppressions" className="scroll-mt-20" />
         {suppressions.length > 0 && (
           <div
             className="space-y-2 rounded-md border border-amber-300 bg-amber-50/40 p-3 dark:border-amber-800 dark:bg-amber-950/20"
@@ -2092,6 +2094,8 @@ function CleanupReportEmailCard() {
             </div>
           </div>
         )}
+
+        <CleanupReportSuppressionExpiriesPanel />
 
         <div className="space-y-3 border-t pt-3">
           <div className="space-y-1.5">
@@ -3355,6 +3359,148 @@ function CleanupReportTestHistory({ refreshKey }: { refreshKey: unknown }) {
             </li>
           ))}
         </ul>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Task #232 — history of cleanup-report suppressions that the daily
+ * sweeper auto-expired (see `sweepExpiredCleanupReportSuppressions`).
+ * Lives directly under the "عناوين موقوفة بسبب الارتداد" panel and
+ * shares the `#cleanup-report-suppressions` anchor so the proactive
+ * notification email (task #230) deep-links straight here. Filterable
+ * by date range so an admin investigating "I never got the report"
+ * can quickly confirm whether the auditor's address was re-enabled
+ * by the sweep vs. lifted manually.
+ */
+function CleanupReportSuppressionExpiriesPanel() {
+  const [fromDraft, setFromDraft] = useState<string>("");
+  const [toDraft, setToDraft] = useState<string>("");
+  const params: { from?: string; to?: string; limit?: number } = { limit: 50 };
+  if (fromDraft) {
+    const t = Date.parse(fromDraft);
+    if (Number.isFinite(t)) params.from = new Date(t).toISOString();
+  }
+  if (toDraft) {
+    // Treat the `to` date as inclusive end-of-day.
+    const t = Date.parse(toDraft);
+    if (Number.isFinite(t)) {
+      params.to = new Date(t + 24 * 60 * 60 * 1000 - 1).toISOString();
+    }
+  }
+  const { data, isLoading, isFetching } =
+    useListCleanupReportSuppressionExpiries(params);
+  const rows = data ?? [];
+
+  return (
+    <div
+      className="space-y-2 rounded-md border border-emerald-300 bg-emerald-50/40 p-3 dark:border-emerald-800 dark:bg-emerald-950/20"
+      data-testid="section-cleanup-report-suppression-expiries"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2 text-xs font-medium text-emerald-900 dark:text-emerald-200">
+          <ShieldOff className="size-3.5" />
+          عناوين أُعيد تفعيلها تلقائياً ({rows.length})
+        </div>
+        {(isLoading || isFetching) && (
+          <Loader2 className="size-3 animate-spin text-muted-foreground" />
+        )}
+      </div>
+      <p className="text-[11px] text-emerald-900/80 dark:text-emerald-200/80">
+        يعرض العناوين التي رفع النظام إيقافها تلقائياً بعد انتهاء فترة
+        الإيقاف. يساعد على معرفة ما إذا كان عنوان المدقق قد عاد تلقائياً
+        إلى قائمة المستلمين أم أنّ مديراً ألغى إيقافه يدوياً.
+      </p>
+      <div className="flex flex-wrap items-end gap-2">
+        <div className="flex flex-col gap-1">
+          <Label htmlFor="cleanup-expiry-from" className="text-[11px]">
+            من تاريخ
+          </Label>
+          <Input
+            id="cleanup-expiry-from"
+            type="date"
+            value={fromDraft}
+            onChange={(e) => setFromDraft(e.target.value)}
+            className="h-8 w-40"
+            data-testid="input-cleanup-expiry-from"
+          />
+        </div>
+        <div className="flex flex-col gap-1">
+          <Label htmlFor="cleanup-expiry-to" className="text-[11px]">
+            إلى تاريخ
+          </Label>
+          <Input
+            id="cleanup-expiry-to"
+            type="date"
+            value={toDraft}
+            onChange={(e) => setToDraft(e.target.value)}
+            className="h-8 w-40"
+            data-testid="input-cleanup-expiry-to"
+          />
+        </div>
+        {(fromDraft || toDraft) && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-8 text-xs"
+            onClick={() => {
+              setFromDraft("");
+              setToDraft("");
+            }}
+            data-testid="button-cleanup-expiry-clear-filter"
+          >
+            مسح المرشِّح
+          </Button>
+        )}
+      </div>
+      {rows.length === 0 ? (
+        <div
+          className="rounded-md border border-dashed bg-muted/40 px-3 py-2 text-xs text-muted-foreground"
+          data-testid="text-cleanup-report-suppression-expiries-empty"
+        >
+          لم يُعَد تفعيل أي عنوان تلقائياً ضمن هذا النطاق.
+        </div>
+      ) : (
+        <div className="flex flex-col gap-1.5">
+          {rows.map((r) => (
+            <div
+              key={r.id}
+              className="flex flex-wrap items-center gap-2 rounded border border-emerald-200 bg-white/60 px-2 py-1.5 text-xs dark:border-emerald-800/60 dark:bg-emerald-950/30"
+              data-testid={`row-cleanup-report-suppression-expiry-${r.id}`}
+            >
+              <span dir="ltr" className="font-mono">
+                {r.email}
+              </span>
+              <Badge variant="outline" className="text-[10px]">
+                {r.bounceCount} ارتداد
+              </Badge>
+              <span
+                className="text-[10px] text-muted-foreground"
+                title={new Date(r.expiredAt).toLocaleString("ar-SA")}
+              >
+                أُعيد التفعيل {formatRelativeArabic(r.expiredAt)}
+              </span>
+              {r.suppressedAt && (
+                <span className="text-[10px] text-muted-foreground">
+                  • أُوقف منذ {r.suppressedAt.slice(0, 10)}
+                </span>
+              )}
+              <Badge variant="outline" className="text-[10px]">
+                بعد {r.maxAgeDays} يوماً
+              </Badge>
+              {r.lastReason && (
+                <span
+                  className="truncate text-[10px] text-muted-foreground"
+                  title={r.lastReason}
+                >
+                  — {r.lastReason}
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );

@@ -182,3 +182,37 @@ export const cleanupReportSendRecipientsTable = pgTable(
 
 export type CleanupReportSendRecipient =
   typeof cleanupReportSendRecipientsTable.$inferSelect;
+
+// Task #232 — append-only history of suppression entries that the
+// daily sweeper (`sweepExpiredCleanupReportSuppressions`, task #227)
+// auto-expired. Without this, admins who hear "I never got the
+// report" have no way to check whether the auditor's address was
+// recently un-suppressed by the sweeper vs. lifted manually. One row
+// per (email, expiry-sweep) event. Persisted (not log-derived) so the
+// view survives restarts and is filterable by date range.
+export const cleanupReportSuppressionExpiriesTable = pgTable(
+  "cleanup_report_suppression_expiries",
+  {
+    id: serial("id").primaryKey(),
+    email: text("email").notNull(),
+    // Original suppression timestamp (copied from the row we're about
+    // to delete) so the UI can show "was suppressed on … expired on …".
+    suppressedAt: timestamp("suppressed_at"),
+    // The bounce reason that originally triggered the suppression, so
+    // an admin investigating a missing-report complaint can tell at a
+    // glance why we had stopped sending.
+    lastReason: text("last_reason"),
+    // Consecutive-bounce count observed at the moment of suppression.
+    bounceCount: integer("bounce_count").notNull().default(0),
+    // When the daily sweeper actually expired the suppression. Defaults
+    // to `now()` so the route handler never has to pass it explicitly.
+    expiredAt: timestamp("expired_at").notNull().defaultNow(),
+    // Snapshot of `CLEANUP_REPORT_SUPPRESSION_MAX_AGE_DAYS` at sweep
+    // time. Lets the UI explain "auto-expired after N days" without
+    // having to re-read the current env var (which may have changed).
+    maxAgeDays: integer("max_age_days").notNull(),
+  },
+);
+
+export type CleanupReportSuppressionExpiry =
+  typeof cleanupReportSuppressionExpiriesTable.$inferSelect;

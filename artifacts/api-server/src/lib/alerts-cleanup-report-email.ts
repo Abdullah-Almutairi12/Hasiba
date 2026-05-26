@@ -37,6 +37,7 @@ import {
   db,
   cleanupReportSendsTable,
   cleanupReportSendRecipientsTable,
+  cleanupReportSuppressionExpiriesTable,
 } from "@workspace/db";
 import { and, lt, eq, sql, desc } from "drizzle-orm";
 import { logger } from "./logger";
@@ -982,6 +983,35 @@ export async function sweepExpiredCleanupReportSuppressions(
   }
   if (expired.length === 0) return [];
   await persistSuppressions(kept);
+  // Task #232 — record one history row per expired address so the
+  // admin panel can show "recently auto-expired" without scraping
+  // logs. Best-effort: a failure here must not block the suppression
+  // bookkeeping that already committed.
+  const expiredSuppressions = cfg.suppressions.filter((s) =>
+    expired.includes(s.email),
+  );
+  try {
+    await db.insert(cleanupReportSuppressionExpiriesTable).values(
+      expiredSuppressions.map((s) => {
+        const suppressedAtMs = Date.parse(s.suppressedAt);
+        return {
+          email: s.email,
+          suppressedAt: Number.isFinite(suppressedAtMs)
+            ? new Date(suppressedAtMs)
+            : null,
+          lastReason: s.lastReason,
+          bounceCount: s.bounceCount,
+          expiredAt: now,
+          maxAgeDays: CLEANUP_REPORT_SUPPRESSION_MAX_AGE_DAYS,
+        };
+      }),
+    );
+  } catch (err) {
+    logger.warn(
+      { err, count: expired.length },
+      "cleanup report: failed to record auto-expired suppressions",
+    );
+  }
   logger.info(
     {
       count: expired.length,
@@ -999,9 +1029,6 @@ export async function sweepExpiredCleanupReportSuppressions(
   // here must not block the suppression bookkeeping that already
   // committed.
   try {
-    const expiredSuppressions = cfg.suppressions.filter((s) =>
-      expired.includes(s.email),
-    );
     const { notifyAdminsOfExpiredCleanupReportSuppressions } = await import(
       "./cleanup-report-bounce-notify"
     );

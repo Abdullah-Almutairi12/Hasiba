@@ -13,6 +13,7 @@ import {
   alertsCleanupRunsTable,
   cleanupReportSendsTable,
   cleanupReportSendRecipientsTable,
+  cleanupReportSuppressionExpiriesTable,
   auditLogsTable,
 } from "@workspace/db";
 import { uploadBufferToPrivateObject } from "./storage";
@@ -1653,6 +1654,63 @@ router.get(
       );
     } catch (err) {
       req.log.error({ err }, "Cleanup report sends history lookup failed");
+      return res.status(500).json({ error: "Internal server error" });
+    }
+  },
+);
+
+// Task #232: history of cleanup-report suppressions that the daily
+// sweeper (`sweepExpiredCleanupReportSuppressions`) recently auto-
+// expired. Filterable by date range so admins investigating a
+// "I never got the report" complaint can quickly check whether the
+// auditor's address was lifted by the sweeper vs. removed manually.
+const listCleanupReportSuppressionExpiriesQuery = z
+  .object({
+    from: z.string().datetime().optional(),
+    to: z.string().datetime().optional(),
+    limit: z.coerce.number().int().positive().max(200).optional(),
+  })
+  .strict();
+router.get(
+  "/admin/system-settings/cleanup-report-suppression-expiries",
+  adminOnly,
+  async (req, res) => {
+    const parsed = listCleanupReportSuppressionExpiriesQuery.safeParse(
+      req.query,
+    );
+    if (!parsed.success) {
+      return res.status(400).json({
+        error: "Invalid query parameters",
+        reason: "invalid_query",
+      });
+    }
+    const { from, to, limit } = parsed.data;
+    const conds = [] as ReturnType<typeof gte>[];
+    if (from) conds.push(gte(cleanupReportSuppressionExpiriesTable.expiredAt, new Date(from)));
+    if (to) conds.push(lte(cleanupReportSuppressionExpiriesTable.expiredAt, new Date(to)));
+    try {
+      const rows = await db
+        .select()
+        .from(cleanupReportSuppressionExpiriesTable)
+        .where(conds.length > 0 ? and(...conds) : undefined)
+        .orderBy(desc(cleanupReportSuppressionExpiriesTable.expiredAt))
+        .limit(limit ?? 50);
+      return res.json(
+        rows.map((r) => ({
+          id: r.id,
+          email: r.email,
+          suppressedAt: r.suppressedAt ? r.suppressedAt.toISOString() : null,
+          lastReason: r.lastReason,
+          bounceCount: r.bounceCount,
+          expiredAt: r.expiredAt.toISOString(),
+          maxAgeDays: r.maxAgeDays,
+        })),
+      );
+    } catch (err) {
+      req.log.error(
+        { err },
+        "Cleanup report suppression expiries lookup failed",
+      );
       return res.status(500).json({ error: "Internal server error" });
     }
   },
