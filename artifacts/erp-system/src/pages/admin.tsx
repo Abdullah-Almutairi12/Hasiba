@@ -2030,31 +2030,45 @@ function CleanupReportEmailCard() {
                       — {s.lastReason}
                     </span>
                   )}
-                  {suppressionMaxAgeDays > 0 &&
+                  {suppressionMaxAgeDays === 0 ? (
+                    <Badge
+                      variant="outline"
+                      className="text-[10px] border-slate-300 text-slate-600 dark:border-slate-700 dark:text-slate-300"
+                      data-testid={`badge-cleanup-suppression-retry-${s.email}`}
+                      title="انتهاء الإيقاف التلقائي معطّل — يجب إلغاء الإيقاف يدوياً"
+                    >
+                      الانتهاء التلقائي معطّل
+                    </Badge>
+                  ) : (
                     (() => {
                       const suppressedAt = Date.parse(s.suppressedAt);
                       if (!Number.isFinite(suppressedAt)) return null;
                       const msPerDay = 24 * 60 * 60 * 1000;
-                      const ageMs = Date.now() - suppressedAt;
-                      const daysLeft = Math.max(
-                        0,
-                        Math.ceil(
-                          (suppressionMaxAgeDays * msPerDay - ageMs) / msPerDay,
-                        ),
-                      );
+                      const msLeft =
+                        suppressionMaxAgeDays * msPerDay -
+                        (Date.now() - suppressedAt);
+                      const daysLeft = Math.max(0, Math.ceil(msLeft / msPerDay));
+                      const expiringSoon = msLeft <= msPerDay;
                       return (
                         <Badge
                           variant="outline"
-                          className="text-[10px]"
+                          className={
+                            expiringSoon
+                              ? "text-[10px] border-emerald-400 bg-emerald-50 text-emerald-900 dark:border-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-200"
+                              : "text-[10px]"
+                          }
                           data-testid={`badge-cleanup-suppression-retry-${s.email}`}
                           title="سيتم إلغاء الإيقاف تلقائياً بعد هذه المدة"
                         >
                           {daysLeft === 0
-                            ? "إعادة المحاولة قريباً"
-                            : `إعادة المحاولة خلال ${daysLeft} يوم`}
+                            ? "0 يوم متبقي — إعادة المحاولة قريباً"
+                            : expiringSoon
+                              ? `إعادة المحاولة خلال أقل من 24 ساعة`
+                              : `${daysLeft} يوم متبقي`}
                         </Badge>
                       );
-                    })()}
+                    })()
+                  )}
                   <Button
                     type="button"
                     size="sm"
