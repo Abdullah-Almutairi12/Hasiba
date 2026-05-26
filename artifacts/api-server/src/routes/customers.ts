@@ -25,6 +25,7 @@ import {
 import { handleRouteError } from "../lib/handle-error";
 import { ScopedDb, getCompanyId } from "../lib/scoped-db";
 import { assertLinkedCompanyAllowed } from "../lib/assert-linked-company";
+import { recordAudit } from "../lib/audit";
 
 const router = Router();
 
@@ -131,6 +132,17 @@ router.get("/customers", customerReadGuard, async (req, res) => {
 
     const consent = await loadCompanyOwnerConsent(getCompanyId(req));
     const role = req.session?.role;
+    // Task #259 — journal a read event so /security/audit-access
+    // ("who viewed your data") can reconstruct the actual access
+    // trail. Owners are excluded: owner reads are bookkeeping, not
+    // a privacy-relevant access on a teammate's data.
+    if (role !== "owner") {
+      void recordAudit(req, {
+        action: "read",
+        entity: "customer#listing",
+        details: `count=${customers.length}`,
+      });
+    }
     res.json(
       customers.map(({ row: c, linkedCompanyName }) =>
         redactCustomer(
@@ -347,6 +359,12 @@ router.get("/customers/:id/360", customerReadGuard, async (req, res) => {
       .reduce((a, i) => a + outstanding(i), 0);
 
     const consent = await loadCompanyOwnerConsent(getCompanyId(req));
+    if (req.session?.role !== "owner") {
+      void recordAudit(req, {
+        action: "read",
+        entity: `customer#${customer.id}`,
+      });
+    }
     res.json({
       customer: redactCustomer(
         {

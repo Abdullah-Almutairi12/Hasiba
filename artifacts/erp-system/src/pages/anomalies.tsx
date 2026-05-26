@@ -51,28 +51,27 @@ const SEVERITY_LABEL: Record<string, string> = {
   critical: "حرج",
 };
 
-const SEVERITY_INSIGHT_LABEL: Record<string, string> = {
-  low: "فرصة بسيطة",
-  medium: "فرصة متوسطة",
-  high: "فرصة مهمة",
-  critical: "فرصة حرجة",
-};
-
 /**
  * Task #259 — Insight Mode reframe for anomaly severity badges.
  * When ON, the alarm-red "destructive" palette is replaced by the
  * teal opportunity palette, and the wording shifts from
  * "high/critical" to "important/critical opportunity". The compliance
- * fact (the underlying severity value) is unchanged.
+ * fact (the underlying severity value) is unchanged. All copy is
+ * localized through `useLanguage().t()` — see `insight.anomalies_*`
+ * keys in ar.json + en.json.
  */
-function severityBadge(sev: string, insight: boolean) {
+function severityBadge(
+  sev: string,
+  insight: boolean,
+  t: (k: string) => string,
+) {
   if (insight) {
     return (
       <Badge
         variant="secondary"
         className="border-teal-500/40 bg-teal-500/10 text-teal-700 dark:text-teal-300"
       >
-        {SEVERITY_INSIGHT_LABEL[sev] ?? sev}
+        {t(`insight.anomalies_severity_${sev}_insight`)}
       </Badge>
     );
   }
@@ -85,17 +84,23 @@ function severityBadge(sev: string, insight: boolean) {
   return <Badge variant={variant}>{SEVERITY_LABEL[sev] ?? sev}</Badge>;
 }
 
-function statusBadge(s: string, insight: boolean) {
+function statusBadge(
+  s: string,
+  insight: boolean,
+  t: (k: string) => string,
+) {
   if (s === "open") {
     return insight ? (
       <Badge
         variant="secondary"
         className="border-teal-500/40 bg-teal-500/10 text-teal-700 dark:text-teal-300"
       >
-        قيد المتابعة
+        {t("insight.anomalies_status_open_insight")}
       </Badge>
     ) : (
-      <Badge variant="destructive">مفتوح</Badge>
+      <Badge variant="destructive">
+        {t("insight.anomalies_status_open_default")}
+      </Badge>
     );
   }
   if (s === "acknowledged") return <Badge>تمت المعالجة</Badge>;
@@ -165,7 +170,9 @@ export default function AnomaliesPage() {
             ) : (
               <ShieldAlert className="size-6 text-destructive" />
             )}
-            {insight ? "فرص التحسين الذكية" : "التنبيهات الذكية للسلوك الشاذ"}
+            {insight
+              ? t("insight.anomalies_page_title_insight")
+              : t("insight.anomalies_page_title_default")}
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
             رصد فوري لأنماط مريبة في نقاط البيع والفواتير والمخزون
@@ -188,7 +195,11 @@ export default function AnomaliesPage() {
               <AlertTriangle className="size-5 text-destructive" />
             )
           }
-          label={insight ? "فرص قيد المتابعة" : "تنبيهات مفتوحة"}
+          label={
+            insight
+              ? t("insight.anomalies_kpi_open_insight")
+              : t("insight.anomalies_kpi_open_default")
+          }
           value={stats?.openCount ?? 0}
         />
         <KpiCard
@@ -199,7 +210,11 @@ export default function AnomaliesPage() {
               <ShieldAlert className="size-5 text-destructive" />
             )
           }
-          label={insight ? "فرص ذات أولوية" : "عالية الخطورة"}
+          label={
+            insight
+              ? t("insight.anomalies_kpi_critical_insight")
+              : t("insight.anomalies_kpi_critical_default")
+          }
           value={stats?.criticalOpen ?? 0}
         />
         <KpiCard
@@ -276,8 +291,8 @@ export default function AnomaliesPage() {
                           </TableCell>
                           <TableCell className="font-medium">{e.ruleName}</TableCell>
                           <TableCell>{e.actorName ?? "—"}</TableCell>
-                          <TableCell>{severityBadge(e.severity, insight)}</TableCell>
-                          <TableCell>{statusBadge(e.status, insight)}</TableCell>
+                          <TableCell>{severityBadge(e.severity, insight, t)}</TableCell>
+                          <TableCell>{statusBadge(e.status, insight, t)}</TableCell>
                           <TableCell className="text-xs max-w-xs truncate">
                             {e.payload ? JSON.stringify(e.payload) : "—"}
                           </TableCell>

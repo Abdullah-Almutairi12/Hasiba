@@ -61,7 +61,19 @@
     "anomalies_warning": "نرصد سلوكًا شاذًا قد يكون مؤشر مخاطر.",
     "anomalies_insight": "الأنماط الشاذة ترشدك إلى ثغرات في الكفاءة قبل أن تصبح خسائر.",
     "compliance_alerts_warning": "متابعة التزامات الامتثال الحالية.",
-    "compliance_alerts_insight": "كل بند امتثال مغلق يرفع تقييم نشاطك أمام الجهات التمويلية والشركاء."
+    "compliance_alerts_insight": "كل بند امتثال مغلق يرفع تقييم نشاطك أمام الجهات التمويلية والشركاء.",
+    "anomalies_page_title_default": "التنبيهات الذكية للسلوك الشاذ",
+    "anomalies_page_title_insight": "فرص التحسين الذكية",
+    "anomalies_kpi_open_default": "تنبيهات مفتوحة",
+    "anomalies_kpi_open_insight": "فرص قيد المتابعة",
+    "anomalies_kpi_critical_default": "عالية الخطورة",
+    "anomalies_kpi_critical_insight": "فرص ذات أولوية",
+    "anomalies_status_open_default": "مفتوح",
+    "anomalies_status_open_insight": "قيد المتابعة",
+    "anomalies_severity_low_insight": "فرصة بسيطة",
+    "anomalies_severity_medium_insight": "فرصة متوسطة",
+    "anomalies_severity_high_insight": "فرصة مهمة",
+    "anomalies_severity_critical_insight": "فرصة حرجة"
   },
   "privacy": {
     "tabLabel": "الخصوصية والموافقة",

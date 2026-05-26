@@ -61,7 +61,19 @@
     "anomalies_warning": "We're flagging unusual behavior that may indicate risk.",
     "anomalies_insight": "Anomalies surface efficiency gaps early — before they become losses.",
     "compliance_alerts_warning": "Compliance obligations to keep an eye on.",
-    "compliance_alerts_insight": "Every cleared compliance item lifts how lenders and partners rate your business."
+    "compliance_alerts_insight": "Every cleared compliance item lifts how lenders and partners rate your business.",
+    "anomalies_page_title_default": "Smart anomaly alerts",
+    "anomalies_page_title_insight": "Smart improvement opportunities",
+    "anomalies_kpi_open_default": "Open alerts",
+    "anomalies_kpi_open_insight": "Opportunities in progress",
+    "anomalies_kpi_critical_default": "High severity",
+    "anomalies_kpi_critical_insight": "Priority opportunities",
+    "anomalies_status_open_default": "Open",
+    "anomalies_status_open_insight": "In progress",
+    "anomalies_severity_low_insight": "Minor opportunity",
+    "anomalies_severity_medium_insight": "Moderate opportunity",
+    "anomalies_severity_high_insight": "Key opportunity",
+    "anomalies_severity_critical_insight": "Critical opportunity"
   },
   "privacy": {
     "tabLabel": "Privacy & Consent",

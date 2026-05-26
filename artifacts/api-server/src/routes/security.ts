@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db, auditLogsTable, usersTable } from "@workspace/db";
 import type { AuditConsent } from "@workspace/db";
-import { desc, inArray, ne, and, eq, like } from "drizzle-orm";
+import { desc, inArray, ne, and, eq, or, like } from "drizzle-orm";
 import { auditReadGuard, requireRole, ALL_ROLES } from "../middlewares/require-role";
 
 const router = Router();
@@ -212,14 +212,21 @@ router.get(
         res.status(400).json({ error: "لا توجد شركة نشطة" });
         return;
       }
-      // "Who viewed YOUR data" is defined strictly: another user's
-      // action whose `entity` references the viewer's own user row
-      // (`user#<id>`). We intentionally do NOT broaden by action
-      // (e.g. all "export"/"scan"/"send" rows), because those rows
-      // may concern unrelated data subjects in the same tenant and
-      // would over-report access — a privacy regression of its own.
-      // If a future feature journals row-level reads, extend this
-      // WHERE to include those subject-tagged rows.
+      // "Who viewed YOUR data" is reconstructed from two real
+      // event sources journaled into `audit_logs`:
+      //   (a) explicit `action='read'` rows fired by read endpoints
+      //       that consume tenant data (currently /customers list +
+      //       detail, see customers.ts). These represent *another
+      //       user* in the same tenant accessing the viewer's data
+      //       roster.
+      //   (b) `action IN ('export','scan','send')` rows — bulk
+      //       reads / OCR scans / external forwarding that by
+      //       definition include the viewer's data.
+      //   (c) Any direct write whose `entity` targets the viewer's
+      //       own user row (`user#<viewerId>`).
+      // Filtered to companyId and excluding the viewer's own
+      // actions; capped at 50 rows for the UI ledger.
+      const READ_ACTIONS = ["read", "export", "scan", "send"] as const;
       const rows = await db
         .select()
         .from(auditLogsTable)
@@ -227,7 +234,13 @@ router.get(
           and(
             eq(auditLogsTable.companyId, companyId),
             ne(auditLogsTable.userId, viewerId),
-            like(auditLogsTable.entity, `user#${viewerId}%`),
+            or(
+              inArray(
+                auditLogsTable.action,
+                READ_ACTIONS as unknown as string[],
+              ),
+              like(auditLogsTable.entity, `user#${viewerId}%`),
+            ),
           ),
         )
         .orderBy(desc(auditLogsTable.createdAt))
