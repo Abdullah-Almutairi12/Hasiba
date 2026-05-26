@@ -37,7 +37,7 @@ const router = Router();
  * accountable for the customer roster. We resolve the owner via
  * `user_companies.role = 'owner'` for the active tenant, then apply
  * THAT user's `auditConsent` to non-owner viewers:
- *   - `customerPii=false`  → phone / email / taxNumber /
+ *   - `customerPii=false`  → name / phone / email / taxNumber /
  *     billingAddress / shippingAddress collapsed to "—"
  *   - `salesDetails=false` → totalSpent / creditLimit collapsed to 0
  *
@@ -78,6 +78,7 @@ function redactCustomer<T extends Record<string, unknown>>(
     ...c,
     ...(piiOff
       ? {
+          name: REDACTED,
           phone: REDACTED,
           email: REDACTED,
           taxNumber: REDACTED,

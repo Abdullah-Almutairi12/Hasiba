@@ -1210,7 +1210,7 @@ function PrivacyConsentTab() {
             </div>
           ) : (
             <ul className="space-y-1 text-xs">
-              {ledger.data.slice(0, 25).map((row) => (
+              {ledger.data.slice(0, 50).map((row) => (
                 <li
                   key={row.id}
                   className="flex items-center justify-between rounded border-b py-1"

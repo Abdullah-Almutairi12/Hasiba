@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db, auditLogsTable, usersTable } from "@workspace/db";
 import type { AuditConsent } from "@workspace/db";
-import { desc, inArray, ne, and, eq, or, like } from "drizzle-orm";
+import { desc, inArray, ne, and, eq, like } from "drizzle-orm";
 import { auditReadGuard, requireRole, ALL_ROLES } from "../middlewares/require-role";
 
 const router = Router();
@@ -89,11 +89,11 @@ router.get("/security/checklist", async (_req, res) => {
 // Redaction is read-time only; the underlying audit_logs row is
 // preserved verbatim, so the audit chain itself is never tampered with.
 //
-// Non-audit reads (customers, invoices, etc.) intentionally remain
-// outside this scope: `auditConsent` is keyed on USERS, not on
-// customer/invoice records, so attempting to redact arbitrary reads
-// based on per-user toggles would be semantically wrong. See follow-up
-// task #260 for a per-customer privacy model if that becomes needed.
+// Non-audit reads (customers, invoices, etc.) extend the same model:
+// records that lack a per-row userId fall back to the COMPANY OWNER
+// (resolved via `user_companies.role='owner'`) as the effective data
+// subject, since the owner is accountable for the roster. See
+// `routes/customers.ts#loadCompanyOwnerConsent` for the live wiring.
 // ============================================================
 const USER_ENTITY_RE = /^user#(\d+)/;
 function subjectIdForRow(
@@ -192,11 +192,10 @@ router.get("/security/audit-logs", auditReadGuard, async (req, res) => {
 /**
  * GET /security/audit-access — "who viewed your data" ledger. Returns
  * the last 50 audit-log rows where another user (i.e. NOT the viewer)
- * performed an action that touched the viewer's data. Concretely:
- *  - entity references the viewer's user row (`user#<id>`), OR
- *  - the action is a bulk read (`export`) which by definition can
- *    include the viewer's data in the exported file.
- * Strict tenant filter on companyId. Owner role bypasses redaction.
+ * performed an action whose `entity` references the viewer's own user
+ * row (`user#<id>`). Strict tenant filter on companyId. The viewer is
+ * the data subject on this endpoint by construction, so no consent
+ * redaction is applied.
  */
 router.get(
   "/security/audit-access",
@@ -213,19 +212,14 @@ router.get(
         res.status(400).json({ error: "لا توجد شركة نشطة" });
         return;
       }
-      // The audit-log action taxonomy does not currently include a
-      // dedicated "read" verb (reads are not journaled); the closest
-      // proxies in the existing taxonomy for "another user viewed
-      // your data" are:
-      //   - `export`  → bulk read that produces a downloadable file,
-      //                 which by definition can include the viewer's
-      //                 rows.
-      //   - `scan`    → an OCR/AI scan pass that consumed the row.
-      //   - `send`    → emailing/forwarding the row to a third party.
-      // We also include any direct write touching `user#<viewerId>`
-      // because security-relevant access to the viewer's user record
-      // is itself a "who touched my data" signal worth surfacing.
-      const READ_ACTIONS = ["export", "scan", "send"] as const;
+      // "Who viewed YOUR data" is defined strictly: another user's
+      // action whose `entity` references the viewer's own user row
+      // (`user#<id>`). We intentionally do NOT broaden by action
+      // (e.g. all "export"/"scan"/"send" rows), because those rows
+      // may concern unrelated data subjects in the same tenant and
+      // would over-report access — a privacy regression of its own.
+      // If a future feature journals row-level reads, extend this
+      // WHERE to include those subject-tagged rows.
       const rows = await db
         .select()
         .from(auditLogsTable)
@@ -233,10 +227,7 @@ router.get(
           and(
             eq(auditLogsTable.companyId, companyId),
             ne(auditLogsTable.userId, viewerId),
-            or(
-              like(auditLogsTable.entity, `user#${viewerId}%`),
-              inArray(auditLogsTable.action, READ_ACTIONS as unknown as string[]),
-            ),
+            like(auditLogsTable.entity, `user#${viewerId}%`),
           ),
         )
         .orderBy(desc(auditLogsTable.createdAt))

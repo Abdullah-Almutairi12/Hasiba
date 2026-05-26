@@ -57,9 +57,13 @@ beforeAll(async () => {
     .insert(usersTable)
     .values({
       name: `Acct ${RUN_TAG}`,
+      // Role "manager" so the same agent passes BOTH the customers
+      // read guard AND the auditReadGuard on /security/audit-logs.
+      // Manager is still a non-owner, so consent redaction still
+      // applies to them (only role==="owner" bypasses).
       email: `consent-acct-${RUN_TAG}@test.local`,
       passwordHash: hash,
-      role: "accountant",
+      role: "manager",
       isActive: true,
     })
     .returning();
@@ -68,7 +72,7 @@ beforeAll(async () => {
 
   await db.insert(userCompaniesTable).values([
     { userId: ownerId, companyId, role: "owner", isDefault: true },
-    { userId: accountantId, companyId, role: "accountant", isDefault: true },
+    { userId: accountantId, companyId, role: "manager", isDefault: true },
   ]);
 
   const [cust] = await db
@@ -174,5 +178,92 @@ describe("Consent redaction (data-subject = company owner)", () => {
     const res = await agentOwner.get("/api/customers").expect(200);
     const row = res.body.find((c: { id: number }) => c.id === customerId);
     expect(row.phone).toBe("+966500000001");
+  });
+
+  it("customer name is redacted when customerPii=false (non-owner viewer)", async () => {
+    await setOwnerConsent(false);
+    const res = await agentAcct.get("/api/customers").expect(200);
+    const row = res.body.find((c: { id: number }) => c.id === customerId);
+    expect(row.name).toBe("—");
+  });
+});
+
+describe("Audit-logs consent redaction (data-subject = actor)", () => {
+  it("redacts subject's email/phone in details + userName when their consent is OFF", async () => {
+    // Owner journals a row that contains email + phone in details +
+    // the owner's userName. Then we flip owner consent OFF and have
+    // the accountant read /security/audit-logs.
+    await db
+      .update(usersTable)
+      .set({
+        adminPrefs: {
+          auditConsent: {
+            customerPii: false,
+            salesDetails: true,
+            locationContext: true,
+          },
+        },
+      })
+      .where(eq(usersTable.id, ownerId));
+
+    const [row] = await db
+      .insert(auditLogsTable)
+      .values({
+        action: "update",
+        entity: `customer#${customerId}`,
+        userId: ownerId,
+        userName: `Owner ${RUN_TAG}`,
+        details: `contacted client at owner-pii-${RUN_TAG}@x.test phone +966500000077`,
+        companyId,
+      })
+      .returning();
+
+    const res = await agentAcct
+      .get("/api/security/audit-logs?limit=100")
+      .expect(200);
+    const seen = (res.body as Array<{ id: number; userName: string; details: string | null }>).find(
+      (r) => r.id === row.id,
+    );
+    expect(seen).toBeDefined();
+    expect(seen!.userName).toBe("—");
+    expect(seen!.details).not.toContain("owner-pii-");
+    expect(seen!.details).not.toContain("+966500000077");
+    expect(seen!.details).toContain("—");
+  });
+
+  it("does NOT redact when subject consent is ON", async () => {
+    await db
+      .update(usersTable)
+      .set({
+        adminPrefs: {
+          auditConsent: {
+            customerPii: true,
+            salesDetails: true,
+            locationContext: true,
+          },
+        },
+      })
+      .where(eq(usersTable.id, ownerId));
+
+    const [row] = await db
+      .insert(auditLogsTable)
+      .values({
+        action: "update",
+        entity: `customer#${customerId}`,
+        userId: ownerId,
+        userName: `Owner ${RUN_TAG}`,
+        details: `contacted client at owner-pii-on-${RUN_TAG}@x.test`,
+        companyId,
+      })
+      .returning();
+
+    const res = await agentAcct
+      .get("/api/security/audit-logs?limit=100")
+      .expect(200);
+    const seen = (res.body as Array<{ id: number; userName: string; details: string | null }>).find(
+      (r) => r.id === row.id,
+    );
+    expect(seen!.userName).toContain("Owner");
+    expect(seen!.details).toContain("owner-pii-on-");
   });
 });

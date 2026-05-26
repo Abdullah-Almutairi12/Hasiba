@@ -30,6 +30,7 @@ import {
 } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { InsightAlert } from "@/components/insight-alert";
+import { useInsightMode } from "@/hooks/use-insight-mode";
 import { useLanguage } from "@/hooks/use-language";
 import {
   AlertTriangle,
@@ -39,6 +40,8 @@ import {
   CheckCircle2,
   X,
   Save,
+  Sparkles,
+  TrendingUp,
 } from "lucide-react";
 
 const SEVERITY_LABEL: Record<string, string> = {
@@ -48,7 +51,31 @@ const SEVERITY_LABEL: Record<string, string> = {
   critical: "حرج",
 };
 
-function severityBadge(sev: string) {
+const SEVERITY_INSIGHT_LABEL: Record<string, string> = {
+  low: "فرصة بسيطة",
+  medium: "فرصة متوسطة",
+  high: "فرصة مهمة",
+  critical: "فرصة حرجة",
+};
+
+/**
+ * Task #259 — Insight Mode reframe for anomaly severity badges.
+ * When ON, the alarm-red "destructive" palette is replaced by the
+ * teal opportunity palette, and the wording shifts from
+ * "high/critical" to "important/critical opportunity". The compliance
+ * fact (the underlying severity value) is unchanged.
+ */
+function severityBadge(sev: string, insight: boolean) {
+  if (insight) {
+    return (
+      <Badge
+        variant="secondary"
+        className="border-teal-500/40 bg-teal-500/10 text-teal-700 dark:text-teal-300"
+      >
+        {SEVERITY_INSIGHT_LABEL[sev] ?? sev}
+      </Badge>
+    );
+  }
   const variant: "secondary" | "default" | "destructive" =
     sev === "critical" || sev === "high"
       ? "destructive"
@@ -58,8 +85,19 @@ function severityBadge(sev: string) {
   return <Badge variant={variant}>{SEVERITY_LABEL[sev] ?? sev}</Badge>;
 }
 
-function statusBadge(s: string) {
-  if (s === "open") return <Badge variant="destructive">مفتوح</Badge>;
+function statusBadge(s: string, insight: boolean) {
+  if (s === "open") {
+    return insight ? (
+      <Badge
+        variant="secondary"
+        className="border-teal-500/40 bg-teal-500/10 text-teal-700 dark:text-teal-300"
+      >
+        قيد المتابعة
+      </Badge>
+    ) : (
+      <Badge variant="destructive">مفتوح</Badge>
+    );
+  }
   if (s === "acknowledged") return <Badge>تمت المعالجة</Badge>;
   return <Badge variant="secondary">مرفوض</Badge>;
 }
@@ -77,6 +115,7 @@ function formatTime(iso: string): string {
 
 export default function AnomaliesPage() {
   const { t } = useLanguage();
+  const { enabled: insight } = useInsightMode();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [statusFilter, setStatusFilter] = useState<"all" | "open" | "acknowledged" | "dismissed">("open");
@@ -121,8 +160,12 @@ export default function AnomaliesPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
-            <ShieldAlert className="size-6 text-destructive" />
-            التنبيهات الذكية للسلوك الشاذ
+            {insight ? (
+              <Sparkles className="size-6 text-teal-600 dark:text-teal-400" />
+            ) : (
+              <ShieldAlert className="size-6 text-destructive" />
+            )}
+            {insight ? "فرص التحسين الذكية" : "التنبيهات الذكية للسلوك الشاذ"}
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
             رصد فوري لأنماط مريبة في نقاط البيع والفواتير والمخزون
@@ -138,13 +181,25 @@ export default function AnomaliesPage() {
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         <KpiCard
-          icon={<AlertTriangle className="size-5 text-destructive" />}
-          label="تنبيهات مفتوحة"
+          icon={
+            insight ? (
+              <TrendingUp className="size-5 text-teal-600 dark:text-teal-400" />
+            ) : (
+              <AlertTriangle className="size-5 text-destructive" />
+            )
+          }
+          label={insight ? "فرص قيد المتابعة" : "تنبيهات مفتوحة"}
           value={stats?.openCount ?? 0}
         />
         <KpiCard
-          icon={<ShieldAlert className="size-5 text-destructive" />}
-          label="عالية الخطورة"
+          icon={
+            insight ? (
+              <Sparkles className="size-5 text-teal-600 dark:text-teal-400" />
+            ) : (
+              <ShieldAlert className="size-5 text-destructive" />
+            )
+          }
+          label={insight ? "فرص ذات أولوية" : "عالية الخطورة"}
           value={stats?.criticalOpen ?? 0}
         />
         <KpiCard
@@ -221,8 +276,8 @@ export default function AnomaliesPage() {
                           </TableCell>
                           <TableCell className="font-medium">{e.ruleName}</TableCell>
                           <TableCell>{e.actorName ?? "—"}</TableCell>
-                          <TableCell>{severityBadge(e.severity)}</TableCell>
-                          <TableCell>{statusBadge(e.status)}</TableCell>
+                          <TableCell>{severityBadge(e.severity, insight)}</TableCell>
+                          <TableCell>{statusBadge(e.status, insight)}</TableCell>
                           <TableCell className="text-xs max-w-xs truncate">
                             {e.payload ? JSON.stringify(e.payload) : "—"}
                           </TableCell>
