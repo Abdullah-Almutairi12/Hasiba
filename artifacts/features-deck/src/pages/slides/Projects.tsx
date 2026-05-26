@@ -12,7 +12,7 @@ export default function Projects() {
       <div className="flex gap-[4vw] h-[74vh]">
         <div className="flex-1 flex flex-col justify-center">
           <div className="text-[0.95vw] font-semibold text-accent tracking-[0.18em] uppercase mb-[1.5vh]">
-            الوحدة 17 — النمو والإدارة
+            الوحدة 19 — النمو والإدارة
           </div>
           <h2 className="font-display font-bold text-[3.4vw] leading-[1.1] tracking-tight text-text m-0 mb-[2vh]">
             المشاريع

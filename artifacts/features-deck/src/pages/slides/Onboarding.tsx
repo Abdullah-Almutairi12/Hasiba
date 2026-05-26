@@ -11,7 +11,7 @@ export default function Onboarding() {
 
       <div className="max-w-[86vw]">
         <div className="text-[0.95vw] font-semibold text-accent tracking-[0.18em] uppercase mb-[1.5vh]">
-          الوحدة 15 — النمو والإدارة
+          الوحدة 17 — النمو والإدارة
         </div>
         <h2 className="font-display font-bold text-[3.4vw] leading-[1.1] tracking-tight text-text m-0 mb-[2vh]">
           التسجيل والإعداد الموجَّه

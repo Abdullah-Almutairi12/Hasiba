@@ -20,7 +20,7 @@ export default function Closing() {
         <div className="w-[10vw] h-px bg-cream/30 mx-auto mb-[4vh]" />
 
         <div className="flex justify-center gap-[2vw] text-[1.1vw] text-cream/75 mb-[4vh]">
-          <div><span className="font-semibold text-cream">17</span> وحدة</div>
+          <div><span className="font-semibold text-cream">21</span> وحدة</div>
           <div className="text-cream/30">·</div>
           <div><span className="font-semibold text-cream">8</span> أدوار</div>
           <div className="text-cream/30">·</div>
