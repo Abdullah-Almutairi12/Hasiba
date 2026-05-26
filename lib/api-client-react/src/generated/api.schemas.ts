@@ -1651,6 +1651,11 @@ export interface SystemSettings {
    * @minimum 2
    */
   cleanupReportSuppressionThreshold: number;
+  /**
+   * Task #227 — max age (in days) a suppression entry can live before the daily sweeper auto-expires it so the address can recover. Configurable via `CLEANUP_REPORT_SUPPRESSION_MAX_AGE_DAYS`; defaults to 30. A value of `0` disables auto-expiry (every suppression must be lifted manually). The UI uses this to render the "days until auto-retry" hint next to each suppressed address.
+   * @minimum 0
+   */
+  cleanupReportSuppressionMaxAgeDays: number;
   adminPrefs: AdminPrefs;
 }
 

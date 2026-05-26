@@ -70,6 +70,8 @@ const {
   unsuppressCleanupReportRecipient,
   isCleanupReportSuppressed,
   CLEANUP_REPORT_SUPPRESSION_THRESHOLD,
+  sweepExpiredCleanupReportSuppressions,
+  CLEANUP_REPORT_SUPPRESSION_MAX_AGE_DAYS,
 } = await import("./alerts-cleanup-report-email");
 const mailer = await import("./mailer");
 const pdfMod = await import("./alerts-cleanup-pdf");
@@ -1124,5 +1126,91 @@ describe("sweepStuckPendingRecipients — task #207", () => {
     expect(first).toBeGreaterThanOrEqual(1);
     const second = await sweepStuckPendingRecipients();
     expect(second).toBe(0);
+  });
+});
+
+describe("auto-expiry of stale suppressions — task #227", () => {
+  it("CLEANUP_REPORT_SUPPRESSION_MAX_AGE_DAYS defaults to 30", () => {
+    // The env var isn't set in tests, so the default kicks in.
+    expect(CLEANUP_REPORT_SUPPRESSION_MAX_AGE_DAYS).toBe(30);
+  });
+
+  it("removes suppressions older than the max-age and keeps fresh ones", async () => {
+    const now = Date.now();
+    const oneDay = 24 * 60 * 60 * 1000;
+    const stale = `stale-227-${Date.now()}@example.test`;
+    const fresh = `fresh-227-${Date.now()}@example.test`;
+    const suppressions = [
+      {
+        email: stale,
+        suppressedAt: new Date(
+          now - (CLEANUP_REPORT_SUPPRESSION_MAX_AGE_DAYS + 3) * oneDay,
+        ).toISOString(),
+        bounceCount: 3,
+        lastReason: "mailbox_full",
+      },
+      {
+        email: fresh,
+        suppressedAt: new Date(now - oneDay).toISOString(),
+        bounceCount: 3,
+        lastReason: "mailbox_full",
+      },
+    ];
+    await pool.query(
+      `
+      INSERT INTO app_settings (id, system, updated_at)
+      VALUES (1, jsonb_build_object('cleanupReport', jsonb_build_object('suppressions', $1::jsonb)), NOW())
+      ON CONFLICT (id) DO UPDATE
+        SET system = COALESCE(app_settings.system, '{}'::jsonb)
+                     || jsonb_build_object(
+                          'cleanupReport',
+                          COALESCE(app_settings.system->'cleanupReport', '{}'::jsonb)
+                            || jsonb_build_object('suppressions', $1::jsonb)
+                        ),
+            updated_at = NOW()
+      `,
+      [JSON.stringify(suppressions)],
+    );
+
+    const expired = await sweepExpiredCleanupReportSuppressions(new Date(now));
+    expect(expired).toEqual([stale]);
+
+    const stored = await getStoredCleanupReport();
+    const kept =
+      (stored?.["suppressions"] as Array<{ email: string }>) ?? [];
+    expect(kept.map((s) => s.email)).toEqual([fresh]);
+  });
+
+  it("is a no-op when no suppressions are stale", async () => {
+    const fresh = `nostale-227-${Date.now()}@example.test`;
+    const suppressions = [
+      {
+        email: fresh,
+        suppressedAt: new Date().toISOString(),
+        bounceCount: 3,
+        lastReason: null,
+      },
+    ];
+    await pool.query(
+      `
+      INSERT INTO app_settings (id, system, updated_at)
+      VALUES (1, jsonb_build_object('cleanupReport', jsonb_build_object('suppressions', $1::jsonb)), NOW())
+      ON CONFLICT (id) DO UPDATE
+        SET system = COALESCE(app_settings.system, '{}'::jsonb)
+                     || jsonb_build_object(
+                          'cleanupReport',
+                          COALESCE(app_settings.system->'cleanupReport', '{}'::jsonb)
+                            || jsonb_build_object('suppressions', $1::jsonb)
+                        ),
+            updated_at = NOW()
+      `,
+      [JSON.stringify(suppressions)],
+    );
+    const expired = await sweepExpiredCleanupReportSuppressions();
+    expect(expired).toEqual([]);
+    const stored = await getStoredCleanupReport();
+    const kept =
+      (stored?.["suppressions"] as Array<{ email: string }>) ?? [];
+    expect(kept).toHaveLength(1);
   });
 });

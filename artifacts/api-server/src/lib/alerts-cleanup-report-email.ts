@@ -159,6 +159,23 @@ export const CLEANUP_REPORT_SUPPRESSION_THRESHOLD = Math.max(
   Number(process.env.CLEANUP_REPORT_SUPPRESSION_THRESHOLD ?? 3),
 );
 
+/**
+ * Task #227 — auto-expire stale suppressions so addresses that have
+ * since recovered (mailbox-full cleared, auto-responder ended, server
+ * outage fixed) can start receiving the cleanup report again without
+ * an admin having to manually lift the suppression.
+ *
+ * Configurable via `CLEANUP_REPORT_SUPPRESSION_MAX_AGE_DAYS`; defaults
+ * to 30 days. A value of `0` disables auto-expiry entirely (admin
+ * must lift every suppression by hand).
+ */
+export const CLEANUP_REPORT_SUPPRESSION_MAX_AGE_DAYS = Math.max(
+  0,
+  Math.trunc(
+    Number(process.env.CLEANUP_REPORT_SUPPRESSION_MAX_AGE_DAYS ?? 30),
+  ) || 0,
+);
+
 export interface CleanupReportSuppression {
   /** Normalised (lowercased, trimmed) email address. */
   email: string;
@@ -883,11 +900,62 @@ export async function sweepStuckPendingRecipients(
   }
 }
 
+/**
+ * Task #227 — remove suppression entries that have been sitting on the
+ * quarantine list for longer than `CLEANUP_REPORT_SUPPRESSION_MAX_AGE_DAYS`.
+ * Most real-world bounce causes (mailbox full, on-leave auto-responder,
+ * transient outage) resolve themselves within weeks; without an expiry
+ * the suppression list would grow monotonically and addresses that have
+ * since recovered would keep getting silently skipped.
+ *
+ * Returns the list of emails that were auto-expired so the caller can
+ * log / audit them. No-op when auto-expiry is disabled (max-age = 0)
+ * or there are no suppressions on file.
+ */
+export async function sweepExpiredCleanupReportSuppressions(
+  now: Date = new Date(),
+): Promise<string[]> {
+  if (CLEANUP_REPORT_SUPPRESSION_MAX_AGE_DAYS <= 0) return [];
+  const cfg = await loadConfig();
+  if (cfg.suppressions.length === 0) return [];
+  const cutoffMs =
+    now.getTime() - CLEANUP_REPORT_SUPPRESSION_MAX_AGE_DAYS * ONE_DAY_MS;
+  const expired: string[] = [];
+  const kept: CleanupReportSuppression[] = [];
+  for (const s of cfg.suppressions) {
+    const at = Date.parse(s.suppressedAt);
+    if (Number.isFinite(at) && at <= cutoffMs) {
+      expired.push(s.email);
+    } else {
+      kept.push(s);
+    }
+  }
+  if (expired.length === 0) return [];
+  await persistSuppressions(kept);
+  logger.info(
+    {
+      count: expired.length,
+      emails: expired,
+      maxAgeDays: CLEANUP_REPORT_SUPPRESSION_MAX_AGE_DAYS,
+    },
+    "cleanup report: auto-expired stale suppressions",
+  );
+  return expired;
+}
+
 async function tick(): Promise<void> {
   try {
     await sweepStuckPendingRecipients();
   } catch (err) {
     logger.error({ err }, "cleanup report: stuck-pending sweep tick failed");
+  }
+  try {
+    await sweepExpiredCleanupReportSuppressions();
+  } catch (err) {
+    logger.error(
+      { err },
+      "cleanup report: stale-suppression sweep tick failed",
+    );
   }
   try {
     const cfg = await loadConfig();

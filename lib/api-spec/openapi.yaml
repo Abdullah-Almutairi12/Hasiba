@@ -5273,6 +5273,17 @@ components:
             Consecutive-bounce threshold the auto-suppression sweeper uses.
             Exposed so the UI can phrase the warning ("هذا العنوان تجاوز X
             ارتداداً متتالياً") with the live config value.
+        cleanupReportSuppressionMaxAgeDays:
+          type: integer
+          minimum: 0
+          description: >-
+            Task #227 — max age (in days) a suppression entry can live
+            before the daily sweeper auto-expires it so the address can
+            recover. Configurable via
+            `CLEANUP_REPORT_SUPPRESSION_MAX_AGE_DAYS`; defaults to 30. A
+            value of `0` disables auto-expiry (every suppression must be
+            lifted manually). The UI uses this to render the "days until
+            auto-retry" hint next to each suppressed address.
         adminPrefs:
           $ref: "#/components/schemas/AdminPrefs"
       required:
@@ -5298,6 +5309,7 @@ components:
           cleanupReportLastTestRecipient,
           cleanupReportSuppressions,
           cleanupReportSuppressionThreshold,
+          cleanupReportSuppressionMaxAgeDays,
           adminPrefs,
         ]
 

@@ -33,6 +33,7 @@ import {
   renderCleanupReportEmail,
   windowDaysForSchedule,
   unsuppressCleanupReportRecipient,
+  CLEANUP_REPORT_SUPPRESSION_MAX_AGE_DAYS,
   CLEANUP_REPORT_SUBJECT_MAX,
   CLEANUP_REPORT_INTRO_MAX,
   CLEANUP_REPORT_SCHEDULES,
@@ -919,6 +920,8 @@ router.get("/admin/system-settings", adminOnly, async (req, res) => {
       cleanupReportSuppressions: cleanupReport.suppressions,
       cleanupReportSuppressionThreshold:
         CLEANUP_REPORT_SUPPRESSION_THRESHOLD,
+      cleanupReportSuppressionMaxAgeDays:
+        CLEANUP_REPORT_SUPPRESSION_MAX_AGE_DAYS,
       cleanupReportLastTestRecipient: await readLastCleanupReportTestRecipient(
         req.session.userId,
       ),

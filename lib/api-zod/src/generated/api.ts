@@ -1780,6 +1780,8 @@ export const getSystemSettingsResponseCleanupReportSuppressionsItemBounceCountMi
 
 export const getSystemSettingsResponseCleanupReportSuppressionThresholdMin = 2;
 
+export const getSystemSettingsResponseCleanupReportSuppressionMaxAgeDaysMin = 0;
+
 export const GetSystemSettingsResponse = zod.object({
   alertRetentionDays: zod
     .number()
@@ -1883,6 +1885,12 @@ export const GetSystemSettingsResponse = zod.object({
     .min(getSystemSettingsResponseCleanupReportSuppressionThresholdMin)
     .describe(
       'Consecutive-bounce threshold the auto-suppression sweeper uses. Exposed so the UI can phrase the warning (\"هذا العنوان تجاوز X ارتداداً متتالياً\") with the live config value.',
+    ),
+  cleanupReportSuppressionMaxAgeDays: zod
+    .number()
+    .min(getSystemSettingsResponseCleanupReportSuppressionMaxAgeDaysMin)
+    .describe(
+      'Task #227 — max age (in days) a suppression entry can live before the daily sweeper auto-expires it so the address can recover. Configurable via `CLEANUP_REPORT_SUPPRESSION_MAX_AGE_DAYS`; defaults to 30. A value of `0` disables auto-expiry (every suppression must be lifted manually). The UI uses this to render the \"days until auto-retry\" hint next to each suppressed address.',
     ),
   adminPrefs: zod
     .object({

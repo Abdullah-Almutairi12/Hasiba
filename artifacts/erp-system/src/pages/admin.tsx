@@ -1601,6 +1601,8 @@ function CleanupReportEmailCard() {
   const suppressions = settings?.cleanupReportSuppressions ?? [];
   const suppressionThreshold =
     settings?.cleanupReportSuppressionThreshold ?? 3;
+  const suppressionMaxAgeDays =
+    settings?.cleanupReportSuppressionMaxAgeDays ?? 30;
   const suppressedSet = new Set(
     suppressions.map((s) => s.email.toLowerCase()),
   );
@@ -1850,7 +1852,11 @@ function CleanupReportEmailCard() {
             <p className="text-[11px] text-amber-900/80 dark:text-amber-200/80">
               يتم إيقاف العناوين تلقائياً بعد {suppressionThreshold} ارتدادات
               متتالية بدون أي تسليم ناجح بينها. لن يحاول النظام إرسال أي
-              تقارير قادمة إلى هذه العناوين حتى تُلغي الإيقاف يدوياً.
+              تقارير قادمة إلى هذه العناوين حتى تُلغي الإيقاف يدوياً
+              {suppressionMaxAgeDays > 0
+                ? `، أو حتى تنتهي صلاحية الإيقاف تلقائياً بعد ${suppressionMaxAgeDays} يوماً`
+                : ""}
+              .
             </p>
             <div className="flex flex-col gap-1.5">
               {suppressions.map((s) => (
@@ -1878,6 +1884,31 @@ function CleanupReportEmailCard() {
                       — {s.lastReason}
                     </span>
                   )}
+                  {suppressionMaxAgeDays > 0 &&
+                    (() => {
+                      const suppressedAt = Date.parse(s.suppressedAt);
+                      if (!Number.isFinite(suppressedAt)) return null;
+                      const msPerDay = 24 * 60 * 60 * 1000;
+                      const ageMs = Date.now() - suppressedAt;
+                      const daysLeft = Math.max(
+                        0,
+                        Math.ceil(
+                          (suppressionMaxAgeDays * msPerDay - ageMs) / msPerDay,
+                        ),
+                      );
+                      return (
+                        <Badge
+                          variant="outline"
+                          className="text-[10px]"
+                          data-testid={`badge-cleanup-suppression-retry-${s.email}`}
+                          title="سيتم إلغاء الإيقاف تلقائياً بعد هذه المدة"
+                        >
+                          {daysLeft === 0
+                            ? "إعادة المحاولة قريباً"
+                            : `إعادة المحاولة خلال ${daysLeft} يوم`}
+                        </Badge>
+                      );
+                    })()}
                   <Button
                     type="button"
                     size="sm"
