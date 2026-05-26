@@ -48,7 +48,8 @@ Full-stack ERP system targeting Arabic/Saudi businesses, inspired by Odoo. Built
 - `pnpm run typecheck` — full typecheck across all packages
 - `pnpm run build` — typecheck + build all packages
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from OpenAPI spec
-- `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
+- `pnpm --filter @workspace/db run push` — push DB schema changes (dev only, interactive)
+- `pnpm --filter @workspace/db run migrate` — non-interactive: apply every `lib/db/drizzle/*.sql` file in order against `$DATABASE_URL`. Tracks applied files in `_drizzle_sql_migrations`. Tolerates "already exists" errors so it is safe to re-run and safe to run against a DB that was previously bootstrapped via `drizzle-kit push`. Runs automatically before the api-server `dev` script so the dev DB never drifts.
 - `pnpm --filter @workspace/api-server run dev` — run API server locally
 
 ## Database Tables
