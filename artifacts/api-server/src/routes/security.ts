@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db, auditLogsTable, usersTable } from "@workspace/db";
 import type { AuditConsent } from "@workspace/db";
-import { desc, inArray, ne, and, eq } from "drizzle-orm";
+import { desc, inArray, ne, and, eq, or, like } from "drizzle-orm";
 import { auditReadGuard, requireRole, ALL_ROLES } from "../middlewares/require-role";
 
 const router = Router();
@@ -164,13 +164,13 @@ router.get("/security/audit-logs", auditReadGuard, async (req, res) => {
 });
 
 /**
- * GET /security/audit-access — "who else has been active in the audit
- * trail recently". Returns the last 50 audit rows whose actor is NOT
- * the current viewer, so any user can see at a glance who has been
- * touching data on the same tenant. The viewer's own consent does not
- * affect this list (they always see their fellow users' actions), but
- * the SAME read-time redaction is applied based on each actor's
- * consent, so privacy commitments still hold.
+ * GET /security/audit-access — "who viewed your data" ledger. Returns
+ * the last 50 audit-log rows where another user (i.e. NOT the viewer)
+ * performed an action that touched the viewer's data. Concretely:
+ *  - entity references the viewer's user row (`user#<id>`), OR
+ *  - the action is a bulk read (`export`) which by definition can
+ *    include the viewer's data in the exported file.
+ * Strict tenant filter on companyId. Owner role bypasses redaction.
  */
 router.get(
   "/security/audit-access",
@@ -194,6 +194,10 @@ router.get(
           and(
             eq(auditLogsTable.companyId, companyId),
             ne(auditLogsTable.userId, viewerId),
+            or(
+              like(auditLogsTable.entity, `user#${viewerId}%`),
+              eq(auditLogsTable.action, "export"),
+            ),
           ),
         )
         .orderBy(desc(auditLogsTable.createdAt))

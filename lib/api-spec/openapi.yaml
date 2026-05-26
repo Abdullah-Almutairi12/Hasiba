@@ -1386,6 +1386,17 @@ paths:
                   $ref: "#/components/schemas/AuditLog"
 
   /users/me/preferences:
+    get:
+      operationId: getMyPreferences
+      tags: [users]
+      summary: Read the current user's UI preferences (Task #259)
+      responses:
+        "200":
+          description: Current preferences
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserPreferencesResponse"
     patch:
       operationId: updateMyPreferences
       tags: [users]
@@ -3554,6 +3565,8 @@ paths:
                 months: { type: integer, minimum: 1, maximum: 36 }
                 oneOffBoost: { type: number, minimum: 0 }
                 cashImpactRate: { type: number, minimum: 0, maximum: 1 }
+                voluntaryRegistrationChoice: { type: boolean }
+                priceChangePct: { type: number, minimum: -0.5, maximum: 1 }
       responses:
         "200":
           description: simulation
@@ -5795,10 +5808,22 @@ components:
       type: object
       properties:
         month: { type: integer, minimum: 1 }
+        date: { type: string, description: "Calendar YYYY-MM" }
         rolling12mSales: { type: number }
         percentOfMandatory: { type: number }
         estimatedMonthlyVatCash: { type: number }
-      required: [month, rolling12mSales, percentOfMandatory, estimatedMonthlyVatCash]
+        vatCollected: { type: number }
+        vatPaid: { type: number }
+      required:
+        [
+          month,
+          date,
+          rolling12mSales,
+          percentOfMandatory,
+          estimatedMonthlyVatCash,
+          vatCollected,
+          vatPaid,
+        ]
 
     VatSimulationResult:
       type: object
@@ -5808,8 +5833,13 @@ components:
         months: { type: integer }
         oneOffBoost: { type: number }
         cashImpactRate: { type: number }
+        voluntaryRegistrationChoice: { type: boolean }
+        priceChangePct: { type: number }
         voluntaryCrossedAtMonth: { type: integer, nullable: true }
         mandatoryCrossedAtMonth: { type: integer, nullable: true }
+        voluntaryCrossedDate: { type: string, nullable: true }
+        mandatoryCrossedDate: { type: string, nullable: true }
+        netCashRegisterEarly: { type: number }
         trajectory:
           type: array
           items: { $ref: "#/components/schemas/VatSimulationPoint" }
@@ -5822,8 +5852,13 @@ components:
           months,
           oneOffBoost,
           cashImpactRate,
+          voluntaryRegistrationChoice,
+          priceChangePct,
           voluntaryCrossedAtMonth,
           mandatoryCrossedAtMonth,
+          voluntaryCrossedDate,
+          mandatoryCrossedDate,
+          netCashRegisterEarly,
           trajectory,
           mandatoryThreshold,
           voluntaryThreshold,

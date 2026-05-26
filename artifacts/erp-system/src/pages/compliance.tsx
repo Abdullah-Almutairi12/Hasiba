@@ -14,6 +14,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { InsightAlert } from "@/components/insight-alert";
+import { useLanguage } from "@/hooks/use-language";
 import {
   Table,
   TableBody,
@@ -113,6 +115,7 @@ function severityBadge(s: ComplianceAlert["severity"]): JSX.Element {
 function AlertsTab(): JSX.Element {
   const qc = useQueryClient();
   const { toast } = useToast();
+  const { t } = useLanguage();
   const [status, setStatus] = useState<"open" | "resolved" | "dismissed" | "all">("open");
   const [kind, setKind] = useState<ComplianceAlert["kind"] | "all">("all");
 
@@ -165,9 +168,15 @@ function AlertsTab(): JSX.Element {
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between gap-2">
-        <CardTitle className="flex items-center gap-2">
+        <CardTitle className="flex items-center gap-2 flex-1">
           <AlertTriangle className="size-5 text-amber-500" />
           تنبيهات الامتثال
+          <InsightAlert
+            tone="warning"
+            className="ms-3 hidden md:flex"
+            alertText={t("insight.compliance_alerts_warning")}
+            insightText={t("insight.compliance_alerts_insight")}
+          />
         </CardTitle>
         <div className="flex flex-wrap items-center gap-2">
           <Select value={status} onValueChange={(v) => setStatus(v as typeof status)}>

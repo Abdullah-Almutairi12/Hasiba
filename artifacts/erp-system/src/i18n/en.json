@@ -35,6 +35,11 @@
       "run": "Run simulation",
       "voluntaryCrossed": "Voluntary line crossed at",
       "mandatoryCrossed": "Mandatory line crossed at",
+      "voluntaryChoice": "Register voluntarily before the mandatory line?",
+      "priceChange": "Expected price change",
+      "vatCollected": "VAT collected",
+      "vatPaid": "VAT paid",
+      "netCashEarly": "Net cash from registering early",
       "month": "Month",
       "disclaimer": "Planning estimate only. Not a substitute for an actual ZATCA filing — figures are indicative.",
       "close": "Close"
@@ -47,7 +52,13 @@
     "toggleOff": "Classic alert mode",
     "pill": "Insights",
     "vat_near80_insight": "You're approaching a tipping point — registering with ZATCA proactively positions you with larger enterprises and unlocks new B2B deals.",
-    "vat_crossed_insight": "You've reached growth-company stage. Start registration now to turn compliance into a competitive edge within 30 days."
+    "vat_crossed_insight": "You've reached growth-company stage. Start registration now to turn compliance into a competitive edge within 30 days.",
+    "dashboard_alerts_warning": "Alerts that need your attention.",
+    "dashboard_alerts_insight": "Each alert here is a chance to lift margin or tighten operations before competitors do.",
+    "anomalies_warning": "We're flagging unusual behavior that may indicate risk.",
+    "anomalies_insight": "Anomalies surface efficiency gaps early — before they become losses.",
+    "compliance_alerts_warning": "Compliance obligations to keep an eye on.",
+    "compliance_alerts_insight": "Every cleared compliance item lifts how lenders and partners rate your business."
   },
   "privacy": {
     "tabLabel": "Privacy & Consent",

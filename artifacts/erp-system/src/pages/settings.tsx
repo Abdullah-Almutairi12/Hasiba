@@ -1382,6 +1382,7 @@ function TemplatesTab({ readOnly }: { readOnly: boolean }) {
 
 // ====================== PAGE SHELL ======================
 export default function SettingsPage() {
+  const { t } = useLanguage();
   const { user } = useAuth();
   const { isAdmin } = usePermissions();
   const { activeCompany, canSwitch } = useCurrentCompany();
@@ -1461,7 +1462,7 @@ export default function SettingsPage() {
             <ShieldCheck className="me-2 size-4" /> الأمان
           </TabsTrigger>
           <TabsTrigger value="privacy" data-testid="tab-privacy">
-            <ShieldCheck className="me-2 size-4" /> الخصوصية والموافقة
+            <ShieldCheck className="me-2 size-4" /> {t("privacy.tabLabel")}
           </TabsTrigger>
         </TabsList>
 

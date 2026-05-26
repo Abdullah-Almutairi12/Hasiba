@@ -6391,6 +6391,81 @@ export function useListAuditAccess<
 }
 
 /**
+ * @summary Read the current user's UI preferences (Task
+ */
+export const getGetMyPreferencesUrl = () => {
+  return `/api/users/me/preferences`;
+};
+
+export const getMyPreferences = async (
+  options?: RequestInit,
+): Promise<UserPreferencesResponse> => {
+  return customFetch<UserPreferencesResponse>(getGetMyPreferencesUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetMyPreferencesQueryKey = () => {
+  return [`/api/users/me/preferences`] as const;
+};
+
+export const getGetMyPreferencesQueryOptions = <
+  TData = Awaited<ReturnType<typeof getMyPreferences>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getMyPreferences>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetMyPreferencesQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getMyPreferences>>
+  > = ({ signal }) => getMyPreferences({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getMyPreferences>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetMyPreferencesQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getMyPreferences>>
+>;
+export type GetMyPreferencesQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Read the current user's UI preferences (Task
+ */
+
+export function useGetMyPreferences<
+  TData = Awaited<ReturnType<typeof getMyPreferences>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getMyPreferences>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetMyPreferencesQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
  * Per-user UI state stored on `users.admin_prefs` (jsonb) plus the scalar `preferred_branch_id` column. Task #259 added `insightMode` and per-facet `auditConsent`. All fields are optional; omitted ones are left unchanged.
  * @summary Update the current user's UI preferences
  */

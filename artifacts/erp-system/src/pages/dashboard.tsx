@@ -33,6 +33,8 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { VatThresholdCard } from "@/components/vat-threshold-card";
+import { InsightAlert } from "@/components/insight-alert";
+import { useLanguage } from "@/hooks/use-language";
 import { VatReturnCard } from "@/components/vat-return-card";
 import { 
   ArrowUpRight, 
@@ -470,6 +472,7 @@ function DismissedAlertsPopover() {
 }
 
 export default function Dashboard() {
+  const { t } = useLanguage();
   const { data: summary, isLoading: isLoadingSummary } = useGetDashboardSummary();
   const { data: salesChart, isLoading: isLoadingSales } = useGetDashboardSalesChart({ period: 'monthly' });
   const { data: alerts, isLoading: isLoadingAlerts } = useGetDashboardAlerts();
@@ -703,6 +706,11 @@ export default function Dashboard() {
             </CardHeader>
             <CardContent>
               <div className="space-y-3">
+                <InsightAlert
+                  tone="warning"
+                  alertText={t("insight.dashboard_alerts_warning")}
+                  insightText={t("insight.dashboard_alerts_insight")}
+                />
                 {isLoadingAlerts ? (
                   Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-12 w-full rounded-md" />)
                 ) : (

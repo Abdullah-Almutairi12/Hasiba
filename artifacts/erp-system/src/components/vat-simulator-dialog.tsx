@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
+import { Switch } from "@/components/ui/switch";
 import {
   ResponsiveContainer,
   LineChart,
@@ -20,6 +21,9 @@ import {
   YAxis,
   Tooltip,
   ReferenceLine,
+  BarChart,
+  Bar,
+  Legend,
 } from "recharts";
 import { useSimulateVatTrajectory } from "@workspace/api-client-react";
 import { useLanguage } from "@/hooks/use-language";
@@ -33,9 +37,10 @@ interface VatSimulatorDialogProps {
 /**
  * Task #259 — VAT Simulator. Lets the operator project rolling-12m
  * sales forward against the ZATCA voluntary (187,500) and mandatory
- * (375,000) lines, and see the estimated monthly VAT-collection cash
- * impact at the chosen growth rate. Disclaimer-only, never used for
- * filing.
+ * (375,000) lines, see the estimated monthly VAT collected / paid,
+ * the calendar dates each threshold is crossed, and the net cash
+ * delta of registering early vs waiting for the mandatory line.
+ * Disclaimer-only — never used for filing.
  */
 export function VatSimulatorDialog({
   baseline,
@@ -48,6 +53,8 @@ export function VatSimulatorDialog({
   const [boost, setBoost] = useState(0);
   const [cashRate, setCashRate] = useState(10); // % of sales
   const [baselineOverride, setBaselineOverride] = useState<string>("");
+  const [voluntaryChoice, setVoluntaryChoice] = useState(false);
+  const [priceChange, setPriceChange] = useState(0); // % uplift
 
   const mut = useSimulateVatTrajectory();
 
@@ -63,6 +70,8 @@ export function VatSimulatorDialog({
         months,
         oneOffBoost: boost,
         cashImpactRate: cashRate / 100,
+        voluntaryRegistrationChoice: voluntaryChoice,
+        priceChangePct: priceChange / 100,
       },
     });
   };
@@ -73,8 +82,11 @@ export function VatSimulatorDialog({
     () =>
       (data?.trajectory ?? []).map((p) => ({
         month: p.month,
+        date: p.date,
         sales: Math.round(p.rolling12mSales),
         cash: Math.round(p.estimatedMonthlyVatCash),
+        collected: Math.round(p.vatCollected),
+        paid: Math.round(p.vatPaid),
       })),
     [data],
   );
@@ -92,7 +104,7 @@ export function VatSimulatorDialog({
           {triggerLabel ?? t("vat.simulator.open")}
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Sparkles className="size-4 text-teal-500" />
@@ -154,7 +166,20 @@ export function VatSimulatorDialog({
               data-testid="slider-vat-sim-cash"
             />
           </div>
-          <div className="space-y-2 sm:col-span-2">
+          <div className="space-y-2">
+            <Label className="text-xs">
+              {t("vat.simulator.priceChange")} ({priceChange}%)
+            </Label>
+            <Slider
+              min={-20}
+              max={40}
+              step={1}
+              value={[priceChange]}
+              onValueChange={(v) => setPriceChange(v[0] ?? 0)}
+              data-testid="slider-vat-sim-price"
+            />
+          </div>
+          <div className="space-y-2">
             <Label className="text-xs">{t("vat.simulator.boost")}</Label>
             <Input
               type="number"
@@ -162,6 +187,17 @@ export function VatSimulatorDialog({
               value={boost}
               onChange={(e) => setBoost(Math.max(0, Number(e.target.value)))}
               data-testid="input-vat-sim-boost"
+            />
+          </div>
+          <div className="flex items-center justify-between gap-3 sm:col-span-2 rounded-md border p-3">
+            <Label className="text-xs" htmlFor="vat-sim-voluntary">
+              {t("vat.simulator.voluntaryChoice")}
+            </Label>
+            <Switch
+              id="vat-sim-voluntary"
+              checked={voluntaryChoice}
+              onCheckedChange={setVoluntaryChoice}
+              data-testid="switch-vat-sim-voluntary"
             />
           </div>
         </div>
@@ -186,22 +222,49 @@ export function VatSimulatorDialog({
                 <div className="text-muted-foreground">
                   {t("vat.simulator.voluntaryCrossed")}
                 </div>
-                <div className="font-mono">
+                <div
+                  className="font-mono"
+                  data-testid="text-vat-sim-voluntary-crossed"
+                >
                   {data.voluntaryCrossedAtMonth === null
                     ? "—"
-                    : `${t("vat.simulator.month")} ${data.voluntaryCrossedAtMonth}`}
+                    : `${t("vat.simulator.month")} ${data.voluntaryCrossedAtMonth}${
+                        data.voluntaryCrossedDate
+                          ? ` · ${data.voluntaryCrossedDate}`
+                          : ""
+                      }`}
                 </div>
               </div>
               <div className="rounded-md border p-2">
                 <div className="text-muted-foreground">
                   {t("vat.simulator.mandatoryCrossed")}
                 </div>
-                <div className="font-mono">
+                <div
+                  className="font-mono"
+                  data-testid="text-vat-sim-mandatory-crossed"
+                >
                   {data.mandatoryCrossedAtMonth === null
                     ? "—"
-                    : `${t("vat.simulator.month")} ${data.mandatoryCrossedAtMonth}`}
+                    : `${t("vat.simulator.month")} ${data.mandatoryCrossedAtMonth}${
+                        data.mandatoryCrossedDate
+                          ? ` · ${data.mandatoryCrossedDate}`
+                          : ""
+                      }`}
                 </div>
               </div>
+              {voluntaryChoice && (
+                <div
+                  className="rounded-md border p-2 sm:col-span-2 bg-teal-500/5 border-teal-500/30"
+                  data-testid="card-vat-sim-net-cash-early"
+                >
+                  <div className="text-muted-foreground">
+                    {t("vat.simulator.netCashEarly")}
+                  </div>
+                  <div className="font-mono text-base">
+                    {data.netCashRegisterEarly.toLocaleString()} SAR
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="h-48 w-full">
@@ -231,6 +294,30 @@ export function VatSimulatorDialog({
                     strokeWidth={2}
                   />
                 </LineChart>
+              </ResponsiveContainer>
+            </div>
+
+            <div className="h-40 w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={chartData}>
+                  <XAxis dataKey="month" tick={{ fontSize: 10 }} />
+                  <YAxis tick={{ fontSize: 10 }} />
+                  <Tooltip
+                    formatter={(v: number) => v.toLocaleString()}
+                    labelFormatter={(l) => `${t("vat.simulator.month")} ${l}`}
+                  />
+                  <Legend wrapperStyle={{ fontSize: 10 }} />
+                  <Bar
+                    dataKey="collected"
+                    name={t("vat.simulator.vatCollected")}
+                    fill="#0d9488"
+                  />
+                  <Bar
+                    dataKey="paid"
+                    name={t("vat.simulator.vatPaid")}
+                    fill="#f59e0b"
+                  />
+                </BarChart>
               </ResponsiveContainer>
             </div>
 

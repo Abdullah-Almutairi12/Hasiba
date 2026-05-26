@@ -29,6 +29,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { InsightAlert } from "@/components/insight-alert";
+import { useLanguage } from "@/hooks/use-language";
 import {
   AlertTriangle,
   ShieldAlert,
@@ -74,6 +76,7 @@ function formatTime(iso: string): string {
 }
 
 export default function AnomaliesPage() {
+  const { t } = useLanguage();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [statusFilter, setStatusFilter] = useState<"all" | "open" | "acknowledged" | "dismissed">("open");
@@ -126,6 +129,12 @@ export default function AnomaliesPage() {
           </p>
         </div>
       </div>
+
+      <InsightAlert
+        tone="warning"
+        alertText={t("insight.anomalies_warning")}
+        insightText={t("insight.anomalies_insight")}
+      />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         <KpiCard

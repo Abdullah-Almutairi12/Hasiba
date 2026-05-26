@@ -1517,6 +1517,69 @@ export const ListAuditAccessResponseItem = zod.object({
 export const ListAuditAccessResponse = zod.array(ListAuditAccessResponseItem);
 
 /**
+ * @summary Read the current user's UI preferences (Task
+ */
+export const getMyPreferencesResponseAdminPrefsAuditConsentSalesDetailsDefault = true;
+export const getMyPreferencesResponseAdminPrefsAuditConsentCustomerPiiDefault = true;
+export const getMyPreferencesResponseAdminPrefsAuditConsentLocationContextDefault = true;
+
+export const GetMyPreferencesResponse = zod.object({
+  preferredBranchId: zod.number().nullish(),
+  adminPrefs: zod
+    .object({
+      lastAdminTab: zod
+        .string()
+        .nullable()
+        .describe(
+          "Last selected top-level tab on `\/admin` (e.g. `overview`, `tickets`, `features`). The admin page restores this tab on mount when present.",
+        ),
+      cleanupRunsFrom: zod
+        .string()
+        .nullable()
+        .describe(
+          'Last \"from\" date (YYYY-MM-DD) the admin used to filter the alerts-cleanup runs export \/ count card.',
+        ),
+      cleanupRunsTo: zod
+        .string()
+        .nullable()
+        .describe(
+          'Last \"to\" date (YYYY-MM-DD) the admin used to filter the alerts-cleanup runs export \/ count card.',
+        ),
+      insightMode: zod
+        .boolean()
+        .optional()
+        .describe(
+          'Task #259 — per-user \"Insight Mode\" flag. When true, the UI reframes alerts in opportunity tone (teal). Default false.',
+        ),
+      auditConsent: zod
+        .object({
+          salesDetails: zod
+            .boolean()
+            .default(
+              getMyPreferencesResponseAdminPrefsAuditConsentSalesDetailsDefault,
+            ),
+          customerPii: zod
+            .boolean()
+            .default(
+              getMyPreferencesResponseAdminPrefsAuditConsentCustomerPiiDefault,
+            ),
+          locationContext: zod
+            .boolean()
+            .default(
+              getMyPreferencesResponseAdminPrefsAuditConsentLocationContextDefault,
+            ),
+        })
+        .optional()
+        .describe(
+          "Per-user audit visibility consent (Task #259). When a flag is false, the matching facet is redacted in `\/security\/audit-logs` and `\/security\/audit-access` for non-owner viewers.",
+        ),
+    })
+    .describe(
+      "Per-admin remembered UI state for the admin panel. Persists across reloads so the panel feels sticky and admins don't have to re-enter the same filters. Stored per-user on `users.admin_prefs`.",
+    ),
+});
+
+/**
  * Per-user UI state stored on `users.admin_prefs` (jsonb) plus the scalar `preferred_branch_id` column. Task #259 added `insightMode` and per-facet `auditConsent`. All fields are optional; omitted ones are left unchanged.
  * @summary Update the current user's UI preferences
  */
@@ -3696,6 +3759,9 @@ export const simulateVatTrajectoryBodyOneOffBoostMin = 0;
 export const simulateVatTrajectoryBodyCashImpactRateMin = 0;
 export const simulateVatTrajectoryBodyCashImpactRateMax = 1;
 
+export const simulateVatTrajectoryBodyPriceChangePctMin = -0.5;
+export const simulateVatTrajectoryBodyPriceChangePctMax = 1;
+
 export const SimulateVatTrajectoryBody = zod.object({
   baselineRolling12mSales: zod
     .number()
@@ -3720,6 +3786,12 @@ export const SimulateVatTrajectoryBody = zod.object({
     .min(simulateVatTrajectoryBodyCashImpactRateMin)
     .max(simulateVatTrajectoryBodyCashImpactRateMax)
     .optional(),
+  voluntaryRegistrationChoice: zod.boolean().optional(),
+  priceChangePct: zod
+    .number()
+    .min(simulateVatTrajectoryBodyPriceChangePctMin)
+    .max(simulateVatTrajectoryBodyPriceChangePctMax)
+    .optional(),
 });
 
 export const SimulateVatTrajectoryResponse = zod.object({
@@ -3728,14 +3800,22 @@ export const SimulateVatTrajectoryResponse = zod.object({
   months: zod.number(),
   oneOffBoost: zod.number(),
   cashImpactRate: zod.number(),
+  voluntaryRegistrationChoice: zod.boolean(),
+  priceChangePct: zod.number(),
   voluntaryCrossedAtMonth: zod.number().nullable(),
   mandatoryCrossedAtMonth: zod.number().nullable(),
+  voluntaryCrossedDate: zod.string().nullable(),
+  mandatoryCrossedDate: zod.string().nullable(),
+  netCashRegisterEarly: zod.number(),
   trajectory: zod.array(
     zod.object({
       month: zod.number().min(1),
+      date: zod.string().describe("Calendar YYYY-MM"),
       rolling12mSales: zod.number(),
       percentOfMandatory: zod.number(),
       estimatedMonthlyVatCash: zod.number(),
+      vatCollected: zod.number(),
+      vatPaid: zod.number(),
     }),
   ),
   mandatoryThreshold: zod.number(),

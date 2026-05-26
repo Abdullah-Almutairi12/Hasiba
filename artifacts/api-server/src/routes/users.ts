@@ -411,6 +411,36 @@ router.patch(
   },
 );
 
+// GET current user's preferences (Task #259). Returns the same shape
+// PATCH /users/me/preferences echoes so the frontend can hydrate from
+// the server on mount.
+router.get(
+  "/users/me/preferences",
+  requireRole(...ALL_ROLES),
+  async (req, res) => {
+    try {
+      const userId = req.session.userId;
+      if (!userId) return res.status(401).json({ error: "غير مسجل دخول" });
+      const [row] = await db
+        .select({
+          preferredBranchId: usersTable.preferredBranchId,
+          adminPrefs: usersTable.adminPrefs,
+        })
+        .from(usersTable)
+        .where(eq(usersTable.id, userId))
+        .limit(1);
+      if (!row) return res.status(404).json({ error: "المستخدم غير موجود" });
+      return res.json({
+        preferredBranchId: row.preferredBranchId,
+        adminPrefs: row.adminPrefs ?? {},
+      });
+    } catch (err) {
+      req.log.error({ err }, "Error fetching user preferences");
+      return handleRouteError(err, res);
+    }
+  },
+);
+
 // GET current user's audit consent (Task #259). Returns defaults
 // (everything allowed) merged with any stored adminPrefs.auditConsent
 // so the Privacy & Consent UI always has a defined shape to render.

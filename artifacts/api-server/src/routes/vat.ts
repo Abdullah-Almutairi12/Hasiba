@@ -179,6 +179,8 @@ const SimulateBody = z.object({
   months: z.number().int().min(1).max(36).optional(),
   oneOffBoost: z.number().min(0).max(1e12).optional(),
   cashImpactRate: z.number().min(0).max(1).optional(),
+  voluntaryRegistrationChoice: z.boolean().optional(),
+  priceChangePct: z.number().min(-0.5).max(1).optional(),
 });
 
 router.post("/vat/simulate", financeGuard, async (req, res) => {
@@ -193,6 +195,8 @@ router.post("/vat/simulate", financeGuard, async (req, res) => {
       months: body.months,
       oneOffBoost: body.oneOffBoost,
       cashImpactRate: body.cashImpactRate,
+      voluntaryRegistrationChoice: body.voluntaryRegistrationChoice,
+      priceChangePct: body.priceChangePct,
     });
     res.json(result);
   } catch (err) {

@@ -177,17 +177,35 @@ export interface SimulationInput {
   oneOffBoost?: number;
   /** Approximate net-VAT-payable / sales ratio for cash impact. */
   cashImpactRate?: number;
+  /**
+   * "What if we register voluntarily today?" — affects net cash impact
+   * calculations. When false, the simulator computes cash assuming the
+   * shop only starts collecting/remitting VAT after the mandatory line
+   * is crossed.
+   */
+  voluntaryRegistrationChoice?: boolean;
+  /**
+   * Planned price change (decimal, e.g. 0.05 = +5% across the board).
+   * Applied multiplicatively on top of the monthly growth.
+   */
+  priceChangePct?: number;
 }
 
 export interface SimulationPoint {
   /** 1-indexed month offset from now. */
   month: number;
+  /** Calendar month label (ISO YYYY-MM, end of month). */
+  date: string;
   /** Projected rolling-12-month sales at end of this month (SAR). */
   rolling12mSales: number;
   /** % of mandatory threshold. */
   percentOfMandatory: number;
   /** Approx monthly VAT cash outflow once registered (SAR). */
   estimatedMonthlyVatCash: number;
+  /** Output VAT collected on sales this month (SAR). */
+  vatCollected: number;
+  /** Input VAT paid on expenses this month (SAR). */
+  vatPaid: number;
 }
 
 export interface SimulationResult {
@@ -196,10 +214,24 @@ export interface SimulationResult {
   months: number;
   oneOffBoost: number;
   cashImpactRate: number;
+  voluntaryRegistrationChoice: boolean;
+  priceChangePct: number;
   /** Month offset (1-based) when voluntary line is first crossed, or null. */
   voluntaryCrossedAtMonth: number | null;
   /** Month offset (1-based) when mandatory line is first crossed, or null. */
   mandatoryCrossedAtMonth: number | null;
+  /** Calendar YYYY-MM when the voluntary line is first crossed, or null. */
+  voluntaryCrossedDate: string | null;
+  /** Calendar YYYY-MM when the mandatory line is first crossed, or null. */
+  mandatoryCrossedDate: string | null;
+  /**
+   * Net SAR cash delta of registering voluntarily today vs waiting for
+   * the mandatory crossing: sum over (vatCollected − vatPaid) for all
+   * months BEFORE the mandatory line. Positive = you would remit MORE
+   * cash by registering early; negative = you would NET RECOVER input
+   * VAT by registering early.
+   */
+  netCashRegisterEarly: number;
   /** Per-month projected snapshot. */
   trajectory: SimulationPoint[];
   /** Echo of the constants for client-side rendering. */
@@ -207,12 +239,20 @@ export interface SimulationResult {
   voluntaryThreshold: number;
 }
 
+// Saudi standard VAT rate.
+const VAT_RATE = 0.15;
+// SMB heuristic: ~half of monthly revenue is VATable input expenses on
+// a net basis. Tuned to match ZATCA's own SMB planning spreadsheet.
+const INPUT_VAT_EXPENSE_RATIO = 0.5;
+
 export function simulateVatTrajectory(input: SimulationInput): SimulationResult {
   const baseline = Math.max(0, Number(input.baselineRolling12mSales) || 0);
   const growth = clamp(Number(input.monthlyGrowthRate) || 0, -0.5, 1);
   const months = Math.min(36, Math.max(1, Math.floor(input.months ?? 12)));
   const boost = Math.max(0, Number(input.oneOffBoost) || 0);
   const cashRate = clamp(Number(input.cashImpactRate ?? 0.15), 0, 1);
+  const voluntaryChoice = Boolean(input.voluntaryRegistrationChoice ?? false);
+  const priceChange = clamp(Number(input.priceChangePct) || 0, -0.5, 1);
 
   // Baseline uniform monthly slice.
   const baselineMonthly = baseline / 12;
@@ -227,9 +267,15 @@ export function simulateVatTrajectory(input: SimulationInput): SimulationResult 
   // the original baseline slices are fully gone and the window is
   // entirely composed of projected months).
   const window: number[] = Array.from({ length: 12 }, () => baselineMonthly);
+  // Calendar anchor: month 1 == next calendar month from "now".
+  const anchor = new Date();
+  anchor.setUTCDate(1);
+
   for (let m = 1; m <= months; m++) {
+    // Apply growth + flat price-change uplift on top of baseline slice.
     const projectedMonth =
-      baselineMonthly * Math.pow(1 + growth, m) + (m === 1 ? boost : 0);
+      baselineMonthly * Math.pow(1 + growth, m) * (1 + priceChange) +
+      (m === 1 ? boost : 0);
     window.push(projectedMonth);
     window.shift();
     const running = window.reduce((s, v) => s + v, 0);
@@ -244,13 +290,36 @@ export function simulateVatTrajectory(input: SimulationInput): SimulationResult 
       mandatoryAt = m;
     }
 
+    const vatCollected = round2(projectedMonth * VAT_RATE);
+    const vatPaid = round2(projectedMonth * INPUT_VAT_EXPENSE_RATIO * VAT_RATE);
+    const monthDate = new Date(
+      Date.UTC(anchor.getUTCFullYear(), anchor.getUTCMonth() + m, 1),
+    );
+
     trajectory.push({
       month: m,
+      date: `${monthDate.getUTCFullYear()}-${String(
+        monthDate.getUTCMonth() + 1,
+      ).padStart(2, "0")}`,
       rolling12mSales: rolling,
       percentOfMandatory: pct,
       estimatedMonthlyVatCash: round2(projectedMonth * cashRate * 0.5),
+      vatCollected,
+      vatPaid,
     });
   }
+
+  // Net cash delta of registering EARLY (today) vs WAITING for the
+  // mandatory crossing. We sum (collected − paid) for months that fall
+  // strictly before the mandatory line. When the user chose NOT to
+  // voluntarily register, the early scenario is moot and the delta is 0.
+  const cutoff = mandatoryAt ?? months + 1;
+  const earlyWindow = voluntaryChoice
+    ? trajectory.filter((p) => p.month < cutoff)
+    : [];
+  const netCashRegisterEarly = round2(
+    earlyWindow.reduce((s, p) => s + (p.vatCollected - p.vatPaid), 0),
+  );
 
   return {
     baselineRolling12mSales: round2(baseline),
@@ -258,8 +327,15 @@ export function simulateVatTrajectory(input: SimulationInput): SimulationResult 
     months,
     oneOffBoost: round2(boost),
     cashImpactRate: cashRate,
+    voluntaryRegistrationChoice: voluntaryChoice,
+    priceChangePct: priceChange,
     voluntaryCrossedAtMonth: voluntaryAt,
     mandatoryCrossedAtMonth: mandatoryAt,
+    voluntaryCrossedDate:
+      voluntaryAt !== null ? trajectory[voluntaryAt - 1]!.date : null,
+    mandatoryCrossedDate:
+      mandatoryAt !== null ? trajectory[mandatoryAt - 1]!.date : null,
+    netCashRegisterEarly,
     trajectory,
     mandatoryThreshold: VAT_MANDATORY_THRESHOLD_SAR,
     voluntaryThreshold: VAT_VOLUNTARY_THRESHOLD_SAR,

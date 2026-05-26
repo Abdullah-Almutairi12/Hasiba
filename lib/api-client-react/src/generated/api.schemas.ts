@@ -1775,9 +1775,13 @@ export interface UserPreferencesResponse {
 export interface VatSimulationPoint {
   /** @minimum 1 */
   month: number;
+  /** Calendar YYYY-MM */
+  date: string;
   rolling12mSales: number;
   percentOfMandatory: number;
   estimatedMonthlyVatCash: number;
+  vatCollected: number;
+  vatPaid: number;
 }
 
 export interface VatSimulationResult {
@@ -1786,8 +1790,13 @@ export interface VatSimulationResult {
   months: number;
   oneOffBoost: number;
   cashImpactRate: number;
+  voluntaryRegistrationChoice: boolean;
+  priceChangePct: number;
   voluntaryCrossedAtMonth: number | null;
   mandatoryCrossedAtMonth: number | null;
+  voluntaryCrossedDate: string | null;
+  mandatoryCrossedDate: string | null;
+  netCashRegisterEarly: number;
   trajectory: VatSimulationPoint[];
   mandatoryThreshold: number;
   voluntaryThreshold: number;
@@ -2773,6 +2782,12 @@ export type SimulateVatTrajectoryBody = {
    * @maximum 1
    */
   cashImpactRate?: number;
+  voluntaryRegistrationChoice?: boolean;
+  /**
+   * @minimum -0.5
+   * @maximum 1
+   */
+  priceChangePct?: number;
 };
 
 export type RunVatThresholdCheck200AlertEmitted =

@@ -283,6 +283,74 @@ describe("vat-threshold service", () => {
       expect(growing.trajectory[23]!.rolling12mSales).toBeCloseTo(expected, 0);
     });
 
+    it("emits per-month date, vatCollected, vatPaid", () => {
+      const r = simulateVatTrajectory({
+        baselineRolling12mSales: 120_000,
+        monthlyGrowthRate: 0.05,
+        months: 6,
+      });
+      for (const p of r.trajectory) {
+        expect(p.date).toMatch(/^\d{4}-\d{2}$/);
+        expect(typeof p.vatCollected).toBe("number");
+        expect(typeof p.vatPaid).toBe("number");
+        // collected = projected * 15%, paid = projected * 50% * 15%.
+        // Therefore collected should be ~2x paid for every month.
+        expect(p.vatCollected).toBeGreaterThanOrEqual(p.vatPaid);
+      }
+    });
+
+    it("voluntaryRegistrationChoice gates netCashRegisterEarly", () => {
+      const off = simulateVatTrajectory({
+        baselineRolling12mSales: 240_000,
+        monthlyGrowthRate: 0.1,
+        months: 24,
+        voluntaryRegistrationChoice: false,
+      });
+      const on = simulateVatTrajectory({
+        baselineRolling12mSales: 240_000,
+        monthlyGrowthRate: 0.1,
+        months: 24,
+        voluntaryRegistrationChoice: true,
+      });
+      expect(off.netCashRegisterEarly).toBe(0);
+      // Voluntary choice + mandatory crossing in horizon → non-zero
+      // (positive in this scenario because collected > paid).
+      expect(on.mandatoryCrossedAtMonth).not.toBeNull();
+      expect(on.netCashRegisterEarly).not.toBe(0);
+    });
+
+    it("priceChangePct uplifts projected sales multiplicatively", () => {
+      const flat = simulateVatTrajectory({
+        baselineRolling12mSales: 120_000,
+        monthlyGrowthRate: 0,
+        months: 6,
+        priceChangePct: 0,
+      });
+      const lifted = simulateVatTrajectory({
+        baselineRolling12mSales: 120_000,
+        monthlyGrowthRate: 0,
+        months: 6,
+        priceChangePct: 0.2,
+      });
+      expect(lifted.trajectory[5]!.rolling12mSales).toBeGreaterThan(
+        flat.trajectory[5]!.rolling12mSales,
+      );
+    });
+
+    it("exposes voluntaryCrossedDate / mandatoryCrossedDate alongside month indices", () => {
+      const r = simulateVatTrajectory({
+        baselineRolling12mSales: 240_000,
+        monthlyGrowthRate: 0.15,
+        months: 24,
+      });
+      if (r.voluntaryCrossedAtMonth !== null) {
+        expect(r.voluntaryCrossedDate).toMatch(/^\d{4}-\d{2}$/);
+      }
+      if (r.mandatoryCrossedAtMonth !== null) {
+        expect(r.mandatoryCrossedDate).toMatch(/^\d{4}-\d{2}$/);
+      }
+    });
+
     it("baseline 0 → trajectory stays 0, neither threshold ever crossed", () => {
       const r = simulateVatTrajectory({
         baselineRolling12mSales: 0,
