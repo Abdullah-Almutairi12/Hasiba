@@ -37,6 +37,7 @@ import { resolveAppBaseUrl } from "./intercompany-imbalance-digest";
 import {
   readCleanupReportConfig,
   type CleanupReportSuppression,
+  type UpcomingExpiringSuppression,
 } from "./alerts-cleanup-report-email";
 import { pool } from "@workspace/db";
 
@@ -318,6 +319,94 @@ export async function notifyAdminsOfExpiredCleanupReportSuppressions(
     logger.error(
       { err, count: expired.length },
       "cleanup-report expiry-notify: dispatch failed",
+    );
+    return false;
+  }
+}
+
+/**
+ * Task #235 — render the weekly "upcoming auto-unblocks" digest. One
+ * email per cadence window listing every address whose auto-expiry
+ * falls inside the lookahead window, sorted by `daysRemaining` (most
+ * imminent first — same ordering the collector helper produces).
+ */
+export function renderExpiringSuppressionsDigest(
+  upcoming: UpcomingExpiringSuppression[],
+  deepLink: string,
+  maxAgeDays: number,
+): { subject: string; body: string } {
+  const lines = upcoming.map((s) => {
+    const reason = s.lastReason ? s.lastReason : "غير محدد";
+    const remaining =
+      s.daysRemaining === 0
+        ? "خلال اليوم"
+        : s.daysRemaining === 1
+          ? "بعد يوم واحد"
+          : `بعد ${s.daysRemaining} يوماً`;
+    return `   • ${s.email} — ${remaining} (آخر سبب: ${reason})`;
+  });
+  const subjectAddr =
+    upcoming.length === 1
+      ? upcoming[0]!.email
+      : `${upcoming.length} عناوين`;
+  const subject = `[ملخص أسبوعي] اقتراب رفع الإيقاف عن ${subjectAddr}`;
+  const intro =
+    upcoming.length === 1
+      ? `سيتم رفع الإيقاف التلقائي عن العنوان التالي خلال الأيام القادمة، وسيعود ضمن مستلمي تقرير تنظيف التنبيهات (فترة الإيقاف الحالية: ${maxAgeDays} يوماً):`
+      : `سيتم رفع الإيقاف التلقائي عن العناوين التالية خلال الأيام القادمة، وستعود ضمن مستلمي تقرير تنظيف التنبيهات (فترة الإيقاف الحالية: ${maxAgeDays} يوماً):`;
+  const body =
+    `${intro}\n\n` +
+    `${lines.join("\n")}\n\n` +
+    `راجع القائمة من لوحة الإدارة قبل انتهاء الإيقاف إذا أردت تمديده يدوياً:\n` +
+    `${deepLink}\n\n` +
+    `تم إرسال هذا الملخص تلقائياً من نظام حاسبة.AI.\n`;
+  return { subject, body };
+}
+
+/**
+ * Task #235 — email the weekly digest of upcoming auto-unblocks.
+ * Best-effort: returns `false` (and never throws) when the admin
+ * notification email isn't configured, SMTP is down, the list is
+ * empty, or the underlying `sendMail` reports a non-`sent` outcome.
+ * Caller (`sendExpiringSuppressionsDigest`) is responsible for the
+ * cadence check and persisting `lastExpiringDigestSentAt` on success.
+ */
+export async function notifyAdminsOfUpcomingExpiringSuppressions(
+  upcoming: UpcomingExpiringSuppression[],
+  maxAgeDays: number,
+): Promise<boolean> {
+  if (upcoming.length === 0) return false;
+  try {
+    const adminEmail = await loadAdminNotificationEmail();
+    if (!adminEmail) return false;
+    if (!isMailerConfigured()) return false;
+    const deepLink = buildSuppressionsDeepLink();
+    const { subject, body } = renderExpiringSuppressionsDigest(
+      upcoming,
+      deepLink,
+      maxAgeDays,
+    );
+    const result = await sendMail({ to: adminEmail, subject, body });
+    if (!result.sent) {
+      logger.warn(
+        { reason: result.reason, adminEmail, count: upcoming.length },
+        "cleanup-report expiring-digest: admin email send failed",
+      );
+      return false;
+    }
+    logger.info(
+      {
+        adminEmail,
+        count: upcoming.length,
+        emails: upcoming.map((u) => u.email),
+      },
+      "cleanup-report expiring-digest: dispatched",
+    );
+    return true;
+  } catch (err) {
+    logger.error(
+      { err, count: upcoming.length },
+      "cleanup-report expiring-digest: dispatch failed",
     );
     return false;
   }

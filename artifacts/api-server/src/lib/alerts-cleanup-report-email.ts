@@ -226,6 +226,14 @@ export interface CleanupReportConfig {
    * `0` disables auto-expiry (every suppression must be lifted by hand).
    */
   suppressionMaxAgeDays: number | null;
+  /**
+   * Task #235 — ISO timestamp of the last time the "upcoming auto-
+   * unblocks" weekly digest was emitted. Tracked separately from
+   * `lastSentAt` (which gates the audit PDF cadence) so the two
+   * schedules can run independently. Null until the first digest is
+   * dispatched.
+   */
+  lastExpiringDigestSentAt: string | null;
 }
 
 export function defaultCleanupReportConfig(): CleanupReportConfig {
@@ -238,6 +246,7 @@ export function defaultCleanupReportConfig(): CleanupReportConfig {
     adminNotificationEmail: null,
     suppressions: [],
     suppressionMaxAgeDays: null,
+    lastExpiringDigestSentAt: null,
   };
 }
 
@@ -307,6 +316,9 @@ export function readCleanupReportConfig(
       CLEANUP_REPORT_SUPPRESSION_MAX_AGE_DAYS_MAX,
       Math.trunc(o.suppressionMaxAgeDays),
     );
+  }
+  if (typeof o.lastExpiringDigestSentAt === "string") {
+    out.lastExpiringDigestSentAt = o.lastExpiringDigestSentAt;
   }
   if (Array.isArray(o.suppressions)) {
     const seen = new Set<string>();
@@ -965,10 +977,6 @@ export async function sweepExpiredCleanupReportSuppressions(
   now: Date = new Date(),
 ): Promise<string[]> {
   const cfg = await loadConfig();
-  // Task #233 — admin-stored override wins over the env-var default.
-  // 0 (whether stored or default) means "never auto-expire".
-  const maxAgeDays = resolveSuppressionMaxAgeDays(cfg);
-  if (maxAgeDays <= 0) return [];
   if (cfg.suppressions.length === 0) return [];
   // Task #231 — per-tenant override takes precedence over the env-derived
   // constant, so admins can choose a window without an engineer redeploy.
@@ -1049,6 +1057,179 @@ export async function sweepExpiredCleanupReportSuppressions(
   return expired;
 }
 
+/**
+ * Task #235 — how far ahead the "upcoming auto-unblocks" digest looks.
+ * Suppressions whose remaining lifetime falls within this window are
+ * listed in the next weekly digest.
+ */
+export const EXPIRING_DIGEST_LOOKAHEAD_DAYS = 7;
+
+/**
+ * Task #235 — cadence between two consecutive weekly digests. Enforced
+ * via `lastExpiringDigestSentAt`, mirroring the way `isDue` gates the
+ * audit PDF cadence.
+ */
+export const EXPIRING_DIGEST_INTERVAL_MS =
+  EXPIRING_DIGEST_LOOKAHEAD_DAYS * ONE_DAY_MS;
+
+export interface UpcomingExpiringSuppression extends CleanupReportSuppression {
+  /** Whole days remaining until auto-expiry (>=0, capped at lookahead). */
+  daysRemaining: number;
+  /** ISO timestamp of the projected auto-expiry. */
+  expiresAt: string;
+}
+
+/**
+ * Task #235 — pure helper: pick the suppressions that will auto-expire
+ * within `withinDays` days of `now`. Returns an empty array when auto-
+ * expiry is disabled for the tenant (max-age = 0) or there are no
+ * suppressions whose projected expiry falls inside the window. Already
+ * past-due rows are included with `daysRemaining = 0` so the digest
+ * surfaces them too — the sweep that will actually lift them runs in
+ * the same tick.
+ */
+export function collectUpcomingExpiringSuppressions(
+  cfg: CleanupReportConfig,
+  now: Date,
+  withinDays: number = EXPIRING_DIGEST_LOOKAHEAD_DAYS,
+): UpcomingExpiringSuppression[] {
+  if (cfg.suppressions.length === 0) return [];
+  const maxAgeDays = effectiveSuppressionMaxAgeDays(cfg);
+  if (maxAgeDays <= 0) return [];
+  const nowMs = now.getTime();
+  const horizonMs = nowMs + withinDays * ONE_DAY_MS;
+  const out: UpcomingExpiringSuppression[] = [];
+  for (const s of cfg.suppressions) {
+    const suppressedAtMs = Date.parse(s.suppressedAt);
+    if (!Number.isFinite(suppressedAtMs)) continue;
+    const expiresAtMs = suppressedAtMs + maxAgeDays * ONE_DAY_MS;
+    if (expiresAtMs > horizonMs) continue;
+    const daysRemaining = Math.max(
+      0,
+      Math.ceil((expiresAtMs - nowMs) / ONE_DAY_MS),
+    );
+    out.push({
+      ...s,
+      daysRemaining,
+      expiresAt: new Date(expiresAtMs).toISOString(),
+    });
+  }
+  out.sort((a, b) => a.daysRemaining - b.daysRemaining);
+  return out;
+}
+
+/**
+ * Task #235 — per-tick decision for the weekly digest. Sends when the
+ * tenant has never received one before, or when at least
+ * `EXPIRING_DIGEST_INTERVAL_MS` has elapsed since the last successful
+ * dispatch. Pure for easier testing.
+ */
+export function isExpiringDigestDue(
+  cfg: CleanupReportConfig,
+  now: Date,
+): boolean {
+  if (!cfg.lastExpiringDigestSentAt) return true;
+  const last = Date.parse(cfg.lastExpiringDigestSentAt);
+  if (!Number.isFinite(last)) return true;
+  return now.getTime() - last >= EXPIRING_DIGEST_INTERVAL_MS;
+}
+
+async function persistLastExpiringDigestSentAt(at: Date): Promise<void> {
+  try {
+    await pool.query(
+      `
+      INSERT INTO app_settings (id, system, updated_at)
+      VALUES (
+        1,
+        jsonb_build_object(
+          'cleanupReport',
+          jsonb_build_object('lastExpiringDigestSentAt', to_jsonb($1::text))
+        ),
+        NOW()
+      )
+      ON CONFLICT (id) DO UPDATE
+        SET system = COALESCE(app_settings.system, '{}'::jsonb)
+                     || jsonb_build_object(
+                          'cleanupReport',
+                          COALESCE(app_settings.system->'cleanupReport', '{}'::jsonb)
+                            || jsonb_build_object('lastExpiringDigestSentAt', to_jsonb($1::text))
+                        ),
+            updated_at = NOW()
+      `,
+      [at.toISOString()],
+    );
+  } catch (err) {
+    logger.warn(
+      { err },
+      "cleanup report: failed to persist lastExpiringDigestSentAt",
+    );
+  }
+}
+
+/**
+ * Task #235 — collect upcoming auto-unblocks and email a single digest
+ * to `cleanupReport.adminNotificationEmail` listing each address, days
+ * remaining, and last bounce reason. Piggy-backs on the daily
+ * suppression sweeper (`tick`) but only fires once per
+ * `EXPIRING_DIGEST_INTERVAL_MS` window. No-op when the list is empty,
+ * when the admin email is unset, when SMTP isn't configured, or when
+ * the weekly cadence hasn't elapsed yet.
+ *
+ * `force=true` bypasses the cadence check (used by tests / future
+ * "send now" admin endpoint). Returns the dispatch outcome so callers
+ * can log / assert.
+ */
+export interface ExpiringDigestResult {
+  sent: boolean;
+  reason?: string;
+  upcoming?: UpcomingExpiringSuppression[];
+}
+
+export async function sendExpiringSuppressionsDigest(opts: {
+  force?: boolean;
+  now?: Date;
+} = {}): Promise<ExpiringDigestResult> {
+  const now = opts.now ?? new Date();
+  const cfg = await loadConfig();
+  if (!opts.force && !isExpiringDigestDue(cfg, now)) {
+    return { sent: false, reason: "not_due" };
+  }
+  const upcoming = collectUpcomingExpiringSuppressions(cfg, now);
+  if (upcoming.length === 0) {
+    return { sent: false, reason: "no_upcoming" };
+  }
+  if (!cfg.adminNotificationEmail) {
+    return { sent: false, reason: "no_admin_email", upcoming };
+  }
+  if (!isMailerConfigured()) {
+    return { sent: false, reason: "mailer_not_configured", upcoming };
+  }
+  try {
+    const { notifyAdminsOfUpcomingExpiringSuppressions } = await import(
+      "./cleanup-report-bounce-notify"
+    );
+    const ok = await notifyAdminsOfUpcomingExpiringSuppressions(
+      upcoming,
+      effectiveSuppressionMaxAgeDays(cfg),
+    );
+    if (!ok) {
+      return { sent: false, reason: "dispatch_failed", upcoming };
+    }
+    await persistLastExpiringDigestSentAt(now);
+    logger.info(
+      { count: upcoming.length, emails: upcoming.map((u) => u.email) },
+      "cleanup report: emailed expiring-suppressions digest",
+    );
+    return { sent: true, upcoming };
+  } catch (err) {
+    logger.error(
+      { err, count: upcoming.length },
+      "cleanup report: expiring-suppressions digest dispatch failed",
+    );
+    return { sent: false, reason: "dispatch_failed", upcoming };
+  }
+}
+
 async function tick(): Promise<void> {
   try {
     await sweepStuckPendingRecipients();
@@ -1061,6 +1242,14 @@ async function tick(): Promise<void> {
     logger.error(
       { err },
       "cleanup report: stale-suppression sweep tick failed",
+    );
+  }
+  try {
+    await sendExpiringSuppressionsDigest();
+  } catch (err) {
+    logger.error(
+      { err },
+      "cleanup report: expiring-digest tick failed",
     );
   }
   try {

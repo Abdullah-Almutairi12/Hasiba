@@ -74,6 +74,11 @@ const {
   CLEANUP_REPORT_SUPPRESSION_MAX_AGE_DAYS,
   effectiveSuppressionMaxAgeDays,
   CLEANUP_REPORT_SUPPRESSION_MAX_AGE_DAYS_MAX,
+  collectUpcomingExpiringSuppressions,
+  isExpiringDigestDue,
+  sendExpiringSuppressionsDigest,
+  EXPIRING_DIGEST_LOOKAHEAD_DAYS,
+  EXPIRING_DIGEST_INTERVAL_MS,
 } = await import("./alerts-cleanup-report-email");
 const mailer = await import("./mailer");
 const pdfMod = await import("./alerts-cleanup-pdf");
@@ -180,6 +185,7 @@ describe("isDue — cadence math", () => {
           adminNotificationEmail: null,
           suppressions: [],
           suppressionMaxAgeDays: null,
+          lastExpiringDigestSentAt: null,
         },
         now,
       ),
@@ -195,6 +201,7 @@ describe("isDue — cadence math", () => {
           adminNotificationEmail: null,
           suppressions: [],
           suppressionMaxAgeDays: null,
+          lastExpiringDigestSentAt: null,
         },
         now,
       ),
@@ -213,6 +220,7 @@ describe("isDue — cadence math", () => {
           adminNotificationEmail: null,
           suppressions: [],
           suppressionMaxAgeDays: null,
+          lastExpiringDigestSentAt: null,
         },
         now,
       ),
@@ -231,6 +239,7 @@ describe("isDue — cadence math", () => {
           adminNotificationEmail: null,
           suppressions: [],
           suppressionMaxAgeDays: null,
+          lastExpiringDigestSentAt: null,
         },
         now,
       ),
@@ -253,6 +262,7 @@ describe("isDue — cadence math", () => {
           adminNotificationEmail: null,
           suppressions: [],
           suppressionMaxAgeDays: null,
+          lastExpiringDigestSentAt: null,
         },
         now,
       ),
@@ -268,6 +278,7 @@ describe("isDue — cadence math", () => {
           adminNotificationEmail: null,
           suppressions: [],
           suppressionMaxAgeDays: null,
+          lastExpiringDigestSentAt: null,
         },
         now,
       ),
@@ -283,6 +294,7 @@ describe("isDue — cadence math", () => {
           adminNotificationEmail: null,
           suppressions: [],
           suppressionMaxAgeDays: null,
+          lastExpiringDigestSentAt: null,
         },
         now,
       ),
@@ -305,6 +317,7 @@ describe("isDue — cadence math", () => {
           adminNotificationEmail: null,
           suppressions: [],
           suppressionMaxAgeDays: null,
+          lastExpiringDigestSentAt: null,
         },
         now,
       ),
@@ -320,6 +333,7 @@ describe("isDue — cadence math", () => {
           adminNotificationEmail: null,
           suppressions: [],
           suppressionMaxAgeDays: null,
+          lastExpiringDigestSentAt: null,
         },
         now,
       ),
@@ -335,6 +349,7 @@ describe("isDue — cadence math", () => {
           adminNotificationEmail: null,
           suppressions: [],
           suppressionMaxAgeDays: null,
+          lastExpiringDigestSentAt: null,
         },
         now,
       ),
@@ -1359,5 +1374,262 @@ describe("auto-expiry of stale suppressions — task #227", () => {
     const kept =
       (stored?.["suppressions"] as Array<{ email: string }>) ?? [];
     expect(kept).toHaveLength(1);
+  });
+});
+
+describe("collectUpcomingExpiringSuppressions — pure helper (task #235)", () => {
+  const now = new Date("2026-05-25T00:00:00.000Z");
+  const maxAgeDays = 30;
+  const baseCfg = {
+    schedule: "weekly" as const,
+    recipients: ["a@b.com"],
+    lastSentAt: null,
+    subject: null,
+    intro: null,
+    adminNotificationEmail: "ops@example.test",
+    suppressionMaxAgeDays: maxAgeDays,
+    lastExpiringDigestSentAt: null,
+  };
+
+  function makeSupp(daysAgo: number, email = "x@y.test", lastReason: string | null = "smtp_rejected") {
+    return {
+      email,
+      suppressedAt: new Date(now.getTime() - daysAgo * ONE_DAY_MS).toISOString(),
+      bounceCount: 3,
+      lastReason,
+    };
+  }
+
+  it("returns [] when suppressions list is empty", () => {
+    expect(
+      collectUpcomingExpiringSuppressions(
+        { ...baseCfg, suppressions: [] },
+        now,
+      ),
+    ).toEqual([]);
+  });
+
+  it("returns [] when auto-expiry is disabled (max-age = 0)", () => {
+    expect(
+      collectUpcomingExpiringSuppressions(
+        {
+          ...baseCfg,
+          suppressionMaxAgeDays: 0,
+          suppressions: [makeSupp(28)],
+        },
+        now,
+      ),
+    ).toEqual([]);
+  });
+
+  it("excludes suppressions that expire after the lookahead window", () => {
+    // 30-day max-age, suppressed 10d ago → expires in 20d (>7d ahead).
+    const out = collectUpcomingExpiringSuppressions(
+      { ...baseCfg, suppressions: [makeSupp(10, "far@y.test")] },
+      now,
+    );
+    expect(out).toEqual([]);
+  });
+
+  it("includes suppressions inside the lookahead window with daysRemaining + expiresAt", () => {
+    // suppressed 25d ago → expires in 5d.
+    const out = collectUpcomingExpiringSuppressions(
+      { ...baseCfg, suppressions: [makeSupp(25, "soon@y.test")] },
+      now,
+    );
+    expect(out).toHaveLength(1);
+    expect(out[0]!.email).toBe("soon@y.test");
+    expect(out[0]!.daysRemaining).toBe(5);
+    expect(out[0]!.lastReason).toBe("smtp_rejected");
+    expect(Date.parse(out[0]!.expiresAt)).toBe(now.getTime() + 5 * ONE_DAY_MS);
+  });
+
+  it("includes already-past-due rows with daysRemaining=0", () => {
+    // suppressed 40d ago with 30d max-age → already past expiry.
+    const out = collectUpcomingExpiringSuppressions(
+      { ...baseCfg, suppressions: [makeSupp(40, "stale@y.test")] },
+      now,
+    );
+    expect(out).toHaveLength(1);
+    expect(out[0]!.daysRemaining).toBe(0);
+  });
+
+  it("sorts by daysRemaining ascending", () => {
+    const out = collectUpcomingExpiringSuppressions(
+      {
+        ...baseCfg,
+        suppressions: [
+          makeSupp(24, "b@y.test"), // 6d
+          makeSupp(28, "a@y.test"), // 2d
+          makeSupp(26, "c@y.test"), // 4d
+        ],
+      },
+      now,
+    );
+    expect(out.map((s) => s.email)).toEqual([
+      "a@y.test",
+      "c@y.test",
+      "b@y.test",
+    ]);
+  });
+});
+
+describe("isExpiringDigestDue — cadence (task #235)", () => {
+  const now = new Date("2026-05-25T12:00:00.000Z");
+  const baseCfg = {
+    schedule: "weekly" as const,
+    recipients: ["a@b.com"],
+    lastSentAt: null,
+    subject: null,
+    intro: null,
+    adminNotificationEmail: null,
+    suppressions: [],
+    suppressionMaxAgeDays: null,
+  };
+
+  it("is due when never sent before", () => {
+    expect(
+      isExpiringDigestDue({ ...baseCfg, lastExpiringDigestSentAt: null }, now),
+    ).toBe(true);
+  });
+
+  it("is due when last send was longer than the cadence window ago", () => {
+    const past = new Date(now.getTime() - EXPIRING_DIGEST_INTERVAL_MS - 1000);
+    expect(
+      isExpiringDigestDue(
+        { ...baseCfg, lastExpiringDigestSentAt: past.toISOString() },
+        now,
+      ),
+    ).toBe(true);
+  });
+
+  it("is not due when last send is within the cadence window", () => {
+    const recent = new Date(now.getTime() - ONE_DAY_MS);
+    expect(
+      isExpiringDigestDue(
+        { ...baseCfg, lastExpiringDigestSentAt: recent.toISOString() },
+        now,
+      ),
+    ).toBe(false);
+  });
+});
+
+describe("sendExpiringSuppressionsDigest (task #235)", () => {
+  const now = new Date("2026-05-25T00:00:00.000Z");
+
+  it("no-ops with reason=no_upcoming when there are no upcoming auto-unblocks", async () => {
+    await setCleanupReport({
+      schedule: "weekly",
+      recipients: ["audit@example.test"],
+      adminNotificationEmail: "ops@example.test",
+      suppressions: [
+        {
+          email: "fresh@y.test",
+          suppressedAt: new Date(now.getTime() - 2 * ONE_DAY_MS).toISOString(),
+          bounceCount: 3,
+          lastReason: null,
+        },
+      ],
+    } as never);
+    const result = await sendExpiringSuppressionsDigest({ now, force: true });
+    expect(result.sent).toBe(false);
+    expect(result.reason).toBe("no_upcoming");
+    expect(mailer.sendMail).not.toHaveBeenCalled();
+  });
+
+  it("returns no_admin_email when adminNotificationEmail is unset even with upcoming rows", async () => {
+    await setCleanupReport({
+      schedule: "weekly",
+      recipients: ["audit@example.test"],
+      suppressions: [
+        {
+          email: "soon@y.test",
+          suppressedAt: new Date(now.getTime() - 28 * ONE_DAY_MS).toISOString(),
+          bounceCount: 3,
+          lastReason: "smtp_rejected",
+        },
+      ],
+    } as never);
+    const result = await sendExpiringSuppressionsDigest({ now, force: true });
+    expect(result.sent).toBe(false);
+    expect(result.reason).toBe("no_admin_email");
+    expect(result.upcoming).toHaveLength(1);
+    expect(mailer.sendMail).not.toHaveBeenCalled();
+  });
+
+  it("sends one email + persists lastExpiringDigestSentAt when due with upcoming rows", async () => {
+    await setCleanupReport({
+      schedule: "weekly",
+      recipients: ["audit@example.test"],
+      adminNotificationEmail: "ops@example.test",
+      suppressions: [
+        {
+          email: "soon@y.test",
+          suppressedAt: new Date(now.getTime() - 28 * ONE_DAY_MS).toISOString(),
+          bounceCount: 3,
+          lastReason: "smtp_rejected",
+        },
+        {
+          email: "later@y.test",
+          suppressedAt: new Date(now.getTime() - 5 * ONE_DAY_MS).toISOString(),
+          bounceCount: 3,
+          lastReason: null,
+        },
+      ],
+    } as never);
+    const result = await sendExpiringSuppressionsDigest({ now });
+    expect(result.sent).toBe(true);
+    expect(result.upcoming?.map((u) => u.email)).toEqual(["soon@y.test"]);
+    expect(mailer.sendMail).toHaveBeenCalledTimes(1);
+    const call = vi.mocked(mailer.sendMail).mock.calls[0]![0]!;
+    expect(call.to).toBe("ops@example.test");
+    expect(call.subject).toContain("soon@y.test");
+    expect(call.body).toContain("soon@y.test");
+    expect(call.body).toContain("smtp_rejected");
+    const stored = await getStoredCleanupReport();
+    expect(typeof stored?.["lastExpiringDigestSentAt"]).toBe("string");
+  });
+
+  it("respects cadence: returns not_due when last digest was within the window", async () => {
+    const recent = new Date(now.getTime() - ONE_DAY_MS);
+    await setCleanupReport({
+      schedule: "weekly",
+      recipients: ["audit@example.test"],
+      adminNotificationEmail: "ops@example.test",
+      lastExpiringDigestSentAt: recent.toISOString(),
+      suppressions: [
+        {
+          email: "soon@y.test",
+          suppressedAt: new Date(now.getTime() - 28 * ONE_DAY_MS).toISOString(),
+          bounceCount: 3,
+          lastReason: null,
+        },
+      ],
+    } as never);
+    const result = await sendExpiringSuppressionsDigest({ now });
+    expect(result.sent).toBe(false);
+    expect(result.reason).toBe("not_due");
+    expect(mailer.sendMail).not.toHaveBeenCalled();
+  });
+
+  it("returns mailer_not_configured when SMTP is down", async () => {
+    vi.mocked(mailer.isMailerConfigured).mockReturnValue(false);
+    await setCleanupReport({
+      schedule: "weekly",
+      recipients: ["audit@example.test"],
+      adminNotificationEmail: "ops@example.test",
+      suppressions: [
+        {
+          email: "soon@y.test",
+          suppressedAt: new Date(now.getTime() - 28 * ONE_DAY_MS).toISOString(),
+          bounceCount: 3,
+          lastReason: null,
+        },
+      ],
+    } as never);
+    const result = await sendExpiringSuppressionsDigest({ now, force: true });
+    expect(result.sent).toBe(false);
+    expect(result.reason).toBe("mailer_not_configured");
+    expect(mailer.sendMail).not.toHaveBeenCalled();
   });
 });
