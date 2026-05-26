@@ -176,6 +176,7 @@ import type {
   ReverseJournalEntryBody,
   Role,
   RunAlertsCleanupNow200,
+  RunVatThresholdCheck200,
   SalesChartPoint,
   SalesReport,
   SecurityChecklist,
@@ -213,6 +214,8 @@ import type {
   UpdateSupportTicketBody,
   UpdateSystemSettings200,
   UpdateSystemSettingsBody,
+  UpdateVatRegistration200,
+  UpdateVatRegistrationRequest,
   UploadCompanyLogoBody,
   UploadStorageAttachment200,
   UploadStorageAttachmentBody,
@@ -220,6 +223,7 @@ import type {
   UpsertFinancialLimitBody,
   User,
   UserCompany,
+  VatStatusResponse,
   Warehouse,
   ZatcaStatus,
 } from "./api.schemas";
@@ -13432,4 +13436,247 @@ export const useUploadStorageAttachment = <
   TContext
 > => {
   return useMutation(getUploadStorageAttachmentMutationOptions(options));
+};
+
+/**
+ * @summary Current tenant's VAT registration + rolling 12m threshold snapshot
+ */
+export const getGetVatStatusUrl = () => {
+  return `/api/vat/status`;
+};
+
+export const getVatStatus = async (
+  options?: RequestInit,
+): Promise<VatStatusResponse> => {
+  return customFetch<VatStatusResponse>(getGetVatStatusUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetVatStatusQueryKey = () => {
+  return [`/api/vat/status`] as const;
+};
+
+export const getGetVatStatusQueryOptions = <
+  TData = Awaited<ReturnType<typeof getVatStatus>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getVatStatus>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetVatStatusQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getVatStatus>>> = ({
+    signal,
+  }) => getVatStatus({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getVatStatus>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetVatStatusQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getVatStatus>>
+>;
+export type GetVatStatusQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Current tenant's VAT registration + rolling 12m threshold snapshot
+ */
+
+export function useGetVatStatus<
+  TData = Awaited<ReturnType<typeof getVatStatus>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getVatStatus>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetVatStatusQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Update the current tenant's VAT registration status
+ */
+export const getUpdateVatRegistrationUrl = () => {
+  return `/api/vat/registration`;
+};
+
+export const updateVatRegistration = async (
+  updateVatRegistrationRequest: UpdateVatRegistrationRequest,
+  options?: RequestInit,
+): Promise<UpdateVatRegistration200> => {
+  return customFetch<UpdateVatRegistration200>(getUpdateVatRegistrationUrl(), {
+    ...options,
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(updateVatRegistrationRequest),
+  });
+};
+
+export const getUpdateVatRegistrationMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateVatRegistration>>,
+    TError,
+    { data: BodyType<UpdateVatRegistrationRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateVatRegistration>>,
+  TError,
+  { data: BodyType<UpdateVatRegistrationRequest> },
+  TContext
+> => {
+  const mutationKey = ["updateVatRegistration"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateVatRegistration>>,
+    { data: BodyType<UpdateVatRegistrationRequest> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return updateVatRegistration(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateVatRegistrationMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updateVatRegistration>>
+>;
+export type UpdateVatRegistrationMutationBody =
+  BodyType<UpdateVatRegistrationRequest>;
+export type UpdateVatRegistrationMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Update the current tenant's VAT registration status
+ */
+export const useUpdateVatRegistration = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateVatRegistration>>,
+    TError,
+    { data: BodyType<UpdateVatRegistrationRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof updateVatRegistration>>,
+  TError,
+  { data: BodyType<UpdateVatRegistrationRequest> },
+  TContext
+> => {
+  return useMutation(getUpdateVatRegistrationMutationOptions(options));
+};
+
+/**
+ * @summary Manually sweep the rolling 12m threshold and emit alerts if crossed
+ */
+export const getRunVatThresholdCheckUrl = () => {
+  return `/api/vat/threshold/check`;
+};
+
+export const runVatThresholdCheck = async (
+  options?: RequestInit,
+): Promise<RunVatThresholdCheck200> => {
+  return customFetch<RunVatThresholdCheck200>(getRunVatThresholdCheckUrl(), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getRunVatThresholdCheckMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof runVatThresholdCheck>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof runVatThresholdCheck>>,
+  TError,
+  void,
+  TContext
+> => {
+  const mutationKey = ["runVatThresholdCheck"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof runVatThresholdCheck>>,
+    void
+  > = () => {
+    return runVatThresholdCheck(requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RunVatThresholdCheckMutationResult = NonNullable<
+  Awaited<ReturnType<typeof runVatThresholdCheck>>
+>;
+
+export type RunVatThresholdCheckMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Manually sweep the rolling 12m threshold and emit alerts if crossed
+ */
+export const useRunVatThresholdCheck = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof runVatThresholdCheck>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof runVatThresholdCheck>>,
+  TError,
+  void,
+  TContext
+> => {
+  return useMutation(getRunVatThresholdCheckMutationOptions(options));
 };

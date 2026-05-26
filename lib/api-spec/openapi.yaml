@@ -3404,8 +3404,94 @@ paths:
                     type: string
                 required: [url, filename]
 
+  # ============================================================
+  # ZATCA SMB compliance — VAT registration + threshold counter
+  # ============================================================
+  /vat/status:
+    get:
+      tags: [companies]
+      operationId: getVatStatus
+      summary: Current tenant's VAT registration + rolling 12m threshold snapshot
+      responses:
+        "200":
+          description: snapshot
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/VatStatusResponse" }
+
+  /vat/registration:
+    patch:
+      tags: [companies]
+      operationId: updateVatRegistration
+      summary: Update the current tenant's VAT registration status
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateVatRegistrationRequest" }
+      responses:
+        "200":
+          description: updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: integer }
+                  vatRegistrationStatus: { type: string }
+                  vatNumber: { type: string, nullable: true }
+                  vatRegistrationDate: { type: string, nullable: true }
+                required: [id, vatRegistrationStatus]
+
+  /vat/threshold/check:
+    post:
+      tags: [companies]
+      operationId: runVatThresholdCheck
+      summary: Manually sweep the rolling 12m threshold and emit alerts if crossed
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  snapshot: { $ref: "#/components/schemas/VatStatusResponse" }
+                  alertEmitted:
+                    type: string
+                    nullable: true
+                    enum: [near80, mandatory]
+                required: [snapshot]
+
 components:
   schemas:
+    VatStatusResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [registered, voluntary, not_registered]
+        rolling12mSales: { type: number }
+        percentOfMandatory: { type: number }
+        near80: { type: boolean }
+        crossedMandatory: { type: boolean }
+        eligibleVoluntary: { type: boolean }
+        remainingToMandatory: { type: number }
+        mandatoryThreshold: { type: number }
+        voluntaryThreshold: { type: number }
+        computedAt: { type: string }
+        vatNumber: { type: string, nullable: true }
+        vatRegistrationDate: { type: string, nullable: true }
+      required: [status, rolling12mSales, percentOfMandatory, near80, crossedMandatory, eligibleVoluntary, remainingToMandatory, mandatoryThreshold, voluntaryThreshold, computedAt]
+    UpdateVatRegistrationRequest:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [registered, voluntary, not_registered]
+        vatNumber: { type: string, nullable: true }
+        vatRegistrationDate: { type: string, nullable: true }
+      required: [status]
     Company:
       type: object
       properties:

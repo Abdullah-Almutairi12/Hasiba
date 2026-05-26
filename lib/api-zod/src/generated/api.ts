@@ -3411,3 +3411,58 @@ export const UploadStorageAttachmentResponse = zod.object({
     .describe("Relative URL under \/api\/storage\/objects\/attachments\/..."),
   filename: zod.string(),
 });
+
+/**
+ * @summary Current tenant's VAT registration + rolling 12m threshold snapshot
+ */
+export const GetVatStatusResponse = zod.object({
+  status: zod.enum(["registered", "voluntary", "not_registered"]),
+  rolling12mSales: zod.number(),
+  percentOfMandatory: zod.number(),
+  near80: zod.boolean(),
+  crossedMandatory: zod.boolean(),
+  eligibleVoluntary: zod.boolean(),
+  remainingToMandatory: zod.number(),
+  mandatoryThreshold: zod.number(),
+  voluntaryThreshold: zod.number(),
+  computedAt: zod.string(),
+  vatNumber: zod.string().nullish(),
+  vatRegistrationDate: zod.string().nullish(),
+});
+
+/**
+ * @summary Update the current tenant's VAT registration status
+ */
+export const UpdateVatRegistrationBody = zod.object({
+  status: zod.enum(["registered", "voluntary", "not_registered"]),
+  vatNumber: zod.string().nullish(),
+  vatRegistrationDate: zod.string().nullish(),
+});
+
+export const UpdateVatRegistrationResponse = zod.object({
+  id: zod.number(),
+  vatRegistrationStatus: zod.string(),
+  vatNumber: zod.string().nullish(),
+  vatRegistrationDate: zod.string().nullish(),
+});
+
+/**
+ * @summary Manually sweep the rolling 12m threshold and emit alerts if crossed
+ */
+export const RunVatThresholdCheckResponse = zod.object({
+  snapshot: zod.object({
+    status: zod.enum(["registered", "voluntary", "not_registered"]),
+    rolling12mSales: zod.number(),
+    percentOfMandatory: zod.number(),
+    near80: zod.boolean(),
+    crossedMandatory: zod.boolean(),
+    eligibleVoluntary: zod.boolean(),
+    remainingToMandatory: zod.number(),
+    mandatoryThreshold: zod.number(),
+    voluntaryThreshold: zod.number(),
+    computedAt: zod.string(),
+    vatNumber: zod.string().nullish(),
+    vatRegistrationDate: zod.string().nullish(),
+  }),
+  alertEmitted: zod.enum(["near80", "mandatory"]).nullish(),
+});

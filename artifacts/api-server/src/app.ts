@@ -17,6 +17,7 @@ import { initIntercompany } from "./lib/intercompany-init";
 import { initAlertDismissals } from "./lib/alert-dismissals-init";
 import { initCleanupReportDelivery } from "./lib/cleanup-report-delivery-init";
 import { initIntercompanyImbalanceFxColumns } from "./lib/intercompany-imbalance-fx-init";
+import { initVatRegistration } from "./lib/vat-init";
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 
@@ -38,6 +39,7 @@ const accountingReady = initAccounting()
   .then(() => initAnomaly())
   .then(() => initIntercompany())
   .then(() => initAlertDismissals())
+  .then(() => initVatRegistration())
   .then(() => initCleanupReportDelivery())
   .then(() => initIntercompanyImbalanceFxColumns())
   .catch((err) => {

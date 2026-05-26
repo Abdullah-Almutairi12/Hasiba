@@ -11,6 +11,19 @@
     "close": "إغلاق",
     "language": "اللغة"
   },
+  "vat": {
+    "card_title": "حالة ضريبة القيمة المضافة (ZATCA)",
+    "status_registered": "مسجَّل إلزامي",
+    "status_voluntary": "مسجَّل اختياري",
+    "status_not_registered": "غير مسجَّل",
+    "rolling_label": "مبيعات آخر 12 شهرًا",
+    "of_mandatory": "من حد التسجيل الإلزامي",
+    "near80_warning": "اقتربت من الحد الإلزامي. يُنصح بالاستعداد للتسجيل.",
+    "mandatory_warning": "تجاوزت الحد الإلزامي — يجب التسجيل في ZATCA خلال 30 يومًا.",
+    "start_registration": "ابدأ التسجيل",
+    "update_status": "تحديث الحالة",
+    "vat_number": "الرقم الضريبي (15 رقمًا)"
+  },
   "nav": {
     "dashboard": "لوحة التحكم",
     "pos": "نقطة البيع",

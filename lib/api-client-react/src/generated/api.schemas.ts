@@ -5,6 +5,45 @@
  * حاسبة.AI - ERP System API
  * OpenAPI spec version: 0.1.0
  */
+export type VatStatusResponseStatus =
+  (typeof VatStatusResponseStatus)[keyof typeof VatStatusResponseStatus];
+
+export const VatStatusResponseStatus = {
+  registered: "registered",
+  voluntary: "voluntary",
+  not_registered: "not_registered",
+} as const;
+
+export interface VatStatusResponse {
+  status: VatStatusResponseStatus;
+  rolling12mSales: number;
+  percentOfMandatory: number;
+  near80: boolean;
+  crossedMandatory: boolean;
+  eligibleVoluntary: boolean;
+  remainingToMandatory: number;
+  mandatoryThreshold: number;
+  voluntaryThreshold: number;
+  computedAt: string;
+  vatNumber?: string | null;
+  vatRegistrationDate?: string | null;
+}
+
+export type UpdateVatRegistrationRequestStatus =
+  (typeof UpdateVatRegistrationRequestStatus)[keyof typeof UpdateVatRegistrationRequestStatus];
+
+export const UpdateVatRegistrationRequestStatus = {
+  registered: "registered",
+  voluntary: "voluntary",
+  not_registered: "not_registered",
+} as const;
+
+export interface UpdateVatRegistrationRequest {
+  status: UpdateVatRegistrationRequestStatus;
+  vatNumber?: string | null;
+  vatRegistrationDate?: string | null;
+}
+
 export type CompanyAddress = { [key: string]: unknown };
 
 export interface Company {
@@ -2607,4 +2646,25 @@ export type UploadStorageAttachment200 = {
   /** Relative URL under /api/storage/objects/attachments/... */
   url: string;
   filename: string;
+};
+
+export type UpdateVatRegistration200 = {
+  id: number;
+  vatRegistrationStatus: string;
+  vatNumber?: string | null;
+  vatRegistrationDate?: string | null;
+};
+
+export type RunVatThresholdCheck200AlertEmitted =
+  | (typeof RunVatThresholdCheck200AlertEmitted)[keyof typeof RunVatThresholdCheck200AlertEmitted]
+  | null;
+
+export const RunVatThresholdCheck200AlertEmitted = {
+  near80: "near80",
+  mandatory: "mandatory",
+} as const;
+
+export type RunVatThresholdCheck200 = {
+  snapshot: VatStatusResponse;
+  alertEmitted?: RunVatThresholdCheck200AlertEmitted;
 };

@@ -58,6 +58,10 @@ export default function OnboardingWizard() {
   const [vatType, setVatType] = useState<"standard" | "zero" | "exempt">(
     "standard"
   );
+  const [vatRegStatus, setVatRegStatus] = useState<
+    "registered" | "voluntary" | "not_registered"
+  >("registered");
+  const [vatNumber, setVatNumber] = useState("");
   const [invoiceType, setInvoiceType] = useState<"simplified" | "standard">(
     "simplified"
   );
@@ -226,6 +230,58 @@ export default function OnboardingWizard() {
                 <Receipt className="size-4" />
               </span>
               <h2 className="text-sm font-bold text-neutral-900">إعدادات الضريبة</h2>
+            </div>
+
+            {/* ZATCA SMB registration status — drives whether the system surfaces VAT */}
+            <div className="mb-6 rounded-2xl border border-blue-100 bg-blue-50/40 p-4">
+              <p className="mb-3 text-xs font-bold text-neutral-700">
+                هل منشأتك مسجَّلة في ضريبة القيمة المضافة (ZATCA)؟
+              </p>
+              <div className="grid gap-2 md:grid-cols-3">
+                {[
+                  { key: "registered", label: "مسجَّلة إلزامي", sub: "مبيعات ≥ 375,000 ر.س / سنة" },
+                  { key: "voluntary", label: "مسجَّلة اختياري", sub: "مبيعات بين 187.5K و 375K" },
+                  { key: "not_registered", label: "غير مسجَّلة", sub: "مبيعات أقل من 187.5K" },
+                ].map((opt) => {
+                  const selected = vatRegStatus === opt.key;
+                  return (
+                    <button
+                      key={opt.key}
+                      type="button"
+                      data-testid={`button-vat-reg-${opt.key}`}
+                      onClick={() => setVatRegStatus(opt.key as typeof vatRegStatus)}
+                      className={`rounded-xl border-2 p-3 text-right text-xs transition-all ${
+                        selected
+                          ? "border-[#2563EB] bg-white shadow-sm"
+                          : "border-neutral-200 bg-white hover:border-neutral-300"
+                      }`}
+                    >
+                      <p className="font-bold text-neutral-900">{opt.label}</p>
+                      <p className="mt-1 text-[10px] text-neutral-500">{opt.sub}</p>
+                    </button>
+                  );
+                })}
+              </div>
+              {vatRegStatus !== "not_registered" && (
+                <div className="mt-3">
+                  <label className="block text-xs font-bold text-neutral-700">
+                    الرقم الضريبي (15 رقمًا)
+                  </label>
+                  <input
+                    value={vatNumber}
+                    onChange={(e) => setVatNumber(e.target.value)}
+                    placeholder="3xxxxxxxxxxxxxxx"
+                    inputMode="numeric"
+                    data-testid="input-vat-number"
+                    className="mt-1 w-full rounded-lg border border-neutral-200 bg-white p-2 text-sm font-mono focus:border-[#2563EB] focus:outline-none"
+                  />
+                </div>
+              )}
+              {vatRegStatus === "not_registered" && (
+                <p className="mt-2 text-[11px] text-neutral-600">
+                  سيتم إخفاء حقول الضريبة من الفواتير ونقطة البيع، وعرض عدّاد تذكير عند الاقتراب من الحد الإلزامي.
+                </p>
+              )}
             </div>
 
             <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
@@ -489,8 +545,23 @@ export default function OnboardingWizard() {
             <Button
               size="lg"
               onClick={() => {
-                if (step < 3) setStep((step + 1) as 1 | 2 | 3);
-                else setLocation("/");
+                if (step < 3) {
+                  setStep((step + 1) as 1 | 2 | 3);
+                  return;
+                }
+                // Persist VAT registration choice before finishing.
+                void fetch(`${import.meta.env.BASE_URL}api/vat/registration`, {
+                  method: "PATCH",
+                  credentials: "include",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    status: vatRegStatus,
+                    vatNumber:
+                      vatRegStatus === "not_registered"
+                        ? null
+                        : vatNumber || null,
+                  }),
+                }).finally(() => setLocation("/"));
               }}
               className="h-12 bg-neutral-900 px-6 font-bold text-white shadow-lg shadow-neutral-900/20 hover:bg-neutral-800"
               data-testid="button-next"

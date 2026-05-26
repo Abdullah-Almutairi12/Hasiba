@@ -31,6 +31,22 @@ export const companiesTable = pgTable("companies", {
   logoUrl: text("logo_url"),
   address: jsonb("address").notNull().default({}),
   isActive: boolean("is_active").notNull().default(true),
+  /**
+   * ZATCA VAT registration status. Drives whether the system surfaces
+   * VAT inputs/columns, prints VAT lines + QR on invoices and counts
+   * VAT in journal entries.
+   *   - `registered`     — mandatorily VAT-registered (≥ 375K SAR / year).
+   *   - `voluntary`      — voluntarily registered (187.5K–375K).
+   *   - `not_registered` — below voluntary threshold; VAT UI hidden.
+   * Default `registered` for backward compatibility with existing tenants.
+   */
+  vatRegistrationStatus: text("vat_registration_status").notNull().default("registered"),
+  /** Effective date of the company's VAT registration certificate. */
+  vatRegistrationDate: timestamp("vat_registration_date"),
+  /** Last time we emitted the 80%-of-threshold near-mandatory alert. */
+  vatThreshold80AlertedAt: timestamp("vat_threshold_80_alerted_at"),
+  /** Last time we emitted the 100%-of-threshold mandatory alert. */
+  vatThreshold100AlertedAt: timestamp("vat_threshold_100_alerted_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });

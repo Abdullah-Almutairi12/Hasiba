@@ -10,6 +10,22 @@ import { logger } from "./logger";
  * separate migration step.
  */
 export async function initCleanupReportDelivery(): Promise<void> {
+  // Guard: skip cleanly if the parent `cleanup_report_sends` table
+  // hasn't been created yet on this database (fresh dev environments,
+  // schema not yet pushed). The subsequent DDL is idempotent and will
+  // re-run on the next boot once the table exists.
+  const { rows: parent } = await pool.query<{ exists: boolean }>(
+    `SELECT EXISTS (
+       SELECT 1 FROM information_schema.tables
+        WHERE table_name = 'cleanup_report_sends'
+     ) AS exists`,
+  );
+  if (!parent[0]?.exists) {
+    logger.warn(
+      "cleanup_report_sends not present — skipping cleanup-report-delivery init",
+    );
+    return;
+  }
   await pool.query(`
     ALTER TABLE cleanup_report_sends
       ADD COLUMN IF NOT EXISTS message_id text;

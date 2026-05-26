@@ -11,6 +11,19 @@
     "close": "Close",
     "language": "Language"
   },
+  "vat": {
+    "card_title": "VAT Status (ZATCA)",
+    "status_registered": "Mandatory registration",
+    "status_voluntary": "Voluntary registration",
+    "status_not_registered": "Not registered",
+    "rolling_label": "Last 12-month sales",
+    "of_mandatory": "of mandatory threshold",
+    "near80_warning": "Approaching the mandatory threshold — prepare to register.",
+    "mandatory_warning": "Mandatory threshold crossed — you must register with ZATCA within 30 days.",
+    "start_registration": "Start registration",
+    "update_status": "Update status",
+    "vat_number": "VAT number (15 digits)"
+  },
   "nav": {
     "dashboard": "Dashboard",
     "pos": "Point of Sale",

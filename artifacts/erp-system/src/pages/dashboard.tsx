@@ -32,6 +32,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
+import { VatThresholdCard } from "@/components/vat-threshold-card";
 import { 
   ArrowUpRight, 
   ArrowDownRight, 
@@ -534,6 +535,11 @@ export default function Dashboard() {
           </Button>
         </div>
       </div>
+
+      {/* ZATCA SMB threshold counter — visible to all roles that can see /dashboard */}
+      <motion.div variants={itemVariants} data-testid="vat-threshold-card">
+        <VatThresholdCard />
+      </motion.div>
 
       {/* KPIs */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
