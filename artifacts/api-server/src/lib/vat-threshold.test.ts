@@ -7,6 +7,8 @@ import {
   posOrdersTable,
   posOrderPaymentsTable,
   branchesTable,
+  customersTable,
+  customerInvoicesTable,
 } from "@workspace/db";
 import { eq, inArray } from "drizzle-orm";
 import {
@@ -59,6 +61,10 @@ beforeAll(async () => {
 afterAll(async () => {
   await db.delete(posOrdersTable).where(eq(posOrdersTable.sessionId, sessionId));
   await db.delete(posSessionsTable).where(eq(posSessionsTable.id, sessionId));
+  await db
+    .delete(customerInvoicesTable)
+    .where(inArray(customerInvoicesTable.reference, [`${TAG}-inv-pos`, `${TAG}-inv-man`]));
+  await db.delete(customersTable).where(eq(customersTable.companyId, companyId));
   await db.delete(branchesTable).where(inArray(branchesTable.id, [branchId]));
   await db.delete(companiesTable).where(eq(companiesTable.id, companyId));
 });
@@ -134,5 +140,54 @@ describe("vat-threshold service", () => {
   it("exports correct threshold constants", () => {
     expect(VAT_MANDATORY_THRESHOLD_SAR).toBe(375_000);
     expect(VAT_VOLUNTARY_THRESHOLD_SAR).toBe(187_500);
+  });
+
+  it("snapshot echoes mandatory + voluntary thresholds per OpenAPI", async () => {
+    const snap = await getVatThresholdSnapshot(companyId);
+    expect(snap.mandatoryThreshold).toBe(VAT_MANDATORY_THRESHOLD_SAR);
+    expect(snap.voluntaryThreshold).toBe(VAT_VOLUNTARY_THRESHOLD_SAR);
+  });
+
+  it("does NOT double-count POS-mirrored customer_invoices (source='pos')", async () => {
+    // POS-origin invoices are mirrors of pos_orders and must be excluded
+    // from the customer_invoices half of the sum, else the same revenue
+    // would inflate the rolling counter twice.
+    const baseline = await computeRolling12mSales(companyId);
+    const [cust] = await db
+      .insert(customersTable)
+      .values({ name: `${TAG}-cust`, companyId })
+      .returning({ id: customersTable.id });
+    await db.insert(customerInvoicesTable).values({
+      reference: `${TAG}-inv-pos`,
+      customerId: cust.id,
+      customerName: `${TAG}-cust`,
+      branchId,
+      invoiceDate: new Date().toISOString().slice(0, 10),
+      subtotal: "50000",
+      discount: "0",
+      vat: "7500",
+      total: "57500",
+      status: "open",
+      source: "pos",
+    });
+    const after = await computeRolling12mSales(companyId);
+    expect(after).toBe(baseline);
+
+    // Sanity: a non-POS (manual) invoice IS included.
+    await db.insert(customerInvoicesTable).values({
+      reference: `${TAG}-inv-man`,
+      customerId: cust.id,
+      customerName: `${TAG}-cust`,
+      branchId,
+      invoiceDate: new Date().toISOString().slice(0, 10),
+      subtotal: "10000",
+      discount: "0",
+      vat: "1500",
+      total: "11500",
+      status: "open",
+      source: "manual",
+    });
+    const afterManual = await computeRolling12mSales(companyId);
+    expect(afterManual).toBe(baseline + 10_000);
   });
 });

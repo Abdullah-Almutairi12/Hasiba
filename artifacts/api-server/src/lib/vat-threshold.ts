@@ -33,6 +33,9 @@ export interface VatThresholdSnapshot {
   eligibleVoluntary: boolean;
   /** SAR remaining until mandatory threshold (≥ 0; 0 when crossed). */
   remainingToMandatory: number;
+  /** Echo of the constants — included in the API response per OpenAPI. */
+  mandatoryThreshold: number;
+  voluntaryThreshold: number;
   /** UTC ISO timestamp of the calculation. */
   computedAt: string;
   vatNumber: string | null;
@@ -66,6 +69,11 @@ export async function computeRolling12mSales(companyId: number): Promise<number>
   // are created with branchId=null and a branch-join would drop them.
   // Statuses to include match the AR lifecycle in lib/db/src/schema/sales.ts:
   // draft → open → (partially_paid | paid). `cancelled` is excluded.
+  //
+  // IMPORTANT: exclude `source='pos'` — every POS order already inserts
+  // a mirrored customer_invoices row (see routes/pos.ts), so summing
+  // both tables would double-count POS-origin revenue and trigger
+  // premature 80%/100% threshold alerts.
   const [invRow] = await db
     .select({
       net: sql<string>`COALESCE(SUM(${customerInvoicesTable.subtotal} - ${customerInvoicesTable.discount}), 0)::text`,
@@ -77,6 +85,7 @@ export async function computeRolling12mSales(companyId: number): Promise<number>
         eq(customersTable.companyId, companyId),
         gte(customerInvoicesTable.createdAt, oneYearAgo),
         sql`${customerInvoicesTable.status} IN ('open','partially_paid','paid')`,
+        sql`${customerInvoicesTable.source} <> 'pos'`,
       ),
     );
 
@@ -114,6 +123,8 @@ export async function getVatThresholdSnapshot(companyId: number): Promise<VatThr
     crossedMandatory: sales >= VAT_MANDATORY_THRESHOLD_SAR,
     eligibleVoluntary: sales >= VAT_VOLUNTARY_THRESHOLD_SAR,
     remainingToMandatory: Math.max(0, round2(VAT_MANDATORY_THRESHOLD_SAR - sales)),
+    mandatoryThreshold: VAT_MANDATORY_THRESHOLD_SAR,
+    voluntaryThreshold: VAT_VOLUNTARY_THRESHOLD_SAR,
     computedAt: new Date().toISOString(),
     vatNumber: company.vatNumber ?? null,
     vatRegistrationDate: company.vatRegistrationDate

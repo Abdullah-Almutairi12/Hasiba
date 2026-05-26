@@ -7,8 +7,6 @@ import { recordAudit } from "../lib/audit";
 import { getCompanyId } from "../lib/scoped-db";
 import {
   getVatThresholdSnapshot,
-  VAT_MANDATORY_THRESHOLD_SAR,
-  VAT_VOLUNTARY_THRESHOLD_SAR,
   type VatRegistrationStatus,
 } from "../lib/vat-threshold";
 import { evaluateAndEmit } from "../lib/vat-threshold-sweep";
@@ -33,11 +31,7 @@ router.get("/vat/status", async (req, res) => {
   try {
     const companyId = getCompanyId(req);
     const snap = await getVatThresholdSnapshot(companyId);
-    res.json({
-      ...snap,
-      mandatoryThreshold: VAT_MANDATORY_THRESHOLD_SAR,
-      voluntaryThreshold: VAT_VOLUNTARY_THRESHOLD_SAR,
-    });
+    res.json(snap);
   } catch (err) {
     req.log.error({ err }, "GET /vat/status failed");
     handleRouteError(err, res);
