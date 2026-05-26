@@ -3447,6 +3447,47 @@ export const UpdateVatRegistrationResponse = zod.object({
 });
 
 /**
+ * @summary Quarterly VAT return (JSON or PDF) for the current tenant
+ */
+export const getVatReturnQueryQuarterMax = 4;
+
+export const getVatReturnQueryFormatDefault = `json`;
+
+export const GetVatReturnQueryParams = zod.object({
+  year: zod.coerce.number(),
+  quarter: zod.coerce.number().min(1).max(getVatReturnQueryQuarterMax),
+  format: zod.enum(["json", "pdf"]).default(getVatReturnQueryFormatDefault),
+});
+
+export const getVatReturnResponseQuarterMax = 4;
+
+export const GetVatReturnResponse = zod.object({
+  companyId: zod.number(),
+  companyName: zod.string(),
+  vatNumber: zod.string().nullish(),
+  year: zod.number(),
+  quarter: zod.number().min(1).max(getVatReturnResponseQuarterMax),
+  periodStart: zod.string(),
+  periodEnd: zod.string(),
+  supplies: zod.object({
+    standardRated: zod.number(),
+    zeroRated: zod.number(),
+    exempt: zod.number(),
+  }),
+  outputVat: zod.object({
+    pos: zod.number(),
+    customerInvoices: zod.number(),
+    total: zod.number(),
+  }),
+  inputVat: zod.object({
+    fromJournals: zod.number(),
+    total: zod.number(),
+  }),
+  netPayable: zod.number(),
+  generatedAt: zod.string(),
+});
+
+/**
  * @summary Manually sweep the rolling 12m threshold and emit alerts if crossed
  */
 export const RunVatThresholdCheckResponse = zod.object({

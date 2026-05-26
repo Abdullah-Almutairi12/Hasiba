@@ -125,6 +125,7 @@ import type {
   GetSalesReportParams,
   GetSupplier200,
   GetTrialBalanceParams,
+  GetVatReturnParams,
   HealthStatus,
   ImportBankStatementBody,
   InboxItem,
@@ -223,6 +224,7 @@ import type {
   UpsertFinancialLimitBody,
   User,
   UserCompany,
+  VatReturnResponse,
   VatStatusResponse,
   Warehouse,
   ZatcaStatus,
@@ -13599,6 +13601,100 @@ export const useUpdateVatRegistration = <
 > => {
   return useMutation(getUpdateVatRegistrationMutationOptions(options));
 };
+
+/**
+ * @summary Quarterly VAT return (JSON or PDF) for the current tenant
+ */
+export const getGetVatReturnUrl = (params: GetVatReturnParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/vat/return?${stringifiedParams}`
+    : `/api/vat/return`;
+};
+
+export const getVatReturn = async (
+  params: GetVatReturnParams,
+  options?: RequestInit,
+): Promise<VatReturnResponse | Blob> => {
+  return customFetch<VatReturnResponse | Blob>(getGetVatReturnUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetVatReturnQueryKey = (params?: GetVatReturnParams) => {
+  return [`/api/vat/return`, ...(params ? [params] : [])] as const;
+};
+
+export const getGetVatReturnQueryOptions = <
+  TData = Awaited<ReturnType<typeof getVatReturn>>,
+  TError = ErrorType<unknown>,
+>(
+  params: GetVatReturnParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getVatReturn>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetVatReturnQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getVatReturn>>> = ({
+    signal,
+  }) => getVatReturn(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getVatReturn>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetVatReturnQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getVatReturn>>
+>;
+export type GetVatReturnQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Quarterly VAT return (JSON or PDF) for the current tenant
+ */
+
+export function useGetVatReturn<
+  TData = Awaited<ReturnType<typeof getVatReturn>>,
+  TError = ErrorType<unknown>,
+>(
+  params: GetVatReturnParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getVatReturn>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetVatReturnQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
 
 /**
  * @summary Manually sweep the rolling 12m threshold and emit alerts if crossed

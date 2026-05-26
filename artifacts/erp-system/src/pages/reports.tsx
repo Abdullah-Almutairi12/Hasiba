@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { Money } from "@/components/riyal";
+import { VatReturnCard } from "@/components/vat-return-card";
+import { useVatEnabled } from "@/hooks/use-vat-status";
 import {
   useGetAiReportSummary,
   useGetTopProducts,
@@ -54,7 +56,13 @@ import {
   FileBadge,
   FileCode2,
   Plus,
+  FileText,
 } from "lucide-react";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { format } from "date-fns";
 import { arSA } from "date-fns/locale";
 
@@ -146,6 +154,29 @@ function fraudIcon(type?: string) {
   if (type.includes("خصم") || type.includes("Discount")) return Percent;
   if (type.includes("مخزون") || type.includes("جرد")) return Box;
   return Ban;
+}
+
+function VatReturnHeaderButton() {
+  const enabled = useVatEnabled();
+  if (!enabled) return null;
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-9 gap-2 border-neutral-200 text-neutral-700"
+          data-testid="button-vat-return-trigger"
+        >
+          <FileText className="size-4" />
+          إقرار VAT
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-80 p-0">
+        <VatReturnCard />
+      </PopoverContent>
+    </Popover>
+  );
 }
 
 function FinancialStatementsSection() {
@@ -910,6 +941,7 @@ export default function Reports() {
 
           <ExportMenu />
 
+          <VatReturnHeaderButton />
 
           <Button className="grid size-9 place-items-center rounded-lg bg-[#2563EB] p-0 text-white shadow hover:bg-[#1D4ED8]">
             <CalendarPlus className="size-4" />

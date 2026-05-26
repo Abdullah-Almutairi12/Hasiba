@@ -29,6 +29,42 @@ export interface VatStatusResponse {
   vatRegistrationDate?: string | null;
 }
 
+export type VatReturnResponseSupplies = {
+  standardRated: number;
+  zeroRated: number;
+  exempt: number;
+};
+
+export type VatReturnResponseOutputVat = {
+  pos: number;
+  customerInvoices: number;
+  total: number;
+};
+
+export type VatReturnResponseInputVat = {
+  fromJournals: number;
+  total: number;
+};
+
+export interface VatReturnResponse {
+  companyId: number;
+  companyName: string;
+  vatNumber?: string | null;
+  year: number;
+  /**
+   * @minimum 1
+   * @maximum 4
+   */
+  quarter: number;
+  periodStart: string;
+  periodEnd: string;
+  supplies: VatReturnResponseSupplies;
+  outputVat: VatReturnResponseOutputVat;
+  inputVat: VatReturnResponseInputVat;
+  netPayable: number;
+  generatedAt: string;
+}
+
 export type UpdateVatRegistrationRequestStatus =
   (typeof UpdateVatRegistrationRequestStatus)[keyof typeof UpdateVatRegistrationRequestStatus];
 
@@ -2654,6 +2690,24 @@ export type UpdateVatRegistration200 = {
   vatNumber?: string | null;
   vatRegistrationDate?: string | null;
 };
+
+export type GetVatReturnParams = {
+  year: number;
+  /**
+   * @minimum 1
+   * @maximum 4
+   */
+  quarter: number;
+  format?: GetVatReturnFormat;
+};
+
+export type GetVatReturnFormat =
+  (typeof GetVatReturnFormat)[keyof typeof GetVatReturnFormat];
+
+export const GetVatReturnFormat = {
+  json: "json",
+  pdf: "pdf",
+} as const;
 
 export type RunVatThresholdCheck200AlertEmitted =
   | (typeof RunVatThresholdCheck200AlertEmitted)[keyof typeof RunVatThresholdCheck200AlertEmitted]

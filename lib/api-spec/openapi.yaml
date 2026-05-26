@@ -3443,6 +3443,33 @@ paths:
                   vatRegistrationDate: { type: string, nullable: true }
                 required: [id, vatRegistrationStatus]
 
+  /vat/return:
+    get:
+      tags: [companies]
+      operationId: getVatReturn
+      summary: Quarterly VAT return (JSON or PDF) for the current tenant
+      parameters:
+        - in: query
+          name: year
+          required: true
+          schema: { type: integer }
+        - in: query
+          name: quarter
+          required: true
+          schema: { type: integer, minimum: 1, maximum: 4 }
+        - in: query
+          name: format
+          required: false
+          schema: { type: string, enum: [json, pdf], default: json }
+      responses:
+        "200":
+          description: VAT return
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/VatReturnResponse" }
+            application/pdf:
+              schema: { type: string, format: binary }
+
   /vat/threshold/check:
     post:
       tags: [companies]
@@ -3483,6 +3510,41 @@ components:
         vatNumber: { type: string, nullable: true }
         vatRegistrationDate: { type: string, nullable: true }
       required: [status, rolling12mSales, percentOfMandatory, near80, crossedMandatory, eligibleVoluntary, remainingToMandatory, mandatoryThreshold, voluntaryThreshold, computedAt]
+    VatReturnResponse:
+      type: object
+      properties:
+        companyId: { type: integer }
+        companyName: { type: string }
+        vatNumber: { type: string, nullable: true }
+        year: { type: integer }
+        quarter: { type: integer, minimum: 1, maximum: 4 }
+        periodStart: { type: string }
+        periodEnd: { type: string }
+        supplies:
+          type: object
+          properties:
+            standardRated: { type: number }
+            zeroRated: { type: number }
+            exempt: { type: number }
+          required: [standardRated, zeroRated, exempt]
+        outputVat:
+          type: object
+          properties:
+            pos: { type: number }
+            customerInvoices: { type: number }
+            total: { type: number }
+          required: [pos, customerInvoices, total]
+        inputVat:
+          type: object
+          properties:
+            fromJournals: { type: number }
+            total: { type: number }
+          required: [fromJournals, total]
+        netPayable: { type: number }
+        generatedAt: { type: string }
+      required:
+        [companyId, companyName, year, quarter, periodStart, periodEnd,
+         supplies, outputVat, inputVat, netPayable, generatedAt]
     UpdateVatRegistrationRequest:
       type: object
       properties:

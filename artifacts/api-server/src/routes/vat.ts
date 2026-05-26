@@ -10,7 +10,10 @@ import {
   type VatRegistrationStatus,
 } from "../lib/vat-threshold";
 import { evaluateAndEmit } from "../lib/vat-threshold-sweep";
-import { requireRole } from "../middlewares/require-role";
+import { computeVatReturn } from "../lib/vat-return";
+import { buildVatReturnPdf } from "../lib/pdf/vat-return";
+import { getCompanyInfo } from "../lib/pdf/purchase-order";
+import { requireRole, financeGuard } from "../middlewares/require-role";
 
 const router = Router();
 
@@ -120,6 +123,42 @@ router.post(
     }
   },
 );
+
+/**
+ * GET /vat/return?year=YYYY&quarter=1..4[&format=pdf]
+ *
+ * Quarterly VAT return for the current tenant. Returns JSON by
+ * default; `format=pdf` streams the Arabic-shaped PDF intended for
+ * upload to ZATCA's portal or to keep as the official filing record.
+ */
+const VatReturnQuery = z.object({
+  year: z.coerce.number().int().min(2000).max(2100),
+  quarter: z.coerce.number().int().min(1).max(4),
+  format: z.enum(["json", "pdf"]).optional().default("json"),
+});
+
+router.get("/vat/return", financeGuard, async (req, res) => {
+  try {
+    const companyId = getCompanyId(req);
+    const { year, quarter, format } = VatReturnQuery.parse(req.query);
+    const q = quarter as 1 | 2 | 3 | 4;
+    const vr = await computeVatReturn(companyId, year, q);
+    if (format === "pdf") {
+      const buf = await buildVatReturnPdf(vr, await getCompanyInfo());
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader(
+        "Content-Disposition",
+        `inline; filename="vat-return-${year}-Q${q}.pdf"`,
+      );
+      res.send(buf);
+      return;
+    }
+    res.json(vr);
+  } catch (err) {
+    req.log.error({ err }, "GET /vat/return failed");
+    handleRouteError(err, res);
+  }
+});
 
 // Re-export the status type so importers (e.g. tests) can use it.
 export type { VatRegistrationStatus };

@@ -33,6 +33,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { VatThresholdCard } from "@/components/vat-threshold-card";
+import { VatReturnCard } from "@/components/vat-return-card";
 import { 
   ArrowUpRight, 
   ArrowDownRight, 
@@ -539,6 +540,11 @@ export default function Dashboard() {
       {/* ZATCA SMB threshold counter — visible to all roles that can see /dashboard */}
       <motion.div variants={itemVariants} data-testid="vat-threshold-card">
         <VatThresholdCard />
+      </motion.div>
+
+      {/* Quarterly ZATCA VAT-return PDF — auto-hidden for non-registered tenants */}
+      <motion.div variants={itemVariants}>
+        <VatReturnCard />
       </motion.div>
 
       {/* KPIs */}
