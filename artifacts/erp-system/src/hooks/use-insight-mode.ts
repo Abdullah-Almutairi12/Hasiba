@@ -2,14 +2,11 @@ import { useCallback, useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   updateMyPreferences,
+  useGetMyPreferences,
+  getGetMyPreferencesQueryKey,
 } from "@workspace/api-client-react";
-import { ME_KEY, type AuthUser } from "./use-auth";
 
 const STORAGE_KEY = "hasba.insight-mode";
-
-type CachedUser = AuthUser & {
-  adminPrefs?: { insightMode?: boolean } | null;
-};
 
 function readLocal(): boolean {
   if (typeof window === "undefined") return false;
@@ -19,14 +16,21 @@ function readLocal(): boolean {
 /**
  * Task #259 — per-user "Insight Mode". When ON, components that opt
  * in (e.g. <InsightAlert>) reframe warning copy into opportunity tone
- * (teal). Persists to `users.admin_prefs.insightMode` via
- * `PATCH /users/me/preferences`; localStorage mirror gives an
- * optimistic first paint before /auth/me resolves.
+ * (teal). Source of truth is the server (`users.admin_prefs.insightMode`)
+ * via `GET /users/me/preferences`; localStorage is a transient
+ * pre-hydration mirror so the first paint isn't a flash of the wrong
+ * mode while the network round-trip resolves.
  */
 export function useInsightMode() {
   const qc = useQueryClient();
-  const cached = qc.getQueryData<CachedUser | null>(ME_KEY) ?? null;
-  const serverFlag = cached?.adminPrefs?.insightMode;
+  const { data: prefs } = useGetMyPreferences({
+    query: {
+      queryKey: getGetMyPreferencesQueryKey(),
+      staleTime: 60_000,
+      refetchOnWindowFocus: false,
+    },
+  });
+  const serverFlag = prefs?.adminPrefs?.insightMode;
   const [enabled, setEnabled] = useState<boolean>(
     typeof serverFlag === "boolean" ? serverFlag : readLocal(),
   );
@@ -46,30 +50,15 @@ export function useInsightMode() {
       if (typeof window !== "undefined") {
         window.localStorage.setItem(STORAGE_KEY, next ? "1" : "0");
       }
-      // Optimistic adminPrefs patch on the cached /auth/me object so
-      // any consumer reading the cache (header pill, settings tab)
-      // re-renders without waiting for a refetch round-trip.
-      qc.setQueryData<CachedUser | null>(ME_KEY, (old) =>
-        old
-          ? {
-              ...old,
-              adminPrefs: { ...(old.adminPrefs ?? {}), insightMode: next },
-            }
-          : old,
-      );
       try {
         await updateMyPreferences({ insightMode: next });
+        // Invalidate the canonical server cache so other mounted
+        // useInsightMode consumers reflect the latest value.
+        void qc.invalidateQueries({
+          queryKey: getGetMyPreferencesQueryKey(),
+        });
       } catch {
-        // Roll back on failure.
         setEnabled(!next);
-        qc.setQueryData<CachedUser | null>(ME_KEY, (old) =>
-          old
-            ? {
-                ...old,
-                adminPrefs: { ...(old.adminPrefs ?? {}), insightMode: !next },
-              }
-            : old,
-        );
       }
     },
     [qc],

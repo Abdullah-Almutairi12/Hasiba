@@ -75,16 +75,34 @@ router.get("/security/checklist", async (_req, res) => {
 // ============================================================
 // Audit log read + per-user audit consent redaction (Task #259).
 //
-// Owners bypass redaction (they can see everything by design — they
-// are accountable for the company). Every other viewer sees rows
-// redacted per the ACTOR's stored `auditConsent`:
-//   - salesDetails=false → monetary figures stripped from `details`
-//   - customerPii=false  → `userName` replaced + emails/phones stripped
-//   - locationContext=false → `ipAddress` nulled
+// Consent is DATA-SUBJECT based: the user whose data appears in a row
+// is the one whose `auditConsent` governs visibility for non-owner
+// viewers. We resolve subjectUserId as follows:
+//   1. If `entity` is of the form `user#<N>`, the subject is user N
+//      (e.g. login/profile/security events targeting that user).
+//   2. Otherwise the subject defaults to `row.userId` — the actor —
+//      because an action row reflects that actor's own activity, and
+//      their `auditConsent` is the most direct expression of how they
+//      want their workflow surfaced to teammates.
 //
+// Owners bypass redaction (they are accountable for the company).
 // Redaction is read-time only; the underlying audit_logs row is
 // preserved verbatim, so the audit chain itself is never tampered with.
+//
+// Non-audit reads (customers, invoices, etc.) intentionally remain
+// outside this scope: `auditConsent` is keyed on USERS, not on
+// customer/invoice records, so attempting to redact arbitrary reads
+// based on per-user toggles would be semantically wrong. See follow-up
+// task #260 for a per-customer privacy model if that becomes needed.
 // ============================================================
+const USER_ENTITY_RE = /^user#(\d+)/;
+function subjectIdForRow(
+  row: typeof auditLogsTable.$inferSelect,
+): number | null {
+  const m = row.entity ? USER_ENTITY_RE.exec(row.entity) : null;
+  if (m) return Number(m[1]);
+  return typeof row.userId === "number" ? row.userId : null;
+}
 
 const REDACTED = "—";
 const MONEY_RE = /\b\d{1,3}(?:[,\u066c]\d{3})+(?:[.\u066b]\d+)?|\b\d+(?:[.\u066b]\d+)?\s?(?:ر\.س|ريال|SAR)\b/giu;
@@ -141,22 +159,30 @@ router.get("/security/audit-logs", auditReadGuard, async (req, res) => {
       return;
     }
 
-    // Load consents for all distinct actors in a single round-trip.
-    const actorIds = [
-      ...new Set(rows.map((r) => r.userId).filter((id): id is number => typeof id === "number")),
+    // Load consents for all distinct DATA SUBJECTS (not actors) in a
+    // single round-trip.
+    const subjectIds = [
+      ...new Set(
+        rows.map(subjectIdForRow).filter((id): id is number => id !== null),
+      ),
     ];
     const consentByUserId = new Map<number, AuditConsent | undefined>();
-    if (actorIds.length > 0) {
+    if (subjectIds.length > 0) {
       const consentRows = await db
         .select({ id: usersTable.id, adminPrefs: usersTable.adminPrefs })
         .from(usersTable)
-        .where(inArray(usersTable.id, actorIds));
+        .where(inArray(usersTable.id, subjectIds));
       for (const cr of consentRows) {
         consentByUserId.set(cr.id, cr.adminPrefs?.auditConsent);
       }
     }
 
-    res.json(rows.map((r) => redactRow(r, r.userId ? consentByUserId.get(r.userId) : undefined)));
+    res.json(
+      rows.map((r) => {
+        const sid = subjectIdForRow(r);
+        return redactRow(r, sid !== null ? consentByUserId.get(sid) : undefined);
+      }),
+    );
   } catch (err) {
     req.log.error({ err }, "Error fetching audit logs");
     res.status(500).json({ error: "Internal server error" });
@@ -203,31 +229,13 @@ router.get(
         .orderBy(desc(auditLogsTable.createdAt))
         .limit(50);
 
-      const viewerRole = req.session?.role;
-      if (viewerRole === "owner") {
-        res.json(
-          rows.map((r) => ({ ...r, createdAt: r.createdAt.toISOString() })),
-        );
-        return;
-      }
-
-      const actorIds = [
-        ...new Set(rows.map((r) => r.userId).filter((id): id is number => typeof id === "number")),
-      ];
-      const consentByUserId = new Map<number, AuditConsent | undefined>();
-      if (actorIds.length > 0) {
-        const consentRows = await db
-          .select({ id: usersTable.id, adminPrefs: usersTable.adminPrefs })
-          .from(usersTable)
-          .where(inArray(usersTable.id, actorIds));
-        for (const cr of consentRows) {
-          consentByUserId.set(cr.id, cr.adminPrefs?.auditConsent);
-        }
-      }
+      // On /security/audit-access the viewer IS the data subject by
+      // construction (the WHERE filters to rows touching their data),
+      // so no consent redaction applies — they're reading their own
+      // privacy ledger. The same row, read on /security/audit-logs by
+      // a teammate, IS redacted by the viewer's consent there.
       res.json(
-        rows.map((r) =>
-          redactRow(r, r.userId ? consentByUserId.get(r.userId) : undefined),
-        ),
+        rows.map((r) => ({ ...r, createdAt: r.createdAt.toISOString() })),
       );
     } catch (err) {
       req.log.error({ err }, "Error fetching audit access ledger");
