@@ -12,6 +12,7 @@ export async function initVatRegistration(): Promise<void> {
     ALTER TABLE companies
       ADD COLUMN IF NOT EXISTS vat_registration_status text NOT NULL DEFAULT 'registered',
       ADD COLUMN IF NOT EXISTS vat_registration_date timestamp,
+      ADD COLUMN IF NOT EXISTS vat_deregistration_date timestamp,
       ADD COLUMN IF NOT EXISTS vat_threshold_80_alerted_at timestamp,
       ADD COLUMN IF NOT EXISTS vat_threshold_100_alerted_at timestamp;
   `);

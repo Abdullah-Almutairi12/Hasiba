@@ -43,6 +43,7 @@ export const companiesTable = pgTable("companies", {
   vatRegistrationStatus: text("vat_registration_status").notNull().default("registered"),
   /** Effective date of the company's VAT registration certificate. */
   vatRegistrationDate: timestamp("vat_registration_date"),
+  vatDeregistrationDate: timestamp("vat_deregistration_date"),
   /** Last time we emitted the 80%-of-threshold near-mandatory alert. */
   vatThreshold80AlertedAt: timestamp("vat_threshold_80_alerted_at"),
   /** Last time we emitted the 100%-of-threshold mandatory alert. */

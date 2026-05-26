@@ -211,6 +211,17 @@ import("./lib/po-email-retry-worker")
     logger.error({ err }, "failed to start PO email retry worker"),
   );
 
+// ZATCA SMB threshold sweep — once/day, evaluates every not-registered
+// tenant's rolling-12-month sales and emits the 80%/100% in-app alert
+// + owner email at most once per crossing (debounced via
+// companies.vatThreshold{80,100}AlertedAt). Idempotent: a manual call
+// to POST /vat/threshold/check uses the same `evaluateAndEmit` helper.
+import("./lib/vat-threshold-sweep")
+  .then((m) => m.startVatThresholdWorker())
+  .catch((err) =>
+    logger.error({ err }, "failed to start VAT threshold sweep worker"),
+  );
+
 // Nightly intercompany imbalance scan. Walks every connected company
 // group reachable through intercompany_links and refreshes the
 // imbalance review queue so finance walks in to an already-curated

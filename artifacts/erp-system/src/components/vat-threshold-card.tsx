@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import {
@@ -57,6 +57,17 @@ export function VatThresholdCard() {
   const [open, setOpen] = useState(false);
   const [vatNumber, setVatNumber] = useState("");
   const [newStatus, setNewStatus] = useState<Status>("registered");
+
+  // Seed the dialog fields from the tenant's persisted status the
+  // first time data lands AND every time the dialog re-opens, so
+  // saving without touching the radio cannot silently overwrite the
+  // current registration status.
+  useEffect(() => {
+    if (data) {
+      setNewStatus((data.status as Status) ?? "registered");
+      setVatNumber(data.vatNumber ?? "");
+    }
+  }, [data, open]);
 
   const update = useUpdateVatRegistration({
     mutation: {
