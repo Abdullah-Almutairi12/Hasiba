@@ -34,7 +34,10 @@ import {
 import { logger } from "./logger";
 import { sendMail, isMailerConfigured } from "./mailer";
 import { resolveAppBaseUrl } from "./intercompany-imbalance-digest";
-import { readCleanupReportConfig } from "./alerts-cleanup-report-email";
+import {
+  readCleanupReportConfig,
+  type CleanupReportSuppression,
+} from "./alerts-cleanup-report-email";
 import { pool } from "@workspace/db";
 
 export interface BounceNotificationContext {
@@ -87,6 +90,104 @@ export function renderBounceNotification(
     `(السبب: ${reasonStr}). افتح سجل الإرسال #${ctx.sendId} في ` +
     `لوحة الإدارة للمراجعة.`;
   return { subject, body, alertTitle, alertMessage };
+}
+
+/**
+ * Task #226 — deep link to the cleanup-report cleanup / suppression
+ * section of the admin panel. Distinct from the per-send bounce deep
+ * link (which targets a specific send-history row) — the suppressions
+ * list is a separate panel, so we scroll to its anchor instead.
+ */
+export function buildSuppressionsDeepLink(): string {
+  const base = resolveAppBaseUrl();
+  const path = `/admin?tab=overview#cleanup-report-suppressions`;
+  return base ? `${base}${path}` : path;
+}
+
+/**
+ * Task #226 — render the "addresses were auto-quarantined" digest
+ * email. One email lists every address suppressed by a single call
+ * to `evaluateAndSuppressBouncedRecipients`, so a multi-bounce batch
+ * never fans out into a recipient-per-email storm.
+ */
+export function renderSuppressionsNotification(
+  suppressions: CleanupReportSuppression[],
+  deepLink: string,
+): { subject: string; body: string } {
+  const lines = suppressions.map((s) => {
+    const reason = s.lastReason ? s.lastReason : "غير محدد";
+    return `   • ${s.email} — ${s.bounceCount} ارتداد متتالي (آخر سبب: ${reason})`;
+  });
+  const subjectAddr =
+    suppressions.length === 1
+      ? suppressions[0]!.email
+      : `${suppressions.length} عناوين`;
+  const subject = `[تنبيه] تم إيقاف إرسال تقرير التنظيف إلى ${subjectAddr}`;
+  const intro =
+    suppressions.length === 1
+      ? `تم إيقاف إرسال تقرير تنظيف التنبيهات تلقائياً إلى العنوان التالي بعد تكرار الارتداد:`
+      : `تم إيقاف إرسال تقرير تنظيف التنبيهات تلقائياً إلى العناوين التالية بعد تكرار الارتداد:`;
+  const body =
+    `${intro}\n\n` +
+    `${lines.join("\n")}\n\n` +
+    `راجع القائمة وارفع الإيقاف يدوياً من لوحة الإدارة عند الحاجة:\n` +
+    `${deepLink}\n\n` +
+    `تم إرسال هذا التنبيه تلقائياً من نظام حاسبة.AI.\n`;
+  return { subject, body };
+}
+
+/**
+ * Task #226 — email admins the list of addresses that were just
+ * auto-quarantined.
+ *
+ * Debounce strategy: callers batch all bounce candidates from a single
+ * send (or sweep tick) into one `evaluateAndSuppressBouncedRecipients`
+ * call, which in turn calls this helper exactly once with the
+ * newly-suppressed subset. A multi-recipient bounce therefore produces
+ * exactly one digest email, not one per address.
+ *
+ * Best-effort: no-ops silently when no admin email is configured, when
+ * SMTP isn't configured, or when the list is empty. Failures are logged
+ * but never thrown — suppression bookkeeping must not regress because
+ * the notification path is flaky.
+ */
+export async function notifyAdminsOfCleanupReportSuppressions(
+  suppressions: CleanupReportSuppression[],
+): Promise<boolean> {
+  if (suppressions.length === 0) return false;
+  try {
+    const adminEmail = await loadAdminNotificationEmail();
+    if (!adminEmail) return false;
+    if (!isMailerConfigured()) return false;
+    const deepLink = buildSuppressionsDeepLink();
+    const { subject, body } = renderSuppressionsNotification(
+      suppressions,
+      deepLink,
+    );
+    const result = await sendMail({ to: adminEmail, subject, body });
+    if (!result.sent) {
+      logger.warn(
+        { reason: result.reason, adminEmail, count: suppressions.length },
+        "cleanup-report suppression-notify: admin email send failed",
+      );
+      return false;
+    }
+    logger.info(
+      {
+        adminEmail,
+        count: suppressions.length,
+        emails: suppressions.map((s) => s.email),
+      },
+      "cleanup-report suppression-notify: dispatched",
+    );
+    return true;
+  } catch (err) {
+    logger.error(
+      { err, count: suppressions.length },
+      "cleanup-report suppression-notify: dispatch failed",
+    );
+    return false;
+  }
 }
 
 async function loadAdminNotificationEmail(): Promise<string | null> {

@@ -24,6 +24,8 @@ const RUN_TAG = `vitest-bounce-notify-${Date.now()}`;
 let notifyAdminsOfCleanupReportBounce: typeof import("./cleanup-report-bounce-notify").notifyAdminsOfCleanupReportBounce;
 let renderBounceNotification: typeof import("./cleanup-report-bounce-notify").renderBounceNotification;
 let buildBounceDeepLink: typeof import("./cleanup-report-bounce-notify").buildBounceDeepLink;
+let renderSuppressionsNotification: typeof import("./cleanup-report-bounce-notify").renderSuppressionsNotification;
+let buildSuppressionsDeepLink: typeof import("./cleanup-report-bounce-notify").buildSuppressionsDeepLink;
 const createdSendIds: number[] = [];
 
 beforeAll(async () => {
@@ -48,8 +50,13 @@ beforeAll(async () => {
     "./cleanup-report-delivery-init"
   );
   await initCleanupReportDelivery();
-  ({ notifyAdminsOfCleanupReportBounce, renderBounceNotification, buildBounceDeepLink } =
-    await import("./cleanup-report-bounce-notify"));
+  ({
+    notifyAdminsOfCleanupReportBounce,
+    renderBounceNotification,
+    buildBounceDeepLink,
+    renderSuppressionsNotification,
+    buildSuppressionsDeepLink,
+  } = await import("./cleanup-report-bounce-notify"));
 });
 
 afterAll(async () => {
@@ -133,6 +140,59 @@ describe("renderBounceNotification", () => {
     expect(out.body).toContain("cleanup-report-send-42");
     expect(out.alertMessage).toContain("ghost@example.com");
     expect(out.alertTitle).toContain("ghost@example.com");
+  });
+});
+
+describe("buildSuppressionsDeepLink", () => {
+  it("targets the overview tab and the suppressions anchor", () => {
+    const link = buildSuppressionsDeepLink();
+    expect(link).toMatch(/\/admin\?[^#]*tab=overview/);
+    expect(link).toMatch(/#cleanup-report-suppressions$/);
+  });
+});
+
+describe("renderSuppressionsNotification", () => {
+  it("formats a single-recipient digest with bounce count, reason and deep link", () => {
+    const out = renderSuppressionsNotification(
+      [
+        {
+          email: "ghost@example.com",
+          suppressedAt: new Date().toISOString(),
+          bounceCount: 3,
+          lastReason: "mailbox_full",
+        },
+      ],
+      buildSuppressionsDeepLink(),
+    );
+    expect(out.subject).toContain("ghost@example.com");
+    expect(out.body).toContain("ghost@example.com");
+    expect(out.body).toContain("3");
+    expect(out.body).toContain("mailbox_full");
+    expect(out.body).toContain("#cleanup-report-suppressions");
+  });
+
+  it("collapses a multi-recipient batch into a single email listing every address", () => {
+    const out = renderSuppressionsNotification(
+      [
+        {
+          email: "a@example.com",
+          suppressedAt: new Date().toISOString(),
+          bounceCount: 3,
+          lastReason: "mailbox_full",
+        },
+        {
+          email: "b@example.com",
+          suppressedAt: new Date().toISOString(),
+          bounceCount: 4,
+          lastReason: null,
+        },
+      ],
+      "https://app.example/admin#cleanup-report-suppressions",
+    );
+    expect(out.subject).toContain("2 عناوين");
+    expect(out.body).toContain("a@example.com");
+    expect(out.body).toContain("b@example.com");
+    expect(out.body).toContain("غير محدد");
   });
 });
 

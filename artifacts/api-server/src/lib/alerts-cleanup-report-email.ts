@@ -394,6 +394,24 @@ export async function evaluateAndSuppressBouncedRecipients(
     },
     "cleanup report: auto-suppressed persistently bouncing recipients",
   );
+  // Task #226 — proactively email admins the moment new addresses are
+  // quarantined. One call → one digest email listing every fresh
+  // suppression, so a multi-bounce batch (e.g. a single send that
+  // tripped the threshold for several recipients at once) never fans
+  // out into a recipient-per-email storm. Lazy import to avoid the
+  // module cycle with `cleanup-report-bounce-notify.ts`, which itself
+  // imports `readCleanupReportConfig` from this module.
+  try {
+    const { notifyAdminsOfCleanupReportSuppressions } = await import(
+      "./cleanup-report-bounce-notify"
+    );
+    await notifyAdminsOfCleanupReportSuppressions(newSuppressions);
+  } catch (err) {
+    logger.warn(
+      { err },
+      "cleanup report: suppression admin-email dispatch failed",
+    );
+  }
   return newSuppressions;
 }
 
