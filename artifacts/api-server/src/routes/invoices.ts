@@ -4,7 +4,7 @@ import rateLimit from "express-rate-limit";
 import QRCode from "qrcode";
 import {
   db, invoicesTable, productsTable, categoriesTable, suppliersTable,
-  purchaseOrdersTable, purchaseOrderLinesTable,
+  purchaseOrdersTable, purchaseOrderLinesTable, companiesTable,
 } from "@workspace/db";
 import { inArray } from "drizzle-orm";
 import { postJournalEntry, reverseJournalEntry, ClosedPeriodError } from "../lib/journal-posting";
@@ -198,6 +198,24 @@ router.get("/invoices/:id/zatca-qr", invoiceReadGuard, async (req, res) => {
       .where(and(eq(invoicesTable.id, id), eq(invoicesTable.companyId, getCompanyId(req))));
     if (!invoice) return res.status(404).json({ error: "Not found" });
 
+    // VAT gating: a non-registered tenant must never emit a ZATCA QR
+    // (the QR carries a VAT amount + VAT registration number it does
+    // not legally hold). The UI keys off the 409 code to hide the
+    // ZATCA badge / download button.
+    const [companyRowQr] = await db
+      .select({ vatRegistrationStatus: companiesTable.vatRegistrationStatus })
+      .from(companiesTable)
+      .where(eq(companiesTable.id, getCompanyId(req)))
+      .limit(1);
+    if (
+      companyRowQr?.vatRegistrationStatus !== "registered" &&
+      companyRowQr?.vatRegistrationStatus !== "voluntary"
+    ) {
+      return res
+        .status(409)
+        .json({ error: "VAT registration required for ZATCA QR.", code: "VAT_NOT_REGISTERED" });
+    }
+
     const totalWithVat = Number(invoice.amount);
     // Phase 1 assumes a single-rate (15%) supplier invoice. For mixed-rate
     // invoices, the actual VAT amount must be persisted per invoice and used
@@ -374,8 +392,17 @@ router.get("/invoices/:id/pdf", invoiceReadGuard, async (req, res) => {
     // Build a ZATCA QR (Phase 1, TLV-base64) on the fly so the printed
     // copy is scannable. We back-calculate the VAT portion at 15% — the
     // same simplification used by /invoices/:id/zatca-qr above.
+    // VAT gating: skip QR entirely for non-registered tenants.
+    const [companyRowPdf] = await db
+      .select({ vatRegistrationStatus: companiesTable.vatRegistrationStatus })
+      .from(companiesTable)
+      .where(eq(companiesTable.id, companyId))
+      .limit(1);
+    const pdfVatEnabled =
+      companyRowPdf?.vatRegistrationStatus === "registered" ||
+      companyRowPdf?.vatRegistrationStatus === "voluntary";
     let qrDataUrl: string | null = null;
-    try {
+    if (pdfVatEnabled) try {
       const totalWithVat = Number(invoice.amount);
       const vatAmount = (totalWithVat * VAT_RATE) / (1 + VAT_RATE);
       const timestamp = invoice.createdAt
@@ -749,6 +776,26 @@ router.post("/invoices/from-scan", supplierInvoiceAgent, async (req, res) => {
       return res.status(400).json({ error: "بيانات الفاتورة غير صالحة.", details: err.issues });
     }
     return res.status(400).json({ error: "Bad request" });
+  }
+
+  // VAT gating: when the tenant is not VAT-registered, the supplier
+  // invoice cannot create a recoverable input-VAT position. The VAT
+  // portion is folded into the cost of goods (subtotal) so the AP
+  // credit and the Dr Inventory / GR-IR leg both match body.total, and
+  // no vat_input journal line is posted.
+  {
+    const [companyRowScan] = await db
+      .select({ vatRegistrationStatus: companiesTable.vatRegistrationStatus })
+      .from(companiesTable)
+      .where(eq(companiesTable.id, getCompanyId(req)))
+      .limit(1);
+    const vatEnabledScan =
+      companyRowScan?.vatRegistrationStatus === "registered" ||
+      companyRowScan?.vatRegistrationStatus === "voluntary";
+    if (!vatEnabledScan) {
+      body.subtotal = body.total;
+      body.vat = 0;
+    }
   }
 
   // Validate optional ISO date strings up front for clear 400 errors.

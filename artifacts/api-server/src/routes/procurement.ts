@@ -2,6 +2,7 @@ import { Router } from "express";
 import { z, ZodError } from "zod";
 import {
   db,
+  companiesTable,
   suppliersTable,
   invoicesTable,
   productsTable,
@@ -514,7 +515,18 @@ router.post("/procurement/rfqs/:id/award", procurementGuard, async (req, res) =>
 
       // Build PO directly from the awarded quote, honoring the
       // supplier's defaultTax/defaultCurrency where set.
-      const TAX_RATE = Number(supplier.defaultTax ?? 15);
+      // VAT gating: non-registered tenants can't deduct input VAT, so a
+      // PO can't accrue VAT either — force the rate to 0 regardless of
+      // what the supplier default says.
+      const [companyRowAward] = await tx
+        .select({ vatRegistrationStatus: companiesTable.vatRegistrationStatus })
+        .from(companiesTable)
+        .where(eq(companiesTable.id, getCompanyId(req)))
+        .limit(1);
+      const vatEnabledAward =
+        companyRowAward?.vatRegistrationStatus === "registered" ||
+        companyRowAward?.vatRegistrationStatus === "voluntary";
+      const TAX_RATE = vatEnabledAward ? Number(supplier.defaultTax ?? 15) : 0;
       let subtotal = 0;
       const poLines = winningLines.map((ln) => {
         const lineTotal = Number(ln.unitPrice) * Number(ln.quantity);
@@ -697,7 +709,19 @@ router.post("/procurement/purchase-orders", async (req, res) => {
       // Defaults: currency from supplier, tax per-line falls back to
       // the supplier's defaultTax when the input didn't override it.
       const currency = body.currencyCode ?? supplier.defaultCurrency ?? "SAR";
-      const supplierDefaultTax = Number(supplier.defaultTax ?? 15);
+      // VAT gating: non-registered tenants cannot legally charge or
+      // reclaim VAT — force every line's rate to 0 BEFORE totals are
+      // computed so the persisted PO header + lines never carry VAT,
+      // regardless of inbound payload or supplier.defaultTax.
+      const [companyRowPo] = await tx
+        .select({ vatRegistrationStatus: companiesTable.vatRegistrationStatus })
+        .from(companiesTable)
+        .where(eq(companiesTable.id, getCompanyId(req)))
+        .limit(1);
+      const vatEnabledPo =
+        companyRowPo?.vatRegistrationStatus === "registered" ||
+        companyRowPo?.vatRegistrationStatus === "voluntary";
+      const supplierDefaultTax = vatEnabledPo ? Number(supplier.defaultTax ?? 15) : 0;
       let subtotal = 0;
       let vat = 0;
       const lineInserts: Array<{
@@ -708,11 +732,14 @@ router.post("/procurement/purchase-orders", async (req, res) => {
         // The PoLineInput zod schema applies a default of 15 when taxRate
         // is missing. To honor the supplier's defaultTax we also override
         // when the caller explicitly omitted the field on the request.
-        const taxRate = (req.body?.lines?.find?.((rl: { description?: string }, i: number) =>
+        const callerTaxRate = (req.body?.lines?.find?.((rl: { description?: string }, i: number) =>
           rl?.description === ln.description && i === body.lines.indexOf(ln),
         )?.taxRate == null)
           ? supplierDefaultTax
           : ln.taxRate;
+        // Final VAT clamp: non-registered tenants get 0 even if the
+        // caller forced a taxRate in the payload.
+        const taxRate = vatEnabledPo ? callerTaxRate : 0;
         const sub = ln.quantity * ln.unitPrice;
         const t = sub * (taxRate / 100);
         subtotal += sub;

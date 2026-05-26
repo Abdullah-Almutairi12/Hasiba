@@ -858,6 +858,19 @@ router.post("/sales/quotations", salesWriteGuard, async (req, res) => {
       if (!customer) throw new Error("العميل غير موجود");
       const pricelistId = body.pricelistId ?? (await resolveCustomerPricelist(tx, customer.id));
 
+      // VAT gating: a quotation for a non-registered tenant must never
+      // promise VAT to the customer — clamp every line's taxRate to 0
+      // before totals/persistence. Mirrors the same guard on POST
+      // /sales/invoices so quote→SO→invoice carry zero VAT end-to-end.
+      const [companyQuoteRow] = await tx
+        .select({ vatRegistrationStatus: companiesTable.vatRegistrationStatus })
+        .from(companiesTable)
+        .where(eq(companiesTable.id, companyId))
+        .limit(1);
+      const vatEnabledQuote =
+        companyQuoteRow?.vatRegistrationStatus === "registered" ||
+        companyQuoteRow?.vatRegistrationStatus === "voluntary";
+
       // Resolve unit prices via pricelist when missing.
       const enriched = [] as Parameters<typeof computeTotals>[0];
       for (const ln of body.lines) {
@@ -875,7 +888,7 @@ router.post("/sales/quotations", salesWriteGuard, async (req, res) => {
           quantity: ln.quantity,
           unitPrice: unitPrice ?? 0,
           discountPct: ln.discountPct,
-          taxRate: ln.taxRate,
+          taxRate: vatEnabledQuote ? ln.taxRate : 0,
         });
       }
       // Apply active line- then order-scope discount rules on top of the

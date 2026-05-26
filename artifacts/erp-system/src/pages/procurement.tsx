@@ -21,6 +21,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { useLanguage } from "@/hooks/use-language";
 import { usePermissions } from "@/hooks/use-permissions";
+import { useVatEnabled } from "@/hooks/use-vat-status";
 import {
   ShoppingBag, Plus, FileText, ClipboardCheck, Truck, Wallet, FileCheck2, BarChart3,
   Mail, Download,
@@ -267,7 +268,9 @@ function POsTab({ onSelectPO }: { onSelectPO: (po: PO) => void }) {
   const [open, setOpen] = useState(false);
   const [supplierId, setSupplierId] = useState("");
   const [notes, setNotes] = useState("");
-  const [lines, setLines] = useState([{ productId: "", description: "", quantity: 1, unitPrice: 0, taxRate: 15 }]);
+  const vatEnabled = useVatEnabled();
+  const defaultTaxRate = vatEnabled ? 15 : 0;
+  const [lines, setLines] = useState([{ productId: "", description: "", quantity: 1, unitPrice: 0, taxRate: defaultTaxRate }]);
 
   const { data: rows = [] } = useQuery<PO[]>({
     queryKey: ["/procurement/purchase-orders"],
@@ -293,7 +296,7 @@ function POsTab({ onSelectPO }: { onSelectPO: (po: PO) => void }) {
     onSuccess: () => {
       toast({ title: "تم إنشاء أمر الشراء" });
       setOpen(false); setSupplierId(""); setNotes("");
-      setLines([{ productId: "", description: "", quantity: 1, unitPrice: 0, taxRate: 15 }]);
+      setLines([{ productId: "", description: "", quantity: 1, unitPrice: 0, taxRate: defaultTaxRate }]);
       qc.invalidateQueries({ queryKey: ["/procurement/purchase-orders"] });
       qc.invalidateQueries({ queryKey: ["/procurement/stats"] });
     },
@@ -354,14 +357,16 @@ function POsTab({ onSelectPO }: { onSelectPO: (po: PO) => void }) {
                       onChange={(e) => { const c = [...lines]; c[i] = { ...c[i], description: e.target.value }; setLines(c); }} />
                     <Input className="col-span-2" type="number" placeholder="كمية" value={ln.quantity}
                       onChange={(e) => { const c = [...lines]; c[i] = { ...c[i], quantity: Number(e.target.value) }; setLines(c); }} />
-                    <Input className="col-span-2" type="number" placeholder="سعر" value={ln.unitPrice}
+                    <Input className={vatEnabled ? "col-span-2" : "col-span-3"} type="number" placeholder="سعر" value={ln.unitPrice}
                       onChange={(e) => { const c = [...lines]; c[i] = { ...c[i], unitPrice: Number(e.target.value) }; setLines(c); }} />
-                    <Input className="col-span-1" type="number" placeholder="ض%" value={ln.taxRate}
-                      onChange={(e) => { const c = [...lines]; c[i] = { ...c[i], taxRate: Number(e.target.value) }; setLines(c); }} />
+                    {vatEnabled && (
+                      <Input className="col-span-1" type="number" placeholder="ض%" value={ln.taxRate}
+                        onChange={(e) => { const c = [...lines]; c[i] = { ...c[i], taxRate: Number(e.target.value) }; setLines(c); }} />
+                    )}
                   </div>
                 ))}
                 <Button variant="outline" size="sm"
-                  onClick={() => setLines([...lines, { productId: "", description: "", quantity: 1, unitPrice: 0, taxRate: 15 }])}>
+                  onClick={() => setLines([...lines, { productId: "", description: "", quantity: 1, unitPrice: 0, taxRate: defaultTaxRate }])}>
                   + إضافة بند
                 </Button>
               </div>
