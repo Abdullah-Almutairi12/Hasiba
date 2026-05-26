@@ -32,6 +32,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "
 import { useToast } from "@/hooks/use-toast";
 import { useListCustomers, useListProducts } from "@workspace/api-client-react";
 import { usePermissions } from "@/hooks/use-permissions";
+import { useVatEnabled } from "@/hooks/use-vat-status";
 import { ApprovalActions } from "@/components/approval-actions";
 import { SendStatusBadge } from "@/components/send-status-badge";
 import { PdfPreviewSheet } from "@/components/pdf-preview-sheet";
@@ -1500,13 +1501,15 @@ function DocumentFormDialog({
   const { data: customers } = useListCustomers({});
   const { data: products } = useListProducts({});
   const { toast } = useToast();
+  const vatEnabled = useVatEnabled();
+  const defaultTaxRate = vatEnabled ? 15 : 0;
   const [customerId, setCustomerId] = useState<number | null>(null);
   const [notes, setNotes] = useState("");
   const [validUntil, setValidUntil] = useState("");
   const [lines, setLines] = useState<Array<{ productId: number | null; description: string; quantity: number; unitPrice: number; discountPct: number; taxRate: number }>>([
-    { productId: null, description: "", quantity: 1, unitPrice: 0, discountPct: 0, taxRate: 15 },
+    { productId: null, description: "", quantity: 1, unitPrice: 0, discountPct: 0, taxRate: defaultTaxRate },
   ]);
-  const total = useMemo(() => lines.reduce((a, l) => a + (l.quantity * l.unitPrice * (1 - l.discountPct / 100) * (1 + l.taxRate / 100)), 0), [lines]);
+  const total = useMemo(() => lines.reduce((a, l) => a + (l.quantity * l.unitPrice * (1 - l.discountPct / 100) * (1 + (vatEnabled ? l.taxRate : 0) / 100)), 0), [lines, vatEnabled]);
 
   const submit = async () => {
     if (!customerId) { toast({ title: "اختر العميل", variant: "destructive" }); return; }
@@ -1553,7 +1556,7 @@ function DocumentFormDialog({
         <div>
           <div className="flex items-center justify-between mb-2">
             <Label>البنود</Label>
-            <Button size="sm" variant="outline" onClick={() => setLines([...lines, { productId: null, description: "", quantity: 1, unitPrice: 0, discountPct: 0, taxRate: 15 }])}>
+            <Button size="sm" variant="outline" onClick={() => setLines([...lines, { productId: null, description: "", quantity: 1, unitPrice: 0, discountPct: 0, taxRate: defaultTaxRate }])}>
               <Plus className="size-3" /> سطر
             </Button>
           </div>
@@ -1587,7 +1590,7 @@ function DocumentFormDialog({
           <Label>ملاحظات</Label>
           <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} />
         </div>
-        <div className="text-end font-bold">الإجمالي مع الضريبة: <Money value={+total.toFixed(2)} /></div>
+        <div className="text-end font-bold">{vatEnabled ? "الإجمالي مع الضريبة" : "الإجمالي"}: <Money value={+total.toFixed(2)} /></div>
       </div>
       <DialogFooter>
         <Button onClick={submit}>حفظ</Button>
@@ -1681,12 +1684,14 @@ function ReceiptFormDialog({ onSuccess }: { onSuccess: () => void }) {
 function CreditNoteFormDialog({ onSuccess }: { onSuccess: () => void }) {
   const { data: customers } = useListCustomers({});
   const { data: products } = useListProducts({});
+  const vatEnabled = useVatEnabled();
+  const defaultTaxRate = vatEnabled ? 15 : 0;
   const [customerId, setCustomerId] = useState<string>("");
   const [invoiceId, setInvoiceId] = useState<string>("");
   const [reason, setReason] = useState("");
   const [restock, setRestock] = useState(true);
   const [lines, setLines] = useState<Array<{ productId: string; description: string; quantity: number; unitPrice: number; taxRate: number; invoiceLineId?: string }>>(
-    [{ productId: "", description: "", quantity: 1, unitPrice: 0, taxRate: 15 }],
+    [{ productId: "", description: "", quantity: 1, unitPrice: 0, taxRate: defaultTaxRate }],
   );
   const { data: invoices } = useApiQuery<Array<{ id: number; reference: string; customerId: number; total: number }>>(
     customerId ? `/sales/invoices?customerId=${customerId}` : "/sales/invoices",
@@ -1775,12 +1780,14 @@ function CreditNoteFormDialog({ onSuccess }: { onSuccess: () => void }) {
               </div>
               <div className="col-span-4"><Label className="text-xs">الوصف</Label><Input value={ln.description} onChange={(e) => updateLine(i, { description: e.target.value })} /></div>
               <div className="col-span-1"><Label className="text-xs">الكمية</Label><Input type="number" value={ln.quantity} onChange={(e) => updateLine(i, { quantity: +e.target.value })} /></div>
-              <div className="col-span-2"><Label className="text-xs">السعر</Label><Input type="number" value={ln.unitPrice} onChange={(e) => updateLine(i, { unitPrice: +e.target.value })} /></div>
-              <div className="col-span-1"><Label className="text-xs">ض %</Label><Input type="number" value={ln.taxRate} onChange={(e) => updateLine(i, { taxRate: +e.target.value })} /></div>
+              <div className={vatEnabled ? "col-span-2" : "col-span-3"}><Label className="text-xs">السعر</Label><Input type="number" value={ln.unitPrice} onChange={(e) => updateLine(i, { unitPrice: +e.target.value })} /></div>
+              {vatEnabled && (
+                <div className="col-span-1"><Label className="text-xs">ض %</Label><Input type="number" value={ln.taxRate} onChange={(e) => updateLine(i, { taxRate: +e.target.value })} /></div>
+              )}
               <div className="col-span-1"><Button type="button" variant="ghost" size="sm" onClick={() => setLines((arr) => arr.filter((_, idx) => idx !== i))}>×</Button></div>
             </div>
           ))}
-          <Button type="button" variant="outline" size="sm" onClick={() => setLines((arr) => [...arr, { productId: "", description: "", quantity: 1, unitPrice: 0, taxRate: 15 }])}>
+          <Button type="button" variant="outline" size="sm" onClick={() => setLines((arr) => [...arr, { productId: "", description: "", quantity: 1, unitPrice: 0, taxRate: defaultTaxRate }])}>
             <Plus className="size-4" /> بند
           </Button>
         </div>

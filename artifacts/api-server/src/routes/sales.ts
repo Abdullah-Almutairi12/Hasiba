@@ -24,6 +24,7 @@ import {
   creditNotesTable,
   creditNoteLinesTable,
   usersTable,
+  companiesTable,
 } from "@workspace/db";
 import { and, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { handleRouteError } from "../lib/handle-error";
@@ -2270,6 +2271,17 @@ router.post("/sales/invoices", financeGuard, async (req, res) => {
       company.vatNumber && company.vatNumber !== "—"
         ? company.vatNumber
         : process.env["ZATCA_VAT_NUMBER"] ?? "300000000000003";
+    // Tenant VAT gating: non-registered companies cannot legally
+    // charge VAT (ZATCA rule). Force every line's taxRate → 0 and
+    // skip the ZATCA QR — regardless of the inbound payload.
+    const [companyRow] = await db
+      .select({ vatRegistrationStatus: companiesTable.vatRegistrationStatus })
+      .from(companiesTable)
+      .where(eq(companiesTable.id, getCompanyId(req)))
+      .limit(1);
+    const vatEnabled =
+      companyRow?.vatRegistrationStatus === "registered" ||
+      companyRow?.vatRegistrationStatus === "voluntary";
     const result = await db.transaction(async (tx) => {
       let customerId = body.customerId;
       let so: typeof salesOrdersTable.$inferSelect | undefined;
@@ -2398,6 +2410,12 @@ router.post("/sales/invoices", financeGuard, async (req, res) => {
             baseNet: Math.max(0, baseNetPre - body.orderDiscount),
             scope: "order",
           });
+      if (!vatEnabled) {
+        // Force every line's tax rate to 0 BEFORE totals are computed
+        // so non-registered tenants never see VAT in the persisted
+        // numbers or the resulting journal entry / ZATCA payload.
+        for (const ln of enriched) ln.taxRate = 0;
+      }
       const totals = computeTotals(
         enriched,
         body.orderDiscount + ruleResult.discountAmount,
@@ -2433,13 +2451,17 @@ router.post("/sales/invoices", financeGuard, async (req, res) => {
         body.dueDate ??
         new Date(new Date(invoiceDate).getTime() + dueDays * 86_400_000).toISOString().slice(0, 10);
 
-      const zatcaQr = buildZatcaQrBase64({
-        timestamp: new Date(invoiceDate),
-        totalWithVat: totals.total,
-        vatAmount: totals.vat,
-        sellerName: sellerNameForZatca,
-        vatNumber: sellerVatForZatca,
-      });
+      // Non-registered tenants do not get a ZATCA QR — the badge is
+      // reserved for VAT-registered sellers per ZATCA Phase 1.
+      const zatcaQr = vatEnabled
+        ? buildZatcaQrBase64({
+            timestamp: new Date(invoiceDate),
+            totalWithVat: totals.total,
+            vatAmount: totals.vat,
+            sellerName: sellerNameForZatca,
+            vatNumber: sellerVatForZatca,
+          })
+        : null;
       const [inv] = await tx
         .insert(customerInvoicesTable)
         .values({

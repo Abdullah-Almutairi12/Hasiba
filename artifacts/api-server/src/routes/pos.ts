@@ -9,6 +9,7 @@ import {
   customersTable,
   customerInvoicesTable,
   customerInvoiceLinesTable,
+  companiesTable,
   salesOrdersTable,
   salesOrderLinesTable,
   deliveryOrdersTable,
@@ -587,6 +588,17 @@ router.post(
         ? company.vatNumber
         : process.env["ZATCA_VAT_NUMBER"] ?? "300000000000003";
     const companyId = getCompanyId(req);
+    // Tenant VAT gating: non-registered companies cannot legally
+    // charge VAT (ZATCA rule). Force tax → 0 and skip ZATCA QR
+    // generation regardless of payload.
+    const [companyRow] = await db
+      .select({ vatRegistrationStatus: companiesTable.vatRegistrationStatus })
+      .from(companiesTable)
+      .where(eq(companiesTable.id, companyId))
+      .limit(1);
+    const vatEnabled =
+      companyRow?.vatRegistrationStatus === "registered" ||
+      companyRow?.vatRegistrationStatus === "voluntary";
     const result = await db.transaction(async (tx) => {
       // Resolve the session's branch and the warehouse to issue stock from.
       // Prefer the default warehouse for that branch; fall back to the global
@@ -779,7 +791,7 @@ router.post(
         consumedApprovalRequestId = pendingApprovalRow.id;
       }
 
-      const tax = (subtotal - discount) * 0.15;
+      const tax = vatEnabled ? (subtotal - discount) * 0.15 : 0;
       const total = subtotal - discount + tax;
       const EPS = 0.01;
 
@@ -1034,7 +1046,7 @@ router.post(
             quantity: String(li.quantity),
             unitPrice: String(li.unitPrice),
             discountPct: "0",
-            taxRate: "15",
+            taxRate: vatEnabled ? "15" : "0",
             lineTotal: String(li.total),
             deliveredQty: String(li.quantity),
             invoicedQty: String(li.quantity),
@@ -1068,13 +1080,17 @@ router.post(
       }
 
       const invRef = await nextRef(tx, "PINV");
-      const zatcaQr = buildZatcaQrBase64({
-        timestamp: new Date(),
-        totalWithVat: total,
-        vatAmount: tax,
-        sellerName: sellerNameForZatca,
-        vatNumber: sellerVatForZatca,
-      });
+      // Non-registered tenants do not get a ZATCA QR — the badge is
+      // reserved for VAT-registered sellers per ZATCA Phase 1.
+      const zatcaQr = vatEnabled
+        ? buildZatcaQrBase64({
+            timestamp: new Date(),
+            totalWithVat: total,
+            vatAmount: tax,
+            sellerName: sellerNameForZatca,
+            vatNumber: sellerVatForZatca,
+          })
+        : null;
       const [posInvoice] = await tx
         .insert(customerInvoicesTable)
         .values({
@@ -1106,7 +1122,7 @@ router.post(
           quantity: String(li.quantity),
           unitPrice: String(li.unitPrice),
           discountPct: "0",
-          taxRate: "15",
+          taxRate: vatEnabled ? "15" : "0",
           lineTotal: String(li.total),
         });
       }

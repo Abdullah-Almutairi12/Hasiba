@@ -4,6 +4,7 @@ import { useRoute } from "wouter";
 import { useGetInvoice } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Printer, Download } from "lucide-react";
+import { useVatEnabled } from "@/hooks/use-vat-status";
 
 interface ZatcaQrResponse {
   tlvBase64: string;
@@ -23,9 +24,10 @@ export default function InvoicePrint() {
   });
   const [qr, setQr] = useState<ZatcaQrResponse | null>(null);
   const [qrError, setQrError] = useState<string | null>(null);
+  const vatEnabled = useVatEnabled();
 
   useEffect(() => {
-    if (!id) return;
+    if (!id || !vatEnabled) return;
     fetch(`${import.meta.env.BASE_URL}api/invoices/${id}/zatca-qr`, {
       credentials: "include",
     })
@@ -38,7 +40,7 @@ export default function InvoicePrint() {
         const msg = e instanceof Error ? e.message : String(e);
         setQrError(msg);
       });
-  }, [id]);
+  }, [id, vatEnabled]);
 
   if (isLoading || !invoice) {
     return (
@@ -49,7 +51,7 @@ export default function InvoicePrint() {
   }
 
   const total = Number(invoice.amount);
-  const vat = qr?.vatAmount ?? (total * 0.15) / 1.15;
+  const vat = vatEnabled ? (qr?.vatAmount ?? (total * 0.15) / 1.15) : 0;
   const subtotal = total - vat;
 
   return (
@@ -62,7 +64,7 @@ export default function InvoicePrint() {
               <Printer className="size-4" />
               طباعة
             </Button>
-            {qr && (
+            {qr && vatEnabled && (
               <Button
                 variant="outline"
                 className="gap-2"
@@ -138,34 +140,40 @@ export default function InvoicePrint() {
 
           <div className="flex justify-between items-end">
             <div>
-              {qr ? (
-                <div className="text-center">
-                  <img
-                    src={qr.dataUrl}
-                    alt="ZATCA QR Code"
-                    className="size-40 border rounded-md"
-                  />
-                  <p className="text-xs text-gray-500 mt-2">
-                    رمز ZATCA الضريبي / Phase 1
-                  </p>
-                </div>
-              ) : qrError ? (
-                <div className="text-xs text-red-600">تعذر إنشاء رمز QR: {qrError}</div>
-              ) : (
-                <div className="size-40 border rounded-md bg-gray-50 grid place-items-center text-xs text-gray-400">
-                  جاري التحميل...
-                </div>
-              )}
+              {vatEnabled ? (
+                qr ? (
+                  <div className="text-center">
+                    <img
+                      src={qr.dataUrl}
+                      alt="ZATCA QR Code"
+                      className="size-40 border rounded-md"
+                    />
+                    <p className="text-xs text-gray-500 mt-2">
+                      رمز ZATCA الضريبي / Phase 1
+                    </p>
+                  </div>
+                ) : qrError ? (
+                  <div className="text-xs text-red-600">تعذر إنشاء رمز QR: {qrError}</div>
+                ) : (
+                  <div className="size-40 border rounded-md bg-gray-50 grid place-items-center text-xs text-gray-400">
+                    جاري التحميل...
+                  </div>
+                )
+              ) : null}
             </div>
             <div className="w-72 space-y-2 text-sm">
-              <div className="flex justify-between">
-                <span className="text-gray-500">المجموع قبل الضريبة</span>
-                <span className="font-mono">{subtotal.toFixed(2)}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-500">ضريبة القيمة المضافة (15%)</span>
-                <span className="font-mono">{vat.toFixed(2)}</span>
-              </div>
+              {vatEnabled && (
+                <div className="flex justify-between">
+                  <span className="text-gray-500">المجموع قبل الضريبة</span>
+                  <span className="font-mono">{subtotal.toFixed(2)}</span>
+                </div>
+              )}
+              {vatEnabled && (
+                <div className="flex justify-between">
+                  <span className="text-gray-500">ضريبة القيمة المضافة (15%)</span>
+                  <span className="font-mono">{vat.toFixed(2)}</span>
+                </div>
+              )}
               <div className="flex justify-between border-t pt-2 text-base font-bold">
                 <span>الإجمالي</span>
                 <span className="font-mono text-primary"><Money value={total} /></span>

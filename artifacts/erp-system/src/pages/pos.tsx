@@ -58,6 +58,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useApiQuery, apiPost } from "@/hooks/use-api";
+import { useVatEnabled } from "@/hooks/use-vat-status";
 
 interface PosShippingCarrier {
   id: number;
@@ -184,6 +185,7 @@ export default function POS() {
 
   const { data: sessions } = useListPosSessions();
   const { data: zatca } = useGetZatcaStatus();
+  const vatEnabled = useVatEnabled();
   const createSession = useCreatePosSession();
   const createOrder = useCreatePosOrder();
 
@@ -238,7 +240,7 @@ export default function POS() {
     ? Math.min(customer.loyaltyPoints * 0.05, subtotal * 0.1)
     : 0;
   const effectiveDiscount = discount + loyaltyDiscount;
-  const tax = Math.max(0, subtotal - effectiveDiscount) * 0.15;
+  const tax = vatEnabled ? Math.max(0, subtotal - effectiveDiscount) * 0.15 : 0;
   const total = Math.max(0, subtotal - effectiveDiscount) + tax;
   const earnedPoints = Math.floor(total / 10);
 
@@ -757,7 +759,7 @@ export default function POS() {
               <span className="font-mono">{clock}</span>
             </div>
             <div
-              className={`hidden items-center gap-2 rounded-full border px-3 py-1 md:flex ${
+              className={`${vatEnabled ? "hidden md:flex" : "hidden"} items-center gap-2 rounded-full border px-3 py-1 ${
                 zatca?.connected
                   ? "border-emerald-200 bg-emerald-50"
                   : "border-red-200 bg-red-50"
@@ -1146,10 +1148,12 @@ export default function POS() {
                 <span>المجموع الفرعي</span>
                 <span className="font-mono">{fmtPrice(subtotal)}</span>
               </div>
-              <div className="flex justify-between text-xs text-neutral-500">
-                <span>الضريبة (15%)</span>
-                <span className="font-mono">{fmtPrice(tax)}</span>
-              </div>
+              {vatEnabled && (
+                <div className="flex justify-between text-xs text-neutral-500">
+                  <span>الضريبة (15%)</span>
+                  <span className="font-mono">{fmtPrice(tax)}</span>
+                </div>
+              )}
               <div className="flex justify-between text-xs font-bold text-emerald-600">
                 <span>الخصم</span>
                 <span className="font-mono">-{fmtPrice(effectiveDiscount)}</span>
@@ -1165,7 +1169,7 @@ export default function POS() {
               <div className="my-2 border-t border-dashed border-neutral-300" />
               <div className="flex items-end justify-between">
                 <span className="text-sm font-bold text-neutral-800">
-                  الإجمالي (شامل الضريبة)
+                  {vatEnabled ? "الإجمالي (شامل الضريبة)" : "الإجمالي"}
                 </span>
                 <span className="font-mono text-2xl font-bold text-[#2563EB]">
                   <Money value={total} symbolClassName="size-[0.6em] text-neutral-500" />
@@ -1657,12 +1661,14 @@ export default function POS() {
                         </ul>
                       </div>
                     )}
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-neutral-500">حالة ZATCA</span>
-                      <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-bold text-emerald-700">
-                        تم التشفير والختم
-                      </span>
-                    </div>
+                    {vatEnabled && (
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-neutral-500">حالة ZATCA</span>
+                        <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-bold text-emerald-700">
+                          تم التشفير والختم
+                        </span>
+                      </div>
+                    )}
                   </div>
 
                   <div className="mb-6 flex items-center gap-4 rounded-xl border border-neutral-200 bg-white p-3">

@@ -34,6 +34,7 @@ import {
 import { toast } from "sonner";
 import { Textarea } from "@/components/ui/textarea";
 import { usePermissions } from "@/hooks/use-permissions";
+import { useVatEnabled } from "@/hooks/use-vat-status";
 import { PdfPreviewSheet } from "@/components/pdf-preview-sheet";
 
 type ExtractedItem = {
@@ -101,6 +102,7 @@ async function resizeImage(file: File, maxDim = 1600, quality = 0.85): Promise<s
 
 export default function Invoices() {
   const { canManageFinance } = usePermissions();
+  const vatEnabled = useVatEnabled();
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [scanOpen, setScanOpen] = useState(false);
   const [reverseTarget, setReverseTarget] = useState<{ id: number; number: string } | null>(null);
@@ -842,15 +844,17 @@ export default function Invoices() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-3">
+              <div className={`grid ${vatEnabled ? "grid-cols-3" : "grid-cols-2"} gap-3`}>
                 <div className="space-y-1.5">
                   <Label>المجموع الفرعي</Label>
                   <Input type="number" step="0.01" value={extracted.subtotal} onChange={(e) => setExtracted({ ...extracted, subtotal: Number(e.target.value) || 0 })} />
                 </div>
-                <div className="space-y-1.5">
-                  <Label>ضريبة القيمة المضافة</Label>
-                  <Input type="number" step="0.01" value={extracted.vat} onChange={(e) => setExtracted({ ...extracted, vat: Number(e.target.value) || 0 })} />
-                </div>
+                {vatEnabled && (
+                  <div className="space-y-1.5">
+                    <Label>ضريبة القيمة المضافة</Label>
+                    <Input type="number" step="0.01" value={extracted.vat} onChange={(e) => setExtracted({ ...extracted, vat: Number(e.target.value) || 0 })} />
+                  </div>
+                )}
                 <div className="space-y-1.5">
                   <Label>الإجمالي</Label>
                   <Input type="number" step="0.01" value={extracted.total} onChange={(e) => setExtracted({ ...extracted, total: Number(e.target.value) || 0 })} data-testid="input-total" />
