@@ -965,6 +965,10 @@ export async function sweepExpiredCleanupReportSuppressions(
   now: Date = new Date(),
 ): Promise<string[]> {
   const cfg = await loadConfig();
+  // Task #233 — admin-stored override wins over the env-var default.
+  // 0 (whether stored or default) means "never auto-expire".
+  const maxAgeDays = resolveSuppressionMaxAgeDays(cfg);
+  if (maxAgeDays <= 0) return [];
   if (cfg.suppressions.length === 0) return [];
   // Task #231 — per-tenant override takes precedence over the env-derived
   // constant, so admins can choose a window without an engineer redeploy.
@@ -1034,7 +1038,7 @@ export async function sweepExpiredCleanupReportSuppressions(
     );
     await notifyAdminsOfExpiredCleanupReportSuppressions(
       expiredSuppressions,
-      CLEANUP_REPORT_SUPPRESSION_MAX_AGE_DAYS,
+      maxAgeDays,
     );
   } catch (err) {
     logger.warn(

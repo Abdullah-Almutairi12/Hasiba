@@ -41,6 +41,7 @@ import {
   CLEANUP_REPORT_INTRO_MAX,
   CLEANUP_REPORT_SCHEDULES,
   CLEANUP_REPORT_SUPPRESSION_THRESHOLD,
+  resolveSuppressionMaxAgeDays,
   type CleanupReportSchedule,
 } from "../lib/alerts-cleanup-report-email";
 import { loadComplianceReportSummary } from "../lib/compliance/report-section";
