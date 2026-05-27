@@ -1,56 +1,67 @@
 <?xml version="1.0" encoding="UTF-8"?>
-  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" font-family="'IBM Plex Sans Arabic','Inter','Segoe UI',sans-serif">
-    <defs>
-      <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-        <stop offset="0%" stop-color="#1f0a0a"/>
-        <stop offset="100%" stop-color="#2e1010"/>
-      </linearGradient>
-      <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
-        <stop offset="0%" stop-color="#fb7185" stop-opacity="0.9"/>
-        <stop offset="100%" stop-color="#fb7185" stop-opacity="0.4"/>
-      </linearGradient>
-      <pattern id="dots" width="24" height="24" patternUnits="userSpaceOnUse">
-        <circle cx="2" cy="2" r="1" fill="#fb7185" fill-opacity="0.08"/>
-      </pattern>
-    </defs>
-    <rect width="1280" height="720" fill="url(#bg)"/>
-    <rect width="1280" height="720" fill="url(#dots)"/>
-    <rect x="0" y="0" width="1280" height="64" fill="#1f0a0a" fill-opacity="0.85"/>
-    <line x1="0" y1="64" x2="1280" y2="64" stroke="#fb7185" stroke-opacity="0.25"/>
-    <circle cx="1248" cy="32" r="10" fill="#fb7185" fill-opacity="0.9"/>
-    <text x="1224" y="38" text-anchor="end" fill="#fff1f2" font-size="18" font-weight="700" direction="rtl">حاسبة.AI</text>
-    <rect x="1060" y="64" width="220" height="656" fill="#1f0a0a" fill-opacity="0.6"/>
-    <rect x="1080" y="94" width="100" height="10" rx="3" fill="#fb7185" fill-opacity="0.35"/>
-<rect x="1080" y="140" width="107" height="10" rx="3" fill="#fb7185" fill-opacity="0.35"/>
-<rect x="1080" y="186" width="114" height="10" rx="3" fill="#fb7185" fill-opacity="0.35"/>
-<rect x="1080" y="232" width="121" height="10" rx="3" fill="#fb7185" fill-opacity="0.35"/>
-<rect x="1080" y="278" width="128" height="10" rx="3" fill="#fb7185" fill-opacity="0.35"/>
-<rect x="1080" y="324" width="135" height="10" rx="3" fill="#fb7185" fill-opacity="0.35"/>
-<rect x="1074" y="358" width="180" height="30" rx="6" fill="#fb7185" fill-opacity="0.18"/><rect x="1080" y="370" width="140" height="10" rx="3" fill="#fb7185" fill-opacity="0.85"/>
-    <rect x="40" y="100" width="980" height="580" rx="18" fill="#1f0a0a" fill-opacity="0.55" stroke="#fb7185" stroke-opacity="0.25"/>
-    <rect x="960" y="130" width="160" height="32" rx="6" fill="url(#accent)"/>
-    <text x="1040" y="152" text-anchor="middle" fill="#1f0a0a" font-size="14" font-weight="700">#12 · وحدة</text>
-    <text x="1210" y="220" text-anchor="end" fill="#fff1f2" font-size="44" font-weight="800" direction="rtl">برامج الولاء وعلامة ZATCA</text>
-    <text x="1210" y="258" text-anchor="end" fill="#fda4af" font-size="20" direction="rtl">حاسبة.AI ERP — دليل المستخدم</text>
-    <rect x="810" y="290" width="180" height="36" rx="8" fill="#1f0a0a" fill-opacity="0.7" stroke="#fb7185" stroke-opacity="0.4"/>
-    <text x="900" y="313" text-anchor="middle" fill="#fff1f2" font-size="14" font-family="ui-monospace,'SFMono-Regular',monospace">المسار: /pos</text>
-    <rect x="910" y="346" width="80" height="26" rx="6" fill="#fb7185" fill-opacity="0.15" stroke="#fb7185" stroke-opacity="0.4"/>
-      <text x="950" y="364" text-anchor="middle" fill="#fff1f2" font-size="12" font-family="ui-monospace,monospace">owner</text>
-<rect x="820" y="346" width="80" height="26" rx="6" fill="#fb7185" fill-opacity="0.15" stroke="#fb7185" stroke-opacity="0.4"/>
-      <text x="860" y="364" text-anchor="middle" fill="#fff1f2" font-size="12" font-family="ui-monospace,monospace">manager</text>
-<rect x="730" y="346" width="80" height="26" rx="6" fill="#fb7185" fill-opacity="0.15" stroke="#fb7185" stroke-opacity="0.4"/>
-      <text x="770" y="364" text-anchor="middle" fill="#fff1f2" font-size="12" font-family="ui-monospace,monospace">cashier</text>
-    <g transform="translate(80, 420)">
-      <rect x="0" y="0" width="900" height="160" rx="12" fill="#1f0a0a" fill-opacity="0.6"/>
-      <rect x="20" y="78" width="97.5" height="62" rx="4" fill="#fb7185" fill-opacity="0.3"/>
-<rect x="127.5" y="41" width="97.5" height="99" rx="4" fill="#fb7185" fill-opacity="0.5"/>
-<rect x="235" y="104" width="97.5" height="36" rx="4" fill="#fb7185" fill-opacity="0.7"/>
-<rect x="342.5" y="67" width="97.5" height="73" rx="4" fill="#fb7185" fill-opacity="0.3"/>
-<rect x="450" y="30" width="97.5" height="110" rx="4" fill="#fb7185" fill-opacity="0.5"/>
-<rect x="557.5" y="93" width="97.5" height="47" rx="4" fill="#fb7185" fill-opacity="0.7"/>
-<rect x="665" y="56" width="97.5" height="84" rx="4" fill="#fb7185" fill-opacity="0.3"/>
-<rect x="772.5" y="19" width="97.5" height="121" rx="4" fill="#fb7185" fill-opacity="0.5"/>
-      <polyline points="68.75,36 176.25,53 283.75,70 391.25,87 498.75,34 606.25,51 713.75,68 821.25,85" fill="none" stroke="#fb7185" stroke-width="2.5" stroke-linecap="round"/>
-    </g>
-    <text x="640" y="698" text-anchor="middle" fill="#fda4af" font-size="13" direction="rtl">صورة توضيحية — ستُستبدل بلقطة شاشة حقيقية عند تشغيل سكربت الالتقاط</text>
-  </svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" font-family="'IBM Plex Sans Arabic','Inter','Segoe UI',sans-serif" direction="rtl">
+  <defs>
+    <linearGradient id="appbg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f8fafc"/>
+      <stop offset="100%" stop-color="#eef2f7"/>
+    </linearGradient>
+  </defs>
+  <rect width="1280" height="720" fill="url(#appbg)"/>
+  <!-- Top app bar -->
+  <rect x="0" y="0" width="1280" height="56" fill="#0f172a"/>
+  <text x="1256" y="36" fill="#f8fafc" font-size="16" font-weight="700" text-anchor="end">حاسبة.AI</text>
+  <text x="24" y="36" fill="#94a3b8" font-size="13" text-anchor="start">/pos</text>
+  <!-- Sidebar -->
+  <rect x="1024" y="56" width="256" height="664" fill="#0f172a"/>
+  
+        <rect x="1048" y="96" width="208" height="40" rx="8" fill="transparent"/>
+        <text x="1240" y="122" fill="#cbd5e1" font-size="14" font-weight="500" text-anchor="end" direction="rtl">لوحة القيادة</text>
+      
+        <rect x="1048" y="152" width="208" height="40" rx="8" fill="transparent"/>
+        <text x="1240" y="178" fill="#cbd5e1" font-size="14" font-weight="500" text-anchor="end" direction="rtl">نقطة البيع</text>
+      
+        <rect x="1048" y="208" width="208" height="40" rx="8" fill="transparent"/>
+        <text x="1240" y="234" fill="#cbd5e1" font-size="14" font-weight="500" text-anchor="end" direction="rtl">المنتجات</text>
+      
+        <rect x="1048" y="264" width="208" height="40" rx="8" fill="transparent"/>
+        <text x="1240" y="290" fill="#cbd5e1" font-size="14" font-weight="500" text-anchor="end" direction="rtl">العملاء</text>
+      
+        <rect x="1048" y="320" width="208" height="40" rx="8" fill="transparent"/>
+        <text x="1240" y="346" fill="#cbd5e1" font-size="14" font-weight="500" text-anchor="end" direction="rtl">المحاسبة</text>
+      
+        <rect x="1048" y="376" width="208" height="40" rx="8" fill="transparent"/>
+        <text x="1240" y="402" fill="#cbd5e1" font-size="14" font-weight="500" text-anchor="end" direction="rtl">التقارير</text>
+      
+        <rect x="1048" y="432" width="208" height="40" rx="8" fill="transparent"/>
+        <text x="1240" y="458" fill="#cbd5e1" font-size="14" font-weight="500" text-anchor="end" direction="rtl">الفروع</text>
+      
+        <rect x="1048" y="488" width="208" height="40" rx="8" fill="transparent"/>
+        <text x="1240" y="514" fill="#cbd5e1" font-size="14" font-weight="500" text-anchor="end" direction="rtl">الإعدادات</text>
+      
+  <!-- Header -->
+  <text x="1000" y="120" fill="#0f172a" font-size="28" font-weight="700" text-anchor="end">برامج الولاء وعلامة ZATCA</text>
+  <text x="1000" y="150" fill="#64748b" font-size="14" text-anchor="end">نقاط ولاء داخل السلة تُحوَّل إلى خصم، مع شارة توافق ZATCA على الإيصال ورمز QR صالح.</text>
+  <!-- Content tiles -->
+  
+    <rect x="100" y="180" width="240" height="120" rx="12" fill="#ffffff" stroke="#e2e8f0"/>
+    <rect x="360" y="180" width="240" height="120" rx="12" fill="#ffffff" stroke="#e2e8f0"/>
+    <rect x="620" y="180" width="240" height="120" rx="12" fill="#ffffff" stroke="#e2e8f0"/>
+    <rect x="880" y="180" width="156" height="120" rx="12" fill="#ffffff" stroke="#e2e8f0"/>
+    <rect x="100" y="320" width="640" height="280" rx="12" fill="#ffffff" stroke="#e2e8f0"/>
+    <rect x="760" y="320" width="276" height="280" rx="12" fill="#ffffff" stroke="#e2e8f0"/>
+  
+  <!-- Hotspot markers -->
+  
+        <circle cx="998.4000000000001" cy="180" r="22" fill="#0ea5e9" stroke="#ffffff" stroke-width="3"/>
+        <text x="998.4000000000001" y="186" fill="#ffffff" font-size="20" font-weight="700" text-anchor="middle">1</text>
+      
+        <circle cx="998.4000000000001" cy="345.59999999999997" r="22" fill="#0ea5e9" stroke="#ffffff" stroke-width="3"/>
+        <text x="998.4000000000001" y="351.59999999999997" fill="#ffffff" font-size="20" font-weight="700" text-anchor="middle">2</text>
+      
+        <circle cx="998.4000000000001" cy="468" r="22" fill="#0ea5e9" stroke="#ffffff" stroke-width="3"/>
+        <text x="998.4000000000001" y="474" fill="#ffffff" font-size="20" font-weight="700" text-anchor="middle">3</text>
+      
+        <circle cx="384" cy="561.6" r="22" fill="#0ea5e9" stroke="#ffffff" stroke-width="3"/>
+        <text x="384" y="567.6" fill="#ffffff" font-size="20" font-weight="700" text-anchor="middle">4</text>
+      
+</svg>

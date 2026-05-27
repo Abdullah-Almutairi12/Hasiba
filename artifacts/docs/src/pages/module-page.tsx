@@ -34,7 +34,7 @@ const T = {
   lastUpdated: { ar: "آخر تحديث", en: "Last updated" },
 };
 
-function ScreenshotImg({ slug, lang, title }: { slug: string; lang: Lang; title: string }) {
+function ScreenshotImg({ slug, lang, alt }: { slug: string; lang: Lang; alt: string }) {
   const base = import.meta.env.BASE_URL.replace(/\/$/, "");
   const png = `${base}/screenshots/${lang}/${slug}.png`;
   const svg = `${base}/screenshots/${lang}/${slug}.svg`;
@@ -46,8 +46,12 @@ function ScreenshotImg({ slug, lang, title }: { slug: string; lang: Lang; title:
   }, [png]);
   if (failed) {
     return (
-      <div className="flex h-64 flex-col items-center justify-center gap-2 text-sm text-muted-foreground">
-        <ImageOff className="size-8" />
+      <div
+        role="img"
+        aria-label={alt}
+        className="flex h-64 flex-col items-center justify-center gap-2 text-sm text-muted-foreground"
+      >
+        <ImageOff className="size-8" aria-hidden="true" />
         <p>{T.noScreenshot[lang]}</p>
       </div>
     );
@@ -55,7 +59,7 @@ function ScreenshotImg({ slug, lang, title }: { slug: string; lang: Lang; title:
   return (
     <img
       src={src}
-      alt={title}
+      alt={alt}
       loading="lazy"
       onError={() => {
         if (src === png) setSrc(svg);
@@ -103,10 +107,43 @@ export default function ModulePage({ lang, module: m }: { lang: Lang; module: Do
       </div>
 
       <figure className="mb-8 overflow-hidden rounded-xl border bg-muted/30">
-        <ScreenshotImg slug={m.slug} lang={lang} title={m.title[lang]} />
+        <div className="relative">
+          <ScreenshotImg
+            slug={m.slug}
+            lang={lang}
+            alt={(m.screenshotAlt ?? m.summary)[lang]}
+          />
+          {m.hotspots?.map((h) => (
+            <span
+              key={h.n}
+              aria-hidden="true"
+              className="pointer-events-none absolute -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-primary px-2 py-0.5 text-xs font-bold text-primary-foreground shadow-md"
+              style={{ left: `${h.x}%`, top: `${h.y}%` }}
+              data-testid={`hotspot-${m.slug}-${h.n}`}
+            >
+              {h.n}
+            </span>
+          ))}
+        </div>
         <figcaption className="border-t bg-card px-4 py-2 text-xs text-muted-foreground">
           {T.screenshot[lang]}: <span className="font-mono">{m.appPath ?? "—"}</span>
         </figcaption>
+        {m.hotspots && m.hotspots.length > 0 && (
+          <ol className="border-t bg-card px-4 py-3 text-sm text-foreground/90">
+            {m.hotspots.map((h) => (
+              <li
+                key={h.n}
+                className="flex items-start gap-2 py-0.5"
+                data-testid={`hotspot-legend-${m.slug}-${h.n}`}
+              >
+                <span className="mt-0.5 inline-flex size-5 shrink-0 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground">
+                  {h.n}
+                </span>
+                <span>{h.label[lang]}</span>
+              </li>
+            ))}
+          </ol>
+        )}
       </figure>
 
       <div className="prose prose-slate max-w-none dark:prose-invert">

@@ -8,6 +8,7 @@
     "seed": "tsx ./src/seed.ts",
     "backfill-multi-company": "tsx ./src/backfill-multi-company.ts",
     "capture-docs-screenshots": "tsx ./src/capture-docs-screenshots.ts",
+    "generate-doc-screenshots": "tsx ./src/generate-doc-screenshots.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {

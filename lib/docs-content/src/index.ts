@@ -55,6 +55,29 @@ export interface DocModule {
   related?: string[];
   /** Free-form tips kept for backward compatibility — renders as a tip callout. */
   tips?: Bi[];
+  /**
+   * Descriptive alt text for the module screenshot. Used by both the docs
+   * UI (<img alt>) and the PDF export's accessibility tags. When omitted,
+   * consumers should fall back to `summary`.
+   */
+  screenshotAlt?: Bi;
+  /**
+   * Numbered callouts overlaid on the module screenshot. Coordinates are
+   * percentages (0–100) of the 1280×720 viewBox so the same data drives
+   * the SVG generator, the docs legend, and the PDF legend.
+   */
+  hotspots?: DocHotspot[];
+}
+
+export interface DocHotspot {
+  /** 1-based marker number drawn on the image. */
+  n: number;
+  /** 0–100 percentage along the X axis of the screenshot. */
+  x: number;
+  /** 0–100 percentage along the Y axis of the screenshot. */
+  y: number;
+  /** Short bilingual description of what this marker points at. */
+  label: Bi;
 }
 
 export interface DocCategory {
@@ -1266,15 +1289,292 @@ export const DOC_CATEGORIES: DocCategory[] = [
   },
 ];
 
+// ───────────────────────────────────────────────────────────────────────────────
+// SCREENSHOT ANNOTATIONS — per-module descriptive alt text + numbered hotspots.
+// Coordinates are 0–100 percentages of the screenshot's 1280×720 viewBox, so
+// the same numbers drive the SVG generator, the docs UI legend, and the
+// exported PDF legend. The descriptive alt text is what assistive technology
+// reads instead of the bare module title.
+// ───────────────────────────────────────────────────────────────────────────────
+interface ScreenshotMeta {
+  alt: Bi;
+  hotspots: DocHotspot[];
+}
+
+const SCREENSHOT_META: Record<string, ScreenshotMeta> = {
+  dashboard: {
+    alt: {
+      ar: "لوحة القيادة التنفيذية مع بطاقات الإيرادات والمؤشرات الذكية وفهرس صحة الأعمال والرسوم البيانية للمبيعات وأداء الفروع.",
+      en: "Executive dashboard showing revenue cards, AI insights, business health score, sales charts, and branch performance.",
+    },
+    hotspots: [
+      { n: 1, x: 12, y: 18, label: { ar: "بطاقات المؤشرات الرئيسية", en: "Headline KPI cards" } },
+      { n: 2, x: 70, y: 28, label: { ar: "مخطط المبيعات اليومية", en: "Daily sales chart" } },
+      { n: 3, x: 12, y: 58, label: { ar: "أداء الفروع", en: "Branch performance" } },
+      { n: 4, x: 70, y: 72, label: { ar: "تنبيهات وأفكار AI", en: "Alerts & AI insights" } },
+    ],
+  },
+  pos: {
+    alt: {
+      ar: "شاشة نقطة البيع تعرض شبكة المنتجات على اليسار وعربة الطلب الحالي على اليمين مع زر الإغلاق وزر تطبيق نقاط الولاء.",
+      en: "Point-of-sale screen showing the product grid on the left and the current order cart on the right, with close and loyalty buttons.",
+    },
+    hotspots: [
+      { n: 1, x: 18, y: 22, label: { ar: "شريط البحث وفلتر الفئات", en: "Search bar & category filter" } },
+      { n: 2, x: 28, y: 50, label: { ar: "شبكة المنتجات", en: "Product grid" } },
+      { n: 3, x: 78, y: 35, label: { ar: "عربة الطلب الحالي", en: "Current order cart" } },
+      { n: 4, x: 78, y: 78, label: { ar: "تطبيق نقاط الولاء وإغلاق الطلب", en: "Apply loyalty & close order" } },
+    ],
+  },
+  inventory: {
+    alt: {
+      ar: "صفحة المنتجات والمخزون تعرض جدول المنتجات مع كميات المخزون وتنبيهات النقص وفلاتر الفئات.",
+      en: "Products & inventory page showing the product table with stock levels, low-stock alerts, and category filters.",
+    },
+    hotspots: [
+      { n: 1, x: 14, y: 22, label: { ar: "زر إضافة منتج", en: "Add product button" } },
+      { n: 2, x: 50, y: 45, label: { ar: "جدول المنتجات", en: "Products table" } },
+      { n: 3, x: 80, y: 30, label: { ar: "فلتر الفئات والفروع", en: "Category & branch filter" } },
+      { n: 4, x: 50, y: 72, label: { ar: "شارات تنبيه المخزون المنخفض", en: "Low-stock alert badges" } },
+    ],
+  },
+  customers: {
+    alt: {
+      ar: "صفحة العملاء تعرض قائمة العملاء مع سجل الطلبات وقيمة العميل مدى الحياة وأزرار إنشاء عميل جديد.",
+      en: "Customers page showing the customer list with order history, lifetime value, and the new-customer button.",
+    },
+    hotspots: [
+      { n: 1, x: 14, y: 22, label: { ar: "زر إضافة عميل", en: "Add customer button" } },
+      { n: 2, x: 38, y: 50, label: { ar: "قائمة العملاء", en: "Customer list" } },
+      { n: 3, x: 75, y: 45, label: { ar: "تفاصيل وسجل الطلبات", en: "Detail & order history" } },
+      { n: 4, x: 75, y: 75, label: { ar: "قيمة العميل مدى الحياة (CLV)", en: "Customer lifetime value (CLV)" } },
+    ],
+  },
+  accounting: {
+    alt: {
+      ar: "صفحة المحاسبة تعرض قيود اليومية، التدفق النقدي، أرصدة الحسابات، وحالة تكامل ZATCA.",
+      en: "Accounting page showing journal entries, cash flow, account balances, and ZATCA integration status.",
+    },
+    hotspots: [
+      { n: 1, x: 14, y: 22, label: { ar: "تبويبات: قيود/أرصدة/تدفق", en: "Tabs: journal / balances / cash flow" } },
+      { n: 2, x: 45, y: 50, label: { ar: "جدول قيود اليومية", en: "Journal entries table" } },
+      { n: 3, x: 80, y: 35, label: { ar: "شارة حالة ZATCA", en: "ZATCA status badge" } },
+      { n: 4, x: 80, y: 72, label: { ar: "ملخص التدفق النقدي", en: "Cash flow summary" } },
+    ],
+  },
+  invoices: {
+    alt: {
+      ar: "صفحة فواتير الموردين مع زر الماسح الذكي للفاتورة، جدول الفواتير، وأيقونة QR الخاصة بـ ZATCA.",
+      en: "Supplier invoices page with the AI invoice scanner button, the invoices table, and the ZATCA QR icon.",
+    },
+    hotspots: [
+      { n: 1, x: 14, y: 22, label: { ar: "زر ماسح الفواتير AI", en: "AI invoice scanner button" } },
+      { n: 2, x: 50, y: 50, label: { ar: "جدول الفواتير", en: "Invoices table" } },
+      { n: 3, x: 82, y: 45, label: { ar: "حالة الدفع", en: "Payment status" } },
+      { n: 4, x: 82, y: 72, label: { ar: "أيقونة ZATCA QR", en: "ZATCA QR icon" } },
+    ],
+  },
+  reports: {
+    alt: {
+      ar: "صفحة التقارير والتحليلات تعرض رسوم بيانية للمبيعات والمخزون والأرباح مع فلاتر الفترة.",
+      en: "Reports & analytics page showing sales, inventory, and profit charts with period filters.",
+    },
+    hotspots: [
+      { n: 1, x: 14, y: 22, label: { ar: "فلتر الفترة الزمنية", en: "Period filter" } },
+      { n: 2, x: 35, y: 50, label: { ar: "رسم المبيعات", en: "Sales chart" } },
+      { n: 3, x: 75, y: 50, label: { ar: "رسم الأرباح", en: "Profit chart" } },
+      { n: 4, x: 55, y: 78, label: { ar: "زر التصدير", en: "Export button" } },
+    ],
+  },
+  "smart-reports": {
+    alt: {
+      ar: "صفحة التقارير الذكية مع جدول كشف الاحتيال، توقعات المبيعات، وقيمة العميل المتنبأ بها.",
+      en: "Smart reports page with the fraud detection table, sales forecast, and predicted customer lifetime value.",
+    },
+    hotspots: [
+      { n: 1, x: 18, y: 22, label: { ar: "تبويبات الذكاء الاصطناعي", en: "AI tabs" } },
+      { n: 2, x: 45, y: 50, label: { ar: "جدول كشف الاحتيال", en: "Fraud detection table" } },
+      { n: 3, x: 80, y: 45, label: { ar: "رسم توقع المبيعات", en: "Sales forecast chart" } },
+      { n: 4, x: 50, y: 78, label: { ar: "بطاقات CLV", en: "CLV cards" } },
+    ],
+  },
+  "ai-models": {
+    alt: {
+      ar: "لوحة إدارة نماذج الذكاء الاصطناعي مع بطاقات نماذج التنبؤ، أزرار التدريب، وتبويب المساعد الذكي.",
+      en: "AI models admin panel with model cards, training buttons, and the AI assistant tab.",
+    },
+    hotspots: [
+      { n: 1, x: 16, y: 22, label: { ar: "تبويب نماذج AI / المساعد", en: "AI models / assistant tabs" } },
+      { n: 2, x: 30, y: 48, label: { ar: "بطاقة نموذج (الدقة + آخر تدريب)", en: "Model card (accuracy + last trained)" } },
+      { n: 3, x: 72, y: 48, label: { ar: "زر التدريب", en: "Train button" } },
+      { n: 4, x: 50, y: 78, label: { ar: "محرر النتائج / المساعد", en: "Results / assistant pane" } },
+    ],
+  },
+  "branches-users": {
+    alt: {
+      ar: "صفحة الفروع تعرض قائمة الفروع مع عنوان كل فرع وعدد المستخدمين النشطين وزر إضافة فرع.",
+      en: "Branches page showing the branch list with each branch's address, active user count, and the add-branch button.",
+    },
+    hotspots: [
+      { n: 1, x: 14, y: 22, label: { ar: "زر إضافة فرع", en: "Add branch button" } },
+      { n: 2, x: 45, y: 50, label: { ar: "بطاقات الفروع", en: "Branch cards" } },
+      { n: 3, x: 80, y: 50, label: { ar: "عدد المستخدمين النشطين", en: "Active user count" } },
+      { n: 4, x: 50, y: 78, label: { ar: "حالة الفرع", en: "Branch status" } },
+    ],
+  },
+  "roles-matrix": {
+    alt: {
+      ar: "صفحة المستخدمين تعرض جدول المستخدمين مع أعمدة الدور، الفرع، حالة 2FA، وآخر تسجيل دخول.",
+      en: "Users page showing the user table with role, branch, 2FA status, and last login columns.",
+    },
+    hotspots: [
+      { n: 1, x: 14, y: 22, label: { ar: "زر دعوة مستخدم", en: "Invite user button" } },
+      { n: 2, x: 50, y: 50, label: { ar: "جدول المستخدمين", en: "User table" } },
+      { n: 3, x: 80, y: 50, label: { ar: "شارة 2FA", en: "2FA badge" } },
+      { n: 4, x: 50, y: 78, label: { ar: "اختيار الدور", en: "Role picker" } },
+    ],
+  },
+  "loyalty-zatca": {
+    alt: {
+      ar: "نقطة البيع مع لوحة نقاط الولاء النشطة، خصم مطبق، وشارة ZATCA مرئية على الإيصال.",
+      en: "POS with the active loyalty pane, applied discount, and visible ZATCA badge on the receipt.",
+    },
+    hotspots: [
+      { n: 1, x: 78, y: 25, label: { ar: "ربط العميل بالطلب", en: "Attach customer to order" } },
+      { n: 2, x: 78, y: 48, label: { ar: "رصيد نقاط الولاء", en: "Loyalty points balance" } },
+      { n: 3, x: 78, y: 65, label: { ar: "تطبيق الخصم", en: "Apply discount" } },
+      { n: 4, x: 30, y: 78, label: { ar: "شارة ZATCA على الإيصال", en: "ZATCA badge on receipt" } },
+    ],
+  },
+  intercompany: {
+    alt: {
+      ar: "صفحة المعاملات بين الشركات تعرض جدول المستندات المرتبطة مع حالة المطابقة وزر إعادة المزامنة.",
+      en: "Intercompany page showing the linked-documents table with match status and resync button.",
+    },
+    hotspots: [
+      { n: 1, x: 14, y: 22, label: { ar: "فلتر الكيان", en: "Entity filter" } },
+      { n: 2, x: 45, y: 50, label: { ar: "جدول الروابط (المصدر/المرآة)", en: "Links table (source / mirror)" } },
+      { n: 3, x: 80, y: 50, label: { ar: "شارة الحالة (matched/void)", en: "Status badge (matched / void)" } },
+      { n: 4, x: 50, y: 78, label: { ar: "أزرار إلغاء/إعادة المزامنة", en: "Void / resync actions" } },
+    ],
+  },
+  "transfer-pricing-zakat": {
+    alt: {
+      ar: "صفحة الامتثال مع تبويبات الزكاة، تسعير التحويل، وأرشيف ZATCA.",
+      en: "Compliance page with Zakat, transfer pricing, and ZATCA archive tabs.",
+    },
+    hotspots: [
+      { n: 1, x: 18, y: 22, label: { ar: "تبويبات الامتثال", en: "Compliance tabs" } },
+      { n: 2, x: 45, y: 50, label: { ar: "ملخص الزكاة المستحقة", en: "Zakat due summary" } },
+      { n: 3, x: 80, y: 45, label: { ar: "حالة تسعير التحويل", en: "Transfer-pricing status" } },
+      { n: 4, x: 50, y: 78, label: { ar: "زر تنزيل الأرشيف", en: "Download archive button" } },
+    ],
+  },
+  "vat-threshold": {
+    alt: {
+      ar: "بطاقة عتبة VAT على لوحة القيادة مع شريط تقدّم متدرّج وزر بدء التسجيل.",
+      en: "VAT threshold card on the dashboard with a gradient progress bar and 'start registration' CTA.",
+    },
+    hotspots: [
+      { n: 1, x: 20, y: 30, label: { ar: "نسبة التقدم نحو الحد", en: "Progress toward the threshold" } },
+      { n: 2, x: 50, y: 50, label: { ar: "إجمالي المبيعات Rolling 12 شهرًا", en: "Rolling 12-month sales total" } },
+      { n: 3, x: 80, y: 55, label: { ar: "شارة الحالة (تحذير/خطر)", en: "Status badge (warning / danger)" } },
+      { n: 4, x: 50, y: 80, label: { ar: "زر ابدأ التسجيل", en: "Start registration CTA" } },
+    ],
+  },
+  "vat-auto-hide": {
+    alt: {
+      ar: "خطوة الإعداد التي تسأل المستخدم عن حالة التسجيل في ضريبة القيمة المضافة.",
+      en: "Onboarding step that asks the user about their VAT registration status.",
+    },
+    hotspots: [
+      { n: 1, x: 50, y: 22, label: { ar: "السؤال: هل أنت مسجل في VAT؟", en: "Question: are you VAT-registered?" } },
+      { n: 2, x: 30, y: 50, label: { ar: "خيار: مسجل", en: "Option: registered" } },
+      { n: 3, x: 50, y: 50, label: { ar: "خيار: تسجيل اختياري", en: "Option: voluntary" } },
+      { n: 4, x: 70, y: 50, label: { ar: "خيار: غير مسجل", en: "Option: not registered" } },
+    ],
+  },
+  onboarding: {
+    alt: {
+      ar: "معالج الإعداد ذو الخطوات الخمس مع شريط التقدم العلوي وخطوة إضافة الفرع.",
+      en: "Five-step onboarding wizard with the top progress bar and the add-branch step active.",
+    },
+    hotspots: [
+      { n: 1, x: 50, y: 14, label: { ar: "شريط تقدم الخطوات الخمس", en: "Five-step progress bar" } },
+      { n: 2, x: 30, y: 48, label: { ar: "حقول الإدخال", en: "Input fields" } },
+      { n: 3, x: 72, y: 48, label: { ar: "لوحة المعاينة", en: "Preview pane" } },
+      { n: 4, x: 80, y: 82, label: { ar: "زر التالي/إنهاء", en: "Next / finish button" } },
+    ],
+  },
+  landing: {
+    alt: {
+      ar: "صفحة البداية العامة مع قسم البطل، مكوّن المعاينة الواقعية، شبكة المميزات، ودعوة للتسجيل.",
+      en: "Public landing page with the hero, live mockup preview, features grid, and signup CTA.",
+    },
+    hotspots: [
+      { n: 1, x: 25, y: 20, label: { ar: "قسم البطل والعنوان", en: "Hero & headline" } },
+      { n: 2, x: 75, y: 35, label: { ar: "معاينة المنتج", en: "Product preview" } },
+      { n: 3, x: 50, y: 60, label: { ar: "شبكة المميزات", en: "Features grid" } },
+      { n: 4, x: 50, y: 85, label: { ar: "دعوة التسجيل (CTA)", en: "Signup CTA" } },
+    ],
+  },
+  projects: {
+    alt: {
+      ar: "صفحة المشاريع بعرض كانبان مع أعمدة الحالة، بطاقات المشاريع، ومؤشرات الميزانية والتقدم.",
+      en: "Projects page in Kanban view with status columns, project cards, and budget/progress indicators.",
+    },
+    hotspots: [
+      { n: 1, x: 18, y: 22, label: { ar: "مبدّل عرض كانبان/قائمة", en: "Kanban / list view toggle" } },
+      { n: 2, x: 35, y: 50, label: { ar: "عمود حالة (قيد التنفيذ)", en: "Status column (in progress)" } },
+      { n: 3, x: 60, y: 50, label: { ar: "بطاقة مشروع", en: "Project card" } },
+      { n: 4, x: 85, y: 50, label: { ar: "شريط تقدم المهام", en: "Task progress bar" } },
+    ],
+  },
+  marketing: {
+    alt: {
+      ar: "صفحة التسويق مع بطاقات الحملات النشطة، خط الأنابيب التحويلي، وتبويب العملاء المحتملين.",
+      en: "Marketing page with active campaign cards, conversion pipeline, and leads tab.",
+    },
+    hotspots: [
+      { n: 1, x: 18, y: 22, label: { ar: "تبويبات الحملات/العملاء المحتملين", en: "Campaigns / leads tabs" } },
+      { n: 2, x: 35, y: 50, label: { ar: "بطاقة حملة", en: "Campaign card" } },
+      { n: 3, x: 75, y: 45, label: { ar: "قُمع التحويل", en: "Conversion funnel" } },
+      { n: 4, x: 50, y: 78, label: { ar: "تتبع العائد على الإنفاق", en: "ROAS tracking" } },
+    ],
+  },
+  "admin-panel": {
+    alt: {
+      ar: "لوحة تحكم المدير مع تبويبات: نظرة عامة، الدعم الفني، الإعلانات، الميزات، والسجلات.",
+      en: "Admin control panel with tabs: Overview, Support, Announcements, Features, and Logs.",
+    },
+    hotspots: [
+      { n: 1, x: 18, y: 22, label: { ar: "تبويبات لوحة الإدارة", en: "Admin tabs" } },
+      { n: 2, x: 45, y: 50, label: { ar: "بطاقات KPI وحالة النظام", en: "KPI & system-health cards" } },
+      { n: 3, x: 80, y: 50, label: { ar: "تبديل علم الميزة", en: "Feature-flag toggle" } },
+      { n: 4, x: 50, y: 78, label: { ar: "سجلات التدقيق الأخيرة", en: "Recent audit log" } },
+    ],
+  },
+};
+
+function withScreenshotMeta(m: DocModule): DocModule {
+  const meta = SCREENSHOT_META[m.slug];
+  if (!meta) return m;
+  return {
+    ...m,
+    screenshotAlt: m.screenshotAlt ?? meta.alt,
+    hotspots: m.hotspots ?? meta.hotspots,
+  };
+}
+
 export function findModule(slug: string): DocModule | null {
   for (const cat of DOC_CATEGORIES) {
     for (const m of cat.modules) {
-      if (m.slug === slug) return m;
+      if (m.slug === slug) return withScreenshotMeta(m);
     }
   }
   return null;
 }
 
 export function allModules(): DocModule[] {
-  return DOC_CATEGORIES.flatMap((c) => c.modules);
+  return DOC_CATEGORIES.flatMap((c) => c.modules.map(withScreenshotMeta));
 }

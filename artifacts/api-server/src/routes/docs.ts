@@ -72,7 +72,30 @@ function writeModule(
     try {
       const pageWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
       doc.image(shot, { fit: [pageWidth, 260], align: "center" });
-      doc.moveDown(0.5);
+      doc.moveDown(0.3);
+      // Descriptive alt-equivalent caption (renders inline for sighted users;
+      // also makes the PDF self-describing when text-extracted by screen
+      // readers since pdfkit does not expose semantic alt tags directly).
+      const altText = (m.screenshotAlt ?? m.summary)[lang];
+      useReg();
+      doc
+        .fontSize(9)
+        .fillColor("#475569")
+        .text(T(`${lang === "ar" ? "وصف الصورة" : "Image"}: ${altText}`), { align });
+      doc.moveDown(0.3);
+      if (m.hotspots && m.hotspots.length) {
+        useBold();
+        doc
+          .fontSize(10)
+          .fillColor("#0f172a")
+          .text(T(lang === "ar" ? "مفتاح المخطط:" : "Map legend:"), { align });
+        useReg();
+        doc.fontSize(10).fillColor("#1f2937");
+        for (const h of m.hotspots) {
+          doc.text(T(`${h.n}. ${h.label[lang]}`), { align });
+        }
+      }
+      doc.moveDown(0.4);
     } catch {
       // ignore – malformed PNGs shouldn't break the export
     }

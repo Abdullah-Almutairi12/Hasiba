@@ -1,56 +1,67 @@
 <?xml version="1.0" encoding="UTF-8"?>
-  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" font-family="'IBM Plex Sans Arabic','Inter','Segoe UI',sans-serif">
-    <defs>
-      <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-        <stop offset="0%" stop-color="#0c1f1a"/>
-        <stop offset="100%" stop-color="#1a3329"/>
-      </linearGradient>
-      <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
-        <stop offset="0%" stop-color="#34d399" stop-opacity="0.9"/>
-        <stop offset="100%" stop-color="#34d399" stop-opacity="0.4"/>
-      </linearGradient>
-      <pattern id="dots" width="24" height="24" patternUnits="userSpaceOnUse">
-        <circle cx="2" cy="2" r="1" fill="#34d399" fill-opacity="0.08"/>
-      </pattern>
-    </defs>
-    <rect width="1280" height="720" fill="url(#bg)"/>
-    <rect width="1280" height="720" fill="url(#dots)"/>
-    <rect x="0" y="0" width="1280" height="64" fill="#0c1f1a" fill-opacity="0.85"/>
-    <line x1="0" y1="64" x2="1280" y2="64" stroke="#34d399" stroke-opacity="0.25"/>
-    <circle cx="32" cy="32" r="10" fill="#34d399" fill-opacity="0.9"/>
-    <text x="56" y="38" text-anchor="start" fill="#ecfdf5" font-size="18" font-weight="700" direction="ltr">حاسبة.AI</text>
-    <rect x="0" y="64" width="220" height="656" fill="#0c1f1a" fill-opacity="0.6"/>
-    <rect x="20" y="94" width="100" height="10" rx="3" fill="#34d399" fill-opacity="0.35"/>
-<rect x="20" y="140" width="107" height="10" rx="3" fill="#34d399" fill-opacity="0.35"/>
-<rect x="20" y="186" width="114" height="10" rx="3" fill="#34d399" fill-opacity="0.35"/>
-<rect x="20" y="232" width="121" height="10" rx="3" fill="#34d399" fill-opacity="0.35"/>
-<rect x="14" y="266" width="180" height="30" rx="6" fill="#34d399" fill-opacity="0.18"/><rect x="20" y="278" width="140" height="10" rx="3" fill="#34d399" fill-opacity="0.85"/>
-<rect x="20" y="324" width="135" height="10" rx="3" fill="#34d399" fill-opacity="0.35"/>
-<rect x="20" y="370" width="142" height="10" rx="3" fill="#34d399" fill-opacity="0.35"/>
-    <rect x="260" y="100" width="980" height="580" rx="18" fill="#0c1f1a" fill-opacity="0.55" stroke="#34d399" stroke-opacity="0.25"/>
-    <rect x="290" y="130" width="160" height="32" rx="6" fill="url(#accent)"/>
-    <text x="370" y="152" text-anchor="middle" fill="#0c1f1a" font-size="14" font-weight="700">#05 · Module</text>
-    <text x="290" y="220" text-anchor="start" fill="#ecfdf5" font-size="44" font-weight="800" direction="ltr">Accounting &amp; Compliance</text>
-    <text x="290" y="258" text-anchor="start" fill="#86efac" font-size="20" direction="ltr">حاسبة.AI ERP — User Manual</text>
-    <rect x="290" y="290" width="180" height="36" rx="8" fill="#0c1f1a" fill-opacity="0.7" stroke="#34d399" stroke-opacity="0.4"/>
-    <text x="380" y="313" text-anchor="middle" fill="#ecfdf5" font-size="14" font-family="ui-monospace,'SFMono-Regular',monospace">Path: /accounting</text>
-    <rect x="290" y="346" width="80" height="26" rx="6" fill="#34d399" fill-opacity="0.15" stroke="#34d399" stroke-opacity="0.4"/>
-      <text x="330" y="364" text-anchor="middle" fill="#ecfdf5" font-size="12" font-family="ui-monospace,monospace">owner</text>
-<rect x="380" y="346" width="80" height="26" rx="6" fill="#34d399" fill-opacity="0.15" stroke="#34d399" stroke-opacity="0.4"/>
-      <text x="420" y="364" text-anchor="middle" fill="#ecfdf5" font-size="12" font-family="ui-monospace,monospace">manager</text>
-<rect x="470" y="346" width="80" height="26" rx="6" fill="#34d399" fill-opacity="0.15" stroke="#34d399" stroke-opacity="0.4"/>
-      <text x="510" y="364" text-anchor="middle" fill="#ecfdf5" font-size="12" font-family="ui-monospace,monospace">accountant</text>
-    <g transform="translate(290, 420)">
-      <rect x="0" y="0" width="900" height="160" rx="12" fill="#0c1f1a" fill-opacity="0.6"/>
-      <rect x="20" y="55" width="97.5" height="85" rx="4" fill="#34d399" fill-opacity="0.3"/>
-<rect x="127.5" y="18" width="97.5" height="122" rx="4" fill="#34d399" fill-opacity="0.5"/>
-<rect x="235" y="81" width="97.5" height="59" rx="4" fill="#34d399" fill-opacity="0.7"/>
-<rect x="342.5" y="44" width="97.5" height="96" rx="4" fill="#34d399" fill-opacity="0.3"/>
-<rect x="450" y="107" width="97.5" height="33" rx="4" fill="#34d399" fill-opacity="0.5"/>
-<rect x="557.5" y="70" width="97.5" height="70" rx="4" fill="#34d399" fill-opacity="0.7"/>
-<rect x="665" y="33" width="97.5" height="107" rx="4" fill="#34d399" fill-opacity="0.3"/>
-<rect x="772.5" y="96" width="97.5" height="44" rx="4" fill="#34d399" fill-opacity="0.5"/>
-      <polyline points="68.75,85 176.25,32 283.75,49 391.25,66 498.75,83 606.25,100 713.75,47 821.25,64" fill="none" stroke="#34d399" stroke-width="2.5" stroke-linecap="round"/>
-    </g>
-    <text x="640" y="698" text-anchor="middle" fill="#86efac" font-size="13" direction="ltr">Placeholder — will be replaced by a real screenshot when the capture script runs</text>
-  </svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" font-family="'IBM Plex Sans Arabic','Inter','Segoe UI',sans-serif" direction="ltr">
+  <defs>
+    <linearGradient id="appbg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f8fafc"/>
+      <stop offset="100%" stop-color="#eef2f7"/>
+    </linearGradient>
+  </defs>
+  <rect width="1280" height="720" fill="url(#appbg)"/>
+  <!-- Top app bar -->
+  <rect x="0" y="0" width="1280" height="56" fill="#0f172a"/>
+  <text x="24" y="36" fill="#f8fafc" font-size="16" font-weight="700" text-anchor="start">حاسبة.AI</text>
+  <text x="1256" y="36" fill="#94a3b8" font-size="13" text-anchor="end">/accounting</text>
+  <!-- Sidebar -->
+  <rect x="0" y="56" width="256" height="664" fill="#0f172a"/>
+  
+        <rect x="24" y="96" width="208" height="40" rx="8" fill="transparent"/>
+        <text x="40" y="122" fill="#cbd5e1" font-size="14" font-weight="500" text-anchor="start" direction="ltr">Dashboard</text>
+      
+        <rect x="24" y="152" width="208" height="40" rx="8" fill="transparent"/>
+        <text x="40" y="178" fill="#cbd5e1" font-size="14" font-weight="500" text-anchor="start" direction="ltr">POS</text>
+      
+        <rect x="24" y="208" width="208" height="40" rx="8" fill="transparent"/>
+        <text x="40" y="234" fill="#cbd5e1" font-size="14" font-weight="500" text-anchor="start" direction="ltr">Products</text>
+      
+        <rect x="24" y="264" width="208" height="40" rx="8" fill="transparent"/>
+        <text x="40" y="290" fill="#cbd5e1" font-size="14" font-weight="500" text-anchor="start" direction="ltr">Customers</text>
+      
+        <rect x="24" y="320" width="208" height="40" rx="8" fill="transparent"/>
+        <text x="40" y="346" fill="#cbd5e1" font-size="14" font-weight="500" text-anchor="start" direction="ltr">Accounting</text>
+      
+        <rect x="24" y="376" width="208" height="40" rx="8" fill="transparent"/>
+        <text x="40" y="402" fill="#cbd5e1" font-size="14" font-weight="500" text-anchor="start" direction="ltr">Reports</text>
+      
+        <rect x="24" y="432" width="208" height="40" rx="8" fill="transparent"/>
+        <text x="40" y="458" fill="#cbd5e1" font-size="14" font-weight="500" text-anchor="start" direction="ltr">Branches</text>
+      
+        <rect x="24" y="488" width="208" height="40" rx="8" fill="transparent"/>
+        <text x="40" y="514" fill="#cbd5e1" font-size="14" font-weight="500" text-anchor="start" direction="ltr">Settings</text>
+      
+  <!-- Header -->
+  <text x="280" y="120" fill="#0f172a" font-size="28" font-weight="700" text-anchor="start">Accounting &amp; Compliance</text>
+  <text x="280" y="150" fill="#64748b" font-size="14" text-anchor="start">Double-entry accounting, chart of accounts, fiscal periods, and ZATCA Phase 2 integration.</text>
+  <!-- Content tiles -->
+  
+    <rect x="264" y="180" width="240" height="120" rx="12" fill="#ffffff" stroke="#e2e8f0"/>
+    <rect x="524" y="180" width="240" height="120" rx="12" fill="#ffffff" stroke="#e2e8f0"/>
+    <rect x="784" y="180" width="240" height="120" rx="12" fill="#ffffff" stroke="#e2e8f0"/>
+    <rect x="1044" y="180" width="156" height="120" rx="12" fill="#ffffff" stroke="#e2e8f0"/>
+    <rect x="264" y="320" width="640" height="280" rx="12" fill="#ffffff" stroke="#e2e8f0"/>
+    <rect x="924" y="320" width="276" height="280" rx="12" fill="#ffffff" stroke="#e2e8f0"/>
+  
+  <!-- Hotspot markers -->
+  
+        <circle cx="179.20000000000002" cy="158.4" r="22" fill="#0ea5e9" stroke="#ffffff" stroke-width="3"/>
+        <text x="179.20000000000002" y="164.4" fill="#ffffff" font-size="20" font-weight="700" text-anchor="middle">1</text>
+      
+        <circle cx="576" cy="360" r="22" fill="#0ea5e9" stroke="#ffffff" stroke-width="3"/>
+        <text x="576" y="366" fill="#ffffff" font-size="20" font-weight="700" text-anchor="middle">2</text>
+      
+        <circle cx="1024" cy="251.99999999999997" r="22" fill="#0ea5e9" stroke="#ffffff" stroke-width="3"/>
+        <text x="1024" y="258" fill="#ffffff" font-size="20" font-weight="700" text-anchor="middle">3</text>
+      
+        <circle cx="1024" cy="518.4" r="22" fill="#0ea5e9" stroke="#ffffff" stroke-width="3"/>
+        <text x="1024" y="524.4" fill="#ffffff" font-size="20" font-weight="700" text-anchor="middle">4</text>
+      
+</svg>
