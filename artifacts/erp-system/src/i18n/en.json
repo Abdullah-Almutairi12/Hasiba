@@ -192,5 +192,33 @@
     "trustEncryption": "TLS 1.3 encryption",
     "trustNCA": "NCA ECC compliant",
     "trustZATCA": "ZATCA Phase 2"
+  },
+  "teamPrivacy": {
+    "tab": "Team Privacy",
+    "title": "Team Privacy",
+    "subtitle": "Review the privacy choices each user has made. Ask anyone whose settings are overly restrictive — or who never opened the prompt — to re-confirm their consent.",
+    "totalUsers": "Total teammates",
+    "restrictive": "Restrictive settings",
+    "restrictiveHint": "Users who disabled one or more facets",
+    "defaults": "Never reviewed",
+    "defaultsHint": "Users who never opened the privacy screen",
+    "user": "User",
+    "role": "Role",
+    "salesDetails": "Sales details",
+    "customerPii": "Customer PII",
+    "locationContext": "Location / IP",
+    "lastChanged": "Last changed",
+    "actions": "Action",
+    "visible": "Visible",
+    "redacted": "Redacted",
+    "inactive": "Inactive",
+    "default": "Default",
+    "pendingReconfirm": "Re-confirm requested:",
+    "requestReconfirm": "Request re-confirm",
+    "resend": "Resend",
+    "reconfirmRequested": "Re-confirm requested",
+    "reconfirmRequestedDesc": "The user will see a prompt to review their privacy settings.",
+    "reconfirmFailed": "Request failed",
+    "empty": "No teammates in this company yet."
   }
 }

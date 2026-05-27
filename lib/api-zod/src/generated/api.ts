@@ -1894,6 +1894,63 @@ export const RetryInvoiceSendFailureResponse = zod.object({
 });
 
 /**
+ * Owner-only. Returns every member of the current company (excluding the calling owner) with their per-facet audit consent + the timestamp of their last change + any pending owner-issued re-confirm request.
+ * @summary List teammates' audit-consent settings (Task
+ */
+export const listTeamConsentsResponseConsentSalesDetailsDefault = true;
+export const listTeamConsentsResponseConsentCustomerPiiDefault = true;
+export const listTeamConsentsResponseConsentLocationContextDefault = true;
+
+export const ListTeamConsentsResponseItem = zod
+  .object({
+    userId: zod.number(),
+    name: zod.string(),
+    email: zod.string(),
+    role: zod.string(),
+    isActive: zod.boolean(),
+    consent: zod
+      .object({
+        salesDetails: zod
+          .boolean()
+          .default(listTeamConsentsResponseConsentSalesDetailsDefault),
+        customerPii: zod
+          .boolean()
+          .default(listTeamConsentsResponseConsentCustomerPiiDefault),
+        locationContext: zod
+          .boolean()
+          .default(listTeamConsentsResponseConsentLocationContextDefault),
+      })
+      .describe(
+        "Per-user audit visibility consent (Task #259). When a flag is false, the matching facet is redacted in `\/security\/audit-logs` and `\/security\/audit-access` for non-owner viewers.",
+      ),
+    isDefault: zod
+      .boolean()
+      .describe(
+        "True when the user has never written their consent — every facet is still at the open default. Useful for owners to spot staff who left the prompt untouched.",
+      ),
+    lastChangedAt: zod.string().nullish(),
+    reconfirmRequestedAt: zod.string().nullish(),
+  })
+  .describe(
+    "One teammate's audit-consent snapshot (Task #260). `consent` always carries explicit boolean values: the server merges stored prefs with defaults (true \/ true \/ true) so the UI does not need to handle `undefined`.",
+  );
+export const ListTeamConsentsResponse = zod.array(ListTeamConsentsResponseItem);
+
+/**
+ * Owner-only. Stamps a pending re-confirm flag on the target user's `admin_prefs.auditConsent*` and writes an audit-log entry. Cleared automatically when the user next writes their own consent via PATCH /users/me/preferences.
+ * @summary Ask a teammate to re-confirm their audit consent (Task
+ */
+export const RequestTeamConsentReconfirmParams = zod.object({
+  userId: zod.coerce.number(),
+});
+
+export const RequestTeamConsentReconfirmResponse = zod.object({
+  ok: zod.boolean(),
+  userId: zod.number(),
+  reconfirmRequestedAt: zod.string().nullish(),
+});
+
+/**
  * @summary List announcements
  */
 export const ListAnnouncementsResponseItem = zod.object({

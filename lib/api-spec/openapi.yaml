@@ -1705,6 +1705,56 @@ paths:
                   error: { type: string }
                 required: [error]
 
+  /admin/team-consents:
+    get:
+      tags: [admin]
+      summary: List teammates' audit-consent settings (Task #260)
+      description: >-
+        Owner-only. Returns every member of the current company
+        (excluding the calling owner) with their per-facet audit
+        consent + the timestamp of their last change + any pending
+        owner-issued re-confirm request.
+      operationId: listTeamConsents
+      responses:
+        "200":
+          description: Team consents
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TeamConsentRow"
+
+  /admin/team-consents/{userId}/request-reconfirm:
+    post:
+      tags: [admin]
+      summary: Ask a teammate to re-confirm their audit consent (Task #260)
+      description: >-
+        Owner-only. Stamps a pending re-confirm flag on the target
+        user's `admin_prefs.auditConsent*` and writes an audit-log
+        entry. Cleared automatically when the user next writes their
+        own consent via PATCH /users/me/preferences.
+      operationId: requestTeamConsentReconfirm
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Reconfirm requested
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  userId: { type: integer }
+                  reconfirmRequestedAt:
+                    type: string
+                    nullable: true
+                required: [ok, userId]
+
   /admin/announcements:
     get:
       tags: [admin]
@@ -5784,6 +5834,34 @@ components:
         salesDetails: { type: boolean, default: true }
         customerPii: { type: boolean, default: true }
         locationContext: { type: boolean, default: true }
+
+    TeamConsentRow:
+      type: object
+      description: >-
+        One teammate's audit-consent snapshot (Task #260). `consent`
+        always carries explicit boolean values: the server merges
+        stored prefs with defaults (true / true / true) so the UI
+        does not need to handle `undefined`.
+      properties:
+        userId: { type: integer }
+        name: { type: string }
+        email: { type: string }
+        role: { type: string }
+        isActive: { type: boolean }
+        consent: { $ref: "#/components/schemas/AuditConsent" }
+        isDefault:
+          type: boolean
+          description: >-
+            True when the user has never written their consent —
+            every facet is still at the open default. Useful for
+            owners to spot staff who left the prompt untouched.
+        lastChangedAt:
+          type: string
+          nullable: true
+        reconfirmRequestedAt:
+          type: string
+          nullable: true
+      required: [userId, name, email, role, isActive, consent, isDefault]
 
     UpdateUserPreferencesRequest:
       type: object

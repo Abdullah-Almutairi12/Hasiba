@@ -56,6 +56,28 @@ export type AdminPrefs = {
   insightMode?: boolean;
   /** Task #259 — per-user audit visibility consent (see AuditConsent). */
   auditConsent?: AuditConsent;
+  /**
+   * Task #260 — ISO timestamp of the last time `auditConsent` was
+   * written by the user. Stamped server-side in
+   * PATCH /users/me/preferences so owners can spot stale defaults
+   * and freshly-confirmed consents on the Team Privacy panel.
+   */
+  auditConsentUpdatedAt?: string;
+  /**
+   * Task #260 — ISO timestamp set when an owner asks this user to
+   * re-confirm their audit consent via
+   * POST /admin/team-consents/:userId/request-reconfirm. Cleared
+   * the next time the user writes their own consent (see PATCH
+   * /users/me/preferences).
+   */
+  auditConsentReconfirmRequestedAt?: string;
+  /**
+   * Task #260 — id of the owner who issued the latest re-confirm
+   * request, alongside `auditConsentReconfirmRequestedAt`. Stored
+   * for traceability on the user's side; the authoritative paper
+   * trail still lives in `audit_logs`.
+   */
+  auditConsentReconfirmRequestedBy?: number;
 };
 
 export const insertUserSchema = createInsertSchema(usersTable).omit({ id: true, createdAt: true, lastLoginAt: true, passwordHash: true });

@@ -192,5 +192,33 @@
     "trustEncryption": "تشفير TLS 1.3",
     "trustNCA": "متوافق NCA ECC",
     "trustZATCA": "ZATCA Phase 2"
+  },
+  "teamPrivacy": {
+    "tab": "خصوصية الفريق",
+    "title": "خصوصية الفريق",
+    "subtitle": "راجع إعدادات الخصوصية التي اختارها كل مستخدم. اطلب إعادة تأكيد الموافقة إذا كانت مقيِّدة أكثر من اللازم أو لم تُعدَّل أبدًا.",
+    "totalUsers": "إجمالي الزملاء",
+    "restrictive": "إعدادات مقيِّدة",
+    "restrictiveHint": "مستخدمون أوقفوا ميزة أو أكثر",
+    "defaults": "لم يُراجَع بعد",
+    "defaultsHint": "مستخدمون لم يفتحوا شاشة الخصوصية",
+    "user": "المستخدم",
+    "role": "الدور",
+    "salesDetails": "تفاصيل المبيعات",
+    "customerPii": "بيانات العملاء",
+    "locationContext": "الموقع/IP",
+    "lastChanged": "آخر تعديل",
+    "actions": "إجراء",
+    "visible": "مرئي",
+    "redacted": "محجوب",
+    "inactive": "غير نشط",
+    "default": "افتراضي",
+    "pendingReconfirm": "طلب إعادة التأكيد:",
+    "requestReconfirm": "اطلب إعادة التأكيد",
+    "resend": "إعادة الإرسال",
+    "reconfirmRequested": "تم طلب إعادة التأكيد",
+    "reconfirmRequestedDesc": "سيظهر للمستخدم تنبيه لمراجعة إعدادات الخصوصية.",
+    "reconfirmFailed": "فشل الطلب",
+    "empty": "لا يوجد زملاء في هذه الشركة بعد."
   }
 }

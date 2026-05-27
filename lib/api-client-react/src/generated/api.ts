@@ -167,6 +167,7 @@ import type {
   ProductStats,
   ProfitLoss,
   ReportInsights,
+  RequestTeamConsentReconfirm200,
   ResendCleanupReport200,
   ResendCleanupReport400,
   ResendCleanupReport404,
@@ -194,6 +195,7 @@ import type {
   SwitchCompany200,
   SwitchCompanyRequest,
   SystemSettings,
+  TeamConsentRow,
   TopProduct,
   TrainAiModel200,
   TrainAllAiModels200,
@@ -7580,6 +7582,170 @@ export const useRetryInvoiceSendFailure = <
   TContext
 > => {
   return useMutation(getRetryInvoiceSendFailureMutationOptions(options));
+};
+
+/**
+ * Owner-only. Returns every member of the current company (excluding the calling owner) with their per-facet audit consent + the timestamp of their last change + any pending owner-issued re-confirm request.
+ * @summary List teammates' audit-consent settings (Task
+ */
+export const getListTeamConsentsUrl = () => {
+  return `/api/admin/team-consents`;
+};
+
+export const listTeamConsents = async (
+  options?: RequestInit,
+): Promise<TeamConsentRow[]> => {
+  return customFetch<TeamConsentRow[]>(getListTeamConsentsUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListTeamConsentsQueryKey = () => {
+  return [`/api/admin/team-consents`] as const;
+};
+
+export const getListTeamConsentsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listTeamConsents>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listTeamConsents>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListTeamConsentsQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listTeamConsents>>
+  > = ({ signal }) => listTeamConsents({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listTeamConsents>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListTeamConsentsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listTeamConsents>>
+>;
+export type ListTeamConsentsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List teammates' audit-consent settings (Task
+ */
+
+export function useListTeamConsents<
+  TData = Awaited<ReturnType<typeof listTeamConsents>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listTeamConsents>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListTeamConsentsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * Owner-only. Stamps a pending re-confirm flag on the target user's `admin_prefs.auditConsent*` and writes an audit-log entry. Cleared automatically when the user next writes their own consent via PATCH /users/me/preferences.
+ * @summary Ask a teammate to re-confirm their audit consent (Task
+ */
+export const getRequestTeamConsentReconfirmUrl = (userId: number) => {
+  return `/api/admin/team-consents/${userId}/request-reconfirm`;
+};
+
+export const requestTeamConsentReconfirm = async (
+  userId: number,
+  options?: RequestInit,
+): Promise<RequestTeamConsentReconfirm200> => {
+  return customFetch<RequestTeamConsentReconfirm200>(
+    getRequestTeamConsentReconfirmUrl(userId),
+    {
+      ...options,
+      method: "POST",
+    },
+  );
+};
+
+export const getRequestTeamConsentReconfirmMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof requestTeamConsentReconfirm>>,
+    TError,
+    { userId: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof requestTeamConsentReconfirm>>,
+  TError,
+  { userId: number },
+  TContext
+> => {
+  const mutationKey = ["requestTeamConsentReconfirm"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof requestTeamConsentReconfirm>>,
+    { userId: number }
+  > = (props) => {
+    const { userId } = props ?? {};
+
+    return requestTeamConsentReconfirm(userId, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RequestTeamConsentReconfirmMutationResult = NonNullable<
+  Awaited<ReturnType<typeof requestTeamConsentReconfirm>>
+>;
+
+export type RequestTeamConsentReconfirmMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Ask a teammate to re-confirm their audit consent (Task
+ */
+export const useRequestTeamConsentReconfirm = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof requestTeamConsentReconfirm>>,
+    TError,
+    { userId: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof requestTeamConsentReconfirm>>,
+  TError,
+  { userId: number },
+  TContext
+> => {
+  return useMutation(getRequestTeamConsentReconfirmMutationOptions(options));
 };
 
 /**

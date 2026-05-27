@@ -43,8 +43,11 @@ import {
   useGetFraudAnomalies,
   useGetProductRecommendations,
   useAskAiAssistant,
+  useListTeamConsents,
+  useRequestTeamConsentReconfirm,
+  getListTeamConsentsQueryKey,
 } from "@workspace/api-client-react";
-import type { SupportTicket } from "@workspace/api-client-react";
+import type { SupportTicket, TeamConsentRow } from "@workspace/api-client-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useLanguage } from "@/hooks/use-language";
 import { useToast } from "@/hooks/use-toast";
@@ -128,6 +131,9 @@ import {
   MailX,
   Clock,
   ShieldOff,
+  Eye,
+  EyeOff,
+  UserCheck,
 } from "lucide-react";
 import { WorkflowTab } from "@/components/workflow-tab";
 import { IntegrationsTab } from "@/components/integrations-tab";
@@ -135,6 +141,262 @@ import MarketplacesTab from "@/components/marketplaces-tab";
 import { CompanySettingsTab } from "@/components/company-settings-tab";
 import { CompaniesTable } from "@/components/multi-company/companies-table";
 import { Plug, Building2, Briefcase } from "lucide-react";
+
+// Task #260 — owner-only Team Privacy tab. Lists every teammate's
+// per-facet audit consent so the owner can spot overly restrictive
+// choices that may block legitimate investigations, or coach staff
+// who left the prompt at defaults. The "request re-confirm" action
+// pings a user (server stamps a flag + writes audit-log) without
+// mutating their settings.
+function TeamPrivacyTab() {
+  const { t, isRTL } = useLanguage();
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const { data, isLoading } = useListTeamConsents();
+  const reqMut = useRequestTeamConsentReconfirm();
+  const rows: TeamConsentRow[] = data ?? [];
+
+  const fmtDate = (iso: string | null | undefined) => {
+    if (!iso) return null;
+    try {
+      return new Date(iso).toLocaleString(isRTL ? "ar-SA" : "en-US", {
+        dateStyle: "medium",
+        timeStyle: "short",
+      });
+    } catch {
+      return iso;
+    }
+  };
+
+  const requestReconfirm = async (row: TeamConsentRow) => {
+    try {
+      await reqMut.mutateAsync({ userId: row.userId });
+      toast({
+        title: t("teamPrivacy.reconfirmRequested", "تم طلب إعادة التأكيد"),
+        description: t(
+          "teamPrivacy.reconfirmRequestedDesc",
+          "سيظهر للمستخدم تنبيه لمراجعة إعدادات الخصوصية.",
+        ),
+      });
+      await qc.invalidateQueries({ queryKey: getListTeamConsentsQueryKey() });
+    } catch {
+      toast({
+        title: t("teamPrivacy.reconfirmFailed", "فشل الطلب"),
+        variant: "destructive",
+      });
+    }
+  };
+
+  const countRestrictive = rows.filter(
+    (r) =>
+      !r.consent.salesDetails ||
+      !r.consent.customerPii ||
+      !r.consent.locationContext,
+  ).length;
+  const countDefault = rows.filter((r) => r.isDefault).length;
+
+  const FacetCell = ({ on, label }: { on: boolean; label: string }) => (
+    <div
+      className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs ${
+        on
+          ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300"
+          : "bg-rose-50 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300"
+      }`}
+      data-testid={`facet-${on ? "on" : "off"}`}
+    >
+      {on ? <Eye className="size-3" /> : <EyeOff className="size-3" />}
+      <span>{label}</span>
+    </div>
+  );
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <ShieldCheck className="size-5 text-primary" />
+            {t("teamPrivacy.title", "خصوصية الفريق")}
+          </CardTitle>
+          <CardDescription>
+            {t(
+              "teamPrivacy.subtitle",
+              "راجع إعدادات الخصوصية التي اختارها كل مستخدم. اطلب إعادة تأكيد الموافقة إذا كانت مقيِّدة أكثر من اللازم أو لم تُعدَّل أبدًا.",
+            )}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-3 sm:grid-cols-3">
+          <StatCard
+            icon={UserCheck}
+            label={t("teamPrivacy.totalUsers", "إجمالي الزملاء")}
+            value={rows.length}
+          />
+          <StatCard
+            icon={EyeOff}
+            label={t("teamPrivacy.restrictive", "إعدادات مقيِّدة")}
+            value={countRestrictive}
+            tone={countRestrictive > 0 ? "warn" : "ok"}
+            hint={t(
+              "teamPrivacy.restrictiveHint",
+              "مستخدمون أوقفوا ميزة أو أكثر",
+            )}
+          />
+          <StatCard
+            icon={AlertTriangle}
+            label={t("teamPrivacy.defaults", "لم يُراجَع بعد")}
+            value={countDefault}
+            tone={countDefault > 0 ? "info" : "ok"}
+            hint={t(
+              "teamPrivacy.defaultsHint",
+              "مستخدمون لم يفتحوا شاشة الخصوصية",
+            )}
+          />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent className="p-0">
+          <Table data-testid="table-team-consents">
+            <TableHeader>
+              <TableRow>
+                <TableHead>{t("teamPrivacy.user", "المستخدم")}</TableHead>
+                <TableHead>{t("teamPrivacy.role", "الدور")}</TableHead>
+                <TableHead>
+                  {t("teamPrivacy.salesDetails", "تفاصيل المبيعات")}
+                </TableHead>
+                <TableHead>
+                  {t("teamPrivacy.customerPii", "بيانات العملاء")}
+                </TableHead>
+                <TableHead>
+                  {t("teamPrivacy.locationContext", "الموقع/IP")}
+                </TableHead>
+                <TableHead>
+                  {t("teamPrivacy.lastChanged", "آخر تعديل")}
+                </TableHead>
+                <TableHead className="text-end">
+                  {t("teamPrivacy.actions", "إجراء")}
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {isLoading ? (
+                <TableRow>
+                  <TableCell colSpan={7} className="py-8 text-center">
+                    <Loader2 className="mx-auto size-5 animate-spin text-muted-foreground" />
+                  </TableCell>
+                </TableRow>
+              ) : rows.length === 0 ? (
+                <TableRow>
+                  <TableCell
+                    colSpan={7}
+                    className="py-8 text-center text-sm text-muted-foreground"
+                  >
+                    {t(
+                      "teamPrivacy.empty",
+                      "لا يوجد زملاء في هذه الشركة بعد.",
+                    )}
+                  </TableCell>
+                </TableRow>
+              ) : (
+                rows.map((row) => {
+                  const pending = !!row.reconfirmRequestedAt;
+                  return (
+                    <TableRow
+                      key={row.userId}
+                      data-testid={`row-team-consent-${row.userId}`}
+                    >
+                      <TableCell>
+                        <div className="flex flex-col">
+                          <span className="font-medium">{row.name}</span>
+                          <span className="text-xs text-muted-foreground">
+                            {row.email}
+                          </span>
+                          {!row.isActive && (
+                            <Badge variant="outline" className="mt-1 w-fit">
+                              {t("teamPrivacy.inactive", "غير نشط")}
+                            </Badge>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="secondary">{row.role}</Badge>
+                      </TableCell>
+                      <TableCell>
+                        <FacetCell
+                          on={row.consent.salesDetails ?? true}
+                          label={
+                            (row.consent.salesDetails ?? true)
+                              ? t("teamPrivacy.visible", "مرئي")
+                              : t("teamPrivacy.redacted", "محجوب")
+                          }
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <FacetCell
+                          on={row.consent.customerPii ?? true}
+                          label={
+                            (row.consent.customerPii ?? true)
+                              ? t("teamPrivacy.visible", "مرئي")
+                              : t("teamPrivacy.redacted", "محجوب")
+                          }
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <FacetCell
+                          on={row.consent.locationContext ?? true}
+                          label={
+                            (row.consent.locationContext ?? true)
+                              ? t("teamPrivacy.visible", "مرئي")
+                              : t("teamPrivacy.redacted", "محجوب")
+                          }
+                        />
+                      </TableCell>
+                      <TableCell>
+                        {row.lastChangedAt ? (
+                          <span className="text-xs text-muted-foreground">
+                            {fmtDate(row.lastChangedAt)}
+                          </span>
+                        ) : (
+                          <Badge variant="outline">
+                            {t("teamPrivacy.default", "افتراضي")}
+                          </Badge>
+                        )}
+                        {pending && (
+                          <div className="mt-1 text-xs text-amber-700 dark:text-amber-400">
+                            {t(
+                              "teamPrivacy.pendingReconfirm",
+                              "طلب إعادة التأكيد:",
+                            )}{" "}
+                            {fmtDate(row.reconfirmRequestedAt)}
+                          </div>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-end">
+                        <Button
+                          size="sm"
+                          variant={pending ? "outline" : "default"}
+                          disabled={reqMut.isPending}
+                          onClick={() => requestReconfirm(row)}
+                          data-testid={`button-request-reconfirm-${row.userId}`}
+                        >
+                          {pending
+                            ? t("teamPrivacy.resend", "إعادة الإرسال")
+                            : t(
+                                "teamPrivacy.requestReconfirm",
+                                "اطلب إعادة التأكيد",
+                              )}
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
 
 function AccessDenied() {
   return (
@@ -4076,7 +4338,7 @@ function AuditTab() {
 
 export default function AdminPage() {
   const { user } = useAuth();
-  const { isRTL } = useLanguage();
+  const { isRTL, t } = useLanguage();
   const [, setLocation] = useLocation();
   // Task #198: remember the last selected top-level tab per-admin so the
   // panel feels sticky across reloads. Hydrate once when settings arrive.
@@ -4214,6 +4476,11 @@ export default function AdminPage() {
               <Briefcase className="me-1 size-4" /> الشركات
             </TabsTrigger>
           )}
+          {isOwner && (
+            <TabsTrigger value="team-privacy" data-testid="tab-team-privacy">
+              <ShieldCheck className="me-1 size-4" /> {t("teamPrivacy.tab")}
+            </TabsTrigger>
+          )}
           <TabsTrigger value="company" data-testid="tab-company">
             <Building2 className="me-2 size-4" />
             بيانات الشركة
@@ -4235,6 +4502,7 @@ export default function AdminPage() {
         <TabsContent value="integrations"><IntegrationsTab /></TabsContent>
         <TabsContent value="marketplaces"><MarketplacesTab /></TabsContent>
         {isOwner && <TabsContent value="companies"><CompaniesTable /></TabsContent>}
+        {isOwner && <TabsContent value="team-privacy"><TeamPrivacyTab /></TabsContent>}
         <TabsContent value="company"><CompanySettingsTab /></TabsContent>
         <TabsContent value="audit"><AuditTab /></TabsContent>
       </Tabs>

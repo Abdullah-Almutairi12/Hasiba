@@ -1,6 +1,6 @@
 import { Router } from "express";
-import { db, usersTable, branchesTable } from "@workspace/db";
-import { desc, eq, and, ne } from "drizzle-orm";
+import { db, usersTable, branchesTable, userCompaniesTable } from "@workspace/db";
+import { desc, eq, and, ne, inArray } from "drizzle-orm";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
 import {
@@ -10,6 +10,7 @@ import {
   ALL_ROLES,
 } from "../middlewares/require-role";
 import { handleRouteError } from "../lib/handle-error";
+import { recordAudit } from "../lib/audit";
 
 const router = Router();
 
@@ -370,6 +371,12 @@ router.patch(
             ...(merged.auditConsent ?? {}),
             ...body.auditConsent,
           };
+          // Task #260 — stamp the moment the user touched their consent
+          // (server clock, not client). Clears any pending re-confirm
+          // request from an owner because the user has just re-spoken.
+          merged.auditConsentUpdatedAt = new Date().toISOString();
+          delete merged.auditConsentReconfirmRequestedAt;
+          delete merged.auditConsentReconfirmRequestedBy;
         }
         patch["adminPrefs"] = merged;
       }
@@ -465,6 +472,161 @@ router.get(
       });
     } catch (err) {
       req.log.error({ err }, "Error fetching audit consent");
+      return handleRouteError(err, res);
+    }
+  },
+);
+
+// ============== Task #260 — Team Privacy / Audit consent overview ==============
+// Owner-only view of every teammate's per-user audit consent
+// settings (Task #259 facets: salesDetails / customerPii /
+// locationContext). The owner is accountable for the company's
+// audit posture, so they need a single page that surfaces overly
+// restrictive choices (which may hide legitimate investigations)
+// and stale defaults (where staff never engaged with the prompt).
+//
+// Scope: only users who belong to the OWNER's current company via
+// `user_companies`. We never expose users from other tenants. We
+// also exclude the owner themselves — their own consent already
+// lives in /users/me/audit-consent and they bypass redaction
+// anyway, so it is not actionable here.
+const TEAM_CONSENT_DEFAULTS = {
+  salesDetails: true,
+  customerPii: true,
+  locationContext: true,
+} as const;
+
+router.get("/admin/team-consents", ownerOnly, async (req, res) => {
+  try {
+    const companyId = req.session.companyId;
+    const ownerId = req.session.userId;
+    if (typeof companyId !== "number") {
+      return res.status(400).json({ error: "لا توجد شركة نشطة" });
+    }
+    if (typeof ownerId !== "number") {
+      return res.status(401).json({ error: "غير مسجل دخول" });
+    }
+    // Roster scoped to the current company. Inactive users are
+    // included so the owner can still review/coach off-boarded
+    // accounts.
+    const memberships = await db
+      .select({ userId: userCompaniesTable.userId, role: userCompaniesTable.role })
+      .from(userCompaniesTable)
+      .where(eq(userCompaniesTable.companyId, companyId));
+    const memberIds = memberships
+      .map((m) => m.userId)
+      .filter((id) => id !== ownerId);
+    if (memberIds.length === 0) return res.json([]);
+    const roleByUser = new Map(memberships.map((m) => [m.userId, m.role]));
+    const rows = await db
+      .select({
+        id: usersTable.id,
+        name: usersTable.name,
+        email: usersTable.email,
+        role: usersTable.role,
+        isActive: usersTable.isActive,
+        adminPrefs: usersTable.adminPrefs,
+      })
+      .from(usersTable)
+      .where(inArray(usersTable.id, memberIds))
+      .orderBy(usersTable.name);
+    return res.json(
+      rows.map((r) => {
+        const ac = r.adminPrefs?.auditConsent ?? {};
+        return {
+          userId: r.id,
+          name: r.name,
+          email: r.email,
+          role: roleByUser.get(r.id) ?? r.role,
+          isActive: r.isActive,
+          consent: {
+            salesDetails: ac.salesDetails ?? TEAM_CONSENT_DEFAULTS.salesDetails,
+            customerPii: ac.customerPii ?? TEAM_CONSENT_DEFAULTS.customerPii,
+            locationContext:
+              ac.locationContext ?? TEAM_CONSENT_DEFAULTS.locationContext,
+          },
+          isDefault:
+            ac.salesDetails === undefined &&
+            ac.customerPii === undefined &&
+            ac.locationContext === undefined,
+          lastChangedAt: r.adminPrefs?.auditConsentUpdatedAt ?? null,
+          reconfirmRequestedAt:
+            r.adminPrefs?.auditConsentReconfirmRequestedAt ?? null,
+        };
+      }),
+    );
+  } catch (err) {
+    req.log.error({ err }, "Error fetching team consents");
+    return handleRouteError(err, res);
+  }
+});
+
+router.post(
+  "/admin/team-consents/:userId/request-reconfirm",
+  ownerOnly,
+  async (req, res) => {
+    try {
+      const targetId = Number(req.params.userId);
+      if (!Number.isFinite(targetId)) {
+        return res.status(400).json({ error: "معرّف غير صحيح" });
+      }
+      const companyId = req.session.companyId;
+      const ownerId = req.session.userId;
+      if (typeof companyId !== "number") {
+        return res.status(400).json({ error: "لا توجد شركة نشطة" });
+      }
+      if (targetId === ownerId) {
+        return res
+          .status(400)
+          .json({ error: "لا يمكنك طلب إعادة تأكيد من نفسك" });
+      }
+      // Verify the target belongs to the owner's current company.
+      const [membership] = await db
+        .select({ userId: userCompaniesTable.userId })
+        .from(userCompaniesTable)
+        .where(
+          and(
+            eq(userCompaniesTable.userId, targetId),
+            eq(userCompaniesTable.companyId, companyId),
+          ),
+        )
+        .limit(1);
+      if (!membership) {
+        return res.status(404).json({ error: "المستخدم غير موجود" });
+      }
+      const [existing] = await db
+        .select({
+          adminPrefs: usersTable.adminPrefs,
+          name: usersTable.name,
+        })
+        .from(usersTable)
+        .where(eq(usersTable.id, targetId))
+        .limit(1);
+      if (!existing) {
+        return res.status(404).json({ error: "المستخدم غير موجود" });
+      }
+      const merged = { ...(existing.adminPrefs ?? {}) };
+      merged.auditConsentReconfirmRequestedAt = new Date().toISOString();
+      if (typeof ownerId === "number") {
+        merged.auditConsentReconfirmRequestedBy = ownerId;
+      }
+      await db
+        .update(usersTable)
+        .set({ adminPrefs: merged })
+        .where(eq(usersTable.id, targetId));
+      void recordAudit(req, {
+        action: "request_consent_reconfirm",
+        entity: `user#${targetId}`,
+        details: `طلب إعادة تأكيد إعدادات الخصوصية من المستخدم ${existing.name}`,
+        severity: "info",
+      });
+      return res.json({
+        ok: true,
+        userId: targetId,
+        reconfirmRequestedAt: merged.auditConsentReconfirmRequestedAt,
+      });
+    } catch (err) {
+      req.log.error({ err }, "Error requesting consent reconfirm");
       return handleRouteError(err, res);
     }
   },

@@ -1761,6 +1761,22 @@ export interface SystemSettings {
   adminPrefs: AdminPrefs;
 }
 
+/**
+ * One teammate's audit-consent snapshot (Task #260). `consent` always carries explicit boolean values: the server merges stored prefs with defaults (true / true / true) so the UI does not need to handle `undefined`.
+ */
+export interface TeamConsentRow {
+  userId: number;
+  name: string;
+  email: string;
+  role: string;
+  isActive: boolean;
+  consent: AuditConsent;
+  /** True when the user has never written their consent — every facet is still at the open default. Useful for owners to spot staff who left the prompt untouched. */
+  isDefault: boolean;
+  lastChangedAt?: string | null;
+  reconfirmRequestedAt?: string | null;
+}
+
 export interface UpdateUserPreferencesRequest {
   preferredBranchId?: number | null;
   insightMode?: boolean;
@@ -2100,6 +2116,12 @@ export type RetryInvoiceSendFailure404 = {
 
 export type RetryInvoiceSendFailure409 = {
   error: string;
+};
+
+export type RequestTeamConsentReconfirm200 = {
+  ok: boolean;
+  userId: number;
+  reconfirmRequestedAt?: string | null;
 };
 
 export type CreateAnnouncementBody = {
