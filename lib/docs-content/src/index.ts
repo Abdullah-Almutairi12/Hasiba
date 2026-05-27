@@ -1556,25 +1556,453 @@ const SCREENSHOT_META: Record<string, ScreenshotMeta> = {
   },
 };
 
-function withScreenshotMeta(m: DocModule): DocModule {
+// ───────────────────────────────────────────────────────────────────────────────
+// CONTENT DEFAULTS — fills the unified template (prerequisites, scenarios,
+// troubleshooting, steps) for modules whose primary copy didn't include
+// every section, so every module in `allModules()` exposes the full set.
+// Defaults are only used when the module itself doesn't already provide
+// the section.
+// ───────────────────────────────────────────────────────────────────────────────
+interface ContentDefaults {
+  prerequisites?: Bi[];
+  steps?: DocStep[];
+  scenarios?: { title: Bi; body: Bi }[];
+  troubleshooting?: DocFaq[];
+}
+
+const GENERIC_TROUBLESHOOTING: DocFaq[] = [
+  {
+    q: { ar: "لا أرى الصفحة في القائمة الجانبية.", en: "I don't see this page in the sidebar." },
+    a: {
+      ar: "دورك لا يمنحك صلاحية هذه الوحدة. اطلب من المدير إضافتك للدور المناسب من /users.",
+      en: "Your role does not grant access to this module. Ask the manager to assign the right role from /users.",
+    },
+  },
+  {
+    q: { ar: "تظهر رسالة 403 عند الحفظ.", en: "I get a 403 when I try to save." },
+    a: {
+      ar: "العملية محمية بحارس صلاحيات على الخادم. تأكد من أن دورك يسمح بالكتابة، وأن جلستك لم تنتهِ.",
+      en: "The operation is protected by a server-side role guard. Confirm your role allows writes and that your session is still valid.",
+    },
+  },
+];
+
+const CONTENT_DEFAULTS: Record<string, ContentDefaults> = {
+  customers: {
+    troubleshooting: [
+      {
+        q: { ar: "لا يظهر العميل في نتائج البحث.", en: "The customer doesn't appear in search results." },
+        a: {
+          ar: "البحث يطابق الاسم ورقم الجوال. تأكد من كتابة الاسم بنفس اللغة المخزّنة، أو ابحث برقم الجوال الكامل.",
+          en: "Search matches name and phone. Try the same language the record was saved in, or search by full phone number.",
+        },
+      },
+      ...GENERIC_TROUBLESHOOTING,
+    ],
+  },
+  reports: {
+    scenarios: [
+      {
+        title: { ar: "تقرير مبيعات شهري للإدارة", en: "Monthly sales report for management" },
+        body: {
+          ar: "اختر الفترة الشهر الحالي، ثم اضغط تصدير Excel ليصلك ملف مفصّل بكل أمر بيع، الفرع، والكاشير.",
+          en: "Pick the current-month range, then click Export Excel to receive a per-order file with branch and cashier columns.",
+        },
+      },
+      {
+        title: { ar: "مقارنة فرعين", en: "Compare two branches" },
+        body: {
+          ar: "افتح تقرير المبيعات، فعّل فلتر الفروع، وحدد فرعين فقط لرسم بياني مقارن.",
+          en: "Open the sales report, enable the branches filter, and select exactly two branches for a comparison chart.",
+        },
+      },
+    ],
+    troubleshooting: [
+      {
+        q: { ar: "الأرقام لا تطابق نقطة البيع.", en: "Numbers don't match the POS totals." },
+        a: {
+          ar: "تأكد من إغلاق جلسة الكاشير اليومية وأن جميع المردودات مُسجّلة قبل تصدير التقرير.",
+          en: "Make sure the cashier daily session is closed and all returns are recorded before exporting.",
+        },
+      },
+      ...GENERIC_TROUBLESHOOTING,
+    ],
+  },
+  "smart-reports": {
+    scenarios: [
+      {
+        title: { ar: "كشف معاملة احتيال", en: "Spot a fraud anomaly" },
+        body: {
+          ar: "افتح جدول كشف الاحتيال، رتّب حسب درجة z-score تنازليًا، وراجع أعلى 3 معاملات يدويًا.",
+          en: "Open the fraud detection table, sort by z-score descending, and manually review the top 3 transactions.",
+        },
+      },
+      {
+        title: { ar: "تخطيط حملة لمستهدف بـCLV عالي", en: "Plan a campaign for high-CLV segment" },
+        body: {
+          ar: "صدّر قائمة العملاء ذوي قيمة مدى الحياة (CLV) أعلى من 5000 ر.س، وأنشئ حملة تسويق موجّهة لهم.",
+          en: "Export customers with CLV > SAR 5,000 and create a targeted marketing campaign for them.",
+        },
+      },
+    ],
+    troubleshooting: [
+      {
+        q: { ar: "النموذج لم يُدرَّب بعد.", en: "The model hasn't been trained yet." },
+        a: {
+          ar: "افتح /admin → تبويب نماذج AI ثم اضغط تدريب الكل، أو اطلب توقعًا — سيتم التدريب تلقائيًا عند أول استخدام.",
+          en: "Open /admin → AI Models tab and click Train All, or request a prediction — it auto-trains on first use.",
+        },
+      },
+      ...GENERIC_TROUBLESHOOTING,
+    ],
+  },
+  "ai-models": {
+    scenarios: [
+      {
+        title: { ar: "إعادة تدريب نموذج بعد موسم", en: "Retrain a model after a season" },
+        body: {
+          ar: "بعد رمضان أو موسم العودة للمدارس، افتح بطاقة النموذج واضغط تدريب لتحديث الأوزان ببيانات جديدة.",
+          en: "After Ramadan or back-to-school season, open the model card and click Train to refresh weights with new data.",
+        },
+      },
+      {
+        title: { ar: "سؤال المساعد الذكي بسياق", en: "Ask the AI assistant with context" },
+        body: {
+          ar: "افتح تبويب المساعد الذكي واسأل: \"ما أعلى 5 منتجات مبيعًا الشهر الماضي؟\" — يُجيبك ببيانات حية.",
+          en: "Open the AI assistant tab and ask: \"Top 5 best-selling products last month?\" — it answers with live data.",
+        },
+      },
+    ],
+    troubleshooting: [
+      {
+        q: { ar: "دقة النموذج منخفضة جدًا.", en: "Model accuracy is too low." },
+        a: {
+          ar: "الدقة (1 − MAPE) تتحسن مع زيادة بيانات التدريب. تأكد من وجود 30+ يومًا من معاملات POS قبل الاعتماد على التنبؤات.",
+          en: "Accuracy (1 − MAPE) improves with more training data. Ensure 30+ days of POS transactions before trusting forecasts.",
+        },
+      },
+      ...GENERIC_TROUBLESHOOTING,
+    ],
+  },
+  "branches-users": {
+    troubleshooting: [
+      {
+        q: { ar: "لا يستطيع الكاشير الدخول لفرع جديد.", en: "Cashier can't log into a newly added branch." },
+        a: {
+          ar: "بعد إنشاء الفرع، عيّن الكاشير له من /users بتعديل حقل الفرع لذلك المستخدم.",
+          en: "After creating the branch, assign the cashier to it from /users by editing the user's branch field.",
+        },
+      },
+      ...GENERIC_TROUBLESHOOTING,
+    ],
+  },
+  "roles-matrix": {
+    troubleshooting: [
+      {
+        q: { ar: "غيّرت دور المستخدم لكنه لا يرى الصفحة الجديدة.", en: "Changed a user's role but they still don't see the new page." },
+        a: {
+          ar: "تغيير الدور يتطلب تسجيل خروج ودخول مرة أخرى لتحديث الجلسة، لأن الدور يُحفظ في الجلسة عند تسجيل الدخول.",
+          en: "Role changes require the user to log out and log back in to refresh the session — role is stored in the session at login.",
+        },
+      },
+      ...GENERIC_TROUBLESHOOTING,
+    ],
+  },
+  "loyalty-zatca": {
+    scenarios: [
+      {
+        title: { ar: "تطبيق خصم ولاء على طلب POS", en: "Apply a loyalty discount on a POS order" },
+        body: {
+          ar: "اربط العميل بالطلب، ثم اضغط استخدم نقاط الولاء — يُحتسب الخصم تلقائيًا ضمن effectiveDiscount.",
+          en: "Attach the customer to the order, then click Use loyalty points — the discount folds into effectiveDiscount automatically.",
+        },
+      },
+      {
+        title: { ar: "التحقق من شارة ZATCA", en: "Verify the ZATCA badge" },
+        body: {
+          ar: "بعد إغلاق الفاتورة، تأكد من ظهور شارة ZATCA الخضراء وأن رمز QR يُمسح بواسطة تطبيق ZATCA الرسمي.",
+          en: "After closing the invoice, confirm the green ZATCA badge appears and that the QR scans correctly via the official ZATCA app.",
+        },
+      },
+    ],
+    troubleshooting: [
+      {
+        q: { ar: "QR لا يُمسح من تطبيق ZATCA.", en: "ZATCA app can't scan the QR." },
+        a: {
+          ar: "تأكد من اكتمال بيانات الشركة (رقم VAT، الاسم القانوني) في الإعدادات قبل توليد الفاتورة.",
+          en: "Make sure company details (VAT number, legal name) are complete in Settings before generating the invoice.",
+        },
+      },
+      ...GENERIC_TROUBLESHOOTING,
+    ],
+  },
+  intercompany: {
+    troubleshooting: [
+      {
+        q: { ar: "المرآة لم تُنشأ تلقائيًا.", en: "The mirror document wasn't auto-created." },
+        a: {
+          ar: "تأكد من تعبئة customers.linkedCompanyId (أو suppliers.linkedCompanyId) على السجل الأصلي.",
+          en: "Make sure customers.linkedCompanyId (or suppliers.linkedCompanyId) is populated on the source record.",
+        },
+      },
+      ...GENERIC_TROUBLESHOOTING,
+    ],
+  },
+  "transfer-pricing-zakat": {
+    scenarios: [
+      {
+        title: { ar: "إعداد ملف تسعير تحويلي", en: "Prepare a transfer pricing file" },
+        body: {
+          ar: "افتح صفحة الامتثال، اختر تبويب تسعير التحويل، حدد الفترة، ثم نزّل الملف بصيغة Excel.",
+          en: "Open the Compliance page, choose the Transfer pricing tab, pick the period, and download the Excel file.",
+        },
+      },
+    ],
+    troubleshooting: [
+      {
+        q: { ar: "الزكاة المحسوبة تبدو منخفضة.", en: "Computed Zakat looks too low." },
+        a: {
+          ar: "تأكد من أن جميع قيود اليومية المتعلقة بالموجودات المتداولة مرحّلة قبل تشغيل الحساب.",
+          en: "Ensure all journal entries for current assets are posted before running the calculation.",
+        },
+      },
+      ...GENERIC_TROUBLESHOOTING,
+    ],
+  },
+  "vat-threshold": {
+    scenarios: [
+      {
+        title: { ar: "اقتراب من حد التسجيل الإلزامي", en: "Approaching the mandatory registration threshold" },
+        body: {
+          ar: "عند تجاوز 80% من 375,000 ر.س، يظهر تنبيه أصفر مع زر ابدأ التسجيل — استشر محاسبك فورًا.",
+          en: "When you cross 80% of SAR 375,000, an amber alert with a Start registration CTA appears — consult your accountant immediately.",
+        },
+      },
+    ],
+    troubleshooting: [
+      {
+        q: { ar: "البطاقة لا تظهر على لوحة القيادة.", en: "The card isn't showing on the dashboard." },
+        a: {
+          ar: "البطاقة مخفية إذا كانت حالة الشركة not_registered. غيّر الحالة من /vat للسماح بظهورها.",
+          en: "The card is hidden when company VAT status is not_registered. Change status from /vat to enable it.",
+        },
+      },
+      ...GENERIC_TROUBLESHOOTING,
+    ],
+  },
+  "vat-auto-hide": {
+    prerequisites: [
+      { ar: "اكتمل معالج الإعداد على الأقل حتى الخطوة 1.", en: "The onboarding wizard reached at least step 1." },
+    ],
+    scenarios: [
+      {
+        title: { ar: "شركة غير مسجّلة في VAT", en: "Company not registered for VAT" },
+        body: {
+          ar: "اختر غير مسجل في الإعداد، وسيختفي حقل VAT من شاشات الفواتير ونقطة البيع تلقائيًا.",
+          en: "Pick Not registered in onboarding and VAT fields will hide from invoice and POS screens automatically.",
+        },
+      },
+    ],
+    troubleshooting: [
+      {
+        q: { ar: "VAT لا يزال يظهر بعد تغيير الحالة.", en: "VAT still shows after changing status." },
+        a: {
+          ar: "حدّث الصفحة (Ctrl+R) لتحديث الذاكرة المؤقتة لـuseVatStatus().",
+          en: "Reload the page (Ctrl+R) to refresh the useVatStatus() cache.",
+        },
+      },
+      ...GENERIC_TROUBLESHOOTING,
+    ],
+  },
+  onboarding: {
+    prerequisites: [
+      { ar: "أنشأت حساب الشركة من /signup.", en: "Created the company account from /signup." },
+    ],
+    scenarios: [
+      {
+        title: { ar: "الانتقال السريع بين الخطوات", en: "Skip ahead between steps" },
+        body: {
+          ar: "كل خطوة محفوظة تلقائيًا، يمكنك إغلاق المتصفح والعودة لاحقًا — ستجد المعالج مفتوحًا على آخر خطوة.",
+          en: "Each step auto-saves, you can close the browser and return later — the wizard resumes on the last step you were on.",
+        },
+      },
+    ],
+    troubleshooting: [
+      {
+        q: { ar: "أنهيت المعالج لكن لوحة القيادة فارغة.", en: "Finished the wizard but the dashboard is empty." },
+        a: {
+          ar: "لوحة القيادة تتطلب على الأقل فرعًا واحدًا ومعاملة POS واحدة لعرض الرسوم البيانية — افتح /pos لإجراء أول معاملة.",
+          en: "The dashboard needs at least one branch and one POS transaction to render charts — open /pos for your first transaction.",
+        },
+      },
+      ...GENERIC_TROUBLESHOOTING,
+    ],
+  },
+  landing: {
+    prerequisites: [
+      { ar: "لا توجد متطلبات — هذه الصفحة عامة لكل الزوار.", en: "No prerequisites — this page is public to all visitors." },
+    ],
+    steps: [
+      {
+        action: { ar: "افتح /welcome في المتصفح.", en: "Open /welcome in the browser." },
+        result: { ar: "يظهر قسم البطل مع رسالة القيمة المقترحة وأزرار التسجيل/الدخول.", en: "The hero section appears with the value proposition and Sign up / Log in CTAs." },
+      },
+      {
+        action: { ar: "اضغط ابدأ مجانًا للانتقال إلى /signup.", en: "Click Start free to go to /signup." },
+      },
+      {
+        action: { ar: "اضغط تسجيل الدخول إذا كان لديك حساب.", en: "Click Log in if you already have an account." },
+      },
+    ],
+    scenarios: [
+      {
+        title: { ar: "زائر مسجّل دخوله مسبقًا", en: "Already-authenticated visitor" },
+        body: {
+          ar: "يُعاد توجيهه تلقائيًا إلى / (لوحة القيادة) عند فتح /welcome.",
+          en: "Auto-redirected to / (dashboard) upon opening /welcome.",
+        },
+      },
+    ],
+    troubleshooting: [
+      {
+        q: { ar: "أرى لوحة القيادة بدلًا من صفحة البداية.", en: "I see the dashboard instead of the landing page." },
+        a: {
+          ar: "أنت مسجّل الدخول فعلًا. سجّل خروجك أولًا من قائمة المستخدم أعلى اليمين، أو افتح /welcome في نافذة تخفّي.",
+          en: "You're already logged in. Log out from the user menu in the top-right, or open /welcome in a private window.",
+        },
+      },
+      ...GENERIC_TROUBLESHOOTING,
+    ],
+  },
+  projects: {
+    prerequisites: [
+      { ar: "دورك owner أو manager أو لديك حق إنشاء المشاريع.", en: "Your role is owner, manager, or has project create permission." },
+    ],
+    scenarios: [
+      {
+        title: { ar: "نقل مهمة بين أعمدة كانبان", en: "Move a task between Kanban columns" },
+        body: {
+          ar: "اسحب البطاقة من قائد المهام إلى عمود قيد التنفيذ ثم إلى منتهي. تُحدَّث الحالة تلقائيًا.",
+          en: "Drag the card from Backlog to In progress and on to Done. Status updates automatically.",
+        },
+      },
+      {
+        title: { ar: "متابعة ميزانية مشروع", en: "Track a project budget" },
+        body: {
+          ar: "افتح بطاقة المشروع، راجع شريط التقدّم المالي مقابل الميزانية المعتمدة.",
+          en: "Open the project card, review the budget progress bar against the approved budget.",
+        },
+      },
+    ],
+    troubleshooting: [
+      {
+        q: { ar: "لا أستطيع سحب البطاقات.", en: "I can't drag the cards." },
+        a: {
+          ar: "السحب يحتاج صلاحية كتابة على المشروع. اطلب من المدير إضافتك كعضو في الفريق.",
+          en: "Dragging requires write access on the project. Ask the manager to add you to the team.",
+        },
+      },
+      ...GENERIC_TROUBLESHOOTING,
+    ],
+  },
+  marketing: {
+    prerequisites: [
+      { ar: "أنشأت قائمة عملاء واحدة على الأقل من /customers.", en: "You created at least one customer list from /customers." },
+    ],
+    scenarios: [
+      {
+        title: { ar: "إطلاق حملة جديدة", en: "Launch a new campaign" },
+        body: {
+          ar: "اضغط حملة جديدة، اختر الجمهور المستهدف، الميزانية، وحدد تواريخ الانطلاق والإنتهاء.",
+          en: "Click New campaign, pick the target audience, budget, and set start/end dates.",
+        },
+      },
+      {
+        title: { ar: "متابعة قُمع التحويل", en: "Track the conversion funnel" },
+        body: {
+          ar: "افتح تبويب العملاء المحتملين لمتابعة عدد العملاء في كل مرحلة (مهتم → محادثة → عقد).",
+          en: "Open the Leads tab to track how many leads are in each stage (interested → conversation → contract).",
+        },
+      },
+    ],
+    troubleshooting: [
+      {
+        q: { ar: "العائد على الإنفاق (ROAS) لا يظهر.", en: "ROAS doesn't show up." },
+        a: {
+          ar: "ROAS يحتاج معاملات POS مرتبطة بالحملة. تأكد من تمرير معرّف الحملة في رمز خصم العميل.",
+          en: "ROAS needs POS transactions linked to the campaign. Make sure the campaign id is passed in the customer's discount code.",
+        },
+      },
+      ...GENERIC_TROUBLESHOOTING,
+    ],
+  },
+  "admin-panel": {
+    prerequisites: [
+      { ar: "دورك manager.", en: "Your role is manager." },
+    ],
+    scenarios: [
+      {
+        title: { ar: "تفعيل ميزة لمستخدمين تجريبيين", en: "Enable a feature for beta users" },
+        body: {
+          ar: "افتح تبويب الميزات، فعّل العلم، وحدد قائمة المستخدمين/الفروع المسموح لها — ثم راقب السجل.",
+          en: "Open the Features tab, toggle the flag on, and pick the allowlist of users/branches — then watch the log.",
+        },
+      },
+      {
+        title: { ar: "الرد على تذكرة دعم فني", en: "Reply to a support ticket" },
+        body: {
+          ar: "افتح تبويب الدعم، اختر التذكرة، اكتب الرد وحدّث الحالة إلى ردّ عليها.",
+          en: "Open the Support tab, pick the ticket, write a reply and change the status to Replied.",
+        },
+      },
+    ],
+    troubleshooting: [
+      {
+        q: { ar: "لا أرى تبويب لوحة الإدارة في الشريط الجانبي.", en: "I don't see the Admin tab in the sidebar." },
+        a: {
+          ar: "التبويب مرئي فقط للأدوار manager. تحقق من دورك من /users.",
+          en: "The tab is only visible to manager roles. Check your role in /users.",
+        },
+      },
+      ...GENERIC_TROUBLESHOOTING,
+    ],
+  },
+};
+
+function withDefaults(m: DocModule): DocModule {
   const meta = SCREENSHOT_META[m.slug];
-  if (!meta) return m;
-  return {
+  const defaults = CONTENT_DEFAULTS[m.slug];
+  const out: DocModule = {
     ...m,
-    screenshotAlt: m.screenshotAlt ?? meta.alt,
-    hotspots: m.hotspots ?? meta.hotspots,
+    screenshotAlt: m.screenshotAlt ?? meta?.alt,
+    hotspots: m.hotspots ?? meta?.hotspots,
   };
+  if (defaults) {
+    if (!out.prerequisites?.length && defaults.prerequisites) {
+      out.prerequisites = defaults.prerequisites;
+    }
+    if (!out.steps?.length && defaults.steps) {
+      out.steps = defaults.steps;
+    }
+    if (!out.scenarios?.length && defaults.scenarios) {
+      out.scenarios = defaults.scenarios;
+    }
+    if (!out.troubleshooting?.length && defaults.troubleshooting) {
+      out.troubleshooting = defaults.troubleshooting;
+    }
+  }
+  return out;
 }
 
 export function findModule(slug: string): DocModule | null {
   for (const cat of DOC_CATEGORIES) {
     for (const m of cat.modules) {
-      if (m.slug === slug) return withScreenshotMeta(m);
+      if (m.slug === slug) return withDefaults(m);
     }
   }
   return null;
 }
 
 export function allModules(): DocModule[] {
-  return DOC_CATEGORIES.flatMap((c) => c.modules.map(withScreenshotMeta));
+  return DOC_CATEGORIES.flatMap((c) => c.modules.map(withDefaults));
 }
