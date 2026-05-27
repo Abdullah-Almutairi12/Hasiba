@@ -46,6 +46,13 @@ let ownerBId = 0;
 let auditRowAId = 0;
 let auditRowAOpenId = 0;
 let auditRowBId = 0;
+// Task #264 — fixtures for /security/audit-access ("who viewed your data").
+let accessRowAToManagerRedactId = 0;
+let accessRowAToManagerOpenId = 0;
+let accessRowAToOwnerId = 0;
+let accessRowARosterReadId = 0;
+let accessRowASelfActorId = 0;
+let accessRowBToManagerId = 0;
 
 let agentOwnerA: request.Agent;
 let agentManagerA: request.Agent;
@@ -170,6 +177,120 @@ beforeAll(async () => {
     .returning();
   auditRowBId = rowB.id;
 
+  // ============================================================
+  // Task #264 — /security/audit-access fixtures.
+  //
+  // Endpoint contract (see routes/security.ts):
+  //   * Only rows where the actor is NOT the viewer (`ne(userId,
+  //     viewerId)`) and the row's subject is the viewer.
+  //   * Subject linkage tier 1 (everyone): entity LIKE `user#<viewerId>%`.
+  //   * Subject linkage tier 2 (owner only): action = `read`
+  //     (roster-wide read events on tenant-owned data).
+  //   * Strict tenant filter on companyId.
+  //   * Non-owner viewers get per-actor consent redaction; owners
+  //     bypass redaction.
+  // ============================================================
+
+  // Row #1: ownerA viewed manager's user record. Subject = manager,
+  // actor = ownerA. managerA should see this; we'll assert redaction
+  // by toggling MANAGER's own auditConsent (subject == manager).
+  const [accessRowAToManagerRedact] = await db
+    .insert(auditLogsTable)
+    .values({
+      action: "read",
+      entity: `user#${managerAId}`,
+      userId: ownerAId,
+      userName: `Owner A ${RUN_TAG}`,
+      details:
+        `viewed profile — bonus 3,750.25 SAR — contact sec-axs-redact-${RUN_TAG}@x.test phone +966500000111`,
+      ipAddress: "203.0.113.10",
+      companyId: companyAId,
+    })
+    .returning();
+  accessRowAToManagerRedactId = accessRowAToManagerRedact.id;
+
+  // Row #2: same shape as #1 but with a distinct details payload, used
+  // to assert raw values once we flip manager's consent ON.
+  const [accessRowAToManagerOpen] = await db
+    .insert(auditLogsTable)
+    .values({
+      action: "update",
+      entity: `user#${managerAId}`,
+      userId: ownerAId,
+      userName: `Owner A ${RUN_TAG}`,
+      details:
+        `adjusted limit — 480.00 SAR — contact sec-axs-open-${RUN_TAG}@x.test phone +966500000222`,
+      ipAddress: "203.0.113.20",
+      companyId: companyAId,
+    })
+    .returning();
+  accessRowAToManagerOpenId = accessRowAToManagerOpen.id;
+
+  // Row #3: managerA viewed owner's user record. Subject = ownerA,
+  // actor = manager. ownerA must see it; managerA must NOT (it
+  // targets a teammate, not them) — this is the core leak guard.
+  const [accessRowAToOwner] = await db
+    .insert(auditLogsTable)
+    .values({
+      action: "read",
+      entity: `user#${ownerAId}`,
+      userId: managerAId,
+      userName: `Manager A ${RUN_TAG}`,
+      details: `A-TEAMMATE-${RUN_TAG} viewed owner profile`,
+      ipAddress: "203.0.113.30",
+      companyId: companyAId,
+    })
+    .returning();
+  accessRowAToOwnerId = accessRowAToOwner.id;
+
+  // Row #4: roster-wide read by manager. Owner viewer (tier-2 rule)
+  // sees this; non-owner viewers must NOT.
+  const [accessRowARosterRead] = await db
+    .insert(auditLogsTable)
+    .values({
+      action: "read",
+      entity: "customer#listing",
+      userId: managerAId,
+      userName: `Manager A ${RUN_TAG}`,
+      details: `A-ROSTER-${RUN_TAG} customer list scan`,
+      ipAddress: "203.0.113.40",
+      companyId: companyAId,
+    })
+    .returning();
+  accessRowARosterReadId = accessRowARosterRead.id;
+
+  // Row #5: self-authored — viewer is both actor and subject. The
+  // endpoint's `ne(userId, viewerId)` filter must drop it.
+  const [accessRowASelfActor] = await db
+    .insert(auditLogsTable)
+    .values({
+      action: "read",
+      entity: `user#${managerAId}`,
+      userId: managerAId,
+      userName: `Manager A ${RUN_TAG}`,
+      details: `A-SELFACT-${RUN_TAG} self viewed own profile`,
+      ipAddress: "203.0.113.50",
+      companyId: companyAId,
+    })
+    .returning();
+  accessRowASelfActorId = accessRowASelfActor.id;
+
+  // Row #6: cross-tenant tracer — tenant B row whose entity targets
+  // managerA's user id. Must NEVER appear in any A-side response.
+  const [accessRowBToManager] = await db
+    .insert(auditLogsTable)
+    .values({
+      action: "read",
+      entity: `user#${managerAId}`,
+      userId: ownerBId,
+      userName: `Owner B ${RUN_TAG}`,
+      details: `B-AXS-SECRET-${RUN_TAG} cross-tenant access tracer`,
+      ipAddress: "198.51.100.77",
+      companyId: companyBId,
+    })
+    .returning();
+  accessRowBToManagerId = accessRowBToManager.id;
+
   agentOwnerA = request.agent(app);
   agentManagerA = request.agent(app);
   agentOwnerB = request.agent(app);
@@ -190,7 +311,17 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  const ids = [auditRowAId, auditRowAOpenId, auditRowBId].filter((n) => n > 0);
+  const ids = [
+    auditRowAId,
+    auditRowAOpenId,
+    auditRowBId,
+    accessRowAToManagerRedactId,
+    accessRowAToManagerOpenId,
+    accessRowAToOwnerId,
+    accessRowARosterReadId,
+    accessRowASelfActorId,
+    accessRowBToManagerId,
+  ].filter((n) => n > 0);
   if (ids.length > 0) {
     await db.delete(auditLogsTable).where(inArray(auditLogsTable.id, ids));
   }
@@ -222,6 +353,17 @@ async function setOwnerAConsent(opts: {
     .update(usersTable)
     .set({ adminPrefs: { auditConsent: opts } })
     .where(eq(usersTable.id, ownerAId));
+}
+
+async function setManagerAConsent(opts: {
+  customerPii: boolean;
+  salesDetails: boolean;
+  locationContext: boolean;
+}) {
+  await db
+    .update(usersTable)
+    .set({ adminPrefs: { auditConsent: opts } })
+    .where(eq(usersTable.id, managerAId));
 }
 
 describe("GET /api/security/audit-logs — cross-tenant isolation (Task #262)", () => {
@@ -346,5 +488,152 @@ describe("GET /api/security/audit-logs — owner role bypasses redaction entirel
     expect(seen!.details).toContain(`sec-pii-a-${RUN_TAG}`);
     expect(seen!.details).toContain("+966500000077");
     expect(seen!.ipAddress).toBe("203.0.113.45");
+  });
+});
+
+// ============================================================================
+// Task #264 — GET /api/security/audit-access ("who viewed your data").
+// Mirrors the audit-logs coverage (tenancy + subject scoping + per-actor
+// consent redaction) to lock down the worst-class bug for this sibling
+// endpoint: leaking teammate activity into another user's privacy panel.
+// ============================================================================
+
+describe("GET /api/security/audit-access — cross-tenant isolation (Task #264)", () => {
+  it("a viewer in tenant A NEVER sees a tenant B row that targets their user id", async () => {
+    const res = await agentManagerA
+      .get("/api/security/audit-access")
+      .expect(200);
+    const rows = res.body as Array<{
+      id: number;
+      companyId: number;
+      details: string | null;
+    }>;
+    expect(rows.find((r) => r.id === accessRowBToManagerId)).toBeUndefined();
+    for (const r of rows) {
+      expect(r.companyId).toBe(companyAId);
+      expect(r.companyId).not.toBe(companyBId);
+    }
+    expect(JSON.stringify(res.body)).not.toContain(`B-AXS-SECRET-${RUN_TAG}`);
+  });
+
+  it("an OWNER viewer in tenant A also NEVER sees tenant B's rows", async () => {
+    const res = await agentOwnerA
+      .get("/api/security/audit-access")
+      .expect(200);
+    const rows = res.body as Array<{ id: number; companyId: number }>;
+    expect(rows.find((r) => r.id === accessRowBToManagerId)).toBeUndefined();
+    for (const r of rows) expect(r.companyId).toBe(companyAId);
+    expect(JSON.stringify(res.body)).not.toContain(`B-AXS-SECRET-${RUN_TAG}`);
+  });
+
+  it("the tenant B owner NEVER sees tenant A's audit-access rows", async () => {
+    const res = await agentOwnerB
+      .get("/api/security/audit-access")
+      .expect(200);
+    const rows = res.body as Array<{ id: number; companyId: number }>;
+    expect(rows.find((r) => r.id === accessRowAToManagerRedactId)).toBeUndefined();
+    expect(rows.find((r) => r.id === accessRowAToOwnerId)).toBeUndefined();
+    expect(rows.find((r) => r.id === accessRowARosterReadId)).toBeUndefined();
+    for (const r of rows) expect(r.companyId).toBe(companyBId);
+  });
+});
+
+describe("GET /api/security/audit-access — subject scoping (Task #264)", () => {
+  it("a non-owner viewer sees rows targeting their own user#<id>, never a teammate's", async () => {
+    const res = await agentManagerA
+      .get("/api/security/audit-access")
+      .expect(200);
+    const rows = res.body as Array<{ id: number; details: string | null }>;
+    // Self-targeted row authored by ownerA shows up.
+    expect(rows.find((r) => r.id === accessRowAToManagerRedactId)).toBeDefined();
+    // Teammate-targeted row (entity = user#<ownerAId>) MUST NOT appear,
+    // even though it's in the same tenant.
+    expect(rows.find((r) => r.id === accessRowAToOwnerId)).toBeUndefined();
+    expect(JSON.stringify(res.body)).not.toContain(`A-TEAMMATE-${RUN_TAG}`);
+  });
+
+  it("a non-owner viewer NEVER sees roster-wide read events (owner-only tier-2)", async () => {
+    const res = await agentManagerA
+      .get("/api/security/audit-access")
+      .expect(200);
+    const rows = res.body as Array<{ id: number }>;
+    expect(rows.find((r) => r.id === accessRowARosterReadId)).toBeUndefined();
+    expect(JSON.stringify(res.body)).not.toContain(`A-ROSTER-${RUN_TAG}`);
+  });
+
+  it("an OWNER viewer additionally sees roster-wide read events (tier-2 rule), still tenant-scoped", async () => {
+    const res = await agentOwnerA
+      .get("/api/security/audit-access")
+      .expect(200);
+    const rows = res.body as Array<{ id: number; companyId: number }>;
+    // Tier 1 — entity = user#<ownerAId> authored by manager.
+    expect(rows.find((r) => r.id === accessRowAToOwnerId)).toBeDefined();
+    // Tier 2 — roster-wide read authored by manager.
+    expect(rows.find((r) => r.id === accessRowARosterReadId)).toBeDefined();
+    // Still tenant-scoped.
+    for (const r of rows) expect(r.companyId).toBe(companyAId);
+  });
+
+  it("self-authored rows are excluded (actor must NOT equal viewer)", async () => {
+    const res = await agentManagerA
+      .get("/api/security/audit-access")
+      .expect(200);
+    const rows = res.body as Array<{ id: number }>;
+    expect(rows.find((r) => r.id === accessRowASelfActorId)).toBeUndefined();
+    expect(JSON.stringify(res.body)).not.toContain(`A-SELFACT-${RUN_TAG}`);
+  });
+});
+
+describe("GET /api/security/audit-access — per-actor consent redaction (Task #264)", () => {
+  it("non-owner sees REDACTED money / PII / IP when the subject opted out", async () => {
+    await setManagerAConsent({
+      customerPii: false,
+      salesDetails: false,
+      locationContext: false,
+    });
+    const res = await agentManagerA
+      .get("/api/security/audit-access")
+      .expect(200);
+    const seen = (res.body as Array<{
+      id: number;
+      userName: string;
+      details: string | null;
+      ipAddress: string | null;
+    }>).find((r) => r.id === accessRowAToManagerRedactId);
+    expect(seen).toBeDefined();
+    // userName (the actor's name) is PII and is replaced with "—".
+    expect(seen!.userName).toBe("—");
+    // Money scrubbed.
+    expect(seen!.details).not.toContain("3,750.25");
+    expect(seen!.details).not.toContain("3750.25");
+    // Email + phone scrubbed.
+    expect(seen!.details).not.toContain(`sec-axs-redact-${RUN_TAG}`);
+    expect(seen!.details).not.toContain("+966500000111");
+    expect(seen!.details).toContain("—");
+    // IP nulled out.
+    expect(seen!.ipAddress).toBeNull();
+  });
+
+  it("non-owner sees RAW money / PII / IP when the subject opted in", async () => {
+    await setManagerAConsent({
+      customerPii: true,
+      salesDetails: true,
+      locationContext: true,
+    });
+    const res = await agentManagerA
+      .get("/api/security/audit-access")
+      .expect(200);
+    const seen = (res.body as Array<{
+      id: number;
+      userName: string;
+      details: string | null;
+      ipAddress: string | null;
+    }>).find((r) => r.id === accessRowAToManagerOpenId);
+    expect(seen).toBeDefined();
+    expect(seen!.userName).toContain("Owner A");
+    expect(seen!.details).toContain("480.00 SAR");
+    expect(seen!.details).toContain(`sec-axs-open-${RUN_TAG}`);
+    expect(seen!.details).toContain("+966500000222");
+    expect(seen!.ipAddress).toBe("203.0.113.20");
   });
 });
