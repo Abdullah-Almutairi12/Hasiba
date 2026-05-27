@@ -48,6 +48,14 @@ export const companiesTable = pgTable("companies", {
   vatThreshold80AlertedAt: timestamp("vat_threshold_80_alerted_at"),
   /** Last time we emitted the 100%-of-threshold mandatory alert. */
   vatThreshold100AlertedAt: timestamp("vat_threshold_100_alerted_at"),
+  /**
+   * Business sector picked during onboarding. Drives the POS layout:
+   * `retail`     → Iconic small-icon dense grid (supermarket-style).
+   * `fb`         → Photo-tile menu (cafés / restaurants).
+   * `wholesale`, `services` → legacy POS.
+   * Defaults to `retail` for backward compatibility.
+   */
+  businessType: text("business_type").notNull().default("retail"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });

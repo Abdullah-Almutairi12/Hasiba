@@ -17,8 +17,25 @@ import Dashboard from "@/pages/dashboard";
 import Login from "@/pages/login";
 import Welcome from "@/pages/welcome";
 import NotFound from "@/pages/not-found";
+import { useAuth } from "@/hooks/use-auth";
 
-const POS = lazy(() => import("@/pages/pos"));
+const LegacyPOS = lazy(() => import("@/pages/pos"));
+const PosIconic = lazy(() => import("@/pages/pos-iconic"));
+
+/**
+ * Picks the POS layout from the active company's businessType
+ * (resolved on /auth/me). `retail` → Iconic dense icon grid,
+ * `fb` → Photo-tile menu, everything else (wholesale/services/null)
+ * → legacy POS. Defaults to legacy until the auth payload arrives
+ * so we never flash the wrong shell.
+ */
+function POS() {
+  const { user } = useAuth();
+  const bt = user?.businessType;
+  if (bt === "retail") return <PosIconic variant="retail" />;
+  if (bt === "fb") return <PosIconic variant="fb" />;
+  return <LegacyPOS />;
+}
 const Products = lazy(() => import("@/pages/products"));
 const Invoices = lazy(() => import("@/pages/invoices"));
 const Accounting = lazy(() => import("@/pages/accounting"));

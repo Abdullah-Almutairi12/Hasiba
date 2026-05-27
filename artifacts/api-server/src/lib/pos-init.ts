@@ -75,6 +75,13 @@ export async function initPos(): Promise<void> {
       v_paid_total numeric(18, 2);
       v_payment_count integer;
     BEGIN
+      -- Parked orders are header-only snapshots (Order Parking / hold).
+      -- They are deleted on resume and never settle financially while parked,
+      -- so the payments-balance invariant does not apply to them.
+      IF NEW.status = 'parked' THEN
+        RETURN NULL;
+      END IF;
+
       SELECT COALESCE(SUM(amount), 0), COUNT(*)
         INTO v_paid_total, v_payment_count
         FROM pos_order_payments WHERE order_id = NEW.id;
@@ -115,6 +122,20 @@ export async function initPos(): Promise<void> {
     .catch((e) =>
       logger.warn({ err: e }, "POS orders-balance trigger skipped"),
     );
+
+  // Iconic POS columns (idempotent):
+  //   companies.business_type     — sector picked at onboarding (drives layout)
+  //   pos_orders.status           — lifecycle (paid|parked) for Order Parking
+  //   pos_orders.parked_label     — optional label on parked orders ("طاولة 5")
+  await pool.query(`
+    ALTER TABLE companies
+      ADD COLUMN IF NOT EXISTS business_type text NOT NULL DEFAULT 'retail';
+    ALTER TABLE pos_orders
+      ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'paid',
+      ADD COLUMN IF NOT EXISTS parked_label text;
+    CREATE INDEX IF NOT EXISTS pos_orders_status_session_idx
+      ON pos_orders (company_id, session_id, status);
+  `);
 
   logger.info("POS subsystem initialized");
 }

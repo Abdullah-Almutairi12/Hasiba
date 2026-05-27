@@ -408,8 +408,15 @@ router.get("/pos/orders", posReadGuard, async (req, res) => {
   }
 });
 
-router.get("/pos/orders/:id", posReadGuard, async (req, res) => {
+router.get("/pos/orders/:id", posReadGuard, async (req, res, next) => {
   try {
+    // Disambiguate from sibling literal routes like /pos/orders/parked
+    // that are declared later in the file. Express matches by registration
+    // order, so without this forward the literal handler is shadowed.
+    if (req.params.id === "parked") {
+      next();
+      return;
+    }
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id <= 0) {
       res.status(400).json({ error: "معرّف الطلب غير صالح" });
@@ -1424,6 +1431,218 @@ router.post(
   }
 });
 
+// =============================================================
+// Order Parking (Hold/Resume). Lets the cashier set aside a basket
+// (e.g. customer left to grab another item, dine-in table waiting)
+// and resume it later. Parked orders are inserted with `status='parked'`
+// — they are excluded from `/pos/summary` aggregates and from session
+// totals (parked rows have total=0 marker payments OR are recreated
+// in-cart on resume). To stay simple AND avoid the
+// pos_payments_match_order_total trigger, we DO NOT persist any
+// pos_order_payments rows for parked orders; the parked row is a
+// pure header (items jsonb + totals snapshot, status='parked'). On
+// resume, we delete the parked row server-side and the client recreates
+// the cart from the returned items.
+// =============================================================
+
+const ParkOrderBody = z.object({
+  sessionId: z.number().int().positive(),
+  label: z.string().trim().min(1).max(60).optional().nullable(),
+  customerId: z.number().int().positive().optional().nullable(),
+  items: z
+    .array(
+      z.object({
+        productId: z.number().int().positive(),
+        quantity: z.number().int().positive(),
+        priceSnapshot: z.number().nonnegative().optional(),
+        nameSnapshot: z.string().max(200).optional(),
+      }),
+    )
+    .min(1),
+  subtotal: z.number().nonnegative(),
+  tax: z.number().nonnegative().default(0),
+  discount: z.number().nonnegative().default(0),
+  total: z.number().nonnegative(),
+});
+
+router.post("/pos/orders/park", posGuard, async (req, res) => {
+  try {
+    const parsed = ParkOrderBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "بيانات غير صحيحة" });
+      return;
+    }
+    const body = parsed.data;
+    const companyId = getCompanyId(req);
+
+    // Verify the session belongs to the caller's tenant and is open.
+    const [sess] = await db
+      .select({
+        id: posSessionsTable.id,
+        status: posSessionsTable.status,
+        branchId: posSessionsTable.branchId,
+      })
+      .from(posSessionsTable)
+      .innerJoin(branchesTable, eq(branchesTable.id, posSessionsTable.branchId))
+      .where(
+        and(
+          eq(posSessionsTable.id, body.sessionId),
+          eq(branchesTable.companyId, companyId),
+        ),
+      )
+      .limit(1);
+    if (!sess) {
+      res.status(404).json({ error: "جلسة البيع غير موجودة" });
+      return;
+    }
+    if (sess.status !== "open") {
+      res.status(409).json({ error: "جلسة البيع مغلقة" });
+      return;
+    }
+
+    const inserted = await db.transaction(async (tx) => {
+      const orderNumber = await nextRef(tx, "POS-PARK");
+      const [row] = await tx
+        .insert(posOrdersTable)
+        .values({
+          orderNumber,
+          sessionId: body.sessionId,
+          customerId: body.customerId ?? null,
+          items: body.items,
+          subtotal: body.subtotal.toFixed(2),
+          tax: body.tax.toFixed(2),
+          discount: body.discount.toFixed(2),
+          total: body.total.toFixed(2),
+          paymentMethod: "cash",
+          status: "parked",
+          parkedLabel: body.label ?? null,
+          companyId,
+        })
+        .returning();
+      return row;
+    });
+
+    await recordAudit(req, {
+      action: "create",
+      entity: `pos_order#${inserted.id}`,
+      details: `parked label=${body.label ?? ""} items=${body.items.length}`,
+    });
+
+    res.status(201).json({
+      id: inserted.id,
+      orderNumber: inserted.orderNumber,
+      parkedLabel: inserted.parkedLabel,
+      total: Number(inserted.total),
+      createdAt: inserted.createdAt.toISOString(),
+    });
+  } catch (err) {
+    req.log.error({ err }, "Park POS order failed");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.get("/pos/orders/parked", posReadGuard, async (req, res) => {
+  try {
+    const companyId = getCompanyId(req);
+    const sessionIdRaw = req.query.sessionId;
+    const sessionId =
+      typeof sessionIdRaw === "string" ? Number(sessionIdRaw) : null;
+    if (sessionId === null || !Number.isInteger(sessionId)) {
+      res.status(400).json({ error: "sessionId مطلوب" });
+      return;
+    }
+    const rows = await db
+      .select()
+      .from(posOrdersTable)
+      .where(
+        and(
+          eq(posOrdersTable.companyId, companyId),
+          eq(posOrdersTable.sessionId, sessionId),
+          eq(posOrdersTable.status, "parked"),
+        ),
+      )
+      .orderBy(desc(posOrdersTable.createdAt))
+      .limit(50);
+    res.json(
+      rows.map((r) => ({
+        id: r.id,
+        orderNumber: r.orderNumber,
+        parkedLabel: r.parkedLabel,
+        customerId: r.customerId,
+        items: r.items,
+        subtotal: Number(r.subtotal),
+        tax: Number(r.tax),
+        discount: Number(r.discount),
+        total: Number(r.total),
+        createdAt: r.createdAt.toISOString(),
+      })),
+    );
+  } catch (err) {
+    req.log.error({ err }, "List parked POS orders failed");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+const ResumeOrderBody = z.object({
+  sessionId: z.number().int().positive(),
+});
+
+router.post("/pos/orders/:id/resume", posGuard, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      res.status(400).json({ error: "معرّف غير صالح" });
+      return;
+    }
+    const parsed = ResumeOrderBody.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      res.status(400).json({ error: "sessionId مطلوب" });
+      return;
+    }
+    const { sessionId } = parsed.data;
+    const companyId = getCompanyId(req);
+    // Atomic resume: only deletes a row that is still parked, belongs
+    // to this tenant AND belongs to the caller's stated session —
+    // prevents double-resume races and cross-session resume of a
+    // parked order from another station/branch in the same company.
+    const deleted = await db
+      .delete(posOrdersTable)
+      .where(
+        and(
+          eq(posOrdersTable.id, id),
+          eq(posOrdersTable.companyId, companyId),
+          eq(posOrdersTable.sessionId, sessionId),
+          eq(posOrdersTable.status, "parked"),
+        ),
+      )
+      .returning();
+    if (deleted.length === 0) {
+      res.status(404).json({ error: "الطلب غير موجود أو تم استئنافه" });
+      return;
+    }
+    const row = deleted[0];
+    await recordAudit(req, {
+      action: "delete",
+      entity: `pos_order#${row.id}`,
+      details: `resumed parked label=${row.parkedLabel ?? ""}`,
+    });
+    res.json({
+      id: row.id,
+      orderNumber: row.orderNumber,
+      parkedLabel: row.parkedLabel,
+      customerId: row.customerId,
+      items: row.items,
+      subtotal: Number(row.subtotal),
+      tax: Number(row.tax),
+      discount: Number(row.discount),
+      total: Number(row.total),
+    });
+  } catch (err) {
+    req.log.error({ err }, "Resume parked POS order failed");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 router.get("/pos/summary", posReadGuard, async (req, res) => {
   try {
     const today = new Date();
@@ -1475,6 +1694,10 @@ router.get("/pos/summary", posReadGuard, async (req, res) => {
         and(
           gte(posOrdersTable.createdAt, today),
           eq(posOrdersTable.companyId, companyId),
+          // Exclude parked (hold) orders — they are non-finalized
+          // header-only snapshots and must not inflate today's KPIs
+          // until resumed and paid.
+          eq(posOrdersTable.status, "paid"),
         ),
       );
 

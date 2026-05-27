@@ -66,6 +66,64 @@ const IdParam = z.coerce.number().int().positive();
  * managers can populate the "linked sibling company" dropdown on
  * customer/supplier forms without needing owner-only `/admin/companies`.
  */
+const BUSINESS_TYPES = ["retail", "fb", "wholesale", "services"] as const;
+const UpdateCurrentCompanyBody = z.object({
+  businessType: z.enum(BUSINESS_TYPES).optional(),
+});
+
+/**
+ * PATCH /companies/me — update self-serve attributes on the caller's
+ * ACTIVE company. Currently scoped to `businessType` (set during
+ * onboarding). Owner/manager only; cross-tenant writes are impossible
+ * because we only ever touch `req.session.companyId`.
+ */
+router.patch("/companies/me", async (req, res) => {
+  try {
+    const userId = req.session?.userId;
+    const companyId = req.session?.companyId;
+    const role = req.session?.role;
+    if (!userId || companyId == null) {
+      res.status(401).json({ error: "غير مسجل دخول" });
+      return;
+    }
+    if (role !== "owner" && role !== "manager") {
+      res.status(403).json({ error: "صلاحية غير كافية" });
+      return;
+    }
+    const parsed = UpdateCurrentCompanyBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "بيانات غير صحيحة" });
+      return;
+    }
+    const patch = parsed.data;
+    if (Object.keys(patch).length === 0) {
+      res.status(400).json({ error: "لا توجد حقول للتحديث" });
+      return;
+    }
+    const [updated] = await db
+      .update(companiesTable)
+      .set({ ...patch, updatedAt: new Date() })
+      .where(eq(companiesTable.id, companyId))
+      .returning({
+        id: companiesTable.id,
+        businessType: companiesTable.businessType,
+      });
+    if (!updated) {
+      res.status(404).json({ error: "الشركة غير موجودة" });
+      return;
+    }
+    await recordAudit(req, {
+      action: "update",
+      entity: `company#${companyId}`,
+      details: `business_type=${updated.businessType}`,
+    });
+    res.json(updated);
+  } catch (err) {
+    req.log.error({ err }, "PATCH /companies/me failed");
+    handleRouteError(err, res);
+  }
+});
+
 router.get("/companies/siblings", async (req, res) => {
   try {
     const userId = req.session?.userId;

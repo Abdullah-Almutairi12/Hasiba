@@ -252,6 +252,19 @@ router.get("/auth/me", async (req, res) => {
       .innerJoin(companiesTable, eq(companiesTable.id, userCompaniesTable.companyId))
       .where(eq(userCompaniesTable.userId, user.id));
 
+    // Resolve the active company's business sector so the UI can pick
+    // the POS layout (retail → iconic, fb → photo-tiles). Null when no
+    // active company is bound to the session.
+    let businessType: string | null = null;
+    if (req.session.companyId != null) {
+      const [row] = await db
+        .select({ businessType: companiesTable.businessType })
+        .from(companiesTable)
+        .where(eq(companiesTable.id, req.session.companyId))
+        .limit(1);
+      businessType = row?.businessType ?? null;
+    }
+
     return res.json({
       id: user.id,
       name: user.name,
@@ -261,6 +274,7 @@ router.get("/auth/me", async (req, res) => {
       preferredBranchId: user.preferredBranchId,
       avatarUrl: user.avatarUrl,
       companyId: req.session.companyId ?? null,
+      businessType,
       companies: memberships.map((m) => ({
         id: m.id,
         name: m.name,

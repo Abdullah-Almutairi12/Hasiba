@@ -30,6 +30,15 @@ export const posOrdersTable = pgTable("pos_orders", {
   discount: numeric("discount", { precision: 10, scale: 2 }).notNull().default("0"),
   total: numeric("total", { precision: 10, scale: 2 }).notNull(),
   paymentMethod: text("payment_method").notNull().default("cash"),
+  /**
+   * Lifecycle status. `paid` = completed checkout (default historical
+   * behaviour). `parked` = Order Parking (hold) — cashier saved the
+   * basket to resume later; not counted in session totals until resumed
+   * and re-checked-out.
+   */
+  status: text("status").notNull().default("paid"),
+  /** When `status='parked'`: the cashier-supplied label (e.g. "طاولة 5"). */
+  parkedLabel: text("parked_label"),
   /** Nullable in Phase 1; becomes NOT NULL in Phase 2 once tenant scoping lands. */
   companyId: integer("company_id").notNull().references(() => companiesTable.id, { onDelete: "restrict" }),
   createdAt: timestamp("created_at").notNull().defaultNow(),

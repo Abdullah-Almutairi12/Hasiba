@@ -19,6 +19,13 @@ export type AuthUser = {
   preferredBranchId: number | null;
   avatarUrl: string | null;
   companyId: number | null;
+  /**
+   * Active company's business sector (set in onboarding). Drives the POS
+   * layout: `retail` → Iconic dense-icon grid, `fb` → Photo-tile menu,
+   * everything else → legacy POS. Nullable for legacy sessions whose
+   * companies were created before the column existed.
+   */
+  businessType: string | null;
   companies: AuthCompany[];
 };
 

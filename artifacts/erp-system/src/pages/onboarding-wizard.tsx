@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
+import { useQueryClient } from "@tanstack/react-query";
+import { ME_KEY } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
 import {
   Calculator,
@@ -56,6 +58,7 @@ const CURRENCIES = [
 
 export default function OnboardingWizard() {
   const [, setLocation] = useLocation();
+  const qc = useQueryClient();
   const { t } = useLanguage();
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [businessType, setBusinessType] = useState<string>("retail");
@@ -577,19 +580,36 @@ export default function OnboardingWizard() {
                   setStep((step + 1) as 1 | 2 | 3);
                   return;
                 }
-                // Persist VAT registration choice before finishing.
-                void fetch(`${import.meta.env.BASE_URL}api/vat/registration`, {
-                  method: "PATCH",
-                  credentials: "include",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({
-                    status: vatRegStatus,
-                    vatNumber:
-                      vatRegStatus === "not_registered"
-                        ? null
-                        : vatNumber || null,
+                // Persist VAT registration + business sector choices in
+                // parallel before finishing. Business sector drives the
+                // POS layout (retail → iconic grid, fb → photo tiles).
+                const base = import.meta.env.BASE_URL;
+                void Promise.allSettled([
+                  fetch(`${base}api/vat/registration`, {
+                    method: "PATCH",
+                    credentials: "include",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      status: vatRegStatus,
+                      vatNumber:
+                        vatRegStatus === "not_registered"
+                          ? null
+                          : vatNumber || null,
+                    }),
                   }),
-                }).finally(() => setLocation("/"));
+                  fetch(`${base}api/companies/me`, {
+                    method: "PATCH",
+                    credentials: "include",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ businessType }),
+                  }),
+                ]).finally(() => {
+                  // Refetch /auth/me so the new businessType (and VAT
+                  // status) flows into AuthUser BEFORE the POS variant
+                  // switcher reads it on the next route.
+                  void qc.invalidateQueries({ queryKey: ME_KEY });
+                  setLocation("/");
+                });
               }}
               className="h-12 bg-neutral-900 px-6 font-bold text-white shadow-lg shadow-neutral-900/20 hover:bg-neutral-800"
               data-testid="button-next"
