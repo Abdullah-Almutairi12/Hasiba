@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" font-family="'IBM Plex Sans Arabic','Inter','Segoe UI',sans-serif">
+    <defs>
+      <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0%" stop-color="#1a0b2e"/>
+        <stop offset="100%" stop-color="#2a1647"/>
+      </linearGradient>
+      <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+        <stop offset="0%" stop-color="#c084fc" stop-opacity="0.9"/>
+        <stop offset="100%" stop-color="#c084fc" stop-opacity="0.4"/>
+      </linearGradient>
+      <pattern id="dots" width="24" height="24" patternUnits="userSpaceOnUse">
+        <circle cx="2" cy="2" r="1" fill="#c084fc" fill-opacity="0.08"/>
+      </pattern>
+    </defs>
+    <rect width="1280" height="720" fill="url(#bg)"/>
+    <rect width="1280" height="720" fill="url(#dots)"/>
+    <rect x="0" y="0" width="1280" height="64" fill="#1a0b2e" fill-opacity="0.85"/>
+    <line x1="0" y1="64" x2="1280" y2="64" stroke="#c084fc" stroke-opacity="0.25"/>
+    <circle cx="32" cy="32" r="10" fill="#c084fc" fill-opacity="0.9"/>
+    <text x="56" y="38" text-anchor="start" fill="#f5f3ff" font-size="18" font-weight="700" direction="ltr">حاسبة.AI</text>
+    <rect x="0" y="64" width="220" height="656" fill="#1a0b2e" fill-opacity="0.6"/>
+    <rect x="20" y="94" width="100" height="10" rx="3" fill="#c084fc" fill-opacity="0.35"/>
+<rect x="20" y="140" width="107" height="10" rx="3" fill="#c084fc" fill-opacity="0.35"/>
+<rect x="20" y="186" width="114" height="10" rx="3" fill="#c084fc" fill-opacity="0.35"/>
+<rect x="20" y="232" width="121" height="10" rx="3" fill="#c084fc" fill-opacity="0.35"/>
+<rect x="20" y="278" width="128" height="10" rx="3" fill="#c084fc" fill-opacity="0.35"/>
+<rect x="20" y="324" width="135" height="10" rx="3" fill="#c084fc" fill-opacity="0.35"/>
+<rect x="14" y="358" width="180" height="30" rx="6" fill="#c084fc" fill-opacity="0.18"/><rect x="20" y="370" width="140" height="10" rx="3" fill="#c084fc" fill-opacity="0.85"/>
+    <rect x="260" y="100" width="980" height="580" rx="18" fill="#1a0b2e" fill-opacity="0.55" stroke="#c084fc" stroke-opacity="0.25"/>
+    <rect x="290" y="130" width="160" height="32" rx="6" fill="url(#accent)"/>
+    <text x="370" y="152" text-anchor="middle" fill="#1a0b2e" font-size="14" font-weight="700">#08 · Module</text>
+    <text x="290" y="220" text-anchor="start" fill="#f5f3ff" font-size="44" font-weight="800" direction="ltr">Smart Reports &amp; Fraud Detection</text>
+    <text x="290" y="258" text-anchor="start" fill="#d8b4fe" font-size="20" direction="ltr">حاسبة.AI ERP — User Manual</text>
+    <rect x="290" y="290" width="180" height="36" rx="8" fill="#1a0b2e" fill-opacity="0.7" stroke="#c084fc" stroke-opacity="0.4"/>
+    <text x="380" y="313" text-anchor="middle" fill="#f5f3ff" font-size="14" font-family="ui-monospace,'SFMono-Regular',monospace">Path: /anomalies</text>
+    <rect x="290" y="346" width="80" height="26" rx="6" fill="#c084fc" fill-opacity="0.15" stroke="#c084fc" stroke-opacity="0.4"/>
+      <text x="330" y="364" text-anchor="middle" fill="#f5f3ff" font-size="12" font-family="ui-monospace,monospace">owner</text>
+<rect x="380" y="346" width="80" height="26" rx="6" fill="#c084fc" fill-opacity="0.15" stroke="#c084fc" stroke-opacity="0.4"/>
+      <text x="420" y="364" text-anchor="middle" fill="#f5f3ff" font-size="12" font-family="ui-monospace,monospace">manager</text>
+<rect x="470" y="346" width="80" height="26" rx="6" fill="#c084fc" fill-opacity="0.15" stroke="#c084fc" stroke-opacity="0.4"/>
+      <text x="510" y="364" text-anchor="middle" fill="#f5f3ff" font-size="12" font-family="ui-monospace,monospace">accountant</text>
+    <g transform="translate(290, 420)">
+      <rect x="0" y="0" width="900" height="160" rx="12" fill="#1a0b2e" fill-opacity="0.6"/>
+      <rect x="20" y="22" width="97.5" height="118" rx="4" fill="#c084fc" fill-opacity="0.3"/>
+<rect x="127.5" y="85" width="97.5" height="55" rx="4" fill="#c084fc" fill-opacity="0.5"/>
+<rect x="235" y="48" width="97.5" height="92" rx="4" fill="#c084fc" fill-opacity="0.7"/>
+<rect x="342.5" y="11" width="97.5" height="129" rx="4" fill="#c084fc" fill-opacity="0.3"/>
+<rect x="450" y="74" width="97.5" height="66" rx="4" fill="#c084fc" fill-opacity="0.5"/>
+<rect x="557.5" y="37" width="97.5" height="103" rx="4" fill="#c084fc" fill-opacity="0.7"/>
+<rect x="665" y="100" width="97.5" height="40" rx="4" fill="#c084fc" fill-opacity="0.3"/>
+<rect x="772.5" y="63" width="97.5" height="77" rx="4" fill="#c084fc" fill-opacity="0.5"/>
+      <polyline points="68.75,34 176.25,51 283.75,68 391.25,85 498.75,32 606.25,49 713.75,66 821.25,83" fill="none" stroke="#c084fc" stroke-width="2.5" stroke-linecap="round"/>
+    </g>
+    <text x="640" y="698" text-anchor="middle" fill="#d8b4fe" font-size="13" direction="ltr">Placeholder — will be replaced by a real screenshot when the capture script runs</text>
+  </svg>

@@ -4,6 +4,9 @@ import { DOC_CATEGORIES, allModules, findModule, type Lang } from "@workspace/do
 import DocsLayout from "@/components/docs-layout";
 import ModulePage from "@/pages/module-page";
 import DocsHome from "@/pages/docs-home";
+import QuickStart from "@/pages/quick-start";
+import Glossary from "@/pages/glossary";
+import FaqPage from "@/pages/faq";
 
 const STORAGE_KEY = "hasba-docs.lang";
 
@@ -11,8 +14,6 @@ function readLangFromUrl(): Lang | null {
   if (typeof window === "undefined") return null;
   const q = new URLSearchParams(window.location.search).get("lang");
   if (q === "ar" || q === "en") return q;
-  // Also accept it inside the hash (the ERP /help iframe uses
-  // "/docs/?embed=1#/?lang=ar" so the hash carries the language).
   const hash = window.location.hash || "";
   const idx = hash.indexOf("?");
   if (idx >= 0) {
@@ -36,8 +37,6 @@ function useLang(): [Lang, (l: Lang) => void] {
     document.documentElement.dir = lang === "ar" ? "rtl" : "ltr";
     window.localStorage.setItem(STORAGE_KEY, lang);
   }, [lang]);
-  // Re-sync when the parent (ERP /help) changes language without a
-  // full iframe reload (e.g. after hash navigation).
   useEffect(() => {
     if (typeof window === "undefined") return;
     const onHash = () => {
@@ -63,6 +62,9 @@ export default function App() {
       >
         <Switch>
           <Route path="/" component={() => <DocsHome lang={lang} categories={DOC_CATEGORIES} />} />
+          <Route path="/quick-start" component={() => <QuickStart lang={lang} />} />
+          <Route path="/glossary" component={() => <Glossary lang={lang} />} />
+          <Route path="/faq" component={() => <FaqPage lang={lang} />} />
           <Route path="/m/:slug">
             {(params) => {
               const m = findModule(params.slug);

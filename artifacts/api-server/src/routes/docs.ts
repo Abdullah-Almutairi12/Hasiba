@@ -23,61 +23,136 @@ function writeModule(
   useReg: () => void,
   useBold: () => void,
 ) {
+  const align = lang === "ar" ? "right" : "left";
+
   useBold();
   doc
     .fontSize(20)
     .fillColor("#0f172a")
-    .text(T(`${String(m.position).padStart(2, "0")}. ${m.title[lang]}`), {
-      align: lang === "ar" ? "right" : "left",
-    });
+    .text(T(`${String(m.position).padStart(2, "0")}. ${m.title[lang]}`), { align });
   doc.moveDown(0.3);
   useReg();
-  doc
-    .fontSize(11)
-    .fillColor("#475569")
-    .text(T(m.summary[lang]), { align: lang === "ar" ? "right" : "left" });
+  doc.fontSize(11).fillColor("#475569").text(T(m.summary[lang]), { align });
   doc.moveDown(0.4);
   doc
     .fontSize(9)
     .fillColor("#64748b")
     .text(
       T(
-        `${lang === "ar" ? "المسار في التطبيق" : "App path"}: ${m.appPath ?? "—"}  •  ${
+        `${lang === "ar" ? "المسار" : "Path"}: ${m.appPath ?? "—"}  •  ${
           lang === "ar" ? "الأدوار" : "Roles"
-        }: ${m.roles.join(", ")}`,
+        }: ${m.roles.join(", ")}  •  ${lang === "ar" ? "آخر تحديث" : "Updated"}: ${m.lastUpdated}`,
       ),
-      { align: lang === "ar" ? "right" : "left" },
+      { align },
     );
   doc.moveDown(0.6);
 
-  for (const s of m.sections) {
+  if (m.prerequisites && m.prerequisites.length) {
     useBold();
-    doc
-      .fontSize(13)
-      .fillColor("#0f172a")
-      .text(T(s.heading[lang]), { align: lang === "ar" ? "right" : "left" });
+    doc.fontSize(12).fillColor("#0f172a").text(T(lang === "ar" ? "قبل أن تبدأ" : "Before you begin"), { align });
     useReg();
-    doc
-      .fontSize(10.5)
-      .fillColor("#111827")
-      .text(T(s.body[lang]), { align: lang === "ar" ? "right" : "left" });
+    doc.fontSize(10.5).fillColor("#1f2937");
+    for (const p of m.prerequisites) {
+      doc.text(T(`• ${p[lang]}`), { align });
+    }
     doc.moveDown(0.4);
+  }
+
+  if (m.steps && m.steps.length) {
+    useBold();
+    doc.fontSize(13).fillColor("#0f172a").text(T(lang === "ar" ? "الخطوات" : "Steps"), { align });
+    useReg();
+    doc.fontSize(10.5).fillColor("#111827");
+    m.steps.forEach((s, i) => {
+      doc.text(T(`${i + 1}. ${s.action[lang]}`), { align });
+      if (s.result) {
+        doc.fillColor("#475569").text(T(`   → ${s.result[lang]}`), { align });
+        doc.fillColor("#111827");
+      }
+    });
+    doc.moveDown(0.4);
+  }
+
+  for (const s of m.sections ?? []) {
+    useBold();
+    doc.fontSize(13).fillColor("#0f172a").text(T(s.heading[lang]), { align });
+    useReg();
+    doc.fontSize(10.5).fillColor("#111827").text(T(s.body[lang]), { align });
+    doc.moveDown(0.4);
+  }
+
+  if (m.scenarios && m.scenarios.length) {
+    useBold();
+    doc.fontSize(13).fillColor("#0f172a").text(T(lang === "ar" ? "سيناريوهات شائعة" : "Common scenarios"), { align });
+    useReg();
+    for (const s of m.scenarios) {
+      useBold();
+      doc.fontSize(11).fillColor("#0f172a").text(T(s.title[lang]), { align });
+      useReg();
+      doc.fontSize(10.5).fillColor("#111827").text(T(s.body[lang]), { align });
+      doc.moveDown(0.2);
+    }
+    doc.moveDown(0.3);
+  }
+
+  if (m.callouts && m.callouts.length) {
+    for (const c of m.callouts) {
+      const labels: Record<string, [string, string, string]> = {
+        note: ["ملاحظة", "Note", "#0369a1"],
+        tip: ["نصيحة", "Tip", "#b45309"],
+        warning: ["تحذير", "Warning", "#b91c1c"],
+        "best-practice": ["أفضل ممارسة", "Best practice", "#047857"],
+      };
+      const [ar, en, color] = labels[c.kind];
+      useBold();
+      doc.fontSize(11).fillColor(color).text(T(`${lang === "ar" ? ar : en}:`), { align });
+      useReg();
+      doc.fontSize(10.5).fillColor("#1f2937").text(T(c.body[lang]), { align });
+      doc.moveDown(0.3);
+    }
   }
 
   if (m.tips && m.tips.length) {
     useBold();
-    doc
-      .fontSize(11)
-      .fillColor("#92400e")
-      .text(T(lang === "ar" ? "نصائح" : "Tips"), {
-        align: lang === "ar" ? "right" : "left",
-      });
+    doc.fontSize(11).fillColor("#92400e").text(T(lang === "ar" ? "نصائح" : "Tips"), { align });
     useReg();
     doc.fillColor("#78350f").fontSize(10);
     for (const t of m.tips) {
-      doc.text(T(`• ${t[lang]}`), { align: lang === "ar" ? "right" : "left" });
+      doc.text(T(`• ${t[lang]}`), { align });
     }
     doc.moveDown(0.4);
+  }
+
+  if (m.troubleshooting && m.troubleshooting.length) {
+    useBold();
+    doc.fontSize(13).fillColor("#0f172a").text(T(lang === "ar" ? "استكشاف الأخطاء" : "Troubleshooting"), { align });
+    useReg();
+    for (const f of m.troubleshooting) {
+      const qLabel = lang === "ar" ? "س" : "Q";
+      const aLabel = lang === "ar" ? "ج" : "A";
+      useBold();
+      doc.fontSize(11).fillColor("#0f172a").text(T(`${qLabel}: ${f.q[lang]}`), { align });
+      useReg();
+      doc.fontSize(10.5).fillColor("#111827").text(T(`${aLabel}: ${f.a[lang]}`), { align });
+      doc.moveDown(0.2);
+    }
+    doc.moveDown(0.3);
+  }
+
+  if (m.related && m.related.length) {
+    const names = m.related
+      .map((s) => findModule(s))
+      .filter((x): x is DocModule => x !== null)
+      .map((x) => x.title[lang])
+      .join(" • ");
+    if (names) {
+      useReg();
+      doc.fontSize(9).fillColor("#64748b").text(
+        T(`${lang === "ar" ? "وحدات ذات صلة" : "Related"}: ${names}`),
+        { align },
+      );
+      doc.moveDown(0.3);
+    }
   }
 }
 
@@ -96,10 +171,7 @@ function buildPdf(modules: DocModule[], lang: Lang, title: string): Promise<Buff
     const { useReg, useBold, T } = registerArabicFonts(doc);
 
     useBold();
-    doc
-      .fontSize(28)
-      .fillColor("#0f172a")
-      .text(T(title), { align: "center" });
+    doc.fontSize(28).fillColor("#0f172a").text(T(title), { align: "center" });
     useReg();
     doc
       .fontSize(11)
@@ -133,10 +205,9 @@ function buildPdf(modules: DocModule[], lang: Lang, title: string): Promise<Buff
         useReg();
         doc.fontSize(10.5).fillColor("#334155");
         for (const m of cat.modules) {
-          doc.text(
-            T(`${String(m.position).padStart(2, "0")}. ${m.title[lang]}`),
-            { align: lang === "ar" ? "right" : "left" },
-          );
+          doc.text(T(`${String(m.position).padStart(2, "0")}. ${m.title[lang]}`), {
+            align: lang === "ar" ? "right" : "left",
+          });
         }
         doc.moveDown(0.2);
       }
@@ -152,11 +223,6 @@ function buildPdf(modules: DocModule[], lang: Lang, title: string): Promise<Buff
   });
 }
 
-/**
- * GET /api/docs/export?lang=ar|en[&module=slug]
- * Public docs PDF — returns a single-module PDF when `module` is set,
- * otherwise the full manual.
- */
 router.get("/docs/export", async (req: Request, res: Response) => {
   try {
     const lang = parseLang(req.query.lang);
@@ -182,10 +248,7 @@ router.get("/docs/export", async (req: Request, res: Response) => {
 
     const buf = await buildPdf(mods, lang, title);
     res.setHeader("Content-Type", "application/pdf");
-    res.setHeader(
-      "Content-Disposition",
-      `inline; filename="${filename}"`,
-    );
+    res.setHeader("Content-Disposition", `inline; filename="${filename}"`);
     res.setHeader("Cache-Control", "public, max-age=300");
     res.end(buf);
   } catch (err) {
@@ -194,11 +257,6 @@ router.get("/docs/export", async (req: Request, res: Response) => {
   }
 });
 
-/**
- * GET /api/docs/manifest — JSON snapshot of all categories/modules in
- * both languages. Useful for the in-app /help search and for external
- * docs consumers.
- */
 router.get("/docs/manifest", (_req: Request, res: Response) => {
   res.setHeader("Cache-Control", "public, max-age=300");
   res.json({ categories: DOC_CATEGORIES });

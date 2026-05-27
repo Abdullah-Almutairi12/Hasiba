@@ -1,5 +1,5 @@
 import { Link } from "wouter";
-import { BookOpen, Sparkles } from "lucide-react";
+import { BookOpen, Sparkles, ArrowRight, HelpCircle, BookMarked } from "lucide-react";
 import type { DocCategory, Lang } from "@workspace/docs-content";
 
 const T = {
@@ -10,8 +10,23 @@ const T = {
   },
   start: { ar: "ابدأ من هنا", en: "Start here" },
   intro: {
-    ar: "اختر وحدة من القائمة الجانبية أو من البطاقات أدناه. كل صفحة تحتوي على خطوات مرتّبة، صور من داخل التطبيق، وملاحظات الأدوار المسموح لها.",
-    en: "Pick a module from the sidebar or the cards below. Each page has ordered steps, in-app screenshots, and the roles that can access it.",
+    ar: "إن كانت هذه أوّل مرة، ابدأ من «ابدأ خلال 10 دقائق». ثم اختر الوحدة التي تهمّك من البطاقات أو القائمة الجانبية.",
+    en: "If this is your first time, start with the 10-minute quick start. Then pick a module from the cards or the sidebar.",
+  },
+  quickStart: { ar: "ابدأ خلال 10 دقائق", en: "Get started in 10 minutes" },
+  quickStartDesc: {
+    ar: "من إنشاء الحساب حتى أول فاتورة، خمس خطوات فقط.",
+    en: "From signup to your first invoice — only five steps.",
+  },
+  faq: { ar: "الأسئلة الشائعة", en: "FAQ" },
+  faqDesc: {
+    ar: "إجابات سريعة على أكثر الأسئلة تكرارًا.",
+    en: "Quick answers to the most common questions.",
+  },
+  glossary: { ar: "مسرد المصطلحات", en: "Glossary" },
+  glossaryDesc: {
+    ar: "تعريف موجز لكل مصطلح ضريبي أو محاسبي مستخدم.",
+    en: "A short definition for every tax or accounting term we use.",
   },
 };
 
@@ -35,6 +50,35 @@ export default function DocsHome({ lang, categories }: { lang: Lang; categories:
         </div>
         <p className="mt-1 text-muted-foreground">{T.intro[lang]}</p>
       </div>
+
+      <section className="mb-10 grid gap-3 sm:grid-cols-3">
+        {[
+          { href: "/quick-start", Icon: Sparkles, t: T.quickStart[lang], d: T.quickStartDesc[lang], primary: true, tid: "card-quick-start" },
+          { href: "/glossary", Icon: BookMarked, t: T.glossary[lang], d: T.glossaryDesc[lang], primary: false, tid: "card-glossary" },
+          { href: "/faq", Icon: HelpCircle, t: T.faq[lang], d: T.faqDesc[lang], primary: false, tid: "card-faq" },
+        ].map(({ href, Icon, t, d, primary, tid }) => (
+          <Link
+            key={href}
+            href={href}
+            className={
+              primary
+                ? "group flex flex-col gap-2 rounded-xl border-2 border-primary bg-primary/5 p-4 transition hover:bg-primary/10"
+                : "group flex flex-col gap-2 rounded-xl border bg-card p-4 transition hover:border-primary hover:shadow-sm"
+            }
+            data-testid={tid}
+          >
+            <div className="flex items-center gap-2">
+              <Icon className="size-5 text-primary" />
+              <h3 className="font-semibold group-hover:text-primary">{t}</h3>
+            </div>
+            <p className="line-clamp-2 text-sm text-muted-foreground">{d}</p>
+            <span className="mt-auto inline-flex items-center gap-1 text-xs font-medium text-primary">
+              {lang === "ar" ? "ابدأ" : "Open"}
+              <ArrowRight className={lang === "ar" ? "size-3 rotate-180" : "size-3"} />
+            </span>
+          </Link>
+        ))}
+      </section>
 
       {categories.map((cat) => (
         <section key={cat.slug} className="mb-10">

@@ -1,8 +1,16 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { Link, useLocation } from "wouter";
-import { Search, BookOpen, Languages, FileDown, ExternalLink } from "lucide-react";
+import {
+  Search,
+  BookOpen,
+  Languages,
+  FileDown,
+  ExternalLink,
+  Sparkles,
+  HelpCircle,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { DocCategory, DocModule, Lang } from "@workspace/docs-content";
+import { DOCS_VERSION, type DocCategory, type DocModule, type Lang } from "@workspace/docs-content";
 
 interface Props {
   lang: Lang;
@@ -18,6 +26,11 @@ const T = {
   noResults: { ar: "لا توجد نتائج", en: "No results" },
   exportPdf: { ar: "تنزيل PDF كامل", en: "Download full PDF" },
   openApp: { ar: "فتح التطبيق", en: "Open the app" },
+  startHere: { ar: "ابدأ من هنا", en: "Start here" },
+  quickStart: { ar: "ابدأ خلال 10 دقائق", en: "Quick start (10 min)" },
+  glossary: { ar: "مسرد المصطلحات", en: "Glossary" },
+  faq: { ar: "الأسئلة الشائعة", en: "FAQ" },
+  version: { ar: "الإصدار", en: "Version" },
 };
 
 export default function DocsLayout({ lang, setLang, categories, modules, children }: Props) {
@@ -27,9 +40,6 @@ export default function DocsLayout({ lang, setLang, categories, modules, childre
     typeof window !== "undefined" &&
     new URLSearchParams(window.location.search).get("embed") === "1";
 
-  // In embed mode the header is hidden, so we still expose a small
-  // floating toggle so iframe users aren't stranded in the wrong
-  // language if the parent didn't pass `?lang=` yet.
   const floatingToggle = isEmbed ? (
     <button
       type="button"
@@ -52,7 +62,9 @@ export default function DocsLayout({ lang, setLang, categories, modules, childre
         m.title.en,
         m.summary.ar,
         m.summary.en,
-        ...m.sections.flatMap((s) => [s.heading.ar, s.heading.en, s.body.ar, s.body.en]),
+        ...(m.sections ?? []).flatMap((s) => [s.heading.ar, s.heading.en, s.body.ar, s.body.en]),
+        ...(m.steps ?? []).flatMap((s) => [s.action.ar, s.action.en]),
+        ...(m.prerequisites ?? []).flatMap((p) => [p.ar, p.en]),
       ]
         .join(" ")
         .toLowerCase()
@@ -60,10 +72,14 @@ export default function DocsLayout({ lang, setLang, categories, modules, childre
     );
   }, [query, modules]);
 
-  const base = import.meta.env.BASE_URL.replace(/\/$/, "");
-  // ERP app lives at "/" on the same proxy.
   const appHref = "/";
   const pdfHref = `/api/docs/export?lang=${lang}`;
+
+  const startHere: { href: string; title: { ar: string; en: string }; Icon: typeof Sparkles }[] = [
+    { href: "/quick-start", title: T.quickStart, Icon: Sparkles },
+    { href: "/glossary", title: T.glossary, Icon: BookOpen },
+    { href: "/faq", title: T.faq, Icon: HelpCircle },
+  ];
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -118,9 +134,9 @@ export default function DocsLayout({ lang, setLang, categories, modules, childre
 
       <div className="mx-auto flex max-w-7xl">
         {!isEmbed && (
-          <aside className="no-print sticky top-14 hidden h-[calc(100vh-3.5rem)] w-64 shrink-0 overflow-y-auto border-l bg-sidebar p-4 md:block">
+          <aside className="no-print sticky top-14 hidden h-[calc(100vh-3.5rem)] w-64 shrink-0 flex-col overflow-y-auto border-l bg-sidebar p-4 md:flex">
             {filtered ? (
-              <div>
+              <div className="flex-1">
                 <p className="mb-2 text-xs text-muted-foreground">
                   {filtered.length} {lang === "ar" ? "نتيجة" : "results"}
                 </p>
@@ -144,32 +160,68 @@ export default function DocsLayout({ lang, setLang, categories, modules, childre
                 </ul>
               </div>
             ) : (
-              categories.map((cat) => (
-                <div key={cat.slug} className="mb-5">
-                  <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                    {cat.title[lang]}
-                  </h3>
-                  <ul className="space-y-1">
-                    {cat.modules.map((m) => (
-                      <li key={m.slug}>
-                        <Link
-                          href={`/m/${m.slug}`}
-                          className={cn(
-                            "block rounded px-2 py-1.5 text-sm hover:bg-sidebar-accent",
-                            location === `/m/${m.slug}` && "bg-sidebar-accent font-medium text-sidebar-accent-foreground",
-                          )}
-                          data-testid={`nav-${m.slug}`}
-                        >
-                          <span className="text-muted-foreground tabular-nums me-1.5">
-                            {String(m.position).padStart(2, "0")}.
-                          </span>
-                          {m.title[lang]}
-                        </Link>
-                      </li>
-                    ))}
-                  </ul>
+              <>
+                <div className="flex-1">
+                  <div className="mb-5">
+                    <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                      {T.startHere[lang]}
+                    </h3>
+                    <ul className="space-y-1">
+                      {startHere.map((s) => {
+                        const Icon = s.Icon;
+                        return (
+                          <li key={s.href}>
+                            <Link
+                              href={s.href}
+                              className={cn(
+                                "flex items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-sidebar-accent",
+                                location === s.href &&
+                                  "bg-sidebar-accent font-medium text-sidebar-accent-foreground",
+                              )}
+                              data-testid={`nav${s.href.replace(/\//g, "-")}`}
+                            >
+                              <Icon className="size-3.5 text-primary" />
+                              {s.title[lang]}
+                            </Link>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+
+                  {categories.map((cat) => (
+                    <div key={cat.slug} className="mb-5">
+                      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                        {cat.title[lang]}
+                      </h3>
+                      <ul className="space-y-1">
+                        {cat.modules.map((m) => (
+                          <li key={m.slug}>
+                            <Link
+                              href={`/m/${m.slug}`}
+                              className={cn(
+                                "block rounded px-2 py-1.5 text-sm hover:bg-sidebar-accent",
+                                location === `/m/${m.slug}` &&
+                                  "bg-sidebar-accent font-medium text-sidebar-accent-foreground",
+                              )}
+                              data-testid={`nav-${m.slug}`}
+                            >
+                              <span className="text-muted-foreground tabular-nums me-1.5">
+                                {String(m.position).padStart(2, "0")}.
+                              </span>
+                              {m.title[lang]}
+                            </Link>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))}
                 </div>
-              ))
+
+                <div className="border-t pt-3 text-xs text-muted-foreground">
+                  {T.version[lang]} <span className="font-mono">{DOCS_VERSION}</span>
+                </div>
+              </>
             )}
           </aside>
         )}
