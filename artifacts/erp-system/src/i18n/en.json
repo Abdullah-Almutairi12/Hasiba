@@ -45,7 +45,9 @@
       "sumVatPaid": "Total VAT paid (12-mo)",
       "month": "Month",
       "disclaimer": "Planning estimate only. Not a substitute for an actual ZATCA filing — figures are indicative.",
-      "close": "Close"
+      "close": "Close",
+      "onboarding_title": "Will I need VAT?",
+      "onboarding_intro": "Enter an estimate of your rolling 12-month sales and see when you'll cross the ZATCA mandatory line (375,000 SAR) before issuing a single invoice. Informational only — does not change your registration status."
     }
   },
   "insight": {

@@ -15,7 +15,10 @@ import {
   Receipt,
   FileText,
   ArrowLeft,
+  TrendingUp,
 } from "lucide-react";
+import { VatSimulatorBody } from "@/components/vat-simulator-dialog";
+import { useLanguage } from "@/hooks/use-language";
 
 const BUSINESS_TYPES = [
   {
@@ -53,6 +56,7 @@ const CURRENCIES = [
 
 export default function OnboardingWizard() {
   const [, setLocation] = useLocation();
+  const { t } = useLanguage();
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [businessType, setBusinessType] = useState<string>("retail");
   const [vatType, setVatType] = useState<"standard" | "zero" | "exempt">(
@@ -282,6 +286,30 @@ export default function OnboardingWizard() {
                   سيتم إخفاء حقول الضريبة من الفواتير ونقطة البيع، وعرض عدّاد تذكير عند الاقتراب من الحد الإلزامي.
                 </p>
               )}
+            </div>
+
+            {/* Task #261 — "Will I need VAT?" simulator panel.
+                Informational only: never auto-sets vatRegistrationStatus. */}
+            <div
+              className="mb-6 rounded-2xl border border-teal-200 bg-teal-50/40 p-4"
+              data-testid="panel-onboarding-vat-simulator"
+            >
+              <div className="mb-3 flex items-center gap-2">
+                <span className="grid size-7 place-items-center rounded-lg bg-teal-100 text-teal-700">
+                  <TrendingUp className="size-4" />
+                </span>
+                <div>
+                  <h3 className="text-sm font-bold text-neutral-900">
+                    {t("vat.simulator.onboarding_title")}
+                  </h3>
+                  <p className="mt-0.5 text-[11px] leading-snug text-neutral-600">
+                    {t("vat.simulator.onboarding_intro")}
+                  </p>
+                </div>
+              </div>
+              <div className="rounded-xl bg-white p-3">
+                <VatSimulatorBody baseline={0} embedded />
+              </div>
             </div>
 
             <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
