@@ -12,7 +12,7 @@ import {
   CalendarClock,
 } from "lucide-react";
 import type { DocModule, Lang } from "@workspace/docs-content";
-import { findModule } from "@workspace/docs-content";
+import { DOCS_VERSION, findModule } from "@workspace/docs-content";
 import Callout from "@/components/callout";
 import Steps from "@/components/steps";
 import Faq from "@/components/faq";
@@ -222,6 +222,9 @@ export default function ModulePage({ lang, module: m }: { lang: Lang; module: Do
         <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
           <CalendarClock className="size-3.5" />
           {T.lastUpdated[lang]}: <span className="font-mono">{m.lastUpdated}</span>
+          <span className="mx-1">•</span>
+          {lang === "ar" ? "إصدار الدليل" : "Docs version"}:{" "}
+          <span className="font-mono">{DOCS_VERSION}</span>
         </div>
       </div>
     </article>

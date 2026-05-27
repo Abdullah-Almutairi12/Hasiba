@@ -1,13 +1,33 @@
+import { existsSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { Router, type IRouter, type Request, type Response } from "express";
 import PDFDocument from "pdfkit";
 import {
   DOC_CATEGORIES,
+  DOCS_VERSION,
+  FAQ,
+  GLOSSARY,
+  QUICK_START,
   allModules,
   findModule,
   type DocModule,
   type Lang,
 } from "@workspace/docs-content";
 import { registerArabicFonts } from "../lib/pdf/arabic-font";
+
+const SCREENSHOT_ROOTS = [
+  path.resolve(fileURLToPath(import.meta.url), "../../../docs/public/screenshots"),
+  path.resolve(process.cwd(), "artifacts/docs/public/screenshots"),
+];
+
+function resolveScreenshot(slug: string, lang: Lang): string | null {
+  for (const root of SCREENSHOT_ROOTS) {
+    const p = path.join(root, lang, `${slug}.png`);
+    if (existsSync(p)) return p;
+  }
+  return null;
+}
 
 const router: IRouter = Router();
 
@@ -45,7 +65,18 @@ function writeModule(
       ),
       { align },
     );
-  doc.moveDown(0.6);
+  doc.moveDown(0.5);
+
+  const shot = resolveScreenshot(m.slug, lang);
+  if (shot) {
+    try {
+      const pageWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+      doc.image(shot, { fit: [pageWidth, 260], align: "center" });
+      doc.moveDown(0.5);
+    } catch {
+      // ignore – malformed PNGs shouldn't break the export
+    }
+  }
 
   if (m.prerequisites && m.prerequisites.length) {
     useBold();
@@ -128,12 +159,10 @@ function writeModule(
     doc.fontSize(13).fillColor("#0f172a").text(T(lang === "ar" ? "استكشاف الأخطاء" : "Troubleshooting"), { align });
     useReg();
     for (const f of m.troubleshooting) {
-      const qLabel = lang === "ar" ? "س" : "Q";
-      const aLabel = lang === "ar" ? "ج" : "A";
       useBold();
-      doc.fontSize(11).fillColor("#0f172a").text(T(`${qLabel}: ${f.q[lang]}`), { align });
+      doc.fontSize(11).fillColor("#0f172a").text(T(`Q: ${f.q[lang]}`), { align });
       useReg();
-      doc.fontSize(10.5).fillColor("#111827").text(T(`${aLabel}: ${f.a[lang]}`), { align });
+      doc.fontSize(10.5).fillColor("#111827").text(T(`A: ${f.a[lang]}`), { align });
       doc.moveDown(0.2);
     }
     doc.moveDown(0.3);
@@ -168,7 +197,51 @@ function buildPdf(modules: DocModule[], lang: Lang, title: string): Promise<Buff
     doc.on("end", () => resolve(Buffer.concat(chunks)));
     doc.on("error", reject);
 
-    const { useReg, useBold, T } = registerArabicFonts(doc);
+    const fonts = registerArabicFonts(doc);
+    const T = fonts.T;
+
+    // Workaround: the bundled Amiri font triggers a known fontkit GPOS
+    // anchor crash on some pre-shaped Arabic glyph sequences (null anchor
+    // returned from getAnchor → TypeError in applyAnchor). For AR exports
+    // wrap fontkit's Font.position in a try/catch so a bad glyph run
+    // just falls back to default advance widths instead of 500'ing the
+    // whole request.
+    const patchActiveFont = () => {
+      if (lang !== "ar") return;
+      const embedded = (doc as unknown as { _font?: { font?: unknown } })._font;
+      const fkFont = embedded?.font as
+        | {
+            _layoutEngine?: {
+              engine?: {
+                position?: (run: unknown) => unknown;
+                __positionPatched?: boolean;
+              };
+            };
+          }
+        | undefined;
+      const otEngine = fkFont?._layoutEngine?.engine;
+      if (otEngine && typeof otEngine.position === "function" && !otEngine.__positionPatched) {
+        const orig = otEngine.position.bind(otEngine);
+        otEngine.position = function patched(run: unknown) {
+          try {
+            return orig(run);
+          } catch {
+            // Returning null tells LayoutEngine "no GPOS positioning ran",
+            // which makes it fall back to UnicodeLayoutEngine for marks.
+            return null;
+          }
+        };
+        otEngine.__positionPatched = true;
+      }
+    };
+    const useReg = () => {
+      fonts.useReg();
+      patchActiveFont();
+    };
+    const useBold = () => {
+      fonts.useBold();
+      patchActiveFont();
+    };
 
     useBold();
     doc.fontSize(28).fillColor("#0f172a").text(T(title), { align: "center" });
@@ -186,30 +259,91 @@ function buildPdf(modules: DocModule[], lang: Lang, title: string): Promise<Buff
       );
     doc.moveDown(1.2);
 
+    const align = lang === "ar" ? "right" : "left";
+
+    useReg();
+    doc
+      .fontSize(9)
+      .fillColor("#94a3b8")
+      .text(
+        T(`${lang === "ar" ? "إصدار الدليل" : "Docs version"}: ${DOCS_VERSION}`),
+        { align: "center" },
+      );
+    doc.moveDown(0.6);
+
     if (modules.length > 1) {
       useBold();
-      doc
-        .fontSize(16)
-        .fillColor("#0f172a")
-        .text(T(lang === "ar" ? "الفهرس" : "Table of contents"), {
-          align: lang === "ar" ? "right" : "left",
-        });
+      doc.fontSize(16).fillColor("#0f172a").text(T(lang === "ar" ? "الفهرس" : "Table of contents"), { align });
       useReg();
       doc.fontSize(11).fillColor("#1e40af");
       for (const cat of DOC_CATEGORIES) {
         useBold();
-        doc
-          .fontSize(11)
-          .fillColor("#0f172a")
-          .text(T(cat.title[lang]), { align: lang === "ar" ? "right" : "left" });
+        doc.fontSize(11).fillColor("#0f172a").text(T(cat.title[lang]), { align });
         useReg();
         doc.fontSize(10.5).fillColor("#334155");
         for (const m of cat.modules) {
-          doc.text(T(`${String(m.position).padStart(2, "0")}. ${m.title[lang]}`), {
-            align: lang === "ar" ? "right" : "left",
-          });
+          doc.text(T(`${String(m.position).padStart(2, "0")}. ${m.title[lang]}`), { align });
         }
         doc.moveDown(0.2);
+      }
+      doc.addPage();
+
+      // Quick Start
+      useBold();
+      doc.fontSize(20).fillColor("#0f172a").text(T(lang === "ar" ? "البداية السريعة" : "Quick Start"), { align });
+      useReg();
+      doc.moveDown(0.2);
+      doc.fontSize(10.5).fillColor("#475569").text(
+        T(
+          lang === "ar"
+            ? "خمس خطوات تنقلك من إنشاء الحساب إلى أول فاتورة في حوالي 10 دقائق."
+            : "Five steps that take you from sign-up to your first invoice in about 10 minutes.",
+        ),
+        { align },
+      );
+      doc.moveDown(0.5);
+      for (const s of QUICK_START) {
+        useBold();
+        doc.fontSize(12).fillColor("#0f172a").text(
+          T(`${s.index}. ${s.title[lang]}  (${s.minutes} ${lang === "ar" ? "دقيقة" : "min"})`),
+          { align },
+        );
+        useReg();
+        doc.fontSize(10.5).fillColor("#111827").text(T(s.body[lang]), { align });
+        doc.fontSize(9).fillColor("#64748b").text(
+          T(`${lang === "ar" ? "المسار" : "Path"}: ${s.appPath}`),
+          { align },
+        );
+        doc.moveDown(0.3);
+      }
+      doc.addPage();
+
+      // Glossary
+      useBold();
+      doc.fontSize(20).fillColor("#0f172a").text(T(lang === "ar" ? "المصطلحات" : "Glossary"), { align });
+      doc.moveDown(0.3);
+      useReg();
+      for (const g of GLOSSARY) {
+        useBold();
+        doc.fontSize(12).fillColor("#0f172a").text(T(g.term[lang]), { align });
+        useReg();
+        doc.fontSize(10.5).fillColor("#1f2937").text(T(g.definition[lang]), { align });
+        doc.moveDown(0.25);
+      }
+      doc.addPage();
+
+      // FAQ
+      useBold();
+      doc.fontSize(20).fillColor("#0f172a").text(T(lang === "ar" ? "الأسئلة الشائعة" : "FAQ"), { align });
+      doc.moveDown(0.3);
+      for (const f of FAQ) {
+        const qLabel = lang === "ar" ? "س" : "Q";
+        const aLabel = lang === "ar" ? "ج" : "A";
+        useBold();
+        doc.fontSize(11).fillColor("#0f172a").text(T(`${qLabel}: ${f.q[lang]}`), { align });
+        useReg();
+        doc.fontSize(10.5).fillColor("#111827").text(T(`${aLabel}: ${f.a[lang]}`), { align });
+        doc.moveDown(0.25);
       }
       doc.addPage();
     }
