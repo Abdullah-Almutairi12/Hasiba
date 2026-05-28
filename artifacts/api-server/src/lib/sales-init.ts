@@ -414,8 +414,9 @@ export async function initSales(): Promise<void> {
   // System "walk-in" customer for cash POS sales (no registered customer).
   // Used as the FK target so POS orders flow through the same SO/Invoice ledger.
   await pool.query(`
-    INSERT INTO customers (name, phone, email, segment, payment_terms_days, credit_limit, tax_number)
-    SELECT 'عميل نقدي - نقطة بيع', NULL, NULL, 'retail', 0, 0, 'POS-WALKIN'
+    INSERT INTO customers (name, phone, email, segment, payment_terms_days, credit_limit, tax_number, company_id)
+    SELECT 'عميل نقدي - نقطة بيع', NULL, NULL, 'retail', 0, 0, 'POS-WALKIN',
+           (SELECT id FROM companies ORDER BY id LIMIT 1)
      WHERE NOT EXISTS (SELECT 1 FROM customers WHERE tax_number = 'POS-WALKIN');
   `);
 

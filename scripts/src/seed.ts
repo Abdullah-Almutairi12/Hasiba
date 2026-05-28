@@ -7,11 +7,15 @@ import {
   customersTable,
   posSessionsTable,
   posOrdersTable,
+  posOrderPaymentsTable,
   invoicesTable,
   alertsTable,
   usersTable,
-  journalEntriesTable,
   auditLogsTable,
+  projectsTable,
+  projectTasksTable,
+  campaignsTable,
+  leadsTable,
 } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import bcrypt from "bcryptjs";
@@ -35,10 +39,19 @@ async function clear() {
   console.log("→ مسح البيانات الحالية...");
   // Drop session table if it exists (will be recreated by connect-pg-simple)
   await db.execute(sql`TRUNCATE TABLE
-    pos_orders, pos_sessions, journal_entries, invoices, alerts, audit_logs,
+    pos_order_payments, pos_orders, pos_sessions, journal_entries, invoices,
+    alerts, audit_logs, project_tasks, projects, leads, campaigns,
     products, categories, warehouses, branches, customers, users
     RESTART IDENTITY CASCADE`);
   await db.execute(sql`DELETE FROM session WHERE true`).catch(() => {});
+  // Ensure the default company (id=1) exists. The post-merge backfill
+  // creates it, but `pnpm seed` may run before that on a fresh checkout.
+  await db.execute(sql`
+    INSERT INTO companies (id, name, name_en, base_currency, business_type)
+    VALUES (1, 'حاسبة.AI', 'Hasba.AI', 'SAR', 'fb')
+    ON CONFLICT (id) DO NOTHING
+  `);
+  await db.execute(sql`SELECT setval('companies_id_seq', GREATEST((SELECT MAX(id) FROM companies), 1))`);
 }
 
 async function seedBranches() {
@@ -226,7 +239,22 @@ async function seedSessionsAndOrders(branchIds: number[], products: { id: number
           });
         }
 
-        await db.insert(posOrdersTable).values(orderRows);
+        // Insert orders + balancing payment rows inside a single
+        // transaction so the DEFERRED constraint trigger that requires
+        // SUM(pos_order_payments.amount) = pos_orders.total can pass.
+        await db.transaction(async (tx) => {
+          const inserted = await tx
+            .insert(posOrdersTable)
+            .values(orderRows)
+            .returning({ id: posOrdersTable.id, total: posOrdersTable.total, paymentMethod: posOrdersTable.paymentMethod });
+          await tx.insert(posOrderPaymentsTable).values(
+            inserted.map((row) => ({
+              orderId: row.id,
+              method: row.paymentMethod,
+              amount: row.total,
+            })),
+          );
+        });
         await db
           .update(posSessionsTable)
           .set({
@@ -312,6 +340,117 @@ async function seedJournalEntries() {
   }
 }
 
+async function seedProjects(customerIds: number[], userIds: number[]) {
+  console.log("→ إضافة المشاريع والمهام...");
+  const projects = [
+    { name: "تجهيز فرع جدة - التحلية", code: "PRJ-001", status: "active", priority: "high", budget: 180000, spent: 96000, progress: 55, days: 60 },
+    { name: "إطلاق تطبيق الولاء", code: "PRJ-002", status: "active", priority: "medium", budget: 75000, spent: 41000, progress: 42, days: 45 },
+    { name: "ترقية أنظمة الكاشير POS", code: "PRJ-003", status: "active", priority: "urgent", budget: 120000, spent: 88000, progress: 70, days: 30 },
+    { name: "تدريب فريق المبيعات Q3", code: "PRJ-004", status: "planning", priority: "medium", budget: 35000, spent: 5000, progress: 10, days: 90 },
+    { name: "حملة رمضان التسويقية", code: "PRJ-005", status: "completed", priority: "high", budget: 60000, spent: 58400, progress: 100, days: -20 },
+    { name: "تجديد ديكور فرع الملز", code: "PRJ-006", status: "on_hold", priority: "low", budget: 95000, spent: 14000, progress: 18, days: 120 },
+  ];
+  const inserted = await db
+    .insert(projectsTable)
+    .values(
+      projects.map((p, i) => ({
+        companyId: 1,
+        name: p.name,
+        code: p.code,
+        customerId: customerIds[i % customerIds.length] ?? null,
+        managerId: userIds[0] ?? null,
+        status: p.status,
+        priority: p.priority,
+        budget: String(p.budget),
+        spent: String(p.spent),
+        progress: p.progress,
+        startDate: new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10),
+        dueDate: new Date(Date.now() + p.days * 86400000).toISOString().slice(0, 10),
+        description: `${p.name} — وصف تفصيلي للمشروع وأهدافه التشغيلية.`,
+      })),
+    )
+    .returning();
+
+  const taskTitles = [
+    "تحديد المتطلبات الأولية",
+    "إعداد كشف التكاليف",
+    "اختيار المورد وعقد الاتفاقية",
+    "تنفيذ المرحلة الأولى",
+    "مراجعة الجودة والتسليم النهائي",
+  ];
+  const statuses = ["todo", "in_progress", "review", "done"];
+  const taskRows: Array<typeof projectTasksTable.$inferInsert> = [];
+  for (const proj of inserted) {
+    for (let i = 0; i < taskTitles.length; i++) {
+      taskRows.push({
+        projectId: proj.id,
+        title: taskTitles[i],
+        description: `مهمة ${i + 1} ضمن ${proj.name}`,
+        assigneeId: userIds[(i + 1) % userIds.length] ?? null,
+        status: statuses[Math.min(i, statuses.length - 1)],
+        priority: pick(["low", "medium", "high"]),
+        dueDate: new Date(Date.now() + (i * 7 + 3) * 86400000).toISOString().slice(0, 10),
+        completedAt: i < 2 ? daysAgo(rand(1, 20)) : null,
+      });
+    }
+  }
+  await db.insert(projectTasksTable).values(taskRows);
+}
+
+async function seedMarketing(userIds: number[]) {
+  console.log("→ إضافة الحملات التسويقية والعملاء المحتملين...");
+  const campaigns = [
+    { name: "حملة رمضان 2026", channel: "social", status: "completed", budget: 50000, spent: 47200, reach: 184000, conversions: 1320 },
+    { name: "نشرة العملاء الذهبيين", channel: "email", status: "active", budget: 8000, spent: 3100, reach: 12500, conversions: 410 },
+    { name: "ترويج إطلاق منتج جديد", channel: "ads", status: "active", budget: 30000, spent: 18900, reach: 95000, conversions: 612 },
+    { name: "رسائل تذكير العروض", channel: "sms", status: "scheduled", budget: 5000, spent: 0, reach: 0, conversions: 0 },
+    { name: "معرض الرياض للقهوة", channel: "event", status: "draft", budget: 25000, spent: 0, reach: 0, conversions: 0 },
+    { name: "حملة الصيف على إنستغرام", channel: "social", status: "paused", budget: 18000, spent: 6400, reach: 42000, conversions: 188 },
+  ];
+  const insertedCampaigns = await db
+    .insert(campaignsTable)
+    .values(
+      campaigns.map((c) => ({
+        companyId: 1,
+        name: c.name,
+        channel: c.channel,
+        status: c.status,
+        budget: String(c.budget),
+        spent: String(c.spent),
+        reach: c.reach,
+        conversions: c.conversions,
+        startDate: new Date(Date.now() - 20 * 86400000).toISOString().slice(0, 10),
+        endDate: new Date(Date.now() + 25 * 86400000).toISOString().slice(0, 10),
+        description: `${c.name} — حملة تسويقية متعددة القنوات.`,
+      })),
+    )
+    .returning();
+
+  const leadNames = [
+    "مجموعة الراجحي للضيافة", "كافيهات بياك", "سلسلة مطاعم النخيل", "أسواق المروج",
+    "محمصة البن الذهبي", "فندق سويس بل", "مقهى الشرفة", "شركة الإمداد الغذائي",
+    "كافي بيت", "مجموعة الحلويات الملكية", "مطعم نجد", "كافيه أوقات",
+  ];
+  const sources = ["web", "campaign", "referral", "manual"];
+  const leadStatuses = ["new", "contacted", "qualified", "proposal", "won", "lost"];
+  await db.insert(leadsTable).values(
+    leadNames.map((name, i) => ({
+      companyId: 1,
+      fullName: name,
+      email: `lead${i + 1}@example.sa`,
+      phone: `+96655${String(2000000 + i * 217).slice(0, 7)}`,
+      company: name,
+      source: pick(sources),
+      campaignId: insertedCampaigns[i % insertedCampaigns.length]?.id ?? null,
+      ownerId: userIds[i % userIds.length] ?? null,
+      status: leadStatuses[i % leadStatuses.length],
+      estimatedValue: String(rand(5000, 80000)),
+      score: rand(30, 95),
+      notes: `عميل محتمل من ${name} — يطلب عرضًا تجاريًا.`,
+    })),
+  );
+}
+
 async function seedAuditLogs() {
   console.log("→ إضافة سجلات التدقيق...");
   const actions = [
@@ -349,12 +488,14 @@ async function main() {
   await seedWarehouses(branchIds);
   const categories = await seedCategories();
   const products = await seedProducts(categories.map((c) => c.id));
-  await seedCustomers();
-  await seedUsers(branchIds);
+  const customers = await seedCustomers();
+  const users = await seedUsers(branchIds);
   await seedSessionsAndOrders(branchIds, products);
   await seedInvoices();
   await seedAlerts();
   await seedJournalEntries();
+  await seedProjects(customers.map((c) => c.id), users.map((u) => u.id));
+  await seedMarketing(users.map((u) => u.id));
   await seedAuditLogs();
   console.log("\n✅ تم زرع البيانات بنجاح!");
   process.exit(0);

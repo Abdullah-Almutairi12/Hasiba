@@ -568,8 +568,9 @@ async function migrateLegacyJournalEntries(pool: PgPool): Promise<void> {
       `INSERT INTO journal_entries
          (entry_number, entry_date, period_id, description, reference,
           currency_code, exchange_rate, status, source, source_ref,
-          posted_at)
-       VALUES ($1, $2, $3, $4, $5, 'SAR', 1, 'posted', 'legacy_migration', $6, now())
+          posted_at, company_id)
+       VALUES ($1, $2, $3, $4, $5, 'SAR', 1, 'posted', 'legacy_migration', $6, now(),
+               (SELECT id FROM companies ORDER BY id LIMIT 1))
        ON CONFLICT (entry_number) DO NOTHING
        RETURNING id`,
       [entryNumber, entryDate, periodId, r.description, r.reference ?? null, String(r.id)],
