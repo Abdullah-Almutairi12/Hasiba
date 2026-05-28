@@ -32,6 +32,12 @@ import {
   posOrdersTable,
   auditLogsTable,
   warehousesTable,
+  salesOrdersTable,
+  customerInvoicesTable,
+  suppliersTable,
+  purchaseOrdersTable,
+  opportunityStagesTable,
+  opportunitiesTable,
 } from "@workspace/db";
 import app from "../app";
 
@@ -55,6 +61,19 @@ let sessionAId = 0;
 let sessionBId = 0;
 let posOrderAId = 0;
 let posOrderBId = 0;
+let warehouseAId = 0;
+let warehouseBId = 0;
+let supplierAId = 0;
+let supplierBId = 0;
+let soAId = 0;
+let soBId = 0;
+let custInvAId = 0;
+let custInvBId = 0;
+let poAId = 0;
+let poBId = 0;
+let oppStageId = 0;
+let oppAId = 0;
+let oppBId = 0;
 
 let agentA: request.Agent;
 let agentB: request.Agent;
@@ -229,6 +248,81 @@ beforeAll(async () => {
   posOrderAId = oA.id;
   posOrderBId = oB.id;
 
+  // Warehouses (per tenant) — used for purchase_orders tenant-scope test
+  const [wA] = await db.insert(warehousesTable).values({
+    branchId: branchAId, name: `WH A ${RUN_TAG}`, nameAr: `مستودع A ${RUN_TAG}`,
+    companyId: companyAId,
+  }).returning();
+  const [wB] = await db.insert(warehousesTable).values({
+    branchId: branchBId, name: `WH B ${RUN_TAG}`, nameAr: `مستودع B ${RUN_TAG}`,
+    companyId: companyBId,
+  }).returning();
+  warehouseAId = wA.id;
+  warehouseBId = wB.id;
+
+  // Suppliers (per tenant) — needed for purchase_orders fixtures
+  const [supA] = await db.insert(suppliersTable).values({
+    name: `Sup A ${RUN_TAG}`, companyId: companyAId,
+  }).returning();
+  const [supB] = await db.insert(suppliersTable).values({
+    name: `Sup B ${RUN_TAG}`, companyId: companyBId,
+  }).returning();
+  supplierAId = supA.id;
+  supplierBId = supB.id;
+
+  // Sales orders (per tenant). Tenant scope is via customers.companyId.
+  const [soA] = await db.insert(salesOrdersTable).values({
+    reference: `HTTP-SO-A-${RUN_TAG}`, customerId: customerAId,
+    customerName: `Cust A ${RUN_TAG}`, orderDate: "2025-01-01", status: "draft",
+  }).returning();
+  const [soB] = await db.insert(salesOrdersTable).values({
+    reference: `HTTP-SO-B-${RUN_TAG}`, customerId: customerBId,
+    customerName: `Cust B ${RUN_TAG}`, orderDate: "2025-01-01", status: "draft",
+  }).returning();
+  soAId = soA.id;
+  soBId = soB.id;
+
+  // Customer invoices (per tenant). Tenant scope via customers.companyId.
+  const [ciA] = await db.insert(customerInvoicesTable).values({
+    reference: `HTTP-CI-A-${RUN_TAG}`, customerId: customerAId,
+    customerName: `Cust A ${RUN_TAG}`, invoiceDate: "2025-01-01", status: "draft",
+  }).returning();
+  const [ciB] = await db.insert(customerInvoicesTable).values({
+    reference: `HTTP-CI-B-${RUN_TAG}`, customerId: customerBId,
+    customerName: `Cust B ${RUN_TAG}`, invoiceDate: "2025-01-01", status: "draft",
+  }).returning();
+  custInvAId = ciA.id;
+  custInvBId = ciB.id;
+
+  // Purchase orders (per tenant). Tenant scope via warehouses.companyId.
+  const [poA] = await db.insert(purchaseOrdersTable).values({
+    reference: `HTTP-PO-A-${RUN_TAG}`, supplierId: supplierAId,
+    supplierName: `Sup A ${RUN_TAG}`, warehouseId: warehouseAId,
+    orderDate: "2025-01-01", status: "draft",
+  }).returning();
+  const [poB] = await db.insert(purchaseOrdersTable).values({
+    reference: `HTTP-PO-B-${RUN_TAG}`, supplierId: supplierBId,
+    supplierName: `Sup B ${RUN_TAG}`, warehouseId: warehouseBId,
+    orderDate: "2025-01-01", status: "draft",
+  }).returning();
+  poAId = poA.id;
+  poBId = poB.id;
+
+  // Opportunities (per tenant). Tenant scope via customers.companyId
+  // (innerJoin in the list handler intentionally drops null-customer rows).
+  const [stage] = await db.insert(opportunityStagesTable).values({
+    name: `Stage ${RUN_TAG}`, nameAr: `مرحلة ${RUN_TAG}`, sequence: 1,
+  }).returning();
+  oppStageId = stage.id;
+  const [opA] = await db.insert(opportunitiesTable).values({
+    name: `Opp A ${RUN_TAG}`, customerId: customerAId, stageId: oppStageId,
+  }).returning();
+  const [opB] = await db.insert(opportunitiesTable).values({
+    name: `Opp B ${RUN_TAG}`, customerId: customerBId, stageId: oppStageId,
+  }).returning();
+  oppAId = opA.id;
+  oppBId = opB.id;
+
   // Login each via cookie-jar agents
   agentA = request.agent(app);
   agentB = request.agent(app);
@@ -247,6 +341,21 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  // Tear down BOLA fixtures first (children before parents).
+  const oppIds = [oppAId, oppBId].filter((n) => n > 0);
+  if (oppIds.length) await db.delete(opportunitiesTable).where(inArray(opportunitiesTable.id, oppIds));
+  if (oppStageId) await db.delete(opportunityStagesTable).where(eq(opportunityStagesTable.id, oppStageId));
+  const poIds = [poAId, poBId].filter((n) => n > 0);
+  if (poIds.length) await db.delete(purchaseOrdersTable).where(inArray(purchaseOrdersTable.id, poIds));
+  const ciIds = [custInvAId, custInvBId].filter((n) => n > 0);
+  if (ciIds.length) await db.delete(customerInvoicesTable).where(inArray(customerInvoicesTable.id, ciIds));
+  const soIds = [soAId, soBId].filter((n) => n > 0);
+  if (soIds.length) await db.delete(salesOrdersTable).where(inArray(salesOrdersTable.id, soIds));
+  const supIds = [supplierAId, supplierBId].filter((n) => n > 0);
+  if (supIds.length) await db.delete(suppliersTable).where(inArray(suppliersTable.id, supIds));
+  const whIds = [warehouseAId, warehouseBId].filter((n) => n > 0);
+  if (whIds.length) await db.delete(warehousesTable).where(inArray(warehousesTable.id, whIds));
+
   const posOrderIds = [posOrderAId, posOrderBId].filter((n) => n > 0);
   if (posOrderIds.length > 0) {
     await db.delete(posOrdersTable).where(inArray(posOrdersTable.id, posOrderIds));
@@ -624,5 +733,82 @@ describe("HTTP — /api/pos/orders is tenant-scoped", () => {
       .where(eq(posSessionsTable.branchId, branchBId));
     // Only the seeded sessionB exists on branchB — no extra row from the forged POST.
     expect(rows.map((r) => r.id)).toEqual([sessionBId]);
+  });
+});
+
+describe("HTTP — BOLA join-based scoping on sales/procurement/crm lists", () => {
+  it("GET /api/sales/orders is tenant-scoped via customers.companyId", async () => {
+    const [a, b] = await Promise.all([
+      agentA.get("/api/sales/orders"),
+      agentB.get("/api/sales/orders"),
+    ]);
+    expect(a.status).toBe(200);
+    expect(b.status).toBe(200);
+    const idsA = (a.body as Array<{ id: number }>).map((r) => r.id);
+    const idsB = (b.body as Array<{ id: number }>).map((r) => r.id);
+    expect(idsA).toContain(soAId);
+    expect(idsA).not.toContain(soBId);
+    expect(idsB).toContain(soBId);
+    expect(idsB).not.toContain(soAId);
+  });
+
+  it("GET /api/sales/orders/:id on another tenant's order returns 404", async () => {
+    const res = await agentA.get(`/api/sales/orders/${soBId}`);
+    expect(res.status).toBe(404);
+  });
+
+  it("GET /api/sales/invoices is tenant-scoped via customers.companyId", async () => {
+    const [a, b] = await Promise.all([
+      agentA.get("/api/sales/invoices"),
+      agentB.get("/api/sales/invoices"),
+    ]);
+    expect(a.status).toBe(200);
+    expect(b.status).toBe(200);
+    const idsA = (a.body as Array<{ id: number }>).map((r) => r.id);
+    const idsB = (b.body as Array<{ id: number }>).map((r) => r.id);
+    expect(idsA).toContain(custInvAId);
+    expect(idsA).not.toContain(custInvBId);
+    expect(idsB).toContain(custInvBId);
+    expect(idsB).not.toContain(custInvAId);
+  });
+
+  it("GET /api/sales/invoices/:id on another tenant's invoice returns 404", async () => {
+    const res = await agentA.get(`/api/sales/invoices/${custInvBId}`);
+    expect(res.status).toBe(404);
+  });
+
+  it("GET /api/procurement/purchase-orders is tenant-scoped via warehouses.companyId", async () => {
+    const [a, b] = await Promise.all([
+      agentA.get("/api/procurement/purchase-orders"),
+      agentB.get("/api/procurement/purchase-orders"),
+    ]);
+    expect(a.status).toBe(200);
+    expect(b.status).toBe(200);
+    const idsA = (a.body as Array<{ id: number }>).map((r) => r.id);
+    const idsB = (b.body as Array<{ id: number }>).map((r) => r.id);
+    expect(idsA).toContain(poAId);
+    expect(idsA).not.toContain(poBId);
+    expect(idsB).toContain(poBId);
+    expect(idsB).not.toContain(poAId);
+  });
+
+  it("GET /api/procurement/purchase-orders/:id on another tenant's PO returns 404", async () => {
+    const res = await agentA.get(`/api/procurement/purchase-orders/${poBId}`);
+    expect(res.status).toBe(404);
+  });
+
+  it("GET /api/crm/opportunities is tenant-scoped via customers.companyId", async () => {
+    const [a, b] = await Promise.all([
+      agentA.get("/api/crm/opportunities"),
+      agentB.get("/api/crm/opportunities"),
+    ]);
+    expect(a.status).toBe(200);
+    expect(b.status).toBe(200);
+    const idsA = (a.body as Array<{ id: number }>).map((r) => r.id);
+    const idsB = (b.body as Array<{ id: number }>).map((r) => r.id);
+    expect(idsA).toContain(oppAId);
+    expect(idsA).not.toContain(oppBId);
+    expect(idsB).toContain(oppBId);
+    expect(idsB).not.toContain(oppAId);
   });
 });

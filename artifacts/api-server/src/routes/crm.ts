@@ -106,10 +106,16 @@ router.get("/crm/opportunities", customerReadGuard, async (req, res) => {
         updatedAt: opportunitiesTable.updatedAt,
       })
       .from(opportunitiesTable)
+      .innerJoin(customersTable, eq(customersTable.id, opportunitiesTable.customerId))
       .leftJoin(opportunityStagesTable, eq(opportunityStagesTable.id, opportunitiesTable.stageId))
       .leftJoin(usersTable, eq(usersTable.id, opportunitiesTable.salesRepId))
       .where(
         and(
+          // Tenant scope via customers.companyId. opportunities.customerId
+          // is nullable in schema; using innerJoin intentionally excludes
+          // unassigned opportunities until a direct company_id column is
+          // added (follow-up schema migration).
+          eq(customersTable.companyId, getCompanyId(req)),
           stageId ? eq(opportunitiesTable.stageId, Number(stageId)) : sql`true`,
           salesRepId ? eq(opportunitiesTable.salesRepId, Number(salesRepId)) : sql`true`,
           customerId ? eq(opportunitiesTable.customerId, Number(customerId)) : sql`true`,

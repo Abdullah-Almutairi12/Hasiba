@@ -629,17 +629,24 @@ router.get("/procurement/purchase-orders", async (req, res) => {
   try {
     const status = req.query.status as string | undefined;
     const supplierId = req.query.supplierId ? Number(req.query.supplierId) : undefined;
-    const conds = [];
+    const companyId = getCompanyId(req);
+    // Tenant scope via warehouses.companyId. purchase_orders has no direct
+    // company_id column yet; warehouseId is nullable so POs without a
+    // warehouse are intentionally excluded from list output to avoid
+    // cross-tenant leakage. Schema migration follow-up: add company_id.
+    const conds = [eq(warehousesTable.companyId, companyId)];
     if (status) conds.push(eq(purchaseOrdersTable.status, status));
     if (supplierId) conds.push(eq(purchaseOrdersTable.supplierId, supplierId));
     const { limit, offset } = parsePagination(req);
-    const rows = await db
-      .select()
+    const joined = await db
+      .select({ po: purchaseOrdersTable })
       .from(purchaseOrdersTable)
-      .where(conds.length ? and(...conds) : undefined)
+      .innerJoin(warehousesTable, eq(warehousesTable.id, purchaseOrdersTable.warehouseId))
+      .where(and(...conds))
       .orderBy(desc(purchaseOrdersTable.createdAt))
       .limit(limit)
       .offset(offset);
+    const rows = joined.map((j) => j.po);
 
     // Surface the latest send attempt per PO from procurement_email_outbox
     // (kind='purchase_order') so the list can render a delivered / queued /
@@ -665,7 +672,7 @@ router.get("/procurement/purchase-orders", async (req, res) => {
           created_at AS "createdAt",
           sent_at AS "sentAt"
         FROM procurement_email_outbox
-        WHERE kind = 'purchase_order' AND ref_id = ANY(${ids}::int[])
+        WHERE kind = 'purchase_order' AND ref_id IN (${sql.join(ids.map((i) => sql`${i}`), sql`, `)})
         ORDER BY ref_id, created_at DESC, id DESC
       `);
       const lastRows = ((lastRes as unknown as { rows?: Array<Record<string, unknown>> }).rows
@@ -842,9 +849,14 @@ router.post("/procurement/purchase-orders", async (req, res) => {
 router.get("/procurement/purchase-orders/:id", async (req, res) => {
   try {
     const id = Number(req.params.id);
-    // TODO(BOLA): purchase_orders has no companyId column yet (schema gap).
-    // Cross-tenant probe by id is currently possible until a migration adds it.
-    const [po] = await db.select().from(purchaseOrdersTable).where(eq(purchaseOrdersTable.id, id));
+    const companyId = getCompanyId(req);
+    // Tenant scope via warehouses.companyId join — see GET list above.
+    const [joined] = await db
+      .select({ po: purchaseOrdersTable })
+      .from(purchaseOrdersTable)
+      .innerJoin(warehousesTable, eq(warehousesTable.id, purchaseOrdersTable.warehouseId))
+      .where(and(eq(purchaseOrdersTable.id, id), eq(warehousesTable.companyId, companyId)));
+    const po = joined?.po;
     if (!po) { res.status(404).json({ error: "not found" }); return; }
     const lines = await db
       .select()

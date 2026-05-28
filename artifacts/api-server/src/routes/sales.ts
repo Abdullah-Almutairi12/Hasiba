@@ -797,7 +797,7 @@ router.get("/sales/quotations", customerReadGuard, async (req, res) => {
           created_at AS "createdAt",
           sent_at AS "sentAt"
         FROM sales_email_outbox
-        WHERE kind = 'quotation' AND ref_id = ANY(${ids}::int[])
+        WHERE kind = 'quotation' AND ref_id IN (${sql.join(ids.map((i) => sql`${i}`), sql`, `)})
         ORDER BY ref_id, created_at DESC, id DESC
       `);
       const lastRows = ((lastRes as unknown as { rows?: Array<Record<string, unknown>> }).rows
@@ -1079,11 +1079,17 @@ const SoBody = z.object({
 router.get("/sales/orders", customerReadGuard, async (req, res) => {
   try {
     const { status, customerId } = req.query;
+    const companyId = getCompanyId(req);
+    // Tenant scope via customers.companyId (customerId is NOT NULL on
+    // salesOrders). Until salesOrders gains its own company_id column we
+    // join through customers to keep cross-tenant rows out of the list.
     const rows = await db
       .select()
       .from(salesOrdersTable)
+      .innerJoin(customersTable, eq(customersTable.id, salesOrdersTable.customerId))
       .where(
         and(
+          eq(customersTable.companyId, companyId),
           status ? eq(salesOrdersTable.status, String(status)) : sql`true`,
           customerId ? eq(salesOrdersTable.customerId, Number(customerId)) : sql`true`,
         ),
@@ -1091,7 +1097,7 @@ router.get("/sales/orders", customerReadGuard, async (req, res) => {
       .orderBy(desc(salesOrdersTable.createdAt))
       .limit(parsePagination(req).limit)
       .offset(parsePagination(req).offset);
-    res.json(rows.map(serializeMoneyDoc));
+    res.json(rows.map((r) => serializeMoneyDoc(r.sales_orders)));
   } catch (err) {
     handleRouteError(err, res);
   }
@@ -1100,10 +1106,16 @@ router.get("/sales/orders", customerReadGuard, async (req, res) => {
 router.get("/sales/orders/:id", customerReadGuard, async (req, res) => {
   try {
     const id = Number(req.params.id);
-    const [head] = await db.select().from(salesOrdersTable).where(eq(salesOrdersTable.id, id));
-    if (!head) { res.status(404).json({ error: "Not found" }); return; }
+    const companyId = getCompanyId(req);
+    // Tenant scope via customers.companyId join — see GET /sales/orders.
+    const [row] = await db
+      .select({ so: salesOrdersTable })
+      .from(salesOrdersTable)
+      .innerJoin(customersTable, eq(customersTable.id, salesOrdersTable.customerId))
+      .where(and(eq(salesOrdersTable.id, id), eq(customersTable.companyId, companyId)));
+    if (!row) { res.status(404).json({ error: "Not found" }); return; }
     const lines = await db.select().from(salesOrderLinesTable).where(eq(salesOrderLinesTable.soId, id));
-    res.json({ ...serializeMoneyDoc(head), lines: lines.map(serializeLine) });
+    res.json({ ...serializeMoneyDoc(row.so), lines: lines.map(serializeLine) });
   } catch (err) {
     handleRouteError(err, res);
   }
@@ -1611,11 +1623,15 @@ const InvoiceBody = z.object({
 router.get("/sales/invoices", customerReadGuard, async (req, res) => {
   try {
     const { status, customerId } = req.query;
-    const rows = await db
-      .select()
+    const companyId = getCompanyId(req);
+    // Tenant scope via customers.companyId — see GET /sales/orders.
+    const joined = await db
+      .select({ inv: customerInvoicesTable })
       .from(customerInvoicesTable)
+      .innerJoin(customersTable, eq(customersTable.id, customerInvoicesTable.customerId))
       .where(
         and(
+          eq(customersTable.companyId, companyId),
           status ? eq(customerInvoicesTable.status, String(status)) : sql`true`,
           customerId ? eq(customerInvoicesTable.customerId, Number(customerId)) : sql`true`,
         ),
@@ -1623,6 +1639,7 @@ router.get("/sales/invoices", customerReadGuard, async (req, res) => {
       .orderBy(desc(customerInvoicesTable.createdAt))
       .limit(parsePagination(req).limit)
       .offset(parsePagination(req).offset);
+    const rows = joined.map((j) => j.inv);
     // Surface last send signal per invoice from sales_email_outbox (email)
     // and outbound_messages (WhatsApp). This lets the UI show whether a
     // given invoice was already delivered and over which channel so staff
@@ -1667,7 +1684,7 @@ router.get("/sales/invoices", customerReadGuard, async (req, res) => {
           sent_at
         FROM sales_email_outbox
         WHERE kind = 'invoice'
-          AND ref_id = ANY(${ids}::int[])
+          AND ref_id IN (${sql.join(ids.map((i) => sql`${i}`), sql`, `)})
           AND status = 'sent'
           AND sent_at IS NOT NULL
         ORDER BY ref_id, sent_at DESC, id DESC
@@ -1694,7 +1711,7 @@ router.get("/sales/invoices", customerReadGuard, async (req, res) => {
           created_at AS "createdAt",
           sent_at AS "sentAt"
         FROM sales_email_outbox
-        WHERE kind = 'invoice' AND ref_id = ANY(${ids}::int[])
+        WHERE kind = 'invoice' AND ref_id IN (${sql.join(ids.map((i) => sql`${i}`), sql`, `)})
         ORDER BY ref_id, created_at DESC, id DESC
       `);
       const lastRows = ((lastRes as unknown as { rows?: Array<Record<string, unknown>> }).rows
@@ -1712,7 +1729,7 @@ router.get("/sales/invoices", customerReadGuard, async (req, res) => {
           next_retry_at AS "nextRetryAt"
         FROM sales_email_outbox
         WHERE kind = 'invoice'
-          AND ref_id = ANY(${ids}::int[])
+          AND ref_id IN (${sql.join(ids.map((i) => sql`${i}`), sql`, `)})
           AND retry_of IS NULL
         ORDER BY ref_id, created_at DESC, id DESC
       `);
@@ -1771,7 +1788,7 @@ router.get("/sales/invoices", customerReadGuard, async (req, res) => {
           sent_at
         FROM outbound_messages
         WHERE template_name = 'invoice_issued'
-          AND variables->>'invoice_no' = ANY(${refs}::text[])
+          AND variables->>'invoice_no' IN (${sql.join(refs.map((r) => sql`${r}`), sql`, `)})
           AND status IN ('sent', 'delivered')
           AND sent_at IS NOT NULL
         ORDER BY variables->>'invoice_no', sent_at DESC, id DESC
@@ -1853,13 +1870,16 @@ router.get("/sales/invoices/email-failure-count", customerReadGuard, async (_req
 router.get("/sales/invoices/:id", customerReadGuard, async (req, res) => {
   try {
     const id = Number(req.params.id);
-    // TODO(BOLA): customer_invoices has no companyId column yet (schema gap
-    // tracked separately). Until a migration adds it, this handler can be
-    // probed cross-tenant by id. See follow-up task: schema_add_companyid.
-    const [head] = await db.select().from(customerInvoicesTable).where(eq(customerInvoicesTable.id, id));
-    if (!head) { res.status(404).json({ error: "Not found" }); return; }
+    const companyId = getCompanyId(req);
+    // Tenant scope via customers.companyId join — see GET /sales/orders.
+    const [row] = await db
+      .select({ inv: customerInvoicesTable })
+      .from(customerInvoicesTable)
+      .innerJoin(customersTable, eq(customersTable.id, customerInvoicesTable.customerId))
+      .where(and(eq(customerInvoicesTable.id, id), eq(customersTable.companyId, companyId)));
+    if (!row) { res.status(404).json({ error: "Not found" }); return; }
     const lines = await db.select().from(customerInvoiceLinesTable).where(eq(customerInvoiceLinesTable.invoiceId, id));
-    res.json({ ...serializeMoneyDoc(head), lines: lines.map(serializeLine) });
+    res.json({ ...serializeMoneyDoc(row.inv), lines: lines.map(serializeLine) });
   } catch (err) {
     handleRouteError(err, res);
   }
