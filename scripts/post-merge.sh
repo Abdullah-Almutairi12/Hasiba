@@ -10,4 +10,4 @@ pnpm --filter @workspace/scripts run backfill-multi-company
 # Refresh user-manual screenshots from the live ERP. The capture
 # script never throws — missing Playwright or missing credentials
 # just print a warning and skip — so post-merge stays green.
-pnpm --filter @workspace/scripts run capture-docs-screenshots || true
+pnpm --filter @workspace/scripts run docs:capture || true
