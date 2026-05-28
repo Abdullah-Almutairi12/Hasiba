@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from "react";
+import { Link } from "wouter";
 import { Money } from "@/components/riyal";
 import { motion, type Variants } from "framer-motion";
 import {
@@ -534,8 +535,8 @@ export default function Dashboard() {
           <p className="text-muted-foreground">نظرة عامة على أداء أعمالك مع تحليلات الذكاء الاصطناعي</p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" className="bg-white/5 border-white/10 backdrop-blur-sm">
-            تصدير التقرير
+          <Button asChild variant="outline" className="bg-white/5 border-white/10 backdrop-blur-sm">
+            <Link href="/reports" data-testid="button-dashboard-export-report">تصدير التقرير</Link>
           </Button>
         </div>
       </div>

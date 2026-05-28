@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "wouter";
 import { Money } from "@/components/riyal";
 import { VatReturnCard } from "@/components/vat-return-card";
 import { useVatEnabled } from "@/hooks/use-vat-status";
@@ -943,8 +944,14 @@ export default function Reports() {
 
           <VatReturnHeaderButton />
 
-          <Button className="grid size-9 place-items-center rounded-lg bg-[#2563EB] p-0 text-white shadow hover:bg-[#1D4ED8]">
-            <CalendarPlus className="size-4" />
+          <Button
+            asChild
+            className="grid size-9 place-items-center rounded-lg bg-[#2563EB] p-0 text-white shadow hover:bg-[#1D4ED8]"
+            title="جدولة تقرير دوري"
+          >
+            <Link href="/reports/saved" data-testid="button-schedule-report" aria-label="جدولة تقرير دوري">
+              <CalendarPlus className="size-4" />
+            </Link>
           </Button>
         </div>
       </header>
@@ -974,7 +981,15 @@ export default function Reports() {
                   "جاري تحليل بيانات اليوم... سيظهر الملخص الذكي خلال لحظات."}
               </p>
             </div>
-            <Button className="shrink-0 self-center gap-2 bg-white px-4 py-2 text-sm font-bold text-[#1E40AF] shadow-lg hover:bg-blue-50">
+            <Button
+              className="shrink-0 self-center gap-2 bg-white px-4 py-2 text-sm font-bold text-[#1E40AF] shadow-lg hover:bg-blue-50"
+              onClick={() =>
+                document
+                  .getElementById("ai-deep-dive")
+                  ?.scrollIntoView({ behavior: "smooth", block: "start" })
+              }
+              data-testid="button-ai-deep-dive"
+            >
               <span>تحليل التفاصيل</span>
               <ArrowLeft className="size-3.5" />
             </Button>
@@ -982,7 +997,7 @@ export default function Reports() {
         </div>
 
         {/* Top KPI grid (4 cards) */}
-        <div className="grid grid-cols-12 gap-6">
+        <div id="ai-deep-dive" className="grid grid-cols-12 gap-6">
           {/* Daily profit */}
           <div className="group relative col-span-12 overflow-hidden rounded-2xl border border-neutral-100 bg-white p-5 shadow-sm transition-transform duration-300 hover:-translate-y-1 sm:col-span-6 lg:col-span-3">
             <div className="mb-4 flex items-start justify-between">
@@ -1308,9 +1323,14 @@ export default function Reports() {
                   <p className="mt-1 text-[10px] text-neutral-500">قيد المعالجة</p>
                 </div>
               </div>
-              <Button className="h-11 w-full gap-2 bg-neutral-900 text-sm font-medium text-white hover:bg-neutral-800">
-                <CloudUpload className="size-4" />
-                تصدير تقرير ZATCA (XML)
+              <Button
+                asChild
+                className="h-11 w-full gap-2 bg-neutral-900 text-sm font-medium text-white hover:bg-neutral-800"
+              >
+                <Link href="/compliance" data-testid="button-zatca-export">
+                  <CloudUpload className="size-4" />
+                  تصدير تقرير ZATCA
+                </Link>
               </Button>
             </div>
           </div>

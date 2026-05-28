@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
+import { useIsMobile } from "@/hooks/use-mobile";
 import {
   useGetAppSettings,
   usePatchAppSettings,
@@ -1380,6 +1381,48 @@ function TemplatesTab({ readOnly }: { readOnly: boolean }) {
   );
 }
 
+// ====================== SIDEBAR NAV ======================
+const SETTINGS_NAV: Array<{
+  label: string;
+  items: Array<{ value: string; label: string; icon: typeof Building2 }>;
+}> = [
+  {
+    label: "المنشأة",
+    items: [
+      { value: "company", label: "هوية المنشأة", icon: Building2 },
+      { value: "branches", label: "الفروع والمخزون", icon: Boxes },
+      { value: "localization", label: "التوطين", icon: Globe },
+    ],
+  },
+  {
+    label: "المالية والامتثال",
+    items: [
+      { value: "tax", label: "الضرائب", icon: Receipt },
+      { value: "accounting", label: "المحاسبة", icon: Calculator },
+      { value: "numbering", label: "الترقيم", icon: Hash },
+    ],
+  },
+  {
+    label: "العمليات",
+    items: [
+      { value: "pos", label: "نقاط البيع", icon: CreditCard },
+      { value: "integrations", label: "الربط", icon: Plug },
+      { value: "templates", label: "القوالب", icon: FileText },
+    ],
+  },
+  {
+    label: "النظام",
+    items: [
+      { value: "users", label: "المستخدمون والصلاحيات", icon: Users },
+      { value: "notifications", label: "التنبيهات", icon: Bell },
+      { value: "appearance", label: "المظهر", icon: Palette },
+      { value: "backup", label: "النسخ الاحتياطي", icon: Database },
+      { value: "security", label: "الأمان", icon: ShieldCheck },
+      { value: "privacy", label: "الخصوصية والموافقة", icon: ShieldCheck },
+    ],
+  },
+];
+
 // ====================== PAGE SHELL ======================
 export default function SettingsPage() {
   const { t } = useLanguage();
@@ -1387,6 +1430,7 @@ export default function SettingsPage() {
   const { isAdmin } = usePermissions();
   const { activeCompany, canSwitch } = useCurrentCompany();
   const readOnly = !isAdmin;
+  const isMobile = useIsMobile();
   return (
     <div className="mx-auto max-w-7xl space-y-6 p-3 sm:p-4 md:p-6">
       <div>
@@ -1417,56 +1461,43 @@ export default function SettingsPage() {
         </div>
       )}
 
-      <Tabs defaultValue="company" className="space-y-4">
-        <TabsList className="flex w-full flex-wrap justify-start gap-1 bg-muted/40 p-1">
-          <TabsTrigger value="company" data-testid="tab-company">
-            <Building2 className="me-2 size-4" /> المنشأة
-          </TabsTrigger>
-          <TabsTrigger value="tax" data-testid="tab-tax">
-            <Receipt className="me-2 size-4" /> الضرائب
-          </TabsTrigger>
-          <TabsTrigger value="branches" data-testid="tab-branches">
-            <Boxes className="me-2 size-4" /> الفروع والمخزون
-          </TabsTrigger>
-          <TabsTrigger value="pos" data-testid="tab-pos">
-            <CreditCard className="me-2 size-4" /> نقاط البيع
-          </TabsTrigger>
-          <TabsTrigger value="users" data-testid="tab-users">
-            <Users className="me-2 size-4" /> المستخدمون والصلاحيات
-          </TabsTrigger>
-          <TabsTrigger value="accounting" data-testid="tab-accounting">
-            <Calculator className="me-2 size-4" /> المحاسبة
-          </TabsTrigger>
-          <TabsTrigger value="integrations" data-testid="tab-integrations">
-            <Plug className="me-2 size-4" /> الربط
-          </TabsTrigger>
-          <TabsTrigger value="notifications" data-testid="tab-notifications">
-            <Bell className="me-2 size-4" /> التنبيهات
-          </TabsTrigger>
-          <TabsTrigger value="localization" data-testid="tab-localization">
-            <Globe className="me-2 size-4" /> التوطين
-          </TabsTrigger>
-          <TabsTrigger value="numbering" data-testid="tab-numbering">
-            <Hash className="me-2 size-4" /> الترقيم
-          </TabsTrigger>
-          <TabsTrigger value="appearance" data-testid="tab-appearance">
-            <Palette className="me-2 size-4" /> المظهر
-          </TabsTrigger>
-          <TabsTrigger value="backup" data-testid="tab-backup">
-            <Database className="me-2 size-4" /> النسخ الاحتياطي
-          </TabsTrigger>
-          <TabsTrigger value="templates" data-testid="tab-templates">
-            <FileText className="me-2 size-4" /> القوالب
-          </TabsTrigger>
-          <TabsTrigger value="security" data-testid="tab-security">
-            <ShieldCheck className="me-2 size-4" /> الأمان
-          </TabsTrigger>
-          <TabsTrigger value="privacy" data-testid="tab-privacy">
-            <ShieldCheck className="me-2 size-4" /> {t("privacy.tabLabel")}
-          </TabsTrigger>
+      <Tabs defaultValue="company" className="lg:flex lg:gap-6" orientation={isMobile ? "horizontal" : "vertical"}>
+        {/* Sidebar (vertical on lg+, horizontal scroll on smaller screens) */}
+        <TabsList
+          className="
+            sticky top-0 z-10 mb-4 flex h-auto w-full shrink-0 gap-1 overflow-x-auto
+            rounded-xl border bg-card p-2 text-foreground shadow-sm
+            lg:mb-0 lg:w-64 lg:flex-col lg:items-stretch lg:overflow-visible lg:p-3
+          "
+        >
+          {SETTINGS_NAV.map((group, gi) => (
+            <div key={gi} className="contents lg:block lg:w-full">
+              {group.label && (
+                <div className="hidden px-2 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground first:pt-0 lg:block">
+                  {group.label}
+                </div>
+              )}
+              {group.items.map((it) => (
+                <TabsTrigger
+                  key={it.value}
+                  value={it.value}
+                  data-testid={`tab-${it.value}`}
+                  className="
+                    h-9 shrink-0 justify-start gap-2 whitespace-nowrap rounded-lg px-3 text-sm
+                    data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow
+                    lg:w-full
+                  "
+                >
+                  <it.icon className="size-4 shrink-0" />
+                  <span className="truncate">{it.label}</span>
+                </TabsTrigger>
+              ))}
+            </div>
+          ))}
         </TabsList>
 
-        <TabsContent value="company"><CompanyTab readOnly={readOnly} /></TabsContent>
+        <div className="min-w-0 flex-1 space-y-4">
+        <TabsContent value="company" className="mt-0"><CompanyTab readOnly={readOnly} /></TabsContent>
         <TabsContent value="tax"><TaxTab readOnly={readOnly} /></TabsContent>
         <TabsContent value="branches"><BranchesTab readOnly={readOnly} /></TabsContent>
         <TabsContent value="pos"><PosTab readOnly={readOnly} /></TabsContent>
@@ -1481,6 +1512,7 @@ export default function SettingsPage() {
         <TabsContent value="templates"><TemplatesTab readOnly={readOnly} /></TabsContent>
         <TabsContent value="security"><SecurityTab /></TabsContent>
         <TabsContent value="privacy"><PrivacyConsentTab /></TabsContent>
+        </div>
       </Tabs>
     </div>
   );

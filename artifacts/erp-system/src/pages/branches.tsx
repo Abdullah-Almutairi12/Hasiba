@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { useListBranches, useListWarehouses } from "@workspace/api-client-react";
 import { apiGet } from "@/hooks/use-api";
@@ -233,11 +234,11 @@ export default function BranchesPage() {
                     </div>
                   </div>
                   <div className="flex gap-2 pt-2">
-                    <Button variant="outline" size="sm" className="flex-1">
-                      تعديل
+                    <Button asChild variant="outline" size="sm" className="flex-1">
+                      <Link href="/settings" data-testid={`button-edit-branch-${branch.id}`}>تعديل</Link>
                     </Button>
-                    <Button variant="outline" size="sm" className="flex-1">
-                      التقارير
+                    <Button asChild variant="outline" size="sm" className="flex-1">
+                      <Link href={`/reports?branch=${branch.id}`} data-testid={`button-reports-branch-${branch.id}`}>التقارير</Link>
                     </Button>
                   </div>
                 </CardContent>
