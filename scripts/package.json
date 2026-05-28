@@ -23,6 +23,7 @@
     "@resvg/resvg-js": "^2.6.2",
     "@types/bcryptjs": "^3.0.0",
     "@types/node": "catalog:",
+    "playwright": "^1.60.0",
     "tsx": "catalog:"
   }
 }

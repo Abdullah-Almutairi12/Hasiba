@@ -22,14 +22,18 @@
  */
 import { mkdirSync, existsSync, writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { allModules } from "@workspace/docs-content";
 
 const BASE_URL = process.env.DOCS_CAPTURE_BASE_URL ?? "http://localhost:80";
 const EMAIL = process.env.DOCS_CAPTURE_EMAIL ?? "";
 const PASSWORD = process.env.DOCS_CAPTURE_PASSWORD ?? "";
 
+const __dirname = dirname(fileURLToPath(import.meta.url));
 const OUT_ROOT = join(
-  process.cwd(),
+  __dirname,
+  "..",
+  "..",
   "artifacts",
   "docs",
   "public",
@@ -76,17 +80,26 @@ async function main() {
     if (!existsSync(outDir)) mkdirSync(outDir, { recursive: true });
 
     const ctx = (await browser.newContext({
-      viewport: { width: 1440, height: 900 },
+      viewport: { width: 1280, height: 720 },
       locale: lang === "ar" ? "ar-SA" : "en-US",
     })) as {
       newPage: () => Promise<unknown>;
+      addInitScript: (fn: (l: string) => void, arg: string) => Promise<unknown>;
       close: () => Promise<void>;
     };
+    await ctx.addInitScript((l: string) => {
+      try {
+        (globalThis as { localStorage?: { setItem: (k: string, v: string) => void } })
+          .localStorage?.setItem("hasba.lang", l);
+      } catch {
+        /* no-op */
+      }
+    }, lang);
     const page = (await ctx.newPage()) as {
       goto: (u: string, o?: unknown) => Promise<unknown>;
       fill: (sel: string, val: string) => Promise<unknown>;
       click: (sel: string) => Promise<unknown>;
-      waitForLoadState: (s: string) => Promise<unknown>;
+      waitForLoadState: (s: string, o?: unknown) => Promise<unknown>;
       waitForTimeout: (ms: number) => Promise<unknown>;
       evaluate: (fn: (l: string) => unknown, arg: string) => Promise<unknown>;
       screenshot: (o: { fullPage?: boolean; type?: string }) => Promise<Buffer>;
@@ -96,27 +109,17 @@ async function main() {
     // still try to capture any public pages (e.g. /welcome).
     if (EMAIL && PASSWORD) {
       try {
-        await page.goto(`${BASE_URL}/login`, { waitUntil: "networkidle" });
+        await page.goto(`${BASE_URL}/login`, { waitUntil: "domcontentloaded", timeout: 15000 } as never);
+        await page.waitForTimeout(800);
         await page.fill('input[type="email"]', EMAIL);
         await page.fill('input[type="password"]', PASSWORD);
         await page.click('button[type="submit"]');
-        await page.waitForLoadState("networkidle");
+        await page.waitForLoadState("domcontentloaded", { timeout: 15000 } as never).catch(() => {});
+        await page.waitForTimeout(1500);
+        console.log(`[docs-screenshots] login OK (${lang})`);
       } catch (err) {
         console.warn(`[docs-screenshots] login failed (${lang}):`, err);
       }
-    }
-
-    // Switch UI language to match capture lang.
-    try {
-      await page.evaluate(
-        (l: string) => {
-          (globalThis as { localStorage?: { setItem: (k: string, v: string) => void } })
-            .localStorage?.setItem("hasba.lang", l);
-        },
-        lang,
-      );
-    } catch {
-      /* no-op */
     }
 
     for (const m of allModules()) {
@@ -124,14 +127,15 @@ async function main() {
       const url = `${BASE_URL}${m.appPath}`;
       const out = join(outDir, `${m.slug}.png`);
       try {
-        await page.goto(url, { waitUntil: "networkidle" });
-        await page.waitForTimeout(800);
+        await page.goto(url, { waitUntil: "domcontentloaded", timeout: 20000 } as never);
+        await page.waitForLoadState("networkidle", { timeout: 8000 } as never).catch(() => {});
+        await page.waitForTimeout(1200);
         const buf = await page.screenshot({ fullPage: false, type: "png" });
         if (!existsSync(dirname(out))) mkdirSync(dirname(out), { recursive: true });
         writeFileSync(out, buf);
-        console.log(`[docs-screenshots] ${lang}/${m.slug}.png OK`);
+        console.log(`[docs-screenshots] ${lang}/${m.slug}.png OK (${buf.length} bytes)`);
       } catch (err) {
-        console.warn(`[docs-screenshots] ${lang}/${m.slug} failed:`, err);
+        console.warn(`[docs-screenshots] ${lang}/${m.slug} failed:`, (err as Error).message);
       }
     }
 
