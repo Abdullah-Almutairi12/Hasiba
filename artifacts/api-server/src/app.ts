@@ -1,6 +1,7 @@
 import express, { type Express } from "express";
 import cors from "cors";
 import pinoHttp from "pino-http";
+import rateLimit from "express-rate-limit";
 import router from "./routes";
 import { logger } from "./lib/logger";
 import { sessionMiddleware } from "./middlewares/session";
@@ -140,6 +141,25 @@ app.use(
 app.use(express.json({ limit: "1mb" }));
 app.use(express.urlencoded({ extended: true, limit: "1mb" }));
 app.use(sessionMiddleware);
+
+// API-wide rate limit: 300 requests / minute / IP. Webhook endpoints from
+// trusted carriers/marketplaces use unpredictable bursts (delivery events,
+// retries) and verify HMAC themselves, so they are exempt — otherwise a
+// legitimate carrier replay storm would lock everyone out.
+const apiRateLimiter = rateLimit({
+  windowMs: 60_000,
+  limit: 300,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: { error: "تجاوزت الحد المسموح من الطلبات. حاول مرة أخرى بعد دقيقة." },
+  skip: (req) =>
+    req.path.startsWith("/integrations/payments/webhook") ||
+    req.path.startsWith("/integrations/marketplaces/webhook") ||
+    req.path.startsWith("/integrations/shipping/webhook") ||
+    req.path.startsWith("/integrations/email/webhook") ||
+    req.path === "/health",
+});
+app.use("/api", apiRateLimiter);
 
 app.use("/api", router);
 

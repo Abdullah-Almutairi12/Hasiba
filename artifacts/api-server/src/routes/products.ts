@@ -5,6 +5,7 @@ import { CreateProductBody, UpdateProductBody } from "@workspace/api-zod";
 import { inventoryGuard } from "../middlewares/require-role";
 import { recordStockMove, getDefaultWarehouseId } from "../lib/stock-engine";
 import { ScopedDb, getCompanyId } from "../lib/scoped-db";
+import { parsePagination } from "../lib/pagination";
 
 const router = Router();
 
@@ -12,6 +13,7 @@ router.get("/products", async (req, res) => {
   try {
     const { category, search, lowStock } = req.query;
     const scoped = new ScopedDb(getCompanyId(req));
+    const { limit, offset } = parsePagination(req);
 
     const rows = await db
       .select({
@@ -45,7 +47,9 @@ router.get("/products", async (req, res) => {
           `,
         ),
       )
-      .orderBy(desc(productsTable.createdAt));
+      .orderBy(desc(productsTable.createdAt))
+      .limit(limit)
+      .offset(offset);
 
     res.json(
       rows.map((p) => ({

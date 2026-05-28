@@ -233,6 +233,12 @@ router.post("/ai/assistant/ask", adminOnly, assistantLimiter, async (req, res) =
     res.json(result);
   } catch (err) {
     req.log.error({ err }, "AI assistant failed");
+    // AIUnavailableError carries an httpStatus=503 and an Arabic message
+    // intended for the end user; everything else is a true server error.
+    if (err instanceof Error && (err as { httpStatus?: number }).httpStatus === 503) {
+      res.status(503).json({ error: err.message });
+      return;
+    }
     const msg = err instanceof Error ? err.message : "Failed to call assistant";
     res.status(500).json({ error: msg });
   }

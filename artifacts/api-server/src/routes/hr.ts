@@ -34,6 +34,7 @@ import {
   payrollReadGuard,
 } from "../middlewares/require-role";
 import { handleRouteError } from "../lib/handle-error";
+import { parsePagination } from "../lib/pagination";
 import { registerArabicFonts } from "../lib/pdf/arabic-font";
 import { postJournalEntry } from "../lib/journal-posting";
 import { getCompanyId } from "../lib/scoped-db";
@@ -390,7 +391,9 @@ router.get("/hr/employees", hrReadGuard, async (req, res) => {
     .leftJoin(departmentsTable, eq(departmentsTable.id, employeesTable.departmentId))
     .leftJoin(positionsTable, eq(positionsTable.id, employeesTable.positionId))
     .where(eq(employeesTable.companyId, companyId))
-    .orderBy(desc(employeesTable.createdAt));
+    .orderBy(desc(employeesTable.createdAt))
+    .limit(parsePagination(req).limit)
+    .offset(parsePagination(req).offset);
   res.json(rows.map((r) => ({ ...r, createdAt: r.createdAt.toISOString() })));
 });
 
@@ -2177,7 +2180,14 @@ router.get("/hr/payslips", async (req, res) => {
 router.get("/hr/employees/:id/eos", hrReadGuard, async (req, res) => {
   try {
     const { id } = IdParam.parse(req.params);
-    const [emp] = await db.select().from(employeesTable).where(eq(employeesTable.id, id)).limit(1);
+    const companyId = getCompanyId(req);
+    // Cross-tenant IDOR defense: scope the EOS lookup to (id, companyId)
+    // so probing another tenant's employee id collapses to 404.
+    const [emp] = await db
+      .select()
+      .from(employeesTable)
+      .where(and(eq(employeesTable.id, id), eq(employeesTable.companyId, companyId)))
+      .limit(1);
     if (!emp) return res.status(404).json({ error: "الموظف غير موجود" });
     const [contract] = await db
       .select()

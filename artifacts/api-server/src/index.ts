@@ -1,4 +1,8 @@
 import "reflect-metadata";
+// Sentry must be initialised BEFORE app/router imports so its
+// auto-instrumentation can wrap http/express at module load time.
+import { initSentry } from "./lib/sentry";
+initSentry();
 import app from "./app";
 import { logger } from "./lib/logger";
 import { startZatcaRetryWorker } from "./lib/integrations/zatca-phase2";

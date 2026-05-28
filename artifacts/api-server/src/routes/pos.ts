@@ -18,6 +18,7 @@ import {
 import { nextRef } from "../lib/sales-engine";
 import { buildZatcaQrBase64 } from "../lib/zatca-qr";
 import { getCompanyInfo } from "../lib/pdf/purchase-order";
+import { parsePagination } from "../lib/pagination";
 import { processInvoiceForZatca } from "../lib/integrations/zatca-phase2";
 import { recordStockMove } from "../lib/stock-engine";
 import { eq, gte, sql, desc, inArray, and, isNull } from "drizzle-orm";
@@ -365,6 +366,7 @@ router.get("/pos/orders", posReadGuard, async (req, res) => {
     const { sessionId, date } = req.query;
     // Tenant scope: pos_orders.company_id is NOT NULL — enforce per-tenant.
     const companyId = getCompanyId(req);
+    const { limit, offset } = parsePagination(req);
 
     const orders = await db
       .select()
@@ -375,7 +377,8 @@ router.get("/pos/orders", posReadGuard, async (req, res) => {
           ${date ? sql`and date(${posOrdersTable.createdAt}) = ${date}` : sql``}`
       )
       .orderBy(desc(posOrdersTable.createdAt))
-      .limit(50);
+      .limit(limit)
+      .offset(offset);
 
     const ids = orders.map((o) => o.id);
     const payRows = ids.length

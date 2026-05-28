@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { z, ZodError } from "zod";
+import { parsePagination } from "../lib/pagination";
 import {
   db,
   companiesTable,
@@ -631,11 +632,14 @@ router.get("/procurement/purchase-orders", async (req, res) => {
     const conds = [];
     if (status) conds.push(eq(purchaseOrdersTable.status, status));
     if (supplierId) conds.push(eq(purchaseOrdersTable.supplierId, supplierId));
+    const { limit, offset } = parsePagination(req);
     const rows = await db
       .select()
       .from(purchaseOrdersTable)
       .where(conds.length ? and(...conds) : undefined)
-      .orderBy(desc(purchaseOrdersTable.createdAt));
+      .orderBy(desc(purchaseOrdersTable.createdAt))
+      .limit(limit)
+      .offset(offset);
 
     // Surface the latest send attempt per PO from procurement_email_outbox
     // (kind='purchase_order') so the list can render a delivered / queued /
@@ -838,6 +842,8 @@ router.post("/procurement/purchase-orders", async (req, res) => {
 router.get("/procurement/purchase-orders/:id", async (req, res) => {
   try {
     const id = Number(req.params.id);
+    // TODO(BOLA): purchase_orders has no companyId column yet (schema gap).
+    // Cross-tenant probe by id is currently possible until a migration adds it.
     const [po] = await db.select().from(purchaseOrdersTable).where(eq(purchaseOrdersTable.id, id));
     if (!po) { res.status(404).json({ error: "not found" }); return; }
     const lines = await db

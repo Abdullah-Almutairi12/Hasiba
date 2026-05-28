@@ -28,6 +28,7 @@ import {
 } from "@workspace/db";
 import { and, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { handleRouteError } from "../lib/handle-error";
+import { parsePagination } from "../lib/pagination";
 import { recordAudit } from "../lib/audit";
 import {
   adminGuard,
@@ -1088,7 +1089,8 @@ router.get("/sales/orders", customerReadGuard, async (req, res) => {
         ),
       )
       .orderBy(desc(salesOrdersTable.createdAt))
-      .limit(200);
+      .limit(parsePagination(req).limit)
+      .offset(parsePagination(req).offset);
     res.json(rows.map(serializeMoneyDoc));
   } catch (err) {
     handleRouteError(err, res);
@@ -1619,7 +1621,8 @@ router.get("/sales/invoices", customerReadGuard, async (req, res) => {
         ),
       )
       .orderBy(desc(customerInvoicesTable.createdAt))
-      .limit(200);
+      .limit(parsePagination(req).limit)
+      .offset(parsePagination(req).offset);
     // Surface last send signal per invoice from sales_email_outbox (email)
     // and outbound_messages (WhatsApp). This lets the UI show whether a
     // given invoice was already delivered and over which channel so staff
@@ -1850,6 +1853,9 @@ router.get("/sales/invoices/email-failure-count", customerReadGuard, async (_req
 router.get("/sales/invoices/:id", customerReadGuard, async (req, res) => {
   try {
     const id = Number(req.params.id);
+    // TODO(BOLA): customer_invoices has no companyId column yet (schema gap
+    // tracked separately). Until a migration adds it, this handler can be
+    // probed cross-tenant by id. See follow-up task: schema_add_companyid.
     const [head] = await db.select().from(customerInvoicesTable).where(eq(customerInvoicesTable.id, id));
     if (!head) { res.status(404).json({ error: "Not found" }); return; }
     const lines = await db.select().from(customerInvoiceLinesTable).where(eq(customerInvoiceLinesTable.invoiceId, id));

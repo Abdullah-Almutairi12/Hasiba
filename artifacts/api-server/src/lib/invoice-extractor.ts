@@ -1,4 +1,4 @@
-import { getOpenAI, isOpenAIConfigured } from "./openai-client";
+import { getOpenAI, isOpenAIConfigured, AIUnavailableError, tryAI } from "./openai-client";
 
 export type ExtractedInvoiceItem = {
   description: string;
@@ -52,28 +52,33 @@ const SYSTEM_PROMPT = `أنت وكيل ذكي متخصص في استخراج ب�
 
 export async function extractInvoiceFromImage(imageDataUri: string): Promise<ExtractedInvoice> {
   if (!isOpenAIConfigured()) {
-    throw new Error("OpenAI Vision غير مهيأ. تواصل مع مدير النظام.");
+    throw new AIUnavailableError("خدمة استخراج الفواتير غير مهيأة. تواصل مع مدير النظام.");
   }
   if (!imageDataUri.startsWith("data:image/")) {
     throw new Error("نوع الصورة غير صالح. يجب أن تكون data URI لصورة.");
   }
 
-  const openai = getOpenAI();
-
-  const completion = await openai.chat.completions.create({
-    model: "gpt-5-mini",
-    messages: [
-      { role: "system", content: SYSTEM_PROMPT },
-      {
-        role: "user",
-        content: [
-          { type: "text", text: "استخرج بيانات هذه الفاتورة وأعدها كـ JSON فقط:" },
-          { type: "image_url", image_url: { url: imageDataUri, detail: "high" } },
+  // tryAI maps upstream OpenAI Vision failures (timeouts/5xx/quota) to a
+  // 503-shaped AIUnavailableError that the scan route surfaces as a clean
+  // Arabic 503 rather than a leaky 500/502 stack trace.
+  const completion = await tryAI(
+    () =>
+      getOpenAI().chat.completions.create({
+        model: "gpt-5-mini",
+        messages: [
+          { role: "system", content: SYSTEM_PROMPT },
+          {
+            role: "user",
+            content: [
+              { type: "text", text: "استخرج بيانات هذه الفاتورة وأعدها كـ JSON فقط:" },
+              { type: "image_url", image_url: { url: imageDataUri, detail: "high" } },
+            ],
+          },
         ],
-      },
-    ],
-    response_format: { type: "json_object" },
-  });
+        response_format: { type: "json_object" },
+      }),
+    { message: "تعذر استخراج الفاتورة. حاول مرة أخرى بصورة أوضح." },
+  );
 
   const raw = completion.choices[0]?.message?.content?.trim() ?? "{}";
   let parsed: Partial<ExtractedInvoice>;

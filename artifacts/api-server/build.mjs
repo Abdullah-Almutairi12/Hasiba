@@ -105,6 +105,11 @@ async function buildAll() {
       // to ~1MB without changing runtime behaviour (Node resolves
       // them normally at startup). Saves cold-start parse cost.
       "openai",
+      // @sentry/node lazy-requires @opentelemetry/instrumentation-* packages
+      // (http, express, …) at init time. Externalising keeps the bundle from
+      // pulling them in statically — @opentelemetry/* is already external
+      // above. Without this, runtime fails with ERR_MODULE_NOT_FOUND.
+      "@sentry/*",
       "exceljs",
       "pdfkit",
       "qrcode",

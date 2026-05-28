@@ -709,14 +709,15 @@ router.post(
       if (err instanceof ZodError) {
         return res.status(400).json({ error: "بيانات الصورة غير صالحة.", details: err.issues });
       }
+      req.log.error({ err }, "Invoice scan failed");
+      // AIUnavailableError → graceful 503 with Arabic message (T3-269-C).
+      if (err instanceof Error && (err as { httpStatus?: number }).httpStatus === 503) {
+        return res.status(503).json({ error: err.message });
+      }
       const msg = err instanceof Error ? err.message : "فشل تحليل الفاتورة";
       const isUpstream =
-        msg.includes("OpenAI") ||
-        msg.includes("Vision") ||
-        msg.includes("الوكيل") ||
-        msg.includes("نوع الصورة");
+        msg.includes("OpenAI") || msg.includes("Vision") || msg.includes("الوكيل") || msg.includes("نوع الصورة");
       const status = isUpstream ? 502 : 500;
-      req.log.error({ err }, "Invoice scan failed");
       return res.status(status).json({ error: msg });
     }
   },

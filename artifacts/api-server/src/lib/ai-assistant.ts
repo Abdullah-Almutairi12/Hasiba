@@ -1,6 +1,6 @@
 import { db, posOrdersTable, productsTable, customersTable, branchesTable, invoicesTable } from "@workspace/db";
 import { sql, desc, gte } from "drizzle-orm";
-import { getOpenAI, isOpenAIConfigured } from "./openai-client";
+import { getOpenAI, isOpenAIConfigured, tryAI } from "./openai-client";
 
 // Build a compact context from the user's actual ERP data
 async function buildBusinessContext(): Promise<string> {
@@ -53,10 +53,13 @@ export async function askAssistant(question: string): Promise<{ answer: string; 
   if (!isOpenAIConfigured()) {
     return { answer: "المساعد الذكي غير مهيأ. تواصل مع مدير النظام." };
   }
-  const openai = getOpenAI();
   const ctx = await buildBusinessContext();
 
-  const completion = await openai.chat.completions.create({
+  // Wrap the upstream call so quota / 5xx / timeout failures surface as a
+  // single AIUnavailableError → route handler maps to 503 with Arabic copy.
+  const completion = await tryAI(() => {
+    const openai = getOpenAI();
+    return openai.chat.completions.create({
     model: "gpt-5-mini",
     messages: [
       {
@@ -73,6 +76,7 @@ ${ctx}
       },
       { role: "user", content: question },
     ],
+    });
   });
 
   const answer = completion.choices[0]?.message?.content ?? "لم أتمكن من توليد إجابة.";

@@ -24,6 +24,7 @@ import {
 } from "../middlewares/require-role";
 import { handleRouteError } from "../lib/handle-error";
 import { ScopedDb, getCompanyId } from "../lib/scoped-db";
+import { parsePagination } from "../lib/pagination";
 import { assertLinkedCompanyAllowed } from "../lib/assert-linked-company";
 import { recordAudit } from "../lib/audit";
 
@@ -109,6 +110,7 @@ router.get("/customers", customerReadGuard, async (req, res) => {
     const { search } = req.query;
     const linkedOnly = req.query["linkedOnly"] === "1" || req.query["linkedOnly"] === "true";
     const scoped = new ScopedDb(getCompanyId(req));
+    const { limit, offset } = parsePagination(req);
     const customers = await db
       .select({
         row: customersTable,
@@ -128,7 +130,9 @@ router.get("/customers", customerReadGuard, async (req, res) => {
           linkedOnly ? isNotNull(customersTable.linkedCompanyId) : sql`true`,
         )
       )
-      .orderBy(desc(customersTable.createdAt));
+      .orderBy(desc(customersTable.createdAt))
+      .limit(limit)
+      .offset(offset);
 
     const consent = await loadCompanyOwnerConsent(getCompanyId(req));
     const role = req.session?.role;

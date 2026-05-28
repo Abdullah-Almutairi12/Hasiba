@@ -11,6 +11,7 @@ import {
 import { and, desc, eq, sql, asc, inArray } from "drizzle-orm";
 import { handleRouteError } from "../lib/handle-error";
 import { getCompanyId } from "../lib/scoped-db";
+import { parsePagination } from "../lib/pagination";
 import {
   adminGuard,
   customerReadGuard,
@@ -115,7 +116,8 @@ router.get("/crm/opportunities", customerReadGuard, async (req, res) => {
         ),
       )
       .orderBy(desc(opportunitiesTable.updatedAt))
-      .limit(500);
+      .limit(parsePagination(req).limit)
+      .offset(parsePagination(req).offset);
     res.json(rows.map((r) => ({ ...r, expectedRevenue: Number(r.expectedRevenue) })));
   } catch (err) {
     handleRouteError(err, res);

@@ -13,6 +13,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit && tsx ./src/check-doc-screenshots.ts"
   },
   "dependencies": {
+    "@opentelemetry/api": "^1.9.1",
     "@workspace/db": "workspace:*",
     "@workspace/docs-content": "workspace:*",
     "bcryptjs": "^3.0.3",
