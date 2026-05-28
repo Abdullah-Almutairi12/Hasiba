@@ -224,8 +224,16 @@
     "speakerNotes": ""
   },
   {
-    "id": "83e1c2b0-5d54-4813-8513-03a6296ba0ab",
+    "id": "a7e2d18c-9b41-4f3a-8c25-7b1d4f5e6a02",
     "position": 29,
+    "filepath": "src/pages/slides/UxImprovements.tsx",
+    "title": "تحسينات تجربة الاستخدام — مايو 2026",
+    "description": "ترتيب الإعدادات، تفعيل الأزرار، واتجاه يتبع اللغة.",
+    "speakerNotes": "تنظيم ١٥ تبويبًا في ٤ مجموعات داخل الإعدادات، ربط ٦ أزرار رئيسية، وتثبيت اتجاه شريط التبويبات حسب لغة الواجهة."
+  },
+  {
+    "id": "83e1c2b0-5d54-4813-8513-03a6296ba0ab",
+    "position": 30,
     "filepath": "src/pages/slides/TechStack.tsx",
     "title": "تقنية النظام",
     "description": "الأسس التقنية للمنصّة.",
@@ -233,7 +241,7 @@
   },
   {
     "id": "c4f1e07a-9b32-4a8d-8e1c-2f6a1b3d5e90",
-    "position": 30,
+    "position": 31,
     "filepath": "src/pages/slides/FAQ.tsx",
     "title": "الأسئلة الشائعة — الصفحة 1",
     "description": "ستّة أسئلة شائعة قبل الاشتراك.",
@@ -241,7 +249,7 @@
   },
   {
     "id": "03ad44f5-3527-4c6a-a4ea-a41ad1b43cb6",
-    "position": 31,
+    "position": 32,
     "filepath": "src/pages/slides/Closing.tsx",
     "title": "صفحة الختام",
     "description": "خاتمة وشكر.",
