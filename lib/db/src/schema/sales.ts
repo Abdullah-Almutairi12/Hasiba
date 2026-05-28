@@ -15,6 +15,7 @@ import { productsTable } from "./products";
 import { warehousesTable } from "./warehouses";
 import { branchesTable } from "./branches";
 import { usersTable } from "./users";
+import { companiesTable } from "./companies";
 
 // =====================================================================
 // Pricelists
@@ -115,6 +116,9 @@ export const QUOTATION_STATUSES = [
 
 export const quotationsTable = pgTable("quotations", {
   id: serial("id").primaryKey(),
+  companyId: integer("company_id")
+    .notNull()
+    .references(() => companiesTable.id, { onDelete: "restrict" }),
   reference: text("reference").notNull().unique(),
   customerId: integer("customer_id")
     .notNull()
@@ -177,6 +181,9 @@ export const SO_STATUSES = [
 
 export const salesOrdersTable = pgTable("sales_orders", {
   id: serial("id").primaryKey(),
+  companyId: integer("company_id")
+    .notNull()
+    .references(() => companiesTable.id, { onDelete: "restrict" }),
   reference: text("reference").notNull().unique(),
   quotationId: integer("quotation_id").references(() => quotationsTable.id),
   customerId: integer("customer_id")
@@ -239,6 +246,9 @@ export const DO_STATUSES = [
 
 export const deliveryOrdersTable = pgTable("delivery_orders", {
   id: serial("id").primaryKey(),
+  companyId: integer("company_id")
+    .notNull()
+    .references(() => companiesTable.id, { onDelete: "restrict" }),
   reference: text("reference").notNull().unique(),
   soId: integer("so_id")
     .notNull()
@@ -287,6 +297,9 @@ export const customerInvoicesTable = pgTable(
   "customer_invoices",
   {
     id: serial("id").primaryKey(),
+    companyId: integer("company_id")
+      .notNull()
+      .references(() => companiesTable.id, { onDelete: "restrict" }),
     reference: text("reference").notNull().unique(),
     soId: integer("so_id").references(() => salesOrdersTable.id),
     customerId: integer("customer_id")
@@ -410,6 +423,9 @@ export const CREDIT_NOTE_STATUSES = [
 
 export const creditNotesTable = pgTable("credit_notes", {
   id: serial("id").primaryKey(),
+  companyId: integer("company_id")
+    .notNull()
+    .references(() => companiesTable.id, { onDelete: "restrict" }),
   reference: text("reference").notNull().unique(),
   invoiceId: integer("invoice_id").references(() => customerInvoicesTable.id),
   customerId: integer("customer_id")
@@ -465,6 +481,9 @@ export const opportunitiesTable = pgTable(
   "opportunities",
   {
     id: serial("id").primaryKey(),
+    companyId: integer("company_id")
+      .notNull()
+      .references(() => companiesTable.id, { onDelete: "restrict" }),
     name: text("name").notNull(),
     customerId: integer("customer_id").references(() => customersTable.id),
     customerName: text("customer_name"),

@@ -148,6 +148,7 @@ router.post("/crm/opportunities", salesWriteGuard, async (req, res) => {
     const [row] = await db
       .insert(opportunitiesTable)
       .values({
+        companyId: getCompanyId(req),
         name: b.name,
         customerId: b.customerId ?? null,
         customerName,
@@ -192,7 +193,7 @@ router.patch("/crm/opportunities/:id", salesWriteGuard, async (req, res) => {
       if (stage.isWon || stage.isLost) patch.closedAt = new Date();
       if (b.probability == null) patch.probability = stage.probability;
     }
-    const [row] = await db.update(opportunitiesTable).set(patch).where(eq(opportunitiesTable.id, id)).returning();
+    const [row] = await db.update(opportunitiesTable).set(patch).where(and(eq(opportunitiesTable.id, id), eq(opportunitiesTable.companyId, getCompanyId(req)))).returning();
     if (!row) { res.status(404).json({ error: "Not found" }); return; }
     res.json({ ...row, expectedRevenue: Number(row.expectedRevenue) });
   } catch (err) {
@@ -202,7 +203,8 @@ router.patch("/crm/opportunities/:id", salesWriteGuard, async (req, res) => {
 
 router.delete("/crm/opportunities/:id", salesWriteGuard, async (req, res) => {
   try {
-    await db.delete(opportunitiesTable).where(eq(opportunitiesTable.id, Number(req.params.id)));
+    const del = await db.delete(opportunitiesTable).where(and(eq(opportunitiesTable.id, Number(req.params.id)), eq(opportunitiesTable.companyId, getCompanyId(req)))).returning({ id: opportunitiesTable.id });
+    if (del.length === 0) { res.status(404).json({ error: "Not found" }); return; }
     res.json({ ok: true });
   } catch (err) {
     handleRouteError(err, res);
@@ -340,6 +342,7 @@ router.post("/crm/leads/:leadId/convert", requireRole("owner", "manager", "sales
       const [opp] = await tx
         .insert(opportunitiesTable)
         .values({
+          companyId: getCompanyId(req),
           name: lead.fullName + (lead.company ? ` — ${lead.company}` : ""),
           customerId: b.customerId ?? null,
           customerName: lead.company ?? lead.fullName,

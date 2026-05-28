@@ -21,6 +21,9 @@ import { companiesTable } from "./companies";
 // =========================================================================
 export const departmentsTable = pgTable("departments", {
   id: serial("id").primaryKey(),
+  companyId: integer("company_id")
+    .notNull()
+    .references(() => companiesTable.id, { onDelete: "restrict" }),
   name: text("name").notNull(),
   nameAr: text("name_ar").notNull(),
   parentId: integer("parent_id"),
@@ -92,6 +95,9 @@ export const employeesTable = pgTable(
 
 export const employeeDocumentsTable = pgTable("employee_documents", {
   id: serial("id").primaryKey(),
+  companyId: integer("company_id")
+    .notNull()
+    .references(() => companiesTable.id, { onDelete: "restrict" }),
   employeeId: integer("employee_id")
     .notNull()
     .references(() => employeesTable.id, { onDelete: "cascade" }),
@@ -188,6 +194,9 @@ export const leaveBalancesTable = pgTable(
 
 export const leaveRequestsTable = pgTable("leave_requests", {
   id: serial("id").primaryKey(),
+  companyId: integer("company_id")
+    .notNull()
+    .references(() => companiesTable.id, { onDelete: "restrict" }),
   reference: text("reference").notNull().unique(),
   employeeId: integer("employee_id")
     .notNull()
@@ -212,6 +221,9 @@ export const leaveRequestsTable = pgTable("leave_requests", {
 // =========================================================================
 export const shiftsTable = pgTable("shifts", {
   id: serial("id").primaryKey(),
+  companyId: integer("company_id")
+    .notNull()
+    .references(() => companiesTable.id, { onDelete: "restrict" }),
   name: text("name").notNull(),
   nameAr: text("name_ar").notNull(),
   startTime: text("start_time").notNull(), // "09:00"
@@ -223,6 +235,9 @@ export const shiftsTable = pgTable("shifts", {
 
 export const employeeShiftsTable = pgTable("employee_shifts", {
   id: serial("id").primaryKey(),
+  companyId: integer("company_id")
+    .notNull()
+    .references(() => companiesTable.id, { onDelete: "restrict" }),
   employeeId: integer("employee_id")
     .notNull()
     .references(() => employeesTable.id, { onDelete: "cascade" }),
@@ -318,6 +333,9 @@ export const payrollPeriodsTable = pgTable(
 
 export const payrollRunsTable = pgTable("payroll_runs", {
   id: serial("id").primaryKey(),
+  companyId: integer("company_id")
+    .notNull()
+    .references(() => companiesTable.id, { onDelete: "restrict" }),
   reference: text("reference").notNull().unique(),
   periodId: integer("period_id")
     .notNull()
@@ -394,6 +412,9 @@ export const payrollDeductionsTable = pgTable("payroll_deductions", {
 
 export const payslipsTable = pgTable("payslips", {
   id: serial("id").primaryKey(),
+  companyId: integer("company_id")
+    .notNull()
+    .references(() => companiesTable.id, { onDelete: "restrict" }),
   reference: text("reference").notNull().unique(),
   runId: integer("run_id")
     .notNull()

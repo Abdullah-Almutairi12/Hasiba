@@ -14,12 +14,16 @@ import { z } from "zod/v4";
 import { productsTable } from "./products";
 import { warehousesTable } from "./warehouses";
 import { usersTable } from "./users";
+import { companiesTable } from "./companies";
 
 // ===== Bill of Materials =====
 export const bomsTable = pgTable(
   "boms",
   {
     id: serial("id").primaryKey(),
+    companyId: integer("company_id")
+      .notNull()
+      .references(() => companiesTable.id, { onDelete: "restrict" }),
     reference: text("reference").notNull().unique(),
     productId: integer("product_id").notNull().references(() => productsTable.id),
     quantity: numeric("quantity", { precision: 18, scale: 4 }).notNull().default("1"),
@@ -105,6 +109,9 @@ export const workOrdersTable = pgTable(
   "work_orders",
   {
     id: serial("id").primaryKey(),
+    companyId: integer("company_id")
+      .notNull()
+      .references(() => companiesTable.id, { onDelete: "restrict" }),
     reference: text("reference").notNull().unique(),
     bomId: integer("bom_id").notNull().references(() => bomsTable.id),
     productId: integer("product_id").notNull().references(() => productsTable.id),

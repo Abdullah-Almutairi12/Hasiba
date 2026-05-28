@@ -278,6 +278,7 @@ router.post("/hr/departments", hrGuard, async (req, res) => {
     const [row] = await db
       .insert(departmentsTable)
       .values({
+        companyId: getCompanyId(req),
         name: body.name,
         nameAr: body.nameAr,
         parentId: body.parentId ?? null,
@@ -307,7 +308,7 @@ router.put("/hr/departments/:id", hrGuard, async (req, res) => {
           ? { managerEmployeeId: body.managerEmployeeId ?? null }
           : {}),
       })
-      .where(eq(departmentsTable.id, id))
+      .where(and(eq(departmentsTable.id, id), eq(departmentsTable.companyId, getCompanyId(req))))
       .returning();
     if (!row) return res.status(404).json({ error: "الإدارة غير موجودة" });
     return res.json({ ...row, createdAt: row.createdAt.toISOString() });
@@ -765,6 +766,7 @@ router.post("/hr/leave-requests", hrGuard, async (req, res) => {
     const [row] = await db
       .insert(leaveRequestsTable)
       .values({
+        companyId: getCompanyId(req),
         reference,
         employeeId: body.employeeId,
         leaveTypeId: body.leaveTypeId,
@@ -1508,6 +1510,7 @@ router.post("/hr/payroll-runs", hrGuard, async (req, res) => {
     const [run] = await db
       .insert(payrollRunsTable)
       .values({
+        companyId: getCompanyId(req),
         reference,
         periodId: body.periodId,
         branchId: body.branchId ?? null,
@@ -1748,6 +1751,7 @@ router.post("/hr/payroll-runs", hrGuard, async (req, res) => {
       // Generate payslip stub (PDF generation can hook in later).
       const payslipRef = `PS-${run.reference}-${emp.employeeNo}`;
       await db.insert(payslipsTable).values({
+        companyId: getCompanyId(req),
         reference: payslipRef,
         runId: run.id,
         lineId: line.id,
@@ -2413,6 +2417,7 @@ router.post("/hr/employee-documents", hrGuard, async (req, res) => {
     const [row] = await db
       .insert(employeeDocumentsTable)
       .values({
+        companyId: getCompanyId(req),
         employeeId: body.employeeId,
         docType: body.docType,
         title: body.title,
@@ -2431,7 +2436,7 @@ router.delete("/hr/employee-documents/:id", hrGuard, async (req, res) => {
     const { id } = IdParam.parse(req.params);
     const [row] = await db
       .delete(employeeDocumentsTable)
-      .where(eq(employeeDocumentsTable.id, id))
+      .where(and(eq(employeeDocumentsTable.id, id), eq(employeeDocumentsTable.companyId, getCompanyId(req))))
       .returning();
     if (!row) return res.status(404).json({ error: "المستند غير موجود" });
     return res.json({ ok: true });
@@ -2937,7 +2942,7 @@ const ShiftBody = z.object({
 router.post("/hr/shifts", hrGuard, async (req, res) => {
   try {
     const body = ShiftBody.parse(req.body);
-    const [row] = await db.insert(shiftsTable).values(body).returning();
+    const [row] = await db.insert(shiftsTable).values({ ...body, companyId: getCompanyId(req) }).returning();
     return res.status(201).json(row);
   } catch (err) {
     req.log.error({ err }, "create shift");
@@ -2949,7 +2954,7 @@ router.patch("/hr/shifts/:id", hrGuard, async (req, res) => {
   try {
     const id = Number(req.params.id);
     const body = ShiftBody.partial().parse(req.body);
-    const [row] = await db.update(shiftsTable).set(body).where(eq(shiftsTable.id, id)).returning();
+    const [row] = await db.update(shiftsTable).set(body).where(and(eq(shiftsTable.id, id), eq(shiftsTable.companyId, getCompanyId(req)))).returning();
     if (!row) return res.status(404).json({ error: "الوردية غير موجودة" });
     return res.json(row);
   } catch (err) {
@@ -2988,6 +2993,7 @@ router.post("/hr/employee-shifts", hrGuard, async (req, res) => {
     const [row] = await db
       .insert(employeeShiftsTable)
       .values({
+        companyId: getCompanyId(req),
         employeeId: body.employeeId,
         shiftId: body.shiftId,
         effectiveFrom: body.effectiveFrom,
@@ -3003,7 +3009,7 @@ router.post("/hr/employee-shifts", hrGuard, async (req, res) => {
 
 router.delete("/hr/employee-shifts/:id", hrGuard, async (req, res) => {
   const id = Number(req.params.id);
-  await db.delete(employeeShiftsTable).where(eq(employeeShiftsTable.id, id));
+  await db.delete(employeeShiftsTable).where(and(eq(employeeShiftsTable.id, id), eq(employeeShiftsTable.companyId, getCompanyId(req))));
   res.json({ ok: true });
 });
 

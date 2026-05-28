@@ -462,9 +462,16 @@ router.post(
         Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1,
       );
       const reference = `LV-P-${Date.now()}`;
+      const [emp] = await db
+        .select({ companyId: employeesTable.companyId })
+        .from(employeesTable)
+        .where(eq(employeesTable.id, principalId))
+        .limit(1);
+      if (!emp) return res.status(404).json({ error: "الموظف غير موجود" });
       const [row] = await db
         .insert(leaveRequestsTable)
         .values({
+          companyId: emp.companyId,
           reference,
           employeeId: principalId,
           leaveTypeId: parsed.data.leaveTypeId,

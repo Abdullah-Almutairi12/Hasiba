@@ -422,6 +422,7 @@ router.post("/procurement/rfqs", async (req, res) => {
     const out = await db.transaction(async (tx) => {
       const reference = await nextSeq("RFQ", new Date().getUTCFullYear());
       const [rfq] = await tx.insert(rfqsTable).values({
+        companyId: getCompanyId(req),
         reference,
         requisitionId: body.requisitionId ?? null,
         dueDate: body.dueDate ?? null,
@@ -561,6 +562,7 @@ router.post("/procurement/rfqs/:id/award", procurementGuard, async (req, res) =>
       const requiresApproval = total >= PO_APPROVAL_THRESHOLD;
       const reference = await nextSeq("PO", new Date().getUTCFullYear());
       const [po] = await tx.insert(purchaseOrdersTable).values({
+        companyId: getCompanyId(req),
         reference,
         supplierId: body.supplierId,
         supplierName: supplier.name,
@@ -785,6 +787,7 @@ router.post("/procurement/purchase-orders", async (req, res) => {
       const [po] = await tx
         .insert(purchaseOrdersTable)
         .values({
+          companyId: getCompanyId(req),
           reference,
           supplierId: supplier.id,
           supplierName: supplier.name,
@@ -1260,7 +1263,7 @@ router.post("/procurement/purchase-orders/:id/approve", async (req, res) => {
     const [updated] = await db
       .update(purchaseOrdersTable)
       .set({ approvedBy: req.session?.userId ?? null, approvedAt: new Date() })
-      .where(eq(purchaseOrdersTable.id, id))
+      .where(and(eq(purchaseOrdersTable.id, id), eq(purchaseOrdersTable.companyId, getCompanyId(req))))
       .returning();
     if (!updated) { res.status(404).json({ error: "not found" }); return; }
     void recordAudit(req, { action: "approve", entity: "purchase_order", details: updated.reference });
@@ -1280,7 +1283,7 @@ router.post("/procurement/purchase-orders/:id/cancel", async (req, res) => {
       res.status(409).json({ error: "لا يمكن إلغاء أمر شراء مستلم/مغلق." }); return;
     }
     await db.transaction(async (tx) => {
-      await tx.update(purchaseOrdersTable).set({ status: "cancelled" }).where(eq(purchaseOrdersTable.id, id));
+      await tx.update(purchaseOrdersTable).set({ status: "cancelled" }).where(and(eq(purchaseOrdersTable.id, id), eq(purchaseOrdersTable.companyId, getCompanyId(req))));
       // Auto-void the sibling-company sales order mirror, if any, so the
       // counterparty doesn't keep an open SO for a cancelled PO.
       await voidMirrorForSourceTx(tx, "purchase_order", id, {
@@ -1312,7 +1315,7 @@ router.post("/procurement/purchase-orders/:id/close", async (req, res) => {
       });
       return;
     }
-    await db.update(purchaseOrdersTable).set({ status: "closed" }).where(eq(purchaseOrdersTable.id, id));
+    await db.update(purchaseOrdersTable).set({ status: "closed" }).where(and(eq(purchaseOrdersTable.id, id), eq(purchaseOrdersTable.companyId, getCompanyId(req))));
     void recordAudit(req, { action: "close", entity: "purchase_order", details: po.reference });
     return res.json({ ok: true });
   } catch (err) {
@@ -2172,6 +2175,7 @@ router.post(
       const [run] = await tx
         .insert(paymentRunsTable)
         .values({
+          companyId: getCompanyId(req),
           reference,
           paymentDate: body.paymentDate ?? new Date().toISOString().slice(0, 10),
           paymentMethod: body.paymentMethod,

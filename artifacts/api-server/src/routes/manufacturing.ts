@@ -163,6 +163,7 @@ router.post("/manufacturing/boms", productionGuard, async (req, res) => {
       const [bom] = await tx
         .insert(bomsTable)
         .values({
+          companyId: getCompanyId(req),
           reference,
           productId: body.productId,
           quantity: String(body.quantity),
@@ -620,6 +621,7 @@ router.post("/manufacturing/work-orders", productionGuard, async (req, res) => {
       const [wo] = await tx
         .insert(workOrdersTable)
         .values({
+          companyId: getCompanyId(req),
           reference,
           bomId: bom.id,
           productId: bom.productId,
@@ -1620,6 +1622,7 @@ router.post("/manufacturing/scrap/:id/rework", productionGuard, async (req, res)
           const [child] = await tx
             .insert(workOrdersTable)
             .values({
+              companyId: getCompanyId(req),
               reference,
               bomId: parent.bomId,
               productId: parent.productId,

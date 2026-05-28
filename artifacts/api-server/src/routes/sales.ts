@@ -919,6 +919,7 @@ router.post("/sales/quotations", salesWriteGuard, async (req, res) => {
       const [quote] = await tx
         .insert(quotationsTable)
         .values({
+          companyId: getCompanyId(req),
           reference,
           customerId: customer.id,
           customerName: customer.name,
@@ -988,7 +989,8 @@ router.post("/sales/quotations/:id/transition", salesWriteGuard, async (req, res
       patch.rejectedAt = now;
       patch.rejectionReason = reason ?? null;
     }
-    const [updated] = await db.update(quotationsTable).set(patch).where(eq(quotationsTable.id, id)).returning();
+    const [updated] = await db.update(quotationsTable).set(patch).where(and(eq(quotationsTable.id, id), eq(quotationsTable.companyId, getCompanyId(req)))).returning();
+    if (!updated) { res.status(404).json({ error: "Not found" }); return; }
     res.json(serializeMoneyDoc(updated));
   } catch (err) {
     handleRouteError(err, res);
@@ -1018,6 +1020,7 @@ router.post("/sales/quotations/:id/convert", salesWriteGuard, async (req, res) =
       const [created] = await tx
         .insert(salesOrdersTable)
         .values({
+          companyId: getCompanyId(req),
           reference,
           quotationId: q.id,
           customerId: q.customerId,
@@ -1175,6 +1178,7 @@ router.post("/sales/orders", salesWriteGuard, async (req, res) => {
       const [so] = await tx
         .insert(salesOrdersTable)
         .values({
+          companyId: getCompanyId(req),
           reference,
           customerId: customer.id,
           customerName: customer.name,
@@ -1321,8 +1325,9 @@ router.post("/sales/orders/:id/transition", salesWriteGuard, async (req, res) =>
     const [updated] = await db
       .update(salesOrdersTable)
       .set({ status: to })
-      .where(eq(salesOrdersTable.id, id))
+      .where(and(eq(salesOrdersTable.id, id), eq(salesOrdersTable.companyId, getCompanyId(req))))
       .returning();
+    if (!updated) { res.status(404).json({ error: "Not found" }); return; }
     res.json(serializeMoneyDoc(updated));
   } catch (err) {
     handleRouteError(err, res);
@@ -1339,8 +1344,9 @@ router.post("/sales/orders/:id/cancel", salesWriteGuard, async (req, res) => {
     const [updated] = await db
       .update(salesOrdersTable)
       .set({ status: "cancelled" })
-      .where(eq(salesOrdersTable.id, id))
+      .where(and(eq(salesOrdersTable.id, id), eq(salesOrdersTable.companyId, getCompanyId(req))))
       .returning();
+    if (!updated) { res.status(404).json({ error: "Not found" }); return; }
     res.json(serializeMoneyDoc(updated));
   } catch (err) {
     handleRouteError(err, res);
@@ -1421,6 +1427,7 @@ router.post("/sales/deliveries", salesWriteGuard, async (req, res) => {
       const [doc] = await tx
         .insert(deliveryOrdersTable)
         .values({
+          companyId: getCompanyId(req),
           reference,
           soId: so.id,
           warehouseId,
@@ -2504,6 +2511,7 @@ router.post("/sales/invoices", financeGuard, async (req, res) => {
       const [inv] = await tx
         .insert(customerInvoicesTable)
         .values({
+          companyId: getCompanyId(req),
           reference,
           soId: so?.id ?? null,
           customerId: customer.id,
@@ -2813,6 +2821,7 @@ router.post("/sales/invoices/:id/reverse", financeGuard, async (req, res) => {
       const [reverse] = await tx
         .insert(customerInvoicesTable)
         .values({
+          companyId: orig.companyId,
           reference: reverseRef,
           soId: orig.soId,
           customerId: orig.customerId,
@@ -3242,6 +3251,7 @@ router.post(
       const [note] = await tx
         .insert(creditNotesTable)
         .values({
+          companyId: getCompanyId(req),
           reference,
           invoiceId: body.invoiceId ?? null,
           customerId: customer.id,

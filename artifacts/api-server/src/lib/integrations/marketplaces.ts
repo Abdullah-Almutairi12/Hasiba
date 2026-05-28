@@ -1236,6 +1236,7 @@ export async function importOrder(
       const [so] = await tx
         .insert(salesOrdersTable)
         .values({
+          companyId: connectorCompanyId,
           reference: soRef,
           customerId: customer.id,
           customerName: customer.name,
@@ -1296,6 +1297,7 @@ export async function importOrder(
         const [doc] = await tx
           .insert(deliveryOrdersTable)
           .values({
+            companyId: connectorCompanyId,
             reference: doRef,
             soId: so!.id,
             warehouseId: connector.defaultWarehouseId,
@@ -1334,6 +1336,7 @@ export async function importOrder(
       const [inv] = await tx
         .insert(customerInvoicesTable)
         .values({
+          companyId: connectorCompanyId,
           reference: invRef,
           soId: so!.id,
           customerId: customer.id,

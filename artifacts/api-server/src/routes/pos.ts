@@ -1030,6 +1030,7 @@ router.post(
       const [posSo] = await tx
         .insert(salesOrdersTable)
         .values({
+          companyId: getCompanyId(req),
           reference: soRef,
           customerId: invoiceCustomerId,
           customerName: invoiceCustomerName ?? "عميل نقدي",
@@ -1068,6 +1069,7 @@ router.post(
       const [posDo] = await tx
         .insert(deliveryOrdersTable)
         .values({
+          companyId: getCompanyId(req),
           reference: doRef,
           soId: posSo.id,
           status: "delivered",
@@ -1104,6 +1106,7 @@ router.post(
       const [posInvoice] = await tx
         .insert(customerInvoicesTable)
         .values({
+          companyId: getCompanyId(req),
           reference: invRef,
           soId: posSo.id,
           customerId: invoiceCustomerId,

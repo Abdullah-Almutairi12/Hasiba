@@ -59,6 +59,9 @@ export const purchaseRequisitionLinesTable = pgTable("purchase_requisition_lines
 // =========================================================================
 export const rfqsTable = pgTable("rfqs", {
   id: serial("id").primaryKey(),
+  companyId: integer("company_id")
+    .notNull()
+    .references(() => companiesTable.id, { onDelete: "restrict" }),
   reference: text("reference").notNull().unique(),
   requisitionId: integer("requisition_id").references(() => purchaseRequisitionsTable.id),
   status: text("status").notNull().default("draft"), // draft, sent, closed, awarded
@@ -93,6 +96,9 @@ export const rfqQuoteLinesTable = pgTable("rfq_quote_lines", {
 // =========================================================================
 export const purchaseOrdersTable = pgTable("purchase_orders", {
   id: serial("id").primaryKey(),
+  companyId: integer("company_id")
+    .notNull()
+    .references(() => companiesTable.id, { onDelete: "restrict" }),
   reference: text("reference").notNull().unique(),
   supplierId: integer("supplier_id").notNull().references(() => suppliersTable.id),
   supplierName: text("supplier_name").notNull(),
@@ -165,6 +171,9 @@ export const goodsReceiptLinesTable = pgTable("goods_receipt_lines", {
 // =========================================================================
 export const paymentRunsTable = pgTable("payment_runs", {
   id: serial("id").primaryKey(),
+  companyId: integer("company_id")
+    .notNull()
+    .references(() => companiesTable.id, { onDelete: "restrict" }),
   reference: text("reference").notNull().unique(),
   paymentDate: date("payment_date").notNull(),
   paymentMethod: text("payment_method").notNull().default("bank"), // cash | bank
