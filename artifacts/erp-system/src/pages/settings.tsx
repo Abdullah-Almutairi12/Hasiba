@@ -1431,6 +1431,7 @@ export default function SettingsPage() {
   const { activeCompany, canSwitch } = useCurrentCompany();
   const readOnly = !isAdmin;
   const isMobile = useIsMobile();
+  const { isRTL } = useLanguage();
   return (
     <div className="mx-auto max-w-7xl space-y-6 p-3 sm:p-4 md:p-6">
       <div>
@@ -1461,7 +1462,11 @@ export default function SettingsPage() {
         </div>
       )}
 
-      <Tabs defaultValue="company" className="lg:flex lg:gap-6" orientation={isMobile ? "horizontal" : "vertical"}>
+      <Tabs
+        defaultValue="company"
+        className={`lg:flex lg:gap-6 ${isRTL ? "lg:flex-row-reverse" : "lg:flex-row"}`}
+        orientation={isMobile ? "horizontal" : "vertical"}
+      >
         {/* Sidebar (vertical on lg+, horizontal scroll on smaller screens) */}
         <TabsList
           className="
