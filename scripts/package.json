@@ -9,7 +9,8 @@
     "backfill-multi-company": "tsx ./src/backfill-multi-company.ts",
     "capture-docs-screenshots": "tsx ./src/capture-docs-screenshots.ts",
     "generate-doc-screenshots": "tsx ./src/generate-doc-screenshots.ts",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "check-doc-screenshots": "tsx ./src/check-doc-screenshots.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsx ./src/check-doc-screenshots.ts"
   },
   "dependencies": {
     "@workspace/db": "workspace:*",
