@@ -6,3 +6,9 @@ id = "8F5NDbjIgcIVibVfeUTZw"
 uri = "file://.local/outputs/Hasiba-AI-ERP.pdf"
 type = "pdf"
 title = "Hasiba-AI-ERP.pdf"
+
+[[outputs]]
+id = "Gnqx-0afug7h86ViUV141"
+uri = "file://.local/outputs/------AI---------------.pdf"
+type = "pdf"
+title = "حاسبة.AI — عرض المميزات.pdf"
