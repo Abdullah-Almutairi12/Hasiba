@@ -51,6 +51,7 @@ declare module "express-session" {
     userId?: number;
     role?:
       | "owner"
+      | "production"
       | "manager"
       | "accountant"
       | "sales"

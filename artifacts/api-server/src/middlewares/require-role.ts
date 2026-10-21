@@ -1,4 +1,6 @@
 import type { Request, Response, NextFunction } from "express";
+import { db, usersTable, userCompaniesTable, companiesTable } from "@workspace/db";
+import { and, eq } from "drizzle-orm";
 
 export const ALL_ROLES = [
   "owner",
@@ -20,12 +22,28 @@ export function isRole(value: unknown): value is Role {
 }
 
 export function requireRole(...roles: Role[]) {
-  return (req: Request, res: Response, next: NextFunction): void => {
-    const userRole = req.session?.role as Role | undefined;
-    if (!userRole) {
+  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    if (!req.session?.userId) {
       res.status(401).json({ error: "غير مسجل دخول" });
       return;
     }
+    // Never trust an old session role: membership can change after login.
+    const [membership] = await db.select({ role: userCompaniesTable.role })
+      .from(userCompaniesTable)
+      .innerJoin(usersTable, eq(usersTable.id, userCompaniesTable.userId))
+      .innerJoin(companiesTable, eq(companiesTable.id, userCompaniesTable.companyId))
+      .where(and(
+        eq(userCompaniesTable.userId, req.session.userId),
+        eq(userCompaniesTable.companyId, req.session.companyId ?? -1),
+        eq(usersTable.isActive, true),
+        eq(companiesTable.isActive, true),
+      )).limit(1);
+    const userRole = membership?.role;
+    if (!isRole(userRole)) {
+      res.status(403).json({ error: "ليس لديك وصول إلى هذه الشركة" });
+      return;
+    }
+    req.session.role = userRole;
     if (!roles.includes(userRole)) {
       res.status(403).json({ error: "ليس لديك صلاحية للوصول إلى هذه البيانات" });
       return;

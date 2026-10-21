@@ -1,5 +1,6 @@
 import { db, posOrdersTable, posSessionsTable, customersTable, productsTable, aiModelsTable } from "@workspace/db";
 import { sql, eq, gte, desc, and, inArray } from "drizzle-orm";
+import { branchScope } from "./company-access";
 
 // ============== Statistical helpers ==============
 function mean(arr: number[]): number {
@@ -57,7 +58,30 @@ function median(arr: number[]): number {
 }
 
 // ============== Model registry helpers ==============
-async function setModelStatus(
+export function modelKey(companyId: number, key: string) {
+  if (!Number.isSafeInteger(companyId) || companyId <= 0) throw new Error("Company required");
+  return `company:${companyId}:${key}`;
+}
+
+// Global rows are definitions only. Never copy their learned data.
+export async function companyModels(companyId: number) {
+  const keys = ["sales_forecast", "customer_churn", "fraud_detection", "product_recommendations", "ai_assistant"];
+  const definitions = await db.select().from(aiModelsTable)
+    .where(inArray(aiModelsTable.key, keys));
+  for (const key of keys) {
+    const definition = definitions.find((row) => row.key === key);
+    await db.insert(aiModelsTable).values({
+      key: modelKey(companyId, key), name: definition?.name ?? key,
+      description: definition?.description ?? null, category: definition?.category ?? "general",
+    }).onConflictDoNothing();
+  }
+  return db.select().from(aiModelsTable).where(
+    sql`${aiModelsTable.key} like ${`company:${companyId}:%`}`,
+  ).orderBy(desc(aiModelsTable.updatedAt));
+}
+
+export async function setModelStatus(
+  companyId: number,
   key: string,
   data: {
     status?: string;
@@ -68,14 +92,15 @@ async function setModelStatus(
     lastError?: string | null;
   },
 ) {
+  await companyModels(companyId);
   await db
     .update(aiModelsTable)
     .set({ ...data, updatedAt: new Date() })
-    .where(eq(aiModelsTable.key, key));
+    .where(eq(aiModelsTable.key, modelKey(companyId, key)));
 }
 
-async function getParams<T = Record<string, unknown>>(key: string): Promise<T | null> {
-  const [row] = await db.select().from(aiModelsTable).where(eq(aiModelsTable.key, key)).limit(1);
+async function getParams<T = Record<string, unknown>>(companyId: number, key: string): Promise<T | null> {
+  const [row] = await db.select().from(aiModelsTable).where(eq(aiModelsTable.key, modelKey(companyId, key))).limit(1);
   return (row?.parameters as T | null) ?? null;
 }
 
@@ -104,7 +129,7 @@ type SalesForecastParams = {
   baselineLevel: number;
 };
 
-export async function trainSalesForecast(): Promise<{ accuracy: number; size: number; params: SalesForecastParams }> {
+export async function trainSalesForecast(companyId: number): Promise<{ accuracy: number; size: number; params: SalesForecastParams }> {
   // Pull the last 90 days so we have ~12 weekly observations per weekday.
   const since = new Date();
   since.setDate(since.getDate() - 90);
@@ -115,7 +140,7 @@ export async function trainSalesForecast(): Promise<{ accuracy: number; size: nu
       total: sql<string>`sum(${posOrdersTable.total})`,
     })
     .from(posOrdersTable)
-    .where(gte(posOrdersTable.createdAt, since))
+    .where(and(eq(posOrdersTable.companyId, companyId), gte(posOrdersTable.createdAt, since)))
     .groupBy(sql`date_trunc('day', ${posOrdersTable.createdAt})`)
     .orderBy(sql`date_trunc('day', ${posOrdersTable.createdAt})`);
 
@@ -199,7 +224,7 @@ export async function trainSalesForecast(): Promise<{ accuracy: number; size: nu
     baselineLevel: median(deseasonalised.slice(-21)) || mean(deseasonalised),
   };
 
-  await setModelStatus("sales_forecast", {
+  await setModelStatus(companyId, "sales_forecast", {
     status: "ready",
     accuracy,
     trainingSize: series.length,
@@ -211,13 +236,13 @@ export async function trainSalesForecast(): Promise<{ accuracy: number; size: nu
   return { accuracy, size: series.length, params };
 }
 
-export async function predictSalesNext7Days(): Promise<
+export async function predictSalesNext7Days(companyId: number): Promise<
   { date: string; predicted: number; lower: number; upper: number }[]
 > {
-  let p = await getParams<SalesForecastParams>("sales_forecast");
+  let p = await getParams<SalesForecastParams>(companyId, "sales_forecast");
   if (!p) {
-    await trainSalesForecast();
-    p = await getParams<SalesForecastParams>("sales_forecast");
+    await trainSalesForecast(companyId);
+    p = await getParams<SalesForecastParams>(companyId, "sales_forecast");
   }
   if (!p) return [];
 
@@ -270,7 +295,7 @@ type ChurnParams = {
   riskRecencyDays: number;
 };
 
-export async function trainCustomerChurn(): Promise<{ accuracy: number; size: number; params: ChurnParams }> {
+export async function trainCustomerChurn(companyId: number): Promise<{ accuracy: number; size: number; params: ChurnParams }> {
   // Window: 365 days total. Hold out the last 30 for validation.
   const HORIZON_DAYS = 30;
   const cutoff = new Date();
@@ -289,6 +314,7 @@ export async function trainCustomerChurn(): Promise<{ accuracy: number; size: nu
     .from(posOrdersTable)
     .where(
       and(
+        eq(posOrdersTable.companyId, companyId),
         gte(posOrdersTable.createdAt, since),
         sql`${posOrdersTable.createdAt} < ${cutoff}`,
         sql`${posOrdersTable.customerId} is not null`,
@@ -302,6 +328,7 @@ export async function trainCustomerChurn(): Promise<{ accuracy: number; size: nu
     .from(posOrdersTable)
     .where(
       and(
+        eq(posOrdersTable.companyId, companyId),
         gte(posOrdersTable.createdAt, cutoff),
         sql`${posOrdersTable.customerId} is not null`,
       ),
@@ -371,7 +398,7 @@ export async function trainCustomerChurn(): Promise<{ accuracy: number; size: nu
     riskRecencyDays: bestThreshold,
   };
 
-  await setModelStatus("customer_churn", {
+  await setModelStatus(companyId, "customer_churn", {
     status: "ready",
     accuracy,
     trainingSize: trainRows.length,
@@ -383,11 +410,11 @@ export async function trainCustomerChurn(): Promise<{ accuracy: number; size: nu
   return { accuracy, size: trainRows.length, params };
 }
 
-export async function predictAtRiskCustomers(limit = 20) {
-  let p = await getParams<ChurnParams>("customer_churn");
+export async function predictAtRiskCustomers(companyId: number, limit = 20) {
+  let p = await getParams<ChurnParams>(companyId, "customer_churn");
   if (!p) {
-    await trainCustomerChurn();
-    p = await getParams<ChurnParams>("customer_churn");
+    await trainCustomerChurn(companyId);
+    p = await getParams<ChurnParams>(companyId, "customer_churn");
   }
   if (!p) return [];
 
@@ -403,8 +430,8 @@ export async function predictAtRiskCustomers(limit = 20) {
       totalSpent: sql<string>`sum(${posOrdersTable.total})`,
     })
     .from(posOrdersTable)
-    .leftJoin(customersTable, eq(customersTable.id, posOrdersTable.customerId))
-    .where(and(gte(posOrdersTable.createdAt, since), sql`${posOrdersTable.customerId} is not null`))
+    .innerJoin(customersTable, and(eq(customersTable.id, posOrdersTable.customerId), eq(customersTable.companyId, companyId)))
+    .where(and(eq(posOrdersTable.companyId, companyId), gte(posOrdersTable.createdAt, since), sql`${posOrdersTable.customerId} is not null`))
     .groupBy(posOrdersTable.customerId, customersTable.name);
 
   const now = Date.now();
@@ -485,7 +512,7 @@ function scoreAnomaly(valueZ: number, itemsZ: number, hourFreq: number): number 
   return Math.min(100, valueContribution + itemsContribution + hourContribution);
 }
 
-export async function trainFraudDetection(): Promise<{ accuracy: number; size: number; params: FraudParams }> {
+export async function trainFraudDetection(companyId: number): Promise<{ accuracy: number; size: number; params: FraudParams }> {
   const since = new Date();
   since.setDate(since.getDate() - 90);
 
@@ -498,8 +525,8 @@ export async function trainFraudDetection(): Promise<{ accuracy: number; size: n
       cashierName: posSessionsTable.cashierName,
     })
     .from(posOrdersTable)
-    .leftJoin(posSessionsTable, eq(posSessionsTable.id, posOrdersTable.sessionId))
-    .where(gte(posOrdersTable.createdAt, since))
+    .leftJoin(posSessionsTable, and(eq(posSessionsTable.id, posOrdersTable.sessionId), branchScope(posSessionsTable.branchId, companyId)))
+    .where(and(eq(posOrdersTable.companyId, companyId), gte(posOrdersTable.createdAt, since)))
     .orderBy(posOrdersTable.createdAt)
     .limit(5000);
 
@@ -571,7 +598,7 @@ export async function trainFraudDetection(): Promise<{ accuracy: number; size: n
   }
   const accuracy = testOrders.length > 0 ? normalCount / testOrders.length : 0;
 
-  await setModelStatus("fraud_detection", {
+  await setModelStatus(companyId, "fraud_detection", {
     status: "ready",
     accuracy,
     trainingSize: orders.length,
@@ -583,11 +610,11 @@ export async function trainFraudDetection(): Promise<{ accuracy: number; size: n
   return { accuracy, size: orders.length, params };
 }
 
-export async function detectAnomalousOrders(limit = 20) {
-  let p = await getParams<FraudParams>("fraud_detection");
+export async function detectAnomalousOrders(companyId: number, limit = 20) {
+  let p = await getParams<FraudParams>(companyId, "fraud_detection");
   if (!p) {
-    await trainFraudDetection();
-    p = await getParams<FraudParams>("fraud_detection");
+    await trainFraudDetection(companyId);
+    p = await getParams<FraudParams>(companyId, "fraud_detection");
   }
   if (!p) return [];
 
@@ -604,8 +631,8 @@ export async function detectAnomalousOrders(limit = 20) {
       itemCount: sql<number>`coalesce(jsonb_array_length(${posOrdersTable.items}), 0)::int`,
     })
     .from(posOrdersTable)
-    .leftJoin(posSessionsTable, eq(posSessionsTable.id, posOrdersTable.sessionId))
-    .where(gte(posOrdersTable.createdAt, since))
+    .leftJoin(posSessionsTable, and(eq(posSessionsTable.id, posOrdersTable.sessionId), branchScope(posSessionsTable.branchId, companyId)))
+    .where(and(eq(posOrdersTable.companyId, companyId), gte(posOrdersTable.createdAt, since)))
     .orderBy(desc(posOrdersTable.createdAt))
     .limit(2000);
 
@@ -727,7 +754,7 @@ function buildPairs(baskets: { id: number; name: string }[][]) {
   return { pairs, productSupport, totalBaskets };
 }
 
-export async function trainProductRecommendations(): Promise<{ accuracy: number; size: number; params: RecoParams }> {
+export async function trainProductRecommendations(companyId: number): Promise<{ accuracy: number; size: number; params: RecoParams }> {
   const since = new Date();
   since.setDate(since.getDate() - 90);
 
@@ -745,7 +772,7 @@ export async function trainProductRecommendations(): Promise<{ accuracy: number;
       sql`jsonb_array_elements(${posOrdersTable.items}) as elem`,
       sql`true`,
     )
-    .where(gte(posOrdersTable.createdAt, since))
+    .where(and(eq(posOrdersTable.companyId, companyId), gte(posOrdersTable.createdAt, since)))
     .orderBy(posOrdersTable.createdAt)
     .limit(20000);
 
@@ -768,7 +795,7 @@ export async function trainProductRecommendations(): Promise<{ accuracy: number;
     // and report 0 accuracy (frontend already shows this honestly).
     const built = buildPairs(allBaskets.map((b) => b.items));
     const params: RecoParams = built;
-    await setModelStatus("product_recommendations", {
+    await setModelStatus(companyId, "product_recommendations", {
       status: "ready",
       accuracy: 0,
       trainingSize: allBaskets.length,
@@ -809,7 +836,7 @@ export async function trainProductRecommendations(): Promise<{ accuracy: number;
   // number.
   const finalParams = buildPairs(allBaskets.map((b) => b.items));
 
-  await setModelStatus("product_recommendations", {
+  await setModelStatus(companyId, "product_recommendations", {
     status: "ready",
     accuracy,
     trainingSize: finalParams.totalBaskets,
@@ -821,21 +848,21 @@ export async function trainProductRecommendations(): Promise<{ accuracy: number;
   return { accuracy, size: finalParams.totalBaskets, params: finalParams };
 }
 
-export async function getRecommendationsForProduct(productId: number) {
-  let p = await getParams<RecoParams>("product_recommendations");
+export async function getRecommendationsForProduct(companyId: number, productId: number) {
+  let p = await getParams<RecoParams>(companyId, "product_recommendations");
   if (!p) {
-    await trainProductRecommendations();
-    p = await getParams<RecoParams>("product_recommendations");
+    await trainProductRecommendations(companyId);
+    p = await getParams<RecoParams>(companyId, "product_recommendations");
   }
   if (!p) return [];
   return p.pairs[String(productId)] ?? [];
 }
 
-export async function getTopRecommendations(limit = 10) {
-  let p = await getParams<RecoParams>("product_recommendations");
+export async function getTopRecommendations(companyId: number, limit = 10) {
+  let p = await getParams<RecoParams>(companyId, "product_recommendations");
   if (!p) {
-    await trainProductRecommendations();
-    p = await getParams<RecoParams>("product_recommendations");
+    await trainProductRecommendations(companyId);
+    p = await getParams<RecoParams>(companyId, "product_recommendations");
   }
   if (!p) return [];
 
@@ -847,7 +874,7 @@ export async function getTopRecommendations(limit = 10) {
     const prods = await db
       .select({ id: productsTable.id, name: productsTable.name })
       .from(productsTable)
-      .where(inArray(productsTable.id, sourceIds));
+      .where(and(eq(productsTable.companyId, companyId), inArray(productsTable.id, sourceIds)));
     for (const pr of prods) productMap.set(pr.id, pr.name);
   }
 

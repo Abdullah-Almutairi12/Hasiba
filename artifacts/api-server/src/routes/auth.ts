@@ -4,6 +4,7 @@ import rateLimit from "express-rate-limit";
 import { db, usersTable, userCompaniesTable, companiesTable } from "@workspace/db";
 import { and, eq, desc } from "drizzle-orm";
 import { z } from "zod";
+import { isRole } from "../middlewares/require-role";
 
 /**
  * Look up the company the user should land in after login. Returns the
@@ -88,6 +89,15 @@ router.post("/auth/login", loginLimiter, async (req, res) => {
         .json({ error: "لا توجد شركة مرتبطة بهذا الحساب — تواصل مع المدير" });
     }
 
+    const [membership] = await db.select({ role: userCompaniesTable.role })
+      .from(userCompaniesTable)
+      .innerJoin(companiesTable, eq(companiesTable.id, userCompaniesTable.companyId))
+      .where(and(eq(userCompaniesTable.userId, user.id),
+        eq(userCompaniesTable.companyId, companyId), eq(companiesTable.isActive, true)));
+    if (!membership || !isRole(membership.role)) {
+      return res.status(403).json({ error: "ليس لديك وصول إلى هذه الشركة" });
+    }
+
     req.session.regenerate((regenErr) => {
       if (regenErr) {
         req.log.error({ err: regenErr }, "Session regenerate failed");
@@ -95,7 +105,7 @@ router.post("/auth/login", loginLimiter, async (req, res) => {
         return;
       }
       req.session.userId = user.id;
-      req.session.role = user.role as typeof req.session.role;
+      req.session.role = membership.role as typeof req.session.role;
       req.session.companyId = companyId;
       req.session.save((saveErr) => {
         if (saveErr) {
@@ -107,7 +117,7 @@ router.post("/auth/login", loginLimiter, async (req, res) => {
           id: user.id,
           name: user.name,
           email: user.email,
-          role: user.role,
+          role: membership.role,
           branchId: user.branchId,
           preferredBranchId: user.preferredBranchId,
           avatarUrl: user.avatarUrl,
@@ -252,6 +262,12 @@ router.get("/auth/me", async (req, res) => {
       .innerJoin(companiesTable, eq(companiesTable.id, userCompaniesTable.companyId))
       .where(eq(userCompaniesTable.userId, user.id));
 
+    const current = memberships.find((m) => m.id === req.session.companyId && m.isActive);
+    if (!current || !isRole(current.role)) {
+      return res.status(403).json({ error: "ليس لديك وصول إلى هذه الشركة" });
+    }
+    req.session.role = current.role;
+
     // Resolve the active company's business sector so the UI can pick
     // the POS layout (retail → iconic, fb → photo-tiles). Null when no
     // active company is bound to the session.
@@ -269,7 +285,7 @@ router.get("/auth/me", async (req, res) => {
       id: user.id,
       name: user.name,
       email: user.email,
-      role: user.role,
+      role: current.role,
       branchId: user.branchId,
       preferredBranchId: user.preferredBranchId,
       avatarUrl: user.avatarUrl,
@@ -310,6 +326,9 @@ router.post("/auth/switch-company", async (req, res) => {
     }
     const userId = req.session.userId;
     const { companyId } = parsed.data;
+    const [activeUser] = await db.select({ id: usersTable.id }).from(usersTable)
+      .where(and(eq(usersTable.id, userId), eq(usersTable.isActive, true)));
+    if (!activeUser) return res.status(401).json({ error: "غير مسجل دخول" });
 
     const [membership] = await db
       .select({
@@ -327,7 +346,7 @@ router.post("/auth/switch-company", async (req, res) => {
       )
       .limit(1);
 
-    if (!membership) {
+    if (!membership || !isRole(membership.role)) {
       return res.status(403).json({
         error: "INVALID_REFERENCE",
         message: "ليس لديك وصول إلى هذه الشركة",
@@ -341,6 +360,7 @@ router.post("/auth/switch-company", async (req, res) => {
     }
 
     req.session.companyId = companyId;
+    req.session.role = membership.role;
     req.session.save((saveErr) => {
       if (saveErr) {
         req.log.error({ err: saveErr }, "Session save failed in switch-company");

@@ -1521,7 +1521,7 @@ router.post("/sales/deliveries", salesWriteGuard, async (req, res) => {
             deliveryOrderRef: doRef,
             weightKg,
             toAddress,
-          });
+          }, req.session.companyId!);
           await db
             .update(deliveryOrdersTable)
             .set({ carrierId, shipmentId: awb.shipmentId })

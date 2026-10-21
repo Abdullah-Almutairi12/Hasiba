@@ -18,6 +18,8 @@ import {
   customerReceiptsTable,
   customerReceiptAllocationsTable,
   stockQuantsTable,
+  warehousesTable,
+  companiesTable,
   type MarketplaceConnector,
   type Product,
 } from "@workspace/db";
@@ -28,7 +30,6 @@ import { nextRef } from "../sales-engine";
 import { postJournalEntry } from "../journal-posting";
 import { branchesTable } from "@workspace/db";
 import { buildZatcaQrBase64 } from "../zatca-qr";
-import { getCompanyInfo } from "../pdf/purchase-order";
 import { logger } from "../logger";
 
 // Webhook secrets are stored encrypted at rest. Decrypt-on-use and
@@ -798,7 +799,7 @@ async function scheduleProductPush(productId: number) {
   }
 }
 
-async function scheduleInventoryPush(productId: number) {
+export async function scheduleInventoryPush(productId: number, connectorId?: number) {
   const mappings = await db
     .select({
       connectorId: marketplaceProductMappingsTable.connectorId,
@@ -817,6 +818,7 @@ async function scheduleInventoryPush(productId: number) {
       and(
         eq(marketplaceProductMappingsTable.productId, productId),
         eq(marketplaceConnectorsTable.isEnabled, true),
+        connectorId == null ? undefined : eq(marketplaceConnectorsTable.id, connectorId),
       ),
     );
 
@@ -986,15 +988,18 @@ export function startMarketplaceWorker(): void {
 async function getOnHandForConnector(
   productId: number,
   warehouseId: number | null,
+  companyId: number,
 ): Promise<number> {
   if (warehouseId != null) {
     const [row] = await db
       .select({ q: sql<string>`COALESCE(SUM(${stockQuantsTable.quantity}), 0)::text` })
       .from(stockQuantsTable)
+      .innerJoin(warehousesTable, eq(warehousesTable.id, stockQuantsTable.warehouseId))
       .where(
         and(
           eq(stockQuantsTable.productId, productId),
           eq(stockQuantsTable.warehouseId, warehouseId),
+          eq(warehousesTable.companyId, companyId),
         ),
       );
     return Math.max(0, Number(row?.q ?? 0));
@@ -1005,6 +1010,7 @@ async function getOnHandForConnector(
       JOIN warehouses w ON w.id = q.warehouse_id
      WHERE q.product_id = ${productId}
        AND w.is_scrap = false
+       AND w.company_id = ${companyId}
   `);
   const row = result.rows[0];
   return Math.max(0, Number(row?.q ?? 0));
@@ -1027,10 +1033,11 @@ async function pushInventoryNow(
       ),
     );
   if (!connector) return;
-  const [product] = await db.select().from(productsTable).where(eq(productsTable.id, productId));
+  const companyId = await getConnectorCompanyId(connector.branchId);
+  const [product] = await db.select().from(productsTable).where(and(eq(productsTable.id, productId), eq(productsTable.companyId, companyId)));
   if (!product) return;
   const adapter = getAdapter(connector.platform);
-  const onHand = await getOnHandForConnector(productId, connector.defaultWarehouseId);
+  const onHand = await getOnHandForConnector(productId, connector.defaultWarehouseId, companyId);
   await adapter.pushInventory(
     connector,
     externalProductId,
@@ -1114,23 +1121,28 @@ async function getConnectorCompanyId(branchId: number | null): Promise<number> {
   return row.companyId;
 }
 
-async function resolveProductId(
+export async function resolveProductId(
   connectorId: number,
   externalProductId: string,
   externalVariantId: string | null | undefined,
   sku: string | null | undefined,
 ): Promise<number | null> {
+  const [connector] = await db.select().from(marketplaceConnectorsTable).where(eq(marketplaceConnectorsTable.id, connectorId));
+  if (!connector) throw new Error("Marketplace connector not found");
+  const companyId = await getConnectorCompanyId(connector.branchId);
   // Variant-aware lookup first — same external product may map to many
   // ERP products when the store models size/color variants.
   if (externalVariantId) {
     const [byVariant] = await db
       .select({ productId: marketplaceProductMappingsTable.productId })
       .from(marketplaceProductMappingsTable)
+      .innerJoin(productsTable, eq(productsTable.id, marketplaceProductMappingsTable.productId))
       .where(
         and(
           eq(marketplaceProductMappingsTable.connectorId, connectorId),
           eq(marketplaceProductMappingsTable.externalProductId, externalProductId),
           eq(marketplaceProductMappingsTable.externalVariantId, externalVariantId),
+          eq(productsTable.companyId, companyId),
         ),
       );
     if (byVariant) return byVariant.productId;
@@ -1138,10 +1150,12 @@ async function resolveProductId(
   const [mapped] = await db
     .select({ productId: marketplaceProductMappingsTable.productId })
     .from(marketplaceProductMappingsTable)
+    .innerJoin(productsTable, eq(productsTable.id, marketplaceProductMappingsTable.productId))
     .where(
       and(
         eq(marketplaceProductMappingsTable.connectorId, connectorId),
         eq(marketplaceProductMappingsTable.externalProductId, externalProductId),
+        eq(productsTable.companyId, companyId),
       ),
     );
   if (mapped) return mapped.productId;
@@ -1149,7 +1163,7 @@ async function resolveProductId(
     const [bySku] = await db
       .select({ id: productsTable.id })
       .from(productsTable)
-      .where(eq(productsTable.sku, sku));
+      .where(and(eq(productsTable.sku, sku), eq(productsTable.companyId, companyId)));
     if (bySku) return bySku.id;
   }
   return null;
@@ -1221,15 +1235,9 @@ export async function importOrder(
   try {
     const connectorCompanyId = await getConnectorCompanyId(connector.branchId);
     const customer = await findOrCreateCustomer(order, connectorCompanyId);
-    const company = await getCompanyInfo();
-    const sellerNameForZatca =
-      company.nameAr && company.nameAr !== "—"
-        ? company.nameAr
-        : process.env["ZATCA_SELLER_NAME"] ?? "حاسبة AI";
-    const sellerVatForZatca =
-      company.vatNumber && company.vatNumber !== "—"
-        ? company.vatNumber
-        : process.env["ZATCA_VAT_NUMBER"] ?? "300000000000003";
+    const [company] = await db.select().from(companiesTable).where(eq(companiesTable.id, connectorCompanyId));
+    const sellerNameForZatca = company.name;
+    const sellerVatForZatca = company.vatNumber ?? "";
     const soId = await db.transaction(async (tx) => {
       // ---------------- Sales Order ----------------
       const soRef = await nextRef(tx, `MKT-${connector.platform.toUpperCase()}`);
@@ -1578,19 +1586,19 @@ export async function pushCatalogue(
   productIds?: number[],
 ): Promise<{ pushed: number; failed: number }> {
   const adapter = getAdapter(connector.platform);
+  const companyId = await getConnectorCompanyId(connector.branchId);
   const products = await db
     .select()
     .from(productsTable)
     .where(
-      productIds && productIds.length > 0
-        ? and(eq(productsTable.isActive, true), inArray(productsTable.id, productIds))
-        : eq(productsTable.isActive, true),
+      and(eq(productsTable.companyId, companyId), eq(productsTable.isActive, true),
+        productIds && productIds.length > 0 ? inArray(productsTable.id, productIds) : undefined),
     );
   let pushed = 0;
   let failed = 0;
   for (const p of products) {
     try {
-      const onHand = await getOnHandForConnector(p.id, connector.defaultWarehouseId);
+      const onHand = await getOnHandForConnector(p.id, connector.defaultWarehouseId, companyId);
       // Look up the prior "primary" mapping by ERP product id BEFORE
       // calling the adapter so existing rows are updated in place
       // instead of POSTing a brand new remote product on every save.

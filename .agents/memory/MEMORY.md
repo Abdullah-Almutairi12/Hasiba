@@ -1,1 +1,2 @@
 - [Dependency compatibility](dependency-compatibility.md) — keep Vite consumers aligned; avoid security upgrades that silently split plugin type versions.
+- [Tenant authorization](tenant-authorization.md) — shared identities, branchless integrations, and legacy AI state must not inherit company-local authority.

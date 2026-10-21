@@ -2,7 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import rateLimit from "express-rate-limit";
 import { db, aiModelsTable } from "@workspace/db";
-import { desc, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { adminGuard, analyticsReadGuard, ownerOnly } from "../middlewares/require-role";
 import {
   trainSalesForecast,
@@ -13,6 +13,9 @@ import {
   predictAtRiskCustomers,
   detectAnomalousOrders,
   getTopRecommendations,
+  companyModels,
+  modelKey,
+  setModelStatus,
 } from "../lib/ai-models";
 import { askAssistant } from "../lib/ai-assistant";
 
@@ -36,7 +39,7 @@ const assistantLimiter = rateLimit({
 function serializeModel(m: typeof aiModelsTable.$inferSelect) {
   return {
     id: m.id,
-    key: m.key,
+    key: m.key.replace(/^company:\d+:/, ""),
     name: m.name,
     description: m.description,
     category: m.category,
@@ -52,7 +55,7 @@ function serializeModel(m: typeof aiModelsTable.$inferSelect) {
 // ============== Model registry ==============
 router.get("/ai/models", adminOnly, async (req, res) => {
   try {
-    const rows = await db.select().from(aiModelsTable).orderBy(desc(aiModelsTable.updatedAt));
+    const rows = await companyModels(req.session.companyId!);
     res.json(rows.map(serializeModel));
   } catch (err) {
     req.log.error({ err }, "List AI models failed");
@@ -62,21 +65,25 @@ router.get("/ai/models", adminOnly, async (req, res) => {
 
 router.post("/ai/models/:key/train", trainingGuard, async (req, res) => {
   const key = String(req.params.key);
+  const companyId = req.session.companyId!;
+  if (!["sales_forecast", "customer_churn", "fraud_detection", "product_recommendations", "ai_assistant"].includes(key)) {
+    return res.status(404).json({ error: "Unknown model key" });
+  }
   try {
-    await db.update(aiModelsTable).set({ status: "training" }).where(eq(aiModelsTable.key, key));
+    await setModelStatus(companyId, key, { status: "training" });
     let result;
     switch (key) {
       case "sales_forecast":
-        result = await trainSalesForecast();
+        result = await trainSalesForecast(companyId);
         break;
       case "customer_churn":
-        result = await trainCustomerChurn();
+        result = await trainCustomerChurn(companyId);
         break;
       case "fraud_detection":
-        result = await trainFraudDetection();
+        result = await trainFraudDetection(companyId);
         break;
       case "product_recommendations":
-        result = await trainProductRecommendations();
+        result = await trainProductRecommendations(companyId);
         break;
       case "ai_assistant":
         // Assistant is "always ready" if configured
@@ -90,7 +97,7 @@ router.post("/ai/models/:key/train", trainingGuard, async (req, res) => {
             lastError: null,
             updatedAt: new Date(),
           })
-          .where(eq(aiModelsTable.key, key));
+          .where(eq(aiModelsTable.key, modelKey(companyId, key)));
         result = { accuracy: 1, size: 0 };
         break;
       default:
@@ -103,7 +110,7 @@ router.post("/ai/models/:key/train", trainingGuard, async (req, res) => {
     await db
       .update(aiModelsTable)
       .set({ status: "error", lastError: msg, updatedAt: new Date() })
-      .where(eq(aiModelsTable.key, key));
+      .where(eq(aiModelsTable.key, modelKey(companyId, key)));
     return res.status(500).json({ error: msg });
   }
 });
@@ -118,7 +125,7 @@ router.post("/ai/models/train-all", trainingGuard, async (req, res) => {
   ];
   for (const t of trainers) {
     try {
-      const r = await t.fn();
+      const r = await t.fn(req.session.companyId!);
       results[t.key] = { ok: true, accuracy: r.accuracy };
     } catch (err) {
       const msg = err instanceof Error ? err.message : "failed";
@@ -126,7 +133,7 @@ router.post("/ai/models/train-all", trainingGuard, async (req, res) => {
       await db
         .update(aiModelsTable)
         .set({ status: "error", lastError: msg, updatedAt: new Date() })
-        .where(eq(aiModelsTable.key, t.key));
+        .where(eq(aiModelsTable.key, modelKey(req.session.companyId!, t.key)));
     }
   }
   res.json({ results });
@@ -135,18 +142,18 @@ router.post("/ai/models/train-all", trainingGuard, async (req, res) => {
 // ============== Predictions (manager / accountant only — company-wide analytics) ==============
 router.get("/ai/predict/sales-forecast", analyticsRead, async (req, res) => {
   try {
-    const data = await predictSalesNext7Days();
+    const data = await predictSalesNext7Days(req.session.companyId!);
     res.json({ forecast: data });
   } catch (err) {
     req.log.error({ err }, "Sales forecast failed");
-    res.json({ forecast: [] });
+    res.status(500).json({ error: "تعذر حساب توقعات المبيعات" });
   }
 });
 
 router.get("/ai/predict/at-risk-customers", analyticsRead, async (req, res) => {
   try {
     const limit = Math.min(Number(req.query.limit) || 20, 100);
-    const data = await predictAtRiskCustomers(limit);
+    const data = await predictAtRiskCustomers(req.session.companyId!, limit);
     // Normalize to OpenAPI/UI contract: { name, riskScore, daysSinceLastOrder, totalSpent }
     const customers = data.map((c) => ({
       customerId: c.customerId,
@@ -158,14 +165,14 @@ router.get("/ai/predict/at-risk-customers", analyticsRead, async (req, res) => {
     res.json({ customers });
   } catch (err) {
     req.log.error({ err }, "At-risk customers failed");
-    res.json({ customers: [] });
+    res.status(500).json({ error: "تعذر حساب مخاطر العملاء" });
   }
 });
 
 router.get("/ai/predict/fraud-anomalies", analyticsRead, async (req, res) => {
   try {
     const limit = Math.min(Number(req.query.limit) || 20, 100);
-    const data = await detectAnomalousOrders(limit);
+    const data = await detectAnomalousOrders(req.session.companyId!, limit);
     const anomalies = data.map((a) => {
       const raw = a as {
         orderId: number;
@@ -188,14 +195,14 @@ router.get("/ai/predict/fraud-anomalies", analyticsRead, async (req, res) => {
     res.json({ anomalies });
   } catch (err) {
     req.log.error({ err }, "Fraud anomalies failed");
-    res.json({ anomalies: [] });
+    res.status(500).json({ error: "تعذر كشف المعاملات غير المعتادة" });
   }
 });
 
 router.get("/ai/predict/recommendations", analyticsRead, async (req, res) => {
   try {
     const limit = Math.min(Number(req.query.limit) || 10, 50);
-    const data = await getTopRecommendations(limit);
+    const data = await getTopRecommendations(req.session.companyId!, limit);
     const recommendations = data.map((r) => {
       const raw = r as {
         sourceId?: number;
@@ -219,7 +226,7 @@ router.get("/ai/predict/recommendations", analyticsRead, async (req, res) => {
     res.json({ recommendations });
   } catch (err) {
     req.log.error({ err }, "Recommendations failed");
-    res.json({ recommendations: [] });
+    res.status(500).json({ error: "تعذر حساب توصيات المنتجات" });
   }
 });
 
@@ -229,7 +236,7 @@ const AskBody = z.object({ question: z.string().min(2).max(2000) });
 router.post("/ai/assistant/ask", adminOnly, assistantLimiter, async (req, res) => {
   try {
     const { question } = AskBody.parse(req.body);
-    const result = await askAssistant(question);
+    const result = await askAssistant(req.session.companyId!, question);
     res.json(result);
   } catch (err) {
     req.log.error({ err }, "AI assistant failed");

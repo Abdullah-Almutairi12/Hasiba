@@ -19,7 +19,10 @@ import {
   marketplaceProductMappingsTable,
   marketplaceOrderImportsTable,
   marketplaceSyncLogsTable,
+  warehousesTable,
+  companiesTable,
 } from "@workspace/db";
+import { assertCompanyBranch, branchScope, CompanyAccessError, resolveCompanyBranch } from "../lib/company-access";
 import { adminGuard, inventoryGuard, ownerOnly, requireRole } from "../middlewares/require-role";
 import { upsertCredential } from "../lib/integrations/credentials";
 import { encryptSecret } from "../lib/integrations/crypto";
@@ -32,7 +35,6 @@ import {
 } from "../lib/integrations/messaging-templates";
 import { buildZatcaQrBase64 } from "../lib/zatca-qr";
 import { evaluateAndSuppressBouncedRecipients } from "../lib/alerts-cleanup-report-email";
-import { getCompanyInfo } from "../lib/pdf/purchase-order";
 import QRCode from "qrcode";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import {
@@ -45,6 +47,70 @@ import {
 } from "../lib/integrations/zatca-phase2";
 
 const router = Router();
+
+// Authorize connector IDs before reading children or invoking external services.
+// This covers mutations as well as logs, mappings, imports and retry actions.
+router.use(async (req, res, next) => {
+  try {
+    const companyId = req.session.companyId!;
+    // Express matches route paths case-insensitively and accepts trailing
+    // slashes. Normalize identically so alternate spellings cannot bypass
+    // ownership checks. Decode IDs as Express does for route parameters.
+    const path = decodeURIComponent(req.path).toLowerCase().replace(/\/+$/, "");
+    const match = path.match(/^\/integrations\/(marketplaces|credentials|payment-gateways|shipping-carriers|whatsapp-templates)\/([^/]+)(?:\/|$)/);
+    if (match && !(match[1] === "marketplaces" && match[2] === "logs")
+      && !(match[1] === "whatsapp-templates" && match[2] === "sync")) {
+      const id = z.coerce.number().int().positive().parse(match[2]);
+      const table = {
+        marketplaces: marketplaceConnectorsTable,
+        credentials: externalCredentialsTable,
+        "payment-gateways": paymentGatewaysTable,
+        "shipping-carriers": shippingCarriersTable,
+        "whatsapp-templates": whatsappTemplatesTable,
+      }[match[1]]!;
+      const [row] = await db.select({ branchId: table.branchId }).from(table)
+        .where(and(eq(table.id, id), branchScope(table.branchId, companyId)));
+      if (!row) throw new CompanyAccessError();
+    }
+    const retry = path.match(/^\/integrations\/marketplaces\/logs\/([^/]+)\/retry$/);
+    if (retry) {
+      const [row] = await db.select({ id: marketplaceSyncLogsTable.id }).from(marketplaceSyncLogsTable)
+        .innerJoin(marketplaceConnectorsTable, eq(marketplaceConnectorsTable.id, marketplaceSyncLogsTable.connectorId))
+        .where(and(eq(marketplaceSyncLogsTable.id, z.coerce.number().int().positive().parse(retry[1])), branchScope(marketplaceConnectorsTable.branchId, companyId)));
+      if (!row) throw new CompanyAccessError();
+    }
+    const tracking = path.match(/^\/integrations\/shipments\/([^/]+)\/tracking$/);
+    if (tracking) {
+      const [row] = await db.select({ id: shipmentsTable.id }).from(shipmentsTable)
+        .innerJoin(shippingCarriersTable, eq(shippingCarriersTable.id, shipmentsTable.carrierId))
+        .where(and(eq(shipmentsTable.id, z.coerce.number().int().positive().parse(tracking[1])),
+          branchScope(shippingCarriersTable.branchId, companyId)));
+      if (!row) throw new CompanyAccessError();
+    }
+    if (req.method === "POST" && /^\/integrations\/zatca\/(?:csid|pcsid)(?:\/retrieve)?$/.test(path)) {
+      const id = z.coerce.number().int().positive().parse(req.body?.certificateId);
+      const [row] = await db.select({ id: zatcaCertificatesTable.id }).from(zatcaCertificatesTable)
+        .where(and(eq(zatcaCertificatesTable.id, id), branchScope(zatcaCertificatesTable.branchId, companyId)));
+      if (!row) throw new CompanyAccessError();
+    }
+    if (path.startsWith("/integrations/") && ["POST", "PATCH"].includes(req.method) && req.body?.branchId != null) {
+      await assertCompanyBranch(z.coerce.number().int().positive().parse(req.body.branchId), companyId);
+    }
+    if (req.method === "POST" && /^\/integrations\/(credentials|payment-gateways|shipping-carriers|marketplaces|messages|whatsapp-templates(?:\/sync)?|zatca\/csr)$/.test(path)) {
+      const branchId = z.coerce.number().int().positive().nullable().optional().parse(req.body?.branchId);
+      req.body = { ...req.body, branchId: await resolveCompanyBranch(branchId, companyId) };
+    }
+    if (path.startsWith("/integrations/marketplaces") && ["POST", "PATCH"].includes(req.method) && req.body?.defaultWarehouseId != null) {
+      const id = z.coerce.number().int().positive().parse(req.body.defaultWarehouseId);
+      const [warehouse] = await db.select({ id: warehousesTable.id }).from(warehousesTable)
+        .where(and(eq(warehousesTable.id, id), eq(warehousesTable.companyId, companyId)));
+      if (!warehouse) throw new CompanyAccessError();
+    }
+    next();
+  } catch (err) {
+    handle(res, err);
+  }
+});
 
 const PROVIDERS = [
   "zatca",
@@ -65,6 +131,10 @@ const PROVIDERS = [
 ] as const;
 
 function handle(res: express.Response, err: unknown): void {
+  if (err instanceof CompanyAccessError) {
+    res.status(404).json({ error: "not_found" });
+    return;
+  }
   if (err instanceof ZodError) {
     res.status(400).json({ error: "بيانات غير صالحة", details: err.issues });
     return;
@@ -76,7 +146,7 @@ function handle(res: express.Response, err: unknown): void {
 // =============================================================
 // Status overview — one card per family.
 // =============================================================
-router.get("/integrations/overview", adminGuard, async (_req, res) => {
+router.get("/integrations/overview", adminGuard, async (req, res) => {
   try {
     // Total credential count — un-grouped so the overview card
     // reflects every connector across all providers, not just
@@ -84,7 +154,7 @@ router.get("/integrations/overview", adminGuard, async (_req, res) => {
     // grouped query.
     const [credsTotal] = await db
       .select({ cnt: sql<number>`count(*)`.as("cnt") })
-      .from(externalCredentialsTable);
+      .from(externalCredentialsTable).where(branchScope(externalCredentialsTable.branchId, req.session.companyId!));
 
     const credByProvider = await db
       .select({
@@ -93,20 +163,20 @@ router.get("/integrations/overview", adminGuard, async (_req, res) => {
         isActive: externalCredentialsTable.isActive,
         lastUsedAt: externalCredentialsTable.lastUsedAt,
       })
-      .from(externalCredentialsTable);
+      .from(externalCredentialsTable).where(branchScope(externalCredentialsTable.branchId, req.session.companyId!));
 
     const [pgCount] = await db
       .select({ cnt: sql<number>`count(*)`.as("cnt") })
-      .from(paymentGatewaysTable);
+      .from(paymentGatewaysTable).where(branchScope(paymentGatewaysTable.branchId, req.session.companyId!));
     const [shCount] = await db
       .select({ cnt: sql<number>`count(*)`.as("cnt") })
-      .from(shippingCarriersTable);
+      .from(shippingCarriersTable).where(branchScope(shippingCarriersTable.branchId, req.session.companyId!));
     const [zCount] = await db
       .select({ cnt: sql<number>`count(*)`.as("cnt") })
-      .from(zatcaInvoicesTable);
+      .from(zatcaInvoicesTable).where(branchScope(zatcaInvoicesTable.branchId, req.session.companyId!));
     const [omCount] = await db
       .select({ cnt: sql<number>`count(*)`.as("cnt") })
-      .from(outboundMessagesTable);
+      .from(outboundMessagesTable).where(branchScope(outboundMessagesTable.branchId, req.session.companyId!));
 
     res.json({
       configuredProviders: credByProvider,
@@ -138,6 +208,7 @@ router.post("/integrations/credentials", adminGuard, async (req, res) => {
   try {
     const body = UpsertCredBody.parse(req.body);
     const out = await upsertCredential({
+      companyId: req.session.companyId!,
       provider: body.provider,
       branchId: body.branchId ?? null,
       label: body.label ?? null,
@@ -150,7 +221,7 @@ router.post("/integrations/credentials", adminGuard, async (req, res) => {
   }
 });
 
-router.get("/integrations/credentials", adminGuard, async (_req, res) => {
+router.get("/integrations/credentials", adminGuard, async (req, res) => {
   try {
     const rows = await db
       .select({
@@ -164,6 +235,7 @@ router.get("/integrations/credentials", adminGuard, async (_req, res) => {
         createdAt: externalCredentialsTable.createdAt,
       })
       .from(externalCredentialsTable)
+      .where(branchScope(externalCredentialsTable.branchId, req.session.companyId!))
       .orderBy(externalCredentialsTable.provider);
     res.json(rows);
   } catch (err) {
@@ -195,7 +267,7 @@ const CreateGatewayBody = z.object({
   isEnabled: z.boolean().default(true),
 });
 
-router.get("/integrations/payment-gateways", adminGuard, async (_req, res) => {
+router.get("/integrations/payment-gateways", adminGuard, async (req, res) => {
   const rows = await db
     .select({
       id: paymentGatewaysTable.id,
@@ -211,6 +283,7 @@ router.get("/integrations/payment-gateways", adminGuard, async (_req, res) => {
       updatedAt: paymentGatewaysTable.updatedAt,
     })
     .from(paymentGatewaysTable)
+    .where(branchScope(paymentGatewaysTable.branchId, req.session.companyId!))
     .orderBy(paymentGatewaysTable.provider);
   res.json(rows);
 });
@@ -256,7 +329,7 @@ const CheckoutBody = z.object({
 router.post("/integrations/payments/checkout", adminGuard, async (req, res) => {
   try {
     const b = CheckoutBody.parse(req.body);
-    const out = await createCheckout(b);
+    const out = await createCheckout(b, req.session.companyId!);
     res.status(201).json(out);
   } catch (err) {
     handle(res, err);
@@ -281,7 +354,7 @@ router.post(
       const [inv] = await db
         .select()
         .from(customerInvoicesTable)
-        .where(eq(customerInvoicesTable.id, id));
+        .where(and(eq(customerInvoicesTable.id, id), eq(customerInvoicesTable.companyId, req.session.companyId!)));
       if (!inv) {
         res.status(404).json({ error: "invoice_not_found" });
         return;
@@ -291,7 +364,7 @@ router.post(
         const [gw] = await db
           .select({ id: paymentGatewaysTable.id })
           .from(paymentGatewaysTable)
-          .where(eq(paymentGatewaysTable.isEnabled, true))
+          .where(and(eq(paymentGatewaysTable.isEnabled, true), branchScope(paymentGatewaysTable.branchId, req.session.companyId!)))
           .orderBy(paymentGatewaysTable.id)
           .limit(1);
         if (!gw) {
@@ -309,7 +382,7 @@ router.post(
         customerId: inv.customerId ?? undefined,
         callbackUrl: body.callbackUrl,
         metadata: { reference: inv.reference },
-      });
+      }, req.session.companyId!);
       res.status(201).json(out);
     } catch (err) {
       handle(res, err);
@@ -328,7 +401,7 @@ router.post(
   async (req, res) => {
     try {
       const b = RefundBody.parse(req.body);
-      const out = await refundIntent(b);
+      const out = await refundIntent(b, req.session.companyId!);
       res.json(out);
     } catch (err) {
       handle(res, err);
@@ -336,13 +409,15 @@ router.post(
   },
 );
 
-router.get("/integrations/payments/intents", adminGuard, async (_req, res) => {
+router.get("/integrations/payments/intents", adminGuard, async (req, res) => {
   const rows = await db
-    .select()
+    .select({ intent: paymentIntentsTable })
     .from(paymentIntentsTable)
+    .innerJoin(paymentGatewaysTable, eq(paymentGatewaysTable.id, paymentIntentsTable.gatewayId))
+    .where(branchScope(paymentGatewaysTable.branchId, req.session.companyId!))
     .orderBy(desc(paymentIntentsTable.createdAt))
     .limit(100);
-  res.json(rows);
+  res.json(rows.map((r) => r.intent));
 });
 
 // Webhook endpoint: must be raw-body to verify HMAC. Mounted public
@@ -466,6 +541,7 @@ integrationsPublicRouter.get(
           total: customerInvoicesTable.total,
           vat: customerInvoicesTable.vat,
           createdAt: customerInvoicesTable.createdAt,
+          companyId: customerInvoicesTable.companyId,
         })
         .from(customerInvoicesTable)
         .where(eq(customerInvoicesTable.id, id))
@@ -474,19 +550,13 @@ integrationsPublicRouter.get(
         res.status(404).send("not found");
         return;
       }
-      const company = await getCompanyInfo();
+      const [company] = await db.select().from(companiesTable).where(eq(companiesTable.id, inv.companyId));
       const tlvBase64 = buildZatcaQrBase64({
         timestamp: inv.createdAt,
         totalWithVat: Number(inv.total),
         vatAmount: Number(inv.vat),
-        sellerName:
-          company.nameAr && company.nameAr !== "—"
-            ? company.nameAr
-            : process.env["ZATCA_SELLER_NAME"] ?? "حاسبة AI",
-        vatNumber:
-          company.vatNumber && company.vatNumber !== "—"
-            ? company.vatNumber
-            : process.env["ZATCA_VAT_NUMBER"] ?? "300000000000003",
+        sellerName: company.name,
+        vatNumber: company.vatNumber ?? "",
       });
       const png = await QRCode.toBuffer(tlvBase64, {
         type: "png",
@@ -610,6 +680,7 @@ router.get(
         await db
           .select()
           .from(shippingCarriersTable)
+          .where(branchScope(shippingCarriersTable.branchId, req.session.companyId!))
           .orderBy(shippingCarriersTable.provider),
       );
       return;
@@ -624,7 +695,7 @@ router.get(
           environment: shippingCarriersTable.environment,
         })
         .from(shippingCarriersTable)
-        .where(eq(shippingCarriersTable.isEnabled, true))
+        .where(and(eq(shippingCarriersTable.isEnabled, true), branchScope(shippingCarriersTable.branchId, req.session.companyId!)))
         .orderBy(shippingCarriersTable.provider),
     );
   },
@@ -681,7 +752,7 @@ router.post(
   async (req, res) => {
   try {
     const b = CreateAwbBody.parse(req.body);
-    const out = await createAwb(b);
+    const out = await createAwb(b, req.session.companyId!);
     res.status(201).json(out);
   } catch (err) {
     handle(res, err);
@@ -716,13 +787,15 @@ router.get(
   },
 );
 
-router.get("/integrations/shipments", adminGuard, async (_req, res) => {
+router.get("/integrations/shipments", adminGuard, async (req, res) => {
   const rows = await db
-    .select()
+    .select({ shipment: shipmentsTable })
     .from(shipmentsTable)
+    .innerJoin(shippingCarriersTable, eq(shippingCarriersTable.id, shipmentsTable.carrierId))
+    .where(branchScope(shippingCarriersTable.branchId, req.session.companyId!))
     .orderBy(desc(shipmentsTable.createdAt))
     .limit(100);
-  res.json(rows);
+  res.json(rows.map((r) => r.shipment));
 });
 
 // =============================================================
@@ -780,10 +853,11 @@ router.post(
   }
 });
 
-router.get("/integrations/messages", adminGuard, async (_req, res) => {
+router.get("/integrations/messages", adminGuard, async (req, res) => {
   const rows = await db
     .select()
     .from(outboundMessagesTable)
+    .where(branchScope(outboundMessagesTable.branchId, req.session.companyId!))
     .orderBy(desc(outboundMessagesTable.createdAt))
     .limit(100);
   res.json(rows);
@@ -801,8 +875,9 @@ const CreateTemplateBody = z.object({
   status: z.enum(["pending", "approved", "rejected", "paused"]).default("pending"),
 });
 
-router.get("/integrations/whatsapp-templates", adminGuard, async (_req, res) => {
-  res.json(await db.select().from(whatsappTemplatesTable).orderBy(whatsappTemplatesTable.name));
+router.get("/integrations/whatsapp-templates", adminGuard, async (req, res) => {
+  res.json(await db.select().from(whatsappTemplatesTable)
+    .where(branchScope(whatsappTemplatesTable.branchId, req.session.companyId!)).orderBy(whatsappTemplatesTable.name));
 });
 
 router.post("/integrations/whatsapp-templates", adminGuard, async (req, res) => {
@@ -914,7 +989,7 @@ router.post("/integrations/zatca/csr", ownerOnly, async (req, res) => {
       vatNumber: b.vatNumber,
       organizationName: b.organizationName,
       environment: b.environment,
-    });
+    }, req.session.companyId!);
     res.status(201).json(out);
   } catch (err) {
     handle(res, err);
@@ -930,7 +1005,7 @@ const AttachCsidBody = z.object({
 router.post("/integrations/zatca/csid", ownerOnly, async (req, res) => {
   try {
     const b = AttachCsidBody.parse(req.body);
-    await attachCsid(b);
+    await attachCsid(b, req.session.companyId!);
     res.json({ ok: true });
   } catch (err) {
     handle(res, err);
@@ -942,7 +1017,7 @@ router.post("/integrations/zatca/pcsid", ownerOnly, async (req, res) => {
     const b = z
       .object({ certificateId: z.coerce.number().int().positive(), pcsid: z.string().min(2) })
       .parse(req.body);
-    await attachPcsid(b);
+    await attachPcsid(b, req.session.companyId!);
     res.json({ ok: true });
   } catch (err) {
     handle(res, err);
@@ -959,7 +1034,7 @@ router.post("/integrations/zatca/csid/retrieve", ownerOnly, async (req, res) => 
         otp: z.string().min(4),
       })
       .parse(req.body);
-    const out = await retrieveCsid(b);
+    const out = await retrieveCsid(b, req.session.companyId!);
     res.status(201).json(out);
   } catch (err) {
     handle(res, err);
@@ -973,14 +1048,14 @@ router.post("/integrations/zatca/pcsid/retrieve", ownerOnly, async (req, res) =>
     const b = z
       .object({ certificateId: z.coerce.number().int().positive() })
       .parse(req.body);
-    const out = await retrievePcsid(b);
+    const out = await retrievePcsid(b, req.session.companyId!);
     res.status(201).json(out);
   } catch (err) {
     handle(res, err);
   }
 });
 
-router.get("/integrations/zatca/certificates", adminGuard, async (_req, res) => {
+router.get("/integrations/zatca/certificates", adminGuard, async (req, res) => {
   const rows = await db
     .select({
       id: zatcaCertificatesTable.id,
@@ -993,14 +1068,16 @@ router.get("/integrations/zatca/certificates", adminGuard, async (_req, res) => 
       createdAt: zatcaCertificatesTable.createdAt,
     })
     .from(zatcaCertificatesTable)
+    .where(branchScope(zatcaCertificatesTable.branchId, req.session.companyId!))
     .orderBy(desc(zatcaCertificatesTable.id));
   res.json(rows);
 });
 
-router.get("/integrations/zatca/invoices", adminGuard, async (_req, res) => {
+router.get("/integrations/zatca/invoices", adminGuard, async (req, res) => {
   const rows = await db
     .select()
     .from(zatcaInvoicesTable)
+    .where(branchScope(zatcaInvoicesTable.branchId, req.session.companyId!))
     .orderBy(desc(zatcaInvoicesTable.id))
     .limit(100);
   res.json(rows);
@@ -1024,34 +1101,29 @@ router.post("/integrations/zatca/submit", requireRole("owner", "accountant"), as
     const [inv] = await db
       .select()
       .from(customerInvoicesTable)
-      .where(eq(customerInvoicesTable.id, b.invoiceId));
+      .where(and(eq(customerInvoicesTable.id, b.invoiceId), eq(customerInvoicesTable.companyId, req.session.companyId!)));
     if (!inv) {
       res.status(404).json({ error: "الفاتورة غير موجودة" });
       return;
     }
+    const branchId = await resolveCompanyBranch(b.branchId ?? inv.branchId, req.session.companyId!);
     const subtotal = Number(inv.subtotal);
     const vatAmount = Number(inv.vat);
     const total = Number(inv.total);
-    const company = await getCompanyInfo();
+    const [company] = await db.select().from(companiesTable).where(eq(companiesTable.id, req.session.companyId!));
     const out = await processInvoiceForZatca({
       invoiceId: inv.id,
       invoiceNumber: inv.reference,
       issueDate: new Date(inv.invoiceDate),
       invoiceType: b.invoiceType,
-      sellerName:
-        company.nameAr && company.nameAr !== "—"
-          ? company.nameAr
-          : process.env["ZATCA_SELLER_NAME"] ?? "حاسبة AI",
-      sellerVat:
-        company.vatNumber && company.vatNumber !== "—"
-          ? company.vatNumber
-          : process.env["ZATCA_VAT_NUMBER"] ?? "300000000000003",
+      sellerName: company.name,
+      sellerVat: company.vatNumber ?? "",
       buyerName: b.buyerName ?? inv.customerName,
       buyerVat: b.buyerVat ?? null,
       totalExclVat: Number(subtotal.toFixed(2)),
       vatAmount: Number(vatAmount.toFixed(2)),
       totalInclVat: total,
-      branchId: b.branchId ?? inv.branchId ?? null,
+      branchId,
     });
     res.status(201).json(out);
   } catch (err) {
@@ -1087,10 +1159,11 @@ const UpdateConnectorBody = z.object({
   apiKey: z.string().min(4).max(500).nullable().optional(),
 });
 
-router.get("/integrations/marketplaces", inventoryGuard, async (_req, res) => {
+router.get("/integrations/marketplaces", inventoryGuard, async (req, res) => {
   const rows = await db
     .select()
     .from(marketplaceConnectorsTable)
+    .where(branchScope(marketplaceConnectorsTable.branchId, req.session.companyId!))
     .orderBy(marketplaceConnectorsTable.platform, marketplaceConnectorsTable.displayName);
   res.json(rows);
 });
@@ -1114,6 +1187,7 @@ router.post("/integrations/marketplaces", adminGuard, async (req, res) => {
     if (b.accessToken || b.apiKey) {
       const { credentialLabelForConnector } = await import("../lib/integrations/marketplaces");
       await upsertCredential({
+        companyId: req.session.companyId!,
         provider: b.platform,
         branchId: b.branchId ?? null,
         label: credentialLabelForConnector(row!.id),
@@ -1158,6 +1232,7 @@ router.patch("/integrations/marketplaces/:id", adminGuard, async (req, res) => {
     if (b.accessToken || b.apiKey) {
       const { credentialLabelForConnector } = await import("../lib/integrations/marketplaces");
       await upsertCredential({
+        companyId: req.session.companyId!,
         provider: existing.platform,
         branchId: existing.branchId,
         label: credentialLabelForConnector(id),
@@ -1276,8 +1351,8 @@ router.post(
         .select()
         .from(marketplaceProductMappingsTable)
         .where(eq(marketplaceProductMappingsTable.connectorId, id));
-      const { broadcastInventoryChange } = await import("../lib/integrations/marketplaces");
-      for (const m of mappings) broadcastInventoryChange(m.productId);
+      const { scheduleInventoryPush } = await import("../lib/integrations/marketplaces");
+      for (const m of mappings) await scheduleInventoryPush(m.productId, id);
       res.json({ scheduled: mappings.length });
     } catch (err) {
       handle(res, err);
@@ -1688,7 +1763,8 @@ router.get("/integrations/calls", adminGuard, async (req, res) => {
   const rows = await db
     .select()
     .from(integrationCallsTable)
-    .where(provider ? eq(integrationCallsTable.provider, provider) : sql`true`)
+    .where(and(branchScope(integrationCallsTable.branchId, req.session.companyId!),
+      provider ? eq(integrationCallsTable.provider, provider) : undefined))
     .orderBy(desc(integrationCallsTable.createdAt))
     .limit(200);
   res.json(rows);

@@ -1,6 +1,7 @@
 import type { Request, Response, NextFunction } from "express";
-import { db, userCompaniesTable } from "@workspace/db";
+import { db, userCompaniesTable, usersTable, companiesTable } from "@workspace/db";
 import { and, desc, eq } from "drizzle-orm";
+import { isRole } from "./require-role";
 
 /**
  * Ensure the request carries a valid `companyId` on its session, lazily
@@ -27,31 +28,39 @@ export async function requireCompanyContext(
     res.status(401).json({ error: "غير مسجل دخول" });
     return;
   }
-  if (typeof req.session.companyId === "number" && req.session.companyId > 0) {
-    next();
-    return;
-  }
   try {
+    const [active] = await db.select({ id: usersTable.id }).from(usersTable)
+      .where(and(eq(usersTable.id, userId), eq(usersTable.isActive, true)));
+    if (!active) {
+      res.status(401).json({ error: "غير مسجل دخول" });
+      return;
+    }
     const [defaultRow] = await db
-      .select({ companyId: userCompaniesTable.companyId })
+      .select({ companyId: userCompaniesTable.companyId, role: userCompaniesTable.role })
       .from(userCompaniesTable)
-      .where(and(eq(userCompaniesTable.userId, userId), eq(userCompaniesTable.isDefault, true)))
+      .innerJoin(companiesTable, eq(companiesTable.id, userCompaniesTable.companyId))
+      .where(and(eq(userCompaniesTable.userId, userId), eq(companiesTable.isActive, true),
+        req.session.companyId
+          ? eq(userCompaniesTable.companyId, req.session.companyId)
+          : eq(userCompaniesTable.isDefault, true)))
       .limit(1);
-    let companyId = defaultRow?.companyId;
-    if (!companyId) {
+    let membership = defaultRow;
+    if (!membership && !req.session.companyId) {
       const [anyRow] = await db
-        .select({ companyId: userCompaniesTable.companyId })
+        .select({ companyId: userCompaniesTable.companyId, role: userCompaniesTable.role })
         .from(userCompaniesTable)
-        .where(eq(userCompaniesTable.userId, userId))
+        .innerJoin(companiesTable, eq(companiesTable.id, userCompaniesTable.companyId))
+        .where(and(eq(userCompaniesTable.userId, userId), eq(companiesTable.isActive, true)))
         .orderBy(desc(userCompaniesTable.createdAt))
         .limit(1);
-      companyId = anyRow?.companyId;
+      membership = anyRow;
     }
-    if (!companyId) {
+    if (!membership || !isRole(membership.role)) {
       res.status(403).json({ error: "لا توجد شركة مرتبطة بهذا الحساب" });
       return;
     }
-    req.session.companyId = companyId;
+    req.session.companyId = membership.companyId;
+    req.session.role = membership.role;
     req.session.save((err) => {
       if (err) {
         req.log.error({ err }, "session save in requireCompanyContext failed");

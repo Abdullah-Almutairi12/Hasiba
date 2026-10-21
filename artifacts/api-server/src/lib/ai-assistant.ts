@@ -1,9 +1,9 @@
 import { db, posOrdersTable, productsTable, customersTable, branchesTable, invoicesTable } from "@workspace/db";
-import { sql, desc, gte } from "drizzle-orm";
+import { sql, desc, gte, and, eq } from "drizzle-orm";
 import { getOpenAI, isOpenAIConfigured, tryAI } from "./openai-client";
 
 // Build a compact context from the user's actual ERP data
-async function buildBusinessContext(): Promise<string> {
+async function buildBusinessContext(companyId: number): Promise<string> {
   const since = new Date();
   since.setDate(since.getDate() - 30);
 
@@ -13,7 +13,7 @@ async function buildBusinessContext(): Promise<string> {
       orderCount: sql<number>`count(*)::int`,
     })
     .from(posOrdersTable)
-    .where(gte(posOrdersTable.createdAt, since));
+    .where(and(eq(posOrdersTable.companyId, companyId), gte(posOrdersTable.createdAt, since)));
 
   const topProducts = await db
     .select({
@@ -22,18 +22,20 @@ async function buildBusinessContext(): Promise<string> {
       price: productsTable.price,
     })
     .from(productsTable)
+    .where(eq(productsTable.companyId, companyId))
     .orderBy(desc(productsTable.stock))
     .limit(10);
 
   const [customerCount] = await db
     .select({ c: sql<number>`count(*)::int` })
-    .from(customersTable);
+    .from(customersTable).where(eq(customersTable.companyId, companyId));
 
-  const branches = await db.select({ name: branchesTable.name, city: branchesTable.city }).from(branchesTable);
+  const branches = await db.select({ name: branchesTable.name, city: branchesTable.city }).from(branchesTable)
+    .where(eq(branchesTable.companyId, companyId));
 
   const [openInv] = await db
     .select({ c: sql<number>`(count(*) filter (where ${invoicesTable.status} != 'done'))::int` })
-    .from(invoicesTable);
+    .from(invoicesTable).where(eq(invoicesTable.companyId, companyId));
 
   const lines: string[] = [
     `إجمالي مبيعات آخر 30 يوماً: ${Number(salesRow?.total ?? 0).toLocaleString("ar-SA")} ريال`,
@@ -49,11 +51,11 @@ async function buildBusinessContext(): Promise<string> {
   return lines.join("\n");
 }
 
-export async function askAssistant(question: string): Promise<{ answer: string; tokensUsed?: number }> {
+export async function askAssistant(companyId: number, question: string): Promise<{ answer: string; tokensUsed?: number }> {
   if (!isOpenAIConfigured()) {
     return { answer: "المساعد الذكي غير مهيأ. تواصل مع مدير النظام." };
   }
-  const ctx = await buildBusinessContext();
+  const ctx = await buildBusinessContext(companyId);
 
   // Wrap the upstream call so quota / 5xx / timeout failures surface as a
   // single AIUnavailableError → route handler maps to 503 with Arabic copy.

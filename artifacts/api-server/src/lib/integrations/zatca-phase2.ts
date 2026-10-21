@@ -1,9 +1,10 @@
 import { createHash, generateKeyPairSync, sign as signRaw, randomUUID, webcrypto } from "node:crypto";
 import * as x509 from "@peculiar/x509";
-import { db, zatcaCertificatesTable, zatcaInvoicesTable } from "@workspace/db";
+import { db, zatcaCertificatesTable, zatcaInvoicesTable, customerInvoicesTable } from "@workspace/db";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { encryptSecret, decryptSecret } from "./crypto";
 import { recordIntegrationCall } from "./audit";
+import { assertCompanyBranch, branchScope, CompanyAccessError } from "../company-access";
 
 /**
  * ZATCA Phase 2 (e-invoicing) — production-shaped pipeline.
@@ -263,6 +264,7 @@ interface SigningKeyMaterial {
 }
 
 async function getOrGenerateKey(branchId: number | null): Promise<SigningKeyMaterial> {
+  if (branchId == null) throw new CompanyAccessError();
   // Each branch is its own EGS unit; certificates are scoped per
   // branch. When branchId is null we ONLY look at certificates
   // that were also issued without a branch (org-level fallback) —
@@ -347,7 +349,8 @@ export async function createCsr(args: {
   invoiceTypes?: "1100" | "0100" | "1000";
   sellingAddress?: string;
   industry?: string;
-}): Promise<{ id: number; csrPem: string }> {
+}, companyId: number): Promise<{ id: number; csrPem: string }> {
+  await assertCompanyBranch(args.branchId, companyId);
   // ZATCA Phase 2 mandates secp256k1 for the EGS signing key.
   // @peculiar/webcrypto exposes the curve under the "K-256" alias;
   // however older Node runtimes (and some bundlers' WebCrypto
@@ -425,8 +428,8 @@ export async function attachCsid(args: {
   certificateId: number;
   csid: string;
   certificatePem: string;
-}): Promise<void> {
-  await db
+}, companyId: number): Promise<void> {
+  const rows = await db
     .update(zatcaCertificatesTable)
     .set({
       csid: args.csid,
@@ -434,21 +437,25 @@ export async function attachCsid(args: {
       status: "compliance",
       updatedAt: new Date(),
     })
-    .where(eq(zatcaCertificatesTable.id, args.certificateId));
+    .where(and(eq(zatcaCertificatesTable.id, args.certificateId), branchScope(zatcaCertificatesTable.branchId, companyId)))
+    .returning({ id: zatcaCertificatesTable.id });
+  if (!rows.length) throw new CompanyAccessError();
 }
 
 export async function attachPcsid(args: {
   certificateId: number;
   pcsid: string;
-}): Promise<void> {
-  await db
+}, companyId: number): Promise<void> {
+  const rows = await db
     .update(zatcaCertificatesTable)
     .set({
       pcsid: args.pcsid,
       status: "active",
       updatedAt: new Date(),
     })
-    .where(eq(zatcaCertificatesTable.id, args.certificateId));
+    .where(and(eq(zatcaCertificatesTable.id, args.certificateId), branchScope(zatcaCertificatesTable.branchId, companyId)))
+    .returning({ id: zatcaCertificatesTable.id });
+  if (!rows.length) throw new CompanyAccessError();
 }
 
 /**
@@ -464,12 +471,12 @@ export async function attachPcsid(args: {
 export async function retrieveCsid(args: {
   certificateId: number;
   otp: string;
-}): Promise<{ csid: string; certificatePem: string; requestId: string }> {
+}, companyId: number): Promise<{ csid: string; certificatePem: string; requestId: string }> {
   const [cert] = await db
     .select()
     .from(zatcaCertificatesTable)
-    .where(eq(zatcaCertificatesTable.id, args.certificateId));
-  if (!cert) throw new Error("certificate_row_not_found");
+    .where(and(eq(zatcaCertificatesTable.id, args.certificateId), branchScope(zatcaCertificatesTable.branchId, companyId)));
+  if (!cert) throw new CompanyAccessError();
   if (!cert.csrPem) throw new Error("csr_missing");
   const base = process.env["ZATCA_COMPLIANCE_BASE_URL"];
   if (!base) throw new Error("ZATCA_COMPLIANCE_BASE_URL not configured");
@@ -520,7 +527,7 @@ export async function retrieveCsid(args: {
       status: "compliance",
       updatedAt: new Date(),
     })
-    .where(eq(zatcaCertificatesTable.id, args.certificateId));
+    .where(and(eq(zatcaCertificatesTable.id, args.certificateId), branchScope(zatcaCertificatesTable.branchId, companyId)));
   return {
     csid: body.binarySecurityToken,
     certificatePem: certPem,
@@ -538,12 +545,12 @@ export async function retrieveCsid(args: {
  */
 export async function retrievePcsid(args: {
   certificateId: number;
-}): Promise<{ pcsid: string }> {
+}, companyId: number): Promise<{ pcsid: string }> {
   const [cert] = await db
     .select()
     .from(zatcaCertificatesTable)
-    .where(eq(zatcaCertificatesTable.id, args.certificateId));
-  if (!cert) throw new Error("certificate_row_not_found");
+    .where(and(eq(zatcaCertificatesTable.id, args.certificateId), branchScope(zatcaCertificatesTable.branchId, companyId)));
+  if (!cert) throw new CompanyAccessError();
   if (!cert.csid || !cert.complianceSecretCiphertext) {
     throw new Error("csid_or_secret_missing — call retrieveCsid first");
   }
@@ -588,11 +595,12 @@ export async function retrievePcsid(args: {
       status: "active",
       updatedAt: new Date(),
     })
-    .where(eq(zatcaCertificatesTable.id, args.certificateId));
+    .where(and(eq(zatcaCertificatesTable.id, args.certificateId), branchScope(zatcaCertificatesTable.branchId, companyId)));
   return { pcsid: body.binarySecurityToken };
 }
 
 async function getLastInvoiceHash(branchId: number | null): Promise<string> {
+  if (branchId == null) throw new CompanyAccessError();
   // Walk the chain scoped to the EGS unit (== branch). The chain
   // includes BOTH `cleared` (standard/clearance) and `reported`
   // (simplified) invoices because they share the device's PIH
@@ -642,6 +650,10 @@ export async function processInvoiceForZatca(input: ZatcaInvoiceInput): Promise<
   qrTlvBase64: string;
   status: string;
 }> {
+  const [invoice] = await db.select({ companyId: customerInvoicesTable.companyId })
+    .from(customerInvoicesTable).where(eq(customerInvoicesTable.id, input.invoiceId));
+  if (!invoice) throw new CompanyAccessError();
+  await assertCompanyBranch(input.branchId, invoice.companyId);
   const uuid = randomUUID();
   const pih = await getLastInvoiceHash(input.branchId ?? null);
   // Hash is computed over the canonical UNSIGNED form per ZATCA

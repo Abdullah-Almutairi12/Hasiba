@@ -1,8 +1,9 @@
-import { db, shippingCarriersTable, shipmentsTable } from "@workspace/db";
+import { db, shippingCarriersTable, shipmentsTable, customersTable } from "@workspace/db";
 import { and, eq, sql } from "drizzle-orm";
 import { getCredential, MissingCredentialError } from "./credentials";
 import { recordIntegrationCall } from "./audit";
 import { logger } from "../logger";
+import { branchScope, CompanyAccessError } from "../company-access";
 
 export type CarrierProvider = "smsa" | "aramex" | "saee" | "naqel";
 
@@ -393,12 +394,18 @@ const CARRIERS: Record<CarrierProvider, CarrierAdapter> = {
   naqel: naqelAdapter,
 };
 
-export async function createAwb(req: CreateAwbRequest): Promise<CreateAwbResult> {
+export async function createAwb(req: CreateAwbRequest, companyId: number): Promise<CreateAwbResult> {
   const [carrier] = await db
     .select()
     .from(shippingCarriersTable)
-    .where(eq(shippingCarriersTable.id, req.carrierId));
-  if (!carrier) throw new Error(`Shipping carrier #${req.carrierId} not found`);
+    .where(and(eq(shippingCarriersTable.id, req.carrierId), branchScope(shippingCarriersTable.branchId, companyId)));
+  if (!carrier) throw new CompanyAccessError();
+  if (req.customerId != null) {
+    const [customer] = await db.select({ id: customersTable.id }).from(customersTable).where(and(
+      eq(customersTable.id, req.customerId), eq(customersTable.companyId, companyId),
+    ));
+    if (!customer) throw new CompanyAccessError();
+  }
   if (!carrier.isEnabled) throw new Error(`Carrier "${carrier.provider}" is disabled`);
 
   const cred = await getCredential<Record<string, string>>(carrier.provider, {

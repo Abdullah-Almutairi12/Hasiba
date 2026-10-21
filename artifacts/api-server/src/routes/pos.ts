@@ -42,6 +42,7 @@ import { z } from "zod";
 import { createCheckout } from "../lib/integrations/payments";
 import bcrypt from "bcryptjs";
 import rateLimit, { ipKeyGenerator } from "express-rate-limit";
+import { branchScope } from "../lib/company-access";
 
 // Brute-force protection for inline manager dual-authorization on POS
 // orders. Keyed by (IP, attempted manager email) so a single station
@@ -104,8 +105,8 @@ class FinancialLimitError extends Error {
 // so accounting + reporting reconcile cleanly.
 // =============================================================
 // Resolve the caller's branchId from the users table. Owners/managers
-// (no branch assigned) see global + every branch's gateways; cashiers
-// see only their own branch + global (branchId IS NULL) gateways.
+// see all branches in the active company; cashiers see only their own
+// branch within that company. Branchless legacy gateways are not owned.
 async function getCallerBranchId(userId: number): Promise<number | null> {
   const [u] = await db
     .select({ branchId: usersTable.branchId })
@@ -125,19 +126,11 @@ router.get("/pos/payment-gateways", posReadGuard, async (req, res) => {
     const callerBranch = await getCallerBranchId(userId);
     const role = (req.session as { role?: string } | undefined)?.role;
     const isPrivileged = role === "owner" || role === "manager";
-    // Branch-scoped gateways visible to a cashier: their own branch +
-    // any global (NULL) gateway. Owners/managers see everything.
-    const where = isPrivileged
-      ? eq(paymentGatewaysTable.isEnabled, true)
-      : callerBranch === null
-      ? and(
-          eq(paymentGatewaysTable.isEnabled, true),
-          isNull(paymentGatewaysTable.branchId),
-        )
-      : and(
-          eq(paymentGatewaysTable.isEnabled, true),
-          sql`(${paymentGatewaysTable.branchId} = ${callerBranch} OR ${paymentGatewaysTable.branchId} IS NULL)`,
-        );
+    const where = and(
+      eq(paymentGatewaysTable.isEnabled, true),
+      branchScope(paymentGatewaysTable.branchId, req.session.companyId!),
+      isPrivileged ? undefined : eq(paymentGatewaysTable.branchId, callerBranch ?? -1),
+    );
     const rows = await db
       .select({
         id: paymentGatewaysTable.id,
@@ -174,8 +167,8 @@ router.post("/pos/payment/checkout", posGuard, async (req, res) => {
       return;
     }
     // Tenant guard: a cashier can only initiate charges through a
-    // gateway that belongs to their branch (or to a global config).
-    // Owners/managers bypass this since they manage every branch.
+    // gateway in the active company, narrowed to their own branch.
+    // Owners/managers manage all branches within that company only.
     const [gw] = await db
       .select({
         id: paymentGatewaysTable.id,
@@ -183,7 +176,8 @@ router.post("/pos/payment/checkout", posGuard, async (req, res) => {
         isEnabled: paymentGatewaysTable.isEnabled,
       })
       .from(paymentGatewaysTable)
-      .where(eq(paymentGatewaysTable.id, body.gatewayId))
+      .where(and(eq(paymentGatewaysTable.id, body.gatewayId),
+        branchScope(paymentGatewaysTable.branchId, req.session.companyId!)))
       .limit(1);
     if (!gw || !gw.isEnabled) {
       res.status(404).json({ error: "بوابة الدفع غير متاحة" });
@@ -193,7 +187,7 @@ router.post("/pos/payment/checkout", posGuard, async (req, res) => {
     const isPrivileged = role === "owner" || role === "manager";
     if (!isPrivileged) {
       const callerBranch = await getCallerBranchId(userId);
-      if (gw.branchId !== null && gw.branchId !== callerBranch) {
+      if (gw.branchId !== callerBranch) {
         res.status(403).json({ error: "بوابة الدفع تخص فرعاً آخر" });
         return;
       }
@@ -206,7 +200,7 @@ router.post("/pos/payment/checkout", posGuard, async (req, res) => {
       customerId: body.customerId,
       callbackUrl: body.callbackUrl,
       metadata: { source: "pos", cartRef: body.cartRef ?? "" },
-    });
+    }, req.session.companyId!);
     res.status(201).json(out);
   } catch (err) {
     req.log.warn({ err }, "POS gateway checkout failed");
@@ -244,11 +238,12 @@ router.get("/pos/payment/intent/:id", posReadGuard, async (req, res) => {
         updatedAt: paymentIntentsTable.updatedAt,
       })
       .from(paymentIntentsTable)
-      .leftJoin(
+      .innerJoin(
         paymentGatewaysTable,
         eq(paymentGatewaysTable.id, paymentIntentsTable.gatewayId),
       )
-      .where(eq(paymentIntentsTable.id, id));
+      .where(and(eq(paymentIntentsTable.id, id),
+        branchScope(paymentGatewaysTable.branchId, req.session.companyId!)));
     if (!row) {
       res.status(404).json({ error: "لم يتم العثور على عملية الدفع" });
       return;
@@ -258,7 +253,6 @@ router.get("/pos/payment/intent/:id", posReadGuard, async (req, res) => {
     if (!isPrivileged) {
       const callerBranch = await getCallerBranchId(userId);
       if (
-        row.gatewayBranchId !== null &&
         row.gatewayBranchId !== callerBranch
       ) {
         res.status(404).json({ error: "لم يتم العثور على عملية الدفع" });
@@ -822,16 +816,16 @@ router.post(
           .for("update");
         if (!pi) throw new ValidationError("عملية الدفع غير موجودة");
         // Cross-branch IDOR guard: the intent's gateway must belong to
-        // the same branch as the POS session (or be a global gateway).
+        // the same owned branch as the POS session. Legacy global
+        // gateways cannot establish tenant ownership.
         const [intentGw] = await tx
           .select({ branchId: paymentGatewaysTable.branchId })
           .from(paymentGatewaysTable)
-          .where(eq(paymentGatewaysTable.id, pi.gatewayId))
+          .where(and(eq(paymentGatewaysTable.id, pi.gatewayId),
+            branchScope(paymentGatewaysTable.branchId, req.session.companyId!)))
           .limit(1);
         if (
-          intentGw &&
-          intentGw.branchId !== null &&
-          intentGw.branchId !== session.branchId
+          !intentGw || intentGw.branchId !== session.branchId
         ) {
           throw new ValidationError("عملية الدفع تخص فرعاً آخر");
         }

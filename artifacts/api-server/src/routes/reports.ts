@@ -145,16 +145,16 @@ router.get("/reports/ai-summary", async (req, res) => {
   }
 });
 
-router.get("/reports/insights", async (_req, res) => {
+router.get("/reports/insights", async (req, res) => {
   let forecastNextWeek = 0;
   let forecastConfidence = 0;
   try {
-    const { predictSalesNext7Days } = await import("../lib/ai-models");
+    const { predictSalesNext7Days, modelKey } = await import("../lib/ai-models");
     const { db: _db, aiModelsTable } = await import("@workspace/db");
     const { eq } = await import("drizzle-orm");
-    const forecast = await predictSalesNext7Days();
+    const forecast = await predictSalesNext7Days(req.session.companyId!);
     forecastNextWeek = forecast.reduce((s, d) => s + d.predicted, 0);
-    const [model] = await _db.select().from(aiModelsTable).where(eq(aiModelsTable.key, "sales_forecast")).limit(1);
+    const [model] = await _db.select().from(aiModelsTable).where(eq(aiModelsTable.key, modelKey(req.session.companyId!, "sales_forecast"))).limit(1);
     forecastConfidence = Math.round((model?.accuracy ?? 0) * 100);
   } catch {
     // model not trained yet

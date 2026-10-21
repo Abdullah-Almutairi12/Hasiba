@@ -11,8 +11,11 @@ import {
 } from "../middlewares/require-role";
 import { handleRouteError } from "../lib/handle-error";
 import { recordAudit } from "../lib/audit";
+import { requireCompanyContext } from "../middlewares/require-company-context";
+import { assertCompanyBranch } from "../lib/company-access";
 
 const router = Router();
+router.use(["/users", "/admin/team-consents"], requireCompanyContext);
 
 // Explicit safe column projection — NEVER include passwordHash in responses.
 const safeUserColumns = {
@@ -154,8 +157,12 @@ router.get("/users/roles", async (_req, res) => {
 router.get("/users", adminGuard, async (req, res) => {
   try {
     const rows = await db
-      .select(safeUserColumns)
+      .select({ ...safeUserColumns, role: userCompaniesTable.role })
       .from(usersTable)
+      .innerJoin(userCompaniesTable, and(
+        eq(userCompaniesTable.userId, usersTable.id),
+        eq(userCompaniesTable.companyId, req.session.companyId!),
+      ))
       .orderBy(desc(usersTable.createdAt));
     res.json(
       rows.map((u) => ({
@@ -186,6 +193,7 @@ const CreateUserBody = z.object({
 router.post("/users", adminGuard, async (req, res) => {
   try {
     const body = CreateUserBody.parse(req.body);
+    if (body.branchId != null) await assertCompanyBranch(body.branchId, req.session.companyId!);
     const actorRole = req.session.role;
     // Only an existing owner can create a new owner.
     if (body.role === "owner" && actorRole !== "owner") {
@@ -194,19 +202,22 @@ router.post("/users", adminGuard, async (req, res) => {
         .json({ error: "فقط المالك يمكنه إنشاء حساب مالك آخر" });
     }
     const passwordHash = await bcrypt.hash(body.password, 12);
-    const [created] = await db
-      .insert(usersTable)
-      .values({
-        name: body.name,
-        email: body.email.toLowerCase(),
-        phone: body.phone ?? null,
-        passwordHash,
-        role: body.role,
-        branchId: body.branchId ?? null,
-        isActive: body.isActive ?? true,
-        has2fa: body.has2fa ?? false,
-      })
-      .returning(safeUserColumns);
+    const created = await db.transaction(async (tx) => {
+      const [user] = await tx.insert(usersTable).values({
+          name: body.name,
+          email: body.email.toLowerCase(),
+          phone: body.phone ?? null,
+          passwordHash,
+          role: body.role,
+          branchId: body.branchId ?? null,
+          isActive: body.isActive ?? true,
+          has2fa: body.has2fa ?? false,
+        }).returning(safeUserColumns);
+      await tx.insert(userCompaniesTable).values({
+        userId: user.id, companyId: req.session.companyId!, role: body.role, isDefault: true,
+      });
+      return user;
+    });
     return res.status(201).json({
       ...created,
       lastLoginAt: created.lastLoginAt ? created.lastLoginAt.toISOString() : null,
@@ -235,13 +246,17 @@ router.patch("/users/:id", adminGuard, async (req, res) => {
     const body = UpdateUserBody.parse(req.body);
     const actorRole = req.session.role;
 
+    const companyId = req.session.companyId!;
+    const [membership] = await db.select().from(userCompaniesTable)
+      .where(and(eq(userCompaniesTable.userId, id), eq(userCompaniesTable.companyId, companyId)));
+    if (!membership) return res.status(404).json({ error: "المستخدم غير موجود" });
     const [target] = await db.select().from(usersTable).where(eq(usersTable.id, id)).limit(1);
     if (!target) return res.status(404).json({ error: "المستخدم غير موجود" });
 
     // Owner-protection rules:
     // - Only owner can promote/demote owner.
     // - Only owner can edit another owner.
-    if (target.role === "owner" && actorRole !== "owner") {
+    if ((target.role === "owner" || membership.role === "owner") && actorRole !== "owner") {
       return res.status(403).json({ error: "لا يمكن تعديل حساب المالك" });
     }
     if (body.role === "owner" && actorRole !== "owner") {
@@ -250,20 +265,36 @@ router.patch("/users/:id", adminGuard, async (req, res) => {
         .json({ error: "فقط المالك يمكنه ترقية مستخدم إلى مالك" });
     }
 
+    if (body.branchId != null) await assertCompanyBranch(body.branchId, companyId);
+    const memberships = await db.select().from(userCompaniesTable).where(eq(userCompaniesTable.userId, id));
+    // Passwords, activation, and profile fields belong to the global identity.
+    // A tenant administrator must not change an identity used in another company.
+    const globalChange = Object.entries(body).some(([key, value]) => key !== "role" && value !== undefined);
+    if (globalChange && memberships.some((m) => m.companyId !== companyId)) {
+      return res.status(403).json({ error: "لا يمكن تعديل حساب مشترك مع شركة أخرى" });
+    }
+    if (membership.role === "owner" && body.role && body.role !== "owner") {
+      const others = await db.select().from(userCompaniesTable).where(and(
+        eq(userCompaniesTable.companyId, companyId), eq(userCompaniesTable.role, "owner"),
+        ne(userCompaniesTable.userId, id),
+      ));
+      if (!others.length) return res.status(400).json({ error: "لا يمكن تعديل آخر مالك" });
+    }
     const update: Record<string, unknown> = {};
     if (body.name !== undefined) update.name = body.name;
     if (body.phone !== undefined) update.phone = body.phone;
-    if (body.role !== undefined) update.role = body.role;
     if (body.branchId !== undefined) update.branchId = body.branchId;
     if (body.isActive !== undefined) update.isActive = body.isActive;
     if (body.has2fa !== undefined) update.has2fa = body.has2fa;
     if (body.password !== undefined) update.passwordHash = await bcrypt.hash(body.password, 12);
 
-    const [updated] = await db
-      .update(usersTable)
-      .set(update)
-      .where(eq(usersTable.id, id))
-      .returning(safeUserColumns);
+    const updated = await db.transaction(async (tx) => {
+      if (body.role !== undefined) await tx.update(userCompaniesTable).set({ role: body.role })
+        .where(and(eq(userCompaniesTable.userId, id), eq(userCompaniesTable.companyId, companyId)));
+      if (Object.keys(update).length) await tx.update(usersTable).set(update).where(eq(usersTable.id, id));
+      const [user] = await tx.select(safeUserColumns).from(usersTable).where(eq(usersTable.id, id));
+      return { ...user, role: body.role ?? membership.role };
+    });
     return res.json({
       ...updated,
       lastLoginAt: updated.lastLoginAt ? updated.lastLoginAt.toISOString() : null,
@@ -283,18 +314,24 @@ router.delete("/users/:id", ownerOnly, async (req, res) => {
       return res.status(400).json({ error: "لا يمكنك حذف حسابك الخاص" });
     }
     // Never delete the last owner.
-    const [target] = await db.select().from(usersTable).where(eq(usersTable.id, id)).limit(1);
+    const [target] = await db.select().from(userCompaniesTable).where(and(
+      eq(userCompaniesTable.userId, id), eq(userCompaniesTable.companyId, req.session.companyId!),
+    )).limit(1);
     if (!target) return res.status(404).json({ error: "المستخدم غير موجود" });
     if (target.role === "owner") {
       const others = await db
-        .select({ id: usersTable.id })
-        .from(usersTable)
-        .where(and(eq(usersTable.role, "owner"), ne(usersTable.id, id)));
+        .select({ id: userCompaniesTable.userId })
+        .from(userCompaniesTable)
+        .where(and(eq(userCompaniesTable.companyId, req.session.companyId!),
+          eq(userCompaniesTable.role, "owner"), ne(userCompaniesTable.userId, id)));
       if (others.length === 0) {
         return res.status(400).json({ error: "لا يمكن حذف آخر مالك في النظام" });
       }
     }
-    await db.delete(usersTable).where(eq(usersTable.id, id));
+    // Removing access must not delete an identity used by another tenant.
+    await db.delete(userCompaniesTable).where(and(
+      eq(userCompaniesTable.userId, id), eq(userCompaniesTable.companyId, req.session.companyId!),
+    ));
     return res.json({ ok: true });
   } catch (err) {
     req.log.error({ err }, "Error deleting user");

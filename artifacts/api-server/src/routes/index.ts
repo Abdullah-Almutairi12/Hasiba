@@ -74,7 +74,7 @@ router.use(intercompanyEmailActionRouter);
 
 // All business routes require an authenticated session and a tenant
 // context (Multi-Company Phase 2). A handful of cross-tenant admin
-// surfaces (users CRUD, companies, app_settings, admin panel) still
+// surfaces (companies, app_settings, admin panel) still
 // require auth but bypass company scoping — they are mounted BEFORE
 // requireCompanyContext below.
 router.use(requireAuth);
@@ -84,9 +84,11 @@ router.use(requireAuth);
 router.use(requireSameOrigin);
 
 // Cross-tenant routes — auth only, no company scope:
-//   /users, /companies (Phase 3), /app-settings, /admin/*, /storage
+//   /companies (Phase 3), /app-settings, /admin/*, /storage
 // These manage data that is either global (app-settings) or that
 // itself selects/joins on companies (admin panel for the tenant).
+// Users are global identities, but their administration is tenant-scoped
+// inside this router using the active company's membership roster.
 router.use(usersRouter);
 router.use(adminRouter);
 // Multi-Company Phase 3: companies CRUD + access matrix. Owner-only and

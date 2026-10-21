@@ -1,6 +1,7 @@
 import { db, externalCredentialsTable } from "@workspace/db";
 import { and, eq, isNull } from "drizzle-orm";
 import { decryptJson, encryptJson } from "./crypto";
+import { assertCompanyBranch } from "../company-access";
 
 export type CredentialPayload = Record<string, unknown>;
 
@@ -15,9 +16,8 @@ export interface ResolvedCredential<T extends CredentialPayload = CredentialPayl
 
 /**
  * Look up the active credential for a given (branch, provider, label?)
- * combination. Falls back to a global (branch_id IS NULL) credential
- * if no branch-scoped row exists, which is convenient for the
- * single-tenant deployments shipping today.
+ * combination. Branch-scoped callers never fall back to legacy global
+ * credentials: those have no provable tenant owner.
  */
 export async function getCredential<T extends CredentialPayload = CredentialPayload>(
   provider: string,
@@ -55,26 +55,7 @@ export async function getCredential<T extends CredentialPayload = CredentialPayl
     )
     .limit(1);
 
-  let row = rows[0];
-
-  // Fallback to branch-agnostic credential when none is branch-scoped.
-  if (!row && branchId !== null) {
-    const fallback = await db
-      .select()
-      .from(externalCredentialsTable)
-      .where(
-        and(
-          eq(externalCredentialsTable.provider, provider),
-          eq(externalCredentialsTable.isActive, true),
-          isNull(externalCredentialsTable.branchId),
-          environment === null
-            ? undefined
-            : eq(externalCredentialsTable.environment, environment),
-        ),
-      )
-      .limit(1);
-    row = fallback[0];
-  }
+  const row = rows[0];
 
   if (!row) return null;
 
@@ -98,6 +79,7 @@ export async function getCredential<T extends CredentialPayload = CredentialPayl
 }
 
 export async function upsertCredential(args: {
+  companyId: number;
   provider: string;
   branchId?: number | null;
   label?: string | null;
@@ -105,6 +87,7 @@ export async function upsertCredential(args: {
   secret: CredentialPayload;
 }): Promise<{ id: number }> {
   const branchId = args.branchId ?? null;
+  await assertCompanyBranch(branchId, args.companyId);
   const label = args.label ?? null;
   const ciphertext = encryptJson(args.secret);
 

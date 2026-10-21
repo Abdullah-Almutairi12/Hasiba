@@ -1,10 +1,11 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { db, paymentGatewaysTable, paymentIntentsTable } from "@workspace/db";
+import { db, paymentGatewaysTable, paymentIntentsTable, customerInvoicesTable, customersTable } from "@workspace/db";
 import { and, eq } from "drizzle-orm";
 import { getCredential, MissingCredentialError } from "./credentials";
 import { recordIntegrationCall } from "./audit";
 import { decryptSecret } from "./crypto";
 import { postPaymentReceiptToLedger } from "./ledger";
+import { branchScope, CompanyAccessError } from "../company-access";
 
 export type PaymentProvider =
   | "moyasar"
@@ -639,12 +640,22 @@ const ADAPTERS: Record<PaymentProvider, PaymentAdapter> = {
   paytabs: payTabsAdapter,
 };
 
-export async function createCheckout(req: CheckoutRequest): Promise<CheckoutResult> {
+export async function createCheckout(req: CheckoutRequest, companyId: number): Promise<CheckoutResult> {
   const [gateway] = await db
     .select()
     .from(paymentGatewaysTable)
-    .where(eq(paymentGatewaysTable.id, req.gatewayId));
-  if (!gateway) throw new Error(`Payment gateway #${req.gatewayId} not found`);
+    .where(and(eq(paymentGatewaysTable.id, req.gatewayId), branchScope(paymentGatewaysTable.branchId, companyId)));
+  if (!gateway) throw new CompanyAccessError();
+  if (req.invoiceId != null) {
+    const [invoice] = await db.select({ id: customerInvoicesTable.id }).from(customerInvoicesTable)
+      .where(and(eq(customerInvoicesTable.id, req.invoiceId), eq(customerInvoicesTable.companyId, companyId)));
+    if (!invoice) throw new CompanyAccessError();
+  }
+  if (req.customerId != null) {
+    const [customer] = await db.select({ id: customersTable.id }).from(customersTable)
+      .where(and(eq(customersTable.id, req.customerId), eq(customersTable.companyId, companyId)));
+    if (!customer) throw new CompanyAccessError();
+  }
   if (!gateway.isEnabled) throw new Error(`Gateway "${gateway.provider}" is disabled`);
 
   const cred = await getCredential<Record<string, string>>(gateway.provider, {
@@ -684,18 +695,20 @@ export async function createCheckout(req: CheckoutRequest): Promise<CheckoutResu
 export async function refundIntent(args: {
   intentId: number;
   amount?: number;
-}): Promise<{ refundRef: string; status: string }> {
+}, companyId: number): Promise<{ refundRef: string; status: string }> {
   const [intent] = await db
-    .select()
+    .select({ intent: paymentIntentsTable })
     .from(paymentIntentsTable)
-    .where(eq(paymentIntentsTable.id, args.intentId));
-  if (!intent) throw new Error(`Payment intent #${args.intentId} not found`);
+    .innerJoin(paymentGatewaysTable, eq(paymentGatewaysTable.id, paymentIntentsTable.gatewayId))
+    .where(and(eq(paymentIntentsTable.id, args.intentId), branchScope(paymentGatewaysTable.branchId, companyId)))
+    .then((rows) => rows.map((row) => row.intent));
+  if (!intent) throw new CompanyAccessError();
   if (!intent.providerRef) throw new Error(`Intent #${intent.id} has no provider reference yet`);
 
   const [gateway] = await db
     .select()
     .from(paymentGatewaysTable)
-    .where(eq(paymentGatewaysTable.id, intent.gatewayId));
+    .where(and(eq(paymentGatewaysTable.id, intent.gatewayId), branchScope(paymentGatewaysTable.branchId, companyId)));
   if (!gateway) throw new Error("Gateway missing for intent");
 
   const cred = await getCredential<Record<string, string>>(gateway.provider, {
