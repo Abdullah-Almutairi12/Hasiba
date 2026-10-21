@@ -1,3 +1,4 @@
+import { cleanupCompanyDefaults } from "../test/cleanup-company-defaults";
 /**
  * VAT-gating regression for POS order creation.
  *
@@ -283,6 +284,7 @@ afterAll(async () => {
       [companyId],
     );
     await tryRun(`DELETE FROM warehouses WHERE company_id = $1`, [companyId]);
+    await cleanupCompanyDefaults([companyId]);
     await db.delete(companiesTable).where(eq(companiesTable.id, companyId));
   }
 });

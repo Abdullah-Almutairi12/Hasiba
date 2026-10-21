@@ -1,3 +1,4 @@
+import { cleanupCompanyDefaults } from "../test/cleanup-company-defaults";
 /**
  * Multi-Company Phase 6 — consolidated reports integration tests.
  *
@@ -192,6 +193,7 @@ beforeAll(async () => {
     .insert(customerInvoicesTable)
     .values({
       reference: srcRef1,
+      companyId: companyAId,
       customerId: customerAId,
       customerName: cA.name,
       status: "open",
@@ -247,6 +249,7 @@ beforeAll(async () => {
     .insert(customerInvoicesTable)
     .values({
       reference: srcRef2,
+      companyId: companyAId,
       customerId: customerAId,
       customerName: cA.name,
       status: "open",
@@ -393,6 +396,7 @@ afterAll(async () => {
   if (coIds.length > 0) {
     await db.delete(auditLogsTable).where(inArray(auditLogsTable.companyId, coIds));
     await db.delete(warehousesTable).where(inArray(warehousesTable.companyId, coIds));
+    await cleanupCompanyDefaults(coIds);
     await db.delete(companiesTable).where(inArray(companiesTable.id, coIds));
   }
 });

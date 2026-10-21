@@ -26,7 +26,14 @@ export function handleRouteError(err: unknown, res: Response): void {
     res.status(status).json({ error: err.message });
     return;
   }
-  res.status(500).json({ error: "Internal server error" });
+  res.req.log?.error({
+    event: "request.failed",
+    err,
+    requestId: res.req.id,
+    method: res.req.method,
+    route: res.req.route?.path,
+  }, "Unexpected request failure");
+  res.status(500).json({ error: "Internal server error", requestId: res.req.id });
 }
 
 /**

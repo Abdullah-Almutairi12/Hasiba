@@ -1,3 +1,4 @@
+import { cleanupCompanyDefaults } from "../test/cleanup-company-defaults";
 /**
  * Task #262 — Cross-tenant privacy redaction regression tests.
  *
@@ -340,6 +341,7 @@ afterAll(async () => {
     await db.delete(usersTable).where(inArray(usersTable.id, uids));
   }
   if (coIds.length > 0) {
+    await cleanupCompanyDefaults(coIds);
     await db.delete(companiesTable).where(inArray(companiesTable.id, coIds));
   }
 });

@@ -1,0 +1,43 @@
+import { spawnSync } from "node:child_process";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { resolve, join } from "node:path";
+import { writeVerificationReport } from "./verification-report.mjs";
+
+const root = resolve(import.meta.dirname, "..");
+const out = join(root, "generated-artifacts", "verification");
+mkdirSync(out, { recursive: true });
+const checks = [
+  ["typecheck", ["run", "typecheck"]],
+  ["tests", ["run", "test:isolated"]],
+  ["api-build", ["--filter", "@workspace/api-server", "run", "build"]],
+  ...[
+    ["erp-system", "/"], ["docs", "/docs/"],
+    ["features-deck", "/features-deck/"], ["mockup-sandbox", "/__mockup/"],
+  ].map(([name, base]) => [
+    `${name}-build`, ["--filter", `@workspace/${name}`, "run", "build"],
+    { NODE_ENV: "production", PORT: "8080", BASE_PATH: base },
+  ]),
+  ["dependency-audit", ["audit", "--json", "--audit-level=low"]],
+];
+const results = [];
+for (const [name, args, env] of checks) {
+  console.log(`\n[verify] ${name}`);
+  const start = Date.now();
+  const result = spawnSync("pnpm", args, {
+    cwd: root, env: { ...process.env, ...env },
+    encoding: "utf8", maxBuffer: 64 * 1024 * 1024,
+  });
+  const output = `${result.stdout ?? ""}${result.stderr ?? ""}`;
+  writeFileSync(join(out, `${name}.log`), output);
+  if (name === "dependency-audit") {
+    writeFileSync(join(out, "audit-after.json"), result.stdout ?? "");
+  }
+  const passed = !result.error && result.status === 0;
+  results.push({ name, passed, exitCode: result.status, durationMs: Date.now() - start });
+  console.log(`[verify] ${passed ? "PASS" : "FAIL"} ${name}; log: generated-artifacts/verification/${name}.log`);
+}
+const summary = { at: new Date().toISOString(), results };
+writeFileSync(join(out, "summary.json"), JSON.stringify(summary, null, 2));
+writeVerificationReport(out, summary);
+console.table(results);
+process.exitCode = results.every((r) => r.passed) ? 0 : 1;

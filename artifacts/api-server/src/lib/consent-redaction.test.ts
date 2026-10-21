@@ -1,3 +1,4 @@
+import { cleanupCompanyDefaults } from "../test/cleanup-company-defaults";
 /**
  * Task #259 — integration tests for Audit Consent + VAT Simulator.
  *
@@ -111,6 +112,7 @@ afterAll(async () => {
   await db
     .delete(usersTable)
     .where(inArray(usersTable.id, [ownerId, accountantId]));
+  await cleanupCompanyDefaults([companyId]);
   await db.delete(companiesTable).where(eq(companiesTable.id, companyId));
 });
 

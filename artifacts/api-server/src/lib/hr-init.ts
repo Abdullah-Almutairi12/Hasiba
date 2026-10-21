@@ -12,7 +12,7 @@ import { logger } from "./logger";
  *
  * Safe to run on every boot.
  */
-export async function initHr(): Promise<void> {
+export async function initHr(provisionCompanyId?: number): Promise<void> {
   // 1) Tables
   await pool.query(`
     CREATE TABLE IF NOT EXISTS departments (
@@ -345,11 +345,17 @@ export async function initHr(): Promise<void> {
   `);
 
   // 5) Default shift.
-  await pool.query(`
-    INSERT INTO shifts (name, name_ar, start_time, end_time, break_minutes, working_days)
-    SELECT 'Standard 8h', 'الدوام الاعتيادي', '09:00', '17:00', 60, '0,1,2,3,4'
-     WHERE NOT EXISTS (SELECT 1 FROM shifts);
-  `);
+  if (provisionCompanyId !== undefined) {
+    if (!Number.isInteger(provisionCompanyId) || provisionCompanyId <= 0) {
+      throw new Error("HR provisioning requires a validated company ID");
+    }
+    await pool.query(`
+    INSERT INTO shifts (company_id, name, name_ar, start_time, end_time, break_minutes, working_days)
+    SELECT c.id, 'Standard 8h', 'الدوام الاعتيادي', '09:00', '17:00', 60, '0,1,2,3,4'
+      FROM companies c
+     WHERE c.id = $1 AND NOT EXISTS (SELECT 1 FROM shifts s WHERE s.company_id = c.id);
+  `, [provisionCompanyId]);
+  }
 
   // 6) Expense claims (employee reimbursement requests). The workflow
   //    engine routes these via doc_type=expense_claim. JE posting on

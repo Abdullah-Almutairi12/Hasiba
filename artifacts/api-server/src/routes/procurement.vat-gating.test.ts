@@ -1,3 +1,4 @@
+import { cleanupCompanyDefaults } from "../test/cleanup-company-defaults";
 /**
  * VAT-gating regression for purchase-order creation.
  *
@@ -118,6 +119,7 @@ afterAll(async () => {
     await db.delete(usersTable).where(eq(usersTable.id, userId));
   }
   if (companyId) {
+    await cleanupCompanyDefaults([companyId]);
     await db.delete(companiesTable).where(eq(companiesTable.id, companyId));
   }
 });

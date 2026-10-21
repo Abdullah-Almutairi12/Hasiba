@@ -6,9 +6,25 @@ id = "8F5NDbjIgcIVibVfeUTZw"
 uri = "file://.local/outputs/Hasiba-AI-ERP.pdf"
 type = "pdf"
 title = "Hasiba-AI-ERP.pdf"
+logical_id = "0ce4de3a-d36b-4dc2-82ab-497129cd21b0"
 
 [[outputs]]
 id = "Gnqx-0afug7h86ViUV141"
 uri = "file://.local/outputs/------AI---------------.pdf"
 type = "pdf"
 title = "حاسبة.AI — عرض المميزات.pdf"
+logical_id = "21a6f6c1-9c64-4ef0-b593-7c6d36ebaae7"
+
+[[outputs]]
+id = "WJ9f1KJPmVDy-lnYgcF5q"
+uri = "file://generated-artifacts/verification/report-ar.html"
+type = "html"
+title = "حاسبة.AI — تقرير الإصلاح والتحقق"
+description = "تقرير عربي بنتائج 242 اختبارًا، وإصلاحات الكود وعزل الاختبار، ومقارنة التنبيهات الأمنية، وحدود التغطية وطريقة الاستعادة."
+logical_id = "88d9a5c0-b553-43d5-8543-6b9b518545d2"
+content_hash = "sha256:690a36522af923e3a0571f5015e2470be62dd3a77764ce32335a1d3594bed5fc"
+size = 31567
+mtime_ms = 1792624114985
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/88d9a5c0-b553-43d5-8543-6b9b518545d2/de74fe39-429f-4673-9ff0-a6c0073da1db"
+storage_version_token = "1792624124811197"
+content_type = "text/html"

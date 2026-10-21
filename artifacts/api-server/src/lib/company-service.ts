@@ -1,5 +1,7 @@
 import { pool } from "@workspace/db";
 import { seedDefaultChartOfAccounts } from "./coa-template";
+import { initHr } from "./hr-init";
+import { initInventory } from "./inventory-init";
 
 /**
  * Per-company provisioning + validation helpers used by Multi-Company
@@ -39,11 +41,15 @@ export async function countActiveDataForCompany(
 }
 
 /** Provision a brand-new company: seed default CoA. */
-export async function provisionNewCompany(_companyId: number): Promise<void> {
+export async function provisionNewCompany(companyId: number): Promise<void> {
   // CoA seeding is currently global (accounts.code is uniquely indexed
   // across all tenants). The helper is still idempotent and a no-op after
   // the first run. See lib/coa-template.ts for the migration plan.
   await seedDefaultChartOfAccounts();
+  // Only explicit, authenticated company creation provisions tenant defaults.
+  // Application startup must not mutate every existing company's settings.
+  await initHr(companyId);
+  await initInventory(companyId);
 }
 
 /**

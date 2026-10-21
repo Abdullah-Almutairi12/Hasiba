@@ -383,6 +383,7 @@ describe("vat-threshold service", () => {
       .returning({ id: customersTable.id });
     await db.insert(customerInvoicesTable).values({
       reference: `${TAG}-inv-pos`,
+      companyId,
       customerId: cust.id,
       customerName: `${TAG}-cust`,
       branchId,
@@ -400,6 +401,7 @@ describe("vat-threshold service", () => {
     // Sanity: a non-POS (manual) invoice IS included.
     await db.insert(customerInvoicesTable).values({
       reference: `${TAG}-inv-man`,
+      companyId,
       customerId: cust.id,
       customerName: `${TAG}-cust`,
       branchId,

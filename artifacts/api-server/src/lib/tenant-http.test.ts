@@ -1,3 +1,4 @@
+import { cleanupCompanyDefaults } from "../test/cleanup-company-defaults";
 /**
  * HTTP-level multi-tenant isolation regression tests.
  *
@@ -270,13 +271,15 @@ beforeAll(async () => {
   supplierAId = supA.id;
   supplierBId = supB.id;
 
-  // Sales orders (per tenant). Tenant scope is via customers.companyId.
+  // Header ownership must agree with the related customer's company.
   const [soA] = await db.insert(salesOrdersTable).values({
     reference: `HTTP-SO-A-${RUN_TAG}`, customerId: customerAId,
+    companyId: companyAId,
     customerName: `Cust A ${RUN_TAG}`, orderDate: "2025-01-01", status: "draft",
   }).returning();
   const [soB] = await db.insert(salesOrdersTable).values({
     reference: `HTTP-SO-B-${RUN_TAG}`, customerId: customerBId,
+    companyId: companyBId,
     customerName: `Cust B ${RUN_TAG}`, orderDate: "2025-01-01", status: "draft",
   }).returning();
   soAId = soA.id;
@@ -285,10 +288,12 @@ beforeAll(async () => {
   // Customer invoices (per tenant). Tenant scope via customers.companyId.
   const [ciA] = await db.insert(customerInvoicesTable).values({
     reference: `HTTP-CI-A-${RUN_TAG}`, customerId: customerAId,
+    companyId: companyAId,
     customerName: `Cust A ${RUN_TAG}`, invoiceDate: "2025-01-01", status: "draft",
   }).returning();
   const [ciB] = await db.insert(customerInvoicesTable).values({
     reference: `HTTP-CI-B-${RUN_TAG}`, customerId: customerBId,
+    companyId: companyBId,
     customerName: `Cust B ${RUN_TAG}`, invoiceDate: "2025-01-01", status: "draft",
   }).returning();
   custInvAId = ciA.id;
@@ -297,11 +302,13 @@ beforeAll(async () => {
   // Purchase orders (per tenant). Tenant scope via warehouses.companyId.
   const [poA] = await db.insert(purchaseOrdersTable).values({
     reference: `HTTP-PO-A-${RUN_TAG}`, supplierId: supplierAId,
+    companyId: companyAId,
     supplierName: `Sup A ${RUN_TAG}`, warehouseId: warehouseAId,
     orderDate: "2025-01-01", status: "draft",
   }).returning();
   const [poB] = await db.insert(purchaseOrdersTable).values({
     reference: `HTTP-PO-B-${RUN_TAG}`, supplierId: supplierBId,
+    companyId: companyBId,
     supplierName: `Sup B ${RUN_TAG}`, warehouseId: warehouseBId,
     orderDate: "2025-01-01", status: "draft",
   }).returning();
@@ -315,10 +322,10 @@ beforeAll(async () => {
   }).returning();
   oppStageId = stage.id;
   const [opA] = await db.insert(opportunitiesTable).values({
-    name: `Opp A ${RUN_TAG}`, customerId: customerAId, stageId: oppStageId,
+    name: `Opp A ${RUN_TAG}`, customerId: customerAId, stageId: oppStageId, companyId: companyAId,
   }).returning();
   const [opB] = await db.insert(opportunitiesTable).values({
-    name: `Opp B ${RUN_TAG}`, customerId: customerBId, stageId: oppStageId,
+    name: `Opp B ${RUN_TAG}`, customerId: customerBId, stageId: oppStageId, companyId: companyBId,
   }).returning();
   oppAId = opA.id;
   oppBId = opB.id;
@@ -405,6 +412,7 @@ afterAll(async () => {
     // warehouse per branch, so we must drop tenant warehouses
     // before deleting the company or the cleanup will fail.
     await db.delete(warehousesTable).where(inArray(warehousesTable.companyId, coIds));
+    await cleanupCompanyDefaults(coIds);
     await db.delete(companiesTable).where(inArray(companiesTable.id, coIds));
   }
 });

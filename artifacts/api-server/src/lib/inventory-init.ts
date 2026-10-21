@@ -10,15 +10,14 @@ import { logger } from "./logger";
  *   stock_lots, stock_serials, stock_moves, stock_quants,
  *   product_variants, product_variant_attributes, reorder_rules,
  *   stock_takes, stock_take_lines.
- * - Ensures a default warehouse exists (auto-creates one tied to the first
- *   branch if none).
+ * - Provisions defaults only for an explicitly supplied, validated company.
  * - One-time migration: replays any non-zero `products.stock` value as a
  *   single 'receipt' stock_move into the default warehouse so legacy
  *   on-hand quantities show up in the new ledger / quants cache.
  *
  * All steps are idempotent. Failures bubble up so the server fails fast.
  */
-export async function initInventory(): Promise<void> {
+export async function initInventory(provisionCompanyId?: number): Promise<void> {
   // --- Add new columns to products (idempotent) ---
   await pool.query(`
     ALTER TABLE products ADD COLUMN IF NOT EXISTS barcode text;
@@ -184,27 +183,27 @@ export async function initInventory(): Promise<void> {
     CREATE INDEX IF NOT EXISTS stock_take_lines_take_idx ON stock_take_lines (stock_take_id);
   `);
 
-  // --- Make sure a default warehouse exists ---
-  await pool.query(`
-    DO $$
-    DECLARE
-      bid integer;
-    BEGIN
-      IF NOT EXISTS (SELECT 1 FROM warehouses) THEN
-        SELECT id INTO bid FROM branches ORDER BY id LIMIT 1;
-        IF bid IS NULL THEN
-          INSERT INTO branches (name, name_ar, city)
-          VALUES ('Main Branch', 'الفرع الرئيسي', 'الرياض')
-          RETURNING id INTO bid;
-        END IF;
-        INSERT INTO warehouses (branch_id, name, name_ar, is_default)
-          VALUES (bid, 'Main Warehouse', 'المستودع الرئيسي', true);
-      ELSIF NOT EXISTS (SELECT 1 FROM warehouses WHERE is_default = true) THEN
-        UPDATE warehouses SET is_default = true
-          WHERE id = (SELECT id FROM warehouses ORDER BY id LIMIT 1);
-      END IF;
-    END $$;
-  `);
+  // Defaults belong to an existing branch's company, never an arbitrary tenant.
+  // A fresh installation has no branches yet; onboarding creates them.
+  if (provisionCompanyId !== undefined) {
+    if (!Number.isInteger(provisionCompanyId) || provisionCompanyId <= 0) {
+      throw new Error("Inventory provisioning requires a validated company ID");
+    }
+    await pool.query(`
+    INSERT INTO warehouses (company_id, branch_id, name, name_ar, is_default)
+    SELECT b.company_id, b.id, 'Main Warehouse', 'المستودع الرئيسي', true
+    FROM branches b
+    WHERE b.company_id = $1
+      AND b.id = (SELECT MIN(b2.id) FROM branches b2 WHERE b2.company_id = b.company_id)
+      AND NOT EXISTS (SELECT 1 FROM warehouses w WHERE w.company_id = b.company_id);
+  `, [provisionCompanyId]);
+    await pool.query(`
+    UPDATE warehouses w SET is_default = true
+    WHERE w.company_id = $1
+      AND w.id = (SELECT MIN(w2.id) FROM warehouses w2 WHERE w2.company_id = w.company_id)
+      AND NOT EXISTS (SELECT 1 FROM warehouses w3 WHERE w3.company_id = w.company_id AND w3.is_default = true);
+  `, [provisionCompanyId]);
+  }
 
   // --- One-time legacy migration: products.stock -> stock_moves + quants ---
   // We mark the migration as done by inserting a single sentinel row in
@@ -213,14 +212,17 @@ export async function initInventory(): Promise<void> {
   const { rows: seeded } = await pool.query(
     `SELECT 1 FROM stock_moves WHERE source_type = 'legacy_seed' LIMIT 1`,
   );
-  if (seeded.length === 0) {
+  // Never migrate tenant financial/stock data merely because the app restarts.
+  if (seeded.length === 0 && provisionCompanyId !== undefined) {
     const { rows: defWh } = await pool.query(
-      `SELECT id FROM warehouses WHERE is_default = true ORDER BY id LIMIT 1`,
+      `SELECT DISTINCT ON (company_id) id, company_id FROM warehouses WHERE is_default = true AND company_id = $1 ORDER BY company_id, id`,
+      [provisionCompanyId],
     );
-    const defaultWarehouseId = defWh[0]?.id;
-    if (defaultWarehouseId) {
+    for (const warehouse of defWh) {
+      const defaultWarehouseId = warehouse.id;
       const { rows: products } = await pool.query(
-        `SELECT id, stock, cost_price FROM products WHERE COALESCE(stock,0) > 0`,
+        `SELECT id, stock, cost_price FROM products WHERE COALESCE(stock,0) > 0 AND company_id = $1`,
+        [warehouse.company_id],
       );
       for (const p of products) {
         const qty = Number(p.stock);
@@ -254,8 +256,6 @@ export async function initInventory(): Promise<void> {
         );
       }
       logger.info({ migrated: products.length }, "Legacy products.stock migrated to stock ledger");
-    } else {
-      logger.warn("No default warehouse — skipped legacy stock migration");
     }
   }
 

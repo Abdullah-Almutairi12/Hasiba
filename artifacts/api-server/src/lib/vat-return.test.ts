@@ -192,6 +192,7 @@ async function seedCustomerInvoice(opts: {
     .insert(customerInvoicesTable)
     .values({
       reference: opts.ref,
+      companyId,
       customerId,
       customerName: `${TAG}-cust`,
       branchId,

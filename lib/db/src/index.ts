@@ -4,21 +4,17 @@ import * as schema from "./schema";
 
 const { Pool } = pg;
 
-// Test runs (NODE_ENV=test, set automatically by Vitest) prefer
-// TEST_DATABASE_URL when present so the suite never touches the dev /
-// staging tenant data. Falls back to DATABASE_URL with a stderr
-// warning — kept as a fallback so existing CI configs don't break.
+// Fail closed: tests must never silently connect to application data.
 const isTest = process.env.NODE_ENV === "test" || process.env.VITEST === "true";
-let connectionString = process.env.DATABASE_URL;
-if (isTest && process.env.TEST_DATABASE_URL) {
-  connectionString = process.env.TEST_DATABASE_URL;
-} else if (isTest && !process.env.TEST_DATABASE_URL) {
-  // eslint-disable-next-line no-console
-  console.warn(
-    "[db] WARN: NODE_ENV=test but TEST_DATABASE_URL is not set — " +
-      "tests will run against DATABASE_URL (the dev database). " +
-      "Provision a dedicated test DB to keep fixtures isolated.",
-  );
+const connectionString = isTest ? process.env.TEST_DATABASE_URL : process.env.DATABASE_URL;
+if (isTest) {
+  if (!connectionString) {
+    throw new Error("TEST_DATABASE_URL is required. Use pnpm test:isolated.");
+  }
+  const target = new URL(connectionString);
+  if (!/^hasba_test_[a-z0-9_]+$/.test(target.pathname.slice(1))) {
+    throw new Error("Tests require a dedicated database named hasba_test_<name>.");
+  }
 }
 
 if (!connectionString) {

@@ -143,15 +143,20 @@ BEFORE this middleware and remain unaffected.
 - **API rate-limit** — `express-rate-limit` 300 req/min/IP mounted on `/api` after `sessionMiddleware`. Webhook endpoints (`/integrations/{payments,marketplaces,shipping,email}/webhook`) and `/health` are skipped via the `skip` predicate since they're HMAC-verified and bursty by design.
 - **AI graceful degradation** — `openai-client.ts` exports `AIUnavailableError` (httpStatus=503) and a `tryAI<T>(fn)` wrapper. `askAssistant` (POST `/ai/assistant/ask`) and `extractInvoiceFromImage` (POST `/invoices/scan`) wrap upstream calls; when OpenAI is unreachable / over-quota / timing out, route handlers map the error to a clean Arabic 503 instead of a leaky 500/502.
 - **Sentry observability** — `lib/sentry.ts` (api-server) and `src/lib/sentry.ts` (erp-system). Init is gated on `SENTRY_DSN` / `VITE_SENTRY_DSN` so absent env = no-op + info log. `@sentry/*` is externalised in `build.mjs` because Sentry lazy-requires `@opentelemetry/instrumentation-*` packages at init time which esbuild can't statically resolve. Env: `SENTRY_ENVIRONMENT`, `SENTRY_TRACES_SAMPLE_RATE` (default 0.1), `sendDefaultPii=false` (tenants own customer PII).
-- **Test database isolation** — `lib/db/src/index.ts` prefers `TEST_DATABASE_URL` when `NODE_ENV=test` or `VITEST=true`, falling back to `DATABASE_URL` with a stderr warning. Existing CI configs continue to work; provision a dedicated test DB to keep `vitest-<ts>` fixtures off the dev tenant.
+- **Test database isolation** — test mode requires `TEST_DATABASE_URL` pointing to a database named `hasba_test_<name>`. Missing or invalid test configuration fails closed; there is no fallback to application data. Prefer `pnpm test:isolated`, which creates a fresh, loopback-only local PostgreSQL cluster and removes it after the run. Never copy real tenant data into tests.
 
 ## Testing
 
 Server-side unit + integration tests live next to the code they cover
-(`src/**/*.test.ts`) and run with Vitest against the live `DATABASE_URL`
-(fixtures are tagged with `vitest-<ts>` and cleaned up in `afterAll`).
+(`src/**/*.test.ts`) and run with Vitest against a disposable test database.
+Fixtures are tagged with `vitest-<ts>`; no application database is used.
 
-- `pnpm --filter @workspace/api-server run test` — run the full suite
+- `pnpm test:isolated` — provision a disposable database and run the full suite.
+- `pnpm test:isolated -- src/lib/intercompany-mirror.test.ts` — focused regression check.
+- `pnpm verify` — typecheck, full isolated tests, server and four client builds, and dependency audit. It records each result in `generated-artifacts/verification/summary.json` and exits nonzero if ANY required stage fails. Independent stages continue after a failure so the report remains useful.
+- PostgreSQL binaries must be on PATH, or set `PG_BIN` to their directory.
+- The SQL migration history assumes some runtime-created tables/columns already exist. The isolated runner therefore creates the current Drizzle schema first, then applies SQL migrations. This does NOT prove that migrations alone can bootstrap a blank database; do not hide this limitation.
+- `pnpm --filter @workspace/api-server run test` requires an explicitly isolated `TEST_DATABASE_URL`; do not point it at development or production data.
 - Current coverage:
   - `lib/integrations/shipping.test.ts` — webhook security boundary
     (carrier-scoped lookup, signature required for production carriers,
@@ -171,6 +176,19 @@ Server-side unit + integration tests live next to the code they cover
 Vitest config adds `setupFiles: ["reflect-metadata"]` so importing
 `app` from a test reproduces the same polyfill ordering the bundled
 production entry guarantees on line 1.
+
+## Required verification and safe repair policy
+
+- After every relevant code/dependency change, run the appropriate focused checks, then `pnpm verify` before delivery or release. Investigate the cause of a failing check, repair it, and rerun the affected checks. Do not delete a valid test, weaken assertions, make tenant ownership optional, or suppress type errors to obtain a pass.
+- After three failed repair attempts for the same issue, stop attempts for that issue, document the evidence and required intervention, and continue independent work.
+- Resolve company ownership from the authenticated and validated session and database relationships. Never use a hardcoded company ID, the first company in the database, or an unvalidated client-provided ID. Cross-company operations must authorize both sides and stay in one transaction.
+- Do not provision tenant shifts/warehouse defaults or replay legacy stock across existing companies on process startup. Provision defaults only for the explicit company ID created by the authenticated company-creation flow; historical data maintenance needs separate approval.
+- Keep code recovery points and preserve pre-existing changes. Generated backups, logs and test reports belong under ignored `generated-artifacts/`; they are local, not durable backups across workspace deletion. Restore code through checkpoints or extract a code archive into a separate directory for comparison; do not overwrite a dirty workspace blindly. A code backup is not a database backup.
+- Do not publish or mutate real financial data without explicit user approval.
+- GitHub Actions `.github/workflows/verify.yml` runs verification for PRs, pushes to main/master and manual dispatch when this repository is connected to GitHub. `pnpm release:check` is also configured as the root `.replit` deployment pre-build hook: the configured publishing path fails if verification fails, before artifact builds. No database migrations against application data are added to this hook. Require the Verify job in GitHub branch protection separately before using it as an organizational merge gate. The workflow and pre-build hook check code; neither publishes automatically.
+- Instructions in this document guide an agent when it runs; they are not an autonomous repair service. CI runs checks, not code edits. The serving app must never repair its own code or financial data.
+- `/api/healthz` reports process liveness; `/api/readyz` checks database reachability after initialization. Health checks are read-only. The latter must not be described as proving financial correctness or third-party service availability.
+- Error logs include a generated request ID, event, error type/code and stack locations, not bodies, credentials, arbitrary DB error payloads or financial values. Use the request ID plus the route template to correlate a failure and reproduce it with synthetic test data. Sentry remains opt-in through the existing configuration; no new monitoring provider is enabled automatically.
 
 ## Build / bundle
 

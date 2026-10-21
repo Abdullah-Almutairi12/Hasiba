@@ -51,7 +51,7 @@ async function main() {
       .update(usersTable)
       .set({ passwordHash, role: "manager", isActive: true })
       .where(eq(usersTable.email, EMAIL));
-    console.log(`[ensure-capture-user] refreshed ${EMAIL}`);
+    console.log("[ensure-capture-user] refreshed capture account");
   } else {
     await db.insert(usersTable).values({
       name: "Docs Capture Bot",
@@ -61,7 +61,7 @@ async function main() {
       isActive: true,
       has2fa: false,
     });
-    console.log(`[ensure-capture-user] created ${EMAIL}`);
+    console.log("[ensure-capture-user] created capture account");
   }
 }
 

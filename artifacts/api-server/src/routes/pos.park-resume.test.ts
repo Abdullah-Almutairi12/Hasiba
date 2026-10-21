@@ -1,3 +1,4 @@
+import { cleanupCompanyDefaults } from "../test/cleanup-company-defaults";
 /**
  * Order Parking (hold/resume) HTTP integration tests. Boots the real
  * Express app and asserts:
@@ -193,6 +194,7 @@ afterAll(async () => {
   if (coIds.length > 0) {
     await db.delete(auditLogsTable).where(inArray(auditLogsTable.companyId, coIds));
     await db.delete(warehousesTable).where(inArray(warehousesTable.companyId, coIds));
+    await cleanupCompanyDefaults(coIds);
     await db.delete(companiesTable).where(inArray(companiesTable.id, coIds));
   }
 });

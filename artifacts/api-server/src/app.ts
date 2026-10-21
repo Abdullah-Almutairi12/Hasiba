@@ -1,4 +1,5 @@
-import express, { type Express } from "express";
+import express, { type Express, type ErrorRequestHandler } from "express";
+import { randomUUID } from "node:crypto";
 import cors from "cors";
 import pinoHttp from "pino-http";
 import rateLimit from "express-rate-limit";
@@ -29,7 +30,7 @@ const app: Express = express();
 // returns 503 until the process is restarted, instead of silently serving
 // queries against an incomplete schema.
 let accountingInitError: unknown = null;
-const accountingReady = initAccounting()
+export const accountingReady = initAccounting()
   .then(() => initInventory())
   .then(() => initProcurement())
   .then(() => initSales())
@@ -48,6 +49,11 @@ const accountingReady = initAccounting()
     logger.error({ err }, "Failed to initialize accounting/inventory/procurement subsystem");
   });
 
+export async function assertApplicationReady(): Promise<void> {
+  await accountingReady;
+  if (accountingInitError) throw new Error("Application initialization failed", { cause: accountingInitError });
+}
+
 app.use(async (_req, res, next) => {
   await accountingReady;
   if (accountingInitError) {
@@ -62,6 +68,11 @@ app.set("trust proxy", 1);
 app.use(
   pinoHttp({
     logger,
+    genReqId: (_req, res) => {
+      const id = randomUUID();
+      res.setHeader("X-Request-Id", id);
+      return id;
+    },
     serializers: {
       req(req) {
         return {
@@ -162,6 +173,14 @@ const apiRateLimiter = rateLimit({
 app.use("/api", apiRateLimiter);
 
 app.use("/api", router);
+
+const unexpectedErrorHandler: ErrorRequestHandler = (err, req, res, next) => {
+  if (res.headersSent) return next(err);
+  req.log?.error({ event: "request.unhandled", err, requestId: req.id, method: req.method, route: req.route?.path }, "Request failed");
+  const status = err?.type === "entity.too.large" ? 413 : err instanceof SyntaxError ? 400 : 500;
+  res.status(status).json({ error: status === 500 ? "Internal server error" : "Invalid request", requestId: req.id });
+};
+app.use(unexpectedErrorHandler);
 
 // ----------------------------------------------------------------------------
 // Daily reorder check

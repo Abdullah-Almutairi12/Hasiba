@@ -1,3 +1,4 @@
+import { cleanupCompanyDefaults } from "../test/cleanup-company-defaults";
 /**
  * HTTP-level regression tests for per-user alert dismissals.
  *
@@ -184,6 +185,7 @@ afterAll(async () => {
     await db.delete(usersTable).where(inArray(usersTable.id, uids));
   }
   if (coIds.length > 0) {
+    await cleanupCompanyDefaults(coIds);
     await db.delete(companiesTable).where(inArray(companiesTable.id, coIds));
   }
 });

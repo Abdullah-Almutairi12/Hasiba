@@ -209,11 +209,15 @@ export interface MirrorSalesInvoiceInput {
 export async function mirrorSalesInvoice(
   input: MirrorSalesInvoiceInput,
 ): Promise<{ linkId: number; targetInvoiceId: number } | null> {
-  const tx = input.tx ?? (defaultDb as unknown as Tx);
+  if (!input.tx) {
+    return defaultDb.transaction((tx) => mirrorSalesInvoice({ ...input, tx }));
+  }
+  const tx = input.tx;
   const [inv] = await tx
     .select()
     .from(customerInvoicesTable)
-    .where(eq(customerInvoicesTable.id, input.invoiceId));
+    .where(and(eq(customerInvoicesTable.id, input.invoiceId), eq(customerInvoicesTable.companyId, input.sourceCompanyId)))
+    .for("update");
   if (!inv) {
     throw new IntercompanyMirrorError("INVALID_REFERENCE", `sales invoice ${input.invoiceId} not found`);
   }
@@ -222,8 +226,9 @@ export async function mirrorSalesInvoice(
   const [customer] = await tx
     .select({ linkedCompanyId: customersTable.linkedCompanyId, name: customersTable.name })
     .from(customersTable)
-    .where(eq(customersTable.id, inv.customerId));
-  if (!customer?.linkedCompanyId) return null; // not an intercompany customer
+    .where(and(eq(customersTable.id, inv.customerId), eq(customersTable.companyId, inv.companyId)));
+  if (!customer) throw new IntercompanyMirrorError("INVALID_REFERENCE", "Customer does not belong to the source company");
+  if (!customer.linkedCompanyId) return null; // not an intercompany customer
 
   const targetCompanyId = customer.linkedCompanyId;
   if (targetCompanyId === input.sourceCompanyId) {
@@ -374,8 +379,13 @@ export interface MirrorPurchaseOrderInput {
 export async function mirrorPurchaseOrder(
   input: MirrorPurchaseOrderInput,
 ): Promise<{ linkId: number; targetSoId: number } | null> {
-  const tx = input.tx ?? (defaultDb as unknown as Tx);
-  const [po] = await tx.select().from(purchaseOrdersTable).where(eq(purchaseOrdersTable.id, input.poId));
+  if (!input.tx) {
+    return defaultDb.transaction((tx) => mirrorPurchaseOrder({ ...input, tx }));
+  }
+  const tx = input.tx;
+  const [po] = await tx.select().from(purchaseOrdersTable).where(
+    and(eq(purchaseOrdersTable.id, input.poId), eq(purchaseOrdersTable.companyId, input.sourceCompanyId)),
+  ).for("update");
   if (!po) {
     throw new IntercompanyMirrorError("INVALID_REFERENCE", `purchase order ${input.poId} not found`);
   }
@@ -384,8 +394,9 @@ export async function mirrorPurchaseOrder(
   const [supplier] = await tx
     .select({ linkedCompanyId: suppliersTable.linkedCompanyId })
     .from(suppliersTable)
-    .where(eq(suppliersTable.id, po.supplierId));
-  if (!supplier?.linkedCompanyId) return null;
+    .where(and(eq(suppliersTable.id, po.supplierId), eq(suppliersTable.companyId, po.companyId)));
+  if (!supplier) throw new IntercompanyMirrorError("INVALID_REFERENCE", "Supplier does not belong to the source company");
+  if (!supplier.linkedCompanyId) return null;
 
   const targetCompanyId = supplier.linkedCompanyId;
   if (targetCompanyId === input.sourceCompanyId) {
@@ -420,6 +431,7 @@ export async function mirrorPurchaseOrder(
   const [so] = await tx
     .insert(salesOrdersTable)
     .values({
+      companyId: targetCompanyId,
       reference: mirrorRef,
       customerId: customer.id,
       customerName: customer.name,
@@ -442,7 +454,9 @@ export async function mirrorPurchaseOrder(
   for (const ln of lines) {
     await tx.insert(salesOrderLinesTable).values({
       soId: so.id,
-      productId: ln.productId,
+      // Product IDs are tenant-local. Preserve the description, not a reference
+      // to another company's stock; inventory mapping must be explicit.
+      productId: null,
       description: ln.description,
       quantity: String(ln.quantity),
       unitPrice: String(ln.unitPrice),

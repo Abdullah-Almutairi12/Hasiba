@@ -8,6 +8,8 @@ export default defineConfig({
     testTimeout: 20_000,
     hookTimeout: 30_000,
     pool: "forks",
+    // Initializers and integration fixtures share one disposable test database.
+    fileParallelism: false,
     // tsyringe (loaded transitively by @peculiar/x509) requires the
     // reflect-metadata polyfill to be loaded before any of its
     // consumers. The bundled production entry imports it on line 1;

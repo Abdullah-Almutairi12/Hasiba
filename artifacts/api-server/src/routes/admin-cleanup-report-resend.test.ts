@@ -1,3 +1,4 @@
+import { cleanupCompanyDefaults } from "../test/cleanup-company-defaults";
 /**
  * Task #205 — HTTP integration tests for the per-recipient resend
  * guardrails on `POST /admin/system-settings/cleanup-report-sends/:id/resend`.
@@ -159,6 +160,7 @@ afterAll(async () => {
     await db.delete(usersTable).where(eq(usersTable.id, userId));
   }
   if (companyId) {
+    await cleanupCompanyDefaults([companyId]);
     await db.delete(companiesTable).where(eq(companiesTable.id, companyId));
   }
 });
