@@ -116,7 +116,7 @@ async function buildAll() {
       "arabic-reshaper",
       "bidi-js",
       "google-auth-library",
-      // NOTE: do NOT externalize `@peculiar/x509` / `node-forge` /
+      // NOTE: do NOT externalize `@peculiar/x509` /
       // `tsyringe` — they require `reflect-metadata` to be loaded
       // before any of them resolve. Bundling guarantees esbuild's
       // module-init order; externalizing breaks the polyfill chain.

@@ -1,0 +1,1 @@
+- [Dependency compatibility](dependency-compatibility.md) — keep Vite consumers aligned; avoid security upgrades that silently split plugin type versions.
