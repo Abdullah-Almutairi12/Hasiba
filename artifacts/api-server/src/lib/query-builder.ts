@@ -52,7 +52,8 @@ function aggSqlFor(col: DataSourceColumn, fn: AggregateFn): string {
   }
 }
 
-export async function runReport(sourceKey: string, config: ReportConfig): Promise<BuiltReport> {
+export async function runReport(sourceKey: string, config: ReportConfig, companyId: number): Promise<BuiltReport> {
+  if (!Number.isSafeInteger(companyId) || companyId <= 0) throw new Error("Company context required");
   const source = getDataSource(sourceKey);
   if (!source) throw new Error(`Unknown data source "${sourceKey}"`);
 
@@ -64,10 +65,16 @@ export async function runReport(sourceKey: string, config: ReportConfig): Promis
   const aggregates = (config.aggregates ?? []).map((a) => ({
     fn: a.fn,
     col: findColumn(source, a.column),
-    alias: a.alias || `${a.fn}_${a.column}`,
+      alias: a.alias || `${a.fn}_${a.column}`,
   }));
 
   const isAggregated = aggregates.length > 0 || groupBy.length > 0;
+  // Aliases enter SQL identifiers, not parameter values. Never allow quoting
+  // out of the generated SELECT / ORDER BY to bypass the tenant predicate.
+  for (const a of aggregates) {
+    if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(a.alias)) throw new Error("Invalid aggregate alias");
+    if (!["sum", "avg", "count", "min", "max"].includes(a.fn)) throw new Error("Invalid aggregate");
+  }
 
   const selectParts: string[] = [];
   const outputColumns: { key: string; label: string; type: string }[] = [];
@@ -95,7 +102,7 @@ export async function runReport(sourceKey: string, config: ReportConfig): Promis
     return `$${params.length}`;
   }
 
-  const whereParts: string[] = [];
+  const whereParts: string[] = [`${source.companyExpr} = ${ph(companyId)}`];
   for (const f of config.filters ?? []) {
     const col = findColumn(source, f.column);
     switch (f.op) {
@@ -135,6 +142,7 @@ export async function runReport(sourceKey: string, config: ReportConfig): Promis
   }
 
   const limit = Math.min(Math.max(1, config.limit ?? 1000), HARD_ROW_CAP);
+  if (!Number.isSafeInteger(limit)) throw new Error("Invalid report limit");
 
   let queryText = `select ${selectParts.join(", ")} from ${source.fromSql}`;
   if (whereParts.length) queryText += ` where ${whereParts.join(" and ")}`;

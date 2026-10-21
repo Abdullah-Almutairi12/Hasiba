@@ -93,7 +93,7 @@ beforeAll(async () => {
   // A fiscal year + period covering 2024-Q1 (we'll post JEs there).
   const [fy] = await db
     .insert(fiscalYearsTable)
-    .values({ name: `${TAG}-fy`, startDate: "2024-01-01", endDate: "2024-12-31" })
+    .values({ companyId, name: `${TAG}-fy`, startDate: "2024-01-01", endDate: "2024-12-31" })
     .returning({ id: fiscalYearsTable.id });
   fyId = fy.id;
   const [p] = await db

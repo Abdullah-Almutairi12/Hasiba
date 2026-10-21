@@ -1,7 +1,9 @@
 import { pgTable, serial, text, integer, jsonb, timestamp, boolean, numeric } from "drizzle-orm/pg-core";
+import { companiesTable } from "./companies";
 
 export const reportDefinitionsTable = pgTable("report_definitions", {
   id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companiesTable.id, { onDelete: "restrict" }),
   name: text("name").notNull(),
   description: text("description"),
   dataSource: text("data_source").notNull(),

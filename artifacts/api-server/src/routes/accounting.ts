@@ -36,6 +36,7 @@ import {
   registerOnReject,
 } from "../lib/workflow-engine";
 import { logger } from "../lib/logger";
+import { fiscalPeriodScope } from "../lib/finance-scope";
 
 const router = Router();
 
@@ -69,9 +70,9 @@ async function finalizeJournalEntryPost(
     const [period] = await db
       .select({ status: fiscalPeriodsTable.status })
       .from(fiscalPeriodsTable)
-      .where(eq(fiscalPeriodsTable.id, entry.periodId))
+      .where(and(eq(fiscalPeriodsTable.id, entry.periodId), fiscalPeriodScope(entry.companyId)))
       .limit(1);
-    if (period && (period.status === "closed" || period.status === "locked")) {
+    if (!period || period.status === "closed" || period.status === "locked") {
       // Use the shared ClosedPeriodError so /post + the approval-engine
       // path both surface a 403 with the exact required Arabic message.
       throw new ClosedPeriodError(String(entry.entryDate ?? ""));
@@ -276,14 +277,16 @@ router.patch("/accounting/accounts/:id", financeGuard, async (req, res) => {
 
 // ============== Fiscal Periods ==============
 
-router.get("/accounting/fiscal-years", reportReadGuard, async (_req, res) => {
+router.get("/accounting/fiscal-years", reportReadGuard, async (req, res) => {
   const years = await db
     .select()
     .from(fiscalYearsTable)
+    .where(eq(fiscalYearsTable.companyId, getCompanyId(req)))
     .orderBy(desc(fiscalYearsTable.startDate));
   const periods = await db
     .select()
     .from(fiscalPeriodsTable)
+    .where(fiscalPeriodScope(getCompanyId(req)))
     .orderBy(asc(fiscalPeriodsTable.startDate));
   return res.json(
     years.map((y) => ({
@@ -311,7 +314,7 @@ router.post(
       const [row] = await db
         .update(fiscalPeriodsTable)
         .set({ status: "closed", closedAt: new Date(), closedBy: userId })
-        .where(eq(fiscalPeriodsTable.id, id))
+        .where(and(eq(fiscalPeriodsTable.id, id), fiscalPeriodScope(getCompanyId(req))))
         .returning();
       if (!row) return res.status(404).json({ error: "الفترة غير موجودة" });
       return res.json({
@@ -334,7 +337,7 @@ router.post(
     const [row] = await db
       .update(fiscalPeriodsTable)
       .set({ status: "open", closedAt: null, closedBy: null })
-      .where(eq(fiscalPeriodsTable.id, id))
+      .where(and(eq(fiscalPeriodsTable.id, id), fiscalPeriodScope(getCompanyId(req))))
       .returning();
     if (!row) return res.status(404).json({ error: "الفترة غير موجودة" });
     // Reopening a closed period bypasses normal posting controls — always
@@ -369,7 +372,7 @@ router.post(
       const [row] = await db
         .update(fiscalPeriodsTable)
         .set({ status: "closed", closedAt: new Date(), closedBy: userId })
-        .where(eq(fiscalPeriodsTable.id, id))
+        .where(and(eq(fiscalPeriodsTable.id, id), fiscalPeriodScope(getCompanyId(req))))
         .returning();
       if (!row) return res.status(404).json({ error: "الفترة غير موجودة" });
       return res.json({
@@ -391,7 +394,7 @@ router.post(
     const [row] = await db
       .update(fiscalPeriodsTable)
       .set({ status: "open", closedAt: null, closedBy: null })
-      .where(eq(fiscalPeriodsTable.id, id))
+      .where(and(eq(fiscalPeriodsTable.id, id), fiscalPeriodScope(getCompanyId(req))))
       .returning();
     if (!row) return res.status(404).json({ error: "الفترة غير موجودة" });
     await recordAudit(req, {
@@ -411,7 +414,7 @@ router.post(
 // Alias matching the task spec: GET /accounting/periods returns a flat list
 // of all fiscal periods (across years) so the periods page can render them
 // without first joining the year hierarchy.
-router.get("/accounting/periods", reportReadGuard, async (_req, res) => {
+router.get("/accounting/periods", reportReadGuard, async (req, res) => {
   const rows = await db
     .select({
       id: fiscalPeriodsTable.id,
@@ -430,6 +433,7 @@ router.get("/accounting/periods", reportReadGuard, async (_req, res) => {
       fiscalYearsTable,
       eq(fiscalYearsTable.id, fiscalPeriodsTable.fiscalYearId),
     )
+    .where(eq(fiscalYearsTable.companyId, getCompanyId(req)))
     .orderBy(asc(fiscalPeriodsTable.startDate));
   return res.json(
     rows.map((p) => ({
@@ -471,8 +475,8 @@ router.post("/accounting/close-year", ownerOnly, async (req, res) => {
       const [year] = await tx
         .select()
         .from(fiscalYearsTable)
-        .where(eq(fiscalYearsTable.id, fiscalYearId))
-        .limit(1);
+        .where(and(eq(fiscalYearsTable.id, fiscalYearId), eq(fiscalYearsTable.companyId, getCompanyId(req))))
+        .limit(1).for("update");
       if (!year) throw new Error("السنة المالية غير موجودة");
       if (year.status === "closed")
         throw new Error("السنة المالية مغلقة مسبقاً");
@@ -510,6 +514,7 @@ router.post("/accounting/close-year", ownerOnly, async (req, res) => {
         .where(
           and(
             eq(journalEntriesTable.status, "posted"),
+            eq(journalEntriesTable.companyId, getCompanyId(req)),
             gte(journalEntriesTable.entryDate, year.startDate),
             lte(journalEntriesTable.entryDate, year.endDate),
             sql`${accountsTable.type} IN ('revenue','expense')`,
@@ -1023,7 +1028,7 @@ router.post(
 
 // ============== Bank Accounts & Reconciliation ==============
 
-router.get("/accounting/bank-accounts", reportReadGuard, async (_req, res) => {
+router.get("/accounting/bank-accounts", reportReadGuard, async (req, res) => {
   const list = await db
     .select({
       id: bankAccountsTable.id,
@@ -1041,6 +1046,7 @@ router.get("/accounting/bank-accounts", reportReadGuard, async (_req, res) => {
     })
     .from(bankAccountsTable)
     .leftJoin(accountsTable, eq(accountsTable.id, bankAccountsTable.glAccountId))
+    .where(eq(bankAccountsTable.companyId, getCompanyId(req)))
     .orderBy(desc(bankAccountsTable.createdAt));
   return res.json(
     list.map((b) => ({
@@ -1074,6 +1080,7 @@ router.post("/accounting/bank-accounts", financeGuard, async (req, res) => {
         currencyCode: body.currencyCode,
         glAccountId: body.glAccountId,
         openingBalance: String(body.openingBalance),
+        companyId: getCompanyId(req),
       })
       .returning();
     return res.status(201).json({
@@ -1114,6 +1121,11 @@ router.post(
       const userId = req.session?.userId ?? null;
 
       const result = await db.transaction(async (tx) => {
+        const [bank] = await tx.select().from(bankAccountsTable).where(and(
+          eq(bankAccountsTable.id, body.bankAccountId),
+          eq(bankAccountsTable.companyId, getCompanyId(req)),
+        ));
+        if (!bank) throw new Error("الحساب البنكي غير موجود");
         const [stmt] = await tx
           .insert(bankStatementsTable)
           .values({
@@ -1157,7 +1169,7 @@ router.get(
       const [stmt] = await db
         .select()
         .from(bankStatementsTable)
-        .where(eq(bankStatementsTable.id, stmtId))
+        .where(and(eq(bankStatementsTable.id, stmtId), sql`${bankStatementsTable.bankAccountId} in (select id from ${bankAccountsTable} where ${bankAccountsTable.companyId} = ${getCompanyId(req)})`))
         .limit(1);
       if (!stmt) return res.status(404).json({ error: "كشف الحساب غير موجود" });
 
@@ -1194,6 +1206,7 @@ router.get(
               and(
                 eq(journalEntryLinesTable.accountId, bank.glAccountId),
                 eq(journalEntriesTable.status, "posted"),
+                eq(journalEntriesTable.companyId, getCompanyId(req)),
                 // Exclude lines already matched on any statement line.
                 sql`NOT EXISTS (
                   SELECT 1 FROM bank_statement_lines bsl
@@ -1248,7 +1261,10 @@ router.post(
       const [stmtLine] = await db
         .select()
         .from(bankStatementLinesTable)
-        .where(eq(bankStatementLinesTable.id, id))
+        .where(and(eq(bankStatementLinesTable.id, id), sql`${bankStatementLinesTable.statementId} in (
+          select bs.id from bank_statements bs join bank_accounts ba on ba.id = bs.bank_account_id
+          where ba.company_id = ${getCompanyId(req)}
+        )`))
         .limit(1);
       if (!stmtLine) return res.status(404).json({ error: "السطر غير موجود" });
 
@@ -1275,7 +1291,7 @@ router.post(
         })
         .from(journalEntryLinesTable)
         .innerJoin(journalEntriesTable, eq(journalEntriesTable.id, journalEntryLinesTable.entryId))
-        .where(eq(journalEntryLinesTable.id, matchedLineId))
+        .where(and(eq(journalEntryLinesTable.id, matchedLineId), eq(journalEntriesTable.companyId, getCompanyId(req))))
         .limit(1);
       if (!candidate)
         return res.status(404).json({ error: "قيد المطابقة غير موجود" });
@@ -1334,7 +1350,7 @@ router.get("/accounting/summary", reportReadGuard, async (req, res) => {
         journalEntriesTable,
         eq(journalEntriesTable.id, journalEntryLinesTable.entryId),
       )
-      .where(eq(journalEntriesTable.status, "posted"))
+      .where(and(eq(journalEntriesTable.status, "posted"), eq(journalEntriesTable.companyId, getCompanyId(req))))
       .groupBy(accountsTable.systemKey);
 
     const byKey = (k: string) =>

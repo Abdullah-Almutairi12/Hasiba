@@ -19,6 +19,7 @@ import {
 } from "../lib/consolidated-reports";
 import { renderPdf, renderXlsx, type Cell } from "../lib/report-render";
 import { recordAudit } from "../lib/audit";
+import { getCompanyId } from "../lib/scoped-db";
 
 const router = Router();
 
@@ -96,6 +97,7 @@ interface AccountBalance {
 }
 
 async function getAccountBalances(
+  companyId: number,
   from?: string,
   to?: string,
 ): Promise<AccountBalance[]> {
@@ -106,7 +108,7 @@ async function getAccountBalances(
     .from(accountsTable)
     .orderBy(asc(accountsTable.code));
 
-  const wheres = [eq(journalEntriesTable.status, "posted")];
+  const wheres = [eq(journalEntriesTable.companyId, companyId), eq(journalEntriesTable.status, "posted")];
   if (from) wheres.push(gte(journalEntriesTable.entryDate, from));
   if (to) wheres.push(lte(journalEntriesTable.entryDate, to));
 
@@ -154,7 +156,7 @@ router.get("/reports/trial-balance", reportReadGuard, async (req, res) => {
   try {
     const from = req.query.from as string | undefined;
     const to = req.query.to as string | undefined;
-    const balances = await getAccountBalances(from, to);
+    const balances = await getAccountBalances(getCompanyId(req), from, to);
     const leaf = balances.filter((b) => !b.isGroup);
 
     const totalDebit = leaf.reduce(
@@ -196,7 +198,7 @@ router.get("/reports/profit-loss", reportReadGuard, async (req, res) => {
   try {
     const from = req.query.from as string | undefined;
     const to = req.query.to as string | undefined;
-    const balances = await getAccountBalances(from, to);
+    const balances = await getAccountBalances(getCompanyId(req), from, to);
 
     const revenues = balances.filter(
       (b) => b.type === "revenue" && !b.isGroup,
@@ -246,7 +248,7 @@ router.get("/reports/profit-loss", reportReadGuard, async (req, res) => {
 router.get("/reports/balance-sheet", reportReadGuard, async (req, res) => {
   try {
     const asOf = (req.query.asOf as string | undefined) ?? undefined;
-    const balances = await getAccountBalances(undefined, asOf);
+    const balances = await getAccountBalances(getCompanyId(req), undefined, asOf);
 
     const assets = balances.filter((b) => b.type === "asset" && !b.isGroup);
     const liabilities = balances.filter(
@@ -327,7 +329,7 @@ router.get("/reports/cash-flow", reportReadGuard, async (req, res) => {
     const from = req.query.from as string | undefined;
     const to = req.query.to as string | undefined;
 
-    const wheres = [eq(journalEntriesTable.status, "posted")];
+    const wheres = [eq(journalEntriesTable.companyId, getCompanyId(req)), eq(journalEntriesTable.status, "posted")];
     if (from) wheres.push(gte(journalEntriesTable.entryDate, from));
     if (to) wheres.push(lte(journalEntriesTable.entryDate, to));
 
@@ -402,6 +404,7 @@ router.get("/reports/general-ledger/:accountId", reportReadGuard, async (req, re
     if (!account) return res.status(404).json({ error: "الحساب غير موجود" });
 
     const wheres = [
+      eq(journalEntriesTable.companyId, getCompanyId(req)),
       eq(journalEntryLinesTable.accountId, accountId),
       eq(journalEntriesTable.status, "posted"),
     ];

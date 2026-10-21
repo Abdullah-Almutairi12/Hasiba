@@ -20,3 +20,9 @@ Previously shared AI training state must not seed a company's learned parameters
 **Why:** Aggregate parameters and recommendations can disclose another company's sales and customer information even after the prediction queries themselves are scoped.
 
 **How to apply:** Keep training state company-specific and start without legacy learned values. Preserve the public model keys when changing internal storage.
+
+Unowned legacy bank accounts and saved reports must remain quarantined until ownership is verified; do not assign them using the first company or a shared user's memberships. Legacy fiscal controls must be copied conservatively, retaining closed states independently for each company.
+
+**Why:** These records were previously global. Membership does not prove who owns historical financial data, and resetting closed fiscal controls to open would weaken posting restrictions.
+
+**How to apply:** Preserve unknown ownership as inaccessible rather than guessing. For calendar migrations, preserve restrictions and reconnect each journal only to its own company's periods.

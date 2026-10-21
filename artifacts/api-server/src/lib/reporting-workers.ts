@@ -10,6 +10,21 @@ import { eq, lte, isNotNull, and } from "drizzle-orm";
 import { runReport, type ReportConfig } from "./query-builder";
 import { sendMail, isMailerConfigured } from "./mailer";
 import { logger } from "./logger";
+import { readableReport, reportMemberRole } from "./finance-scope";
+import { getDataSource, userCanReadSource } from "./data-sources";
+import { isRole } from "../middlewares/require-role";
+
+async function authorizedWorkerReport(reportId: number, userId: number) {
+  const [def] = await db.select().from(reportDefinitionsTable).where(eq(reportDefinitionsTable.id, reportId));
+  if (!def?.companyId) return undefined;
+  const role = await reportMemberRole(def.companyId, userId);
+  const source = getDataSource(def.dataSource);
+  if (!isRole(role) || !source || !userCanReadSource(role, source)) return undefined;
+  const [allowed] = await db.select().from(reportDefinitionsTable).where(and(
+    eq(reportDefinitionsTable.id, reportId), readableReport(def.companyId, userId, role),
+  ));
+  return allowed;
+}
 
 function nextRunFor(cadence: string, from: Date = new Date()): Date {
   const next = new Date(from);
@@ -28,12 +43,9 @@ async function runDueSubscriptions(): Promise<void> {
 
   for (const sub of due) {
     try {
-      const [def] = await db
-        .select()
-        .from(reportDefinitionsTable)
-        .where(eq(reportDefinitionsTable.id, sub.reportId));
-      if (!def) continue;
-      const result = await runReport(def.dataSource, def.config as ReportConfig);
+      const def = await authorizedWorkerReport(sub.reportId, sub.ownerUserId);
+      if (!def?.companyId) continue;
+      const result = await runReport(def.dataSource, def.config as ReportConfig, def.companyId);
       const summary =
         `تقرير: ${def.name}\n` +
         `عدد الصفوف: ${result.rowCount}\n` +
@@ -78,12 +90,9 @@ async function evaluateKpiAlerts(): Promise<void> {
   for (const a of alerts) {
     if (a.reportId == null) continue;
     try {
-      const [def] = await db
-        .select()
-        .from(reportDefinitionsTable)
-        .where(eq(reportDefinitionsTable.id, a.reportId));
-      if (!def) continue;
-      const result = await runReport(def.dataSource, def.config as ReportConfig);
+      const def = await authorizedWorkerReport(a.reportId, a.ownerUserId);
+      if (!def?.companyId) continue;
+      const result = await runReport(def.dataSource, def.config as ReportConfig, def.companyId);
       const colKey = a.metricColumn;
       let observed = 0;
       for (const row of result.rows) {
@@ -116,12 +125,8 @@ async function evaluateKpiAlerts(): Promise<void> {
           threshold: String(threshold),
           message,
         });
-        // KPI alert definitions aren't tenant-scoped (reporting tables
-        // are still cross-tenant in Phase-2); the resulting alert row is
-        // logged with companyId=null so it remains visible in the
-        // operations view without leaking into a single tenant's feed.
         await db.insert(alertsTable).values({
-          companyId: null,
+          companyId: def.companyId,
           type: "warning",
           title: `تنبيه KPI: ${a.name}`,
           message,

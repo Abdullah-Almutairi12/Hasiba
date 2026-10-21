@@ -1,4 +1,5 @@
 import { db, accountsTable, fiscalPeriodsTable, journalEntriesTable, journalEntryLinesTable, exchangeRatesTable, currenciesTable } from "@workspace/db";
+import { fiscalPeriodScope } from "./finance-scope";
 import { and, eq, lte, gte, sql, desc } from "drizzle-orm";
 import type { PgTransaction } from "drizzle-orm/pg-core";
 
@@ -75,6 +76,7 @@ export class ClosedPeriodError extends Error {
 async function resolvePeriodId(
   tx: DbOrTx,
   d: Date,
+  companyId: number,
 ): Promise<number> {
   const dateStr = d.toISOString().slice(0, 10);
   // When monthly AND annual periods both cover a date, pick the most
@@ -86,6 +88,7 @@ async function resolvePeriodId(
     .from(fiscalPeriodsTable)
     .where(
       and(
+        fiscalPeriodScope(companyId),
         lte(fiscalPeriodsTable.startDate, dateStr),
         gte(fiscalPeriodsTable.endDate, dateStr),
       ),
@@ -179,7 +182,7 @@ export async function postJournalEntry(
 
   const entryDate = new Date(header.entryDate);
   const dateStr = entryDate.toISOString().slice(0, 10);
-  const periodId = await resolvePeriodId(tx, entryDate);
+  const periodId = await resolvePeriodId(tx, entryDate, header.companyId);
   const status = header.status ?? "posted";
   const entryNumber = await nextEntryNumber(tx, entryDate.getUTCFullYear());
 
@@ -297,7 +300,7 @@ export async function reverseJournalEntry(
 
   const reverseDate = new Date();
   const dateStr = reverseDate.toISOString().slice(0, 10);
-  const periodId = await resolvePeriodId(tx, reverseDate);
+  const periodId = await resolvePeriodId(tx, reverseDate, orig.companyId);
   const entryNumber = await nextEntryNumber(tx, reverseDate.getUTCFullYear());
 
   const [rev] = await tx

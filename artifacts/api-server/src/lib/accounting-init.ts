@@ -1,6 +1,7 @@
 import { pool } from "@workspace/db";
 import { logger } from "./logger";
 import { seedDefaultChartOfAccounts } from "./coa-template";
+import { seedCompanyFiscalCalendar } from "./fiscal-calendar";
 
 type PgPool = typeof pool;
 
@@ -73,22 +74,6 @@ export async function initAccounting(): Promise<void> {
   `);
 
   // 2) Create all accounting tables idempotently.
-  // Ensure unique constraint on fiscal_years.name even on already-created tables
-  await pool.query(`
-    DO $$ BEGIN
-      IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint WHERE conname = 'fiscal_years_name_key'
-      ) AND EXISTS (
-        SELECT 1 FROM information_schema.tables WHERE table_name = 'fiscal_years'
-      ) THEN
-        BEGIN
-          ALTER TABLE fiscal_years ADD CONSTRAINT fiscal_years_name_key UNIQUE (name);
-        EXCEPTION WHEN duplicate_table OR unique_violation THEN NULL;
-        END;
-      END IF;
-    END $$;
-  `).catch(() => {});
-
   await pool.query(`
     CREATE TABLE IF NOT EXISTS currencies (
       code text PRIMARY KEY,
@@ -131,7 +116,8 @@ export async function initAccounting(): Promise<void> {
 
     CREATE TABLE IF NOT EXISTS fiscal_years (
       id serial PRIMARY KEY,
-      name text NOT NULL UNIQUE,
+      company_id integer REFERENCES companies(id) ON DELETE RESTRICT,
+      name text NOT NULL,
       start_date date NOT NULL,
       end_date date NOT NULL,
       status text NOT NULL DEFAULT 'open',
@@ -194,6 +180,7 @@ export async function initAccounting(): Promise<void> {
 
     CREATE TABLE IF NOT EXISTS bank_accounts (
       id serial PRIMARY KEY,
+      company_id integer REFERENCES companies(id) ON DELETE RESTRICT,
       name text NOT NULL,
       bank_name text NOT NULL,
       account_number text NOT NULL,
@@ -246,23 +233,6 @@ export async function initAccounting(): Promise<void> {
   // provisioning flow (routes/companies.ts) and the boot-time seeder
   // share the exact same tree.
   await seedDefaultChartOfAccounts();
-  // 5) Seed current fiscal year and monthly periods.
-  // Ensure UNIQUE(name) exists before relying on ON CONFLICT (legacy DBs may
-  // lack it from the original drizzle schema).
-  await pool.query(`
-    DO $$ BEGIN
-      IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint WHERE conname = 'fiscal_years_name_uniq'
-      ) THEN
-        -- Drop any duplicate fiscal_years rows by name, keeping the lowest id.
-        DELETE FROM fiscal_years a
-          USING fiscal_years b
-         WHERE a.name = b.name AND a.id > b.id;
-        ALTER TABLE fiscal_years ADD CONSTRAINT fiscal_years_name_uniq UNIQUE (name);
-      END IF;
-    END $$;
-  `).catch((e) => logger.warn({ err: e }, "fiscal_years UNIQUE install skipped"));
-
   // Idempotent add-column for `code` on fiscal_periods (drizzle schema
   // declares it, but live DBs may predate the column). Backfill any
   // existing rows: monthly → "<year>-Mxx", annual → "<year>-Y".
@@ -295,71 +265,8 @@ export async function initAccounting(): Promise<void> {
      );
   `).catch((e) => logger.warn({ err: e }, "annual fiscal_period backfill skipped"));
 
-  const currentYear = new Date().getFullYear();
-  // Seed current AND previous year so closing-year flows have a real
-  // prior-period to act on, and historical entries can be back-posted
-  // within the most recent two years without manual setup.
-  const monthsAr = [
-    "يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو",
-    "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر",
-  ];
-  for (const year of [currentYear - 1, currentYear]) {
-    await pool.query(
-      `INSERT INTO fiscal_years (name, start_date, end_date)
-       VALUES ($1, $2, $3)
-       ON CONFLICT (name) DO NOTHING`,
-      [String(year), `${year}-01-01`, `${year}-12-31`],
-    );
-    const { rows: fyRows } = await pool.query(
-      `SELECT id FROM fiscal_years WHERE name = $1`,
-      [String(year)],
-    );
-    const fyId = fyRows[0]?.id;
-    if (!fyId) continue;
-    const { rows: pCount } = await pool.query(
-      `SELECT count(*)::int AS n FROM fiscal_periods WHERE fiscal_year_id = $1`,
-      [fyId],
-    );
-    if (pCount[0].n === 0) {
-      for (let m = 0; m < 12; m++) {
-        const start = new Date(Date.UTC(year, m, 1));
-        const end = new Date(Date.UTC(year, m + 1, 0));
-        const startStr = start.toISOString().slice(0, 10);
-        const endStr = end.toISOString().slice(0, 10);
-        const code = `${year}-M${String(m + 1).padStart(2, "0")}`;
-        await pool.query(
-          `INSERT INTO fiscal_periods (fiscal_year_id, code, name, start_date, end_date)
-           VALUES ($1, $2, $3, $4, $5)`,
-          [fyId, code, `${monthsAr[m]} ${year}`, startStr, endStr],
-        );
-      }
-      // Annual umbrella period — resolvePeriodId() prefers the most
-      // specific (shortest) match, so monthly rows still win for date
-      // lookups; the annual row is what gets locked by close-year.
-      await pool.query(
-        `INSERT INTO fiscal_periods (fiscal_year_id, code, name, start_date, end_date)
-         VALUES ($1, $2, $3, $4, $5)`,
-        [
-          fyId,
-          `${year}-Y`,
-          `السنة المالية ${year}`,
-          `${year}-01-01`,
-          `${year}-12-31`,
-        ],
-      );
-    }
-  }
-
-  // 6a) Seed a default bank account row tied to the seeded `bank` GL account
-  // so the Bank Reconciliation tab is usable on a fresh install.
-  await pool.query(`
-    INSERT INTO bank_accounts (name, bank_name, account_number, iban, currency_code, gl_account_id)
-    SELECT 'الحساب البنكي الرئيسي', 'البنك الأهلي السعودي', '0000000000', 'SA0000000000000000000000', 'SAR', a.id
-      FROM accounts a
-     WHERE a.system_key = 'bank'
-       AND NOT EXISTS (SELECT 1 FROM bank_accounts)
-     LIMIT 1
-  `).catch((e) => logger.warn({ err: e }, "Default bank account seed skipped"));
+  const { rows: companies } = await pool.query("SELECT id FROM companies");
+  for (const company of companies) await seedCompanyFiscalCalendar(company.id);
 
   // 6b) Enforce one-to-one reconciliation: a single GL line cannot be
   // matched against multiple bank statement lines. Partial unique index so

@@ -805,6 +805,29 @@ describe("HTTP — BOLA join-based scoping on sales/procurement/crm lists", () =
     expect(res.status).toBe(404);
   });
 
+  it("report builder scopes every non-journal source before filtering and aggregation", async () => {
+    const fixtures = [
+      { source: "sales_orders", own: posOrderAId, foreign: posOrderBId },
+      { source: "products", own: productAId, foreign: productBId },
+      { source: "supplier_invoices", own: invoiceAId, foreign: invoiceBId },
+      { source: "customers", own: customerAId, foreign: customerBId },
+    ];
+    for (const fixture of fixtures) {
+      const filter = { column: "id", op: "in", value: [fixture.own, fixture.foreign] };
+      const rows = await agentA.post("/api/reports/run").send({
+        source: fixture.source, config: { columns: ["id"], filters: [filter] },
+      }).expect(200);
+      expect(rows.body.rows.map((r: { id: number }) => r.id)).toEqual([fixture.own]);
+      const aggregate = await agentA.post("/api/reports/run").send({
+        source: fixture.source, config: {
+          columns: ["id"], filters: [filter],
+          aggregates: [{ column: "id", fn: "count", alias: "total" }],
+        },
+      }).expect(200);
+      expect(aggregate.body.rows).toEqual([{ total: 1 }]);
+    }
+  });
+
   it("GET /api/crm/opportunities is tenant-scoped via customers.companyId", async () => {
     const [a, b] = await Promise.all([
       agentA.get("/api/crm/opportunities"),

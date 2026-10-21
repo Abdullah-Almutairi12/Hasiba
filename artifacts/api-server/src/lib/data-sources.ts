@@ -15,6 +15,7 @@ export interface DataSource {
   label: string;
   module: string;
   fromSql: string;
+  companyExpr: string;
   columns: DataSourceColumn[];
   rolesAllowed: Role[];
   defaultDateColumn?: string;
@@ -23,12 +24,13 @@ export interface DataSource {
 export const DATA_SOURCES: DataSource[] = [
   {
     key: "sales_orders",
+    companyExpr: "b.company_id",
     label: "طلبات نقطة البيع",
     module: "sales",
     fromSql: `pos_orders po
       left join pos_sessions ps on ps.id = po.session_id
       left join branches b on b.id = ps.branch_id
-      left join customers c on c.id = po.customer_id`,
+      left join customers c on c.id = po.customer_id and c.company_id = b.company_id`,
     defaultDateColumn: "created_at",
     columns: [
       { key: "id", label: "المعرف", type: "number", expr: "po.id" },
@@ -47,6 +49,7 @@ export const DATA_SOURCES: DataSource[] = [
   },
   {
     key: "products",
+    companyExpr: "p.company_id",
     label: "المنتجات والمخزون",
     module: "inventory",
     fromSql: `products p
@@ -66,6 +69,7 @@ export const DATA_SOURCES: DataSource[] = [
   },
   {
     key: "supplier_invoices",
+    companyExpr: "i.company_id",
     label: "فواتير الموردين",
     module: "purchases",
     fromSql: "invoices i",
@@ -83,6 +87,7 @@ export const DATA_SOURCES: DataSource[] = [
   },
   {
     key: "customers",
+    companyExpr: "c.company_id",
     label: "العملاء",
     module: "sales",
     fromSql: "customers c",
@@ -99,6 +104,7 @@ export const DATA_SOURCES: DataSource[] = [
   },
   {
     key: "journal_entries",
+    companyExpr: "je.company_id",
     label: "قيود اليومية",
     module: "accounting",
     fromSql: `journal_entry_lines jl

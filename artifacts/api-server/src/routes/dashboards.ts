@@ -10,6 +10,8 @@ import { eq, asc, desc, and } from "drizzle-orm";
 import { z } from "zod";
 import { isRole, type Role } from "../middlewares/require-role";
 import { runReport, type ReportConfig } from "../lib/query-builder";
+import { getCompanyId } from "../lib/scoped-db";
+import { readableReport } from "../lib/finance-scope";
 import { getDataSource, userCanReadSource } from "../lib/data-sources";
 import { handleRouteError } from "../lib/handle-error";
 
@@ -298,38 +300,17 @@ router.post("/dashboards/widgets/:wid/data", async (req, res) => {
     const cfg = (w.config ?? {}) as Record<string, unknown>;
     const reportId = Number(cfg.reportId);
     if (!reportId) return res.json({ rows: [], columns: [] });
-    const [def] = await db.select().from(reportDefinitionsTable).where(eq(reportDefinitionsTable.id, reportId));
+    const [def] = await db.select().from(reportDefinitionsTable).where(and(
+      eq(reportDefinitionsTable.id, reportId),
+      readableReport(getCompanyId(req), userId, reqRole(req)),
+    ));
     if (!def) return res.status(404).json({ error: "تقرير غير موجود" });
-    // Tenant + ownership scope: a report definition belongs to the user
-    // who created it; it can be referenced by another user only when
-    // explicitly shared via `sharedWithRole`. Since report_definitions
-    // has no company_id column, we transitively enforce tenancy through
-    // the owning user's session — both viewer and owner must belong to
-    // the same company for cross-user access to be allowed.
     const viewerRole = reqRole(req);
-    const isOwner = def.ownerUserId === userId;
-    const sharedRoleMatch = def.sharedWithRole && viewerRole && def.sharedWithRole === viewerRole;
-    if (!isOwner && !sharedRoleMatch) {
-      return res.status(404).json({ error: "تقرير غير موجود" });
-    }
-    if (!isOwner) {
-      const [ownerMembership] = await db
-        .select({ companyId: userCompaniesTable.companyId })
-        .from(userCompaniesTable)
-        .where(and(
-          eq(userCompaniesTable.userId, def.ownerUserId),
-          eq(userCompaniesTable.companyId, req.session.companyId!),
-        ))
-        .limit(1);
-      if (!ownerMembership) {
-        return res.status(404).json({ error: "تقرير غير موجود" });
-      }
-    }
     const source = getDataSource(def.dataSource);
     if (!source || !userCanReadSource(viewerRole, source)) {
       return res.status(403).json({ error: "ليس لديك صلاحية" });
     }
-    const result = await runReport(def.dataSource, def.config as ReportConfig);
+    const result = await runReport(def.dataSource, def.config as ReportConfig, getCompanyId(req));
     return res.json({ columns: result.outputColumns, rows: result.rows, chartType: def.chartType });
   } catch (err) {
     req.log.error({ err }, "widget data failed");

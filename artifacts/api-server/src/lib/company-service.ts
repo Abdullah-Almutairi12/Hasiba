@@ -1,5 +1,6 @@
 import { pool } from "@workspace/db";
 import { seedDefaultChartOfAccounts } from "./coa-template";
+import { seedCompanyFiscalCalendar } from "./fiscal-calendar";
 import { initHr } from "./hr-init";
 import { initInventory } from "./inventory-init";
 
@@ -46,6 +47,7 @@ export async function provisionNewCompany(companyId: number): Promise<void> {
   // across all tenants). The helper is still idempotent and a no-op after
   // the first run. See lib/coa-template.ts for the migration plan.
   await seedDefaultChartOfAccounts();
+  await seedCompanyFiscalCalendar(companyId);
   // Only explicit, authenticated company creation provisions tenant defaults.
   // Application startup must not mutate every existing company's settings.
   await initHr(companyId);

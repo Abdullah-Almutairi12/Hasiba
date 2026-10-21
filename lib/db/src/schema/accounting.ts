@@ -91,6 +91,7 @@ export const accountsTable = pgTable(
 
 export const fiscalYearsTable = pgTable("fiscal_years", {
   id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companiesTable.id, { onDelete: "restrict" }),
   name: text("name").notNull(), // "2026"
   startDate: date("start_date").notNull(),
   endDate: date("end_date").notNull(),
@@ -98,7 +99,9 @@ export const fiscalYearsTable = pgTable("fiscal_years", {
   closedAt: timestamp("closed_at"),
   closedBy: integer("closed_by").references(() => usersTable.id),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (t) => ({
+  companyName: uniqueIndex("fiscal_years_company_name").on(t.companyId, t.name),
+}));
 
 export const fiscalPeriodsTable = pgTable(
   "fiscal_periods",
@@ -213,6 +216,7 @@ export const journalEntryLinesTable = pgTable(
 
 export const bankAccountsTable = pgTable("bank_accounts", {
   id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companiesTable.id, { onDelete: "restrict" }),
   name: text("name").notNull(),
   bankName: text("bank_name").notNull(),
   accountNumber: text("account_number").notNull(),

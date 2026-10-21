@@ -14,6 +14,8 @@ import { listSourcesForRole, getDataSource, userCanReadSource } from "../lib/dat
 import { runReport, type ReportConfig } from "../lib/query-builder";
 import { streamCsv, streamXlsx, streamPdf } from "../lib/report-exporters";
 import { handleRouteError } from "../lib/handle-error";
+import { getCompanyId } from "../lib/scoped-db";
+import { readableReport } from "../lib/finance-scope";
 
 const router = Router();
 
@@ -72,7 +74,7 @@ router.post("/reports/run", async (req, res) => {
   try {
     const body = RunBody.parse(req.body);
     if (!requireSourceRead(req, res, body.source)) return;
-    const result = await runReport(body.source, body.config as ReportConfig);
+    const result = await runReport(body.source, body.config as ReportConfig, getCompanyId(req));
     return res.json({
       columns: result.outputColumns,
       rows: result.rows,
@@ -101,11 +103,7 @@ router.get("/reports/definitions", async (req, res) => {
       .select()
       .from(reportDefinitionsTable)
       .where(
-        or(
-          eq(reportDefinitionsTable.ownerUserId, userId),
-          role ? eq(reportDefinitionsTable.sharedWithRole, role) : sql`false`,
-          eq(reportDefinitionsTable.sharedWithRole, "all"),
-        ),
+        readableReport(getCompanyId(req), userId, role),
       )
       .orderBy(desc(reportDefinitionsTable.updatedAt));
     res.json(rows.map(serializeDef));
@@ -139,6 +137,7 @@ router.post("/reports/definitions", async (req, res) => {
         config: body.config,
         chartType: body.chartType,
         ownerUserId: userId,
+        companyId: getCompanyId(req),
         sharedWithRole: body.sharedWithRole ?? null,
         tags: body.tags ?? [],
       })
@@ -155,7 +154,7 @@ router.patch("/reports/definitions/:id", async (req, res) => {
     const id = Number(req.params.id);
     const userId = req.session.userId!;
     const body = CreateDefBody.partial().parse(req.body);
-    const [existing] = await db.select().from(reportDefinitionsTable).where(eq(reportDefinitionsTable.id, id));
+    const [existing] = await db.select().from(reportDefinitionsTable).where(and(eq(reportDefinitionsTable.id, id), eq(reportDefinitionsTable.companyId, getCompanyId(req))));
     if (!existing) return res.status(404).json({ error: "غير موجود" });
     if (existing.ownerUserId !== userId) return res.status(403).json({ error: "لا يمكن تعديل تقرير ليس ملكك" });
     if (body.dataSource && !requireSourceRead(req, res, body.dataSource)) return;
@@ -184,7 +183,7 @@ router.delete("/reports/definitions/:id", async (req, res) => {
   try {
     const id = Number(req.params.id);
     const userId = req.session.userId!;
-    const [existing] = await db.select().from(reportDefinitionsTable).where(eq(reportDefinitionsTable.id, id));
+    const [existing] = await db.select().from(reportDefinitionsTable).where(and(eq(reportDefinitionsTable.id, id), eq(reportDefinitionsTable.companyId, getCompanyId(req))));
     if (!existing) return res.status(404).json({ error: "غير موجود" });
     if (existing.ownerUserId !== userId) return res.status(403).json({ error: "لا يمكن حذف تقرير ليس ملكك" });
     await db.delete(reportDefinitionsTable).where(eq(reportDefinitionsTable.id, id));
@@ -198,10 +197,10 @@ router.delete("/reports/definitions/:id", async (req, res) => {
 router.post("/reports/definitions/:id/run", async (req, res) => {
   try {
     const id = Number(req.params.id);
-    const [def] = await db.select().from(reportDefinitionsTable).where(eq(reportDefinitionsTable.id, id));
+    const [def] = await db.select().from(reportDefinitionsTable).where(and(eq(reportDefinitionsTable.id, id), readableReport(getCompanyId(req), req.session.userId!, reqRole(req))));
     if (!def) return res.status(404).json({ error: "غير موجود" });
     if (!requireSourceRead(req, res, def.dataSource)) return;
-    const result = await runReport(def.dataSource, def.config as ReportConfig);
+    const result = await runReport(def.dataSource, def.config as ReportConfig, getCompanyId(req));
     return res.json({
       definition: serializeDef(def),
       columns: result.outputColumns,
@@ -218,10 +217,10 @@ router.get("/reports/definitions/:id/export", async (req, res) => {
   try {
     const id = Number(req.params.id);
     const format = String(req.query.format || "xlsx") as "csv" | "xlsx" | "pdf";
-    const [def] = await db.select().from(reportDefinitionsTable).where(eq(reportDefinitionsTable.id, id));
+    const [def] = await db.select().from(reportDefinitionsTable).where(and(eq(reportDefinitionsTable.id, id), readableReport(getCompanyId(req), req.session.userId!, reqRole(req))));
     if (!def) return res.status(404).json({ error: "غير موجود" });
     if (!requireSourceRead(req, res, def.dataSource)) return;
-    const result = await runReport(def.dataSource, def.config as ReportConfig);
+    const result = await runReport(def.dataSource, def.config as ReportConfig, getCompanyId(req));
     const filename = `${def.name.replace(/[^a-z0-9-_ \u0600-\u06FF]/gi, "_")}-${new Date().toISOString().slice(0, 10)}`;
     if (format === "csv") streamCsv(res, filename, result);
     else if (format === "pdf") streamPdf(res, filename, result);
@@ -257,7 +256,10 @@ router.get("/reports/subscriptions", async (req, res) => {
     const rows = await db
       .select()
       .from(reportSubscriptionsTable)
-      .where(isAdmin ? sql`true` : eq(reportSubscriptionsTable.ownerUserId, userId))
+      .where(and(
+        isAdmin ? sql`true` : eq(reportSubscriptionsTable.ownerUserId, userId),
+        sql`${reportSubscriptionsTable.reportId} in (${db.select({ id: reportDefinitionsTable.id }).from(reportDefinitionsTable).where(readableReport(getCompanyId(req), userId, role))})`,
+      ))
       .orderBy(desc(reportSubscriptionsTable.createdAt));
     res.json(
       rows.map((r) => ({
@@ -277,6 +279,12 @@ router.post("/reports/subscriptions", async (req, res) => {
   try {
     const body = SubscriptionBody.parse(req.body);
     const userId = req.session.userId!;
+    const [def] = await db.select().from(reportDefinitionsTable).where(and(
+      eq(reportDefinitionsTable.id, body.reportId),
+      readableReport(getCompanyId(req), userId, reqRole(req)),
+    ));
+    if (!def) return res.status(404).json({ error: "غير موجود" });
+    if (!requireSourceRead(req, res, def.dataSource)) return;
     const [row] = await db
       .insert(reportSubscriptionsTable)
       .values({
@@ -308,6 +316,11 @@ router.delete("/reports/subscriptions/:id", async (req, res) => {
     const isAdmin = role === "owner" || role === "manager";
     const [existing] = await db.select().from(reportSubscriptionsTable).where(eq(reportSubscriptionsTable.id, id));
     if (!existing) return res.status(404).json({ error: "غير موجود" });
+    const [def] = await db.select().from(reportDefinitionsTable).where(and(
+      eq(reportDefinitionsTable.id, existing.reportId),
+      readableReport(getCompanyId(req), userId, role),
+    ));
+    if (!def) return res.status(404).json({ error: "غير موجود" });
     if (!isAdmin && existing.ownerUserId !== userId) {
       return res.status(403).json({ error: "ليس لديك صلاحية" });
     }
@@ -355,6 +368,14 @@ router.post("/reports/kpi-alerts", async (req, res) => {
   try {
     const body = KpiAlertBody.parse(req.body);
     const userId = req.session.userId!;
+    if (body.reportId != null) {
+      const [def] = await db.select().from(reportDefinitionsTable).where(and(
+        eq(reportDefinitionsTable.id, body.reportId),
+        readableReport(getCompanyId(req), userId, reqRole(req)),
+      ));
+      if (!def) return res.status(404).json({ error: "غير موجود" });
+      if (!requireSourceRead(req, res, def.dataSource)) return;
+    }
     const [row] = await db
       .insert(kpiAlertsTable)
       .values({
