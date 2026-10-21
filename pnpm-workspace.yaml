@@ -43,6 +43,24 @@ onlyBuiltDependencies:
   - unrs-resolver
 
 overrides:
+  # Security patches for transitive dependencies; preserve compatible major lines.
+  'picomatch@2': 2.3.2
+  'picomatch@4': 4.0.5
+  'path-to-regexp@8': 8.4.2
+  'tmp@0.2': 0.2.7
+  'fast-uri@3': 3.1.8
+  'lodash@4': 4.18.1
+  # uuid 11 retains CommonJS support and the v4 API used by these consumers.
+  'uuid@8': 11.1.1
+  'uuid@9': 11.1.1
+  'fast-xml-builder@1': 1.3.0
+  'yaml@2': 2.9.0
+  'brace-expansion@1': 1.1.21
+  'brace-expansion@2': 2.1.7
+  'qs@6': 6.16.0
+  'postcss@8': 8.5.26
+  'ip-address@10': 10.7.1
+  '@tootallnate/once@2': 2.0.1
   '@esbuild-kit/esm-loader': npm:tsx@^4.21.0
   '@expo/ngrok-bin>@expo/ngrok-bin-darwin-arm64': '-'
   '@expo/ngrok-bin>@expo/ngrok-bin-darwin-x64': '-'
