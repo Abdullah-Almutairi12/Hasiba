@@ -4,15 +4,17 @@ import {
   stockLotsTable,
   stockSerialsTable,
   warehousesTable,
+  productVariantsTable,
 } from "@workspace/db";
 import { and, eq, sql } from "drizzle-orm";
 import { postJournalEntry, type DbOrTx } from "./journal-posting";
-import { db, alertsTable, usersTable } from "@workspace/db";
+import { db, alertsTable, usersTable, userCompaniesTable } from "@workspace/db";
 import {
   sendByTemplate,
   hasRecentLowStockAlert,
 } from "./integrations/messaging-templates";
 import { logger } from "./logger";
+import { supplyScope } from "./supply-chain-scope";
 
 /**
  * If the freshly-recomputed cached stock for `productId` has fallen
@@ -57,10 +59,11 @@ async function scheduleLowStockNotification(productId: number): Promise<void> {
     const managers = await db
       .select({ phone: usersTable.phone, name: usersTable.name })
       .from(usersTable)
+      .innerJoin(userCompaniesTable, and(eq(userCompaniesTable.userId, usersTable.id), eq(userCompaniesTable.companyId, p.companyId!)))
       .where(
         and(
           eq(usersTable.isActive, true),
-          sql`${usersTable.role} = 'manager'`,
+          eq(userCompaniesTable.role, "manager"),
         ),
       );
     for (const m of managers) {
@@ -91,6 +94,7 @@ export type StockMoveKind =
   | "return_out";
 
 export interface RecordMoveInput {
+  companyId?: number;
   productId: number;
   variantId?: number | null;
   fromWarehouseId?: number | null;
@@ -119,14 +123,14 @@ function rowsOf<T>(result: unknown): T[] {
   return r?.rows ?? [];
 }
 
-async function getDefaultWarehouseId(tx: DbOrTx): Promise<number> {
+async function getDefaultWarehouseId(tx: DbOrTx, companyId?: number): Promise<number> {
   const [w] = await tx
     .select({ id: warehousesTable.id })
     .from(warehousesTable)
-    .where(eq(warehousesTable.isDefault, true))
+    .where(and(eq(warehousesTable.isDefault, true), companyId == null ? undefined : eq(warehousesTable.companyId, companyId)))
     .limit(1);
   if (w) return w.id;
-  const [any] = await tx.select({ id: warehousesTable.id }).from(warehousesTable).limit(1);
+  const [any] = await tx.select({ id: warehousesTable.id }).from(warehousesTable).where(companyId == null ? undefined : eq(warehousesTable.companyId, companyId)).limit(1);
   if (!any) throw new Error("لا يوجد مستودع مُعرَّف في النظام");
   return any.id;
 }
@@ -262,6 +266,7 @@ async function consumeFifoLayers(
   warehouseId: number,
   qty: number,
   lotId: number | null,
+  companyId: number,
 ): Promise<number | null> {
   const lotFilter = lotId == null ? sql`AND lot_id IS NULL` : sql`AND lot_id = ${lotId}`;
   const layers = rowsOf<{ id: number; remaining: number; unit_cost: number }>(
@@ -271,6 +276,7 @@ async function consumeFifoLayers(
        WHERE product_id = ${productId}
          AND warehouse_id = ${warehouseId}
          AND remaining_qty > 0
+         AND ${supplyScope("move", sql`receipt_move_id`, companyId)}
          ${lotFilter}
        ORDER BY created_at ASC, id ASC
        FOR UPDATE
@@ -303,6 +309,8 @@ export async function allocateLotsFEFO(
   warehouseId: number,
   qtyNeeded: number,
 ): Promise<Array<{ lotId: number; qty: number }>> {
+  const product = await getProductInfo(tx, productId);
+  if (product.companyId == null) throw new Error("Stock resource not found");
   const today = new Date().toISOString().slice(0, 10);
   const rows = rowsOf<{ lot_id: number; quantity: number }>(
     await tx.execute(sql`
@@ -311,6 +319,7 @@ export async function allocateLotsFEFO(
         LEFT JOIN stock_lots l ON l.id = q.lot_id
        WHERE q.product_id = ${productId}
          AND q.warehouse_id = ${warehouseId}
+         AND ${supplyScope("quant", sql`q.id`, product.companyId)}
          AND q.quantity > 0
          AND q.lot_id IS NOT NULL
          AND (l.expiry_date IS NULL OR l.expiry_date >= ${today})
@@ -340,6 +349,25 @@ export async function recordStockMove(
   if (!(qty > 0)) throw new Error("الكمية يجب أن تكون أكبر من صفر");
 
   const product = await getProductInfo(tx, input.productId);
+  // Enforce consistency even for background/internal callers. A product and
+  // both ends of a move must have the same proven owner, before any write.
+  if (product.companyId == null || (input.companyId != null && product.companyId !== input.companyId)) {
+    throw new Error("Stock resource not found");
+  }
+  for (const warehouseId of [input.fromWarehouseId, input.toWarehouseId]) {
+    if (warehouseId == null) continue;
+    const [warehouse] = await tx.select({ id: warehousesTable.id }).from(warehousesTable)
+      .where(and(eq(warehousesTable.id, warehouseId), eq(warehousesTable.companyId, product.companyId))).limit(1);
+    if (!warehouse) throw new Error("Stock resource not found");
+  }
+  for (const [table, id] of [
+    [stockLotsTable, input.lotId], [stockSerialsTable, input.serialId], [productVariantsTable, input.variantId],
+  ] as const) {
+    if (id == null) continue;
+    const [owned] = await tx.select({ id: table.id }).from(table)
+      .where(and(eq(table.id, id), eq(table.productId, input.productId))).limit(1);
+    if (!owned) throw new Error("Stock tracking reference does not match product");
+  }
 
   // Serial enforcement.
   if (product.tracking === "serial") {
@@ -402,6 +430,7 @@ export async function recordStockMove(
         input.fromWarehouseId,
         qty,
         input.lotId ?? null,
+        product.companyId,
       );
       if (input.unitCost == null) unitCost = fifoCost ?? product.costPrice;
     } else if (input.unitCost == null) {
@@ -520,6 +549,7 @@ export async function recordStockMove(
            JOIN warehouses w ON w.id = q.warehouse_id
           WHERE q.product_id = ${input.productId}
             AND w.is_scrap = false
+            AND ${supplyScope("quant", sql`q.id`, product.companyId)}
        ), 0)
      WHERE id = ${input.productId}
   `);
@@ -645,6 +675,7 @@ export async function completeTransfer(
   tx: DbOrTx,
   moveId: number,
   completedBy: number | null,
+  companyId: number,
 ): Promise<void> {
   // Atomic state transition: only the caller that succeeds in flipping
   // the move from in_transit -> done proceeds to credit the destination.
@@ -666,6 +697,7 @@ export async function completeTransfer(
              notes = COALESCE(notes,'') ||
                      ${completedBy ? sql` ' — استلام بواسطة #' || ${completedBy}` : sql`''`}
        WHERE id = ${moveId}
+         AND ${supplyScope("move", sql`stock_moves.id`, companyId)}
          AND kind = 'transfer'
          AND state = 'in_transit'
          AND to_warehouse_id IS NOT NULL

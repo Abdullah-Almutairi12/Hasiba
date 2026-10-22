@@ -27,8 +27,16 @@ import {
   completeTransfer,
 } from "../lib/stock-engine";
 import { evaluateAnomalies } from "../lib/anomaly-engine";
+import { getCompanyId } from "../lib/scoped-db";
+import { supplyScope, supplyParam, supplyReferencesGuard } from "../lib/supply-chain-scope";
 
 const router = Router();
+router.use("/inventory", supplyReferencesGuard);
+router.param("id", supplyParam((path) =>
+  path.includes("/stock-takes/") ? "take" :
+  path.includes("/transfers/") ? "move" :
+  path.includes("/products/") ? "product" : undefined));
+router.param("lineId", supplyParam(() => "takeLine"));
 
 // ============================================================
 // Stock by warehouse — read endpoints
@@ -38,7 +46,7 @@ router.get("/inventory/quants", inventoryReadGuard, async (req, res) => {
   try {
     const productId = req.query.productId ? Number(req.query.productId) : undefined;
     const warehouseId = req.query.warehouseId ? Number(req.query.warehouseId) : undefined;
-    const conds: SQL[] = [];
+    const conds: SQL[] = [supplyScope("quant", stockQuantsTable.id, getCompanyId(req))];
     if (productId) conds.push(eq(stockQuantsTable.productId, productId));
     if (warehouseId) conds.push(eq(stockQuantsTable.warehouseId, warehouseId));
     const rows = await db
@@ -83,6 +91,8 @@ router.get("/inventory/warehouse-summary", inventoryReadGuard, async (req, res) 
              COALESCE(SUM(q.quantity * q.avg_cost)::float8, 0) AS total_value
         FROM warehouses w
         LEFT JOIN stock_quants q ON q.warehouse_id = w.id
+          AND ${supplyScope("quant", sql`q.id`, getCompanyId(req))}
+       WHERE w.company_id = ${getCompanyId(req)}
        GROUP BY w.id, w.name_ar, w.branch_id
        ORDER BY w.id
     `);
@@ -111,8 +121,10 @@ router.get("/inventory/products/:id/balances", inventoryReadGuard, async (req, r
         and(
           eq(stockQuantsTable.warehouseId, warehousesTable.id),
           eq(stockQuantsTable.productId, productId),
+          supplyScope("quant", stockQuantsTable.id, getCompanyId(req)),
         ),
       )
+      .where(eq(warehousesTable.companyId, getCompanyId(req)))
       .groupBy(warehousesTable.id, warehousesTable.nameAr, warehousesTable.branchId)
       .orderBy(warehousesTable.id);
     res.json(rows.map((r) => ({ ...r, quantity: Number(r.quantity), avgCost: Number(r.avgCost) })));
@@ -126,7 +138,7 @@ router.get("/inventory/moves", inventoryReadGuard, async (req, res) => {
   try {
     const productId = req.query.productId ? Number(req.query.productId) : undefined;
     const warehouseId = req.query.warehouseId ? Number(req.query.warehouseId) : undefined;
-    const conds: SQL[] = [];
+    const conds: SQL[] = [supplyScope("move", stockMovesTable.id, getCompanyId(req))];
     if (productId) conds.push(eq(stockMovesTable.productId, productId));
     if (warehouseId)
       conds.push(
@@ -201,6 +213,7 @@ router.post("/inventory/moves", inventoryGuard, async (req, res) => {
             ? "issue"
             : "adjustment";
       return recordStockMove(tx, {
+        companyId: getCompanyId(req),
         productId: body.productId,
         kind,
         quantity: body.quantity,
@@ -266,6 +279,7 @@ router.post("/inventory/transfers", inventoryGuard, async (req, res) => {
     const result = await db.transaction(async (tx) => {
       // Phase 1: outbound (in_transit)
       const out = await recordStockMove(tx, {
+        companyId: getCompanyId(req),
         productId: body.productId,
         quantity: body.quantity,
         kind: "transfer",
@@ -291,7 +305,7 @@ router.post("/inventory/transfers", inventoryGuard, async (req, res) => {
 router.post("/inventory/transfers/:id/receive", inventoryGuard, async (req, res) => {
   try {
     const id = Number(req.params.id);
-    await db.transaction((tx) => completeTransfer(tx, id, req.session?.userId ?? null));
+    await db.transaction((tx) => completeTransfer(tx, id, req.session?.userId ?? null, getCompanyId(req)));
     return res.json({ ok: true, id });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "تعذر استلام التحويل";
@@ -318,6 +332,7 @@ router.get("/inventory/transfers", inventoryReadGuard, async (req, res) => {
       .leftJoin(productsTable, eq(stockMovesTable.productId, productsTable.id))
       .where(
         and(
+          supplyScope("move", stockMovesTable.id, getCompanyId(req)),
           eq(stockMovesTable.kind, "transfer"),
           sql`${stockMovesTable.fromWarehouseId} IS NOT NULL`,
         ),
@@ -347,7 +362,7 @@ router.get("/inventory/lots", inventoryReadGuard, async (req, res) => {
     const rows = await db
       .select()
       .from(stockLotsTable)
-      .where(productId ? eq(stockLotsTable.productId, productId) : undefined)
+      .where(and(supplyScope("lot", stockLotsTable.id, getCompanyId(req)), productId ? eq(stockLotsTable.productId, productId) : undefined))
       .orderBy(desc(stockLotsTable.id))
       .limit(500);
     res.json(rows);
@@ -381,7 +396,7 @@ router.get("/inventory/serials", inventoryReadGuard, async (req, res) => {
     const rows = await db
       .select()
       .from(stockSerialsTable)
-      .where(productId ? eq(stockSerialsTable.productId, productId) : undefined)
+      .where(and(supplyScope("serial", stockSerialsTable.id, getCompanyId(req)), productId ? eq(stockSerialsTable.productId, productId) : undefined))
       .orderBy(desc(stockSerialsTable.id))
       .limit(500);
     res.json(rows);
@@ -435,6 +450,7 @@ router.get("/inventory/reorder-rules", inventoryReadGuard, async (req, res) => {
       .from(reorderRulesTable)
       .leftJoin(productsTable, eq(reorderRulesTable.productId, productsTable.id))
       .leftJoin(warehousesTable, eq(reorderRulesTable.warehouseId, warehousesTable.id))
+      .where(supplyScope("reorder", reorderRulesTable.id, getCompanyId(req)))
       .orderBy(desc(reorderRulesTable.id));
     res.json(rows.map((r) => ({
       ...r,
@@ -497,7 +513,8 @@ router.get("/inventory/reorder-suggestions", inventoryReadGuard, async (req, res
         JOIN products p ON p.id = r.product_id
         JOIN warehouses w ON w.id = r.warehouse_id
         LEFT JOIN stock_quants q ON q.product_id = r.product_id AND q.warehouse_id = r.warehouse_id
-       WHERE r.is_active = true
+          AND ${supplyScope("quant", sql`q.id`, getCompanyId(req))}
+       WHERE r.is_active = true AND ${supplyScope("reorder", sql`r.id`, getCompanyId(req))}
        GROUP BY r.id, p.name_ar, p.sku, w.name_ar
       HAVING COALESCE(SUM(q.quantity), 0) <= r.min_qty
        ORDER BY p.name_ar
@@ -542,7 +559,7 @@ router.post("/inventory/stock-takes", inventoryGuard, async (req, res) => {
           avgCost: stockQuantsTable.avgCost,
         })
         .from(stockQuantsTable)
-        .where(eq(stockQuantsTable.warehouseId, body.warehouseId));
+        .where(and(eq(stockQuantsTable.warehouseId, body.warehouseId), supplyScope("quant", stockQuantsTable.id, getCompanyId(req))));
       for (const s of snap) {
         await tx.insert(stockTakeLinesTable).values({
           stockTakeId: take.id,
@@ -566,6 +583,7 @@ router.get("/inventory/stock-takes", inventoryReadGuard, async (req, res) => {
   const rows = await db
     .select()
     .from(stockTakesTable)
+    .where(supplyScope("take", stockTakesTable.id, getCompanyId(req)))
     .orderBy(desc(stockTakesTable.id))
     .limit(50);
   res.json(rows.map((r) => ({
@@ -650,6 +668,10 @@ router.post("/inventory/stock-takes/:id/lines", inventoryGuard, async (req, res)
       lotId: z.coerce.number().int().optional(),
       countedQty: z.coerce.number().nonnegative().default(1),
     }).parse(req.body);
+    if (body.lotId != null) {
+      const [lot] = await db.select().from(stockLotsTable).where(and(eq(stockLotsTable.id, body.lotId), eq(stockLotsTable.productId, body.productId)));
+      if (!lot) { res.status(400).json({ error: "Invalid lot for product" }); return; }
+    }
     const result = await db.transaction(async (tx) => {
       const [take] = await tx
         .select()
@@ -727,7 +749,7 @@ router.post("/inventory/stock-takes/:id/complete", inventoryGuard, async (req, r
       const [take] = await tx
         .update(stockTakesTable)
         .set({ status: "done", completedAt: new Date(), completedBy: req.session?.userId ?? null })
-        .where(and(eq(stockTakesTable.id, id), eq(stockTakesTable.status, "in_progress")))
+        .where(and(eq(stockTakesTable.id, id), supplyScope("take", stockTakesTable.id, getCompanyId(req)), eq(stockTakesTable.status, "in_progress")))
         .returning();
       if (!take) throw new Error("الجرد غير موجود أو مغلق بالفعل");
       const lines = await tx.select().from(stockTakeLinesTable).where(eq(stockTakeLinesTable.stockTakeId, id));
@@ -740,6 +762,7 @@ router.post("/inventory/stock-takes/:id/complete", inventoryGuard, async (req, r
         if (Math.abs(variance) < 0.0001) continue;
         const qty = Math.abs(variance);
         await recordStockMove(tx, {
+          companyId: getCompanyId(req),
           productId: l.productId,
           quantity: qty,
           kind: "adjustment",
@@ -774,7 +797,7 @@ router.get("/inventory/variants", inventoryReadGuard, async (req, res) => {
   const rows = await db
     .select()
     .from(productVariantsTable)
-    .where(productId ? eq(productVariantsTable.productId, productId) : undefined);
+    .where(and(supplyScope("variant", productVariantsTable.id, getCompanyId(req)), productId ? eq(productVariantsTable.productId, productId) : undefined));
   res.json(rows);
 });
 
@@ -819,7 +842,7 @@ router.get("/inventory/lookup", inventoryLookupGuard, async (req, res) => {
     const [byProductBarcode] = await db
       .select()
       .from(productsTable)
-      .where(sql`${productsTable.barcode} = ${code} OR ${productsTable.sku} = ${code}`)
+      .where(and(eq(productsTable.companyId, getCompanyId(req)), sql`(${productsTable.barcode} = ${code} OR ${productsTable.sku} = ${code})`))
       .limit(1);
     if (byProductBarcode) {
       return res.json({
@@ -833,7 +856,7 @@ router.get("/inventory/lookup", inventoryLookupGuard, async (req, res) => {
     const [byVariant] = await db
       .select()
       .from(productVariantsTable)
-      .where(sql`${productVariantsTable.barcode} = ${code} OR ${productVariantsTable.sku} = ${code}`)
+      .where(and(supplyScope("variant", productVariantsTable.id, getCompanyId(req)), sql`(${productVariantsTable.barcode} = ${code} OR ${productVariantsTable.sku} = ${code})`))
       .limit(1);
     if (byVariant) {
       return res.json({

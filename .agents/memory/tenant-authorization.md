@@ -38,3 +38,9 @@ Historical HR positions cannot be assigned a company from their department refer
 **Why:** Position creation previously accepted arbitrary department IDs. A historical department link could itself have been supplied across tenants and is not evidence of the author's company.
 
 **How to apply:** Keep unowned positions quarantined until explicitly verified; new positions must be stamped with the active company even when no department is selected.
+
+Supply-chain records with mixed-company references must be quarantined as a whole, rather than returning a partially filtered recipe, order, count, or payment run. Legacy work centers and routings have no provable owner.
+
+**Why:** Earlier procurement, inventory, and manufacturing writes accepted foreign references. Trusting only a header stamp or silently omitting foreign children can both expose data and change the meaning of financial or stock operations. Historical routing/BoM links are not evidence of who authored a shared production resource.
+
+**How to apply:** Require agreement across tenant-bearing relationships before reading or acting on a graph. Apply the same quarantine rule to aggregates, replenishment decisions, allocation, and cached balances as to detail rows; hiding a row in one list is not sufficient. Keep unowned production resources inaccessible until explicitly assigned a verified owner; do not backfill from linked BoMs, operations, or the first active company.

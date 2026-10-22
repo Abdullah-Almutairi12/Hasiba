@@ -30,8 +30,15 @@ import {
 import { stockLotsTable, stockSerialsTable } from "@workspace/db";
 import { postJournalEntry } from "../lib/journal-posting";
 import { getCompanyId } from "../lib/scoped-db";
+import { supplyScope, supplyParam, supplyReferencesGuard, requireSupplyReference } from "../lib/supply-chain-scope";
 
 const router = Router();
+router.use("/manufacturing", supplyReferencesGuard);
+router.param("id", supplyParam((path) =>
+  path.includes("/boms/") ? "bom" :
+  path.includes("/work-orders/") ? "workOrder" :
+  path.includes("/quality-checks/") ? "qualityCheck" :
+  path.includes("/scrap/") ? "scrap" : undefined));
 
 class HttpError extends Error {
   constructor(public status: number, message: string) { super(message); }
@@ -77,6 +84,7 @@ router.get("/manufacturing/boms", inventoryReadGuard, async (req, res) => {
       })
       .from(bomsTable)
       .leftJoin(productsTable, eq(bomsTable.productId, productsTable.id))
+      .where(supplyScope("bom", bomsTable.id, getCompanyId(req)))
       .orderBy(desc(bomsTable.id));
     res.json(rows.map((r) => ({ ...r, quantity: Number(r.quantity) })));
   } catch (err) {
@@ -209,8 +217,10 @@ type LeafReq = { componentId: number; quantity: number };
 async function explodeBom(
   bomId: number,
   outerRatio: number,
+  companyId: number,
   acc: Map<number, number> = new Map(),
 ): Promise<LeafReq[]> {
+  await requireSupplyReference("bom", bomId, companyId);
   const [bom] = await db.select().from(bomsTable).where(eq(bomsTable.id, bomId)).limit(1);
   if (!bom) return [];
   const lines = await db
@@ -229,6 +239,7 @@ async function explodeBom(
       .where(
         and(
           eq(bomsTable.productId, ln.componentId),
+          supplyScope("bom", bomsTable.id, companyId),
           eq(bomsTable.isPhantom, true),
           eq(bomsTable.isActive, true),
         ),
@@ -236,7 +247,7 @@ async function explodeBom(
       .limit(1);
     if (phantom) {
       // Producing `qty` of the phantom needs (qty / phantom.qty) batches.
-      await explodeBom(phantom.id, qty / Number(phantom.qty), acc);
+      await explodeBom(phantom.id, qty / Number(phantom.qty), companyId, acc);
     } else {
       acc.set(ln.componentId, (acc.get(ln.componentId) ?? 0) + qty);
     }
@@ -249,7 +260,8 @@ async function explodeBom(
 
 // Standard cost roll-up: sum(quantity_per * cost_price) over BoM lines per
 // finished-goods quantity. Phantom BoM components are expanded recursively.
-async function costRollup(bomId: number): Promise<number> {
+async function costRollup(bomId: number, companyId: number): Promise<number> {
+  await requireSupplyReference("bom", bomId, companyId);
   const lines = await db
     .select({
       componentId: bomLinesTable.componentId,
@@ -271,13 +283,14 @@ async function costRollup(bomId: number): Promise<number> {
       .where(
         and(
           eq(bomsTable.productId, ln.componentId),
+          supplyScope("bom", bomsTable.id, companyId),
           eq(bomsTable.isPhantom, true),
           eq(bomsTable.isActive, true),
         ),
       )
       .limit(1);
     if (phantom) {
-      const sub = await costRollup(phantom.id);
+      const sub = await costRollup(phantom.id, companyId);
       total += qp * (sub / Number(phantom.qty));
     } else {
       total += qp * Number(ln.costPrice ?? 0);
@@ -291,7 +304,7 @@ router.get("/manufacturing/boms/:id/cost", inventoryReadGuard, async (req, res) 
     const id = Number(req.params.id);
     const [bom] = await db.select().from(bomsTable).where(eq(bomsTable.id, id)).limit(1);
     if (!bom) return res.status(404).json({ error: "غير موجود" });
-    const total = await costRollup(id);
+    const total = await costRollup(id, getCompanyId(req));
     return res.json({
       bomId: id,
       bomQuantity: Number(bom.quantity),
@@ -310,7 +323,7 @@ router.get("/manufacturing/boms/:id/cost", inventoryReadGuard, async (req, res) 
 
 router.get("/manufacturing/work-centers", inventoryReadGuard, async (req, res) => {
   try {
-    const rows = await db.select().from(workCentersTable).orderBy(workCentersTable.code);
+    const rows = await db.select().from(workCentersTable).where(supplyScope("workCenter", workCentersTable.id, getCompanyId(req))).orderBy(workCentersTable.code);
     res.json(rows.map((r) => ({
       ...r,
       capacityPerDay: Number(r.capacityPerDay),
@@ -336,6 +349,7 @@ router.post("/manufacturing/work-centers", productionGuard, async (req, res) => 
     const [row] = await db
       .insert(workCentersTable)
       .values({
+        companyId: getCompanyId(req),
         code: body.code,
         name: body.name,
         nameAr: body.nameAr,
@@ -357,7 +371,7 @@ router.post("/manufacturing/work-centers", productionGuard, async (req, res) => 
 
 router.get("/manufacturing/routings", inventoryReadGuard, async (req, res) => {
   try {
-    const routings = await db.select().from(routingsTable).orderBy(desc(routingsTable.id));
+    const routings = await db.select().from(routingsTable).where(supplyScope("routing", routingsTable.id, getCompanyId(req))).orderBy(desc(routingsTable.id));
     const ops = await db
       .select({
         id: routingOperationsTable.id,
@@ -372,6 +386,7 @@ router.get("/manufacturing/routings", inventoryReadGuard, async (req, res) => {
       })
       .from(routingOperationsTable)
       .leftJoin(workCentersTable, eq(routingOperationsTable.workCenterId, workCentersTable.id))
+      .where(supplyScope("operation", routingOperationsTable.id, getCompanyId(req)))
       .orderBy(routingOperationsTable.sequence);
     res.json(
       routings.map((r) => ({
@@ -410,7 +425,7 @@ router.post("/manufacturing/routings", productionGuard, async (req, res) => {
     const result = await db.transaction(async (tx) => {
       const [routing] = await tx
         .insert(routingsTable)
-        .values({ reference, name: body.name, nameAr: body.nameAr })
+        .values({ companyId: getCompanyId(req), reference, name: body.name, nameAr: body.nameAr })
         .returning();
       for (const op of body.operations) {
         await tx.insert(routingOperationsTable).values({
@@ -439,7 +454,7 @@ router.post("/manufacturing/routings", productionGuard, async (req, res) => {
 router.get("/manufacturing/work-orders", inventoryReadGuard, async (req, res) => {
   try {
     const state = req.query.state as string | undefined;
-    const conds = state ? [eq(workOrdersTable.state, state)] : [];
+    const conds = [supplyScope("workOrder", workOrdersTable.id, getCompanyId(req)), ...(state ? [eq(workOrdersTable.state, state)] : [])];
     const rows = await db
       .select({
         id: workOrdersTable.id,
@@ -511,6 +526,7 @@ router.get("/manufacturing/work-orders/:id", inventoryReadGuard, async (req, res
               JOIN stock_lots l ON l.id = q.lot_id
              WHERE q.product_id = ${r.componentId}
                AND q.warehouse_id = ${r.warehouseId}
+               AND ${supplyScope("quant", sql`q.id`, getCompanyId(req))}
                AND q.quantity > 0
              ORDER BY l.expiry_date NULLS LAST, l.id ASC
           `) as unknown as { rows: Array<{ lot_id: number; lot_number: string; expiry_date: string | null; quantity: number }> }).rows;
@@ -614,9 +630,9 @@ router.post("/manufacturing/work-orders", productionGuard, async (req, res) => {
       const [bom] = await tx.select().from(bomsTable).where(eq(bomsTable.id, body.bomId)).limit(1);
       if (!bom) throw new HttpError(400, "قائمة المواد غير موجودة");
       if (!bom.isActive) throw new HttpError(400, "قائمة المواد غير مفعلة");
-      const warehouseId = body.warehouseId ?? (await getDefaultWarehouseId(tx));
+      const warehouseId = body.warehouseId ?? (await getDefaultWarehouseId(tx, getCompanyId(req)));
       const reference = await nextRef("WO");
-      const stdCost = await costRollup(body.bomId);
+      const stdCost = await costRollup(body.bomId, getCompanyId(req));
       const unitCost = stdCost / Number(bom.quantity);
       const [wo] = await tx
         .insert(workOrdersTable)
@@ -719,7 +735,7 @@ router.post("/manufacturing/work-orders/:id/confirm", productionGuard, async (re
         .where(eq(bomsTable.id, wo.bomId))
         .limit(1);
       const ratio = Number(wo.quantity) / Number(parentBom.qty);
-      const leaves = await explodeBom(wo.bomId, ratio);
+      const leaves = await explodeBom(wo.bomId, ratio, getCompanyId(req));
       if (leaves.length === 0) throw new HttpError(400, "قائمة المواد لا تحتوي على مكونات");
 
       // Availability check per component: on-hand at the WO warehouse must
@@ -730,14 +746,16 @@ router.post("/manufacturing/work-orders/:id/confirm", productionGuard, async (re
             FROM stock_quants
            WHERE product_id = ${leaf.componentId}
              AND warehouse_id = ${wo.warehouseId}
+             AND ${supplyScope("quant", sql`stock_quants.id`, getCompanyId(req))}
         `) as unknown as { rows: Array<{ onhand: number }> }).rows;
         const [{ reserved }] = (await tx.execute(sql`
-          SELECT COALESCE(SUM(quantity - consumed_qty)::float8, 0) AS reserved
+          SELECT COALESCE(SUM(r.quantity - r.consumed_qty)::float8, 0) AS reserved
             FROM work_order_reservations r
             JOIN work_orders w ON w.id = r.work_order_id
            WHERE r.component_id = ${leaf.componentId}
              AND r.warehouse_id = ${wo.warehouseId}
              AND w.state IN ('confirmed','in_progress')
+             AND w.company_id = ${getCompanyId(req)}
         `) as unknown as { rows: Array<{ reserved: number }> }).rows;
         const available = Number(onhand) - Number(reserved);
         if (available < leaf.quantity - 0.0001) {
@@ -811,7 +829,7 @@ async function consumeWork(
   companyId: number,
   picks?: ReservationPick[],
 ): Promise<number> {
-  const [wo] = await tx.select().from(workOrdersTable).where(eq(workOrdersTable.id, woId)).limit(1);
+  const [wo] = await tx.select().from(workOrdersTable).where(and(eq(workOrdersTable.id, woId), supplyScope("workOrder", workOrdersTable.id, companyId))).limit(1);
   if (!wo) throw new HttpError(404, "أمر الإنتاج غير موجود");
   const reservations = await tx
     .select()
@@ -884,6 +902,7 @@ async function consumeWork(
         }
       }
       const move = await recordStockMove(tx, {
+        companyId,
         productId: r.componentId,
         fromWarehouseId: r.warehouseId,
         quantity: sliceQty,
@@ -954,7 +973,7 @@ async function produceWork(
   companyId: number,
   finished?: FinishedSelection,
 ): Promise<number> {
-  const [wo] = await tx.select().from(workOrdersTable).where(eq(workOrdersTable.id, woId)).limit(1);
+  const [wo] = await tx.select().from(workOrdersTable).where(and(eq(workOrdersTable.id, woId), supplyScope("workOrder", workOrdersTable.id, companyId))).limit(1);
   if (!wo) throw new HttpError(404, "أمر الإنتاج غير موجود");
   const remaining = Number(wo.quantity) - Number(wo.quantityProduced);
   if (qty > remaining + 0.0001) {
@@ -976,6 +995,7 @@ async function produceWork(
     serialId: number | null,
   ) => {
     const move = await recordStockMove(tx, {
+      companyId,
       productId: wo.productId,
       toWarehouseId: wo.warehouseId,
       quantity: sliceQty,
@@ -1432,6 +1452,7 @@ router.get("/manufacturing/scrap", inventoryReadGuard, async (req, res) => {
         createdAt: scrapRecordsTable.createdAt,
       })
       .from(scrapRecordsTable)
+      .where(supplyScope("scrap", scrapRecordsTable.id, getCompanyId(req)))
       .leftJoin(productsTable, eq(scrapRecordsTable.productId, productsTable.id))
       .leftJoin(warehousesTable, eq(scrapRecordsTable.fromWarehouseId, warehousesTable.id))
       .orderBy(desc(scrapRecordsTable.id))
@@ -1450,14 +1471,15 @@ async function findScrapWarehouseId(
   fromWarehouseId: number,
 ): Promise<number | null> {
   const r = (await tx.execute(sql`
-    WITH src AS (SELECT branch_id FROM warehouses WHERE id = ${fromWarehouseId})
+    WITH src AS (SELECT branch_id, company_id FROM warehouses WHERE id = ${fromWarehouseId})
     SELECT id FROM warehouses
      WHERE name = 'Scrap'
        AND branch_id = (SELECT branch_id FROM src)
+       AND company_id = (SELECT company_id FROM src)
      LIMIT 1
   `)) as unknown as { rows: Array<{ id: number }> };
   if (r.rows[0]) return r.rows[0].id;
-  const r2 = (await tx.execute(sql`SELECT id FROM warehouses WHERE name = 'Scrap' LIMIT 1`)) as unknown as { rows: Array<{ id: number }> };
+  const r2 = (await tx.execute(sql`SELECT id FROM warehouses WHERE name = 'Scrap' AND company_id = (SELECT company_id FROM warehouses WHERE id = ${fromWarehouseId}) LIMIT 1`)) as unknown as { rows: Array<{ id: number }> };
   return r2.rows[0]?.id ?? null;
 }
 
@@ -1475,6 +1497,7 @@ router.post("/manufacturing/scrap", productionGuard, async (req, res) => {
       }
       // 1) Issue from source warehouse (skipJournal — we post our own).
       const issueMove = await recordStockMove(tx, {
+        companyId: getCompanyId(req),
         productId: body.productId,
         fromWarehouseId: body.fromWarehouseId,
         quantity: body.quantity,
@@ -1489,6 +1512,7 @@ router.post("/manufacturing/scrap", productionGuard, async (req, res) => {
       // 2) Receipt into the dedicated Scrap warehouse so the scrapped
       //    quantity has a real physical location (cost preserved).
       await recordStockMove(tx, {
+        companyId: getCompanyId(req),
         productId: body.productId,
         toWarehouseId: scrapWhId,
         quantity: body.quantity,
@@ -1567,6 +1591,7 @@ router.post("/manufacturing/scrap/:id/rework", productionGuard, async (req, res)
       const qty = Number(scrap.quantity);
       // Issue out of scrap warehouse.
       const issueMove = await recordStockMove(tx, {
+        companyId: getCompanyId(req),
         productId: scrap.productId,
         fromWarehouseId: scrap.toWarehouseId,
         quantity: qty,
@@ -1578,6 +1603,7 @@ router.post("/manufacturing/scrap/:id/rework", productionGuard, async (req, res)
       });
       // Receipt back into source warehouse.
       await recordStockMove(tx, {
+        companyId: getCompanyId(req),
         productId: scrap.productId,
         toWarehouseId: scrap.fromWarehouseId,
         quantity: qty,
@@ -1677,7 +1703,7 @@ router.get("/manufacturing/schedule", inventoryReadGuard, async (req, res) => {
       .leftJoin(routingOperationsTable, eq(bomsTable.routingId, routingOperationsTable.routingId))
       .leftJoin(workCentersTable, eq(routingOperationsTable.workCenterId, workCentersTable.id))
       .leftJoin(productsTable, eq(workOrdersTable.productId, productsTable.id))
-      .where(sql`${workOrdersTable.state} IN ('confirmed','in_progress','draft')`);
+      .where(and(supplyScope("workOrder", workOrdersTable.id, getCompanyId(req)), sql`${workOrdersTable.state} IN ('confirmed','in_progress','draft')`));
     res.json(
       rows.map((r) => ({
         ...r,
@@ -1714,7 +1740,7 @@ router.get("/manufacturing/reports/variance", inventoryReadGuard, async (req, re
       ), jrn AS (
         SELECT source_ref, id AS entry_id, entry_number
           FROM journal_entries
-         WHERE source_ref LIKE 'WO-VAR-%'
+         WHERE source_ref LIKE 'WO-VAR-%' AND company_id = ${getCompanyId(req)}
       )
       SELECT wo.id, wo.reference, wo.state,
              wo.completed_at, wo.quantity::float8 AS quantity,
@@ -1730,7 +1756,7 @@ router.get("/manufacturing/reports/variance", inventoryReadGuard, async (req, re
         LEFT JOIN cons ON cons.work_order_id = wo.id
         LEFT JOIN prod ON prod.work_order_id = wo.id
         LEFT JOIN jrn  ON jrn.source_ref = 'WO-VAR-' || wo.id
-       WHERE wo.state IN ('in_progress','done')
+       WHERE wo.state IN ('in_progress','done') AND ${supplyScope("workOrder", sql`wo.id`, getCompanyId(req))}
        ORDER BY wo.completed_at DESC NULLS LAST, wo.id DESC
        LIMIT 500
     `) as unknown as { rows: any[] }).rows;
@@ -1751,7 +1777,7 @@ router.get("/manufacturing/reports/variance", inventoryReadGuard, async (req, re
         FROM work_orders wo
         LEFT JOIN cons ON cons.work_order_id = wo.id
         LEFT JOIN prod ON prod.work_order_id = wo.id
-       WHERE wo.state = 'done' AND wo.completed_at IS NOT NULL
+       WHERE wo.state = 'done' AND wo.completed_at IS NOT NULL AND ${supplyScope("workOrder", sql`wo.id`, getCompanyId(req))}
        GROUP BY 1 ORDER BY 1 DESC
        LIMIT 24
     `) as unknown as { rows: any[] }).rows;
@@ -1796,18 +1822,18 @@ router.get("/manufacturing/reports/summary", inventoryReadGuard, async (req, res
         COALESCE(SUM(CASE WHEN planned_end IS NOT NULL
                           AND completed_at::date <= planned_end
                           THEN 1 ELSE 0 END)::float8, 0) AS on_time
-        FROM work_orders WHERE state = 'done'
+        FROM work_orders WHERE state = 'done' AND ${supplyScope("workOrder", sql`id`, getCompanyId(req))}
     `).then((r) => (r as unknown as { rows: any[] }).rows);
 
     const [scrap] = await db.execute(sql`
       SELECT
         COALESCE(SUM(quantity)::float8, 0) AS scrap_qty,
         COUNT(*)::int AS scrap_events
-        FROM scrap_records
+        FROM scrap_records WHERE ${supplyScope("scrap", sql`scrap_records.id`, getCompanyId(req))}
     `).then((r) => (r as unknown as { rows: any[] }).rows);
 
     const [util] = await db.execute(sql`
-      SELECT COUNT(*)::int AS active_centers FROM work_centers WHERE is_active = true
+      SELECT COUNT(*)::int AS active_centers FROM work_centers WHERE is_active = true AND company_id = ${getCompanyId(req)}
     `).then((r) => (r as unknown as { rows: any[] }).rows);
 
     // Window utilization (last 30 days) = booked_minutes / capacity_minutes
@@ -1820,6 +1846,7 @@ router.get("/manufacturing/reports/summary", inventoryReadGuard, async (req, res
           JOIN boms b ON b.id = wo.bom_id
           JOIN routing_operations ro ON ro.routing_id = b.routing_id
          WHERE wo.state IN ('confirmed','in_progress','done')
+           AND ${supplyScope("workOrder", sql`wo.id`, getCompanyId(req))}
            AND wo.created_at >= now() - interval '30 days'
          GROUP BY ro.work_center_id
       )
@@ -1829,7 +1856,7 @@ router.get("/manufacturing/reports/summary", inventoryReadGuard, async (req, res
              (wc.capacity_per_day::float8 * 60.0 * 30.0) AS capacity_minutes
         FROM work_centers wc
         LEFT JOIN booked b ON b.work_center_id = wc.id
-       WHERE wc.is_active = true
+       WHERE wc.is_active = true AND wc.company_id = ${getCompanyId(req)}
        ORDER BY wc.id
     `).then((r) => (r as unknown as { rows: any[] }).rows));
     const utilization = utilRows.map((r: any) => ({

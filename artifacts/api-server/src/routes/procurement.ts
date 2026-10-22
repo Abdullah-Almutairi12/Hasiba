@@ -49,8 +49,14 @@ import {
   recipientStatusesFromDispatch,
 } from "../lib/mailer";
 import { buildPurchaseOrderPdf, getCompanyInfo } from "../lib/pdf/purchase-order";
+import { supplyScope, supplyParam, supplyReferencesGuard, requireSupplyReference } from "../lib/supply-chain-scope";
 
 const router = Router();
+router.param("id", supplyParam((path) =>
+  path.includes("/requisitions/") ? "requisition" :
+  path.includes("/rfqs/") ? "rfq" :
+  path.includes("/purchase-orders/") ? "purchaseOrder" :
+  path.includes("/payment-runs/") ? "paymentRun" : undefined));
 
 /**
  * Module hook: notify the supplier (WhatsApp first, falling back to
@@ -159,6 +165,7 @@ router.use("/procurement", (req, res, next) => {
   if (method === "GET") return supplierReadGuard(req, res, next);
   return procurementGuard(req, res, next);
 });
+router.use("/procurement", supplyReferencesGuard);
 
 // ----- Approvals & tolerances (env-tunable) -----
 const PO_APPROVAL_THRESHOLD = Number(process.env.PO_APPROVAL_THRESHOLD ?? 50000);
@@ -207,6 +214,7 @@ router.get("/procurement/requisitions", async (req, res) => {
     const reqCompanyId = getCompanyId(req);
     const conds: SQL[] = [
       eq(purchaseRequisitionsTable.companyId, reqCompanyId),
+      supplyScope("requisition", purchaseRequisitionsTable.id, reqCompanyId),
     ];
     if (status) conds.push(eq(purchaseRequisitionsTable.status, status));
     const rows = await db
@@ -402,7 +410,7 @@ const AwardRfqBody = z.object({
 
 router.get("/procurement/rfqs", async (req, res) => {
   try {
-    const rows = await db.select().from(rfqsTable).orderBy(desc(rfqsTable.createdAt));
+    const rows = await db.select().from(rfqsTable).where(supplyScope("rfq", rfqsTable.id, getCompanyId(req))).orderBy(desc(rfqsTable.createdAt));
     res.json(rows);
   } catch (err) {
     req.log.error({ err }, "list rfqs failed");
@@ -632,18 +640,14 @@ router.get("/procurement/purchase-orders", async (req, res) => {
     const status = req.query.status as string | undefined;
     const supplierId = req.query.supplierId ? Number(req.query.supplierId) : undefined;
     const companyId = getCompanyId(req);
-    // Tenant scope via warehouses.companyId. purchase_orders has no direct
-    // company_id column yet; warehouseId is nullable so POs without a
-    // warehouse are intentionally excluded from list output to avoid
-    // cross-tenant leakage. Schema migration follow-up: add company_id.
-    const conds = [eq(warehousesTable.companyId, companyId)];
+    const conds = [supplyScope("purchaseOrder", purchaseOrdersTable.id, companyId)];
     if (status) conds.push(eq(purchaseOrdersTable.status, status));
     if (supplierId) conds.push(eq(purchaseOrdersTable.supplierId, supplierId));
     const { limit, offset } = parsePagination(req);
     const joined = await db
       .select({ po: purchaseOrdersTable })
       .from(purchaseOrdersTable)
-      .innerJoin(warehousesTable, eq(warehousesTable.id, purchaseOrdersTable.warehouseId))
+      .leftJoin(warehousesTable, eq(warehousesTable.id, purchaseOrdersTable.warehouseId))
       .where(and(...conds))
       .orderBy(desc(purchaseOrdersTable.createdAt))
       .limit(limit)
@@ -853,12 +857,12 @@ router.get("/procurement/purchase-orders/:id", async (req, res) => {
   try {
     const id = Number(req.params.id);
     const companyId = getCompanyId(req);
-    // Tenant scope via warehouses.companyId join — see GET list above.
+    // Header and all tenant-bearing references must agree on ownership.
     const [joined] = await db
       .select({ po: purchaseOrdersTable })
       .from(purchaseOrdersTable)
-      .innerJoin(warehousesTable, eq(warehousesTable.id, purchaseOrdersTable.warehouseId))
-      .where(and(eq(purchaseOrdersTable.id, id), eq(warehousesTable.companyId, companyId)));
+      .leftJoin(warehousesTable, eq(warehousesTable.id, purchaseOrdersTable.warehouseId))
+      .where(and(eq(purchaseOrdersTable.id, id), supplyScope("purchaseOrder", purchaseOrdersTable.id, companyId)));
     const po = joined?.po;
     if (!po) { res.status(404).json({ error: "not found" }); return; }
     const lines = await db
@@ -878,7 +882,7 @@ router.get("/procurement/purchase-orders/:id", async (req, res) => {
     const invoices = await db
       .select()
       .from(invoicesTable)
-      .where(eq(invoicesTable.poId, id))
+      .where(and(eq(invoicesTable.poId, id), supplyScope("invoice", invoicesTable.id, getCompanyId(req))))
       .orderBy(desc(invoicesTable.createdAt));
     const outboxResult = await db.execute(sql`
       SELECT id, recipient, subject, attachment_filename, status, error,
@@ -939,9 +943,9 @@ router.get("/procurement/purchase-orders/:id", async (req, res) => {
 // (status -> confirmed, blanket-agreement consumption, audit, event).
 async function finalizePurchaseOrderConfirm(
   id: number,
-  actor: { userId: number | null; reference?: string },
+  actor: { userId: number | null; reference?: string; companyId: number },
 ): Promise<void> {
-  const [po] = await db.select().from(purchaseOrdersTable).where(eq(purchaseOrdersTable.id, id));
+  const [po] = await db.select().from(purchaseOrdersTable).where(and(eq(purchaseOrdersTable.id, id), supplyScope("purchaseOrder", purchaseOrdersTable.id, actor.companyId)));
   if (!po) throw httpErr(404, "not found");
   if (po.status !== "draft" && po.status !== "pending_approval") return; // idempotent
   await db.transaction(async (tx) => {
@@ -1003,7 +1007,9 @@ async function finalizePurchaseOrderConfirm(
 // engine can roll the request back to pending and keep workflow + record
 // state consistent.
 registerOnApprove("purchase_order", async (recordId) => {
-  await finalizePurchaseOrderConfirm(recordId, { userId: null });
+  const [po] = await db.select({ companyId: purchaseOrdersTable.companyId }).from(purchaseOrdersTable).where(eq(purchaseOrdersTable.id, recordId));
+  if (!po) throw httpErr(404, "not found");
+  await finalizePurchaseOrderConfirm(recordId, { userId: null, companyId: po.companyId });
 });
 
 // On reject / changes-requested, unlock the PO so the submitter can edit
@@ -1036,7 +1042,7 @@ async function finalizePaymentRunExecute(
   companyId: number,
 ): Promise<{ journalEntryId: number; total: number }> {
   return await db.transaction(async (tx) => {
-    const [run] = await tx.select().from(paymentRunsTable).where(eq(paymentRunsTable.id, id));
+    const [run] = await tx.select().from(paymentRunsTable).where(and(eq(paymentRunsTable.id, id), supplyScope("paymentRun", paymentRunsTable.id, companyId)));
     if (!run) throw httpErr(404, "not found");
     if (run.status !== "draft" && run.status !== "pending_approval")
       throw httpErr(409, "الدفع تم تنفيذه مسبقاً.");
@@ -1044,7 +1050,12 @@ async function finalizePaymentRunExecute(
     if (lines.length === 0) throw httpErr(409, "لا توجد بنود في هذه الدفعة.");
     const invIds = lines.map((l) => l.invoiceId).filter((x): x is number => x != null);
     if (invIds.length > 0) {
-      const invs = await tx.select().from(invoicesTable).where(inArray(invoicesTable.id, invIds));
+      const invs = await tx.select().from(invoicesTable).where(and(inArray(invoicesTable.id, invIds), supplyScope("invoice", invoicesTable.id, companyId)));
+      if (invs.length !== new Set(invIds).size) throw httpErr(404, "not found");
+      for (const ln of lines) {
+        const invoice = invs.find((inv) => inv.id === ln.invoiceId);
+        if (!invoice || invoice.supplierId !== ln.supplierId) throw httpErr(400, "Invoice/supplier mismatch");
+      }
       for (const inv of invs) {
         if (inv.status === "paid" || inv.status === "failed") {
           throw httpErr(
@@ -1110,13 +1121,12 @@ registerOnApprove("payment_run", async (recordId) => {
   // and surfaces the error so workflow + document state stay consistent.
   // Logging is kept for observability.
   try {
-    // Approval callback runs outside an HTTP request; derive tenant from
-    // the payment-run's first line supplier (which carries companyId).
+    // Background callbacks derive scope from the owned header, never a
+    // supplier link that a legacy request could have attached across tenants.
     const [supplierRow] = await db
-      .select({ companyId: suppliersTable.companyId })
-      .from(paymentRunLinesTable)
-      .innerJoin(suppliersTable, eq(suppliersTable.id, paymentRunLinesTable.supplierId))
-      .where(eq(paymentRunLinesTable.runId, recordId))
+      .select({ companyId: paymentRunsTable.companyId })
+      .from(paymentRunsTable)
+      .where(eq(paymentRunsTable.id, recordId))
       .limit(1);
     if (!supplierRow?.companyId) {
       throw new Error(`payment_run ${recordId}: cannot resolve companyId from supplier`);
@@ -1361,6 +1371,7 @@ export async function renderPurchaseOrderForRetry(id: number): Promise<
     .from(purchaseOrdersTable)
     .where(eq(purchaseOrdersTable.id, id));
   if (!po) return { ok: false, status: 404, error: "أمر الشراء غير موجود" };
+  await requireSupplyReference("purchaseOrder", id, po.companyId);
   const sendable = ["confirmed", "partially_received", "fully_received", "closed"];
   if (!sendable.includes(po.status)) {
     return {
@@ -1432,8 +1443,8 @@ export async function renderPurchaseOrderForRetry(id: number): Promise<
   };
 }
 
-async function loadPoForPdf(id: number) {
-  const [po] = await db.select().from(purchaseOrdersTable).where(eq(purchaseOrdersTable.id, id));
+async function loadPoForPdf(id: number, companyId: number) {
+  const [po] = await db.select().from(purchaseOrdersTable).where(and(eq(purchaseOrdersTable.id, id), supplyScope("purchaseOrder", purchaseOrdersTable.id, companyId)));
   if (!po) throw httpErr(404, "أمر الشراء غير موجود");
   const lines = await db
     .select()
@@ -1478,7 +1489,7 @@ async function loadPoForPdf(id: number) {
 router.get("/procurement/purchase-orders/:id/pdf", async (req, res) => {
   try {
     const id = Number(req.params.id);
-    const { po, pdfInput } = await loadPoForPdf(id);
+    const { po, pdfInput } = await loadPoForPdf(id, getCompanyId(req));
     const buf = await buildPurchaseOrderPdf(pdfInput, await getCompanyInfo());
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader(
@@ -1499,6 +1510,7 @@ router.get("/procurement/purchase-orders/:id/pdf", async (req, res) => {
  * outbox audit trail.
  */
 export async function dispatchPurchaseOrder(opts: {
+  companyId: number;
   poId: number;
   toOverride?: string;
   subjectOverride?: string;
@@ -1510,7 +1522,7 @@ export async function dispatchPurchaseOrder(opts: {
   payload: Record<string, unknown>;
   audit?: { details: string };
 }> {
-  const { po, supplier, pdfInput } = await loadPoForPdf(opts.poId);
+  const { po, supplier, pdfInput } = await loadPoForPdf(opts.poId, opts.companyId);
   const sendable = ["confirmed", "partially_received", "fully_received", "closed"];
   if (!sendable.includes(po.status)) {
     return {
@@ -1631,6 +1643,7 @@ router.post("/procurement/purchase-orders/:id/send", async (req, res) => {
   try {
     const id = Number(req.params.id);
     const result = await dispatchPurchaseOrder({
+      companyId: getCompanyId(req),
       poId: id,
       toOverride: body.to,
       subjectOverride: body.subject,
@@ -1711,6 +1724,7 @@ router.post(
         return;
       }
       const dispatch = await dispatchPurchaseOrder({
+        companyId: getCompanyId(req),
         poId: id,
         toOverride: row.recipient as string,
         subjectOverride: row.subject as string,
@@ -1762,7 +1776,7 @@ router.post("/procurement/goods-receipts", async (req, res) => {
   }
   try {
     const out = await db.transaction(async (tx) => {
-      const [po] = await tx.select().from(purchaseOrdersTable).where(eq(purchaseOrdersTable.id, body.poId));
+      const [po] = await tx.select().from(purchaseOrdersTable).where(and(eq(purchaseOrdersTable.id, body.poId), supplyScope("purchaseOrder", purchaseOrdersTable.id, getCompanyId(req))));
       if (!po) throw httpErr(404, "أمر الشراء غير موجود");
       if (po.status !== "confirmed" && po.status !== "partially_received") {
         throw httpErr(409, `لا يمكن استلام بضاعة على أمر شراء بحالة ${po.status}`);
@@ -1785,7 +1799,7 @@ router.post("/procurement/goods-receipts", async (req, res) => {
           "لا يمكن استلام بضاعة على أمر شراء قمت بإنشائه (مبدأ فصل المهام). يجب على مستخدم آخر تسجيل الاستلام.",
         );
       }
-      const warehouseId = body.warehouseId ?? po.warehouseId ?? (await getDefaultWarehouseId(tx));
+      const warehouseId = body.warehouseId ?? po.warehouseId ?? (await getDefaultWarehouseId(tx, getCompanyId(req)));
       const reference = await nextSeq("GRN", new Date().getUTCFullYear());
 
       const [grn] = await tx
@@ -1843,6 +1857,7 @@ router.post("/procurement/goods-receipts", async (req, res) => {
           );
         }
         await recordStockMove(tx, {
+          companyId: getCompanyId(req),
           productId: poLine.productId,
           quantity: ln.quantity,
           unitCost,
@@ -1928,7 +1943,7 @@ router.get("/procurement/goods-receipts", async (req, res) => {
       })
       .from(goodsReceiptsTable)
       .leftJoin(purchaseOrdersTable, eq(goodsReceiptsTable.poId, purchaseOrdersTable.id))
-      .where(poId ? eq(goodsReceiptsTable.poId, poId) : undefined)
+      .where(and(supplyScope("receipt", goodsReceiptsTable.id, getCompanyId(req)), poId ? eq(goodsReceiptsTable.poId, poId) : undefined))
       .orderBy(desc(goodsReceiptsTable.receivedAt));
     res.json(rows.map((r) => ({ ...r, receivedAt: r.receivedAt.toISOString() })));
   } catch (err) {
@@ -2030,6 +2045,8 @@ router.get("/procurement/ap-aging", async (req, res) => {
          -- Aging only counts open AP: exclude failed and paid invoices
          -- so that executing a payment run actually clears the buckets.
          AND i.status NOT IN ('failed', 'paid')
+         AND i.company_id = ${getCompanyId(req)}
+       WHERE s.company_id = ${getCompanyId(req)}
        GROUP BY s.id
       HAVING COALESCE(SUM(i.amount), 0) > 0
        ORDER BY total_outstanding DESC
@@ -2081,6 +2098,7 @@ router.get("/procurement/payment-runs", financeGuard, async (req, res) => {
     const rows = await db
       .select()
       .from(paymentRunsTable)
+      .where(supplyScope("paymentRun", paymentRunsTable.id, getCompanyId(req)))
       .orderBy(desc(paymentRunsTable.createdAt));
     res.json(rows.map((r) => ({
       ...r,
@@ -2301,6 +2319,7 @@ router.get("/procurement/agreements", async (req, res) => {
       })
       .from(blanketAgreementsTable)
       .leftJoin(suppliersTable, eq(blanketAgreementsTable.supplierId, suppliersTable.id))
+      .where(supplyScope("agreement", blanketAgreementsTable.id, getCompanyId(req)))
       .orderBy(desc(blanketAgreementsTable.id));
     res.json(rows.map((r) => ({
       ...r,
@@ -2362,6 +2381,7 @@ router.get("/procurement/open-invoices", async (req, res) => {
   try {
     const supplierId = req.query.supplierId ? Number(req.query.supplierId) : undefined;
     const conds = [
+      supplyScope("invoice", invoicesTable.id, getCompanyId(req)),
       sql`${invoicesTable.status} NOT IN ('paid','failed')`,
       sql`${invoicesTable.supplierId} IS NOT NULL`,
       // Exclude invoices already attached to any draft/executed payment-run line
@@ -2370,6 +2390,7 @@ router.get("/procurement/open-invoices", async (req, res) => {
         SELECT prl.invoice_id FROM payment_run_lines prl
         JOIN payment_runs pr ON pr.id = prl.run_id
         WHERE prl.invoice_id IS NOT NULL AND pr.status IN ('draft','executed')
+          AND pr.company_id = ${getCompanyId(req)}
       )`,
     ];
     if (supplierId) conds.push(eq(invoicesTable.supplierId, supplierId));
@@ -2412,7 +2433,7 @@ router.get("/procurement/po-suggestions", async (req, res) => {
       const matches = await db
         .select({ id: suppliersTable.id })
         .from(suppliersTable)
-        .where(sql`lower(${suppliersTable.name}) LIKE ${`%${supplierName.toLowerCase()}%`}`);
+        .where(and(eq(suppliersTable.companyId, getCompanyId(req)), sql`lower(${suppliersTable.name}) LIKE ${`%${supplierName.toLowerCase()}%`}`));
       if (matches.length === 0) { res.json([]); return; }
       // Take the first match for ranking; the result still includes
       // supplierId/supplierName so the UI can render which supplier the
@@ -2426,6 +2447,7 @@ router.get("/procurement/po-suggestions", async (req, res) => {
       .where(
         and(
           eq(purchaseOrdersTable.supplierId, supplierId),
+          supplyScope("purchaseOrder", purchaseOrdersTable.id, getCompanyId(req)),
           inArray(purchaseOrdersTable.status, ["confirmed", "partially_received", "fully_received"]),
         ),
       )
@@ -2472,7 +2494,7 @@ router.get("/procurement/supplier-ledger", async (req, res) => {
         status: invoicesTable.status,
       })
       .from(invoicesTable)
-      .where(eq(invoicesTable.supplierId, supplierId));
+      .where(and(eq(invoicesTable.supplierId, supplierId), supplyScope("invoice", invoicesTable.id, getCompanyId(req))));
     const pays = await db
       .select({
         id: paymentRunLinesTable.id,
@@ -2485,7 +2507,7 @@ router.get("/procurement/supplier-ledger", async (req, res) => {
       })
       .from(paymentRunLinesTable)
       .leftJoin(paymentRunsTable, eq(paymentRunsTable.id, paymentRunLinesTable.runId))
-      .where(eq(paymentRunLinesTable.supplierId, supplierId));
+      .where(and(eq(paymentRunLinesTable.supplierId, supplierId), supplyScope("paymentRun", paymentRunsTable.id, getCompanyId(req))));
     const entries = [
       ...invs.map((i) => ({
         kind: "invoice" as const,
@@ -2537,7 +2559,7 @@ router.get("/procurement/reports/top-suppliers", async (req, res) => {
         orders: sql<number>`COUNT(*)`,
       })
       .from(purchaseOrdersTable)
-      .where(inArray(purchaseOrdersTable.status, ["confirmed", "partially_received", "fully_received", "closed"]))
+      .where(and(supplyScope("purchaseOrder", purchaseOrdersTable.id, getCompanyId(req)), inArray(purchaseOrdersTable.status, ["confirmed", "partially_received", "fully_received", "closed"])))
       .groupBy(purchaseOrdersTable.supplierId, purchaseOrdersTable.supplierName)
       .orderBy(sql`COALESCE(SUM(${purchaseOrdersTable.total}), 0) DESC`)
       .limit(limit);
@@ -2558,7 +2580,7 @@ router.get("/procurement/reports/open-pos-by-supplier", async (req, res) => {
         openValue: sql<number>`COALESCE(SUM(${purchaseOrdersTable.total}), 0)`,
       })
       .from(purchaseOrdersTable)
-      .where(inArray(purchaseOrdersTable.status, ["confirmed", "partially_received"]))
+      .where(and(supplyScope("purchaseOrder", purchaseOrdersTable.id, getCompanyId(req)), inArray(purchaseOrdersTable.status, ["confirmed", "partially_received"])))
       .groupBy(purchaseOrdersTable.supplierId, purchaseOrdersTable.supplierName)
       .orderBy(sql`COALESCE(SUM(${purchaseOrdersTable.total}), 0) DESC`);
     res.json(rows.map((r) => ({
@@ -2587,6 +2609,7 @@ router.get("/procurement/reports/payment-forecast", async (req, res) => {
       .where(
         and(
           sql`${invoicesTable.status} NOT IN ('paid','failed')`,
+          supplyScope("invoice", invoicesTable.id, getCompanyId(req)),
           sql`${invoicesTable.supplierId} IS NOT NULL`,
         ),
       );
@@ -2649,7 +2672,7 @@ router.get("/procurement/reports/grn-vs-invoice-gap", async (req, res) => {
       })
       .from(purchaseOrdersTable)
       .leftJoin(purchaseOrderLinesTable, eq(purchaseOrderLinesTable.poId, purchaseOrdersTable.id))
-      .where(inArray(purchaseOrdersTable.status, ["confirmed", "partially_received", "fully_received"]))
+      .where(and(supplyScope("purchaseOrder", purchaseOrdersTable.id, getCompanyId(req)), inArray(purchaseOrdersTable.status, ["confirmed", "partially_received", "fully_received"])))
       .groupBy(purchaseOrdersTable.id, purchaseOrdersTable.reference, purchaseOrdersTable.supplierName);
     const out = rows
       .map((r) => ({
@@ -2678,10 +2701,12 @@ router.get("/procurement/stats", async (req, res) => {
         awaitingApproval: sql<number>`count(*) FILTER (WHERE ${purchaseOrdersTable.status} = 'draft' AND ${purchaseOrdersTable.requiresApproval} = true AND ${purchaseOrdersTable.approvedAt} IS NULL)`,
         committedValue: sql<number>`COALESCE(SUM(${purchaseOrdersTable.total}) FILTER (WHERE ${purchaseOrdersTable.status} IN ('confirmed','partially_received')), 0)`,
       })
-      .from(purchaseOrdersTable);
+      .from(purchaseOrdersTable)
+      .where(supplyScope("purchaseOrder", purchaseOrdersTable.id, getCompanyId(req)));
     const [ap] = await db
       .select({ totalAp: sql<number>`COALESCE(SUM(balance), 0)` })
-      .from(suppliersTable);
+      .from(suppliersTable)
+      .where(eq(suppliersTable.companyId, getCompanyId(req)));
     res.json({
       openPOs: Number(stats.openPOs),
       awaitingApproval: Number(stats.awaitingApproval),

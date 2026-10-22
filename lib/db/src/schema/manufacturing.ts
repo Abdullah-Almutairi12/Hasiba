@@ -58,6 +58,7 @@ export const bomLinesTable = pgTable(
 // ===== Work Centers =====
 export const workCentersTable = pgTable("work_centers", {
   id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companiesTable.id, { onDelete: "restrict" }),
   code: text("code").notNull().unique(),
   name: text("name").notNull(),
   nameAr: text("name_ar").notNull(),
@@ -71,6 +72,7 @@ export const workCentersTable = pgTable("work_centers", {
 // ===== Routings =====
 export const routingsTable = pgTable("routings", {
   id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companiesTable.id, { onDelete: "restrict" }),
   reference: text("reference").notNull().unique(),
   name: text("name").notNull(),
   nameAr: text("name_ar").notNull(),
