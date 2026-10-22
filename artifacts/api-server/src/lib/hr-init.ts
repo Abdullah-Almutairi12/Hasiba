@@ -28,6 +28,7 @@ export async function initHr(provisionCompanyId?: number): Promise<void> {
 
     CREATE TABLE IF NOT EXISTS positions (
       id serial PRIMARY KEY,
+      company_id integer REFERENCES companies(id) ON DELETE RESTRICT,
       title text NOT NULL,
       title_ar text NOT NULL,
       department_id integer REFERENCES departments(id),

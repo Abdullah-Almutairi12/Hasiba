@@ -38,6 +38,10 @@ import { parsePagination } from "../lib/pagination";
 import { registerArabicFonts } from "../lib/pdf/arabic-font";
 import { postJournalEntry } from "../lib/journal-posting";
 import { getCompanyId } from "../lib/scoped-db";
+import {
+  companyEmployeeIds, companyContractIds, payrollScope, payslipScope,
+  requireCompanyEmployee, requireCompanyContract, requireCompanyPayroll, positionScope, validateHrReferences,
+} from "../lib/hr-scope";
 import { logger } from "../lib/logger";
 import {
   submitForApproval,
@@ -79,7 +83,8 @@ async function notifyEmployeesPayrollPaid(runId: number): Promise<void> {
       .from(payslipsTable)
       .leftJoin(payrollLinesTable, eq(payrollLinesTable.id, payslipsTable.lineId))
       .leftJoin(employeesTable, eq(employeesTable.id, payslipsTable.employeeId))
-      .where(eq(payslipsTable.runId, runId));
+      .where(and(eq(payslipsTable.runId, runId),
+        eq(payslipsTable.companyId, run.companyId), eq(employeesTable.companyId, run.companyId)));
     const baseUrl = (process.env["PUBLIC_BASE_URL"] ?? "").replace(/\/$/, "");
     for (const s of slips) {
       if (!s.phone) continue;
@@ -128,6 +133,12 @@ async function applyLeaveDecision(
 ): Promise<void> {
   const [lr] = await db.select().from(leaveRequestsTable).where(eq(leaveRequestsTable.id, recordId));
   if (!lr || lr.status !== "pending") return;
+  // Legacy requests may have been stamped with a company unrelated to their
+  // employee. Never let those rows mutate another company's balance.
+  const [employee] = await db.select({ id: employeesTable.id }).from(employeesTable).where(and(
+    eq(employeesTable.id, lr.employeeId), eq(employeesTable.companyId, lr.companyId),
+  )).limit(1);
+  if (!employee) throw new Error("Leave request employee does not belong to its company");
   const year = new Date(lr.startDate).getFullYear();
   const balance = await ensureLeaveBalance(lr.employeeId, lr.leaveTypeId, year);
   const days = num(lr.days);
@@ -259,8 +270,9 @@ function isPayslipPrivileged(role: string | undefined): boolean {
 // =========================================================================
 // Departments
 // =========================================================================
-router.get("/hr/departments", hrReadGuard, async (_req, res) => {
-  const rows = await db.select().from(departmentsTable).orderBy(asc(departmentsTable.name));
+router.get("/hr/departments", hrReadGuard, async (req, res) => {
+  const rows = await db.select().from(departmentsTable)
+    .where(eq(departmentsTable.companyId, getCompanyId(req))).orderBy(asc(departmentsTable.name));
   res.json(rows.map((r) => ({ ...r, createdAt: r.createdAt.toISOString() })));
 });
 
@@ -275,6 +287,7 @@ const DeptBody = z.object({
 router.post("/hr/departments", hrGuard, async (req, res) => {
   try {
     const body = DeptBody.parse(req.body);
+    await validateHrReferences(req, body);
     const [row] = await db
       .insert(departmentsTable)
       .values({
@@ -297,6 +310,7 @@ router.put("/hr/departments/:id", hrGuard, async (req, res) => {
   try {
     const { id } = IdParam.parse(req.params);
     const body = DeptBody.partial().parse(req.body);
+    await validateHrReferences(req, body);
     const [row] = await db
       .update(departmentsTable)
       .set({
@@ -320,8 +334,8 @@ router.put("/hr/departments/:id", hrGuard, async (req, res) => {
 // =========================================================================
 // Positions
 // =========================================================================
-router.get("/hr/positions", hrReadGuard, async (_req, res) => {
-  const rows = await db.select().from(positionsTable).orderBy(asc(positionsTable.title));
+router.get("/hr/positions", hrReadGuard, async (req, res) => {
+  const rows = await db.select().from(positionsTable).where(positionScope(req)).orderBy(asc(positionsTable.title));
   res.json(rows.map((r) => ({ ...r, createdAt: r.createdAt.toISOString() })));
 });
 
@@ -335,9 +349,11 @@ const PositionBody = z.object({
 router.post("/hr/positions", hrGuard, async (req, res) => {
   try {
     const body = PositionBody.parse(req.body);
+    await validateHrReferences(req, body);
     const [row] = await db
       .insert(positionsTable)
       .values({
+        companyId: getCompanyId(req),
         title: body.title,
         titleAr: body.titleAr,
         departmentId: body.departmentId ?? null,
@@ -388,9 +404,9 @@ router.get("/hr/employees", hrReadGuard, async (req, res) => {
       createdAt: employeesTable.createdAt,
     })
     .from(employeesTable)
-    .leftJoin(branchesTable, eq(branchesTable.id, employeesTable.branchId))
-    .leftJoin(departmentsTable, eq(departmentsTable.id, employeesTable.departmentId))
-    .leftJoin(positionsTable, eq(positionsTable.id, employeesTable.positionId))
+    .leftJoin(branchesTable, and(eq(branchesTable.id, employeesTable.branchId), eq(branchesTable.companyId, companyId)))
+    .leftJoin(departmentsTable, and(eq(departmentsTable.id, employeesTable.departmentId), eq(departmentsTable.companyId, companyId)))
+    .leftJoin(positionsTable, and(eq(positionsTable.id, employeesTable.positionId), positionScope(req)))
     .where(eq(employeesTable.companyId, companyId))
     .orderBy(desc(employeesTable.createdAt))
     .limit(parsePagination(req).limit)
@@ -450,6 +466,7 @@ const EmployeeBody = z.object({
 router.post("/hr/employees", hrGuard, async (req, res) => {
   try {
     const body = EmployeeBody.parse(req.body);
+    await validateHrReferences(req, body);
     const employeeNo = body.employeeNo ?? (await nextRef("EMP", new Date().getFullYear()));
     const [row] = await db
       .insert(employeesTable)
@@ -496,6 +513,7 @@ router.patch("/hr/employees/:id", hrGuard, async (req, res) => {
   try {
     const { id } = IdParam.parse(req.params);
     const body = EmployeeBody.partial().parse(req.body);
+    await validateHrReferences(req, body);
     const update: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(body)) {
       if (v !== undefined) update[k] = v;
@@ -529,7 +547,8 @@ router.patch("/hr/employees/:id", hrGuard, async (req, res) => {
 // =========================================================================
 router.get("/hr/contracts", hrReadGuard, async (req, res) => {
   const empId = req.query.employeeId ? Number(req.query.employeeId) : null;
-  const where = empId ? eq(contractsTable.employeeId, empId) : sql`true`;
+  const where = and(inArray(contractsTable.employeeId, companyEmployeeIds(req)),
+    empId ? eq(contractsTable.employeeId, empId) : undefined);
   const rows = await db
     .select()
     .from(contractsTable)
@@ -571,6 +590,7 @@ const ContractBody = z.object({
 router.post("/hr/contracts", hrGuard, async (req, res) => {
   try {
     const body = ContractBody.parse(req.body);
+    await requireCompanyEmployee(req, body.employeeId);
     const reference = await nextRef("CON", new Date().getFullYear());
     const [row] = await db
       .insert(contractsTable)
@@ -634,9 +654,9 @@ router.get("/hr/leave-balances", hrReadGuard, async (req, res) => {
     .from(leaveBalancesTable)
     .innerJoin(leaveTypesTable, eq(leaveTypesTable.id, leaveBalancesTable.leaveTypeId))
     .where(
-      empId
+      and(inArray(leaveBalancesTable.employeeId, companyEmployeeIds(req)), empId
         ? and(eq(leaveBalancesTable.employeeId, empId), eq(leaveBalancesTable.year, year))
-        : eq(leaveBalancesTable.year, year),
+        : eq(leaveBalancesTable.year, year)),
     );
   res.json(
     rows.map((r) => ({
@@ -692,7 +712,9 @@ async function ensureLeaveBalance(employeeId: number, leaveTypeId: number, year:
 
 router.get("/hr/leave-requests", hrReadGuard, async (req, res) => {
   const status = req.query.status ? String(req.query.status) : null;
-  const where = status ? eq(leaveRequestsTable.status, status) : sql`true`;
+  const where = and(eq(leaveRequestsTable.companyId, getCompanyId(req)),
+    eq(employeesTable.companyId, getCompanyId(req)),
+    status ? eq(leaveRequestsTable.status, status) : undefined);
   const rows = await db
     .select({
       id: leaveRequestsTable.id,
@@ -740,6 +762,7 @@ const LeaveReqBody = z.object({
 router.post("/hr/leave-requests", hrGuard, async (req, res) => {
   try {
     const body = LeaveReqBody.parse(req.body);
+    await requireCompanyEmployee(req, body.employeeId);
     const days = daysBetween(body.startDate, body.endDate);
     if (days <= 0) return res.status(400).json({ error: "نطاق التواريخ غير صالح" });
 
@@ -846,7 +869,10 @@ router.post("/hr/leave-requests/:id/decide", hrGuard, async (req, res) => {
   try {
     const { id } = IdParam.parse(req.params);
     const { action, reason } = LeaveDecide.parse(req.body);
-    const [lr] = await db.select().from(leaveRequestsTable).where(eq(leaveRequestsTable.id, id)).limit(1);
+    const [lr] = await db.select().from(leaveRequestsTable).where(and(
+      eq(leaveRequestsTable.id, id), eq(leaveRequestsTable.companyId, getCompanyId(req)),
+      inArray(leaveRequestsTable.employeeId, companyEmployeeIds(req)),
+    )).limit(1);
     if (!lr) return res.status(404).json({ error: "الطلب غير موجود" });
     if (lr.status !== "pending") return res.status(400).json({ error: "لا يمكن تعديل طلب تمت معالجته" });
 
@@ -888,7 +914,7 @@ router.post("/hr/leave-requests/:id/decide", hrGuard, async (req, res) => {
       const [updated] = await db
         .update(leaveRequestsTable)
         .set({ status: "approved", approvedBy: req.session.userId ?? null, approvedAt: new Date() })
-        .where(eq(leaveRequestsTable.id, id))
+        .where(and(eq(leaveRequestsTable.id, id), eq(leaveRequestsTable.companyId, getCompanyId(req))))
         .returning();
       return res.json({ ...updated, days: num(updated.days), createdAt: updated.createdAt.toISOString() });
     } else {
@@ -904,7 +930,7 @@ router.post("/hr/leave-requests/:id/decide", hrGuard, async (req, res) => {
           approvedAt: new Date(),
           rejectionReason: reason ?? null,
         })
-        .where(eq(leaveRequestsTable.id, id))
+        .where(and(eq(leaveRequestsTable.id, id), eq(leaveRequestsTable.companyId, getCompanyId(req))))
         .returning();
       return res.json({ ...updated, days: num(updated.days), createdAt: updated.createdAt.toISOString() });
     }
@@ -930,18 +956,19 @@ router.get("/hr/expense-claims", hrReadGuard, async (req, res) => {
   try {
     const employeeId = req.query.employeeId ? Number(req.query.employeeId) : null;
     const status = req.query.status ? String(req.query.status) : null;
-    const filters: string[] = [];
-    if (employeeId) filters.push(`employee_id = ${employeeId}`);
-    if (status) filters.push(`status = '${status.replace(/'/g, "''")}'`);
-    const where = filters.length ? `WHERE ${filters.join(" AND ")}` : "";
-    const result = await db.execute(sql.raw(`
+    const filters: SQL[] = [
+      sql`employee_id IN (${companyEmployeeIds(req)})`,
+    ];
+    if (employeeId) filters.push(sql`employee_id = ${employeeId}`);
+    if (status) filters.push(sql`status = ${status}`);
+    const result = await db.execute(sql`
       SELECT id, reference, employee_id AS "employeeId", claim_date AS "claimDate",
              currency, amount, category, description, receipt_url AS "receiptUrl",
              status, approved_at AS "approvedAt", rejection_reason AS "rejectionReason",
              created_at AS "createdAt"
-        FROM expense_claims ${where}
+        FROM expense_claims WHERE ${and(...filters)}
         ORDER BY created_at DESC LIMIT 200
-    `));
+    `);
     res.json(result.rows);
   } catch (err) {
     handleRouteError(err, res);
@@ -951,6 +978,7 @@ router.get("/hr/expense-claims", hrReadGuard, async (req, res) => {
 router.post("/hr/expense-claims", hrGuard, async (req, res) => {
   try {
     const body = ExpenseClaimBody.parse(req.body);
+    await requireCompanyEmployee(req, body.employeeId);
     const reference = await nextRef("EXP", new Date().getFullYear());
     const userId = req.session?.userId ?? null;
     const result = await db.execute(sql`
@@ -1015,7 +1043,8 @@ router.get("/hr/expense-claims/:id", hrReadGuard, async (req, res) => {
              currency, amount, category, description, receipt_url AS "receiptUrl",
              status, approved_at AS "approvedAt", rejection_reason AS "rejectionReason",
              created_at AS "createdAt"
-        FROM expense_claims WHERE id = ${id} LIMIT 1
+        FROM expense_claims WHERE id = ${id}
+          AND employee_id IN (${companyEmployeeIds(req)}) LIMIT 1
     `);
     if (result.rows.length === 0) {
       res.status(404).json({ error: "Not found" });
@@ -1034,7 +1063,7 @@ router.get("/hr/attendance", hrReadGuard, async (req, res) => {
   const from = req.query.from ? String(req.query.from) : null;
   const to = req.query.to ? String(req.query.to) : null;
   const empId = req.query.employeeId ? Number(req.query.employeeId) : null;
-  const conds: SQL[] = [];
+  const conds: SQL[] = [eq(employeesTable.companyId, getCompanyId(req))];
   if (empId) conds.push(eq(attendancePunchesTable.employeeId, empId));
   if (from) conds.push(gte(attendancePunchesTable.punchAt, new Date(from + "T00:00:00Z")));
   if (to) conds.push(lte(attendancePunchesTable.punchAt, new Date(to + "T23:59:59Z")));
@@ -1068,6 +1097,7 @@ const PunchBody = z.object({
 router.post("/hr/attendance/punch", hrGuard, async (req, res) => {
   try {
     const body = PunchBody.parse(req.body);
+    await requireCompanyEmployee(req, body.employeeId);
     const [row] = await db
       .insert(attendancePunchesTable)
       .values({
@@ -1145,7 +1175,7 @@ router.post("/hr/attendance/webhook", hrGuard, async (req, res) => {
     const [emp] = await db
       .select({ id: employeesTable.id })
       .from(employeesTable)
-      .where(eq(employeesTable.employeeNo, body.employeeNo))
+      .where(and(eq(employeesTable.employeeNo, body.employeeNo), eq(employeesTable.companyId, getCompanyId(req))))
       .limit(1);
     if (!emp) return res.status(404).json({ error: "الموظف غير موجود" });
     const [row] = await db
@@ -1169,7 +1199,8 @@ router.post("/hr/attendance/webhook", hrGuard, async (req, res) => {
 // =========================================================================
 router.get("/hr/loans", hrReadGuard, async (req, res) => {
   const empId = req.query.employeeId ? Number(req.query.employeeId) : null;
-  const where = empId ? eq(employeeLoansTable.employeeId, empId) : sql`true`;
+  const where = and(inArray(employeeLoansTable.employeeId, companyEmployeeIds(req)),
+    empId ? eq(employeeLoansTable.employeeId, empId) : undefined);
   const rows = await db.select().from(employeeLoansTable).where(where).orderBy(desc(employeeLoansTable.createdAt));
   res.json(
     rows.map((r) => ({
@@ -1195,6 +1226,7 @@ const LoanBody = z.object({
 router.post("/hr/loans", hrGuard, async (req, res) => {
   try {
     const body = LoanBody.parse(req.body);
+    await requireCompanyEmployee(req, body.employeeId);
     const reference = await nextRef("LN", new Date().getFullYear());
     const [row] = await db
       .insert(employeeLoansTable)
@@ -1351,7 +1383,7 @@ router.post("/hr/payroll-periods", hrGuard, async (req, res) => {
   }
 });
 
-router.get("/hr/payroll-runs", payrollReadGuard, async (_req, res) => {
+router.get("/hr/payroll-runs", payrollReadGuard, async (req, res) => {
   const rows = await db
     .select({
       id: payrollRunsTable.id,
@@ -1378,6 +1410,7 @@ router.get("/hr/payroll-runs", payrollReadGuard, async (_req, res) => {
     })
     .from(payrollRunsTable)
     .leftJoin(payrollPeriodsTable, eq(payrollPeriodsTable.id, payrollRunsTable.periodId))
+    .where(payrollScope(req))
     .orderBy(desc(payrollRunsTable.createdAt));
   res.json(
     rows.map((r) => ({
@@ -1400,6 +1433,7 @@ router.get("/hr/payroll-runs", payrollReadGuard, async (_req, res) => {
 router.get("/hr/payroll-runs/:id/lines", payrollReadGuard, async (req, res) => {
   try {
     const { id } = IdParam.parse(req.params);
+    await requireCompanyPayroll(req, id);
     const rows = await db
       .select({
         id: payrollLinesTable.id,
@@ -1431,7 +1465,7 @@ router.get("/hr/payroll-runs/:id/lines", payrollReadGuard, async (req, res) => {
       })
       .from(payrollLinesTable)
       .innerJoin(employeesTable, eq(employeesTable.id, payrollLinesTable.employeeId))
-      .where(eq(payrollLinesTable.runId, id))
+      .where(and(eq(payrollLinesTable.runId, id), eq(employeesTable.companyId, getCompanyId(req))))
       .orderBy(asc(employeesTable.employeeNo));
     return res.json(
       rows.map((r) => ({
@@ -1470,6 +1504,7 @@ const RunCreateBody = z.object({
 router.post("/hr/payroll-runs", hrGuard, async (req, res) => {
   try {
     const body = RunCreateBody.parse(req.body);
+    await validateHrReferences(req, body);
     const [period] = await db.select().from(payrollPeriodsTable).where(eq(payrollPeriodsTable.id, body.periodId)).limit(1);
     if (!period) return res.status(404).json({ error: "الفترة غير موجودة" });
     if (period.status === "closed") return res.status(400).json({ error: "الفترة مقفلة" });
@@ -1489,6 +1524,7 @@ router.post("/hr/payroll-runs", hrGuard, async (req, res) => {
     // proration; here we just need to NOT pre-exclude leavers who still
     // have earned wages (final pay / EOS run).
     const empConds: SQL[] = [
+      eq(employeesTable.companyId, getCompanyId(req)),
       or(
         eq(employeesTable.status, "active"),
         and(
@@ -1533,7 +1569,7 @@ router.post("/hr/payroll-runs", hrGuard, async (req, res) => {
     const [defaultShift] = await db
       .select()
       .from(shiftsTable)
-      .where(eq(shiftsTable.isActive, true))
+      .where(and(eq(shiftsTable.isActive, true), eq(shiftsTable.companyId, getCompanyId(req))))
       .orderBy(asc(shiftsTable.id))
       .limit(1);
 
@@ -1598,6 +1634,7 @@ router.post("/hr/payroll-runs", hrGuard, async (req, res) => {
         .where(
           and(
             eq(leaveRequestsTable.employeeId, emp.id),
+            eq(leaveRequestsTable.companyId, getCompanyId(req)),
             eq(leaveRequestsTable.status, "approved"),
             eq(leaveTypesTable.isPaid, false),
             // overlap: req.start <= periodEnd AND req.end >= periodStart
@@ -1622,6 +1659,7 @@ router.post("/hr/payroll-runs", hrGuard, async (req, res) => {
         .where(
           and(
             eq(employeeShiftsTable.employeeId, emp.id),
+            eq(employeeShiftsTable.companyId, getCompanyId(req)),
             lte(employeeShiftsTable.effectiveFrom, periodEnd),
           ),
         )
@@ -1629,7 +1667,9 @@ router.post("/hr/payroll-runs", hrGuard, async (req, res) => {
         .limit(1);
       let assignedShift = null as typeof defaultShift | null;
       if (shiftAssign) {
-        const [s] = await db.select().from(shiftsTable).where(eq(shiftsTable.id, shiftAssign.shiftId)).limit(1);
+        const [s] = await db.select().from(shiftsTable).where(and(
+          eq(shiftsTable.id, shiftAssign.shiftId), eq(shiftsTable.companyId, getCompanyId(req)),
+        )).limit(1);
         assignedShift = s ?? defaultShift ?? null;
       } else {
         assignedShift = defaultShift ?? null;
@@ -1775,7 +1815,7 @@ router.post("/hr/payroll-runs", hrGuard, async (req, res) => {
         totalNet: totNet.toFixed(2),
         employeeCount: linesInserted,
       })
-      .where(eq(payrollRunsTable.id, run.id))
+      .where(and(eq(payrollRunsTable.id, run.id), payrollScope(req)))
       .returning();
 
     return res.status(201).json({
@@ -1802,7 +1842,7 @@ router.post("/hr/payroll-runs", hrGuard, async (req, res) => {
 router.post("/hr/payroll-runs/:id/post", financeGuard, async (req, res) => {
   try {
     const { id } = IdParam.parse(req.params);
-    const [run] = await db.select().from(payrollRunsTable).where(eq(payrollRunsTable.id, id)).limit(1);
+    const run = await requireCompanyPayroll(req, id);
     if (!run) return res.status(404).json({ error: "الجولة غير موجودة" });
     if (run.status !== "computed" && run.status !== "approved") {
       return res.status(400).json({ error: "لا يمكن ترحيل هذه الجولة" });
@@ -1822,7 +1862,8 @@ router.post("/hr/payroll-runs/:id/post", financeGuard, async (req, res) => {
         otherSum: sql<string>`coalesce(sum(${payrollLinesTable.otherDeductions}), 0)`,
       })
       .from(payrollLinesTable)
-      .where(eq(payrollLinesTable.runId, run.id));
+      .where(and(eq(payrollLinesTable.runId, run.id),
+        inArray(payrollLinesTable.employeeId, companyEmployeeIds(req))));
     const loanTotal = num(linesAgg[0]?.loanSum);
     const lwpTotal = num(linesAgg[0]?.lwpSum);
     const otherTotal = num(linesAgg[0]?.otherSum);
@@ -1873,7 +1914,8 @@ router.post("/hr/payroll-runs/:id/post", financeGuard, async (req, res) => {
     const allLines = await db
       .select({ employeeId: payrollLinesTable.employeeId, loanDeduction: payrollLinesTable.loanDeduction })
       .from(payrollLinesTable)
-      .where(eq(payrollLinesTable.runId, run.id));
+      .where(and(eq(payrollLinesTable.runId, run.id),
+        inArray(payrollLinesTable.employeeId, companyEmployeeIds(req))));
     for (const l of allLines) {
       const ded = num(l.loanDeduction);
       if (ded <= 0) continue;
@@ -1903,7 +1945,7 @@ router.post("/hr/payroll-runs/:id/post", financeGuard, async (req, res) => {
         approvedBy: req.session.userId ?? null,
         approvedAt: new Date(),
       })
-      .where(eq(payrollRunsTable.id, id))
+      .where(and(eq(payrollRunsTable.id, id), payrollScope(req)))
       .returning();
 
     return res.json({
@@ -1932,7 +1974,7 @@ router.post("/hr/payroll-runs/:id/post", financeGuard, async (req, res) => {
 router.post("/hr/payroll-runs/:id/mark-paid", financeGuard, async (req, res) => {
   try {
     const { id } = IdParam.parse(req.params);
-    const [run] = await db.select().from(payrollRunsTable).where(eq(payrollRunsTable.id, id)).limit(1);
+    const run = await requireCompanyPayroll(req, id);
     if (!run) return res.status(404).json({ error: "الجولة غير موجودة" });
     if (run.status !== "posted") {
       return res.status(400).json({ error: "يجب ترحيل الجولة قبل تسجيل الدفع" });
@@ -1965,7 +2007,7 @@ router.post("/hr/payroll-runs/:id/mark-paid", financeGuard, async (req, res) => 
     const [updated] = await db
       .update(payrollRunsTable)
       .set({ status: "paid", paidAt: new Date(), paymentJournalId: payJeId })
-      .where(eq(payrollRunsTable.id, id))
+      .where(and(eq(payrollRunsTable.id, id), payrollScope(req)))
       .returning();
     // Module hook: WhatsApp/SMS payslip notice to each employee in
     // the run. Fire-and-forget so the API response is never blocked
@@ -1985,7 +2027,7 @@ router.post("/hr/payroll-runs/:id/mark-paid", financeGuard, async (req, res) => 
 router.post("/hr/payroll-runs/:id/remit-gosi", financeGuard, async (req, res) => {
   try {
     const { id } = IdParam.parse(req.params);
-    const [run] = await db.select().from(payrollRunsTable).where(eq(payrollRunsTable.id, id)).limit(1);
+    const run = await requireCompanyPayroll(req, id);
     if (!run) return res.status(404).json({ error: "الجولة غير موجودة" });
     if (run.status !== "posted" && run.status !== "paid") {
       return res.status(400).json({ error: "يجب ترحيل الجولة قبل تحويل التأمينات" });
@@ -2016,7 +2058,7 @@ router.post("/hr/payroll-runs/:id/remit-gosi", financeGuard, async (req, res) =>
     await db
       .update(payrollRunsTable)
       .set({ gosiJournalId: gosiJeId, gosiRemittedAt: new Date() })
-      .where(eq(payrollRunsTable.id, id));
+      .where(and(eq(payrollRunsTable.id, id), payrollScope(req)));
     return res.json({ ok: true, journalEntryNumber: entryNumber });
   } catch (err) {
     req.log.error({ err }, "remit gosi");
@@ -2030,7 +2072,7 @@ router.post("/hr/payroll-runs/:id/remit-gosi", financeGuard, async (req, res) =>
 router.get("/hr/payroll-runs/:id/wps", payrollReadGuard, async (req, res) => {
   try {
     const { id } = IdParam.parse(req.params);
-    const [run] = await db.select().from(payrollRunsTable).where(eq(payrollRunsTable.id, id)).limit(1);
+    const run = await requireCompanyPayroll(req, id);
     if (!run) return res.status(404).json({ error: "الجولة غير موجودة" });
     const [period] = await db.select().from(payrollPeriodsTable).where(eq(payrollPeriodsTable.id, run.periodId)).limit(1);
 
@@ -2049,7 +2091,7 @@ router.get("/hr/payroll-runs/:id/wps", payrollReadGuard, async (req, res) => {
       })
       .from(payrollLinesTable)
       .innerJoin(employeesTable, eq(employeesTable.id, payrollLinesTable.employeeId))
-      .where(eq(payrollLinesTable.runId, id));
+      .where(and(eq(payrollLinesTable.runId, id), eq(employeesTable.companyId, getCompanyId(req))));
 
     // SARIE-WPS / SIF v2 file: HDR (file header), columns header, EMP detail
     // rows, TRL (file trailer with totals). Hijri pay date included for the
@@ -2120,7 +2162,7 @@ router.get("/hr/payroll-runs/:id/wps", payrollReadGuard, async (req, res) => {
 // =========================================================================
 router.get("/hr/payslips", async (req, res) => {
   const empId = req.query.employeeId ? Number(req.query.employeeId) : null;
-  const where = empId ? eq(payslipsTable.employeeId, empId) : sql`true`;
+  const where = and(payslipScope(req), empId ? eq(payslipsTable.employeeId, empId) : undefined);
   const rows = await db
     .select({
       id: payslipsTable.id,
@@ -2158,7 +2200,7 @@ router.get("/hr/payslips", async (req, res) => {
     const [ownEmp] = await db
       .select({ id: employeesTable.id })
       .from(employeesTable)
-      .where(eq(employeesTable.userId, userId))
+      .where(and(eq(employeesTable.userId, userId), eq(employeesTable.companyId, getCompanyId(req))))
       .limit(1);
     if (!ownEmp) return res.json([]);
     visibleRows = rows.filter((r) => r.employeeId === ownEmp.id);
@@ -2252,6 +2294,7 @@ router.get("/hr/expiry-alerts", hrReadGuard, async (req, res) => {
     .from(employeesTable)
     .where(
       and(
+        eq(employeesTable.companyId, getCompanyId(req)),
         sql`${employeesTable.iqamaExpiry} IS NOT NULL`,
         lte(employeesTable.iqamaExpiry, cutoffStr),
       ),
@@ -2268,6 +2311,7 @@ router.get("/hr/expiry-alerts", hrReadGuard, async (req, res) => {
     .from(employeesTable)
     .where(
       and(
+        eq(employeesTable.companyId, getCompanyId(req)),
         sql`${employeesTable.passportExpiry} IS NOT NULL`,
         lte(employeesTable.passportExpiry, cutoffStr),
       ),
@@ -2287,6 +2331,7 @@ router.get("/hr/expiry-alerts", hrReadGuard, async (req, res) => {
     .innerJoin(employeesTable, eq(employeesTable.id, contractsTable.employeeId))
     .where(
       and(
+        eq(employeesTable.companyId, getCompanyId(req)),
         sql`${contractsTable.endDate} IS NOT NULL`,
         lte(contractsTable.endDate, cutoffStr),
         eq(contractsTable.status, "active"),
@@ -2306,7 +2351,7 @@ router.get("/hr/expiry-alerts", hrReadGuard, async (req, res) => {
 // =========================================================================
 // Reports: Saudization (Nitaqat) snapshot
 // =========================================================================
-router.get("/hr/reports/saudization", hrReadGuard, async (_req, res) => {
+router.get("/hr/reports/saudization", hrReadGuard, async (req, res) => {
   const rows = await db
     .select({
       branchId: employeesTable.branchId,
@@ -2315,8 +2360,8 @@ router.get("/hr/reports/saudization", hrReadGuard, async (_req, res) => {
       saudis: sql<number>`count(*) filter (where ${employeesTable.nationalityType} = 'saudi')`,
     })
     .from(employeesTable)
-    .leftJoin(branchesTable, eq(branchesTable.id, employeesTable.branchId))
-    .where(eq(employeesTable.status, "active"))
+    .leftJoin(branchesTable, and(eq(branchesTable.id, employeesTable.branchId), eq(branchesTable.companyId, getCompanyId(req))))
+    .where(and(eq(employeesTable.status, "active"), eq(employeesTable.companyId, getCompanyId(req))))
     .groupBy(employeesTable.branchId, branchesTable.nameAr);
 
   res.json(
@@ -2343,13 +2388,15 @@ router.get("/hr/reports/saudization", hrReadGuard, async (_req, res) => {
   );
 });
 
-router.get("/hr/reports/payroll-register", payrollReadGuard, async (req, res) => {
+router.get("/hr/reports/payroll-register", payrollReadGuard, async (req, res, next) => {
+  // The later runId handler must not be shadowed by the periodId variant.
+  if (req.query.runId !== undefined) return next();
   const periodId = req.query.periodId ? Number(req.query.periodId) : null;
   if (!periodId) return res.status(400).json({ error: "periodId مطلوب" });
   const runs = await db
     .select()
     .from(payrollRunsTable)
-    .where(eq(payrollRunsTable.periodId, periodId));
+    .where(and(eq(payrollRunsTable.periodId, periodId), payrollScope(req)));
   const runIds = runs.map((r) => r.id);
   if (runIds.length === 0) return res.json({ runs: [], lines: [] });
 
@@ -2366,7 +2413,7 @@ router.get("/hr/reports/payroll-register", payrollReadGuard, async (req, res) =>
     })
     .from(payrollLinesTable)
     .innerJoin(employeesTable, eq(employeesTable.id, payrollLinesTable.employeeId))
-    .where(sql`${payrollLinesTable.runId} = ANY(${runIds})`);
+    .where(and(inArray(payrollLinesTable.runId, runIds), eq(employeesTable.companyId, getCompanyId(req))));
 
   return res.json({
     runs: runs.map((r) => ({ id: r.id, reference: r.reference, status: r.status })),
@@ -2387,10 +2434,11 @@ router.get("/hr/reports/payroll-register", payrollReadGuard, async (req, res) =>
 router.get("/hr/employees/:id/documents", hrReadGuard, async (req, res) => {
   try {
     const { id } = IdParam.parse(req.params);
+    await requireCompanyEmployee(req, id);
     const rows = await db
       .select()
       .from(employeeDocumentsTable)
-      .where(eq(employeeDocumentsTable.employeeId, id))
+      .where(and(eq(employeeDocumentsTable.employeeId, id), eq(employeeDocumentsTable.companyId, getCompanyId(req))))
       .orderBy(desc(employeeDocumentsTable.uploadedAt));
     return res.json(
       rows.map((r) => ({
@@ -2414,6 +2462,7 @@ const DocumentBody = z.object({
 router.post("/hr/employee-documents", hrGuard, async (req, res) => {
   try {
     const body = DocumentBody.parse(req.body);
+    await requireCompanyEmployee(req, body.employeeId);
     const [row] = await db
       .insert(employeeDocumentsTable)
       .values({
@@ -2462,11 +2511,11 @@ router.get("/hr/attendance/summary", hrReadGuard, async (req, res) => {
     const [defaultShift] = await db
       .select()
       .from(shiftsTable)
-      .where(eq(shiftsTable.isActive, true))
+      .where(and(eq(shiftsTable.isActive, true), eq(shiftsTable.companyId, getCompanyId(req))))
       .orderBy(asc(shiftsTable.id))
       .limit(1);
 
-    const empConds: SQL[] = [eq(employeesTable.status, "active")];
+    const empConds: SQL[] = [eq(employeesTable.status, "active"), eq(employeesTable.companyId, getCompanyId(req))];
     if (q.employeeId) empConds.push(eq(employeesTable.id, q.employeeId));
     const emps = await db.select().from(employeesTable).where(and(...empConds));
 
@@ -2499,6 +2548,7 @@ router.get("/hr/attendance/summary", hrReadGuard, async (req, res) => {
         .where(
           and(
             eq(employeeShiftsTable.employeeId, emp.id),
+            eq(employeeShiftsTable.companyId, getCompanyId(req)),
             lte(employeeShiftsTable.effectiveFrom, q.to),
           ),
         )
@@ -2506,7 +2556,9 @@ router.get("/hr/attendance/summary", hrReadGuard, async (req, res) => {
         .limit(1);
       let shift = defaultShift ?? null;
       if (assign) {
-        const [s] = await db.select().from(shiftsTable).where(eq(shiftsTable.id, assign.shiftId)).limit(1);
+        const [s] = await db.select().from(shiftsTable).where(and(
+          eq(shiftsTable.id, assign.shiftId), eq(shiftsTable.companyId, getCompanyId(req)),
+        )).limit(1);
         if (s) shift = s;
       }
       const shiftStart = parseHm(shift?.startTime ?? "09:00");
@@ -2594,7 +2646,7 @@ router.get("/hr/payslips/:id/view", async (req, res) => {
     const [slip] = await db
       .select()
       .from(payslipsTable)
-      .where(eq(payslipsTable.id, id))
+      .where(and(eq(payslipsTable.id, id), payslipScope(req)))
       .limit(1);
     if (!slip) return res.status(404).json({ error: "بيان الراتب غير موجود" });
 
@@ -2604,7 +2656,7 @@ router.get("/hr/payslips/:id/view", async (req, res) => {
       const [ownEmp] = await db
         .select({ id: employeesTable.id })
         .from(employeesTable)
-        .where(eq(employeesTable.userId, userId))
+        .where(and(eq(employeesTable.userId, userId), eq(employeesTable.companyId, getCompanyId(req))))
         .limit(1);
       if (!ownEmp || ownEmp.id !== slip.employeeId) {
         return res.status(403).json({ error: "ليس لديك صلاحية" });
@@ -2681,7 +2733,7 @@ router.get("/hr/payslips/:id/view", async (req, res) => {
 router.get("/hr/payslips/:id/pdf", async (req, res) => {
   try {
     const { id } = IdParam.parse(req.params);
-    const [slip] = await db.select().from(payslipsTable).where(eq(payslipsTable.id, id)).limit(1);
+    const [slip] = await db.select().from(payslipsTable).where(and(eq(payslipsTable.id, id), payslipScope(req))).limit(1);
     if (!slip) return res.status(404).send("not found");
     if (!isPayslipPrivileged(req.session.role)) {
       const userId = req.session.userId;
@@ -2689,7 +2741,7 @@ router.get("/hr/payslips/:id/pdf", async (req, res) => {
       const [ownEmp] = await db
         .select({ id: employeesTable.id })
         .from(employeesTable)
-        .where(eq(employeesTable.userId, userId))
+        .where(and(eq(employeesTable.userId, userId), eq(employeesTable.companyId, getCompanyId(req))))
         .limit(1);
       if (!ownEmp || ownEmp.id !== slip.employeeId) return res.status(403).send("forbidden");
     }
@@ -2793,7 +2845,7 @@ router.get("/hr/payslips/:id/pdf", async (req, res) => {
 router.get("/hr/payslips/:id/print", async (req, res) => {
   try {
     const { id } = IdParam.parse(req.params);
-    const [slip] = await db.select().from(payslipsTable).where(eq(payslipsTable.id, id)).limit(1);
+    const [slip] = await db.select().from(payslipsTable).where(and(eq(payslipsTable.id, id), payslipScope(req))).limit(1);
     if (!slip) return res.status(404).send("not found");
     if (!isPayslipPrivileged(req.session.role)) {
       const userId = req.session.userId;
@@ -2801,7 +2853,7 @@ router.get("/hr/payslips/:id/print", async (req, res) => {
       const [ownEmp] = await db
         .select({ id: employeesTable.id })
         .from(employeesTable)
-        .where(eq(employeesTable.userId, userId))
+        .where(and(eq(employeesTable.userId, userId), eq(employeesTable.companyId, getCompanyId(req))))
         .limit(1);
       if (!ownEmp || ownEmp.id !== slip.employeeId) return res.status(403).send("forbidden");
     }
@@ -2882,7 +2934,7 @@ router.get("/hr/payslips/:id/print", async (req, res) => {
 // Org chart — returns the department hierarchy plus the manager for each
 // department, suitable for rendering a tree in the UI.
 // =========================================================================
-router.get("/hr/org-chart", hrReadGuard, async (_req, res) => {
+router.get("/hr/org-chart", hrReadGuard, async (req, res) => {
   const depts = await db
     .select({
       id: departmentsTable.id,
@@ -2892,8 +2944,8 @@ router.get("/hr/org-chart", hrReadGuard, async (_req, res) => {
       managerName: employeesTable.nameAr,
     })
     .from(departmentsTable)
-    .leftJoin(employeesTable, eq(employeesTable.id, departmentsTable.managerEmployeeId))
-    .where(eq(departmentsTable.isActive, true))
+    .leftJoin(employeesTable, and(eq(employeesTable.id, departmentsTable.managerEmployeeId), eq(employeesTable.companyId, getCompanyId(req))))
+    .where(and(eq(departmentsTable.isActive, true), eq(departmentsTable.companyId, getCompanyId(req))))
     .orderBy(asc(departmentsTable.name));
 
   const headcount = await db
@@ -2902,7 +2954,7 @@ router.get("/hr/org-chart", hrReadGuard, async (_req, res) => {
       count: sql<number>`count(*)`,
     })
     .from(employeesTable)
-    .where(eq(employeesTable.status, "active"))
+    .where(and(eq(employeesTable.status, "active"), eq(employeesTable.companyId, getCompanyId(req))))
     .groupBy(employeesTable.departmentId);
   const countMap = new Map(headcount.map((h) => [h.departmentId, Number(h.count)]));
 
@@ -2924,8 +2976,8 @@ router.get("/hr/org-chart", hrReadGuard, async (_req, res) => {
 // =========================================================================
 // Shifts & schedules CRUD
 // =========================================================================
-router.get("/hr/shifts", hrReadGuard, async (_req, res) => {
-  const rows = await db.select().from(shiftsTable).orderBy(asc(shiftsTable.id));
+router.get("/hr/shifts", hrReadGuard, async (req, res) => {
+  const rows = await db.select().from(shiftsTable).where(eq(shiftsTable.companyId, getCompanyId(req))).orderBy(asc(shiftsTable.id));
   res.json(rows);
 });
 
@@ -2965,6 +3017,9 @@ router.patch("/hr/shifts/:id", hrGuard, async (req, res) => {
 
 router.get("/hr/employees/:id/shifts", hrReadGuard, async (req, res) => {
   const empId = Number(req.params.id);
+  if (!(await db.select({ id: employeesTable.id }).from(employeesTable).where(and(
+    eq(employeesTable.id, empId), eq(employeesTable.companyId, getCompanyId(req)),
+  ))).length) return res.status(404).json({ error: "الموظف غير موجود" });
   const rows = await db
     .select({
       id: employeeShiftsTable.id,
@@ -2975,9 +3030,10 @@ router.get("/hr/employees/:id/shifts", hrReadGuard, async (req, res) => {
     })
     .from(employeeShiftsTable)
     .innerJoin(shiftsTable, eq(shiftsTable.id, employeeShiftsTable.shiftId))
-    .where(eq(employeeShiftsTable.employeeId, empId))
+    .where(and(eq(employeeShiftsTable.employeeId, empId),
+      eq(employeeShiftsTable.companyId, getCompanyId(req)), eq(shiftsTable.companyId, getCompanyId(req))))
     .orderBy(desc(employeeShiftsTable.effectiveFrom));
-  res.json(rows);
+  return res.json(rows);
 });
 
 const AssignShiftBody = z.object({
@@ -2990,6 +3046,11 @@ const AssignShiftBody = z.object({
 router.post("/hr/employee-shifts", hrGuard, async (req, res) => {
   try {
     const body = AssignShiftBody.parse(req.body);
+    await requireCompanyEmployee(req, body.employeeId);
+    const [shift] = await db.select({ id: shiftsTable.id }).from(shiftsTable).where(and(
+      eq(shiftsTable.id, body.shiftId), eq(shiftsTable.companyId, getCompanyId(req)),
+    )).limit(1);
+    if (!shift) return res.status(404).json({ error: "الوردية غير موجودة" });
     const [row] = await db
       .insert(employeeShiftsTable)
       .values({
@@ -3018,12 +3079,15 @@ router.delete("/hr/employee-shifts/:id", hrGuard, async (req, res) => {
 // =========================================================================
 router.get("/hr/contracts/:id/components", hrReadGuard, async (req, res) => {
   const contractId = Number(req.params.id);
+  if (!(await db.select({ id: contractsTable.id }).from(contractsTable).where(and(
+    eq(contractsTable.id, contractId), inArray(contractsTable.employeeId, companyEmployeeIds(req)),
+  ))).length) return res.status(404).json({ error: "العقد غير موجود" });
   const rows = await db
     .select()
     .from(salaryComponentsTable)
     .where(eq(salaryComponentsTable.contractId, contractId))
     .orderBy(asc(salaryComponentsTable.id));
-  res.json(rows.map((r) => ({ ...r, amount: num(r.amount) })));
+  return res.json(rows.map((r) => ({ ...r, amount: num(r.amount) })));
 });
 
 const ComponentBody = z.object({
@@ -3039,6 +3103,7 @@ const ComponentBody = z.object({
 router.post("/hr/salary-components", hrGuard, async (req, res) => {
   try {
     const body = ComponentBody.parse(req.body);
+    await requireCompanyContract(req, body.contractId);
     const [row] = await db
       .insert(salaryComponentsTable)
       .values({ ...body, amount: String(body.amount) })
@@ -3054,12 +3119,13 @@ router.patch("/hr/salary-components/:id", hrGuard, async (req, res) => {
   try {
     const id = Number(req.params.id);
     const body = ComponentBody.partial().parse(req.body);
+    if (body.contractId !== undefined) await requireCompanyContract(req, body.contractId);
     const update: Record<string, unknown> = { ...body };
     if (body.amount !== undefined) update.amount = String(body.amount);
     const [row] = await db
       .update(salaryComponentsTable)
       .set(update)
-      .where(eq(salaryComponentsTable.id, id))
+      .where(and(eq(salaryComponentsTable.id, id), inArray(salaryComponentsTable.contractId, companyContractIds(req))))
       .returning();
     if (!row) return res.status(404).json({ error: "العنصر غير موجود" });
     return res.json({ ...row, amount: num(row.amount) });
@@ -3071,8 +3137,11 @@ router.patch("/hr/salary-components/:id", hrGuard, async (req, res) => {
 
 router.delete("/hr/salary-components/:id", hrGuard, async (req, res) => {
   const id = Number(req.params.id);
-  await db.delete(salaryComponentsTable).where(eq(salaryComponentsTable.id, id));
-  res.json({ ok: true });
+  const rows = await db.delete(salaryComponentsTable).where(and(
+    eq(salaryComponentsTable.id, id), inArray(salaryComponentsTable.contractId, companyContractIds(req)),
+  )).returning({ id: salaryComponentsTable.id });
+  if (!rows.length) return res.status(404).json({ error: "العنصر غير موجود" });
+  return res.json({ ok: true });
 });
 
 // =========================================================================
@@ -3102,6 +3171,8 @@ router.get("/hr/leaves/calendar", hrReadGuard, async (req, res) => {
       .where(
         and(
           // overlap with [from, to]
+          eq(leaveRequestsTable.companyId, getCompanyId(req)),
+          eq(employeesTable.companyId, getCompanyId(req)),
           lte(leaveRequestsTable.startDate, Q.to),
           gte(leaveRequestsTable.endDate, Q.from),
           or(
@@ -3131,7 +3202,7 @@ router.get("/hr/leaves/calendar", hrReadGuard, async (req, res) => {
 router.get("/hr/reports/gosi", payrollReadGuard, async (req, res) => {
   try {
     const Q = z.object({ runId: z.coerce.number().int().positive() }).parse(req.query);
-    const [run] = await db.select().from(payrollRunsTable).where(eq(payrollRunsTable.id, Q.runId)).limit(1);
+    const run = await requireCompanyPayroll(req, Q.runId);
     if (!run) return res.status(404).json({ error: "الجولة غير موجودة" });
     const [period] = await db
       .select()
@@ -3151,7 +3222,7 @@ router.get("/hr/reports/gosi", payrollReadGuard, async (req, res) => {
       })
       .from(payrollLinesTable)
       .innerJoin(employeesTable, eq(employeesTable.id, payrollLinesTable.employeeId))
-      .where(eq(payrollLinesTable.runId, Q.runId));
+      .where(and(eq(payrollLinesTable.runId, Q.runId), eq(employeesTable.companyId, getCompanyId(req))));
     const detail = rows.map((r) => ({
       ...r,
       gosiBase: num(r.gosiBase),
@@ -3188,7 +3259,7 @@ router.get("/hr/employees/:id/eos-estimate", hrReadGuard, async (req, res) => {
       asOf: z.string().optional(),
       reason: z.enum(["termination", "resignation"]).default("termination"),
     }).parse(req.query);
-    const [emp] = await db.select().from(employeesTable).where(eq(employeesTable.id, id)).limit(1);
+    const emp = await requireCompanyEmployee(req, id);
     if (!emp) return res.status(404).json({ error: "الموظف غير موجود" });
     const [contract] = await db
       .select()
@@ -3240,7 +3311,7 @@ router.get("/hr/employees/:id/eos-estimate", hrReadGuard, async (req, res) => {
 router.get("/hr/reports/payroll-register", payrollReadGuard, async (req, res) => {
   try {
     const Q = z.object({ runId: z.coerce.number().int().positive() }).parse(req.query);
-    const [run] = await db.select().from(payrollRunsTable).where(eq(payrollRunsTable.id, Q.runId)).limit(1);
+    const run = await requireCompanyPayroll(req, Q.runId);
     if (!run) return res.status(404).json({ error: "الجولة غير موجودة" });
     const [period] = await db
       .select()
@@ -3272,7 +3343,7 @@ router.get("/hr/reports/payroll-register", payrollReadGuard, async (req, res) =>
       })
       .from(payrollLinesTable)
       .innerJoin(employeesTable, eq(employeesTable.id, payrollLinesTable.employeeId))
-      .where(eq(payrollLinesTable.runId, Q.runId))
+      .where(and(eq(payrollLinesTable.runId, Q.runId), eq(employeesTable.companyId, getCompanyId(req))))
       .orderBy(asc(employeesTable.employeeNo));
     const detail = lines.map((l) => ({
       ...l,
@@ -3321,7 +3392,7 @@ router.get("/hr/reports/payroll-register", payrollReadGuard, async (req, res) =>
 router.post("/hr/payslips/:id/email", hrGuard, async (req, res) => {
   try {
     const { id } = IdParam.parse(req.params);
-    const [slip] = await db.select().from(payslipsTable).where(eq(payslipsTable.id, id)).limit(1);
+    const [slip] = await db.select().from(payslipsTable).where(and(eq(payslipsTable.id, id), payslipScope(req))).limit(1);
     if (!slip) return res.status(404).json({ error: "بيان الراتب غير موجود" });
     const [emp] = await db.select().from(employeesTable).where(eq(employeesTable.id, slip.employeeId)).limit(1);
     if (!emp?.email) return res.status(400).json({ error: "لا يوجد بريد مسجل للموظف" });

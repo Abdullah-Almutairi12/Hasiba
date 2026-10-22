@@ -26,3 +26,15 @@ Unowned legacy bank accounts and saved reports must remain quarantined until own
 **Why:** These records were previously global. Membership does not prove who owns historical financial data, and resetting closed fiscal controls to open would weaken posting restrictions.
 
 **How to apply:** Preserve unknown ownership as inaccessible rather than guessing. For calendar migrations, preserve restrictions and reconnect each journal only to its own company's periods.
+
+Historical HR records may carry a company stamp that disagrees with their employee or payroll parent. Treat inconsistent ownership as inaccessible rather than trusting either side alone.
+
+**Why:** Earlier HR writes accepted foreign employee IDs while stamping the caller's company, and payroll computation included employees across companies. Existing rows can therefore remain inconsistent after the write paths are secured.
+
+**How to apply:** Require agreement between child and parent ownership on sensitive reads and actions. Do not automatically reassign historical records to a company as part of an authorization fix.
+
+Historical HR positions cannot be assigned a company from their department reference alone, including positions with a department.
+
+**Why:** Position creation previously accepted arbitrary department IDs. A historical department link could itself have been supplied across tenants and is not evidence of the author's company.
+
+**How to apply:** Keep unowned positions quarantined until explicitly verified; new positions must be stamped with the active company even when no department is selected.

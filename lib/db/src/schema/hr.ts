@@ -35,13 +35,17 @@ export const departmentsTable = pgTable("departments", {
 
 export const positionsTable = pgTable("positions", {
   id: serial("id").primaryKey(),
+  // Legacy positions have no verified owner and remain quarantined as NULL.
+  companyId: integer("company_id").references(() => companiesTable.id, { onDelete: "restrict" }),
   title: text("title").notNull(),
   titleAr: text("title_ar").notNull(),
   departmentId: integer("department_id").references(() => departmentsTable.id),
   level: text("level"), // junior / mid / senior / lead / manager / director
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (t) => ({
+  companyIdx: index("positions_company_idx").on(t.companyId),
+}));
 
 // =========================================================================
 // Employees

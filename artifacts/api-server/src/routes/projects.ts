@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db, projectsTable, projectTasksTable, customersTable } from "@workspace/db";
-import { desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { adminGuard } from "../middlewares/require-role";
 import { handleRouteError } from "../lib/handle-error";
@@ -12,6 +12,12 @@ const router = Router();
 const projWriteGuard = adminGuard;
 
 const IdParam = z.object({ id: z.coerce.number().int().positive() });
+
+async function requireCompanyProject(companyId: number, projectId: number) {
+  const [project] = await db.select({ id: projectsTable.id }).from(projectsTable)
+    .where(and(eq(projectsTable.id, projectId), eq(projectsTable.companyId, companyId))).limit(1);
+  if (!project) throw Object.assign(new Error("Project not found"), { status: 404 });
+}
 
 const serializeProject = (p: typeof projectsTable.$inferSelect & { customerName?: string | null }) => ({
   ...p,
@@ -103,6 +109,7 @@ router.post("/projects", projWriteGuard, async (req, res) => {
 router.get("/projects/:id/tasks", async (req, res) => {
   try {
     const { id } = IdParam.parse(req.params);
+    await requireCompanyProject(getCompanyId(req), id);
     const rows = await db
       .select()
       .from(projectTasksTable)
@@ -134,6 +141,7 @@ router.post("/projects/:id/tasks", projWriteGuard, async (req, res) => {
   try {
     const { id: projectId } = IdParam.parse(req.params);
     const body = CreateTaskBody.parse(req.body);
+    await requireCompanyProject(getCompanyId(req), projectId);
     const [row] = await db
       .insert(projectTasksTable)
       .values({
