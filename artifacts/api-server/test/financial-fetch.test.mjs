@@ -132,17 +132,26 @@ describe.each([
     expect(attempts[2].key).not.toBe(attempts[0].key);
     expect(stored.size).toBe(0);
   });
-  it("does not describe a rejected operation as saved when its cleanup fails", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ error: "invalid" }, { status: 422 })));
+  it.each([400, 401, 403, 404, 409, 422])("keeps rejected HTTP %s distinct from a saved operation when only cleanup fails", async (status) => {
+    const attempts = [];
+    vi.stubGlobal("fetch", vi.fn(async (_url, init) => {
+      attempts.push({ key: new Headers(init.headers).get("Idempotency-Key"), body: init.body });
+      return Response.json({ error: "رسالة رفض الخادم" }, { status });
+    }));
     const originalRemove = sessionStorage.removeItem;
     sessionStorage.removeItem = () => { throw new Error("cleanup blocked"); };
     try {
       await expect(financialFetch(url, request)).rejects.toThrow("رفض الخادم العملية");
       expect(stored.size).toBe(1);
+      expect([...stored.values()]).toEqual([attempts[0].key]);
     } finally {
       sessionStorage.removeItem = originalRemove;
     }
-    expect((await financialFetch(url, request)).status).toBe(422);
+    const retry = await financialFetch(url, request);
+    expect(retry.status).toBe(status);
+    expect(await retry.json()).toEqual({ error: "رسالة رفض الخادم" });
+    expect(attempts).toHaveLength(2);
+    expect(attempts[1]).toEqual(attempts[0]);
     expect(stored.size).toBe(0);
   });
   it("does not send when writing the safety key is blocked, and recovers after storage is restored", async () => {

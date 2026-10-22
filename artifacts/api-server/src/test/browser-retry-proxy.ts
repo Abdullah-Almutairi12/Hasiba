@@ -199,7 +199,7 @@ if (process.argv.includes("--capture-receipts") || process.argv.includes("--capt
     }, null, 2));
   }
   writeFileSync(reportFile, JSON.stringify({
-    ...report, finalReceipts, receiptsObservedAt: Date.now(),
+    ...report, finalReceipts, receiptsObservedAt: Date.now(), capturedAt: Date.now(),
     ...(!receiptMode && !returnMode ? { finalCounts: await readCounts(), finalJournals: await readJournals() } : {}),
     ...(!receiptMode && !returnMode ? { finalInvoiceState: await readInvoiceState() } : {}),
     ...(report.overlapReturns || report.overlapInvoices || report.overlapReceipts ? {
@@ -247,7 +247,8 @@ const save = () => writeFileSync(reportFile, JSON.stringify({
   runId, startedAt, initialCounts, invoicePostCount, events, finalReceipts, receiptsObservedAt,
   ...(!returnMode ? { initialJournals } : {}),
   ...(!receiptMode && !returnMode ? { initialInvoiceState } : {}),
-  ...(overlap ? { overlapReturns, overlapInvoices, overlapReceipts, overlapTimedOut, arrivals, initialJournalCount } : {}),
+  arrivals,
+  ...(overlap ? { overlapReturns, overlapInvoices, overlapReceipts, overlapTimedOut, initialJournalCount } : {}),
   ...(overlapInvoices ? { scenario: "overlapping-invoice", initialInvoiceState, receiptPostCount, returnPostCount } : {}),
   ...(receiptMode ? { scenario: "identical-receipt", receiptPostCount, returnPostCount, initialPaymentState, finalPaymentState } : {}),
   ...(returnMode ? { scenario: "identical-return", returnPostCount, receiptPostCount, returnFixture, initialReturnState, finalReturnState } : {}),
@@ -259,6 +260,7 @@ const proxy = createServer((req, res) => {
   const invoice = req.method === "POST" && req.url?.split("?")[0] === "/api/sales/invoices";
   const receipt = req.method === "POST" && req.url?.split("?")[0] === "/api/sales/receipts";
   const creditNote = req.method === "POST" && req.url?.split("?")[0] === "/api/sales/credit-notes";
+  if (receipt && !overlap) arrivals.push(arrival);
   // Record arrival, not just successful upstream replies: zero events alone
   // would miss rejected requests or requests still in flight.
   if (invoice) {
@@ -309,7 +311,10 @@ const proxy = createServer((req, res) => {
             const key = req.headers["idempotency-key"];
             assert.equal(typeof key, "string", "The real UI must send Idempotency-Key");
             const successful = reply.statusCode !== undefined && reply.statusCode >= 200 && reply.statusCode < 300;
-            const result = successful ? JSON.parse(output.toString("utf8")) : null;
+            let responseBody;
+            try { responseBody = JSON.parse(output.toString("utf8")); }
+            catch { assert.ok(!successful, "Successful financial response must contain JSON"); }
+            const result = successful ? responseBody : null;
             // This query uses only the disposable pool, after the response ended.
             const counts = await readScenarioCounts();
             const receipts = await readReceipts();
@@ -321,6 +326,8 @@ const proxy = createServer((req, res) => {
               ...(overlap ? { arrivalIndex: arrivals.indexOf(arrival), journalCount: await journalCount() } : {}),
               ...(!receiptMode && !returnMode ? { invoiceState: await readInvoiceState() } : {}),
               recordedAt: Date.now(),
+              responseBody,
+              ...(receipt ? { arrivalIndex: arrivals.indexOf(arrival) } : {}),
               ...(!receiptMode && !returnMode ? { journals: await readJournals(), body: JSON.parse(input.toString("utf8")) } : {}),
               storageKey: `hasba:financial-request:${createHash("sha256").update(`${req.url?.split("?")[0]}\n${input.toString("utf8")}`).digest("hex")}`,
               key, bodyHash: createHash("sha256").update(input).digest("hex"),
@@ -350,7 +357,7 @@ const proxy = createServer((req, res) => {
           }
           res.writeHead(reply.statusCode ?? 502, reply.headers);
           res.end(output);
-          if ((overlapReturns && creditNote) || (overlapInvoices && invoice) || (overlapReceipts && receipt)) {
+          if ((overlapReturns && creditNote) || (overlapInvoices && invoice) || receipt) {
             arrival.responseSentAt = Date.now();
             save();
           }
