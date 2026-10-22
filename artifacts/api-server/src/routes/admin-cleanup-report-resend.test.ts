@@ -32,13 +32,14 @@ import {
 } from "vitest";
 import request from "supertest";
 import bcrypt from "bcryptjs";
-import { and, desc, eq, or } from "drizzle-orm";
+import { and, desc, eq, inArray, or } from "drizzle-orm";
 import {
   db,
   companiesTable,
   usersTable,
   userCompaniesTable,
   cleanupReportSendsTable,
+  cleanupReportSendRecipientsTable,
   auditLogsTable,
   warehousesTable,
 } from "@workspace/db";
@@ -171,6 +172,14 @@ afterAll(async () => {
   // A response is not evidence that its unawaited audit INSERT has finished.
   await waitForAuditWrites();
   if (sendRowId) {
+    const sends = await readFixtureSendHistory();
+    const ids = sends.map((row) => row.id);
+    // Remove delivery rows before their parent send-history fixtures.
+    if (ids.length) {
+      await db
+        .delete(cleanupReportSendRecipientsTable)
+        .where(inArray(cleanupReportSendRecipientsTable.sendId, ids));
+    }
     await db
       .delete(cleanupReportSendsTable)
       .where(
@@ -247,9 +256,65 @@ async function clearResendAudits(): Promise<void> {
     );
 }
 
+async function readFixtureSendHistory() {
+  return db
+    .select()
+    .from(cleanupReportSendsTable)
+    .where(
+      or(
+        eq(cleanupReportSendsTable.id, sendRowId),
+        eq(cleanupReportSendsTable.triggeredByUserId, userId),
+      ),
+    )
+    .orderBy(cleanupReportSendsTable.id);
+}
+
+async function expectFailedResendHistory(
+  before: Awaited<ReturnType<typeof readFixtureSendHistory>>,
+  recipients: string[],
+  reason: string,
+  rowCount: number | null,
+): Promise<void> {
+  await waitForAuditWrites();
+  const after = await readFixtureSendHistory();
+  const original = after.find((row) => row.id === sendRowId);
+  // Compare the entire source row, not only status: a failed retry must
+  // not overwrite its audience, historical window, or any other metadata.
+  expect(original).toEqual(before.find((row) => row.id === sendRowId));
+  expect(original).toMatchObject({
+    status: "success",
+    failureReason: null,
+    recipientCount: ORIGINAL_RECIPIENTS.length,
+    recipients: ORIGINAL_RECIPIENTS.join(", "),
+    rowCount: 7,
+    windowFrom: new Date("2026-02-10T00:00:00.000Z"),
+    windowTo: new Date("2026-02-17T00:00:00.000Z"),
+  });
+
+  const previousIds = new Set(before.map((row) => row.id));
+  const attempts = after.filter((row) => !previousIds.has(row.id));
+  expect(after).toHaveLength(before.length + 1);
+  expect(attempts).toHaveLength(1);
+  expect(attempts[0].id).not.toBe(sendRowId);
+  expect(attempts[0]).toMatchObject({
+    trigger: "manual",
+    triggeredByUserId: userId,
+    triggeredByUserName: `Mgr ${RUN_TAG}`,
+    status: "failure",
+    failureReason: reason,
+    recipients: recipients.join(", "),
+    recipientCount: recipients.length,
+    rowCount,
+    windowFrom: original!.windowFrom,
+    windowTo: original!.windowTo,
+    messageId: null,
+  });
+}
+
 describe("POST /admin/system-settings/cleanup-report-sends/:id/resend", () => {
-  it("rejects (400) when mail is not configured without sending or auditing a successful resend", async () => {
+  it("preserves the original report and records a separate failed full-list attempt when mail is not configured", async () => {
     await clearResendAudits();
+    const before = await readFixtureSendHistory();
     vi.mocked(mailer.isMailerConfigured).mockReturnValue(false);
 
     const res = await agent
@@ -264,10 +329,17 @@ describe("POST /admin/system-settings/cleanup-report-sends/:id/resend", () => {
     expect(mailer.sendMail).not.toHaveBeenCalled();
     // Join real audit writes before asserting that no success was recorded.
     expect(await latestResendAudit()).toBeNull();
+    await expectFailedResendHistory(
+      before,
+      ORIGINAL_RECIPIENTS,
+      "mailer_not_configured",
+      null,
+    );
   });
 
-  it("rejects (400) when the mail provider fails without auditing a successful resend", async () => {
+  it("preserves the original report and records a separate failed subset attempt when the mail provider fails", async () => {
     await clearResendAudits();
+    const before = await readFixtureSendHistory();
     const reason = "SMTP provider rejected the test dispatch";
     vi.mocked(mailer.sendMail).mockResolvedValue({ sent: false, reason });
 
@@ -282,6 +354,7 @@ describe("POST /admin/system-settings/cleanup-report-sends/:id/resend", () => {
       expect.objectContaining({ to: "alice@example.com" }),
     );
     expect(await latestResendAudit()).toBeNull();
+    await expectFailedResendHistory(before, ["alice@example.com"], reason, 0);
   });
 
   it("retries the same report after a provider failure and records exactly one successful resend", async () => {
