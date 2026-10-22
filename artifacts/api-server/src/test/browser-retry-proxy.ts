@@ -3,7 +3,7 @@
  * Start only after `node scripts/test-isolated.mjs --browser` is ready
  * and the normal API workflow is stopped. Restore that workflow afterwards.
  *
- * Drops the first successful customer-invoice (or --receipts) response AFTER the real app
+ * Drops the first successful customer-invoice (or --receipts / --returns) response AFTER the real app
  * has committed it. Later requests pass through, including receipt replays.
  * No test endpoint, auth bypass, or production data is used.
  */
@@ -34,13 +34,19 @@ await assertApplicationReady();
 const reportDir = resolve(import.meta.dirname, "../../../../generated-artifacts/verification");
 mkdirSync(reportDir, { recursive: true });
 const receiptMode = process.argv.includes("--receipts");
-const reportFile = resolve(reportDir, receiptMode ? "browser-identical-receipt-proxy.json" : "browser-retry-proxy.json");
+const returnMode = process.argv.includes("--returns");
+assert.ok(!(receiptMode && returnMode), "Choose one isolated scenario");
+const reportFile = resolve(reportDir, returnMode ? "browser-identical-return-proxy.json" : receiptMode ? "browser-identical-receipt-proxy.json" : "browser-retry-proxy.json");
 const readCounts = async () => (await pool.query(`
   SELECT
     (SELECT count(*)::int FROM customer_invoices) AS invoices,
     (SELECT count(*)::int FROM financial_requests) AS receipts
 `)).rows[0];
-const readScenarioCounts = async () => receiptMode ? (await pool.query(`
+const readScenarioCounts = async () => returnMode ? (await pool.query(`
+  SELECT (SELECT count(*)::int FROM customer_invoices) AS invoices,
+    (SELECT count(*)::int FROM credit_notes) AS "creditNotes",
+    (SELECT count(*)::int FROM financial_requests) AS receipts
+`)).rows[0] : receiptMode ? (await pool.query(`
   SELECT
     (SELECT count(*)::int FROM customer_invoices) AS invoices,
     (SELECT count(*)::int FROM customer_receipts) AS "paymentReceipts",
@@ -64,11 +70,27 @@ if (process.argv.includes("--capture-storage-block")) {
 }
 const readReceipts = async () => (await pool.query(`
   SELECT company_id AS "companyId", user_id AS "userId", operation,
-    request_key AS key, ${receiptMode
+    request_key AS key, ${returnMode
+      ? `result->'value'->>'id' AS "creditNoteId"`
+      : receiptMode
       ? `result->'value'->>'id' AS "paymentReceiptId"`
       : `result->'value'->'inv'->>'id' AS "invoiceId"`}
   FROM financial_requests ORDER BY request_key
 `)).rows;
+const readReturnState = async () => {
+  const fixture = state.accounts.find((a: { returnInvoice?: unknown }) => a.returnInvoice)?.returnInvoice;
+  assert.ok(fixture, "Start isolated runner with --returns");
+  const notes = (await pool.query(`SELECT id, reference, status, invoice_id AS "invoiceId",
+    journal_entry_id AS "journalEntryId" FROM credit_notes ORDER BY id`)).rows;
+  const moves = (await pool.query(`SELECT id, product_id AS "productId", source_id AS "noteId",
+    invoice_line_id AS "invoiceLineId", original_move_id AS "originalMoveId",
+    to_warehouse_id AS "warehouseId", quantity::float8 AS quantity, unit_cost::float8 AS "unitCost",
+    state FROM stock_moves WHERE kind = 'return_in' AND source_type = 'credit_note' ORDER BY id`)).rows;
+  const quants = (await pool.query(`SELECT warehouse_id AS "warehouseId", quantity::float8 AS quantity,
+    avg_cost::float8 AS "avgCost" FROM stock_quants WHERE product_id = $1 ORDER BY id`, [fixture.productId])).rows;
+  const product = (await pool.query(`SELECT stock::float8 AS stock FROM products WHERE id = $1`, [fixture.productId])).rows[0];
+  return { notes, moves, quants, stock: product.stock };
+};
 const readPaymentState = async () => {
   const payments = (await pool.query(`
     SELECT id, reference, customer_id AS "customerId", amount::float8 AS amount,
@@ -98,6 +120,7 @@ if (process.argv.includes("--capture-receipts")) {
   writeFileSync(reportFile, JSON.stringify({
     ...report, finalReceipts, receiptsObservedAt: Date.now(),
     ...(receiptMode ? { finalPaymentState: await readPaymentState() } : {}),
+    ...(returnMode ? { finalReturnState: await readReturnState() } : {}),
   }, null, 2));
   await pool.end();
   process.exit(0);
@@ -114,19 +137,25 @@ let receiptsObservedAt = 0;
 let dropped = false;
 let invoicePostCount = 0;
 let receiptPostCount = 0;
+let returnPostCount = 0;
 const startedAt = Date.now();
 const initialCounts = await readScenarioCounts();
 const initialPaymentState = receiptMode ? await readPaymentState() : undefined;
 let finalPaymentState = initialPaymentState;
+const returnFixture = returnMode ? state.accounts.find((a: { returnInvoice?: unknown }) => a.returnInvoice).returnInvoice : undefined;
+const initialReturnState = returnMode ? await readReturnState() : undefined;
+let finalReturnState = initialReturnState;
 const save = () => writeFileSync(reportFile, JSON.stringify({
   runId, startedAt, initialCounts, invoicePostCount, events, finalReceipts, receiptsObservedAt,
   ...(receiptMode ? { scenario: "identical-receipt", receiptPostCount, initialPaymentState, finalPaymentState } : {}),
+  ...(returnMode ? { scenario: "identical-return", returnPostCount, receiptPostCount, returnFixture, initialReturnState, finalReturnState } : {}),
 }, null, 2));
 save();
 
 const proxy = createServer((req, res) => {
   const invoice = req.method === "POST" && req.url?.split("?")[0] === "/api/sales/invoices";
   const receipt = req.method === "POST" && req.url?.split("?")[0] === "/api/sales/receipts";
+  const creditNote = req.method === "POST" && req.url?.split("?")[0] === "/api/sales/credit-notes";
   // Record arrival, not just successful upstream replies: zero events alone
   // would miss rejected requests or requests still in flight.
   if (invoice) {
@@ -135,6 +164,10 @@ const proxy = createServer((req, res) => {
   }
   if (receipt) {
     receiptPostCount += 1;
+    save();
+  }
+  if (creditNote) {
+    returnPostCount += 1;
     save();
   }
   const body: Buffer[] = [];
@@ -150,7 +183,7 @@ const proxy = createServer((req, res) => {
       reply.on("end", () => {
         void (async () => {
           const output = Buffer.concat(chunks);
-          if (receiptMode ? receipt : invoice) {
+          if (returnMode ? creditNote : receiptMode ? receipt : invoice) {
             const key = req.headers["idempotency-key"];
             assert.equal(typeof key, "string", "The real UI must send Idempotency-Key");
             const successful = reply.statusCode !== undefined && reply.statusCode >= 200 && reply.statusCode < 300;
@@ -159,6 +192,7 @@ const proxy = createServer((req, res) => {
             const counts = await readScenarioCounts();
             const receipts = await readReceipts();
             const paymentState = receiptMode ? await readPaymentState() : undefined;
+            const returnState = returnMode ? await readReturnState() : undefined;
             const drop = successful && !dropped;
             if (drop) dropped = true;
             events.push({
@@ -169,17 +203,21 @@ const proxy = createServer((req, res) => {
               replayed: reply.headers["idempotency-replayed"] === "true",
               replayHeader: reply.headers["idempotency-replayed"] ?? null,
               ...(receiptMode ? { paymentReceiptId: result?.id, paymentState, body: JSON.parse(input.toString("utf8")) } : { invoiceId: result?.id }),
+              ...(returnMode ? { creditNoteId: result?.id, returnState, body: JSON.parse(input.toString("utf8")) } : {}),
               reference: result?.reference,
               counts, receipts, dropped: drop,
             });
             finalReceipts = receipts;
             finalPaymentState = paymentState;
+            finalReturnState = returnState;
             receiptsObservedAt = Date.now();
             save();
             if (drop) {
               // No bytes from the committed success are sent to the browser.
               res.destroy();
-              console.log(receiptMode
+              console.log(returnMode
+                ? "[browser-retry] Committed return success dropped; capture sessionStorage, then retry the unchanged dialog."
+                : receiptMode
                 ? "[browser-retry] Committed receipt success dropped; capture sessionStorage, then retry the unchanged dialog."
                 : "[browser-retry] Committed success dropped; capture sessionStorage, reload, then re-enter the same data.");
               return;

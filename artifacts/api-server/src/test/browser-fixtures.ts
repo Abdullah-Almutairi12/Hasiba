@@ -2,6 +2,8 @@ import { writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import bcrypt from "bcryptjs";
 import { db, pool, companiesTable, usersTable, userCompaniesTable, customersTable, fiscalYearsTable, fiscalPeriodsTable, categoriesTable, productsTable, customerInvoicesTable, customerInvoiceLinesTable } from "@workspace/db";
+import { branchesTable, warehousesTable } from "@workspace/db";
+import { recordStockMove } from "../lib/stock-engine";
 
 if (!process.env.HASBA_BROWSER_STATE || !process.env.TEST_DATABASE_URL) {
   throw new Error("Run through node scripts/test-isolated.mjs --browser");
@@ -26,11 +28,41 @@ for (const role of ["owner", "sales"] as const) {
   });
   const [customer] = await db.insert(customersTable).values({ companyId: company.id, name: `Verification customer ${tag}` }).returning();
   const [category] = await db.insert(categoriesTable).values({ name: `Verification ${role} ${tag}`, nameAr: "تجربة" }).returning();
-  await db.insert(productsTable).values({
+  const [product] = await db.insert(productsTable).values({
     companyId: company.id, categoryId: category.id, name: `Verification product ${tag}`,
     nameAr: "منتج اختبار", sku: `verify-${role}-${tag}`, price: "100", costPrice: "50", stock: "0",
-  });
+  }).returning();
   let receiptInvoice;
+  let returnInvoice;
+  if (role === "owner" && process.env.HASBA_BROWSER_RETURNS === "true") {
+    const [branch] = await db.insert(branchesTable).values({
+      companyId: company.id, name: `Verification ${tag}`, nameAr: "فرع اختبار", city: "Test",
+    }).returning();
+    const [warehouse] = await db.insert(warehousesTable).values({
+      companyId: company.id, branchId: branch.id, name: `Verification ${tag}`,
+      nameAr: "مستودع اختبار", isDefault: true,
+    }).returning();
+    const [invoice] = await db.insert(customerInvoicesTable).values({
+      companyId: company.id, customerId: customer.id, customerName: customer.name,
+      reference: `SINV-RETURN-${tag}`, status: "open",
+      invoiceDate: new Date().toISOString().slice(0, 10),
+      subtotal: "400", total: "400", amountPaid: "0", createdBy: user.id,
+    }).returning();
+    const [line] = await db.insert(customerInvoiceLinesTable).values({
+      invoiceId: invoice.id, productId: product.id, description: "Synthetic return item",
+      quantity: "4", unitPrice: "100", lineTotal: "400", taxRate: "0",
+    }).returning();
+    const issue = await db.transaction(async (tx) => {
+      const common = { companyId: company.id, productId: product.id, quantity: 4,
+        unitCost: 50, createdBy: user.id, skipJournal: true };
+      await recordStockMove(tx, { ...common, kind: "receipt", toWarehouseId: warehouse.id });
+      return recordStockMove(tx, { ...common, kind: "issue", fromWarehouseId: warehouse.id,
+        invoiceLineId: line.id, sourceType: "invoice", sourceId: invoice.id });
+    });
+    returnInvoice = { id: invoice.id, reference: invoice.reference, lineId: line.id,
+      productId: product.id, warehouseId: warehouse.id, issueMoveId: issue.moveId,
+      soldQuantity: 4, returnQuantity: 1, unitCost: 50, description: line.description };
+  }
   if (role === "owner" && process.env.HASBA_BROWSER_RECEIPTS === "true") {
     const [invoice] = await db.insert(customerInvoicesTable).values({
       companyId: company.id, customerId: customer.id, customerName: customer.name,
@@ -44,7 +76,7 @@ for (const role of ["owner", "sales"] as const) {
     });
     receiptInvoice = { id: invoice.id, reference: invoice.reference, total: 300, receiptAmount: 50 };
   }
-  accounts.push({ email, password, companyId: company.id, role, customerId: customer.id, customerName: customer.name, receiptInvoice });
+  accounts.push({ email, password, companyId: company.id, role, customerId: customer.id, customerName: customer.name, receiptInvoice, returnInvoice });
 }
 writeFileSync(process.env.HASBA_BROWSER_STATE, JSON.stringify({
   // Both URLs point only to the generated, disposable loopback cluster.
