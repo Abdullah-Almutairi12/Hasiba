@@ -26,6 +26,8 @@ import {
   customersTable,
   customerInvoicesTable,
   customerInvoiceLinesTable,
+  fiscalYearsTable,
+  fiscalPeriodsTable,
 } from "@workspace/db";
 import app from "../app";
 
@@ -51,6 +53,15 @@ beforeAll(async () => {
     })
     .returning();
   companyId = co.id;
+  // Own the posting period instead of depending on another suite's defaults.
+  const year = new Date().getUTCFullYear();
+  const [fiscalYear] = await db.insert(fiscalYearsTable).values({
+    companyId, name: RUN_TAG, startDate: `${year}-01-01`, endDate: `${year}-12-31`,
+  }).returning();
+  await db.insert(fiscalPeriodsTable).values({
+    fiscalYearId: fiscalYear.id, name: RUN_TAG, startDate: `${year}-01-01`,
+    endDate: `${year}-12-31`, status: "open",
+  });
 
   const hash = await bcrypt.hash(PASSWORD, 4);
   const [u] = await db

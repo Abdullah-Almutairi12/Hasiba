@@ -25,3 +25,15 @@ Cancellation is not a forced removal of the original return layer: reverse the e
 **Why:** Returned stock can be resold before cancellation, and replenishment may cost more or less. Removing historical value while consuming today's FIFO layers creates a hidden inventory/GL difference even when the reversal balances. A changed standard price can likewise invent a residual value.
 
 **How to apply:** Require matching return-movement and original-journal evidence, keep historical FX for commercial reversal, and reconcile actual depletion, remaining inventory and profit atomically. Reject missing evidence or unavailable tracked stock instead of repairing history or borrowing another serial number.
+
+Keep physical inventory costs at higher precision than journal cents. Allocate rounding remainders cumulatively across an invoice's active physical returns, subtracting amounts actually posted rather than rounding each new return independently.
+
+**Why:** A weighted FIFO cost between 10 and 10.0001 can lose SAR 100 on two million units when stored at four decimals. Even an accurately stored unit cost can leave a cent after consecutive partial returns if each reversal rounds independently.
+
+**How to apply:** Test large-quantity fractional-cost sales and both consecutive and one-shot full returns, including foreign currency and delivery allocations. Reconcile movements, quants, FIFO layers, GL and profit; raising precision must preserve existing recorded values, not reconstruct historical costs.
+
+Cancellation must accept an explicitly evidenced cumulative cent allocation, not require every credit's journal to equal its independently rounded physical value. Preserve the cent belonging to remaining stock, and carry cancellation-only rounding into later returns separately from economic depletion differences.
+
+**Why:** The second of two equal partial returns can legitimately receive one cent less than the first. Rejecting it by a half-cent physical-value comparison blocks a valid cancellation; rounding the removed slice alone can also move that cent away from remaining inventory.
+
+**How to apply:** Check cancellation of both the first and second fractional slices, then re-return the released quantity through full restitution in SAR and foreign currency. Keep strict evidence checks for legacy notes without a recorded allocation; do not backfill them.

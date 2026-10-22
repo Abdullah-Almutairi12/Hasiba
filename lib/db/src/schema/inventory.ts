@@ -77,7 +77,7 @@ export const stockMovesTable = pgTable(
     fromWarehouseId: integer("from_warehouse_id").references(() => warehousesTable.id),
     toWarehouseId: integer("to_warehouse_id").references(() => warehousesTable.id),
     quantity: numeric("quantity", { precision: 18, scale: 4 }).notNull(),
-    unitCost: numeric("unit_cost", { precision: 18, scale: 4 }).notNull().default("0"),
+    unitCost: numeric("unit_cost", { precision: 30, scale: 16 }).notNull().default("0"),
     lotId: integer("lot_id").references(() => stockLotsTable.id),
     serialId: integer("serial_id").references(() => stockSerialsTable.id),
     kind: text("kind").notNull(),
@@ -114,7 +114,7 @@ export const salesIssueAllocationsTable = pgTable(
     invoiceLineId: integer("invoice_line_id").notNull().references(() => customerInvoiceLinesTable.id),
     issueMoveId: integer("issue_move_id").notNull().references(() => stockMovesTable.id),
     quantity: numeric("quantity", { precision: 18, scale: 4 }).notNull(),
-    unitCost: numeric("unit_cost", { precision: 18, scale: 4 }).notNull(),
+    unitCost: numeric("unit_cost", { precision: 30, scale: 16 }).notNull(),
   },
   (t) => ({
     lineMoveUnique: uniqueIndex("sales_issue_allocations_line_move_unique").on(t.invoiceLineId, t.issueMoveId),
@@ -134,7 +134,7 @@ export const stockQuantsTable = pgTable(
     warehouseId: integer("warehouse_id").notNull().references(() => warehousesTable.id),
     lotId: integer("lot_id").references(() => stockLotsTable.id),
     quantity: numeric("quantity", { precision: 18, scale: 4 }).notNull().default("0"),
-    avgCost: numeric("avg_cost", { precision: 18, scale: 4 }).notNull().default("0"),
+    avgCost: numeric("avg_cost", { precision: 30, scale: 16 }).notNull().default("0"),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
   (t) => ({

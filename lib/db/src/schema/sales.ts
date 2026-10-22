@@ -435,6 +435,10 @@ export const creditNotesTable = pgTable("credit_notes", {
   noteDate: date("note_date").notNull(),
   reason: text("reason"),
   restock: boolean("restock").notNull().default(true),
+  // Nullable for legacy notes: never infer their historical rounding allocation.
+  inventoryCost: numeric("inventory_cost", { precision: 18, scale: 2 }),
+  // Only the rounding carry, excluding economic COGS from replacement stock.
+  cancellationRounding: numeric("cancellation_rounding", { precision: 18, scale: 2 }),
   warehouseId: integer("warehouse_id").references(() => warehousesTable.id),
   currencyCode: text("currency_code").notNull().default("SAR"),
   subtotal: numeric("subtotal", { precision: 18, scale: 2 }).notNull().default("0"),

@@ -66,6 +66,7 @@ export async function allocateDeliveryIssueCost(
  */
 export async function restoreOriginalSaleCost(tx: DbOrTx, input: ReturnInput): Promise<number> {
   let value = 0;
+  let restored = false;
   const allocated = new Map<string, number>();
   for (const line of input.lines) {
     if (!line.productId) continue;
@@ -115,6 +116,7 @@ export async function restoreOriginalSaleCost(tx: DbOrTx, input: ReturnInput): P
           sourceType: "credit_note", sourceId: input.noteId, sourceRef: input.reference,
           createdBy: input.createdBy, skipJournal: true,
         });
+        restored = true;
       } else {
         allocated.set(allocationKey, (allocated.get(allocationKey) ?? 0) + take);
       }
@@ -124,7 +126,35 @@ export async function restoreOriginalSaleCost(tx: DbOrTx, input: ReturnInput): P
     }
     if (remaining > 1e-6) throw fail();
   }
-  return value;
+  if (input.validateOnly || !restored) return value;
+  // Quantities/layers retain the unrounded historical unit cost. GL amounts
+  // are cents: round the cumulative physical return value, not each credit
+  // independently, and subtract what active credits actually posted. Reading
+  // actual journals also handles cancellation of an earlier rounded slice.
+  // The caller holds the invoice lock until this credit's journal is posted.
+  const cumulative = await tx.execute(sql`
+    SELECT
+      round(coalesce((
+        SELECT sum(r.quantity * r.unit_cost)
+          FROM stock_moves r JOIN credit_notes cn ON cn.id = r.source_id
+         WHERE cn.invoice_id = ${input.invoiceId} AND cn.company_id = ${input.companyId}
+           AND cn.status <> 'cancelled' AND r.kind = 'return_in' AND r.state = 'done'
+           AND r.source_type = 'credit_note' AND r.original_move_id IS NOT NULL
+      ), 0), 2) - coalesce((
+        SELECT sum(l.base_debit - l.base_credit)
+          FROM credit_notes cn
+          JOIN journal_entries j ON j.id = cn.journal_entry_id AND j.company_id = cn.company_id
+          JOIN journal_entry_lines l ON l.entry_id = j.id
+          JOIN accounts a ON a.id = l.account_id AND a.system_key = 'inventory'
+         WHERE cn.invoice_id = ${input.invoiceId} AND cn.company_id = ${input.companyId}
+           AND cn.status <> 'cancelled' AND j.status = 'posted'
+      ), 0) - coalesce((
+        SELECT sum(cn.cancellation_rounding) FROM credit_notes cn
+         WHERE cn.invoice_id = ${input.invoiceId} AND cn.company_id = ${input.companyId}
+           AND cn.status = 'cancelled'
+      ), 0) AS value
+  `);
+  return Number(cumulative.rows[0].value);
 }
 
 /** Commercial reversal uses the original invoice's posted rate (not today's).

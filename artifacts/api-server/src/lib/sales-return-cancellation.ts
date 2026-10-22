@@ -1,7 +1,8 @@
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { FinancialRequestError } from "./financial-transaction";
 import { postJournalEntry, reverseJournalEntry, type DbOrTx } from "./journal-posting";
 import { recordStockMove } from "./stock-engine";
+import { creditNotesTable } from "@workspace/db";
 
 const fail = () => new FinancialRequestError(
   "تعذر إثبات تكلفة المرتجع وقيده الأصلي لإلغائه بأمان؛ يلزم فحص مالي مستقل دون إصلاح تلقائي.", 409,
@@ -16,6 +17,7 @@ export async function cancelPostedSalesReturn(
     id: number; companyId: number; journalEntryId: number | null;
     restock: boolean; warehouseId: number | null; reference: string;
     currencyCode: string;
+    inventoryCost: string | null;
   },
   lines: Array<{ productId: number | null; invoiceLineId: number | null; quantity: string }>,
   userId: number | null,
@@ -82,18 +84,23 @@ export async function cancelPostedSalesReturn(
     }
     if ([...quantities.values()].some((q) => Math.abs(q) > 1e-6)) throw fail();
   } else if (returned.rows.length) throw fail();
-  // Refuse legacy returns whose stock and GL evidence disagree. A balanced
-  // commercial-only journal is not evidence for an inventory reversal.
-  if (Math.abs(balance("inventory") - restoredValue) > 0.005 ||
-      Math.abs(balance("cogs") + restoredValue) > 0.005) throw fail();
+  // New notes explicitly retain their allocated journal cents. A cumulative
+  // slice can differ from its own physical value by up to (but not including)
+  // a cent. Legacy notes still require the original, stricter evidence.
+  const postedValue = note.inventoryCost == null ? restoredValue : Number(note.inventoryCost);
+  if (!Number.isFinite(postedValue) ||
+      (note.inventoryCost != null && Math.abs(postedValue - restoredValue) >= 0.010001) ||
+      Math.abs(balance("inventory") - postedValue) > 0.005 ||
+      Math.abs(balance("cogs") + postedValue) > 0.005) throw fail();
 
-  let issuedValue = 0;
+  const carryingBefore = new Map<number, string>();
   for (const move of returned.rows) {
     // Same key/order as the stock engine: protect cost reads as well as writes.
     const key = `${move.product_id}-${note.warehouseId}-${move.variant_id ?? 0}-${move.lot_id ?? 0}`;
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${key}, 0))`);
     const quant = await tx.execute(sql`
-      SELECT q.quantity::float8 AS qty, q.avg_cost::float8 AS cost, p.costing_method
+      SELECT q.id, (q.quantity*q.avg_cost)::text AS value,
+             q.quantity::float8 AS qty, q.avg_cost::float8 AS cost, p.costing_method
         FROM stock_quants q JOIN products p ON p.id=q.product_id
        WHERE q.product_id=${move.product_id} AND q.warehouse_id=${note.warehouseId}
          AND coalesce(q.variant_id,0)=${move.variant_id ?? 0}
@@ -104,6 +111,7 @@ export async function cancelPostedSalesReturn(
       throw new FinancialRequestError("رصيد المخزون غير كافٍ لإلغاء المرتجع؛ لم يتم تغيير الإشعار أو الحسابات.", 409);
     }
     if (!Number.isFinite(current.cost) || current.cost < 0) throw fail();
+    if (!carryingBefore.has(current.id)) carryingBefore.set(current.id, current.value);
     if (move.serial_id) {
       const serial = await tx.execute(sql`
         SELECT id FROM stock_serials WHERE id=${move.serial_id}
@@ -123,7 +131,7 @@ export async function cancelPostedSalesReturn(
     }
     // For non-FIFO cancellations use the actual carrying value, including
     // standard-cost products changed since return; do not revalue leftovers.
-    const issued = await recordStockMove(tx, {
+    await recordStockMove(tx, {
       companyId: note.companyId, productId: move.product_id, quantity: move.qty,
       kind: "issue", fromWarehouseId: note.warehouseId,
       variantId: move.variant_id, lotId: move.lot_id, serialId: move.serial_id,
@@ -132,12 +140,28 @@ export async function cancelPostedSalesReturn(
       sourceType: "credit_note_cancel", sourceId: note.id,
       sourceRef: `${note.reference}-CXL`, createdBy: userId, skipJournal: true,
     });
-    issuedValue += move.qty * issued.unitCost;
   }
   await reverseJournalEntry(tx, note.journalEntryId, userId, `إلغاء إشعار دائن ${note.reference}`);
-  // Original reversal removes R from inventory; actual depletion removes C.
-  // Recognize C-R in COGS, in SAR, without today's FX or a second conversion.
-  const difference = issuedValue - restoredValue;
+  // Round carrying values before/after depletion, not the removed slice in
+  // isolation. This preserves the rounding cent belonging to remaining stock.
+  let difference = 0;
+  let rounding = 0;
+  if (carryingBefore.size) {
+    const before = sql.join([...carryingBefore.values()].map((v) => sql`${v}::numeric`), sql` + `);
+    const ids = sql.join([...carryingBefore.keys()].map((id) => sql`${id}`), sql`, `);
+    const depleted = await tx.execute(sql`
+      SELECT round((${before}),2) - round(coalesce(sum(quantity*avg_cost),0),2) AS cents,
+             (${before}) - coalesce(sum(quantity*avg_cost),0) AS raw
+        FROM stock_quants WHERE id IN (${ids})
+    `);
+    const removedCents = Number(depleted.rows[0].cents);
+    difference = removedCents - balance("inventory");
+    const remainder = await tx.execute(sql`
+      SELECT round(${depleted.rows[0].raw}::numeric - ${restoredValue}::numeric, 2)
+             - ${difference}::numeric AS value
+    `);
+    rounding = Number(remainder.rows[0].value);
+  }
   if (Math.abs(difference) >= 0.005) {
     const value = Math.abs(difference);
     await postJournalEntry(tx, {
@@ -151,4 +175,8 @@ export async function cancelPostedSalesReturn(
       { systemKey: "inventory", debit: value }, { systemKey: "cogs", credit: value },
     ]);
   }
+  // Carry only the rounding effect forward. Economic differences from
+  // depletion at another purchase cost stay in COGS, not in future returns.
+  await tx.update(creditNotesTable).set({ cancellationRounding: String(rounding) })
+    .where(eq(creditNotesTable.id, note.id));
 }

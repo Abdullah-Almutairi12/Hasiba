@@ -63,7 +63,7 @@ export async function initInventory(provisionCompanyId?: number): Promise<void> 
       from_warehouse_id integer REFERENCES warehouses(id),
       to_warehouse_id integer REFERENCES warehouses(id),
       quantity numeric(18,4) NOT NULL,
-      unit_cost numeric(18,4) NOT NULL DEFAULT 0,
+      unit_cost numeric(30,16) NOT NULL DEFAULT 0,
       lot_id integer REFERENCES stock_lots(id),
       serial_id integer REFERENCES stock_serials(id),
       kind text NOT NULL,
@@ -94,7 +94,7 @@ export async function initInventory(provisionCompanyId?: number): Promise<void> 
       warehouse_id integer NOT NULL REFERENCES warehouses(id),
       variant_id integer,
       lot_id integer REFERENCES stock_lots(id),
-      unit_cost numeric(18,4) NOT NULL,
+      unit_cost numeric(30,16) NOT NULL,
       remaining_qty numeric(18,4) NOT NULL,
       created_at timestamp NOT NULL DEFAULT now()
     );
@@ -109,7 +109,7 @@ export async function initInventory(provisionCompanyId?: number): Promise<void> 
       warehouse_id integer NOT NULL REFERENCES warehouses(id),
       lot_id integer REFERENCES stock_lots(id),
       quantity numeric(18,4) NOT NULL DEFAULT 0,
-      avg_cost numeric(18,4) NOT NULL DEFAULT 0,
+      avg_cost numeric(30,16) NOT NULL DEFAULT 0,
       updated_at timestamp NOT NULL DEFAULT now()
     );
     -- Composite uniqueness includes optional variant/lot columns. Postgres

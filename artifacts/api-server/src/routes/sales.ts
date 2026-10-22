@@ -340,9 +340,13 @@ async function finalizeCreditNoteIssue(
       lines.push({ systemKey: "vat_output", debit: Number(note.vat), description: "عكس ضريبة 15%" });
     if (Number(note.total) > 0)
       lines.push({ systemKey: "ar", credit: Number(note.total), description: "تسوية ذمم مدينة (إشعار دائن)" });
-    if (restockedCost > 0) {
-      lines.push({ systemKey: "inventory", debit: restockedCost / exchangeRate, description: "إعادة تكلفة المخزون المرتجع الأصلية" });
-      lines.push({ systemKey: "cogs", credit: restockedCost / exchangeRate, description: "عكس تكلفة البضاعة المرتجعة الأصلية" });
+    if (restockedCost !== 0) {
+      // A cancelled earlier slice may have carried a rounding cent. Allow
+      // the cumulative allocation to release that cent in either direction.
+      const debit = Math.max(0, restockedCost) / exchangeRate;
+      const credit = Math.max(0, -restockedCost) / exchangeRate;
+      lines.push({ systemKey: "inventory", debit, credit, description: "إعادة تكلفة المخزون المرتجع الأصلية" });
+      lines.push({ systemKey: "cogs", credit: debit, debit: credit, description: "عكس تكلفة البضاعة المرتجعة الأصلية" });
     }
     const je = await postJournalEntry(
       tx,
@@ -362,7 +366,7 @@ async function finalizeCreditNoteIssue(
     );
     await tx
       .update(creditNotesTable)
-      .set({ journalEntryId: je.id, status: "issued" })
+      .set({ journalEntryId: je.id, inventoryCost: String(restockedCost), status: "issued" })
       .where(eq(creditNotesTable.id, noteId));
     // Intercompany mirror: when the source customer invoice was itself
     // mirrored to a sibling company, emit a debit-note (negative supplier

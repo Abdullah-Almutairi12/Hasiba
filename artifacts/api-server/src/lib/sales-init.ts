@@ -336,6 +336,8 @@ export async function initSales(): Promise<void> {
       note_date date NOT NULL,
       reason text,
       restock boolean NOT NULL DEFAULT true,
+      inventory_cost numeric(18,2),
+      cancellation_rounding numeric(18,2),
       warehouse_id integer REFERENCES warehouses(id),
       currency_code text NOT NULL DEFAULT 'SAR',
       subtotal numeric(18,2) NOT NULL DEFAULT 0,

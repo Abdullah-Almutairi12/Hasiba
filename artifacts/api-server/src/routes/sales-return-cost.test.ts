@@ -22,7 +22,7 @@ function ok(response: request.Response, status = 201) {
   expect(response.status, JSON.stringify(response.body)).toBe(status);
   return response.body;
 }
-async function fixture(method: "fifo" | "average" | "standard" = "fifo") {
+async function fixture(method: "fifo" | "average" | "standard" = "fifo", layers = [[2, 10], [4, 20]]) {
   const tag = `return-cost-${randomUUID()}`;
   const [company] = await db.insert(companiesTable).values({ name: tag, vatRegistrationStatus: "not_registered" }).returning();
   const companyId = company.id;
@@ -57,7 +57,7 @@ async function fixture(method: "fifo" | "average" | "standard" = "fifo") {
     .send({ email: user.email, password }), 200);
   // Distinct inbound cost layers: 2×10 + 4×20 = SAR 100.
   await db.transaction(async (tx) => {
-    for (const [quantity, unitCost] of [[2, 10], [4, 20]]) {
+    for (const [quantity, unitCost] of layers) {
       await recordStockMove(tx, {
         companyId, productId: product.id, toWarehouseId: warehouse.id,
         kind: "receipt", quantity, unitCost, sourceRef: tag,
@@ -111,6 +111,139 @@ async function reconcile(f: Fixture, expected: { inventory: number; cogs: number
 }
 
 describe("original sales cost, inventory carrying value and profit", () => {
+  it.each([
+    ["SAR", false, null], ["USD", false, null], ["SAR", true, null], ["USD", true, null],
+    ["SAR", false, 1], ["USD", false, 1], ["SAR", false, 0], ["USD", false, 0],
+  ] as const)("reconciles large fractional FIFO costs in %s (full: %s, cancelled slice: %s)", async (currencyCode, full, cancelIndex) => {
+    // Halfway between four-decimal costs. The old movement/quant storage
+    // loses SAR 100 on two million units even though the issue GL is right.
+    const quantity = 2_000_000;
+    const unitCost = 10.00005;
+    const initialValue = 20_000_100;
+    const rate = currencyCode === "USD" ? 3.75 : 1;
+    const price = 20;
+    const f = await fixture("fifo", [[quantity / 2, 10], [quantity / 2, 10.0001]]);
+    await db.update(productsTable).set({ price: String(price) }).where(eq(productsTable.id, f.productId));
+    await reconcile(f, { inventory: initialValue, cogs: 0, profit: 0 });
+    const { invoice, line } = currencyCode === "SAR"
+      ? await (async () => {
+        const sold = await sale(f, [{ productId: f.productId, quantity }]);
+        return { invoice: sold.invoice, line: sold.lines[0] };
+      })()
+      : await db.transaction(async (tx) => {
+        const [invoice] = await tx.insert(customerInvoicesTable).values({
+          companyId: f.companyId, reference: `${f.tag}-USD`, customerId: f.customerId, customerName: f.tag,
+          invoiceDate: new Date().toISOString().slice(0, 10), currencyCode,
+          subtotal: String(quantity * price), total: String(quantity * price), vat: "0", status: "open",
+        }).returning();
+        const [line] = await tx.insert(customerInvoiceLinesTable).values({
+          invoiceId: invoice.id, productId: f.productId, description: f.tag,
+          quantity: String(quantity), unitPrice: String(price), taxRate: "0", lineTotal: String(quantity * price),
+        }).returning();
+        const issued = await recordStockMove(tx, {
+          companyId: f.companyId, productId: f.productId, quantity, kind: "issue",
+          fromWarehouseId: f.warehouseId, invoiceLineId: line.id, sourceRef: invoice.reference,
+        });
+        expect(issued.unitCost).toBeCloseTo(unitCost, 10);
+        await postJournalEntry(tx, {
+          companyId: f.companyId, entryDate: new Date(), description: f.tag, reference: invoice.reference,
+          currencyCode, exchangeRate: rate,
+        }, [{ systemKey: "ar", debit: quantity * price }, { systemKey: "sales_revenue", credit: quantity * price }]);
+        return { invoice, line };
+      });
+    const [issue] = await rows("SELECT unit_cost FROM stock_moves WHERE invoice_line_id=$1 AND kind='issue'", [line.id]);
+    expect(Number(issue.unit_cost)).toBeCloseTo(unitCost, 10);
+    await reconcile(f, { inventory: 0, cogs: initialValue, profit: quantity * price * rate - initialValue });
+    await db.update(productsTable).set({ costPrice: "99" }).where(eq(productsTable.id, f.productId));
+    if (currencyCode === "USD") await pool.query(`INSERT INTO exchange_rates(from_currency,to_currency,rate,rate_date)
+      VALUES ('USD','SAR',4.2,current_date)
+      ON CONFLICT (from_currency,to_currency,rate_date) DO UPDATE SET rate=4.2`);
+    let returned = 0;
+    const credits: number[] = [];
+    // Three equal partial slices deliberately round up independently.
+    let previouslyRestored = 0;
+    const parts = full ? [quantity] : [333_333, 333_333, 333_333, 1_000_001];
+    if (cancelIndex !== null) parts.push(333_333);
+    for (const [index, part] of parts.entries()) {
+      const body = returnBody(f, invoice.id, line.id, part, price);
+      const credit = ok(await f.agent.post("/api/sales/credit-notes")
+        .set("Idempotency-Key", `${f.tag}-${index}`).send(body));
+      credits.push(credit.id);
+      returned += part;
+      const restored = Math.round(returned * unitCost * 100) / 100;
+      await reconcile(f, {
+        inventory: restored, cogs: initialValue - restored,
+        profit: (quantity - returned) * price * rate - (initialValue - restored),
+      });
+      const [costLine] = await rows(`SELECT l.base_debit::float8 AS value
+        FROM journal_entry_lines l JOIN accounts a ON a.id=l.account_id
+        WHERE l.entry_id=$1 AND a.system_key='inventory'`, [credit.journalEntryId]);
+      expect(costLine.value).toBeCloseTo(restored - previouslyRestored, 6);
+      previouslyRestored = restored;
+      const [journal] = await rows("SELECT currency_code,exchange_rate FROM journal_entries WHERE id=$1", [credit.journalEntryId]);
+      expect(journal.currency_code).toBe(currencyCode);
+      expect(Number(journal.exchange_rate)).toBe(rate);
+      if (index === 1 && cancelIndex !== null) {
+        const cancelledId = credits[cancelIndex];
+        const history = await rows("SELECT * FROM stock_moves WHERE source_type='credit_note' AND source_id=$1", [cancelledId]);
+        ok(await f.agent.post(`/api/sales/credit-notes/${cancelledId}/cancel`).send({}), 200);
+        returned -= 333_333;
+        previouslyRestored = Math.round(returned * unitCost * 100) / 100;
+        await reconcile(f, {
+          inventory: previouslyRestored, cogs: initialValue - previouslyRestored,
+          profit: (quantity - returned) * price * rate - (initialValue - previouslyRestored),
+        });
+        expect(await rows("SELECT * FROM stock_moves WHERE source_type='credit_note' AND source_id=$1", [cancelledId])).toEqual(history);
+        expect((await f.agent.post(`/api/sales/credit-notes/${cancelledId}/cancel`).send({})).status).toBe(409);
+      }
+    }
+    const [totals] = await rows(`SELECT
+      sum(l.base_debit-l.base_credit)::text AS value
+      FROM credit_notes cn JOIN journal_entry_lines l ON l.entry_id=cn.journal_entry_id
+      JOIN accounts a ON a.id=l.account_id WHERE cn.id=ANY($1::int[]) AND cn.status <> 'cancelled'
+        AND a.system_key='inventory'`, [credits]);
+    const [rounding] = await rows("SELECT coalesce(sum(cancellation_rounding),0)::float8 AS value FROM credit_notes WHERE id=ANY($1::int[]) AND status='cancelled'", [credits]);
+    expect(Number(totals.value) + rounding.value).toBeCloseTo(initialValue, 6);
+    expect((await f.agent.post("/api/sales/credit-notes").send(returnBody(f, invoice.id, line.id, 1, price))).status).toBe(409);
+    await reconcile(f, { inventory: initialValue, cogs: 0, profit: 0 });
+  });
+
+  it("preserves fractional delivery cost allocations for large partial SO invoices and their final returns", async () => {
+    const f = await fixture("fifo", [[1_000_000, 10], [1_000_000, 10.0001]]);
+    const order = ok(await f.agent.post("/api/sales/orders").send({
+      customerId: f.customerId, warehouseId: f.warehouseId, status: "confirmed",
+      lines: [{ productId: f.productId, description: f.tag, quantity: 2_000_000, unitPrice: 20, taxRate: 0 }],
+    }));
+    ok(await f.agent.post("/api/sales/deliveries").send({ soId: order.id }));
+    await reconcile(f, { inventory: 0, cogs: 20_000_100, profit: -20_000_100 });
+    let revenue = 0;
+    let restored = 0;
+    for (const quantity of [800_000, 1_200_000]) {
+      const invoice = ok(await f.agent.post("/api/sales/invoices").send({
+        soId: order.id,
+        lines: [{ productId: f.productId, description: f.tag, quantity, unitPrice: 20, taxRate: 0 }],
+      }));
+      revenue += quantity * 20;
+      const [line] = await rows("SELECT id FROM customer_invoice_lines WHERE invoice_id=$1", [invoice.id]);
+      const [allocation] = await rows("SELECT quantity,unit_cost FROM sales_issue_allocations WHERE invoice_line_id=$1", [line.id]);
+      expect(Number(allocation.quantity)).toBe(quantity);
+      expect(Number(allocation.unit_cost)).toBe(10.00005);
+      await reconcile(f, { inventory: restored, cogs: 20_000_100 - restored, profit: revenue - (20_000_100 - restored) });
+      let returned = 0;
+      const priorInvoicesValue = restored;
+      for (const part of [333_333, quantity - 333_333]) {
+        ok(await f.agent.post("/api/sales/credit-notes").send(returnBody(f, invoice.id, line.id, part, 20)));
+        returned += part;
+        revenue -= part * 20;
+        restored = priorInvoicesValue + Math.round(returned * 10.00005 * 100) / 100;
+        await reconcile(f, {
+          inventory: restored, cogs: 20_000_100 - restored, profit: revenue - (20_000_100 - restored),
+        });
+      }
+    }
+    await reconcile(f, { inventory: 20_000_100, cogs: 0, profit: 0 });
+  });
+
   it.each(["fifo", "average", "standard"] as const)("reconciles %s after price changes and repeated partial returns through the real POS/CN routes", async (method) => {
     const f = await fixture(method);
     const { invoice, lines } = await sale(f);
