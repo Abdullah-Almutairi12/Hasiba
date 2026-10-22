@@ -8,6 +8,10 @@ const out = join(root, "generated-artifacts", "verification");
 mkdirSync(out, { recursive: true });
 const checks = [
   ["typecheck", ["run", "typecheck"]],
+  ["invoice-cleanup-evidence-tests", ["exec", "node", "--test",
+    "scripts/check-browser-repeated-invoice-cleanup.test.mjs",
+    "scripts/check-browser-cleanup-identical-invoice.test.mjs",
+    "scripts/check-browser-invoice-cleanup-success.test.mjs"]],
   ["tests", ["run", "test:isolated"]],
   ["erp-ui-tests", ["--filter", "@workspace/erp-system", "run", "test"]],
   ["api-build", ["--filter", "@workspace/api-server", "run", "build"]],

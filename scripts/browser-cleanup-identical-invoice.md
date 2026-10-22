@@ -1,5 +1,9 @@
 # A deliberately new identical invoice after cleanup-failure recovery
 
+For persistent cleanup failure across multiple confirmed replays, use the
+separate scenario and evidence guard in `browser-repeated-invoice-cleanup.md`.
+This original three-request guard remains strict.
+
 Use the disposable setup and normal login from
 `browser-invoice-cleanup-success.md`, with proxy `--pass-success`. No
 application behavior or authentication bypass is needed.
