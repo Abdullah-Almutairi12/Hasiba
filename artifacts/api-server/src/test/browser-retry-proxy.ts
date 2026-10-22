@@ -201,7 +201,7 @@ if (process.argv.includes("--capture-receipts") || process.argv.includes("--capt
   writeFileSync(reportFile, JSON.stringify({
     ...report, finalReceipts, receiptsObservedAt: Date.now(),
     ...(!receiptMode && !returnMode ? { finalCounts: await readCounts(), finalJournals: await readJournals() } : {}),
-    ...(report.overlapInvoices ? { finalInvoiceState: await readInvoiceState() } : {}),
+    ...(!receiptMode && !returnMode ? { finalInvoiceState: await readInvoiceState() } : {}),
     ...(report.overlapReturns || report.overlapInvoices || report.overlapReceipts ? {
       finalCounts: await readScenarioCounts(),
       finalJournalCount: Number((await pool.query("SELECT count(*) AS count FROM journal_entries")).rows[0].count),
@@ -237,7 +237,7 @@ const initialCounts = await readScenarioCounts();
 const initialJournals = !returnMode ? await readJournals() : undefined;
 const journalCount = async () => Number((await pool.query("SELECT count(*) AS count FROM journal_entries")).rows[0].count);
 const initialJournalCount = overlap ? await journalCount() : undefined;
-const initialInvoiceState = overlapInvoices ? await readInvoiceState() : undefined;
+const initialInvoiceState = !receiptMode && !returnMode ? await readInvoiceState() : undefined;
 const initialPaymentState = receiptMode ? await readPaymentState() : undefined;
 let finalPaymentState = initialPaymentState;
 const returnFixture = returnMode ? state.accounts.find((a: { returnInvoice?: unknown }) => a.returnInvoice).returnInvoice : undefined;
@@ -246,6 +246,7 @@ let finalReturnState = initialReturnState;
 const save = () => writeFileSync(reportFile, JSON.stringify({
   runId, startedAt, initialCounts, invoicePostCount, events, finalReceipts, receiptsObservedAt,
   ...(!returnMode ? { initialJournals } : {}),
+  ...(!receiptMode && !returnMode ? { initialInvoiceState } : {}),
   ...(overlap ? { overlapReturns, overlapInvoices, overlapReceipts, overlapTimedOut, arrivals, initialJournalCount } : {}),
   ...(overlapInvoices ? { scenario: "overlapping-invoice", initialInvoiceState, receiptPostCount, returnPostCount } : {}),
   ...(receiptMode ? { scenario: "identical-receipt", receiptPostCount, returnPostCount, initialPaymentState, finalPaymentState } : {}),
@@ -318,7 +319,7 @@ const proxy = createServer((req, res) => {
             if (drop) dropped = true;
             events.push({
               ...(overlap ? { arrivalIndex: arrivals.indexOf(arrival), journalCount: await journalCount() } : {}),
-              ...(overlapInvoices ? { invoiceState: await readInvoiceState() } : {}),
+              ...(!receiptMode && !returnMode ? { invoiceState: await readInvoiceState() } : {}),
               recordedAt: Date.now(),
               ...(!receiptMode && !returnMode ? { journals: await readJournals(), body: JSON.parse(input.toString("utf8")) } : {}),
               storageKey: `hasba:financial-request:${createHash("sha256").update(`${req.url?.split("?")[0]}\n${input.toString("utf8")}`).digest("hex")}`,
