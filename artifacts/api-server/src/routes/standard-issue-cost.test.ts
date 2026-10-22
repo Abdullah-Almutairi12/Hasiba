@@ -76,6 +76,44 @@ async function manualIssue(f: Fixture, quantity: number, unitCost?: number) {
     productId: f.productId, warehouseId: f.warehouseId, quantity, unitCost, kind: "issue",
   }));
 }
+async function salesOrder(f: Fixture, quantity: number) {
+  const order = ok(await f.agent.post("/api/sales/orders").send({
+    customerId: f.customerId, warehouseId: f.warehouseId, status: "confirmed",
+    lines: [{ productId: f.productId, description: "Synthetic standard sale", quantity, unitPrice: 100, taxRate: 0 }],
+  }));
+  const [line] = await rows("SELECT id FROM sales_order_lines WHERE so_id=$1", [order.id]);
+  return { id: order.id as number, lineId: line.id as number };
+}
+async function fulfilment(order: { id: number; lineId: number }, status: string, delivered: number, invoiced: number) {
+  expect(await rows("SELECT status FROM sales_orders WHERE id=$1", [order.id])).toEqual([{ status }]);
+  expect(await rows(`SELECT delivered_qty::float8 AS delivered, invoiced_qty::float8 AS invoiced
+    FROM sales_order_lines WHERE id=$1`, [order.lineId])).toEqual([{ delivered, invoiced }]);
+}
+async function deliveryIssues(f: Fixture) {
+  return rows(`SELECT m.id, m.source_id, m.source_ref, m.from_warehouse_id, m.state,
+    m.quantity::float8 AS quantity, m.unit_cost::float8 AS cost,
+    (m.quantity*m.unit_cost)::float8 AS value,
+    (SELECT sum(l.base_debit-l.base_credit)::float8 FROM journal_entry_lines l
+      JOIN accounts a ON a.id=l.account_id WHERE l.entry_id=m.journal_entry_id AND a.system_key='cogs') AS cogs,
+    (SELECT sum(l.base_credit-l.base_debit)::float8 FROM journal_entry_lines l
+      JOIN accounts a ON a.id=l.account_id WHERE l.entry_id=m.journal_entry_id AND a.system_key='inventory') AS inventory
+    FROM stock_moves m WHERE m.product_id=$1 AND m.kind='issue' AND m.source_type='delivery_order'
+    ORDER BY m.id`, [f.productId]);
+}
+async function allocations(invoiceId: number) {
+  return rows(`SELECT a.issue_move_id, a.quantity::float8 AS quantity, a.unit_cost::float8 AS cost,
+    (a.quantity*a.unit_cost)::float8 AS value, il.so_line_id, il.product_id
+    FROM sales_issue_allocations a JOIN customer_invoice_lines il ON il.id=a.invoice_line_id
+    WHERE il.invoice_id=$1 ORDER BY a.id`, [invoiceId]);
+}
+async function stockEvidence(f: Fixture) {
+  return {
+    moves: await rows("SELECT * FROM stock_moves WHERE product_id=$1 ORDER BY id", [f.productId]),
+    journals: await rows(`SELECT j.*, l.* FROM journal_entries j JOIN journal_entry_lines l ON l.entry_id=j.id
+      WHERE j.company_id=$1 ORDER BY j.id,l.id`, [f.companyId]),
+    quants: await rows("SELECT * FROM stock_quants WHERE product_id=$1 ORDER BY id", [f.productId]),
+  };
+}
 async function reconcile(f: Fixture, expected: { quantity: number; inventory: number; cogs: number; profit: number }) {
   const balances = await rows(`SELECT a.system_key, sum(l.base_debit-l.base_credit)::float8 AS value
     FROM journal_entries j JOIN journal_entry_lines l ON l.entry_id=j.id JOIN accounts a ON a.id=l.account_id
@@ -106,6 +144,116 @@ async function reconcile(f: Fixture, expected: { quantity: number; inventory: nu
 }
 
 describe("prospective standard cost with realized differences net in COGS", () => {
+  describe.each(["delivered", "ready"] as const)("sales order delivery via %s", (status) => {
+    it.each([30, 4])("keeps carrying cost after the standard changes to %s, through invoicing", async (standard) => {
+      const f = await fixture();
+      await receive(f, 6, 10);
+      const order = await salesOrder(f, 6);
+      const original = await stockEvidence(f);
+      // In the ready path, edit the price after picking but before shipping.
+      const ready = status === "ready"
+        ? ok(await f.agent.post("/api/sales/deliveries").send({ soId: order.id, status }))
+        : null;
+      if (ready) {
+        expect(ready.status).toBe("ready");
+        expect(await stockEvidence(f)).toEqual(original);
+        await fulfilment(order, "confirmed", 0, 0);
+      }
+      await setStandard(f, standard);
+      expect(await stockEvidence(f)).toEqual(original);
+      await reconcile(f, { quantity: 6, inventory: 60, cogs: 0, profit: 0 });
+      const delivery = ready
+        ? ok(await f.agent.post(`/api/sales/deliveries/${ready.id}/transition`).send({ to: "delivered" }), 200)
+        : ok(await f.agent.post("/api/sales/deliveries").send({ soId: order.id }));
+      expect(delivery.status).toBe("delivered");
+      await fulfilment(order, "fully_delivered", 6, 0);
+      await reconcile(f, { quantity: 0, inventory: 0, cogs: 60, profit: -60 });
+      const issues = await deliveryIssues(f);
+      expect(issues).toEqual([{
+        id: expect.any(Number), source_id: order.lineId, source_ref: delivery.reference,
+        from_warehouse_id: f.warehouseId, state: "done", quantity: 6, cost: 10, value: 60, cogs: 60, inventory: 60,
+      }]);
+      const shipped = await stockEvidence(f);
+      // A later standard edit cannot change either shipment evidence or invoice allocation.
+      await setStandard(f, 99);
+      expect(await stockEvidence(f)).toEqual(shipped);
+      const invoice = ok(await f.agent.post("/api/sales/invoices").send({ soId: order.id }));
+      expect(await allocations(invoice.id)).toEqual([{
+        issue_move_id: issues[0].id, quantity: 6, cost: 10, value: 60,
+        so_line_id: order.lineId, product_id: f.productId,
+      }]);
+      await fulfilment(order, "invoiced", 6, 6);
+      await reconcile(f, { quantity: 0, inventory: 0, cogs: 60, profit: 540 });
+      // Invoicing posts revenue only: no new stock move or second COGS expense.
+      const billed = await stockEvidence(f);
+      expect(billed.moves).toEqual(shipped.moves);
+      expect(billed.quants).toEqual(shipped.quants);
+      for (const line of shipped.journals) expect(billed.journals).toContainEqual(line);
+      expect(billed.moves[0]).toEqual(original.moves[0]);
+    });
+  });
+
+  it.each([30, 4])("reconciles two partial deliveries and split invoice allocations with standards %s then changed again", async (standard) => {
+    const f = await fixture();
+    // Mixed receipts: carrying cost 16, distinct from both the original and edited standard.
+    await receive(f, 2, 10);
+    await receive(f, 4, 19);
+    const order = await salesOrder(f, 6);
+    const original = await stockEvidence(f);
+    await setStandard(f, standard);
+    expect(await stockEvidence(f)).toEqual(original);
+    await reconcile(f, { quantity: 6, inventory: 96, cogs: 0, profit: 0 });
+    const first = ok(await f.agent.post("/api/sales/deliveries").send({
+      soId: order.id, lines: [{ soLineId: order.lineId, quantity: 2 }],
+    }));
+    await fulfilment(order, "partially_delivered", 2, 0);
+    await reconcile(f, { quantity: 4, inventory: 64, cogs: 32, profit: -32 });
+    const partial = await stockEvidence(f);
+    await setStandard(f, standard === 30 ? 4 : 30);
+    expect(await stockEvidence(f)).toEqual(partial);
+    const second = ok(await f.agent.post("/api/sales/deliveries").send({ soId: order.id }));
+    await fulfilment(order, "fully_delivered", 6, 0);
+    await reconcile(f, { quantity: 0, inventory: 0, cogs: 96, profit: -96 });
+    const issues = await deliveryIssues(f);
+    expect(issues).toEqual([
+      { id: expect.any(Number), source_id: order.lineId, source_ref: first.reference,
+        from_warehouse_id: f.warehouseId, state: "done", quantity: 2, cost: 16, value: 32, cogs: 32, inventory: 32 },
+      { id: expect.any(Number), source_id: order.lineId, source_ref: second.reference,
+        from_warehouse_id: f.warehouseId, state: "done", quantity: 4, cost: 16, value: 64, cogs: 64, inventory: 64 },
+    ]);
+    const shipped = await stockEvidence(f);
+    await setStandard(f, 99);
+    expect(await stockEvidence(f)).toEqual(shipped);
+    // The first invoice crosses the delivery boundary (2 + 1); the second
+    // consumes only the remaining three units, not either whole issue again.
+    const invoice1 = ok(await f.agent.post("/api/sales/invoices").send({
+      soId: order.id,
+      lines: [{ productId: f.productId, description: "First half", quantity: 3, unitPrice: 100, taxRate: 0 }],
+    }));
+    const linked = { so_line_id: order.lineId, product_id: f.productId, cost: 16 };
+    const firstAllocations = await allocations(invoice1.id);
+    expect(firstAllocations).toEqual([
+      { ...linked, issue_move_id: issues[0].id, quantity: 2, value: 32 },
+      { ...linked, issue_move_id: issues[1].id, quantity: 1, value: 16 },
+    ]);
+    await fulfilment(order, "fully_delivered", 6, 3);
+    await reconcile(f, { quantity: 0, inventory: 0, cogs: 96, profit: 204 });
+    const invoice2 = ok(await f.agent.post("/api/sales/invoices").send({ soId: order.id }));
+    const secondAllocations = await allocations(invoice2.id);
+    expect(secondAllocations).toEqual([
+      { ...linked, issue_move_id: issues[1].id, quantity: 3, value: 48 },
+    ]);
+    expect(await allocations(invoice1.id)).toEqual(firstAllocations);
+    expect([...firstAllocations, ...secondAllocations].reduce((sum, a) => sum + a.value, 0)).toBe(96);
+    await fulfilment(order, "invoiced", 6, 6);
+    await reconcile(f, { quantity: 0, inventory: 0, cogs: 96, profit: 504 });
+    const billed = await stockEvidence(f);
+    expect(billed.moves).toEqual(shipped.moves);
+    expect(billed.quants).toEqual(shipped.quants);
+    for (const line of shipped.journals) expect(billed.journals).toContainEqual(line);
+    expect(billed.moves.slice(0, 2)).toEqual(original.moves);
+  });
+
   it.each([30, 4])("reconciles manual issues after the standard changes to %s, including explicit costs and depletion", async (standard) => {
     const f = await fixture();
     const receipt = await receive(f, 6, 10);
