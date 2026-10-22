@@ -2967,6 +2967,7 @@ router.post("/sales/invoices/:id/reverse", financeGuard, async (req, res) => {
           tx,
           origJe.id,
           req.session?.userId ?? null,
+          reverseCompanyId,
           reason,
         );
         reverseJournalId = rev.id;

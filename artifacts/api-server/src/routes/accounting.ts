@@ -999,9 +999,8 @@ router.post(
       const userId = req.session?.userId ?? null;
       const reason =
         typeof req.body?.reason === "string" ? req.body.reason : undefined;
-      // Cross-tenant mutation defense: confirm the target JE belongs to
-      // the caller's company BEFORE handing the id to reverseJournalEntry
-      // (which loads strictly by id). Forged ids → 404.
+      // Preserve the endpoint's 404 for forged ids. The shared helper also
+      // enforces this company scope under its transaction-held row lock.
       const reverseCompanyId = getCompanyId(req);
       const [exists] = await db
         .select({ id: journalEntriesTable.id })
@@ -1015,12 +1014,16 @@ router.post(
         .limit(1);
       if (!exists) return res.status(404).json({ error: "القيد غير موجود" });
       const result = await db.transaction((tx) =>
-        reverseJournalEntry(tx, id, userId, reason),
+        reverseJournalEntry(tx, id, userId, reverseCompanyId, reason),
       );
       return res.json(result);
     } catch (err) {
       req.log.error({ err }, "Reverse JE failed");
       if (handleClosedPeriod(err, res)) return;
+      const tagged = err as { httpStatus?: number };
+      if (typeof tagged?.httpStatus === "number") {
+        return res.status(tagged.httpStatus).json({ error: (err as Error).message });
+      }
       return res.status(400).json({ error: (err as Error).message });
     }
   },

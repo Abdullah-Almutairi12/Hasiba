@@ -286,20 +286,50 @@ export async function getRateForDate(
  * zero. Changing the original to status='reversed' would cause reports
  * (which filter on status='posted') to drop the original while keeping
  * the reversal, producing the negative of the original transaction.
+ * Own a transaction (or savepoint for an existing transaction) so the row
+ * lock, reversal lines, and original metadata always commit together.
  */
 export async function reverseJournalEntry(
   tx: DbOrTx,
   entryId: number,
   userId: number | null,
+  companyId: number,
+  reason?: string,
+): Promise<{ id: number; entryNumber: string }> {
+  return tx.transaction((lockedTx) =>
+    reverseLockedJournalEntry(lockedTx, entryId, userId, companyId, reason),
+  );
+}
+
+async function reverseLockedJournalEntry(
+  tx: DbOrTx,
+  entryId: number,
+  userId: number | null,
+  companyId: number,
   reason?: string,
 ): Promise<{ id: number; entryNumber: string }> {
   const [orig] = await tx
     .select()
     .from(journalEntriesTable)
-    .where(eq(journalEntriesTable.id, entryId))
-    .limit(1);
-  if (!orig) throw new Error("القيد غير موجود");
+    .where(and(
+      eq(journalEntriesTable.id, entryId),
+      eq(journalEntriesTable.companyId, companyId),
+    ))
+    .limit(1)
+    .for("update");
+  if (!orig) throw Object.assign(new Error("القيد غير موجود"), { httpStatus: 404 });
   if (orig.status !== "posted") throw new Error("لا يمكن عكس قيد غير مرحَّل");
+  // The original row serializes every caller, including manual reversals
+  // racing a document cancellation. Check both evidence forms: historical
+  // reversals may exist even if the original metadata is missing.
+  const [existingReversal] = await tx
+    .select({ id: journalEntriesTable.id })
+    .from(journalEntriesTable)
+    .where(eq(journalEntriesTable.reversalOf, orig.id))
+    .limit(1);
+  if (orig.reversedAt || existingReversal) {
+    throw Object.assign(new Error("تم عكس هذا القيد مسبقاً؛ لا يمكن عكسه مرة أخرى"), { httpStatus: 409 });
+  }
 
   const lines = await tx
     .select()

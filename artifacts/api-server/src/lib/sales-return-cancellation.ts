@@ -141,7 +141,7 @@ export async function cancelPostedSalesReturn(
       sourceRef: `${note.reference}-CXL`, createdBy: userId, skipJournal: true,
     });
   }
-  await reverseJournalEntry(tx, note.journalEntryId, userId, `إلغاء إشعار دائن ${note.reference}`);
+  await reverseJournalEntry(tx, note.journalEntryId, userId, note.companyId, `إلغاء إشعار دائن ${note.reference}`);
   // Round carrying values before/after depletion, not the removed slice in
   // isolation. This preserves the rounding cent belonging to remaining stock.
   let difference = 0;
