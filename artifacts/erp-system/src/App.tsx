@@ -58,6 +58,7 @@ const AnomaliesPage = lazy(() => import("@/pages/anomalies"));
 const InboxPage = lazy(() => import("@/pages/inbox"));
 const TransfersPage = lazy(() => import("@/pages/transfers"));
 const StockTakePage = lazy(() => import("@/pages/stocktake"));
+const InventoryRevaluationsPage = lazy(() => import("@/pages/inventory-revaluations"));
 const ReorderRulesPage = lazy(() => import("@/pages/reorder-rules"));
 const ProcurementPage = lazy(() => import("@/pages/procurement"));
 const SalesPage = lazy(() => import("@/pages/sales"));
@@ -171,6 +172,9 @@ function Router() {
         </Route>
         <Route path="/inventory/stocktake">
           <Protected><StockTakePage /></Protected>
+        </Route>
+        <Route path="/inventory-revaluations">
+          <Protected><InventoryRevaluationsPage /></Protected>
         </Route>
         <Route path="/inventory/reorder">
           <Protected><ReorderRulesPage /></Protected>

@@ -30,6 +30,75 @@ tags:
   - name: auth
     description: Authentication & session management
 paths:
+  /inventory/revaluations:
+    get:
+      operationId: listInventoryRevaluations
+      tags: [Inventory]
+      responses:
+        "200":
+          description: Immutable valuation evidence and pending requests
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/InventoryRevaluation"
+    post:
+      operationId: previewInventoryRevaluation
+      tags: [Inventory]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InventoryRevaluationInput"
+      responses:
+        "201":
+          description: Persisted preview; no inventory or accounting writes
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InventoryRevaluation"
+  /inventory/revaluations/{id}/{action}:
+    post:
+      operationId: transitionInventoryRevaluation
+      tags: [Inventory]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+        - { name: action, in: path, required: true, schema: { type: string, enum: [confirm, approve, cancel] } }
+      responses:
+        "200":
+          description: Confirmed, posted or cancelled request; repeated transitions are idempotent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InventoryRevaluation"
+  /inventory/revaluation-balances:
+    get:
+      operationId: listRevaluationBalances
+      tags: [Inventory]
+      responses:
+        "200":
+          description: Standard-cost stock available to revalue
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/RevaluationBalance"
+  /inventory/revaluation-accounts:
+    get:
+      operationId: listRevaluationAccounts
+      tags: [Inventory]
+      responses:
+        "200":
+          description: Eligible variance accounts; selection requires financial approval
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/RevaluationAccount"
   /healthz:
     get:
       operationId: healthCheck
@@ -3646,6 +3715,56 @@ paths:
 
 components:
   schemas:
+    InventoryRevaluationInput:
+      type: object
+      required: [quantId, varianceAccountId, reason]
+      properties:
+        quantId: { type: integer, minimum: 1 }
+        varianceAccountId: { type: integer, minimum: 1 }
+        reason: { type: string, minLength: 5, maxLength: 1000 }
+    RevaluationAccount:
+      type: object
+      required: [id, code, nameAr]
+      properties:
+        id: { type: integer }
+        code: { type: string }
+        nameAr: { type: string }
+    RevaluationBalance:
+      type: object
+      required: [id, productId, productName, warehouseName, quantity, avgCost, standardCost]
+      properties:
+        id: { type: integer }
+        productId: { type: integer }
+        productName: { type: string }
+        warehouseName: { type: string }
+        lotId: { type: [integer, "null"] }
+        variantId: { type: [integer, "null"] }
+        quantity: { type: string }
+        avgCost: { type: string }
+        standardCost: { type: string }
+    InventoryRevaluation:
+      type: object
+      required: [id, quantId, productName, warehouseName, quantity, oldCost, targetCost, oldValue, newValue, delta, status, reason, varianceAccountId, createdBy, createdAt]
+      properties:
+        id: { type: integer }
+        quantId: { type: integer }
+        productName: { type: string }
+        warehouseName: { type: string }
+        quantity: { type: string }
+        oldCost: { type: string }
+        targetCost: { type: string }
+        oldValue: { type: string }
+        newValue: { type: string }
+        delta: { type: string }
+        status: { type: string, enum: [preview, confirmed, posted, cancelled] }
+        reason: { type: string }
+        varianceAccountId: { type: integer }
+        createdBy: { type: integer }
+        approvedBy: { type: [integer, "null"] }
+        journalEntryId: { type: [integer, "null"] }
+        createdAt: { type: string }
+        confirmedAt: { type: [string, "null"] }
+        approvedAt: { type: [string, "null"] }
     VatStatusResponse:
       type: object
       properties:

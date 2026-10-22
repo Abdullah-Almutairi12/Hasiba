@@ -20,3 +20,14 @@ Check installed workspace dependencies against the lockfile before changing code
 **Why:** A task environment retained an old form adapter symlink even though the manifest and lockfile already selected the compatible version. A frozen-lockfile install resolved the error without any source or dependency changes.
 
 **How to apply:** When declared versions appear correct but diagnostics imply an older API, inspect the installed package and refresh with `pnpm install --frozen-lockfile` before editing schemas or upgrading libraries.
+
+Pin API generator compatibility modes explicitly when dependencies use workspace
+catalog references.
+
+**Why:** Generator auto-detection can fail to resolve catalog versions and emit
+the wrong Zod generation or React Query option shape even though dependencies
+and application code are compatible.
+
+**How to apply:** Match the generator's schema and query modes to the installed
+workspace consumers before regenerating contracts; do not upgrade shared runtime
+libraries merely to accommodate incorrectly inferred generated code.

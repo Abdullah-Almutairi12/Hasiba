@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiGet, apiPost } from "@/hooks/use-api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -79,6 +80,7 @@ export default function StockTakePage() {
           <h1 className="text-3xl font-bold">جرد المخزون</h1>
           <p className="mt-1 text-muted-foreground">جلسات جرد دورية مع تعديلات تلقائية على الدفاتر</p>
         </div>
+        <Link href="/inventory-revaluations" className="text-sm text-primary hover:underline" data-testid="link-revaluations">إعادة تقييم المخزون</Link>
       </div>
 
       <Card>

@@ -29,3 +29,4 @@ export * from "./portal";
 export * from "./intercompany";
 export * from "./compliance";
 export * from "./financial-requests";
+export * from "./stock-revaluations";

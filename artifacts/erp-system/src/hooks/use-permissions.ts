@@ -84,6 +84,7 @@ export const NAV_PERMISSIONS: Record<string, readonly Role[]> = {
   branches: ["owner", "manager", "inventory", "auditor"],
   transfers: ["owner", "manager", "inventory", "auditor"],
   stocktake: ["owner", "manager", "inventory", "accountant", "auditor"],
+  inventory_revaluations: ["owner", "manager", "inventory", "accountant", "auditor"],
   reorder: ["owner", "manager", "inventory", "accountant"],
   // Procurement is open to all authenticated roles: any user can create
   // a Purchase Requisition (server-side `procurementGuard` still gates

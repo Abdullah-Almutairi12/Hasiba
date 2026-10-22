@@ -150,6 +150,7 @@
     "branches": "الفروع والمستودعات",
     "transfers": "تحويلات المخزون",
     "stocktake": "جرد المخزون",
+    "inventory_revaluations": "إعادة تقييم المخزون",
     "reorder": "قواعد إعادة الطلب",
     "procurement": "دورة المشتريات",
     "manufacturing": "التصنيع (MRP)",

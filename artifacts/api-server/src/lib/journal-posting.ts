@@ -318,6 +318,9 @@ async function reverseLockedJournalEntry(
     .limit(1)
     .for("update");
   if (!orig) throw Object.assign(new Error("القيد غير موجود"), { httpStatus: 404 });
+  if (orig.sourceRef?.startsWith("stock_revaluation:")) {
+    throw Object.assign(new Error("لا يمكن عكس قيد إعادة التقييم منفردًا؛ أنشئ إعادة تقييم مستقلة معتمدة لحفظ تطابق المخزون"), { httpStatus: 409 });
+  }
   if (orig.status !== "posted") throw new Error("لا يمكن عكس قيد غير مرحَّل");
   // The original row serializes every caller, including manual reversals
   // racing a document cancellation. Check both evidence forms: historical

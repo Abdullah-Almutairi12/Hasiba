@@ -3,6 +3,8 @@ import { randomUUID } from "node:crypto";
 import bcrypt from "bcryptjs";
 import { db, pool, companiesTable, usersTable, userCompaniesTable, customersTable, fiscalYearsTable, fiscalPeriodsTable, categoriesTable, productsTable, customerInvoicesTable, customerInvoiceLinesTable } from "@workspace/db";
 import { branchesTable, warehousesTable } from "@workspace/db";
+import { accountsTable } from "@workspace/db";
+import { eq } from "drizzle-orm";
 import { recordStockMove } from "../lib/stock-engine";
 
 if (!process.env.HASBA_BROWSER_STATE || !process.env.TEST_DATABASE_URL) {
@@ -34,6 +36,28 @@ for (const role of ["owner", "sales"] as const) {
   }).returning();
   let receiptInvoice;
   let returnInvoice;
+  if (role === "owner" && process.env.HASBA_BROWSER_REVALUATIONS === "true") {
+    const [branch] = await db.insert(branchesTable).values({
+      companyId: company.id, name: `Revaluation ${tag}`, nameAr: "فرع إعادة تقييم", city: "Test",
+    }).returning();
+    const [warehouse] = await db.insert(warehousesTable).values({
+      companyId: company.id, branchId: branch.id, name: `Revaluation ${tag}`, nameAr: "مستودع إعادة تقييم", isDefault: true,
+    }).returning();
+    await db.update(productsTable).set({ costingMethod: "standard", costPrice: "30" }).where(eq(productsTable.id, product.id));
+    await db.transaction((tx) => recordStockMove(tx, {
+      companyId: company.id, productId: product.id, toWarehouseId: warehouse.id,
+      quantity: 6, unitCost: 10, kind: "receipt", createdBy: user.id,
+    }));
+    await db.insert(accountsTable).values({
+      code: `REVAL-${tag}`, name: `Revaluation variance ${tag}`, nameAr: "فرق إعادة تقييم الاختبار", type: "expense",
+    });
+    const creatorEmail = `verify-inventory-${tag}@example.invalid`;
+    const [creator] = await db.insert(usersTable).values({
+      name: "Verification inventory", email: creatorEmail, passwordHash: hash, role: "inventory", isActive: true, has2fa: false,
+    }).returning();
+    await db.insert(userCompaniesTable).values({ companyId: company.id, userId: creator.id, role: "inventory", isDefault: true });
+    accounts.push({ email: creatorEmail, password, companyId: company.id, role: "inventory" });
+  }
   if (role === "owner" && process.env.HASBA_BROWSER_RETURNS === "true") {
     const [branch] = await db.insert(branchesTable).values({
       companyId: company.id, name: `Verification ${tag}`, nameAr: "فرع اختبار", city: "Test",

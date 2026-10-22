@@ -150,6 +150,7 @@
     "branches": "Branches & Warehouses",
     "transfers": "Stock Transfers",
     "stocktake": "Stock Takes",
+    "inventory_revaluations": "Inventory Revaluation",
     "reorder": "Reorder Rules",
     "procurement": "Procurement (P2P)",
     "manufacturing": "Manufacturing (MRP)",
