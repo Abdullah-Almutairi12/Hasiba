@@ -16,6 +16,7 @@ const checks = [
   ["receipt-cleanup-evidence-tests", ["exec", "node", "--test",
     "scripts/check-browser-receipt-rejection-cleanup.test.mjs",
     "scripts/check-browser-repeated-receipt-cleanup.test.mjs",
+    "scripts/check-browser-multi-receipt-cleanup.test.mjs",
     "scripts/check-browser-receipt-cleanup-success.test.mjs",
     "scripts/check-browser-reloaded-receipt-cleanup.test.mjs",
     "scripts/check-browser-reloaded-identical-receipt.test.mjs"]],

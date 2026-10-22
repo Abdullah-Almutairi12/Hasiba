@@ -35,6 +35,7 @@ for (const role of ["owner", "sales"] as const) {
     nameAr: "منتج اختبار", sku: `verify-${role}-${tag}`, price: "100", costPrice: "50", stock: "0",
   }).returning();
   let receiptInvoice;
+  let receiptInvoices;
   let returnInvoice;
   if (role === "owner" && process.env.HASBA_BROWSER_REVALUATIONS === "true") {
     const [branch] = await db.insert(branchesTable).values({
@@ -99,8 +100,24 @@ for (const role of ["owner", "sales"] as const) {
       unitPrice: "300", lineTotal: "300", taxRate: "0",
     });
     receiptInvoice = { id: invoice.id, reference: invoice.reference, total: 300, receiptAmount: 50 };
+    if (process.env.HASBA_BROWSER_MULTI_RECEIPTS === "true") {
+      const [second] = await db.insert(customerInvoicesTable).values({
+        companyId: company.id, customerId: customer.id, customerName: customer.name,
+        reference: `SINV-VERIFY-SECOND-${tag}`, status: "open",
+        invoiceDate: new Date().toISOString().slice(0, 10),
+        subtotal: "200", total: "200", amountPaid: "0", createdBy: user.id,
+      }).returning();
+      await db.insert(customerInvoiceLinesTable).values({
+        invoiceId: second.id, description: "Second synthetic receipt balance", quantity: "1",
+        unitPrice: "200", lineTotal: "200", taxRate: "0",
+      });
+      receiptInvoices = [
+        { id: invoice.id, reference: invoice.reference, total: 300, allocation: 20 },
+        { id: second.id, reference: second.reference, total: 200, allocation: 30 },
+      ];
+    }
   }
-  accounts.push({ email, password, companyId: company.id, role, customerId: customer.id, customerName: customer.name, receiptInvoice, returnInvoice });
+  accounts.push({ email, password, companyId: company.id, role, customerId: customer.id, customerName: customer.name, receiptInvoice, receiptInvoices, returnInvoice });
 }
 writeFileSync(process.env.HASBA_BROWSER_STATE, JSON.stringify({
   // Both URLs point only to the generated, disposable loopback cluster.
