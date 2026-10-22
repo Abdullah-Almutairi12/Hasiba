@@ -3,6 +3,7 @@
 // retains the key across retries/reloads in this tab.
 const financialPath = /\/api\/(?:sales\/(?:invoices(?:\/\d+\/reverse)?|receipts|credit-notes)|procurement\/(?:purchase-orders|goods-receipts)|pos\/orders|inventory\/moves|invoices(?:\/from-scan|\/\d+\/reverse)?)$/;
 const pending = new Map<string, Promise<{ storageKey: string; key: string }>>();
+const uncertainOutcomeMessage = "تعذر تأكيد نتيجة العملية؛ قد تكون حُفظت بالفعل. أعد المحاولة بنفس البيانات لاسترجاع النتيجة دون إنشاء عملية مكررة.";
 
 export async function financialFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
   const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
@@ -38,9 +39,14 @@ export async function financialFetch(input: RequestInfo | URL, init: RequestInit
     response = await fetch(input, { ...init, headers });
     if (response.ok && response.status !== 204) await response.clone().json();
   } catch (cause) {
-    throw new Error("تعذر تأكيد نتيجة العملية. أعد المحاولة بنفس البيانات لاسترجاع النتيجة دون إنشاء عملية مكررة.", { cause });
+    throw new Error(uncertainOutcomeMessage, { cause });
   } finally {
     if (pending.get(signature) === reservation) pending.delete(signature);
+  }
+  // A proxy/server failure is not evidence that the transaction rolled back.
+  // Throw before callers turn an HTML/plain-text gateway response into "HTTP 502".
+  if (response.status >= 500 || [408, 429].includes(response.status)) {
+    throw new Error(uncertainOutcomeMessage);
   }
   if (response.ok || (response.status >= 400 && response.status < 500 && ![408, 429].includes(response.status))) {
     // Do not erase a later intent created by another call after our success.
