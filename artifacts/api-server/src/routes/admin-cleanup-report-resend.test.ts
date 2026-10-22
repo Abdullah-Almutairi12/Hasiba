@@ -284,6 +284,62 @@ describe("POST /admin/system-settings/cleanup-report-sends/:id/resend", () => {
     expect(await latestResendAudit()).toBeNull();
   });
 
+  it("retries the same report after a provider failure and records exactly one successful resend", async () => {
+    await clearResendAudits();
+    const selected = ["alice@example.com", "bob@example.com"];
+    const reason = "SMTP provider temporarily unavailable";
+    // Only the first dispatch fails; beforeEach's successful provider response
+    // remains in place for the retry, without clearing calls or audit rows.
+    vi.mocked(mailer.sendMail).mockResolvedValueOnce({ sent: false, reason });
+    const endpoint =
+      `/api/admin/system-settings/cleanup-report-sends/${sendRowId}/resend`;
+
+    try {
+      const failed = await agent.post(endpoint).send({ recipients: selected });
+      expect(failed.status).toBe(400);
+      expect(failed.body).toEqual({ error: reason, reason });
+      expect(mailer.sendMail).toHaveBeenCalledTimes(1);
+      expect(mailer.sendMail).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({ to: selected.join(", ") }),
+      );
+      expect(await latestResendAudit()).toBeNull();
+
+      const retried = await agent.post(endpoint).send({ recipients: selected });
+      expect(retried.status).toBe(200);
+      expect(retried.body).toEqual({
+        ok: true,
+        sent: true,
+        recipients: selected,
+        rowCount: 0,
+        subset: true,
+        additional: 0,
+      });
+      expect(mailer.sendMail).toHaveBeenCalledTimes(2);
+      expect(mailer.sendMail).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({ to: selected.join(", ") }),
+      );
+
+      await waitForAuditWrites();
+      // Read every matching row: a latest-row query would hide duplicates.
+      const audits = await db
+        .select({ details: auditLogsTable.details })
+        .from(auditLogsTable)
+        .where(
+          and(
+            eq(auditLogsTable.companyId, companyId),
+            eq(auditLogsTable.action, "system_settings.cleanup_report_resent"),
+          ),
+        );
+      expect(audits).toEqual([
+        { details: `source=${sendRowId} recipients=2/3 (subset) rows=0` },
+      ]);
+    } finally {
+      await waitForAuditWrites();
+    }
+  });
+
   it("keeps a successful resend successful without sending twice when the real audit writer fails", async () => {
     await clearResendAudits();
     const auditFailure = new Error("Simulated audit INSERT failure");
