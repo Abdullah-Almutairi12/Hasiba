@@ -13,6 +13,7 @@ const checks = [
     "scripts/check-browser-cleanup-identical-invoice.test.mjs",
     "scripts/check-browser-invoice-cleanup-success.test.mjs"]],
   ["receipt-cleanup-evidence-tests", ["exec", "node", "--test",
+    "scripts/check-browser-repeated-receipt-cleanup.test.mjs",
     "scripts/check-browser-receipt-cleanup-success.test.mjs",
     "scripts/check-browser-reloaded-receipt-cleanup.test.mjs"]],
   ["tests", ["run", "test:isolated"]],
