@@ -43,6 +43,34 @@ import {
   warehousesTable,
 } from "@workspace/db";
 
+// Keep the real audit writer, but let this suite join fire-and-forget writes
+// before reading/deleting fixtures. Production audit behavior is unchanged.
+const auditWrites = vi.hoisted(() => ({
+  pending: [] as Promise<void>[],
+  beforeWrite: undefined as (() => Promise<void>) | undefined,
+}));
+
+vi.mock("../lib/audit", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../lib/audit")>();
+  return {
+    ...actual,
+    recordAudit: (...args: Parameters<typeof actual.recordAudit>) => {
+      const pending = (async () => {
+        await auditWrites.beforeWrite?.();
+        await actual.recordAudit(...args);
+      })();
+      auditWrites.pending.push(pending);
+      return pending;
+    },
+  };
+});
+
+async function waitForAuditWrites(): Promise<void> {
+  while (auditWrites.pending.length) {
+    await Promise.all(auditWrites.pending.splice(0));
+  }
+}
+
 vi.mock("../lib/mailer", () => ({
   isMailerConfigured: vi.fn(() => true),
   sendMail: vi.fn(async () => ({
@@ -140,6 +168,8 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  // A response is not evidence that its unawaited audit INSERT has finished.
+  await waitForAuditWrites();
   if (sendRowId) {
     await db
       .delete(cleanupReportSendsTable)
@@ -181,6 +211,7 @@ beforeEach(() => {
 async function latestResendAudit(): Promise<{
   details: string | null;
 } | null> {
+  await waitForAuditWrites();
   const rows = await db
     .select({
       id: auditLogsTable.id,
@@ -200,6 +231,7 @@ async function latestResendAudit(): Promise<{
 }
 
 async function clearResendAudits(): Promise<void> {
+  await waitForAuditWrites();
   await db
     .delete(auditLogsTable)
     .where(
@@ -322,5 +354,46 @@ describe("POST /admin/system-settings/cleanup-report-sends/:id/resend", () => {
     expect(res.body.subset).toBe(true);
     // The response reflects the *original* casing, not what the admin typed.
     expect(res.body.recipients).toEqual(["alice@example.com"]);
+  });
+
+  it("waits for a delayed real audit write before fixture cleanup", async () => {
+    await clearResendAudits();
+    let releaseWrite!: () => void;
+    let markStarted!: () => void;
+    const gate = new Promise<void>((resolve) => { releaseWrite = resolve; });
+    const started = new Promise<void>((resolve) => { markStarted = resolve; });
+    auditWrites.beforeWrite = () => {
+      markStarted();
+      return gate;
+    };
+    let drained = false;
+    let draining: Promise<void> | undefined;
+    try {
+      const res = await agent
+        .post(`/api/admin/system-settings/cleanup-report-sends/${sendRowId}/resend`)
+        .send({ recipients: ["alice@example.com"] });
+      expect(res.status).toBe(200);
+      await started;
+      // The same barrier used by afterAll must not finish just because the
+      // HTTP response arrived. No sleeps or assumptions about DB speed.
+      draining = waitForAuditWrites().then(() => { drained = true; });
+      await Promise.resolve();
+      expect(drained).toBe(false);
+      const rows = await db.select().from(auditLogsTable).where(
+        and(
+          eq(auditLogsTable.companyId, companyId),
+          eq(auditLogsTable.action, "system_settings.cleanup_report_resent"),
+        ),
+      );
+      expect(rows).toHaveLength(0);
+    } finally {
+      releaseWrite();
+      auditWrites.beforeWrite = undefined;
+      await draining;
+      await waitForAuditWrites();
+    }
+    expect(drained).toBe(true);
+    // Real persistence, not a stub: teardown will have an audit FK to remove.
+    expect((await latestResendAudit())?.details).toContain(`source=${sendRowId}`);
   });
 });
