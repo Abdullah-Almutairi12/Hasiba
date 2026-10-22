@@ -37,6 +37,18 @@ prove the completed linked-return form exercised the intended submission.
 endpoint and payload, alongside actual before/after rendered fields and the
 specific storage-safety message.
 
+Observe storage-read failures without triggering the fault from the evidence
+collector itself. Read stored entries through the saved original getter and
+separately observe writes without blocking them.
+
+**Why:** Enumerating entries through an injected getter can inflate the rejected
+read count or interrupt cleanup. A write-failure test does not establish that a
+failed read prevents key replacement and request transmission.
+
+**How to apply:** Scope the exception to financial keys in the test tab's session
+storage; require the exact rejected operation fingerprint, zero attempted
+financial writes, restored method identities and a successful storage probe.
+
 For reload recovery checks, discard the form, query cache, and transport module's
 in-memory state while preserving the tab's session storage. Do not treat retrying
 in a mounted dialog as evidence of reload safety.

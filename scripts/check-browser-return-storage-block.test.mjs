@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { checkBrowserReturnStorageBlock } from "./check-browser-return-storage-block.mjs";
+import { checkBrowserReturnStorageReadBlock } from "./check-browser-return-storage-read-block.mjs";
 
 function evidence() {
   const fields = { customerName: "Synthetic customer", invoiceReference: "SINV-RETURN-test",
@@ -30,6 +31,33 @@ function evidence() {
       restored: { observedAt: 4, timeOrigin: 1, originalSetItemRestored: true,
         originalFetchRestored: true, financialWriteReadRemoved: true, financialEntries: [] } },
   };
+}
+
+function readEvidence() {
+  const result = evidence();
+  Object.assign(result.browser, { faultMethod: "getItem", faultName: "SecurityError", financialWriteKeys: [] });
+  Object.assign(result.browser.restored, { originalGetItemRestored: true, originalRemoveItemRestored: true });
+  return result;
+}
+
+test("accepts rejected return key read before any write, with restored storage methods", () => {
+  const { proxy, browser } = readEvidence();
+  checkBrowserReturnStorageReadBlock(proxy, browser);
+});
+for (const [name, mutate] of [
+  ["write-failure evidence", (_p, b) => { b.faultMethod = "setItem"; }],
+  ["missing fault method", (_p, b) => { delete b.faultMethod; }],
+  ["wrong exception", (_p, b) => { b.faultName = "QuotaExceededError"; }],
+  ["financial write attempted", (_p, b) => { b.financialWriteKeys = [b.blockedKeys[0]]; }],
+  ["missing write observation", (_p, b) => { delete b.financialWriteKeys; }],
+  ["read method not restored", (_p, b) => { b.restored.originalGetItemRestored = false; }],
+  ["remove method not restored", (_p, b) => { b.restored.originalRemoveItemRestored = false; }],
+]) {
+  test(`read guard rejects ${name}`, () => {
+    const { proxy, browser } = readEvidence();
+    mutate(proxy, browser);
+    assert.throws(() => checkBrowserReturnStorageReadBlock(proxy, browser));
+  });
 }
 
 test("accepts blocked return storage with retained form, no send or restock, and restored methods", () => {
@@ -74,5 +102,10 @@ for (const [name, mutate] of [
     const { proxy, browser } = evidence();
     mutate(proxy, browser);
     assert.throws(() => checkBrowserReturnStorageBlock(proxy, browser));
+  });
+  test(`read guard rejects ${name}`, () => {
+    const { proxy, browser } = readEvidence();
+    mutate(proxy, browser);
+    assert.throws(() => checkBrowserReturnStorageReadBlock(proxy, browser));
   });
 }

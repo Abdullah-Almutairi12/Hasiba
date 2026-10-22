@@ -5,7 +5,8 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-export function checkBrowserReturnStorageBlock(proxy, browser) {
+export function checkBrowserReturnStorageBlock(proxy, browser, storageMethod = "setItem") {
+  assert.ok(["setItem", "getItem"].includes(storageMethod));
   assert.equal(proxy.scenario, "identical-return");
   assert.ok(proxy.runId);
   assert.equal(browser.runId, proxy.runId, "Use the same disposable run");
@@ -64,7 +65,14 @@ export function checkBrowserReturnStorageBlock(proxy, browser) {
   };
   const hash = createHash("sha256").update(`/api/sales/credit-notes\n${JSON.stringify(body)}`).digest("hex");
   assert.deepEqual(browser.blockedKeys, [`hasba:financial-request:${hash}`],
-    "Exactly one save must reach the financial storage write for this linked return");
+    `Exactly one save must reach the financial storage ${storageMethod} for this linked return`);
+  if (storageMethod === "getItem") {
+    assert.equal(browser.faultMethod, "getItem", "Reject read failures, not the write-failure scenario");
+    assert.equal(browser.faultName, "SecurityError");
+    assert.deepEqual(browser.financialWriteKeys, [], "Reading must fail before any key write");
+    assert.equal(restored.originalGetItemRestored, true);
+    assert.equal(restored.originalRemoveItemRestored, true);
+  }
   assert.equal(browser.unrelatedStorageWorked, true);
   assert.equal(restored.originalSetItemRestored, true);
   assert.equal(restored.originalFetchRestored, true);
