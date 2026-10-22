@@ -9,6 +9,7 @@ mkdirSync(out, { recursive: true });
 const checks = [
   ["typecheck", ["run", "typecheck"]],
   ["tests", ["run", "test:isolated"]],
+  ["erp-ui-tests", ["--filter", "@workspace/erp-system", "run", "test"]],
   ["api-build", ["--filter", "@workspace/api-server", "run", "build"]],
   ...[
     ["erp-system", "/"], ["docs", "/docs/"],
