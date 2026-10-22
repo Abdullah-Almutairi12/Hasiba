@@ -47,7 +47,7 @@ import {
 // before reading/deleting fixtures. Production audit behavior is unchanged.
 const auditWrites = vi.hoisted(() => ({
   pending: [] as Promise<void>[],
-  beforeWrite: undefined as (() => Promise<void>) | undefined,
+  beforeWrite: undefined as ((req: import("express").Request) => Promise<void>) | undefined,
 }));
 
 vi.mock("../lib/audit", async (importOriginal) => {
@@ -56,7 +56,7 @@ vi.mock("../lib/audit", async (importOriginal) => {
     ...actual,
     recordAudit: (...args: Parameters<typeof actual.recordAudit>) => {
       const pending = (async () => {
-        await auditWrites.beforeWrite?.();
+        await auditWrites.beforeWrite?.(args[0]);
         await actual.recordAudit(...args);
       })();
       auditWrites.pending.push(pending);
@@ -282,6 +282,77 @@ describe("POST /admin/system-settings/cleanup-report-sends/:id/resend", () => {
       expect.objectContaining({ to: "alice@example.com" }),
     );
     expect(await latestResendAudit()).toBeNull();
+  });
+
+  it("keeps a successful resend successful without sending twice when the real audit writer fails", async () => {
+    await clearResendAudits();
+    const auditFailure = new Error("Simulated audit INSERT failure");
+    const warn = vi.fn();
+    let restoreWarn: (() => void) | undefined;
+    let auditInsertAttempts = 0;
+    let mailCallsAtAuditFailure = 0;
+    const realInsert = db.insert.bind(db);
+    const insertSpy = vi.spyOn(db, "insert").mockImplementation((table) => {
+      // Fail inside the real recordAudit try/catch, not in its wrapper.
+      // All other INSERTs (including send history) still use the real DB.
+      if (table === auditLogsTable) {
+        auditInsertAttempts++;
+        mailCallsAtAuditFailure = vi.mocked(mailer.sendMail).mock.calls.length;
+        throw auditFailure;
+      }
+      return realInsert(table);
+    });
+    auditWrites.beforeWrite = async (req) => {
+      const spy = vi.spyOn(req.log, "warn").mockImplementation(warn);
+      restoreWarn = () => spy.mockRestore();
+    };
+
+    try {
+      const res = await agent
+        .post(`/api/admin/system-settings/cleanup-report-sends/${sendRowId}/resend`)
+        .send({ recipients: ["alice@example.com"] });
+      // A response alone does not prove the fire-and-forget writer settled.
+      await waitForAuditWrites();
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({
+        ok: true,
+        sent: true,
+        recipients: ["alice@example.com"],
+        rowCount: 0,
+        subset: true,
+        additional: 0,
+      });
+      expect(auditInsertAttempts).toBe(1);
+      expect(mailCallsAtAuditFailure).toBe(1);
+      expect(mailer.sendMail).toHaveBeenCalledTimes(1);
+      expect(mailer.sendMail).toHaveBeenCalledWith(
+        expect.objectContaining({ to: "alice@example.com" }),
+      );
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn).toHaveBeenCalledWith(
+        {
+          err: auditFailure,
+          entry: {
+            action: "system_settings.cleanup_report_resent",
+            entity: "cleanup_report_sends",
+            details: `source=${sendRowId} recipients=1/3 (subset) rows=0`,
+            severity: "info",
+          },
+        },
+        "audit log failed",
+      );
+      expect(await latestResendAudit()).toBeNull();
+    } finally {
+      // Drain before restoring the fault/logger or allowing fixture teardown.
+      try {
+        await waitForAuditWrites();
+      } finally {
+        auditWrites.beforeWrite = undefined;
+        restoreWarn?.();
+        insertSpy.mockRestore();
+      }
+    }
   });
 
   it("full-list path (no body) emails every original recipient, response.subset=false, audit lacks the (subset) marker", async () => {
