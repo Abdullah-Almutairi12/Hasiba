@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "hello": "tsx ./src/hello.ts",
+    "audit-journal-reversals": "tsx ./src/audit-journal-reversals.ts",
+    "test:journal-reversal-audit": "node ./test-journal-reversal-audit.mjs",
     "seed": "tsx ./src/seed.ts",
     "backfill-multi-company": "tsx ./src/backfill-multi-company.ts",
     "capture-docs-screenshots": "tsx ./src/capture-docs-screenshots.ts",
@@ -19,12 +21,14 @@
     "@workspace/db": "workspace:*",
     "@workspace/docs-content": "workspace:*",
     "bcryptjs": "^3.0.3",
-    "drizzle-orm": "catalog:"
+    "drizzle-orm": "catalog:",
+    "pg": "^8.20.0"
   },
   "devDependencies": {
     "@resvg/resvg-js": "^2.6.2",
     "@types/bcryptjs": "^3.0.0",
     "@types/node": "catalog:",
+    "@types/pg": "^8.18.0",
     "playwright": "^1.60.0",
     "tsx": "catalog:"
   }
