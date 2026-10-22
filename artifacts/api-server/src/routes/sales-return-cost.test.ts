@@ -87,8 +87,12 @@ async function reconcile(f: Fixture, expected: { inventory: number; cogs: number
     WHERE j.company_id=$1 AND j.status='posted' GROUP BY a.system_key`, [f.companyId]);
   const balance = (key: string) => Number(balances.find((r) => r.system_key === key)?.value ?? 0);
   const [quant] = await rows("SELECT sum(quantity*avg_cost)::float8 AS value FROM stock_quants WHERE product_id=$1", [f.productId]);
-  const [moves] = await rows(`SELECT sum(CASE WHEN to_warehouse_id IS NOT NULL THEN quantity*unit_cost
-    ELSE -quantity*unit_cost END)::float8 AS value FROM stock_moves WHERE product_id=$1 AND state='done'`, [f.productId]);
+  // A completed transfer has both legs on ONE movement, so its net company
+  // value/quantity is zero, not another receipt.
+  const [moves] = await rows(`SELECT sum(
+    (CASE WHEN to_warehouse_id IS NOT NULL THEN quantity*unit_cost ELSE 0 END) -
+    (CASE WHEN from_warehouse_id IS NOT NULL THEN quantity*unit_cost ELSE 0 END)
+    )::float8 AS value FROM stock_moves WHERE product_id=$1 AND state='done'`, [f.productId]);
   expect(balance("inventory")).toBeCloseTo(expected.inventory, 2);
   expect(balance("cogs")).toBeCloseTo(expected.cogs, 2);
   expect(-balance("sales_revenue") - balance("sales_returns") - balance("sales_discount") - balance("cogs")).toBeCloseTo(expected.profit, 2);
@@ -96,7 +100,9 @@ async function reconcile(f: Fixture, expected: { inventory: number; cogs: number
   expect(Number(moves.value)).toBeCloseTo(expected.inventory, 2);
   const [quantities] = await rows(`SELECT
     (SELECT coalesce(sum(quantity),0) FROM stock_quants WHERE product_id=$1)::float8 AS quant,
-    (SELECT coalesce(sum(CASE WHEN to_warehouse_id IS NOT NULL THEN quantity ELSE -quantity END),0)
+    (SELECT coalesce(sum(
+      (CASE WHEN to_warehouse_id IS NOT NULL THEN quantity ELSE 0 END) -
+      (CASE WHEN from_warehouse_id IS NOT NULL THEN quantity ELSE 0 END)),0)
       FROM stock_moves WHERE product_id=$1 AND state='done')::float8 AS moves,
     (SELECT stock FROM products WHERE id=$1)::float8 AS cached,
     (SELECT coalesce(sum(remaining_qty),0) FROM stock_layers WHERE product_id=$1)::float8 AS layers`,
@@ -111,6 +117,109 @@ async function reconcile(f: Fixture, expected: { inventory: number; cogs: number
 }
 
 describe("original sales cost, inventory carrying value and profit", () => {
+  it("preserves large fractional FIFO return value through transfer receipt and destination resale", async () => {
+    const quantity = 2_000_000;
+    const value = 20_000_100;
+    const f = await fixture("fifo", [[quantity / 2, 10], [quantity / 2, 10.0001]]);
+    await db.update(productsTable).set({ price: "20" }).where(eq(productsTable.id, f.productId));
+    const sold = await sale(f, [{ productId: f.productId, quantity }]);
+    await reconcile(f, { inventory: 0, cogs: value, profit: 40_000_000 - value });
+    const credit = ok(await f.agent.post("/api/sales/credit-notes")
+      .send(returnBody(f, sold.invoice.id, sold.lines[0].id, quantity, 20)));
+    await reconcile(f, { inventory: value, cogs: 0, profit: 0 });
+    const returnMoves = await rows(
+      "SELECT * FROM stock_moves WHERE source_type='credit_note' AND source_id=$1 ORDER BY id", [credit.id]);
+    expect(returnMoves).toHaveLength(1);
+
+    // Separate branch/session makes the real POS route issue from the destination.
+    const [branch] = await db.insert(branchesTable).values({
+      companyId: f.companyId, name: `${f.tag}-destination`, nameAr: f.tag, city: "Test",
+    }).returning();
+    const [destination] = await db.insert(warehousesTable).values({
+      companyId: f.companyId, branchId: branch.id, name: f.tag, nameAr: f.tag, isDefault: true,
+    }).returning();
+    const [session] = await db.insert(posSessionsTable).values({
+      sessionNumber: `${f.tag}-destination`, cashierName: f.tag, branchId: branch.id, openingCash: "0", status: "open",
+    }).returning();
+    // Today's product price must not replace the evidenced returned carrying cost.
+    await db.update(productsTable).set({ costPrice: "99" }).where(eq(productsTable.id, f.productId));
+
+    async function ledger() {
+      return rows(`SELECT j.id, j.status, l.id AS line_id, l.account_id, l.base_debit, l.base_credit
+        FROM journal_entries j JOIN journal_entry_lines l ON l.entry_id=j.id
+        WHERE j.company_id=$1 ORDER BY j.id,l.id`, [f.companyId]);
+    }
+    async function warehouseState(warehouseId: number, expectedQty: number, expectedValue: number) {
+      // Compare as PostgreSQL numerics: a float cast or a rounded cents-only
+      // assertion could hide the exact storage regression being tested.
+      const [state] = await rows(`SELECT
+        (SELECT coalesce(sum(quantity),0)=$3::numeric FROM stock_quants
+          WHERE product_id=$1 AND warehouse_id=$2) AS quant_qty,
+        (SELECT coalesce(sum(quantity*avg_cost),0)=$4::numeric FROM stock_quants
+          WHERE product_id=$1 AND warehouse_id=$2) AS quant_value,
+        (SELECT coalesce(sum(remaining_qty),0)=$3::numeric FROM stock_layers
+          WHERE product_id=$1 AND warehouse_id=$2) AS layer_qty,
+        (SELECT coalesce(sum(remaining_qty*unit_cost),0)=$4::numeric FROM stock_layers
+          WHERE product_id=$1 AND warehouse_id=$2) AS layer_value,
+        NOT EXISTS(SELECT 1 FROM stock_quants WHERE product_id=$1 AND warehouse_id=$2
+          AND quantity>0 AND avg_cost<>10.00005) AS quant_cost,
+        NOT EXISTS(SELECT 1 FROM stock_layers WHERE product_id=$1 AND warehouse_id=$2
+          AND remaining_qty>0 AND unit_cost<>10.00005) AS layer_cost,
+        (SELECT coalesce(sum(
+          CASE WHEN to_warehouse_id=$2 AND state='done' THEN quantity*unit_cost ELSE 0 END -
+          CASE WHEN from_warehouse_id=$2 AND state IN ('done','in_transit') THEN quantity*unit_cost ELSE 0 END
+        ),0)=$4::numeric FROM stock_moves WHERE product_id=$1) AS movement_value`,
+      [f.productId, warehouseId, expectedQty, expectedValue]);
+      expect(state).toEqual({
+        quant_qty: true, quant_value: true, layer_qty: true, layer_value: true,
+        quant_cost: true, layer_cost: true, movement_value: true,
+      });
+    }
+    await warehouseState(f.warehouseId, quantity, value);
+    const beforeTransfer = await ledger();
+    const transfer = ok(await f.agent.post("/api/inventory/transfers").send({
+      productId: f.productId, quantity, fromWarehouseId: f.warehouseId, toWarehouseId: destination.id,
+    }));
+    expect(transfer.unitCost).toBe(10.00005);
+    const [dispatched] = await rows(`SELECT state, quantity=$2::numeric AS quantity_ok,
+      unit_cost=10.00005 AS cost_ok, quantity*unit_cost=$3::numeric AS value_ok
+      FROM stock_moves WHERE id=$1`, [transfer.moveId, quantity, value]);
+    expect(dispatched).toEqual({ state: "in_transit", quantity_ok: true, cost_ok: true, value_ok: true });
+    await warehouseState(f.warehouseId, 0, 0);
+    await warehouseState(destination.id, 0, 0);
+    expect((await rows("SELECT stock::float8 AS qty FROM products WHERE id=$1", [f.productId]))[0].qty).toBe(0);
+    // The whole GL inventory value is in transit, not lost or posted to COGS.
+    expect(await ledger()).toEqual(beforeTransfer);
+
+    ok(await f.agent.post(`/api/inventory/transfers/${transfer.moveId}/receive`).send({}), 200);
+    await warehouseState(f.warehouseId, 0, 0);
+    await warehouseState(destination.id, quantity, value);
+    const [received] = await rows(`SELECT state, unit_cost=10.00005 AS cost_ok
+      FROM stock_moves WHERE id=$1`, [transfer.moveId]);
+    expect(received).toEqual({ state: "done", cost_ok: true });
+    const [layer] = await rows(`SELECT receipt_move_id, unit_cost=10.00005 AS cost_ok
+      FROM stock_layers WHERE product_id=$1 AND warehouse_id=$2`, [f.productId, destination.id]);
+    expect(layer).toEqual({ receipt_move_id: transfer.moveId, cost_ok: true });
+    expect(await ledger()).toEqual(beforeTransfer);
+    await reconcile(f, { inventory: value, cogs: 0, profit: 0 });
+    expect((await f.agent.post(`/api/inventory/transfers/${transfer.moveId}/receive`).send({})).status).toBe(400);
+    expect(await rows("SELECT id FROM stock_moves WHERE product_id=$1 AND kind='transfer'", [f.productId]))
+      .toEqual([{ id: transfer.moveId }]);
+    expect(await rows("SELECT id FROM stock_layers WHERE receipt_move_id=$1", [transfer.moveId])).toHaveLength(1);
+    await warehouseState(destination.id, quantity, value);
+
+    const resale = await sale({ ...f, sessionId: session.id }, [{ productId: f.productId, quantity: quantity / 2 }]);
+    const [issue] = await rows(`SELECT from_warehouse_id, quantity=1000000 AS quantity_ok,
+      unit_cost=10.00005 AS cost_ok, quantity*unit_cost=10000050 AS value_ok
+      FROM stock_moves WHERE kind='issue' AND invoice_line_id=$1`, [resale.lines[0].id]);
+    expect(issue).toEqual({ from_warehouse_id: destination.id, quantity_ok: true, cost_ok: true, value_ok: true });
+    await warehouseState(f.warehouseId, 0, 0);
+    await warehouseState(destination.id, quantity / 2, value / 2);
+    await reconcile(f, { inventory: value / 2, cogs: value / 2, profit: 9_999_950 });
+    expect(await rows("SELECT * FROM stock_moves WHERE source_type='credit_note' AND source_id=$1 ORDER BY id", [credit.id]))
+      .toEqual(returnMoves);
+  });
+
   it.each([
     ["SAR", false, null], ["USD", false, null], ["SAR", true, null], ["USD", true, null],
     ["SAR", false, 1], ["USD", false, 1], ["SAR", false, 0], ["USD", false, 0],
