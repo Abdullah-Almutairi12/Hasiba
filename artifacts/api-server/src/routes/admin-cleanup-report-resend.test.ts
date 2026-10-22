@@ -32,7 +32,7 @@ import {
 } from "vitest";
 import request from "supertest";
 import bcrypt from "bcryptjs";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, or } from "drizzle-orm";
 import {
   db,
   companiesTable,
@@ -173,7 +173,12 @@ afterAll(async () => {
   if (sendRowId) {
     await db
       .delete(cleanupReportSendsTable)
-      .where(eq(cleanupReportSendsTable.id, sendRowId));
+      .where(
+        or(
+          eq(cleanupReportSendsTable.id, sendRowId),
+          eq(cleanupReportSendsTable.triggeredByUserId, userId),
+        ),
+      );
   }
   if (companyId) {
     await db
@@ -243,6 +248,42 @@ async function clearResendAudits(): Promise<void> {
 }
 
 describe("POST /admin/system-settings/cleanup-report-sends/:id/resend", () => {
+  it("rejects (400) when mail is not configured without sending or auditing a successful resend", async () => {
+    await clearResendAudits();
+    vi.mocked(mailer.isMailerConfigured).mockReturnValue(false);
+
+    const res = await agent
+      .post(`/api/admin/system-settings/cleanup-report-sends/${sendRowId}/resend`)
+      .send();
+
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({
+      error: "البريد غير مُهيأ — يرجى ضبط SMTP_HOST/SMTP_PORT.",
+      reason: "mailer_not_configured",
+    });
+    expect(mailer.sendMail).not.toHaveBeenCalled();
+    // Join real audit writes before asserting that no success was recorded.
+    expect(await latestResendAudit()).toBeNull();
+  });
+
+  it("rejects (400) when the mail provider fails without auditing a successful resend", async () => {
+    await clearResendAudits();
+    const reason = "SMTP provider rejected the test dispatch";
+    vi.mocked(mailer.sendMail).mockResolvedValue({ sent: false, reason });
+
+    const res = await agent
+      .post(`/api/admin/system-settings/cleanup-report-sends/${sendRowId}/resend`)
+      .send({ recipients: ["alice@example.com"] });
+
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ error: reason, reason });
+    expect(mailer.sendMail).toHaveBeenCalledTimes(1);
+    expect(mailer.sendMail).toHaveBeenCalledWith(
+      expect.objectContaining({ to: "alice@example.com" }),
+    );
+    expect(await latestResendAudit()).toBeNull();
+  });
+
   it("full-list path (no body) emails every original recipient, response.subset=false, audit lacks the (subset) marker", async () => {
     await clearResendAudits();
     const res = await agent
