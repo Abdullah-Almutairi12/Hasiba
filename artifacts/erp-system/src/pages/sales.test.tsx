@@ -16,7 +16,7 @@ const uncertainMessage =
   "تعذر تأكيد نتيجة العملية؛ قد تكون حُفظت بالفعل. أعد المحاولة بنفس البيانات لاسترجاع النتيجة دون إنشاء عملية مكررة.";
 
 describe("customer invoice form retry", () => {
-  it("shows complete 502 guidance, retains the open form, and succeeds with the same body and key", async () => {
+  it.each(["502", "network TypeError"] as const)("shows complete %s guidance, retains the open form, and succeeds with the same body and key", async (failure) => {
     // Exercise the real page, dialog, toast, apiPost and financialFetch.
     // Only transport and unrelated permissions/VAT context are replaced.
     const attempts: Array<{ body: string; key: string | null }> = [];
@@ -28,9 +28,13 @@ describe("customer invoice form retry", () => {
           body: String(init.body),
           key: new Headers(init.headers).get("Idempotency-Key"),
         });
-        return attempts.length === 1
-          ? new Response("<h1>Bad Gateway</h1>", { status: 502 })
-          : Response.json({ id: 91, reference: "INV-RETRY-91" });
+        if (attempts.length === 1) {
+          // Throw inside the async fetch stub to reject the request without
+          // returning any HTTP response, as a browser connection failure does.
+          if (failure === "network TypeError") throw new TypeError("Failed to fetch");
+          return new Response("<h1>Bad Gateway</h1>", { status: 502 });
+        }
+        return Response.json({ id: 91, reference: "INV-RETRY-91" });
       }
       if (path === "/api/sales/invoices") {
         invoiceReads++;
@@ -79,7 +83,7 @@ describe("customer invoice form retry", () => {
 
       await user.click(save);
 
-      // Assert the entire user-visible message, not a generic HTTP 502 or
+      // Assert the entire user-visible message, not a raw transport error or
       // only the title. A failed save must not close/reset/refetch the form.
       expect(await screen.findByText(uncertainMessage, { exact: true })).toBeTruthy();
       expect(screen.getByRole("dialog", { name: "فاتورة عميل جديدة" })).toBe(dialog);
