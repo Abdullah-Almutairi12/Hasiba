@@ -189,7 +189,7 @@ if (process.argv.includes("--capture-receipts") || process.argv.includes("--capt
       finalCounts: await readScenarioCounts(),
       finalJournalCount: Number((await pool.query("SELECT count(*) AS count FROM journal_entries")).rows[0].count),
     } : {}),
-    ...(receiptMode ? { finalPaymentState: await readPaymentState() } : {}),
+    ...(receiptMode ? { finalPaymentState: await readPaymentState(), finalCounts: await readScenarioCounts(), finalJournals: await readJournals() } : {}),
     ...(returnMode ? { finalReturnState: await readReturnState() } : {}),
   }, null, 2));
   await pool.end();
@@ -217,7 +217,7 @@ const overlapGate = overlapReturns ? new Promise<void>((done) => {
 }) : Promise.resolve();
 const startedAt = Date.now();
 const initialCounts = await readScenarioCounts();
-const initialJournals = !receiptMode && !returnMode ? await readJournals() : undefined;
+const initialJournals = !returnMode ? await readJournals() : undefined;
 const journalCount = async () => Number((await pool.query("SELECT count(*) AS count FROM journal_entries")).rows[0].count);
 const initialJournalCount = overlapReturns ? await journalCount() : undefined;
 const initialPaymentState = receiptMode ? await readPaymentState() : undefined;
@@ -227,7 +227,7 @@ const initialReturnState = returnMode ? await readReturnState() : undefined;
 let finalReturnState = initialReturnState;
 const save = () => writeFileSync(reportFile, JSON.stringify({
   runId, startedAt, initialCounts, invoicePostCount, events, finalReceipts, receiptsObservedAt,
-  ...(!receiptMode && !returnMode ? { initialJournals } : {}),
+  ...(!returnMode ? { initialJournals } : {}),
   ...(overlapReturns ? { overlapReturns, overlapTimedOut, arrivals, initialJournalCount } : {}),
   ...(receiptMode ? { scenario: "identical-receipt", receiptPostCount, initialPaymentState, finalPaymentState } : {}),
   ...(returnMode ? { scenario: "identical-return", returnPostCount, receiptPostCount, returnFixture, initialReturnState, finalReturnState } : {}),
@@ -305,7 +305,7 @@ const proxy = createServer((req, res) => {
               upstreamStatus: reply.statusCode,
               replayed: reply.headers["idempotency-replayed"] === "true",
               replayHeader: reply.headers["idempotency-replayed"] ?? null,
-              ...(receiptMode ? { paymentReceiptId: result?.id, paymentState, body: JSON.parse(input.toString("utf8")) } : { invoiceId: result?.id }),
+              ...(receiptMode ? { paymentReceiptId: result?.id, paymentState, journals: await readJournals(), body: JSON.parse(input.toString("utf8")) } : { invoiceId: result?.id }),
               ...(returnMode ? { creditNoteId: result?.id, returnState, body: JSON.parse(input.toString("utf8")) } : {}),
               reference: result?.reference,
               counts, receipts, dropped: drop,
