@@ -38,6 +38,10 @@ const returnMode = process.argv.includes("--returns");
 // Cleanup-after-success tests need the real successful response in the tab.
 // Keep the default lost-response scenario unchanged for existing callers.
 const passSuccess = process.argv.includes("--pass-success");
+// Test-only rendezvous: neither request is forwarded until both UI clicks
+// arrive. A bounded timeout releases the server but makes the guard fail.
+const overlapReturns = process.argv.includes("--overlap-returns");
+assert.ok(!overlapReturns || (returnMode && passSuccess), "Overlap requires --returns --pass-success");
 assert.ok(!(receiptMode && returnMode), "Choose one isolated scenario");
 const reportFile = resolve(reportDir, returnMode ? "browser-identical-return-proxy.json" : receiptMode ? "browser-identical-receipt-proxy.json" : "browser-retry-proxy.json");
 const readCounts = async () => (await pool.query(`
@@ -177,6 +181,10 @@ if (process.argv.includes("--capture-receipts") || process.argv.includes("--capt
   }
   writeFileSync(reportFile, JSON.stringify({
     ...report, finalReceipts, receiptsObservedAt: Date.now(),
+    ...(report.overlapReturns ? {
+      finalCounts: await readScenarioCounts(),
+      finalJournalCount: Number((await pool.query("SELECT count(*) AS count FROM journal_entries")).rows[0].count),
+    } : {}),
     ...(receiptMode ? { finalPaymentState: await readPaymentState() } : {}),
     ...(returnMode ? { finalReturnState: await readReturnState() } : {}),
   }, null, 2));
@@ -196,8 +204,17 @@ let dropped = false;
 let invoicePostCount = 0;
 let receiptPostCount = 0;
 let returnPostCount = 0;
+const arrivals: Array<{ arrivedAt: number; forwardedAt?: number; responseSentAt?: number }> = [];
+let releaseOverlap: (() => void) | undefined;
+let overlapTimedOut = false;
+let overlapTimer: ReturnType<typeof setTimeout> | undefined;
+const overlapGate = overlapReturns ? new Promise<void>((done) => {
+  releaseOverlap = done;
+}) : Promise.resolve();
 const startedAt = Date.now();
 const initialCounts = await readScenarioCounts();
+const journalCount = async () => Number((await pool.query("SELECT count(*) AS count FROM journal_entries")).rows[0].count);
+const initialJournalCount = overlapReturns ? await journalCount() : undefined;
 const initialPaymentState = receiptMode ? await readPaymentState() : undefined;
 let finalPaymentState = initialPaymentState;
 const returnFixture = returnMode ? state.accounts.find((a: { returnInvoice?: unknown }) => a.returnInvoice).returnInvoice : undefined;
@@ -205,12 +222,14 @@ const initialReturnState = returnMode ? await readReturnState() : undefined;
 let finalReturnState = initialReturnState;
 const save = () => writeFileSync(reportFile, JSON.stringify({
   runId, startedAt, initialCounts, invoicePostCount, events, finalReceipts, receiptsObservedAt,
+  ...(overlapReturns ? { overlapReturns, overlapTimedOut, arrivals, initialJournalCount } : {}),
   ...(receiptMode ? { scenario: "identical-receipt", receiptPostCount, initialPaymentState, finalPaymentState } : {}),
   ...(returnMode ? { scenario: "identical-return", returnPostCount, receiptPostCount, returnFixture, initialReturnState, finalReturnState } : {}),
 }, null, 2));
 save();
 
 const proxy = createServer((req, res) => {
+  const arrival = { arrivedAt: Date.now() } as typeof arrivals[number];
   const invoice = req.method === "POST" && req.url?.split("?")[0] === "/api/sales/invoices";
   const receipt = req.method === "POST" && req.url?.split("?")[0] === "/api/sales/receipts";
   const creditNote = req.method === "POST" && req.url?.split("?")[0] === "/api/sales/credit-notes";
@@ -226,12 +245,30 @@ const proxy = createServer((req, res) => {
   }
   if (creditNote) {
     returnPostCount += 1;
+    if (overlapReturns) {
+      arrivals.push(arrival);
+      if (arrivals.length === 1) overlapTimer = setTimeout(() => {
+        overlapTimedOut = true;
+        releaseOverlap?.();
+        save();
+      }, 15000);
+      if (arrivals.length === 2) {
+        clearTimeout(overlapTimer);
+        // Keep both requests pending briefly for browser/storage evidence.
+        setTimeout(() => releaseOverlap?.(), 1500);
+      }
+    }
     save();
   }
   const body: Buffer[] = [];
   req.on("data", (chunk: Buffer) => body.push(chunk));
-  req.on("end", () => {
+  req.on("end", async () => {
     const input = Buffer.concat(body);
+    if (overlapReturns && creditNote) {
+      await overlapGate;
+      arrival.forwardedAt = Date.now();
+      save();
+    }
     const upstream = request({
       hostname: "127.0.0.1", port: backendPort,
       method: req.method, path: req.url, headers: req.headers,
@@ -254,6 +291,7 @@ const proxy = createServer((req, res) => {
             const drop = successful && !dropped && !passSuccess;
             if (drop) dropped = true;
             events.push({
+              ...(overlapReturns ? { arrivalIndex: arrivals.indexOf(arrival), journalCount: await journalCount() } : {}),
               recordedAt: Date.now(),
               storageKey: `hasba:financial-request:${createHash("sha256").update(`${req.url?.split("?")[0]}\n${input.toString("utf8")}`).digest("hex")}`,
               key, bodyHash: createHash("sha256").update(input).digest("hex"),
@@ -283,6 +321,10 @@ const proxy = createServer((req, res) => {
           }
           res.writeHead(reply.statusCode ?? 502, reply.headers);
           res.end(output);
+          if (overlapReturns && creditNote) {
+            arrival.responseSentAt = Date.now();
+            save();
+          }
         })().catch((error) => {
           console.error("[browser-retry] Evidence capture failed", error);
           res.destroy();

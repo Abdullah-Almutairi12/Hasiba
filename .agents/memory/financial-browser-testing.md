@@ -58,3 +58,14 @@ cannot recover an uncertain operation after a real reload.
 
 **How to apply:** Verify the fresh transport instance, unchanged request body and
 key, no automatic POST on remount, and a single list row after confirmation.
+
+For overlapping-save tests, do not equate request arrival order with original
+transaction or response completion order.
+
+**Why:** In a real double-click run, the request that arrived first received the
+replay response. Scheduling can let the second arrival win the transaction,
+and the replay response can finish first too.
+
+**How to apply:** Prove overlap using ingress and response timestamps, then
+identify original/replay by their headers, requiring exactly one of each with
+the same key and document. Do not require the first arrival to be the original.
