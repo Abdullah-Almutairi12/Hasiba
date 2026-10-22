@@ -59,6 +59,17 @@ cannot recover an uncertain operation after a real reload.
 **How to apply:** Verify the fresh transport instance, unchanged request body and
 key, no automatic POST on remount, and a single list row after confirmation.
 
+Install no-send observers at document start when verifying reloads. A wrapper
+may register an init script without returning a removable handle.
+
+**Why:** Installing fetch observation after navigation leaves automatic startup
+requests unobserved; an unremoved init script can also leak into later tests.
+
+**How to apply:** Record the observer's loading-state installation and new document
+time origin, pair browser counters with proxy ingress, and use a one-shot,
+self-disarming script if no removal handle exists. Restore methods in `finally`
+and close the isolated test tab to discard its page-scoped registration.
+
 For overlapping-save tests, do not equate request arrival order with original
 transaction or response completion order.
 
