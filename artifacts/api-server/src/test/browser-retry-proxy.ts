@@ -207,7 +207,7 @@ if (process.argv.includes("--capture-receipts") || process.argv.includes("--capt
       finalJournalCount: Number((await pool.query("SELECT count(*) AS count FROM journal_entries")).rows[0].count),
     } : {}),
     ...(receiptMode ? { finalPaymentState: await readPaymentState(), finalCounts: await readScenarioCounts(), finalJournals: await readJournals() } : {}),
-    ...(returnMode ? { finalReturnState: await readReturnState() } : {}),
+    ...(returnMode ? { finalReturnState: await readReturnState(), finalJournals: await readJournals() } : {}),
   }, null, 2));
   await pool.end();
   process.exit(0);
