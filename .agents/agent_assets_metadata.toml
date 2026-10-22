@@ -42,3 +42,17 @@ mtime_ms = 1792632201257
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/68429222-a34d-4eaf-9d35-f96aa05235cd/6518cdee-5729-4919-b46b-3b3713cca22f"
 storage_version_token = "1792632203420369"
 content_type = "text/html"
+
+[[outputs]]
+id = "hm4n_k6RngwMqjTJmnxgn"
+uri = "file://generated-artifacts/program-review/Hasba_AI_Comprehensive_Review_AR.docx"
+type = "word_document"
+title = "ملف Word — تقرير حاسبة.AI الشامل"
+description = "البرنامج وتقنياته، الإصلاحات والمشكلات والنواقص، مشكلة الدفع، واقتراحات نقاط البيع والمحاسبة والموارد البشرية وزاتكا والذكاء الاصطناعي."
+logical_id = "b6e2ccfa-bebc-4dc3-a294-e69088f5c7d4"
+content_hash = "sha256:454878f359705d273d119cdc163c78f668054a480f92731201f6b66a7a189f7c"
+size = 43142
+mtime_ms = 1792710293829
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/b6e2ccfa-bebc-4dc3-a294-e69088f5c7d4/049e597b-8083-48ed-9029-4deb6cc4bfc2"
+storage_version_token = "1792710303672661"
+content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
