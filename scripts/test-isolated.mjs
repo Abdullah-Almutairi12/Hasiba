@@ -74,6 +74,9 @@ try {
     exitCode = 0;
   } else {
   const args = process.argv.slice(2);
+  // pnpm run forwards its optional separator; Vitest must see filters, not "--".
+  // Only strip leading separators so option values and later "--" stay intact.
+  while (args[0] === "--") args.shift();
   pnpm(["--filter", "@workspace/api-server", "exec", "vitest", "run", ...args,
     "--reporter=default", "--reporter=json", `--outputFile=${join(reportDir, "tests.json")}`], env);
   exitCode = 0;

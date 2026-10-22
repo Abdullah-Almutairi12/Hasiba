@@ -153,7 +153,9 @@ Fixtures are tagged with `vitest-<ts>`; no application database is used.
 
 - `pnpm test:isolated` — provision a disposable database and run the full suite.
 - `pnpm --filter @workspace/erp-system test` — run frontend integration tests with jsdom and mocked HTTP responses (no server or database). These also run as the `erp-ui-tests` stage of `pnpm verify`.
-- `pnpm test:isolated -- src/lib/intercompany-mirror.test.ts` — focused regression check.
+- `pnpm test:isolated src/lib/intercompany-mirror.test.ts` — focused regression check (paths are relative to `artifacts/api-server`).
+- `pnpm test:isolated src/routes/sales-return-cost.test.ts -t "scenario name"` — run only matching tests in that file. An optional leading `--` after `test:isolated` is also supported; the runner removes it before calling Vitest.
+- `node --test scripts/test-isolated.test.mjs` — lightweight pnpm argument-forwarding and runner cleanup regression checks; PostgreSQL and Vitest are stubbed, so no database or financial tests run.
 - `pnpm verify` — typecheck, full isolated tests, server and four client builds, and dependency audit. It records each result in `generated-artifacts/verification/summary.json` and exits nonzero if ANY required stage fails. Independent stages continue after a failure so the report remains useful.
 - PostgreSQL binaries must be on PATH, or set `PG_BIN` to their directory.
 - The SQL migration history assumes some runtime-created tables/columns already exist. The isolated runner therefore creates the current Drizzle schema first, then applies SQL migrations. This does NOT prove that migrations alone can bootstrap a blank database; do not hide this limitation.
