@@ -69,3 +69,14 @@ and the replay response can finish first too.
 **How to apply:** Prove overlap using ingress and response timestamps, then
 identify original/replay by their headers, requiring exactly one of each with
 the same key and document. Do not require the first arrival to be the original.
+
+Compare timing evidence only within its clock domain. Do not infer an offset
+from response timestamps merely to make cross-process ordering assertions pass.
+
+**Why:** The remote browser wall clock can lag the API proxy enough that a
+received and parsed JSON response appears earlier than its server commit.
+The clocks are independent; response matching still proves causality.
+
+**How to apply:** Preserve raw timestamps. Order browser form/JSON/cleanup
+observations using browser time and proxy event/database snapshots using proxy
+time. Match key, body and document identity across the two evidence sources.
