@@ -13,3 +13,14 @@ Do not assume stopping a background test task executes its JavaScript cleanup.
 **Why:** Stopping the disposable runner through the background-task stop action terminated its processes but left the temporary database directory and synthetic credential state on disk.
 
 **How to apply:** Prefer graceful termination of the runner and verify disposal afterwards. If interrupted forcibly, remove only the positively identified disposable cluster and synthetic state; never infer that a database is disposable from the inherited application environment.
+
+For no-send checks, collect request-arrival evidence as well as database state;
+an empty successful-response event log is not sufficient.
+
+**Why:** An outgoing invoice request can fail or remain in flight without ever
+producing a successful response event or a committed invoice. That would falsely
+pass a test intended to prove the browser never sent financial data.
+
+**How to apply:** Pair a browser outgoing-request counter with a proxy ingress
+counter and unchanged disposable invoice/financial-receipt counts. Scope storage
+fault injection to the test tab and restore the original methods in `finally`.

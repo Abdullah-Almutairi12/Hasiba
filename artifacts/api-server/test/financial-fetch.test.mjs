@@ -102,4 +102,25 @@ describe.each([
     await expect(financialFetch(url, request)).rejects.toThrow("لم يُرسل الطلب");
     expect(fetch).not.toHaveBeenCalled();
   });
+  it("does not send when writing the safety key is blocked, and recovers after storage is restored", async () => {
+    const fetch = vi.fn(async () => Response.json({ id: 1 }));
+    vi.stubGlobal("fetch", fetch);
+    const setItem = vi.fn(() => { throw new DOMException("Storage blocked", "QuotaExceededError"); });
+    vi.stubGlobal("sessionStorage", {
+      getItem: (key) => stored.get(key) ?? null,
+      setItem,
+      removeItem: (key) => stored.delete(key),
+    });
+    await expect(financialFetch(url, request)).rejects.toThrow(
+      "تعذر حفظ مفتاح العملية بأمان. لم يُرسل الطلب؛ فعّل تخزين الجلسة وأعد المحاولة.",
+    );
+    expect(setItem).toHaveBeenCalledOnce();
+    expect(setItem.mock.calls[0][0]).toMatch(/^hasba:financial-request:[a-f0-9]{64}$/);
+    expect(fetch).not.toHaveBeenCalled();
+    expect(stored.size).toBe(0);
+    setItem.mockImplementation((key, value) => stored.set(key, value));
+    await financialFetch(url, request);
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(stored.size).toBe(0);
+  });
 });

@@ -34,6 +34,27 @@ await assertApplicationReady();
 const reportDir = resolve(import.meta.dirname, "../../../../generated-artifacts/verification");
 mkdirSync(reportDir, { recursive: true });
 const reportFile = resolve(reportDir, "browser-retry-proxy.json");
+const readCounts = async () => (await pool.query(`
+  SELECT
+    (SELECT count(*)::int FROM customer_invoices) AS invoices,
+    (SELECT count(*)::int FROM financial_requests) AS receipts
+`)).rows[0];
+// Read-only post-check for the no-send scenario. Run while this same
+// disposable proxy/database are still alive, after restoring tab storage.
+if (process.argv.includes("--capture-storage-block")) {
+  const report = JSON.parse(readFileSync(reportFile, "utf8"));
+  assert.ok(report.runId);
+  assert.equal(report.invoicePostCount, 0, "No invoice POST may reach the proxy");
+  assert.deepEqual(report.events, []);
+  assert.deepEqual(report.initialCounts, { invoices: 0, receipts: 0 });
+  const finalCounts = await readCounts();
+  assert.deepEqual(finalCounts, report.initialCounts, "No invoice or retry receipt may exist");
+  writeFileSync(resolve(reportDir, "browser-storage-block-proxy.json"), JSON.stringify({
+    ...report, finalCounts, capturedAt: Date.now(),
+  }, null, 2));
+  await pool.end();
+  process.exit(0);
+}
 const readReceipts = async () => (await pool.query(`
   SELECT company_id AS "companyId", user_id AS "userId", operation,
     request_key AS key, result->'value'->'inv'->>'id' AS "invoiceId"
@@ -65,11 +86,22 @@ const events: Array<Record<string, unknown>> = [];
 let finalReceipts: Array<Record<string, unknown>> = [];
 let receiptsObservedAt = 0;
 let dropped = false;
-const save = () => writeFileSync(reportFile, JSON.stringify({ runId, events, finalReceipts, receiptsObservedAt }, null, 2));
+let invoicePostCount = 0;
+const startedAt = Date.now();
+const initialCounts = await readCounts();
+const save = () => writeFileSync(reportFile, JSON.stringify({
+  runId, startedAt, initialCounts, invoicePostCount, events, finalReceipts, receiptsObservedAt,
+}, null, 2));
 save();
 
 const proxy = createServer((req, res) => {
   const invoice = req.method === "POST" && req.url?.split("?")[0] === "/api/sales/invoices";
+  // Record arrival, not just successful upstream replies: zero events alone
+  // would miss rejected requests or requests still in flight.
+  if (invoice) {
+    invoicePostCount += 1;
+    save();
+  }
   const body: Buffer[] = [];
   req.on("data", (chunk: Buffer) => body.push(chunk));
   req.on("end", () => {
