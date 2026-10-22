@@ -654,7 +654,7 @@ router.post(
 
         // Issue inventory through the engine. Pass no unitCost so the engine
         // applies the product's costing method (FIFO consumes layers, average
-        // reads the warehouse avg, standard uses product.costPrice). The cost
+        // and standard issues read the source quant's carrying cost). The cost
         // it returns is the actual COGS for this line.
         const moveResult = await recordStockMove(tx, {
           productId: product.id,

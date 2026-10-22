@@ -100,6 +100,7 @@ export interface RecordMoveInput {
   fromWarehouseId?: number | null;
   toWarehouseId?: number | null;
   quantity: number;
+  /** Explicit receipt/adjustment/return cost; standard issues always use carrying cost. */
   unitCost?: number;
   kind: StockMoveKind;
   state?: "draft" | "in_transit" | "done";
@@ -433,7 +434,27 @@ export async function recordStockMove(
   // The FIFO-derived cost is used when the caller did not provide one.
   if (isOutbound && (state === "done" || state === "in_transit")) {
     if (input.fromWarehouseId == null) throw new Error("issue/transfer/return_out يتطلب fromWarehouseId");
-    if (product.costingMethod === "fifo") {
+    if (product.costingMethod === "standard" && input.kind === "issue") {
+      // Prospective standard / realized-variance policy: editing the standard
+      // is not an inventory revaluation. Expense the source quant's carrying
+      // value (standard cost plus its realized difference, net in COGS).
+      // This also governs explicit caller costs and skipJournal sales: the
+      // movement, quant depletion and returned COGS must all use one value.
+      const [current] = rowsOf<{ avg_cost: number }>(
+        await tx.execute(sql`
+          SELECT avg_cost::float8 AS avg_cost FROM stock_quants
+           WHERE product_id = ${input.productId}
+             AND warehouse_id = ${input.fromWarehouseId}
+             AND COALESCE(variant_id,0) = ${input.variantId ?? 0}
+             AND COALESCE(lot_id,0) = ${input.lotId ?? 0}
+           FOR UPDATE
+        `),
+      );
+      if (!current || !Number.isFinite(current.avg_cost) || current.avg_cost < 0) {
+        throw new Error("لا يمكن صرف مخزون معياري دون قيمة دفترية صالحة؛ يلزم فحص الرصيد دون تعديل التاريخ");
+      }
+      unitCost = current.avg_cost;
+    } else if (product.costingMethod === "fifo") {
       const fifoCost = await consumeFifoLayers(
         tx,
         input.productId,

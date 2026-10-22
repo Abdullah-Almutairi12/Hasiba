@@ -247,7 +247,7 @@ describe("original sales cost, inventory carrying value and profit", () => {
   it.each(["fifo", "average", "standard"] as const)("reconciles %s after price changes and repeated partial returns through the real POS/CN routes", async (method) => {
     const f = await fixture(method);
     const { invoice, lines } = await sale(f);
-    const cost = method === "fifo" ? 60 : method === "standard" ? 40 : 200 / 3;
+    const cost = method === "fifo" ? 60 : 200 / 3;
     await reconcile(f, { inventory: 100 - cost, cogs: cost, profit: 400 - cost }, method === "fifo");
     await db.update(productsTable).set({ costPrice: "99" }).where(eq(productsTable.id, f.productId));
     const body = returnBody(f, invoice.id, lines[0].id, 1);
