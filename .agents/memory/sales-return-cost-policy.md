@@ -18,4 +18,10 @@ Do not infer missing historical issue links or automatically repair old inventor
 
 **Why:** The assigned financial scope explicitly excludes automatic historical corrections, and using today's cost would disguise missing evidence rather than solve it.
 
-**How to apply:** Keep schema additions nullable for legacy rows, avoid cost backfills, and require a separately approved financial reconciliation for historical records. Issuance tests do not certify credit-note cancellation or later cash-refund FX treatment.
+**How to apply:** Keep schema additions nullable for legacy rows, avoid cost backfills, and require a separately approved financial reconciliation for historical records. Issuance tests alone do not certify cancellation; later cash-refund FX treatment remains separate.
+
+Cancellation is not a forced removal of the original return layer: reverse the exact original journal and recognize the difference between actual current depletion and originally restored value in COGS, in base currency. For standard-cost products, cancellation uses carrying value rather than a newly edited standard price; this is not a general standard-cost revaluation.
+
+**Why:** Returned stock can be resold before cancellation, and replenishment may cost more or less. Removing historical value while consuming today's FIFO layers creates a hidden inventory/GL difference even when the reversal balances. A changed standard price can likewise invent a residual value.
+
+**How to apply:** Require matching return-movement and original-journal evidence, keep historical FX for commercial reversal, and reconcile actual depletion, remaining inventory and profit atomically. Reject missing evidence or unavailable tracked stock instead of repairing history or borrowing another serial number.

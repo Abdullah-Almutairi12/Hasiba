@@ -228,10 +228,13 @@ describe("Sales and CRM company isolation", () => {
     expect(count.body.exhaustedCount).toBe(1);
   });
 
-  it("does not submit or cancel a foreign credit note; owned cancellation still works", async () => {
+  it("does not cancel a foreign credit note or guess an owned legacy note's missing journal", async () => {
     await agents[0].post(`/api/sales/credit-notes/${fixtures[1].credit}/cancel`).send({}).expect(404);
     expect((await db.select().from(creditNotesTable).where(eq(creditNotesTable.id, fixtures[1].credit)))[0].status).toBe("issued");
-    await agents[0].post(`/api/sales/credit-notes/${fixtures[0].credit}/cancel`).send({}).expect(200);
+    // Synthetic legacy note was marked issued without a journal: ownership
+    // alone cannot justify a financial reversal.
+    await agents[0].post(`/api/sales/credit-notes/${fixtures[0].credit}/cancel`).send({}).expect(409);
+    expect((await db.select().from(creditNotesTable).where(eq(creditNotesTable.id, fixtures[0].credit)))[0].status).toBe("issued");
   });
 
   it("reports only the active company's revenue, customers, reps, receivables, and commission base", async () => {

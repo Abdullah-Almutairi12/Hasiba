@@ -266,6 +266,7 @@ async function consumeFifoLayers(
   qty: number,
   lotId: number | null,
   companyId: number,
+  variantId: number | null,
 ): Promise<number | null> {
   const lotFilter = lotId == null ? sql`AND lot_id IS NULL` : sql`AND lot_id = ${lotId}`;
   const layers = rowsOf<{ id: number; remaining: number; unit_cost: number }>(
@@ -274,6 +275,7 @@ async function consumeFifoLayers(
         FROM stock_layers
        WHERE product_id = ${productId}
          AND warehouse_id = ${warehouseId}
+         AND COALESCE(variant_id,0) = ${variantId ?? 0}
          AND remaining_qty > 0
          AND ${supplyScope("move", sql`receipt_move_id`, companyId)}
          ${lotFilter}
@@ -416,6 +418,13 @@ export async function recordStockMove(
   }
 
   // ---- Resolve unit cost ----
+  // Take the quant lock before reading cost / consuming FIFO, not only
+  // when applying the delta: concurrent average issues must value the
+  // same committed stock state that they subsequently remove.
+  if (isOutbound && input.fromWarehouseId != null) {
+    const key = `${input.productId}-${input.fromWarehouseId}-${input.variantId ?? 0}-${input.lotId ?? 0}`;
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${key}, 0))`);
+  }
   let unitCost = input.unitCost ?? 0;
   const state = input.state ?? "done";
   // For FIFO products, layers MUST be decremented on every outbound leg
@@ -432,6 +441,7 @@ export async function recordStockMove(
         qty,
         input.lotId ?? null,
         product.companyId,
+        input.variantId ?? null,
       );
       if (input.unitCost == null) unitCost = fifoCost ?? product.costPrice;
     } else if (input.unitCost == null) {

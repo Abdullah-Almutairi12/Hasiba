@@ -6,14 +6,17 @@ import {
   db, pool, companiesTable, usersTable, userCompaniesTable, categoriesTable,
   productsTable, customersTable, branchesTable, warehousesTable, posSessionsTable,
   fiscalYearsTable, fiscalPeriodsTable, customerInvoicesTable, customerInvoiceLinesTable,
+  approvalRulesTable, approvalStepsTable,
 } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import app, { assertApplicationReady } from "../app";
 import { recordStockMove } from "../lib/stock-engine";
 import { postJournalEntry } from "../lib/journal-posting";
+import { actOnApproval } from "../lib/workflow-engine";
 
 // Run only through test:isolated: all rows are synthetic in a disposable PG cluster.
 beforeAll(assertApplicationReady);
+let clientNumber = 0;
 async function rows(sql: string, params: unknown[] = []) { return (await pool.query(sql, params)).rows; }
 function ok(response: request.Response, status = 201) {
   expect(response.status, JSON.stringify(response.body)).toBe(status);
@@ -49,7 +52,9 @@ async function fixture(method: "fifo" | "average" | "standard" = "fifo") {
     sessionNumber: tag, cashierName: tag, branchId: branch.id, openingCash: "0", status: "open",
   }).returning();
   const agent = request.agent(app);
-  ok(await agent.post("/api/auth/login").send({ email: user.email, password }), 200);
+  // Independent synthetic clients; preserve the real login limiter in tests.
+  ok(await agent.post("/api/auth/login").set("X-Forwarded-For", `192.0.2.${++clientNumber}`)
+    .send({ email: user.email, password }), 200);
   // Distinct inbound cost layers: 2×10 + 4×20 = SAR 100.
   await db.transaction(async (tx) => {
     for (const [quantity, unitCost] of [[2, 10], [4, 20]]) {
@@ -59,7 +64,7 @@ async function fixture(method: "fifo" | "average" | "standard" = "fifo") {
       });
     }
   });
-  return { tag, companyId, productId: product.id, warehouseId: warehouse.id, customerId: customer.id, sessionId: session.id, agent };
+  return { tag, companyId, userId: user.id, productId: product.id, warehouseId: warehouse.id, customerId: customer.id, sessionId: session.id, agent };
 }
 type Fixture = Awaited<ReturnType<typeof fixture>>;
 async function sale(f: Fixture, items = [{ productId: f.productId, quantity: 4 }]) {
@@ -89,6 +94,16 @@ async function reconcile(f: Fixture, expected: { inventory: number; cogs: number
   expect(-balance("sales_revenue") - balance("sales_returns") - balance("sales_discount") - balance("cogs")).toBeCloseTo(expected.profit, 2);
   expect(Number(quant.value)).toBeCloseTo(expected.inventory, 2);
   expect(Number(moves.value)).toBeCloseTo(expected.inventory, 2);
+  const [quantities] = await rows(`SELECT
+    (SELECT coalesce(sum(quantity),0) FROM stock_quants WHERE product_id=$1)::float8 AS quant,
+    (SELECT coalesce(sum(CASE WHEN to_warehouse_id IS NOT NULL THEN quantity ELSE -quantity END),0)
+      FROM stock_moves WHERE product_id=$1 AND state='done')::float8 AS moves,
+    (SELECT stock FROM products WHERE id=$1)::float8 AS cached,
+    (SELECT coalesce(sum(remaining_qty),0) FROM stock_layers WHERE product_id=$1)::float8 AS layers`,
+  [f.productId]);
+  expect(quantities.quant).toBeCloseTo(quantities.moves, 4);
+  expect(quantities.cached).toBeCloseTo(quantities.quant, 4);
+  if (fifo) expect(quantities.layers).toBeCloseTo(quantities.quant, 4);
   if (fifo) {
     const [layers] = await rows("SELECT sum(remaining_qty*unit_cost)::float8 AS value FROM stock_layers WHERE product_id=$1", [f.productId]);
     expect(Number(layers.value)).toBeCloseTo(expected.inventory, 2);
@@ -345,7 +360,176 @@ describe("original sales cost, inventory carrying value and profit", () => {
       FROM journal_entries j JOIN journal_entry_lines l ON l.entry_id=j.id JOIN accounts a ON a.id=l.account_id
       WHERE j.company_id=$1 AND a.system_key='ar'`, [f.companyId]);
     expect(ar.value).toBe(75); // USD 20 remaining × historical 3.75, not current 4.2.
+    // Resell three units, including one returned unit, then replenish at 50.
+    // Cancellation consumes 10+20+50=80, not the original returned value 40.
+    await sale(f, [{ productId: f.productId, quantity: 3 }]);
+    await db.transaction(async (tx) => {
+      await recordStockMove(tx, { companyId: f.companyId, productId: f.productId, quantity: 1,
+        unitCost: 50, kind: "receipt", toWarehouseId: f.warehouseId });
+    });
+    await reconcile(f, { inventory: 80, cogs: 70, profit: 305 });
+    ok(await f.agent.post(`/api/sales/credit-notes/${credit.id}/cancel`).send({}), 200);
+    await reconcile(f, { inventory: 0, cogs: 150, profit: 450 });
+    const [restoredAr] = await rows(`SELECT sum(l.base_debit-l.base_credit)::float8 AS value
+      FROM journal_entries j JOIN journal_entry_lines l ON l.entry_id=j.id JOIN accounts a ON a.id=l.account_id
+      WHERE j.company_id=$1 AND a.system_key='ar'`, [f.companyId]);
+    expect(restoredAr.value).toBe(300);
+    const [reversal] = await rows("SELECT * FROM journal_entries WHERE reversal_of=$1", [credit.journalEntryId]);
+    expect(reversal.currency_code).toBe("USD");
+    expect(Number(reversal.exchange_rate)).toBe(3.75);
+    const [difference] = await rows(`SELECT sum(l.base_debit-l.base_credit)::float8 AS value
+      FROM journal_entries j JOIN journal_entry_lines l ON l.entry_id=j.id JOIN accounts a ON a.id=l.account_id
+      WHERE j.company_id=$1 AND j.source_ref=$2 AND a.system_key='cogs'`,
+    [f.companyId, `${credit.reference}-CXL-COST`]);
+    expect(difference.value).toBe(40);
+    // Replenish after depletion and return again: cancellation released the
+    // original invoice's return capacity, without deleting its cost evidence.
+    await db.transaction(async (tx) => {
+      await recordStockMove(tx, { companyId: f.companyId, productId: f.productId, quantity: 1,
+        unitCost: 20, kind: "receipt", toWarehouseId: f.warehouseId });
+    });
     ok(await f.agent.post("/api/sales/credit-notes").send(returnBody(f, invoice.id, line.id, 1, 20)));
+    await reconcile(f, { inventory: 30, cogs: 140, profit: 385 });
+  });
+});
+
+describe("credit-note cancellation reconciles actual depletion, not only journal balance", () => {
+  it("charges the positive FIFO cost difference and rejects simultaneous/repeated cancellation", async () => {
+    const f = await fixture();
+    const { invoice, lines } = await sale(f);
+    const credit = ok(await f.agent.post("/api/sales/credit-notes").send(returnBody(f, invoice.id, lines[0].id, 1)));
+    await reconcile(f, { inventory: 55, cogs: 45, profit: 255 });
+    await db.update(productsTable).set({ costPrice: "99" }).where(eq(productsTable.id, f.productId));
+    const responses = await Promise.all([0, 1].map(() =>
+      f.agent.post(`/api/sales/credit-notes/${credit.id}/cancel`).send({})));
+    expect(responses.map((r) => r.status).sort()).toEqual([200, 409]);
+    await reconcile(f, { inventory: 35, cogs: 65, profit: 335 });
+    const [count] = await rows(`SELECT count(*)::int AS n FROM stock_moves
+      WHERE source_type='credit_note_cancel' AND source_id=$1`, [credit.id]);
+    expect(count.n).toBe(1);
+    const [rev] = await rows("SELECT count(*)::int AS n FROM journal_entries WHERE reversal_of=$1", [credit.journalEntryId]);
+    expect(rev.n).toBe(1);
+    expect((await f.agent.post(`/api/sales/credit-notes/${credit.id}/cancel`).send({})).status).toBe(409);
+    await reconcile(f, { inventory: 35, cogs: 65, profit: 335 });
+  });
+
+  it("credits a negative FIFO difference without rewriting the original return or its layers", async () => {
+    const f = await fixture();
+    const { invoice, lines } = await sale(f);
+    const first = ok(await f.agent.post("/api/sales/credit-notes").send(returnBody(f, invoice.id, lines[0].id, 2)));
+    // Original issue was weighted at 15. A second sale consumes 2×20.
+    const second = await sale(f, [{ productId: f.productId, quantity: 2 }]);
+    const credit = ok(await f.agent.post("/api/sales/credit-notes").send(
+      returnBody(f, second.invoice.id, second.lines[0].id, 1)));
+    const history = await rows("SELECT * FROM stock_moves WHERE source_type='credit_note' AND source_id=$1", [credit.id]);
+    ok(await f.agent.post(`/api/sales/credit-notes/${credit.id}/cancel`).send({}), 200);
+    // Current FIFO layer is from the first return at 15, not the 20 being reversed.
+    await reconcile(f, { inventory: 35, cogs: 65, profit: 335 });
+    expect(await rows("SELECT * FROM stock_moves WHERE source_type='credit_note' AND source_id=$1", [credit.id])).toEqual(history);
+    expect((await rows("SELECT status FROM credit_notes WHERE id=$1", [first.id]))[0].status).toBe("issued");
+  });
+
+  it.each(["average", "standard"] as const)("uses %s carrying value after the standard price changes", async (method) => {
+    const f = await fixture(method);
+    const { invoice, lines } = await sale(f);
+    const credit = ok(await f.agent.post("/api/sales/credit-notes").send(returnBody(f, invoice.id, lines[0].id, 1)));
+    const [before] = await rows("SELECT sum(quantity*avg_cost)::float8 AS v FROM stock_quants WHERE product_id=$1", [f.productId]);
+    const expectedCost = Number(before.v) / 3;
+    await db.update(productsTable).set({ costPrice: "99" }).where(eq(productsTable.id, f.productId));
+    ok(await f.agent.post(`/api/sales/credit-notes/${credit.id}/cancel`).send({}), 200);
+    const inventory = Number(before.v) - expectedCost;
+    await reconcile(f, { inventory, cogs: 100 - inventory, profit: 300 + inventory }, false);
+  });
+
+  it("rolls back all cancellation effects in a closed period or on insufficient stock", async () => {
+    const f = await fixture();
+    const { invoice, lines } = await sale(f);
+    const credit = ok(await f.agent.post("/api/sales/credit-notes").send(returnBody(f, invoice.id, lines[0].id, 4)));
+    const before = await rows("SELECT * FROM stock_layers WHERE product_id=$1 ORDER BY id", [f.productId]);
+    await pool.query(`UPDATE fiscal_periods SET status='closed'
+      WHERE fiscal_year_id IN (SELECT id FROM fiscal_years WHERE company_id=$1)`, [f.companyId]);
+    expect((await f.agent.post(`/api/sales/credit-notes/${credit.id}/cancel`).send({})).status).toBe(403);
+    expect(await rows("SELECT * FROM stock_layers WHERE product_id=$1 ORDER BY id", [f.productId])).toEqual(before);
     await reconcile(f, { inventory: 100, cogs: 0, profit: 0 });
+    await pool.query(`UPDATE fiscal_periods SET status='open'
+      WHERE fiscal_year_id IN (SELECT id FROM fiscal_years WHERE company_id=$1)`, [f.companyId]);
+    await sale(f, [{ productId: f.productId, quantity: 4 }]);
+    expect((await f.agent.post(`/api/sales/credit-notes/${credit.id}/cancel`).send({})).status).toBe(409);
+    expect((await rows("SELECT status FROM credit_notes WHERE id=$1", [credit.id]))[0].status).toBe("issued");
+    expect(await rows("SELECT id FROM journal_entries WHERE reversal_of=$1", [credit.journalEntryId])).toHaveLength(0);
+    expect(await rows("SELECT id FROM stock_moves WHERE source_type='credit_note_cancel' AND source_id=$1", [credit.id])).toHaveLength(0);
+    await reconcile(f, { inventory: 30, cogs: 70, profit: 330 });
+  });
+
+  it("rejects missing or inconsistent historical return evidence without repairing it", async () => {
+    const f = await fixture();
+    const { invoice, lines } = await sale(f);
+    const credit = ok(await f.agent.post("/api/sales/credit-notes").send(returnBody(f, invoice.id, lines[0].id, 1)));
+    await pool.query("UPDATE stock_moves SET original_move_id=NULL WHERE source_type='credit_note' AND source_id=$1", [credit.id]);
+    expect((await f.agent.post(`/api/sales/credit-notes/${credit.id}/cancel`).send({})).status).toBe(409);
+    await reconcile(f, { inventory: 55, cogs: 45, profit: 255 });
+    expect((await rows("SELECT status FROM credit_notes WHERE id=$1", [credit.id]))[0].status).toBe("issued");
+  });
+
+  it("cancels a commercial-only credit without changing inventory or COGS", async () => {
+    const f = await fixture();
+    const { invoice, lines } = await sale(f);
+    const credit = ok(await f.agent.post("/api/sales/credit-notes").send(returnBody(f, invoice.id, lines[0].id, 1, 100, false)));
+    ok(await f.agent.post(`/api/sales/credit-notes/${credit.id}/cancel`).send({}), 200);
+    await reconcile(f, { inventory: 40, cogs: 60, profit: 340 });
+  });
+
+  it("uses the same atomic valuation through approval, including retry after closed-period failure", async () => {
+    const f = await fixture();
+    const { invoice, lines } = await sale(f);
+    const credit = ok(await f.agent.post("/api/sales/credit-notes").send(returnBody(f, invoice.id, lines[0].id, 1)));
+    const [approver] = await db.insert(usersTable).values({
+      name: f.tag, email: `${f.tag}-approver@example.invalid`, role: "manager",
+    }).returning();
+    await db.insert(userCompaniesTable).values({ userId: approver.id, companyId: f.companyId, role: "manager" });
+    const [rule] = await db.insert(approvalRulesTable).values({
+      name: f.tag, docType: "credit_note_cancel", minAmount: "0", isActive: true, mode: "sequential",
+    }).returning();
+    try {
+      await db.insert(approvalStepsTable).values({
+        ruleId: rule.id, sequence: 1, approverRole: "manager", approverUserId: approver.id, minAmount: "0",
+      });
+      const pending = ok(await f.agent.post(`/api/sales/credit-notes/${credit.id}/cancel`).send({}), 202);
+      await reconcile(f, { inventory: 55, cogs: 45, profit: 255 });
+      await pool.query(`UPDATE fiscal_periods SET status='closed'
+        WHERE fiscal_year_id IN (SELECT id FROM fiscal_years WHERE company_id=$1)`, [f.companyId]);
+      await expect(actOnApproval(pending.approvalRequestId, approver.id, f.tag, "approve")).rejects.toThrow("الفترة");
+      expect((await rows("SELECT status FROM approval_requests WHERE id=$1", [pending.approvalRequestId]))[0].status).toBe("pending");
+      await reconcile(f, { inventory: 55, cogs: 45, profit: 255 });
+      await pool.query(`UPDATE fiscal_periods SET status='open'
+        WHERE fiscal_year_id IN (SELECT id FROM fiscal_years WHERE company_id=$1)`, [f.companyId]);
+      await actOnApproval(pending.approvalRequestId, approver.id, f.tag, "approve");
+      await reconcile(f, { inventory: 35, cogs: 65, profit: 335 });
+      expect((await rows("SELECT status FROM credit_notes WHERE id=$1", [credit.id]))[0].status).toBe("cancelled");
+      expect((await f.agent.post(`/api/sales/credit-notes/${credit.id}/cancel`).send({})).status).toBe(409);
+    } finally {
+      await db.delete(approvalRulesTable).where(eq(approvalRulesTable.id, rule.id));
+    }
+  });
+
+  it("serializes two cancellations on one SO invoice and restores fulfilment counters exactly once", async () => {
+    const f = await fixture();
+    const order = ok(await f.agent.post("/api/sales/orders").send({
+      customerId: f.customerId, warehouseId: f.warehouseId, status: "confirmed",
+      lines: [{ productId: f.productId, description: f.tag, quantity: 4, unitPrice: 100, taxRate: 0 }],
+    }));
+    ok(await f.agent.post("/api/sales/deliveries").send({ soId: order.id }));
+    const invoice = ok(await f.agent.post("/api/sales/invoices").send({ soId: order.id }));
+    const [line] = await rows("SELECT id FROM customer_invoice_lines WHERE invoice_id=$1", [invoice.id]);
+    const credits = [];
+    for (let n = 0; n < 2; n++) credits.push(ok(await f.agent.post("/api/sales/credit-notes").send(returnBody(f, invoice.id, line.id, 1))));
+    const responses = await Promise.all(credits.map((c) => f.agent.post(`/api/sales/credit-notes/${c.id}/cancel`).send({})));
+    responses.forEach((r) => ok(r, 200));
+    await reconcile(f, { inventory: 30, cogs: 70, profit: 330 });
+    const [counter] = await rows("SELECT invoiced_qty,delivered_qty FROM sales_order_lines WHERE so_id=$1", [order.id]);
+    expect(Number(counter.invoiced_qty)).toBe(4);
+    expect(Number(counter.delivered_qty)).toBe(4);
+    expect((await rows("SELECT status FROM sales_orders WHERE id=$1", [order.id]))[0].status).toBe("invoiced");
+    expect((await rows("SELECT status FROM customer_invoices WHERE id=$1", [invoice.id]))[0].status).toBe("open");
   });
 });

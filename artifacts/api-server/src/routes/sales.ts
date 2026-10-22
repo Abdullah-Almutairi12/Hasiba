@@ -59,6 +59,7 @@ import { sendByTemplate } from "../lib/integrations/messaging-templates";
 import { buildSignedInvoiceQrPath } from "./integrations";
 import { recordStockMove, getDefaultWarehouseId } from "../lib/stock-engine";
 import { allocateDeliveryIssueCost, originalInvoiceRate, restoreOriginalSaleCost } from "../lib/sales-return-cost";
+import { cancelPostedSalesReturn } from "../lib/sales-return-cancellation";
 import { requireSupplyReference } from "../lib/supply-chain-scope";
 import type { DbOrTx } from "../lib/journal-posting";
 import { mirrorSalesInvoice, mirrorCreditNote, voidMirrorForSourceTx } from "../lib/intercompany-mirror";
@@ -141,9 +142,16 @@ async function finalizeCreditNoteCancellation(
   companyId: number,
 ): Promise<typeof creditNotesTable.$inferSelect> {
   return await db.transaction(async (tx) => {
-    const [note] = await tx.select().from(creditNotesTable).where(and(eq(creditNotesTable.id, id), eq(creditNotesTable.companyId, companyId)));
+    const [note] = await tx.select().from(creditNotesTable).where(and(eq(creditNotesTable.id, id), eq(creditNotesTable.companyId, companyId))).for("update");
     if (!note) throw Object.assign(new Error("Not found"), { status: 404 });
-    if (note.status === "cancelled") throw new Error("الإشعار ملغى مسبقاً");
+    if (note.status === "cancelled") throw new FinancialRequestError("الإشعار ملغى مسبقاً", 409);
+    const posted = note.status === "issued" || note.status === "applied";
+    if (!posted && note.status !== "draft" && note.status !== "pending_approval") {
+      throw new FinancialRequestError("حالة الإشعار لا تسمح بالإلغاء", 409);
+    }
+    if (!posted && note.journalEntryId) {
+      throw new FinancialRequestError("حالة الإشعار لا تتفق مع قيده؛ يلزم فحص مالي مستقل", 409);
+    }
     if (note.invoiceId) {
       const [source] = await tx.select({ soId: customerInvoicesTable.soId }).from(customerInvoicesTable)
         .where(and(eq(customerInvoicesTable.id, note.invoiceId), eq(customerInvoicesTable.companyId, companyId)));
@@ -151,6 +159,8 @@ async function finalizeCreditNoteCancellation(
         await tx.select({ id: salesOrdersTable.id }).from(salesOrdersTable)
           .where(and(eq(salesOrdersTable.id, source.soId), eq(salesOrdersTable.companyId, companyId))).for("update");
       }
+      await tx.select({ id: customerInvoicesTable.id }).from(customerInvoicesTable)
+        .where(and(eq(customerInvoicesTable.id, note.invoiceId), eq(customerInvoicesTable.companyId, companyId))).for("update");
     }
 
     const cnLines = await tx
@@ -161,51 +171,11 @@ async function finalizeCreditNoteCancellation(
     // contain cross-company inventory links.
     await validateCreditNoteInventory(tx, note.companyId, note.warehouseId, cnLines);
 
-    if (note.journalEntryId) {
-      const reverseRef = `${note.reference}-REV`;
-      const reverseLines: Array<{ systemKey: string; debit?: number; credit?: number; description?: string }> = [
-        { systemKey: "sales_returns", credit: Number(note.subtotal), description: "إلغاء مردودات مبيعات" },
-      ];
-      if (Number(note.vat) > 0)
-        reverseLines.push({ systemKey: "vat_output", credit: Number(note.vat), description: "إلغاء عكس ضريبة 15%" });
-      if (Number(note.total) > 0)
-        reverseLines.push({ systemKey: "ar", debit: Number(note.total), description: "إعادة فتح ذمم مدينة" });
-      await postJournalEntry(
-        tx,
-        {
-          entryDate: new Date().toISOString().slice(0, 10),
-          description: `إلغاء إشعار دائن ${note.reference}`,
-          reference: reverseRef,
-          source: "manual",
-          sourceRef: reverseRef,
-          createdBy: sessionUserId,
-          status: "posted",
-          companyId,
-        },
-        reverseLines,
-      );
-    }
-
-    if (note.restock && note.warehouseId) {
-      const cancelRef = `${note.reference}-CXL`;
-      for (const cn of cnLines) {
-        if (!cn.productId) continue;
-        await recordStockMove(tx, {
-          companyId: note.companyId,
-          productId: cn.productId,
-          quantity: Number(cn.quantity),
-          kind: "issue",
-          fromWarehouseId: note.warehouseId,
-          sourceType: "credit_note_cancel",
-          sourceRef: cancelRef,
-          createdBy: sessionUserId,
-          skipJournal: true,
-        });
-      }
-    }
+    if (posted) await cancelPostedSalesReturn(tx, note, cnLines, sessionUserId);
 
     const touchedSoIds = new Set<number>();
     for (const cn of cnLines) {
+      if (!posted) break; // Unissued drafts never changed fulfilment counters.
       if (!cn.invoiceLineId) continue;
       const [il] = await tx
         .select()
@@ -3462,6 +3432,9 @@ router.post("/sales/credit-notes/:id/cancel", salesWriteGuard, async (req, res) 
     {
       const [pre] = await db.select().from(creditNotesTable).where(and(eq(creditNotesTable.id, id), eq(creditNotesTable.companyId, getCompanyId(req))));
       if (!pre) { res.status(404).json({ error: "Not found" }); return; }
+      if (pre.status === "cancelled") {
+        res.status(409).json({ error: "الإشعار ملغى مسبقاً" }); return;
+      }
       if (pre) {
         const submission = await submitForApproval({
           docType: "credit_note_cancel",
