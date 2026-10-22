@@ -9,6 +9,7 @@ import {
 import { inArray } from "drizzle-orm";
 import { postJournalEntry, reverseJournalEntry, ClosedPeriodError } from "../lib/journal-posting";
 import { getCompanyId } from "../lib/scoped-db";
+import { financialTransaction, FinancialRequestError } from "../lib/financial-transaction";
 import { journalEntriesTable } from "@workspace/db";
 import { eq, sql, desc, ilike, and } from "drizzle-orm";
 import { CreateInvoiceBody, UpdateInvoiceBody } from "@workspace/api-zod";
@@ -100,7 +101,7 @@ router.post("/invoices", financeGuard, async (req, res) => {
   try {
     const body = CreateInvoiceBody.parse(req.body);
     const companyId = getCompanyId(req);
-    const [invoice] = await db
+    const [invoice] = await financialTransaction(req, (tx) => tx
       .insert(invoicesTable)
       .values({
         companyId,
@@ -111,7 +112,7 @@ router.post("/invoices", financeGuard, async (req, res) => {
         status: "pending",
         confidence: null,
       })
-      .returning();
+      .returning());
 
     // Anomaly hook: feed manual supplier-invoice creation into the
     // engine so the after-hours rule also covers non-scan paths.
@@ -136,6 +137,7 @@ router.post("/invoices", financeGuard, async (req, res) => {
       createdAt: invoice.createdAt.toISOString(),
     });
   } catch (err) {
+    if (err instanceof FinancialRequestError) { res.status(err.status).json({ error: err.message }); return; }
     req.log.error({ err }, "Error creating invoice");
     res.status(500).json({ error: "Internal server error" });
   }
@@ -517,11 +519,11 @@ router.post("/invoices/:id/reverse", financeGuard, async (req, res) => {
     // mutate the original invoice.
     const companyId = getCompanyId(req);
 
-    const result = await db.transaction(async (tx) => {
+    const result = await financialTransaction(req, async (tx) => {
       const [orig] = await tx
         .select()
         .from(invoicesTable)
-        .where(and(eq(invoicesTable.id, id), eq(invoicesTable.companyId, companyId)));
+        .where(and(eq(invoicesTable.id, id), eq(invoicesTable.companyId, companyId))).for("update");
       if (!orig) throw Object.assign(new Error("الفاتورة غير موجودة"), { httpStatus: 404 });
       if (!orig.isLocked) {
         throw Object.assign(
@@ -808,13 +810,14 @@ router.post("/invoices/from-scan", supplierInvoiceAgent, async (req, res) => {
   }
 
   // 3-way match enforcement: if poId is provided, validate every linked
-  // line against the PO before opening the transaction so we can return a
-  // clear 4xx without burning a transaction.
+  // line against the PO under the same transaction as billing quantities.
   const PRICE_TOLERANCE_PCT = Number(process.env.PO_INVOICE_PRICE_TOLERANCE_PCT ?? "5");
   // Resolve the caller's tenant once; every PO/PO-line/product lookup
   // in this multi-step flow MUST be scoped by it to prevent cross-tenant
   // IDOR (e.g. attaching a foreign PO id to your own invoice).
   const scanCompanyId = getCompanyId(req);
+  try {
+    const result = await financialTransaction(req, async (tx) => {
   let poLinesById: Map<number, { id: number; poId: number; quantity: string; receivedQty: string; billedQty: string; unitPrice: string }> | null = null;
   if (body.poId) {
     // Force addToInventory=false on PO-linked invoices: the linked GRN
@@ -825,7 +828,7 @@ router.post("/invoices/from-scan", supplierInvoiceAgent, async (req, res) => {
     // derived from the linked supplier's companyId. INNER JOIN on the
     // supplier filtered by the caller's company collapses foreign POs
     // to "not found" without leaking existence.
-    const poRows = await db
+    const poRows = await tx
       .select({ po: purchaseOrdersTable })
       .from(purchaseOrdersTable)
       .innerJoin(suppliersTable, eq(suppliersTable.id, purchaseOrdersTable.supplierId))
@@ -834,13 +837,13 @@ router.post("/invoices/from-scan", supplierInvoiceAgent, async (req, res) => {
           eq(purchaseOrdersTable.id, body.poId),
           eq(suppliersTable.companyId, scanCompanyId),
         ),
-      );
+      ).for("update", { of: purchaseOrdersTable });
     const po = poRows[0]?.po;
     if (!po) {
-      return res.status(400).json({ error: "أمر الشراء المحدد غير موجود." });
+      throw new FinancialRequestError("أمر الشراء المحدد غير موجود.", 400);
     }
     if (!["confirmed", "partially_received", "fully_received"].includes(po.status)) {
-      return res.status(409).json({ error: `لا يمكن مطابقة فاتورة مع أمر شراء بحالة "${po.status}".` });
+      throw new FinancialRequestError(`لا يمكن مطابقة فاتورة مع أمر شراء بحالة "${po.status}".`, 409);
     }
     // Segregation of Duties: the user who created the purchase order
     // cannot also be the one who books the matching supplier invoice.
@@ -855,9 +858,7 @@ router.post("/invoices/from-scan", supplierInvoiceAgent, async (req, res) => {
         po.createdBy != null &&
         sessionUserId === po.createdBy
       ) {
-        return res.status(403).json({
-          error: "لا يمكن اعتماد فاتورة مورد على أمر شراء قمت بإنشائه (مبدأ فصل المهام). يجب على محاسب آخر تسجيل الفاتورة.",
-        });
+        throw new FinancialRequestError("لا يمكن اعتماد فاتورة مورد على أمر شراء قمت بإنشائه (مبدأ فصل المهام). يجب على محاسب آخر تسجيل الفاتورة.", 403);
       }
     }
     const linkedLineIds = body.items.map((it) => it.poLineId).filter((v): v is number => !!v);
@@ -866,21 +867,17 @@ router.post("/invoices/from-scan", supplierInvoiceAgent, async (req, res) => {
     // server post a hybrid invoice that matches some lines while
     // bypassing the match for others (and posting them straight to GR-IR).
     if (linkedLineIds.length === 0) {
-      return res.status(400).json({
-        error: "عند ربط الفاتورة بأمر شراء يجب تحديد سطر أمر الشراء لكل بند.",
-      });
+      throw new FinancialRequestError("عند ربط الفاتورة بأمر شراء يجب تحديد سطر أمر الشراء لكل بند.", 400);
     }
     const itemsWithoutLink = body.items.filter((it) => !it.poLineId).length;
     if (itemsWithoutLink > 0) {
-      return res.status(400).json({
-        error: `يوجد ${itemsWithoutLink} بند(بنود) بلا ربط بسطر أمر شراء. يجب ربط جميع البنود لتفعيل المطابقة الثلاثية.`,
-      });
+      throw new FinancialRequestError(`يوجد ${itemsWithoutLink} بند(بنود) بلا ربط بسطر أمر شراء. يجب ربط جميع البنود لتفعيل المطابقة الثلاثية.`, 400);
     }
     {
       // Tenant scope: load PO lines via INNER JOIN on the PO so that
       // even a leaked line id from another company cannot be resolved
       // here (the parent PO predicate filters it out).
-      const poLineRows = await db
+      const poLineRows = await tx
         .select({ line: purchaseOrderLinesTable })
         .from(purchaseOrderLinesTable)
         .innerJoin(
@@ -900,33 +897,30 @@ router.post("/invoices/from-scan", supplierInvoiceAgent, async (req, res) => {
         );
       const poLines = poLineRows.map((r) => r.line);
       poLinesById = new Map(poLines.map((l) => [l.id, l]));
+      const quantitiesInRequest = new Map<number, number>();
       for (const item of body.items) {
         if (!item.poLineId) continue;
         const ln = poLinesById.get(item.poLineId);
         if (!ln || ln.poId !== body.poId) {
-          return res.status(400).json({ error: `بند الفاتورة يشير إلى سطر أمر شراء غير صالح (#${item.poLineId}).` });
+          throw new FinancialRequestError(`بند الفاتورة يشير إلى سطر أمر شراء غير صالح (#${item.poLineId}).`, 400);
         }
         const remainingToBill = Number(ln.receivedQty) - Number(ln.billedQty);
-        if (item.quantity > remainingToBill + 1e-6) {
-          return res.status(409).json({
-            error: `الكمية المُفوترة (${item.quantity}) للسطر #${ln.id} تتجاوز الكمية المستلمة غير المُفوترة (${remainingToBill}).`,
-          });
+        const requestedQty = (quantitiesInRequest.get(ln.id) ?? 0) + item.quantity;
+        quantitiesInRequest.set(ln.id, requestedQty);
+        if (requestedQty > remainingToBill + 1e-6) {
+          throw new FinancialRequestError(`الكمية المُفوترة (${item.quantity}) للسطر #${ln.id} تتجاوز الكمية المستلمة غير المُفوترة (${remainingToBill}).`, 409);
         }
         const expectedPrice = Number(ln.unitPrice);
         if (expectedPrice > 0) {
           const diffPct = Math.abs(item.unitPrice - expectedPrice) / expectedPrice * 100;
           if (diffPct > PRICE_TOLERANCE_PCT) {
-            return res.status(409).json({
-              error: `سعر الفاتورة للسطر #${ln.id} يتجاوز نسبة التفاوت المسموحة (${PRICE_TOLERANCE_PCT}%).`,
-            });
+            throw new FinancialRequestError(`سعر الفاتورة للسطر #${ln.id} يتجاوز نسبة التفاوت المسموحة (${PRICE_TOLERANCE_PCT}%).`, 409);
           }
         }
       }
     }
   }
 
-  try {
-    const result = await db.transaction(async (tx) => {
       // 0) Find or create the supplier so the invoice can be linked to a supplier record.
       // VAT number has a UNIQUE constraint, so we use ON CONFLICT DO UPDATE to
       // make this race-safe under concurrent imports (the conflicting row is
@@ -1261,6 +1255,7 @@ router.post("/invoices/from-scan", supplierInvoiceAgent, async (req, res) => {
 
     return res.json({ ok: true, ...result });
   } catch (err) {
+    if (err instanceof FinancialRequestError) return res.status(err.status).json({ error: err.message });
     if (err instanceof ClosedPeriodError) {
       return res.status(403).json({ error: err.message });
     }

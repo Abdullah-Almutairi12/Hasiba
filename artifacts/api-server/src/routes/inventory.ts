@@ -28,6 +28,7 @@ import {
 } from "../lib/stock-engine";
 import { evaluateAnomalies } from "../lib/anomaly-engine";
 import { getCompanyId } from "../lib/scoped-db";
+import { financialTransaction, FinancialRequestError } from "../lib/financial-transaction";
 import { supplyScope, supplyParam, supplyReferencesGuard } from "../lib/supply-chain-scope";
 
 const router = Router();
@@ -198,7 +199,7 @@ const ManualMoveBody = z.object({
 router.post("/inventory/moves", inventoryGuard, async (req, res) => {
   try {
     const body = ManualMoveBody.parse(req.body);
-    const result = await db.transaction(async (tx) => {
+    const result = await financialTransaction(req, async (tx) => {
       let lotId: number | undefined;
       if (body.lotNumber) {
         lotId = await getOrCreateLot(tx, body.productId, body.lotNumber, body.expiryDate ?? null);
@@ -231,7 +232,7 @@ router.post("/inventory/moves", inventoryGuard, async (req, res) => {
     // Anomaly hook: only manual *adjustments* (not receipts/issues from
     // POs / sales) feed the unusual_stock_adjust rule. This is the
     // single place where direct stock surgery happens in the system.
-    if (body.kind === "adjustment_in" || body.kind === "adjustment_out") {
+    if (!res.getHeader("Idempotency-Replayed") && (body.kind === "adjustment_in" || body.kind === "adjustment_out")) {
       void evaluateAnomalies({
         type: "stock.adjust",
         actorId: req.session?.userId ?? null,
@@ -251,6 +252,7 @@ router.post("/inventory/moves", inventoryGuard, async (req, res) => {
 
     res.status(201).json(result);
   } catch (err) {
+    if (err instanceof FinancialRequestError) { res.status(err.status).json({ error: err.message }); return; }
     const msg = err instanceof Error ? err.message : "تعذر تسجيل الحركة";
     req.log.error({ err }, "manual move failed");
     res.status(400).json({ error: msg });

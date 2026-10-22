@@ -113,6 +113,7 @@ async function nextEntryNumber(tx: DbOrTx, year: number): Promise<string> {
   // The sequence is created lazily on first use; nextval is atomic and
   // never returns the same value to two sessions.
   const seqName = `journal_entries_seq_${year}`;
+  await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${`sequence:${seqName}`}, 0)) WHERE to_regclass(${seqName}) IS NULL`);
   const prefix = `JE-${year}-`;
   await tx.execute(
     sql.raw(`CREATE SEQUENCE IF NOT EXISTS ${seqName} MINVALUE 1 START 1`),
@@ -164,12 +165,16 @@ export async function postJournalEntry(
 
   const currencyCode = header.currencyCode ?? "SAR";
   const exchangeRate = header.exchangeRate ?? 1;
+  if (!Number.isFinite(exchangeRate) || exchangeRate <= 0) {
+    throw new Error("سعر الصرف يجب أن يكون رقماً موجباً صالحاً");
+  }
 
   let totalDebit = 0;
   let totalCredit = 0;
   for (const ln of lines) {
     const d = Number(ln.debit ?? 0);
     const c = Number(ln.credit ?? 0);
+    if (!Number.isFinite(d) || !Number.isFinite(c)) throw new Error("قيم القيد يجب أن تكون أرقاماً صالحة");
     if (d > 0 && c > 0) throw new Error("سطر القيد لا يجوز أن يحتوي على مدين ودائن معاً");
     if (d < 0 || c < 0) throw new Error("القيم السالبة غير مسموحة");
     totalDebit += d;

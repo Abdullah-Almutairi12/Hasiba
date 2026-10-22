@@ -2,6 +2,7 @@ import React, { useRef, useState } from "react";
 import {
   useListInvoices,
   useGetInvoiceStats,
+  financialFetch,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -278,7 +279,7 @@ export default function Invoices() {
     }
     try {
       setCommitting(true);
-      const res = await fetch(`${API_BASE}/invoices/from-scan`, {
+      const res = await financialFetch(`${API_BASE}/invoices/from-scan`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },

@@ -84,6 +84,9 @@ export async function nextRef(
   // reference prefixes like "POS-SO" without breaking sequence creation.
   const safe = prefix.toLowerCase().replace(/[^a-z0-9]+/g, "_");
   const seqName = `${safe}_seq_${year}`;
+  // IF NOT EXISTS alone does not serialize concurrent pg_class inserts.
+  // Lock only for first creation; existing sequences keep normal throughput.
+  await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${`sequence:${seqName}`}, 0)) WHERE to_regclass(${seqName}) IS NULL`);
   await tx.execute(
     sql.raw(`CREATE SEQUENCE IF NOT EXISTS ${seqName} MINVALUE 1 START 1`),
   );

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { Router } from "express";
 import {
   db,
@@ -26,6 +27,7 @@ import { CreatePosSessionBody, CreatePosOrderBody } from "@workspace/api-zod";
 import { posGuard, posReadGuard } from "../middlewares/require-role";
 import { postJournalEntry } from "../lib/journal-posting";
 import { getCompanyId } from "../lib/scoped-db";
+import { financialTransaction, FinancialRequestError } from "../lib/financial-transaction";
 import {
   customerReceiptsTable,
   customerReceiptAllocationsTable,
@@ -463,15 +465,15 @@ router.post(
     const body = CreatePosOrderBody.parse(req.body);
 
     const discount = body.discount ?? 0;
-    const orderNumber = `ORD-${Date.now()}`;
+    const orderNumber = `ORD-${Date.now()}-${randomUUID().slice(0, 8)}`;
     const paymentIntentId = (body as { paymentIntentId?: number | null })
       .paymentIntentId ?? null;
 
     // ============ Manager dual-authorization (four-eyes) ============
     // The cashier may attach { managerOverride: { email, password } } to
     // exceed their per-role financial limit (discount %, refund cash) on
-    // this single transaction. We verify the credentials BEFORE the
-    // transaction starts, audit it, and use the manager's role for the
+    // this single transaction. We verify credentials AFTER replay lookup
+    // and before checkout writes, then use the manager's role for the
     // limit check so cashiers can ring large discounts/refunds only when
     // a manager is physically present and types their PIN.
     const rawOverride = (req.body as { managerOverride?: { email?: unknown; password?: unknown; reason?: unknown } } | undefined)?.managerOverride;
@@ -484,7 +486,7 @@ router.post(
 
     // Async path: the cashier can attach an `approvalRequestId` that a
     // manager already approved from /approvals. We validate AND consume
-    // it atomically (status approved → consumed) before the transaction
+    // it atomically (status approved → consumed) inside checkout
     // so it can be used exactly once. Must match docType=pos_over_limit
     // and the same POS session, so an approval for one till cannot be
     // replayed at another.
@@ -498,22 +500,33 @@ router.post(
       submittedByName: string | null;
       notes: string | null;
     } | null = null;
+    const companyId = getCompanyId(req);
+    const company = await getCompanyInfo();
+    const sellerNameForZatca = company.nameAr && company.nameAr !== "—"
+      ? company.nameAr : process.env["ZATCA_SELLER_NAME"] ?? "حاسبة AI";
+    const sellerVatForZatca = company.vatNumber && company.vatNumber !== "—"
+      ? company.vatNumber : process.env["ZATCA_VAT_NUMBER"] ?? "300000000000003";
+    const [companyRow] = await db.select({ vatRegistrationStatus: companiesTable.vatRegistrationStatus })
+      .from(companiesTable).where(eq(companiesTable.id, companyId)).limit(1);
+    const vatEnabled = companyRow?.vatRegistrationStatus === "registered" || companyRow?.vatRegistrationStatus === "voluntary";
+    // Replay lookup runs before one-use approval/manager validation.
+    // New intents still validate and consume approval in this transaction.
+    const result = await financialTransaction(req, async (tx) => {
     if (typeof rawApprovalReqId === "number" && Number.isFinite(rawApprovalReqId)) {
       const sessionIdRaw = (req.body as { sessionId?: unknown } | undefined)?.sessionId;
       const sessionId = typeof sessionIdRaw === "number" ? sessionIdRaw : null;
-      const [reqRow] = await db
+      const [reqRow] = await tx
         .select()
         .from(approvalRequestsTable)
         .where(eq(approvalRequestsTable.id, rawApprovalReqId))
-        .limit(1);
+        .limit(1).for("update");
       if (
         !reqRow ||
         reqRow.docType !== "pos_over_limit" ||
         reqRow.status !== "approved" ||
         reqRow.recordId !== sessionId
       ) {
-        res.status(403).json({ error: "طلب الموافقة غير صالح أو مستهلك" });
-        return;
+        throw new FinancialRequestError("طلب الموافقة غير صالح أو مستهلك", 403);
       }
       // Recover the original action key from recordRef which was written
       // as `POS session #<id> — <actionKey>`. Used to refuse mismatches
@@ -540,24 +553,20 @@ router.post(
       const email = rawOverride.email.toLowerCase().trim().slice(0, 254);
       const password = rawOverride.password.slice(0, 200);
       if (!email || !password) {
-        res.status(401).json({ error: "بيانات المدير غير صحيحة" });
-        return;
+        throw new FinancialRequestError("بيانات المدير غير صحيحة", 401);
       }
-      const [mgr] = await db
+      const [mgr] = await tx
         .select()
         .from(usersTable)
         .where(eq(usersTable.email, email));
       if (!mgr || !mgr.passwordHash || !mgr.isActive) {
-        res.status(401).json({ error: "بيانات المدير غير صحيحة" });
-        return;
+        throw new FinancialRequestError("بيانات المدير غير صحيحة", 401);
       }
       if (mgr.role !== "manager" && mgr.role !== "owner") {
-        res.status(403).json({ error: "هذا المستخدم لا يملك صلاحية اعتماد التجاوز" });
-        return;
+        throw new FinancialRequestError("هذا المستخدم لا يملك صلاحية اعتماد التجاوز", 403);
       }
       if (mgr.id === req.session?.userId) {
-        res.status(403).json({ error: "لا يمكنك اعتماد تجاوز لنفسك (مبدأ فصل المهام)" });
-        return;
+        throw new FinancialRequestError("لا يمكنك اعتماد تجاوز لنفسك (مبدأ فصل المهام)", 403);
       }
       const ok = await bcrypt.compare(password, mgr.passwordHash);
       if (!ok) {
@@ -567,8 +576,7 @@ router.post(
           entity: "pos_order",
           details: `محاولة تجاوز فاشلة باسم ${email}`,
         });
-        res.status(401).json({ error: "بيانات المدير غير صحيحة" });
-        return;
+        throw new FinancialRequestError("بيانات المدير غير صحيحة", 401);
       }
       overrideRoleEffective = mgr.role;
       overrideUserId = mgr.id;
@@ -582,28 +590,6 @@ router.post(
     // Single transaction: product reads/stock decrements, order insert, session
     // update, and GL postings all succeed-or-rollback together. Any failure in
     // posting the journal entry now rolls back the order + stock changes too.
-    const company = await getCompanyInfo();
-    const sellerNameForZatca =
-      company.nameAr && company.nameAr !== "—"
-        ? company.nameAr
-        : process.env["ZATCA_SELLER_NAME"] ?? "حاسبة AI";
-    const sellerVatForZatca =
-      company.vatNumber && company.vatNumber !== "—"
-        ? company.vatNumber
-        : process.env["ZATCA_VAT_NUMBER"] ?? "300000000000003";
-    const companyId = getCompanyId(req);
-    // Tenant VAT gating: non-registered companies cannot legally
-    // charge VAT (ZATCA rule). Force tax → 0 and skip ZATCA QR
-    // generation regardless of payload.
-    const [companyRow] = await db
-      .select({ vatRegistrationStatus: companiesTable.vatRegistrationStatus })
-      .from(companiesTable)
-      .where(eq(companiesTable.id, companyId))
-      .limit(1);
-    const vatEnabled =
-      companyRow?.vatRegistrationStatus === "registered" ||
-      companyRow?.vatRegistrationStatus === "voluntary";
-    const result = await db.transaction(async (tx) => {
       // Resolve the session's branch and the warehouse to issue stock from.
       // Prefer the default warehouse for that branch; fall back to the global
       // default. We refuse to sell when no warehouse is configured rather
@@ -1280,6 +1266,13 @@ router.post(
       };
     });
 
+    if (res.getHeader("Idempotency-Replayed")) {
+      res.status(201).json({
+        ...result.order, items: result.orderItems, subtotal: result.subtotal,
+        tax: result.tax, discount, total: result.total, payments: result.payments,
+        createdAt: result.order.createdAt.toISOString(),
+      }); return;
+    }
     // Module hook: auto-submit the just-issued POS invoice to ZATCA
     // (simplified / "reporting" subset). Fire-and-forget after the
     // transaction commits so checkout is never blocked by Fatoora
@@ -1356,6 +1349,7 @@ router.post(
       createdAt: result.order.createdAt.toISOString(),
     });
   } catch (err) {
+    if (err instanceof FinancialRequestError) { res.status(err.status).json({ error: err.message }); return; }
     if (err instanceof FinancialLimitError) {
       const role = (req.session as { role?: string } | undefined)?.role ?? "unknown";
       void recordAudit(req, {

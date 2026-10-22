@@ -13,6 +13,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
+import { sql } from "drizzle-orm";
 import { productsTable } from "./products";
 import { warehousesTable } from "./warehouses";
 import { usersTable } from "./users";
@@ -110,7 +111,7 @@ export const stockQuantsTable = pgTable(
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
   (t) => ({
-    uniq: uniqueIndex("stock_quants_unique").on(t.productId, t.warehouseId, t.variantId, t.lotId),
+    uniq: uniqueIndex("stock_quants_unique").on(t.productId, t.warehouseId, sql`COALESCE(${t.variantId}, 0)`, sql`COALESCE(${t.lotId}, 0)`),
     whIdx: index("stock_quants_warehouse_idx").on(t.warehouseId),
   }),
 );

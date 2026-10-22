@@ -28,3 +28,17 @@ mtime_ms = 1792624114985
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/88d9a5c0-b553-43d5-8543-6b9b518545d2/de74fe39-429f-4673-9ff0-a6c0073da1db"
 storage_version_token = "1792624124811197"
 content_type = "text/html"
+
+[[outputs]]
+id = "b6W8btsBSpFNz9ha-4SPn"
+uri = "file://generated-artifacts/verification/financial-cycle-report-ar.html"
+type = "html"
+title = "التقرير النهائي للدورة المالية وإعادة الطلب"
+description = "343 اختبارًا ناجحًا، بما فيها إعادة الطلب بعد استهلاك الموافقة وتغيّر سياسة الاعتماد، مع حدود التغطية والمتابعات."
+logical_id = "68429222-a34d-4eaf-9d35-f96aa05235cd"
+content_hash = "sha256:dc72cede7bdb6a448e4996636396237abc287eb1d1c7ed6f647fde287acd7202"
+size = 14004
+mtime_ms = 1792632201257
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/68429222-a34d-4eaf-9d35-f96aa05235cd/6518cdee-5729-4919-b46b-3b3713cca22f"
+storage_version_token = "1792632203420369"
+content_type = "text/html"

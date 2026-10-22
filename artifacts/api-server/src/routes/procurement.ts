@@ -33,6 +33,7 @@ import { recordAudit } from "../lib/audit";
 import { postJournalEntry } from "../lib/journal-posting";
 import { mirrorPurchaseOrder, voidMirrorForSourceTx } from "../lib/intercompany-mirror";
 import { getCompanyId } from "../lib/scoped-db";
+import { financialTransaction, FinancialRequestError } from "../lib/financial-transaction";
 import { recordStockMove, getDefaultWarehouseId, getOrCreateLot } from "../lib/stock-engine";
 import {
   submitForApproval,
@@ -128,7 +129,7 @@ function httpErr(status: number, message: string): HttpError {
   return new HttpError(status, message);
 }
 function respondError(res: import("express").Response, err: unknown, fallback = "internal"): void {
-  if (err instanceof HttpError) {
+  if (err instanceof HttpError || err instanceof FinancialRequestError) {
     res.status(err.status).json({ error: err.message });
     return;
   }
@@ -730,7 +731,7 @@ router.post("/procurement/purchase-orders", async (req, res) => {
     res.status(400).json({ error: "Bad request" }); return;
   }
   try {
-    const out = await db.transaction(async (tx) => {
+    const out = await financialTransaction(req, async (tx) => {
       const [supplier] = await tx
         .select()
         .from(suppliersTable)
@@ -1775,8 +1776,8 @@ router.post("/procurement/goods-receipts", async (req, res) => {
     res.status(400).json({ error: "Bad request" }); return;
   }
   try {
-    const out = await db.transaction(async (tx) => {
-      const [po] = await tx.select().from(purchaseOrdersTable).where(and(eq(purchaseOrdersTable.id, body.poId), supplyScope("purchaseOrder", purchaseOrdersTable.id, getCompanyId(req))));
+    const out = await financialTransaction(req, async (tx) => {
+      const [po] = await tx.select().from(purchaseOrdersTable).where(and(eq(purchaseOrdersTable.id, body.poId), supplyScope("purchaseOrder", purchaseOrdersTable.id, getCompanyId(req)))).for("update");
       if (!po) throw httpErr(404, "أمر الشراء غير موجود");
       if (po.status !== "confirmed" && po.status !== "partially_received") {
         throw httpErr(409, `لا يمكن استلام بضاعة على أمر شراء بحالة ${po.status}`);

@@ -1,3 +1,5 @@
+import { financialFetch } from "./financial-fetch";
+
 export type CustomFetchOptions = RequestInit & {
   responseType?: "json" | "text" | "blob" | "auto";
 };
@@ -360,7 +362,7 @@ export async function customFetch<T = unknown>(
 
   const requestInfo = { method, url: resolveUrl(input) };
 
-  const response = await fetch(input, {
+  const response = await financialFetch(input, {
     credentials: "include",
     ...init,
     method,

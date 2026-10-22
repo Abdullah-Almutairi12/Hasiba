@@ -47,6 +47,7 @@ import {
 } from "../lib/sales-engine";
 import { postJournalEntry, reverseJournalEntry, ClosedPeriodError } from "../lib/journal-posting";
 import { getCompanyId } from "../lib/scoped-db";
+import { financialTransaction, FinancialRequestError } from "../lib/financial-transaction";
 import { buildZatcaQrBase64 } from "../lib/zatca-qr";
 import { getCompanyInfo } from "../lib/pdf/purchase-order";
 import { buildCustomerInvoicePdf } from "../lib/pdf/customer-invoice";
@@ -316,8 +317,9 @@ async function finalizeCreditNoteIssue(
   companyId: number,
 ): Promise<typeof creditNotesTable.$inferSelect> {
   return await db.transaction(async (tx) => {
-    const [note] = await tx.select().from(creditNotesTable).where(and(eq(creditNotesTable.id, noteId), eq(creditNotesTable.companyId, companyId)));
+    const [note] = await tx.select().from(creditNotesTable).where(and(eq(creditNotesTable.id, noteId), eq(creditNotesTable.companyId, companyId))).for("update");
     if (!note) throw new Error("الإشعار الدائن غير موجود");
+    if (note.status === "issued" || note.status === "applied") return note;
     if (note.status !== "draft" && note.status !== "pending_approval") {
       throw new Error(`لا يمكن ترحيل إشعار في حالة ${note.status}`);
     }
@@ -326,11 +328,12 @@ async function finalizeCreditNoteIssue(
       .from(creditNoteLinesTable)
       .where(eq(creditNoteLinesTable.noteId, noteId));
     await validateCreditNoteInventory(tx, note.companyId, note.warehouseId, cnLines);
+    let restockedCost = 0;
     // Restock — only if the CN was created with restock=true and a warehouse.
     if (note.restock && note.warehouseId) {
       for (const cn of cnLines) {
         if (!cn.productId) continue;
-        await recordStockMove(tx, {
+        const restocked = await recordStockMove(tx, {
           companyId: note.companyId,
           productId: cn.productId,
           quantity: Number(cn.quantity),
@@ -341,6 +344,7 @@ async function finalizeCreditNoteIssue(
           createdBy: sessionUserId,
           skipJournal: true,
         });
+        restockedCost += Number(cn.quantity) * restocked.unitCost;
       }
     }
     // Post offsetting JE.
@@ -351,6 +355,10 @@ async function finalizeCreditNoteIssue(
       lines.push({ systemKey: "vat_output", debit: Number(note.vat), description: "عكس ضريبة 15%" });
     if (Number(note.total) > 0)
       lines.push({ systemKey: "ar", credit: Number(note.total), description: "تسوية ذمم مدينة (إشعار دائن)" });
+    if (restockedCost > 0) {
+      lines.push({ systemKey: "inventory", debit: restockedCost, description: "إعادة تكلفة المخزون المرتجع" });
+      lines.push({ systemKey: "cogs", credit: restockedCost, description: "عكس تكلفة البضاعة المرتجعة" });
+    }
     const je = await postJournalEntry(
       tx,
       {
@@ -2363,12 +2371,12 @@ router.post("/sales/invoices", financeGuard, async (req, res) => {
     const vatEnabled =
       companyRow?.vatRegistrationStatus === "registered" ||
       companyRow?.vatRegistrationStatus === "voluntary";
-    const result = await db.transaction(async (tx) => {
+    const result = await financialTransaction(req, async (tx) => {
       let customerId = body.customerId;
       let so: typeof salesOrdersTable.$inferSelect | undefined;
       let soLines: typeof salesOrderLinesTable.$inferSelect[] = [];
       if (body.soId) {
-        const [foundSo] = await tx.select().from(salesOrdersTable).where(and(eq(salesOrdersTable.id, body.soId), eq(salesOrdersTable.companyId, getCompanyId(req))));
+        const [foundSo] = await tx.select().from(salesOrdersTable).where(and(eq(salesOrdersTable.id, body.soId), eq(salesOrdersTable.companyId, getCompanyId(req)))).for("update");
         if (!foundSo) throw new Error("أمر البيع غير موجود");
         so = foundSo;
         soLines = await tx.select().from(salesOrderLinesTable).where(eq(salesOrderLinesTable.soId, foundSo.id));
@@ -2688,6 +2696,9 @@ router.post("/sales/invoices", financeGuard, async (req, res) => {
         },
       };
     });
+    if (res.getHeader("Idempotency-Replayed")) {
+      res.status(201).json(serializeMoneyDoc(result.inv)); return;
+    }
     // Module hook: auto-submit the AR invoice to ZATCA Phase 2
     // (standard / clearance path) AFTER the transaction has
     // committed — otherwise the worker can race ahead and fail the
@@ -2818,11 +2829,11 @@ router.post("/sales/invoices/:id/reverse", financeGuard, async (req, res) => {
     const { reason } = CustomerReverseBody.parse(req.body ?? {});
     const reverseCompanyId = getCompanyId(req);
 
-    const result = await db.transaction(async (tx) => {
+    const result = await financialTransaction(req, async (tx) => {
       const [orig] = await tx
         .select()
         .from(customerInvoicesTable)
-        .where(and(eq(customerInvoicesTable.id, id), eq(customerInvoicesTable.companyId, reverseCompanyId)));
+        .where(and(eq(customerInvoicesTable.id, id), eq(customerInvoicesTable.companyId, reverseCompanyId))).for("update");
       if (!orig) throw Object.assign(new Error("الفاتورة غير موجودة"), { httpStatus: 404 });
       if (!orig.isLocked) {
         throw Object.assign(
@@ -3030,7 +3041,7 @@ router.post("/sales/receipts", financeGuard, async (req, res) => {
       { res.status(400).json({ error: "مجموع التوزيع يجب أن يساوي مبلغ السند" }); return; }
 
     const companyId = getCompanyId(req);
-    const result = await db.transaction(async (tx) => {
+    const result = await financialTransaction(req, async (tx) => {
       const [customer] = await tx
         .select()
         .from(customersTable)
@@ -3188,7 +3199,7 @@ router.post(
   try {
     const body = CreditNoteBody.parse(req.body);
     const companyId = getCompanyId(req);
-    const result = await db.transaction(async (tx) => {
+    const result = await financialTransaction(req, async (tx) => {
       const [customer] = await tx
         .select()
         .from(customersTable)
@@ -3210,7 +3221,7 @@ router.post(
         const [srcInv] = await tx
           .select()
           .from(customerInvoicesTable)
-          .where(and(eq(customerInvoicesTable.id, body.invoiceId), eq(customerInvoicesTable.companyId, companyId)));
+          .where(and(eq(customerInvoicesTable.id, body.invoiceId), eq(customerInvoicesTable.companyId, companyId))).for("update");
         if (!srcInv) throw new Error("الفاتورة المصدر غير موجودة");
         if (srcInv.customerId !== body.customerId)
           throw new Error("الفاتورة المصدر تخص عميلاً آخر");
@@ -3233,7 +3244,7 @@ router.post(
           .where(
             and(
               eq(creditNotesTable.invoiceId, body.invoiceId),
-              inArray(creditNotesTable.status, ["issued", "applied"]),
+              inArray(creditNotesTable.status, ["draft", "pending_approval", "issued", "applied"]),
             ),
           )
           .groupBy(creditNoteLinesTable.invoiceLineId);
@@ -3247,18 +3258,22 @@ router.post(
           if (ln.invoiceLineId == null) continue;
           const il = invLineById.get(ln.invoiceLineId);
           if (!il) throw new Error(`بند ${ln.invoiceLineId} لا يخص الفاتورة المصدر`);
+          if ((ln.productId ?? null) !== il.productId) throw new FinancialRequestError("منتج المرتجع لا يطابق بند الفاتورة", 400);
           const prior = priorByLine.get(ln.invoiceLineId) ?? { qty: 0, amt: 0 };
           const remainingQty = Number(il.quantity) - prior.qty;
           if (ln.quantity > remainingQty + 1e-6)
-            throw new Error(
+            throw new FinancialRequestError(
               `الكمية المرتجعة (${ln.quantity}) تتجاوز المتبقي القابل للإرجاع (${remainingQty}) للبند "${il.description}"`,
+              409,
             );
           const remainingAmt = Number(il.lineTotal) - prior.amt;
           const lineAmt = ln.quantity * ln.unitPrice * (1 + (ln.taxRate ?? 0) / 100);
           if (lineAmt > remainingAmt + 0.01)
-            throw new Error(
+            throw new FinancialRequestError(
               `قيمة الإرجاع للبند "${il.description}" تتجاوز المتبقي (${remainingAmt.toFixed(2)})`,
+              409,
             );
+          priorByLine.set(ln.invoiceLineId, { qty: prior.qty + ln.quantity, amt: prior.amt + lineAmt });
         }
       } else {
         // Free-form credit note (no source invoice): forbid invoiceLineId
@@ -3322,6 +3337,15 @@ router.post(
       }
       return note;
     });
+    // The receipt intentionally references the persisted draft, not a stale
+    // authorization decision. Never resubmit an issued note when rules change.
+    const [persistedNote] = await db.select().from(creditNotesTable)
+      .where(and(eq(creditNotesTable.id, result.id), eq(creditNotesTable.companyId, companyId)));
+    if (!persistedNote) throw new FinancialRequestError("الإشعار الدائن غير موجود", 404);
+    if (persistedNote.status === "issued" || persistedNote.status === "applied") {
+      res.status(201).json(serializeMoneyDoc(persistedNote)); return;
+    }
+    if (persistedNote.status === "cancelled") throw new FinancialRequestError("الإشعار ملغى", 409);
     // Workflow-engine gate: posting approval. If a credit_note rule
     // matches, lock the row to pending_approval and return 202 — the
     // registered onApprove handler will run finalizeCreditNoteIssue.
@@ -3334,10 +3358,19 @@ router.post(
       submittedByName: (req.session as { userName?: string } | undefined)?.userName ?? null,
     });
     if (submission.required) {
-      await db
+      const moved = await db
         .update(creditNotesTable)
         .set({ status: "pending_approval" })
-        .where(eq(creditNotesTable.id, result.id));
+        .where(and(eq(creditNotesTable.id, result.id), eq(creditNotesTable.companyId, companyId),
+          inArray(creditNotesTable.status, ["draft", "pending_approval"]))).returning();
+      if (!moved.length) {
+        const [current] = await db.select().from(creditNotesTable)
+          .where(and(eq(creditNotesTable.id, result.id), eq(creditNotesTable.companyId, companyId)));
+        if (current && (current.status === "issued" || current.status === "applied")) {
+          res.status(201).json(serializeMoneyDoc(current)); return;
+        }
+        throw new FinancialRequestError("تغيرت حالة الإشعار؛ أعد تحميله", 409);
+      }
       void triggerEvent("record_created", "credit_note", { id: result.id, total: Number(result.total) });
       res.status(202).json({
         ok: false,
