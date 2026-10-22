@@ -155,6 +155,35 @@ const readPaymentState = async () => {
   `)).rows;
   return { payments, allocations, invoices };
 };
+// First-save write failure: capture independently BEFORE permitting recovery.
+// Unlike --capture-receipts, this deliberately requires zero ingress/events.
+if (process.argv.includes("--capture-receipt-storage-block")) {
+  assert.ok(receiptMode && !returnMode, "Requires --receipts");
+  const report = JSON.parse(readFileSync(reportFile, "utf8"));
+  assert.ok(report.runId);
+  assert.equal(report.scenario, "identical-receipt");
+  for (const counter of ["receiptPostCount", "invoicePostCount", "returnPostCount"]) {
+    assert.equal(report[counter], 0, `No ${counter} before recovery`);
+  }
+  assert.deepEqual(report.events, []);
+  assert.deepEqual(report.arrivals, []);
+  assert.deepEqual(report.initialCounts, { invoices: 1, paymentReceipts: 0, receipts: 0 });
+  assert.deepEqual(report.initialPaymentState.payments, []);
+  assert.deepEqual(report.initialPaymentState.allocations, []);
+  const finalCounts = await readScenarioCounts();
+  const finalJournals = await readJournals();
+  const finalPaymentState = await readPaymentState();
+  const finalReceipts = await readReceipts();
+  assert.deepEqual(finalCounts, report.initialCounts);
+  assert.deepEqual(finalJournals, report.initialJournals);
+  assert.deepEqual(finalPaymentState, report.initialPaymentState);
+  assert.deepEqual(finalReceipts, []);
+  writeFileSync(resolve(reportDir, "browser-receipt-storage-block-proxy.json"), JSON.stringify({
+    ...report, finalCounts, finalJournals, finalPaymentState, finalReceipts, capturedAt: Date.now(),
+  }, null, 2));
+  await pool.end();
+  process.exit(0);
+}
 // Read-only follow-up evidence, without another browser submission or modifying
 // the original event snapshots. Only the validated disposable database is used.
 if (process.argv.includes("--capture-receipts") || process.argv.includes("--capture-cleanup-success")) {
