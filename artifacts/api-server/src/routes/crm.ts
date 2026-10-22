@@ -106,16 +106,13 @@ router.get("/crm/opportunities", customerReadGuard, async (req, res) => {
         updatedAt: opportunitiesTable.updatedAt,
       })
       .from(opportunitiesTable)
-      .innerJoin(customersTable, eq(customersTable.id, opportunitiesTable.customerId))
+      .leftJoin(customersTable, eq(customersTable.id, opportunitiesTable.customerId))
       .leftJoin(opportunityStagesTable, eq(opportunityStagesTable.id, opportunitiesTable.stageId))
       .leftJoin(usersTable, eq(usersTable.id, opportunitiesTable.salesRepId))
       .where(
         and(
-          // Tenant scope via customers.companyId. opportunities.customerId
-          // is nullable in schema; using innerJoin intentionally excludes
-          // unassigned opportunities until a direct company_id column is
-          // added (follow-up schema migration).
-          eq(customersTable.companyId, getCompanyId(req)),
+          eq(opportunitiesTable.companyId, getCompanyId(req)),
+          sql`(${opportunitiesTable.customerId} is null or ${customersTable.companyId} = ${getCompanyId(req)})`,
           stageId ? eq(opportunitiesTable.stageId, Number(stageId)) : sql`true`,
           salesRepId ? eq(opportunitiesTable.salesRepId, Number(salesRepId)) : sql`true`,
           customerId ? eq(opportunitiesTable.customerId, Number(customerId)) : sql`true`,
@@ -136,14 +133,15 @@ router.post("/crm/opportunities", salesWriteGuard, async (req, res) => {
     const [stage] = await db.select().from(opportunityStagesTable).where(eq(opportunityStagesTable.id, b.stageId));
     if (!stage) { res.status(400).json({ error: "المرحلة غير موجودة" }); return; }
     let customerName = b.customerName ?? null;
-    if (b.customerId && !customerName) {
+    if (b.customerId) {
       // Tenant scope: only resolve customers belonging to the caller's company.
       const companyId = getCompanyId(req);
       const [c] = await db
         .select()
         .from(customersTable)
         .where(and(eq(customersTable.id, b.customerId), eq(customersTable.companyId, companyId)));
-      customerName = c?.name ?? null;
+      if (!c) { res.status(404).json({ error: "Not found" }); return; }
+      customerName = customerName ?? c.name;
     }
     const [row] = await db
       .insert(opportunitiesTable)
@@ -176,6 +174,11 @@ router.patch("/crm/opportunities/:id", salesWriteGuard, async (req, res) => {
       winLossReason: z.string().nullable().optional(),
     });
     const b = Body.parse(req.body);
+    if (b.customerId != null) {
+      const [customer] = await db.select({ id: customersTable.id }).from(customersTable)
+        .where(and(eq(customersTable.id, b.customerId), eq(customersTable.companyId, getCompanyId(req))));
+      if (!customer) { res.status(404).json({ error: "Not found" }); return; }
+    }
     const patch: Partial<typeof opportunitiesTable.$inferInsert> = { updatedAt: new Date() };
     if (b.name != null) patch.name = b.name;
     if (b.customerId !== undefined) patch.customerId = b.customerId;
@@ -230,7 +233,10 @@ router.get("/crm/pipeline", customerReadGuard, async (req, res) => {
         weighted: sql<number>`coalesce(sum(${opportunitiesTable.expectedRevenue}::numeric * ${opportunitiesTable.probability} / 100.0), 0)`,
       })
       .from(opportunitiesTable)
-      .where(salesRepId ? eq(opportunitiesTable.salesRepId, salesRepId) : sql`true`)
+      .where(and(
+        eq(opportunitiesTable.companyId, getCompanyId(req)),
+        salesRepId ? eq(opportunitiesTable.salesRepId, salesRepId) : sql`true`,
+      ))
       .groupBy(opportunitiesTable.stageId);
     const byStage = new Map(rows.map((r) => [r.stageId, r]));
     res.json({
@@ -263,6 +269,7 @@ router.get("/crm/reports/win-rate", customerReadGuard, async (req, res) => {
     const counts = await db
       .select({ stageId: opportunitiesTable.stageId, count: sql<number>`count(*)::int` })
       .from(opportunitiesTable)
+      .where(eq(opportunitiesTable.companyId, getCompanyId(req)))
       .groupBy(opportunitiesTable.stageId);
     const countByStage = new Map(counts.map((c) => [c.stageId, c.count]));
     const closed = stages.filter((s) => s.isWon || s.isLost);
@@ -304,8 +311,14 @@ router.post("/crm/leads/:leadId/convert", requireRole("owner", "manager", "sales
     });
     const b = Body.parse(req.body ?? {});
     const result = await db.transaction(async (tx) => {
-      const [lead] = await tx.select().from(leadsTable).where(eq(leadsTable.id, leadId));
-      if (!lead) throw new Error("لم يتم العثور على العميل المحتمل");
+      const companyId = getCompanyId(req);
+      const [lead] = await tx.select().from(leadsTable).where(and(eq(leadsTable.id, leadId), eq(leadsTable.companyId, companyId)));
+      if (!lead) throw Object.assign(new Error("Not found"), { status: 404 });
+      if (b.customerId != null) {
+        const [customer] = await tx.select({ id: customersTable.id }).from(customersTable)
+          .where(and(eq(customersTable.id, b.customerId), eq(customersTable.companyId, companyId)));
+        if (!customer) throw Object.assign(new Error("Not found"), { status: 404 });
+      }
 
       // Idempotency: a lead may only spawn one opportunity. Without this
       // check the same lead could be converted repeatedly (the UI hides
@@ -315,12 +328,12 @@ router.post("/crm/leads/:leadId/convert", requireRole("owner", "manager", "sales
       const existing = await tx
         .select()
         .from(opportunitiesTable)
-        .where(eq(opportunitiesTable.leadId, leadId))
+        .where(and(eq(opportunitiesTable.leadId, leadId), eq(opportunitiesTable.companyId, companyId)))
         .limit(1);
       if (existing.length > 0) {
         // Make sure the lead's status reflects the prior conversion.
         if (lead.status !== "qualified") {
-          await tx.update(leadsTable).set({ status: "qualified" }).where(eq(leadsTable.id, leadId));
+          await tx.update(leadsTable).set({ status: "qualified" }).where(and(eq(leadsTable.id, leadId), eq(leadsTable.companyId, companyId)));
         }
         return existing[0];
       }
@@ -355,7 +368,7 @@ router.post("/crm/leads/:leadId/convert", requireRole("owner", "manager", "sales
           createdBy: req.session?.userId ?? null,
         })
         .returning();
-      await tx.update(leadsTable).set({ status: "qualified" }).where(eq(leadsTable.id, leadId));
+      await tx.update(leadsTable).set({ status: "qualified" }).where(and(eq(leadsTable.id, leadId), eq(leadsTable.companyId, companyId)));
       return opp;
     });
     res.status(201).json({ ...result, expectedRevenue: Number(result.expectedRevenue) });

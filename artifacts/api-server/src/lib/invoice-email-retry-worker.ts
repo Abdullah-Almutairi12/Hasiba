@@ -295,7 +295,12 @@ async function renderForRetry(row: QueuedRow): Promise<
   | { ok: false; reason: string }
 > {
   if (row.kind === "invoice") {
-    const rendered = await renderCustomerInvoicePdfById(row.refId);
+    // This trusted worker has no session. Resolve ownership from the saved
+    // invoice, never from a retry request or an optional unscoped renderer.
+    const [invoice] = await db.select({ companyId: customerInvoicesTable.companyId })
+      .from(customerInvoicesTable).where(eq(customerInvoicesTable.id, row.refId));
+    if (!invoice) return { ok: false, reason: "invoice not found" };
+    const rendered = await renderCustomerInvoicePdfById(row.refId, invoice.companyId);
     if (!rendered.ok) return { ok: false, reason: `invoice render failed: ${rendered.error}` };
     return {
       ok: true,

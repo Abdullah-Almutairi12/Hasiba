@@ -57,6 +57,8 @@ import { sendMessage } from "../lib/integrations/messaging";
 import { sendByTemplate } from "../lib/integrations/messaging-templates";
 import { buildSignedInvoiceQrPath } from "./integrations";
 import { recordStockMove, getDefaultWarehouseId } from "../lib/stock-engine";
+import { requireSupplyReference } from "../lib/supply-chain-scope";
+import type { DbOrTx } from "../lib/journal-posting";
 import { mirrorSalesInvoice, mirrorCreditNote, voidMirrorForSourceTx } from "../lib/intercompany-mirror";
 import {
   sendMail,
@@ -75,6 +77,17 @@ import {
 import { logger } from "../lib/logger";
 
 const router = Router();
+
+async function validateCreditNoteInventory(
+  tx: DbOrTx,
+  companyId: number,
+  warehouseId: number | null | undefined,
+  lines: ReadonlyArray<{ productId?: number | null }>,
+): Promise<void> {
+  if (warehouseId != null) await requireSupplyReference("warehouse", warehouseId, companyId, tx);
+  const productIds = new Set(lines.flatMap(line => line.productId == null ? [] : [line.productId]));
+  for (const productId of productIds) await requireSupplyReference("product", productId, companyId, tx);
+}
 
 // ---------------------------------------------------------------------------
 // Workflow-engine integration: Sales Order confirm transition.
@@ -126,9 +139,17 @@ async function finalizeCreditNoteCancellation(
   companyId: number,
 ): Promise<typeof creditNotesTable.$inferSelect> {
   return await db.transaction(async (tx) => {
-    const [note] = await tx.select().from(creditNotesTable).where(eq(creditNotesTable.id, id));
-    if (!note) throw new Error("Not found");
+    const [note] = await tx.select().from(creditNotesTable).where(and(eq(creditNotesTable.id, id), eq(creditNotesTable.companyId, companyId)));
+    if (!note) throw Object.assign(new Error("Not found"), { status: 404 });
     if (note.status === "cancelled") throw new Error("الإشعار ملغى مسبقاً");
+
+    const cnLines = await tx
+      .select()
+      .from(creditNoteLinesTable)
+      .where(eq(creditNoteLinesTable.noteId, note.id));
+    // Recheck persisted references as well as new input: older notes may
+    // contain cross-company inventory links.
+    await validateCreditNoteInventory(tx, note.companyId, note.warehouseId, cnLines);
 
     if (note.journalEntryId) {
       const reverseRef = `${note.reference}-REV`;
@@ -155,15 +176,12 @@ async function finalizeCreditNoteCancellation(
       );
     }
 
-    const cnLines = await tx
-      .select()
-      .from(creditNoteLinesTable)
-      .where(eq(creditNoteLinesTable.noteId, note.id));
     if (note.restock && note.warehouseId) {
       const cancelRef = `${note.reference}-CXL`;
       for (const cn of cnLines) {
         if (!cn.productId) continue;
         await recordStockMove(tx, {
+          companyId: note.companyId,
           productId: cn.productId,
           quantity: Number(cn.quantity),
           kind: "issue",
@@ -218,7 +236,7 @@ async function finalizeCreditNoteCancellation(
     const [updated] = await tx
       .update(creditNotesTable)
       .set({ status: "cancelled" })
-      .where(eq(creditNotesTable.id, id))
+      .where(and(eq(creditNotesTable.id, id), eq(creditNotesTable.companyId, companyId)))
       .returning();
 
     // Mirror cascade: if this CN had a debit-note mirror in a sibling
@@ -268,12 +286,12 @@ registerOnApprove("credit_note_cancel", async (recordId) => {
   // Rethrow on failure: actOnApproval rolls the request back to pending
   // and surfaces the error so workflow + document state stay consistent.
   try {
-    // Approval callback runs outside an HTTP request; derive tenant from
-    // the credit note's customer.
+    // No HTTP session: use the note's saved company and require its
+    // customer to agree before finalizing.
     const [row] = await db
-      .select({ companyId: customersTable.companyId })
+      .select({ companyId: creditNotesTable.companyId })
       .from(creditNotesTable)
-      .innerJoin(customersTable, eq(customersTable.id, creditNotesTable.customerId))
+      .innerJoin(customersTable, and(eq(customersTable.id, creditNotesTable.customerId), eq(customersTable.companyId, creditNotesTable.companyId)))
       .where(eq(creditNotesTable.id, recordId))
       .limit(1);
     if (!row?.companyId) {
@@ -298,7 +316,7 @@ async function finalizeCreditNoteIssue(
   companyId: number,
 ): Promise<typeof creditNotesTable.$inferSelect> {
   return await db.transaction(async (tx) => {
-    const [note] = await tx.select().from(creditNotesTable).where(eq(creditNotesTable.id, noteId));
+    const [note] = await tx.select().from(creditNotesTable).where(and(eq(creditNotesTable.id, noteId), eq(creditNotesTable.companyId, companyId)));
     if (!note) throw new Error("الإشعار الدائن غير موجود");
     if (note.status !== "draft" && note.status !== "pending_approval") {
       throw new Error(`لا يمكن ترحيل إشعار في حالة ${note.status}`);
@@ -307,11 +325,13 @@ async function finalizeCreditNoteIssue(
       .select()
       .from(creditNoteLinesTable)
       .where(eq(creditNoteLinesTable.noteId, noteId));
+    await validateCreditNoteInventory(tx, note.companyId, note.warehouseId, cnLines);
     // Restock — only if the CN was created with restock=true and a warehouse.
     if (note.restock && note.warehouseId) {
       for (const cn of cnLines) {
         if (!cn.productId) continue;
         await recordStockMove(tx, {
+          companyId: note.companyId,
           productId: cn.productId,
           quantity: Number(cn.quantity),
           kind: "receipt",
@@ -444,12 +464,12 @@ async function finalizeCreditNoteIssue(
 }
 registerOnApprove("credit_note", async (recordId) => {
   try {
-    // Approval callback runs outside an HTTP request; derive tenant from
-    // the credit note's customer.
+    // No HTTP session: use the note's saved company and require its
+    // customer to agree before finalizing.
     const [row] = await db
-      .select({ companyId: customersTable.companyId })
+      .select({ companyId: creditNotesTable.companyId })
       .from(creditNotesTable)
-      .innerJoin(customersTable, eq(customersTable.id, creditNotesTable.customerId))
+      .innerJoin(customersTable, and(eq(customersTable.id, creditNotesTable.customerId), eq(customersTable.companyId, creditNotesTable.companyId)))
       .where(eq(creditNotesTable.id, recordId))
       .limit(1);
     if (!row?.companyId) {
@@ -695,6 +715,7 @@ router.get("/sales/commission-report", reportReadGuard, async (req, res) => {
       .where(
         and(
           gte(customerInvoicesTable.invoiceDate, from),
+          eq(customerInvoicesTable.companyId, getCompanyId(req)),
           lte(customerInvoicesTable.invoiceDate, to),
           inArray(customerInvoicesTable.status, ["open", "partially_paid", "paid"]),
         ),
@@ -769,6 +790,7 @@ router.get("/sales/quotations", customerReadGuard, async (req, res) => {
       .where(
         and(
           status ? eq(quotationsTable.status, String(status)) : sql`true`,
+          eq(quotationsTable.companyId, getCompanyId(req)),
           customerId ? eq(quotationsTable.customerId, Number(customerId)) : sql`true`,
         ),
       )
@@ -837,7 +859,7 @@ router.get("/sales/quotations", customerReadGuard, async (req, res) => {
 router.get("/sales/quotations/:id", customerReadGuard, async (req, res) => {
   try {
     const id = Number(req.params.id);
-    const [head] = await db.select().from(quotationsTable).where(eq(quotationsTable.id, id));
+    const [head] = await db.select().from(quotationsTable).where(and(eq(quotationsTable.id, id), eq(quotationsTable.companyId, getCompanyId(req))));
     if (!head) { res.status(404).json({ error: "Not found" }); return; }
     const lines = await db.select().from(quotationLinesTable).where(eq(quotationLinesTable.quotationId, id));
     res.json({ ...serializeMoneyDoc(head), lines: lines.map(serializeLine) });
@@ -968,7 +990,7 @@ router.post("/sales/quotations/:id/transition", salesWriteGuard, async (req, res
       reason: z.string().optional(),
     });
     const { to, reason } = Body.parse(req.body);
-    const [q] = await db.select().from(quotationsTable).where(eq(quotationsTable.id, id));
+    const [q] = await db.select().from(quotationsTable).where(and(eq(quotationsTable.id, id), eq(quotationsTable.companyId, getCompanyId(req))));
     if (!q) { res.status(404).json({ error: "Not found" }); return; }
 
     const allowed: Record<string, string[]> = {
@@ -1002,14 +1024,14 @@ router.post("/sales/quotations/:id/convert", salesWriteGuard, async (req, res) =
   try {
     const id = Number(req.params.id);
     const so = await db.transaction(async (tx) => {
-      const [q] = await tx.select().from(quotationsTable).where(eq(quotationsTable.id, id));
-      if (!q) throw new Error("عرض السعر غير موجود");
+      const [q] = await tx.select().from(quotationsTable).where(and(eq(quotationsTable.id, id), eq(quotationsTable.companyId, getCompanyId(req))));
+      if (!q) throw Object.assign(new Error("Not found"), { status: 404 });
       if (q.status !== "accepted") throw new Error("يجب قبول العرض قبل التحويل");
       // Refuse double conversion
       const [already] = await tx
         .select({ id: salesOrdersTable.id })
         .from(salesOrdersTable)
-        .where(eq(salesOrdersTable.quotationId, id))
+        .where(and(eq(salesOrdersTable.quotationId, id), eq(salesOrdersTable.companyId, getCompanyId(req))))
         .limit(1);
       if (already) throw new Error("تم بالفعل تحويل العرض إلى أمر بيع");
       const lines = await tx
@@ -1028,7 +1050,7 @@ router.post("/sales/quotations/:id/convert", salesWriteGuard, async (req, res) =
           pricelistId: q.pricelistId,
           salesRepId: q.salesRepId,
           branchId: q.branchId,
-          warehouseId: await getDefaultWarehouseId(tx).catch(() => null),
+          warehouseId: await getDefaultWarehouseId(tx, getCompanyId(req)).catch(() => null),
           status: "confirmed",
           orderDate: new Date().toISOString().slice(0, 10),
           subtotal: q.subtotal,
@@ -1093,6 +1115,7 @@ router.get("/sales/orders", customerReadGuard, async (req, res) => {
       .where(
         and(
           eq(customersTable.companyId, companyId),
+          eq(salesOrdersTable.companyId, companyId),
           status ? eq(salesOrdersTable.status, String(status)) : sql`true`,
           customerId ? eq(salesOrdersTable.customerId, Number(customerId)) : sql`true`,
         ),
@@ -1115,7 +1138,7 @@ router.get("/sales/orders/:id", customerReadGuard, async (req, res) => {
       .select({ so: salesOrdersTable })
       .from(salesOrdersTable)
       .innerJoin(customersTable, eq(customersTable.id, salesOrdersTable.customerId))
-      .where(and(eq(salesOrdersTable.id, id), eq(customersTable.companyId, companyId)));
+      .where(and(eq(salesOrdersTable.id, id), eq(salesOrdersTable.companyId, companyId), eq(customersTable.companyId, companyId)));
     if (!row) { res.status(404).json({ error: "Not found" }); return; }
     const lines = await db.select().from(salesOrderLinesTable).where(eq(salesOrderLinesTable.soId, id));
     res.json({ ...serializeMoneyDoc(row.so), lines: lines.map(serializeLine) });
@@ -1251,7 +1274,7 @@ router.post("/sales/orders/:id/transition", salesWriteGuard, async (req, res) =>
     const id = Number(req.params.id);
     const Body = z.object({ to: z.string() });
     const { to } = Body.parse(req.body);
-    const [so] = await db.select().from(salesOrdersTable).where(eq(salesOrdersTable.id, id));
+    const [so] = await db.select().from(salesOrdersTable).where(and(eq(salesOrdersTable.id, id), eq(salesOrdersTable.companyId, getCompanyId(req))));
     if (!so) { res.status(404).json({ error: "Not found" }); return; }
     // Workflow-engine hook for the draft → confirmed transition.
     //   1. Always invoke the engine so admin-configured sales_order rules
@@ -1337,7 +1360,7 @@ router.post("/sales/orders/:id/transition", salesWriteGuard, async (req, res) =>
 router.post("/sales/orders/:id/cancel", salesWriteGuard, async (req, res) => {
   try {
     const id = Number(req.params.id);
-    const [so] = await db.select().from(salesOrdersTable).where(eq(salesOrdersTable.id, id));
+    const [so] = await db.select().from(salesOrdersTable).where(and(eq(salesOrdersTable.id, id), eq(salesOrdersTable.companyId, getCompanyId(req))));
     if (!so) { res.status(404).json({ error: "Not found" }); return; }
     if (!["draft", "confirmed"].includes(so.status))
       { res.status(409).json({ error: "لا يمكن إلغاء أمر بيع به تسليمات أو فواتير" }); return; }
@@ -1391,7 +1414,7 @@ router.get("/sales/deliveries", customerReadGuard, async (req, res) => {
     const rows = await db
       .select()
       .from(deliveryOrdersTable)
-      .where(soId ? eq(deliveryOrdersTable.soId, Number(soId)) : sql`true`)
+      .where(and(eq(deliveryOrdersTable.companyId, getCompanyId(req)), soId ? eq(deliveryOrdersTable.soId, Number(soId)) : sql`true`))
       .orderBy(desc(deliveryOrdersTable.createdAt))
       .limit(200);
     res.json(rows);
@@ -1404,8 +1427,8 @@ router.post("/sales/deliveries", salesWriteGuard, async (req, res) => {
   try {
     const body = DoBody.parse(req.body);
     const result = await db.transaction(async (tx) => {
-      const [so] = await tx.select().from(salesOrdersTable).where(eq(salesOrdersTable.id, body.soId));
-      if (!so) throw new Error("أمر البيع غير موجود");
+      const [so] = await tx.select().from(salesOrdersTable).where(and(eq(salesOrdersTable.id, body.soId), eq(salesOrdersTable.companyId, getCompanyId(req))));
+      if (!so) throw Object.assign(new Error("Not found"), { status: 404 });
       if (!["confirmed", "partially_delivered"].includes(so.status))
         throw new Error(`لا يمكن التسليم على أمر بحالة ${so.status}`);
       const soLines = await tx.select().from(salesOrderLinesTable).where(eq(salesOrderLinesTable.soId, so.id));
@@ -1421,7 +1444,10 @@ router.post("/sales/deliveries", salesWriteGuard, async (req, res) => {
       }
       if (wantedById.size === 0) throw new Error("لا توجد كميات قابلة للتسليم");
 
-      const warehouseId = body.warehouseId ?? so.warehouseId ?? (await getDefaultWarehouseId(tx));
+      const warehouseId = body.warehouseId ?? so.warehouseId ?? (await getDefaultWarehouseId(tx, getCompanyId(req)));
+      const [warehouse] = await tx.select({ id: warehousesTable.id }).from(warehousesTable)
+        .where(and(eq(warehousesTable.id, warehouseId), eq(warehousesTable.companyId, getCompanyId(req))));
+      if (!warehouse) throw Object.assign(new Error("Not found"), { status: 404 });
       const reference = await nextRef(tx, "DO");
       const initialStatus = body.status ?? "delivered";
       const [doc] = await tx
@@ -1461,6 +1487,7 @@ router.post("/sales/deliveries", salesWriteGuard, async (req, res) => {
         if (initialStatus === "delivered") {
           if (sl.productId) {
             await recordStockMove(tx, {
+              companyId: getCompanyId(req),
               productId: sl.productId,
               quantity: want,
               kind: "issue",
@@ -1552,8 +1579,11 @@ router.post("/sales/deliveries/:id/transition", salesWriteGuard, async (req, res
     const Body = z.object({ to: z.enum(["ready", "delivered", "cancelled"]) });
     const { to } = Body.parse(req.body);
     const result = await db.transaction(async (tx) => {
-      const [doc] = await tx.select().from(deliveryOrdersTable).where(eq(deliveryOrdersTable.id, id));
-      if (!doc) throw new Error("Not found");
+      const [doc] = await tx.select().from(deliveryOrdersTable).where(and(eq(deliveryOrdersTable.id, id), eq(deliveryOrdersTable.companyId, getCompanyId(req))));
+      if (!doc) throw Object.assign(new Error("Not found"), { status: 404 });
+      const [so] = await tx.select({ id: salesOrdersTable.id }).from(salesOrdersTable)
+        .where(and(eq(salesOrdersTable.id, doc.soId), eq(salesOrdersTable.companyId, getCompanyId(req))));
+      if (!so) throw Object.assign(new Error("Not found"), { status: 404 });
       const allowed = DO_ALLOWED[doc.status] ?? [];
       if (!allowed.includes(to)) throw new Error(`لا يمكن الانتقال من ${doc.status} إلى ${to}`);
 
@@ -1566,6 +1596,7 @@ router.post("/sales/deliveries/:id/transition", salesWriteGuard, async (req, res
         for (const ln of lines) {
           if (ln.productId) {
             await recordStockMove(tx, {
+              companyId: getCompanyId(req),
               productId: ln.productId,
               quantity: Number(ln.quantity),
               kind: "issue",
@@ -1602,7 +1633,7 @@ router.post("/sales/deliveries/:id/transition", salesWriteGuard, async (req, res
           status: to,
           deliveredAt: to === "delivered" ? new Date() : doc.deliveredAt,
         })
-        .where(eq(deliveryOrdersTable.id, id))
+        .where(and(eq(deliveryOrdersTable.id, id), eq(deliveryOrdersTable.companyId, getCompanyId(req))))
         .returning();
       return updated;
     });
@@ -1639,6 +1670,7 @@ router.get("/sales/invoices", customerReadGuard, async (req, res) => {
       .where(
         and(
           eq(customersTable.companyId, companyId),
+          eq(customerInvoicesTable.companyId, companyId),
           status ? eq(customerInvoicesTable.status, String(status)) : sql`true`,
           customerId ? eq(customerInvoicesTable.customerId, Number(customerId)) : sql`true`,
         ),
@@ -1854,12 +1886,13 @@ router.get("/sales/invoices", customerReadGuard, async (req, res) => {
 // attempts (status='failed', attempts >= MAX, no next_retry_at scheduled).
 // Powers the "X فواتير فشل إرسالها نهائياً" KPI banner on the invoices
 // list so staff notice without having to scroll the table.
-router.get("/sales/invoices/email-failure-count", customerReadGuard, async (_req, res) => {
+router.get("/sales/invoices/email-failure-count", customerReadGuard, async (req, res) => {
   try {
     const result = await db.execute(sql`
       SELECT COUNT(*)::int AS count
       FROM sales_email_outbox
       WHERE kind = 'invoice'
+        AND ref_id IN (SELECT id FROM customer_invoices WHERE company_id = ${getCompanyId(req)})
         AND retry_of IS NULL
         AND status = 'failed'
         AND attempts >= ${INVOICE_EMAIL_MAX_ATTEMPTS}
@@ -1883,7 +1916,7 @@ router.get("/sales/invoices/:id", customerReadGuard, async (req, res) => {
       .select({ inv: customerInvoicesTable })
       .from(customerInvoicesTable)
       .innerJoin(customersTable, eq(customersTable.id, customerInvoicesTable.customerId))
-      .where(and(eq(customerInvoicesTable.id, id), eq(customersTable.companyId, companyId)));
+      .where(and(eq(customerInvoicesTable.id, id), eq(customerInvoicesTable.companyId, companyId), eq(customersTable.companyId, companyId)));
     if (!row) { res.status(404).json({ error: "Not found" }); return; }
     const lines = await db.select().from(customerInvoiceLinesTable).where(eq(customerInvoiceLinesTable.invoiceId, id));
     res.json({ ...serializeMoneyDoc(row.inv), lines: lines.map(serializeLine) });
@@ -1896,7 +1929,7 @@ router.get("/sales/invoices/:id", customerReadGuard, async (req, res) => {
 // purchase-order PDF chrome (logo, company info, bilingual labels,
 // totals, bank details, terms). Cached ZATCA QR is embedded when
 // present on the invoice row.
-export async function renderCustomerInvoicePdfById(id: number): Promise<
+export async function renderCustomerInvoicePdfById(id: number, companyId: number): Promise<
   | { ok: true; pdf: Buffer; head: typeof customerInvoicesTable.$inferSelect; customer: typeof customersTable.$inferSelect | undefined }
   | { ok: false; status: 400 | 404; error: string }
 > {
@@ -1904,12 +1937,13 @@ export async function renderCustomerInvoicePdfById(id: number): Promise<
   const [head] = await db
     .select()
     .from(customerInvoicesTable)
-    .where(eq(customerInvoicesTable.id, id));
+    .where(and(eq(customerInvoicesTable.id, id), eq(customerInvoicesTable.companyId, companyId)));
   if (!head) return { ok: false, status: 404, error: "Not found" };
   const [customer] = await db
     .select()
     .from(customersTable)
-    .where(eq(customersTable.id, head.customerId));
+    .where(and(eq(customersTable.id, head.customerId), eq(customersTable.companyId, companyId)));
+  if (!customer) return { ok: false, status: 404, error: "Not found" };
   const lines = await db
     .select()
     .from(customerInvoiceLinesTable)
@@ -1964,7 +1998,7 @@ export async function renderCustomerInvoicePdfById(id: number): Promise<
 router.get("/sales/invoices/:id/pdf", customerReadGuard, async (req, res) => {
   try {
     const id = Number(req.params.id);
-    const rendered = await renderCustomerInvoicePdfById(id);
+    const rendered = await renderCustomerInvoicePdfById(id, getCompanyId(req));
     if (!rendered.ok) {
       res.status(rendered.status).json({ error: rendered.error });
       return;
@@ -1994,7 +2028,7 @@ router.post("/sales/invoices/:id/send", financeGuard, async (req, res) => {
     });
     const body = Body.parse(req.body ?? {});
 
-    const rendered = await renderCustomerInvoicePdfById(id);
+    const rendered = await renderCustomerInvoicePdfById(id, getCompanyId(req));
     if (!rendered.ok) {
       res.status(rendered.status).json({ error: rendered.error });
       return;
@@ -2140,7 +2174,7 @@ router.get("/sales/invoices/:id/send-history", financeGuard, async (req, res) =>
     const [head] = await db
       .select({ id: customerInvoicesTable.id })
       .from(customerInvoicesTable)
-      .where(eq(customerInvoicesTable.id, id));
+      .where(and(eq(customerInvoicesTable.id, id), eq(customerInvoicesTable.companyId, getCompanyId(req))));
     if (!head) {
       res.status(404).json({ error: "Not found" });
       return;
@@ -2217,6 +2251,7 @@ router.post(
                body, status
         FROM sales_email_outbox
         WHERE id = ${outboxId} AND kind = 'invoice' AND ref_id = ${id}
+          AND ref_id IN (SELECT id FROM customer_invoices WHERE company_id = ${getCompanyId(req)})
         LIMIT 1;
       `);
       const lookupRows = (lookup as unknown as { rows?: Array<Record<string, unknown>> }).rows
@@ -2239,7 +2274,7 @@ router.post(
         res.status(409).json({ error: "تم تسليم هذه المحاولة مسبقاً" });
         return;
       }
-      const rendered = await renderCustomerInvoicePdfById(id);
+      const rendered = await renderCustomerInvoicePdfById(id, getCompanyId(req));
       if (!rendered.ok) {
         res.status(rendered.status).json({ error: rendered.error });
         return;
@@ -2333,7 +2368,7 @@ router.post("/sales/invoices", financeGuard, async (req, res) => {
       let so: typeof salesOrdersTable.$inferSelect | undefined;
       let soLines: typeof salesOrderLinesTable.$inferSelect[] = [];
       if (body.soId) {
-        const [foundSo] = await tx.select().from(salesOrdersTable).where(eq(salesOrdersTable.id, body.soId));
+        const [foundSo] = await tx.select().from(salesOrdersTable).where(and(eq(salesOrdersTable.id, body.soId), eq(salesOrdersTable.companyId, getCompanyId(req))));
         if (!foundSo) throw new Error("أمر البيع غير موجود");
         so = foundSo;
         soLines = await tx.select().from(salesOrderLinesTable).where(eq(salesOrderLinesTable.soId, foundSo.id));
@@ -2734,7 +2769,7 @@ router.delete("/sales/invoices/:id", financeGuard, async (req, res) => {
     const [current] = await db
       .select()
       .from(customerInvoicesTable)
-      .where(eq(customerInvoicesTable.id, id));
+      .where(and(eq(customerInvoicesTable.id, id), eq(customerInvoicesTable.companyId, getCompanyId(req))));
     if (!current) { res.status(404).json({ error: "Not found" }); return; }
     if (current.isLocked) {
       res.status(409).json({
@@ -2752,7 +2787,7 @@ router.delete("/sales/invoices/:id", financeGuard, async (req, res) => {
         userName: null,
       });
       await tx.delete(customerInvoiceLinesTable).where(eq(customerInvoiceLinesTable.invoiceId, id));
-      await tx.delete(customerInvoicesTable).where(eq(customerInvoicesTable.id, id));
+      await tx.delete(customerInvoicesTable).where(and(eq(customerInvoicesTable.id, id), eq(customerInvoicesTable.companyId, getCompanyId(req))));
     });
     void recordAudit(req, {
       action: "delete",
@@ -2787,7 +2822,7 @@ router.post("/sales/invoices/:id/reverse", financeGuard, async (req, res) => {
       const [orig] = await tx
         .select()
         .from(customerInvoicesTable)
-        .where(eq(customerInvoicesTable.id, id));
+        .where(and(eq(customerInvoicesTable.id, id), eq(customerInvoicesTable.companyId, reverseCompanyId)));
       if (!orig) throw Object.assign(new Error("الفاتورة غير موجودة"), { httpStatus: 404 });
       if (!orig.isLocked) {
         throw Object.assign(
@@ -2880,7 +2915,7 @@ router.post("/sales/invoices/:id/reverse", financeGuard, async (req, res) => {
           reversedReason: reason,
           status: "cancelled",
         })
-        .where(eq(customerInvoicesTable.id, orig.id));
+        .where(and(eq(customerInvoicesTable.id, orig.id), eq(customerInvoicesTable.companyId, reverseCompanyId)));
 
       // Roll back customer aggregates.
       await tx
@@ -2975,12 +3010,13 @@ router.get("/sales/receipts", financeGuard, async (req, res) => {
   try {
     const { customerId } = req.query;
     const rows = await db
-      .select()
+      .select({ receipt: customerReceiptsTable })
       .from(customerReceiptsTable)
-      .where(customerId ? eq(customerReceiptsTable.customerId, Number(customerId)) : sql`true`)
+      .innerJoin(customersTable, eq(customersTable.id, customerReceiptsTable.customerId))
+      .where(and(eq(customersTable.companyId, getCompanyId(req)), customerId ? eq(customerReceiptsTable.customerId, Number(customerId)) : sql`true`))
       .orderBy(desc(customerReceiptsTable.createdAt))
       .limit(200);
-    res.json(rows.map((r) => ({ ...r, amount: Number(r.amount) })));
+    res.json(rows.map(({ receipt: r }) => ({ ...r, amount: Number(r.amount) })));
   } catch (err) {
     handleRouteError(err, res);
   }
@@ -3123,7 +3159,7 @@ router.get("/sales/credit-notes", customerReadGuard, async (req, res) => {
     const rows = await db
       .select()
       .from(creditNotesTable)
-      .where(customerId ? eq(creditNotesTable.customerId, Number(customerId)) : sql`true`)
+      .where(and(eq(creditNotesTable.companyId, getCompanyId(req)), customerId ? eq(creditNotesTable.customerId, Number(customerId)) : sql`true`))
       .orderBy(desc(creditNotesTable.createdAt))
       .limit(200);
     res.json(rows.map(serializeMoneyDoc));
@@ -3159,6 +3195,8 @@ router.post(
         .where(and(eq(customersTable.id, body.customerId), eq(customersTable.companyId, companyId)));
       if (!customer) throw new Error("العميل غير موجود");
 
+      await validateCreditNoteInventory(tx, companyId, body.warehouseId, body.lines);
+
       // ============== Source-document validation ==============
       // When the credit note is tied to an invoice we MUST verify that:
       //   1. the invoice belongs to the same customer (no cross-customer credit),
@@ -3172,7 +3210,7 @@ router.post(
         const [srcInv] = await tx
           .select()
           .from(customerInvoicesTable)
-          .where(eq(customerInvoicesTable.id, body.invoiceId));
+          .where(and(eq(customerInvoicesTable.id, body.invoiceId), eq(customerInvoicesTable.companyId, companyId)));
         if (!srcInv) throw new Error("الفاتورة المصدر غير موجودة");
         if (srcInv.customerId !== body.customerId)
           throw new Error("الفاتورة المصدر تخص عميلاً آخر");
@@ -3243,7 +3281,7 @@ router.post(
       const noteDate = body.noteDate ?? new Date().toISOString().slice(0, 10);
 
       const warehouseId =
-        body.warehouseId ?? (body.restock ? await getDefaultWarehouseId(tx).catch(() => null) : null);
+        body.warehouseId ?? (body.restock ? await getDefaultWarehouseId(tx, companyId).catch(() => null) : null);
 
       // Insert header + lines as a draft. The JE / inventory restock /
       // invoice settlement are deferred to finalizeCreditNoteIssue so a
@@ -3339,7 +3377,8 @@ router.post("/sales/credit-notes/:id/cancel", salesWriteGuard, async (req, res) 
     // completes, the registered onApprove handler flips status to
     // cancelled. Reversing JEs are still posted only inside this route.
     {
-      const [pre] = await db.select().from(creditNotesTable).where(eq(creditNotesTable.id, id));
+      const [pre] = await db.select().from(creditNotesTable).where(and(eq(creditNotesTable.id, id), eq(creditNotesTable.companyId, getCompanyId(req))));
+      if (!pre) { res.status(404).json({ error: "Not found" }); return; }
       if (pre) {
         const submission = await submitForApproval({
           docType: "credit_note_cancel",
@@ -3390,11 +3429,12 @@ router.get("/sales/reports/ar-aging", reportReadGuard, async (req, res) => {
         creditsApplied: sql<number>`coalesce((
           select sum(cn.total::numeric) from credit_notes cn
           where cn.invoice_id = ${customerInvoicesTable.id}
+            and cn.company_id = ${getCompanyId(req)}
             and cn.status in ('issued','applied')
         ), 0)`,
       })
       .from(customerInvoicesTable)
-      .where(inArray(customerInvoicesTable.status, ["open", "partially_paid"]));
+      .where(and(eq(customerInvoicesTable.companyId, getCompanyId(req)), inArray(customerInvoicesTable.status, ["open", "partially_paid"])));
 
     const buckets = { current: 0, d30: 0, d60: 0, d90: 0, over90: 0 };
     const perCustomer = new Map<number, { customerName: string; total: number; current: number; d30: number; d60: number; d90: number; over90: number }>();
@@ -3446,7 +3486,7 @@ router.get("/sales/reports/summary", reportReadGuard, async (req, res) => {
         accepted: sql<number>`count(*) filter (where ${quotationsTable.status} = 'accepted')::int`,
       })
       .from(quotationsTable)
-      .where(gte(quotationsTable.quoteDate, monthStart));
+      .where(and(eq(quotationsTable.companyId, getCompanyId(req)), gte(quotationsTable.quoteDate, monthStart)));
 
     const [orders] = await db
       .select({
@@ -3454,7 +3494,7 @@ router.get("/sales/reports/summary", reportReadGuard, async (req, res) => {
         totalValue: sql<number>`coalesce(sum(${salesOrdersTable.total}::numeric), 0)`,
       })
       .from(salesOrdersTable)
-      .where(gte(salesOrdersTable.orderDate, monthStart));
+      .where(and(eq(salesOrdersTable.companyId, getCompanyId(req)), gte(salesOrdersTable.orderDate, monthStart)));
 
     const [invoices] = await db
       .select({
@@ -3464,12 +3504,14 @@ router.get("/sales/reports/summary", reportReadGuard, async (req, res) => {
           - coalesce((
               select sum(cn.total::numeric) from credit_notes cn
               where cn.invoice_id = ${customerInvoicesTable.id}
+                and cn.company_id = ${getCompanyId(req)}
                 and cn.status in ('issued','applied')
             ), 0)
         ) filter (where ${customerInvoicesTable.status} in ('open','partially_paid')), 0)`,
         thisMonth: sql<number>`coalesce(sum(${customerInvoicesTable.total}::numeric) filter (where ${customerInvoicesTable.invoiceDate} >= ${monthStart}), 0)`,
       })
-      .from(customerInvoicesTable);
+      .from(customerInvoicesTable)
+      .where(eq(customerInvoicesTable.companyId, getCompanyId(req)));
 
     res.json({
       monthStart,
@@ -3529,7 +3571,7 @@ router.post("/sales/quotations/:id/send", salesWriteGuard, async (req, res) => {
     const id = Number(req.params.id);
     const Body = z.object({ to: z.string().email().optional(), subject: z.string().optional() });
     const body = Body.parse(req.body ?? {});
-    const [q] = await db.select().from(quotationsTable).where(eq(quotationsTable.id, id));
+    const [q] = await db.select().from(quotationsTable).where(and(eq(quotationsTable.id, id), eq(quotationsTable.companyId, getCompanyId(req))));
     if (!q) { res.status(404).json({ error: "العرض غير موجود" }); return; }
     if (q.status !== "draft" && q.status !== "sent") {
       res.status(409).json({ error: `لا يمكن إرسال عرض في حالة ${q.status}` });
@@ -3639,7 +3681,7 @@ router.post("/sales/invoices/:id/send", financeGuard, async (req, res) => {
     const [head] = await db
       .select()
       .from(customerInvoicesTable)
-      .where(eq(customerInvoicesTable.id, id));
+      .where(and(eq(customerInvoicesTable.id, id), eq(customerInvoicesTable.companyId, getCompanyId(req))));
     if (!head) { res.status(404).json({ error: "الفاتورة غير موجودة" }); return; }
     if (head.status === "draft") {
       res.status(409).json({ error: "لا يمكن إرسال فاتورة في حالة مسودة" });
@@ -3839,6 +3881,7 @@ router.post("/sales/commissions/post", financeGuard, async (req, res) => {
         .where(
           and(
             gte(customerInvoicesTable.invoiceDate, from),
+            eq(customerInvoicesTable.companyId, commissionCompanyId),
             lte(customerInvoicesTable.invoiceDate, to),
             inArray(customerInvoicesTable.status, ["open", "partially_paid", "paid"]),
           ),
@@ -3917,13 +3960,14 @@ router.get("/sales/reports/by-rep", reportReadGuard, async (req, res) => {
       .leftJoin(usersTable, eq(usersTable.id, customerInvoicesTable.salesRepId))
       .where(
         and(
+          eq(customerInvoicesTable.companyId, getCompanyId(req)),
           gte(customerInvoicesTable.invoiceDate, from),
           lte(customerInvoicesTable.invoiceDate, to),
           inArray(customerInvoicesTable.status, ["open", "partially_paid", "paid"]),
         ),
       )
       .groupBy(customerInvoicesTable.salesRepId, usersTable.name)
-      .orderBy(sql`revenue desc`);
+      .orderBy(({ revenue }) => desc(revenue));
     res.json(rows.map((r) => ({ ...r, repName: r.repName ?? "غير محدد", revenue: Number(r.revenue), collected: Number(r.collected) })));
   } catch (err) {
     handleRouteError(err, res);
@@ -3948,13 +3992,14 @@ router.get("/sales/reports/by-customer", reportReadGuard, async (req, res) => {
       .from(customerInvoicesTable)
       .where(
         and(
+          eq(customerInvoicesTable.companyId, getCompanyId(req)),
           gte(customerInvoicesTable.invoiceDate, from),
           lte(customerInvoicesTable.invoiceDate, to),
           inArray(customerInvoicesTable.status, ["open", "partially_paid", "paid"]),
         ),
       )
       .groupBy(customerInvoicesTable.customerId, customerInvoicesTable.customerName)
-      .orderBy(sql`revenue desc`)
+      .orderBy(({ revenue }) => desc(revenue))
       .limit(cap);
     res.json(rows.map((r) => ({ ...r, revenue: Number(r.revenue), collected: Number(r.collected), outstanding: Number(r.outstanding) })));
   } catch (err) {
@@ -3980,13 +4025,14 @@ router.get("/sales/reports/by-product", reportReadGuard, async (req, res) => {
       .innerJoin(customerInvoicesTable, eq(customerInvoicesTable.id, customerInvoiceLinesTable.invoiceId))
       .where(
         and(
+          eq(customerInvoicesTable.companyId, getCompanyId(req)),
           gte(customerInvoicesTable.invoiceDate, from),
           lte(customerInvoicesTable.invoiceDate, to),
           inArray(customerInvoicesTable.status, ["open", "partially_paid", "paid"]),
         ),
       )
       .groupBy(customerInvoiceLinesTable.productId, customerInvoiceLinesTable.description)
-      .orderBy(sql`revenue desc`)
+      .orderBy(({ revenue }) => desc(revenue))
       .limit(cap);
     res.json(rows.map((r) => ({ ...r, quantity: Number(r.quantity), revenue: Number(r.revenue) })));
   } catch (err) {
