@@ -5,7 +5,6 @@ import { financialFetch } from "../../../lib/api-client-react/src/financial-fetc
 // TypeScript project. The transport is typechecked by its own client project.
 let stored;
 const request = { method: "POST", body: JSON.stringify({ customerId: 123, notes: "PRIVATE-FINANCIAL-NOTE" }) };
-const url = "/api/sales/invoices";
 const uncertainMessage = "تعذر تأكيد نتيجة العملية؛ قد تكون حُفظت بالفعل. أعد المحاولة بنفس البيانات لاسترجاع النتيجة دون إنشاء عملية مكررة.";
 beforeEach(() => {
   stored = new Map();
@@ -16,7 +15,11 @@ beforeEach(() => {
   });
 });
 afterEach(() => vi.unstubAllGlobals());
-describe("financial UI retry transport", () => {
+describe.each([
+  "/api/sales/invoices",
+  "/api/sales/receipts",
+  "/api/sales/credit-notes",
+])("financial UI retry transport: %s", (url) => {
   it("shares concurrent intent but permits confirmed separate submissions", async () => {
     const keys = [];
     vi.stubGlobal("fetch", vi.fn(async (_url, init) => {
