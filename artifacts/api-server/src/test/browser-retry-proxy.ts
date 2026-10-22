@@ -39,9 +39,10 @@ const backendPort = address.port;
 const reportDir = resolve(import.meta.dirname, "../../../../generated-artifacts/verification");
 mkdirSync(reportDir, { recursive: true });
 const reportFile = resolve(reportDir, "browser-retry-proxy.json");
+const runId = randomUUID();
 const events: Array<Record<string, unknown>> = [];
 let dropped = false;
-const save = () => writeFileSync(reportFile, JSON.stringify({ events }, null, 2));
+const save = () => writeFileSync(reportFile, JSON.stringify({ runId, events }, null, 2));
 save();
 
 const proxy = createServer((req, res) => {
@@ -73,6 +74,8 @@ const proxy = createServer((req, res) => {
             const drop = successful && !dropped;
             if (drop) dropped = true;
             events.push({
+              recordedAt: Date.now(),
+              storageKey: `hasba:financial-request:${createHash("sha256").update(`${req.url?.split("?")[0]}\n${input.toString("utf8")}`).digest("hex")}`,
               key, bodyHash: createHash("sha256").update(input).digest("hex"),
               upstreamStatus: reply.statusCode,
               replayed: reply.headers["idempotency-replayed"] === "true",
@@ -83,7 +86,7 @@ const proxy = createServer((req, res) => {
             if (drop) {
               // No bytes from the committed success are sent to the browser.
               res.destroy();
-              console.log("[browser-retry] Committed success dropped; retry the unchanged form.");
+              console.log("[browser-retry] Committed success dropped; capture sessionStorage, reload, then re-enter the same data.");
               return;
             }
           }
