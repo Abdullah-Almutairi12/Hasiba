@@ -50,7 +50,15 @@ export async function financialFetch(input: RequestInfo | URL, init: RequestInit
   }
   if (response.ok || (response.status >= 400 && response.status < 500 && ![408, 429].includes(response.status))) {
     // Do not erase a later intent created by another call after our success.
-    if (sessionStorage.getItem(storageKey) === key) sessionStorage.removeItem(storageKey);
+    try {
+      if (sessionStorage.getItem(storageKey) === key) sessionStorage.removeItem(storageKey);
+    } catch (cause) {
+      // Keep the form and persisted intent until cleanup succeeds. Reporting a
+      // generic save failure here would hide a confirmed financial commit.
+      throw new Error(response.ok
+        ? "تم حفظ العملية بالفعل، لكن تعذر تنظيف مفتاحها من تخزين الجلسة. فعّل التخزين ثم أعد المحاولة بنفس البيانات لتأكيد النتيجة دون إنشاء عملية مكررة. لا تبدأ عملية جديدة بهذه البيانات قبل اكتمال التأكيد."
+        : "رفض الخادم العملية، لكن تعذر تنظيف مفتاحها من تخزين الجلسة. فعّل التخزين ثم أعد المحاولة.", { cause });
+    }
   }
   return response;
 }

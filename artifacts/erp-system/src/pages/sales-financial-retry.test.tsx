@@ -26,6 +26,8 @@ vi.mock("@workspace/api-client-react", async (importOriginal) => {
 
 const uncertainMessage =
   "تعذر تأكيد نتيجة العملية؛ قد تكون حُفظت بالفعل. أعد المحاولة بنفس البيانات لاسترجاع النتيجة دون إنشاء عملية مكررة.";
+const cleanupMessage =
+  "تم حفظ العملية بالفعل، لكن تعذر تنظيف مفتاحها من تخزين الجلسة. فعّل التخزين ثم أعد المحاولة بنفس البيانات لتأكيد النتيجة دون إنشاء عملية مكررة. لا تبدأ عملية جديدة بهذه البيانات قبل اكتمال التأكيد.";
 const invoice = {
   id: 31, reference: "INV-31", customerId: 7, total: 400,
   amountPaid: 0, invoiceDate: "2026-10-01",
@@ -63,10 +65,21 @@ const recoveryCases = cases.flatMap((scenario) =>
 );
 
 describe.each(recoveryCases)("$path form recovery: $recovery", ({ recovery, ...scenario }) => {
-  it.each(["lost response", "502", "malformed JSON success"] as const)(
+  it.each(["lost response", "502", "malformed JSON success", "cleanup failure"] as const)(
     "keeps the form and intent after %s, then shows one replayed document",
     async (fault) => {
       const attempts: Array<{ body: string; key: string | null }> = [];
+      const originalRemove = Storage.prototype.removeItem;
+      const rejectedRemovals: string[] = [];
+      const cleanupFault = fault === "cleanup failure"
+        ? vi.spyOn(Storage.prototype, "removeItem").mockImplementation(function (this: Storage, key: string) {
+            if (this === sessionStorage && key.startsWith("hasba:financial-request:")) {
+              rejectedRemovals.push(key);
+              throw new DOMException("Synthetic financial cleanup failure", "SecurityError");
+            }
+            return originalRemove.call(this, key);
+          })
+        : undefined;
       // A stateful transport double, not a real server/database. Commit before
       // fault injection, replay by key, and serve the same rows on list refresh.
       // Real transaction/idempotency guarantees belong to the isolated API tests.
@@ -88,14 +101,15 @@ describe.each(recoveryCases)("$path form recovery: $recovery", ({ recovery, ...s
             return Response.json(previous.row, { headers: { "Idempotency-Replayed": "true" } });
           }
           const row = {
-            ...JSON.parse(body), id: 91, reference: scenario.reference,
+            ...JSON.parse(body), id: 91 + committed.size,
+            reference: committed.size === 0 ? scenario.reference : `${scenario.reference}-NEW`,
             customerName: "عميل الاختبار", receiptDate: "2026-10-01",
             noteDate: "2026-10-01", total: 98.325, status: "issued",
           };
           committed.set(key, { body, row });
           // Only the first response is faulty. A mistakenly renewed retry key
           // would create a second row and fail the count/list assertions.
-          if (attempts.length === 1) {
+          if (attempts.length === 1 && fault !== "cleanup failure") {
             if (fault === "lost response") throw new TypeError("connection lost after commit");
             if (fault === "malformed JSON success") {
               // The write above succeeded; only its HTTP 201 confirmation is
@@ -176,7 +190,7 @@ describe.each(recoveryCases)("$path form recovery: $recovery", ({ recovery, ...s
         let save = form.getByRole("button", { name: scenario.save });
         await user.click(save);
 
-        expect(await screen.findByText(uncertainMessage, { exact: true })).toBeTruthy();
+        expect(await screen.findByText(fault === "cleanup failure" ? cleanupMessage : uncertainMessage, { exact: true })).toBeTruthy();
         expect(screen.getByRole("dialog", { name: scenario.title })).toBe(dialog);
         expect(values()).toEqual(before);
         const guidance = form.getByRole("note").textContent;
@@ -192,6 +206,11 @@ describe.each(recoveryCases)("$path form recovery: $recovery", ({ recovery, ...s
         expect(committed.size).toBe(1);
         expect(sessionStorage.length).toBe(1);
         const storageKey = sessionStorage.key(0)!;
+        if (cleanupFault) {
+          expect(rejectedRemovals).toEqual([storageKey]);
+          cleanupFault.mockRestore();
+          expect(Storage.prototype.removeItem).toBe(originalRemove);
+        }
         expect(storageKey).toMatch(/^hasba:financial-request:/);
         expect(sessionStorage.getItem(storageKey)).toBe(attempts[0].key);
         // Financial payloads are deliberately not persisted in browser storage.
@@ -258,7 +277,26 @@ describe.each(recoveryCases)("$path form recovery: $recovery", ({ recovery, ...s
         // Header plus exactly one visible document row.
         expect(within(screen.getByRole("table")).getAllByRole("row")).toHaveLength(2);
         expect(sessionStorage.length).toBe(0);
+        if (fault === "cleanup failure" && recovery === "same dialog") {
+          // Once confirmation AND cleanup complete, identical data is a new
+          // deliberate intent, not a replay of the already-confirmed return.
+          view.unmount();
+          view = mount();
+          await user.click(screen.getByRole("tab", { name: scenario.tab }));
+          dialog = await openForm();
+          form = within(dialog);
+          await fillForm(dialog);
+          await user.click(form.getByRole("button", { name: scenario.save }));
+          await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+          expect(attempts).toHaveLength(3);
+          expect(attempts[2].body).toBe(attempts[0].body);
+          expect(attempts[2].key).not.toBe(attempts[0].key);
+          expect(committed.size).toBe(2);
+          expect(replays).toBe(1);
+          expect(sessionStorage.length).toBe(0);
+        }
       } finally {
+        cleanupFault?.mockRestore();
         view.unmount();
         client.clear();
       }

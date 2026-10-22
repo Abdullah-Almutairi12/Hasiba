@@ -102,6 +102,49 @@ describe.each([
     await expect(financialFetch(url, request)).rejects.toThrow("لم يُرسل الطلب");
     expect(fetch).not.toHaveBeenCalled();
   });
+  it("reports a confirmed save when cleanup fails, then replays before releasing the intent", async () => {
+    const attempts = [];
+    const committed = new Map();
+    vi.stubGlobal("fetch", vi.fn(async (_url, init) => {
+      const key = new Headers(init.headers).get("Idempotency-Key");
+      const replayed = committed.has(key);
+      if (!replayed) committed.set(key, { id: committed.size + 1 });
+      attempts.push({ key, body: init.body, replayed });
+      return Response.json(committed.get(key), { status: 201 });
+    }));
+    const originalRemove = sessionStorage.removeItem;
+    sessionStorage.removeItem = vi.fn(() => { throw new DOMException("cleanup blocked", "SecurityError"); });
+    try {
+      await expect(financialFetch(url, request)).rejects.toThrow("تم حفظ العملية بالفعل، لكن تعذر تنظيف مفتاحها");
+      expect(committed.size).toBe(1);
+      expect(stored.size).toBe(1);
+      expect([...stored.values()]).toEqual([attempts[0].key]);
+      expect(sessionStorage.removeItem).toHaveBeenCalledWith([...stored.keys()][0]);
+    } finally {
+      sessionStorage.removeItem = originalRemove;
+    }
+    expect(await (await financialFetch(url, request)).json()).toEqual({ id: 1 });
+    expect(attempts[1]).toEqual({ ...attempts[0], replayed: true });
+    expect(committed.size).toBe(1);
+    expect(stored.size).toBe(0);
+    // A later intentionally identical document must not reuse the confirmed ID.
+    expect(await (await financialFetch(url, request)).json()).toEqual({ id: 2 });
+    expect(attempts[2].key).not.toBe(attempts[0].key);
+    expect(stored.size).toBe(0);
+  });
+  it("does not describe a rejected operation as saved when its cleanup fails", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ error: "invalid" }, { status: 422 })));
+    const originalRemove = sessionStorage.removeItem;
+    sessionStorage.removeItem = () => { throw new Error("cleanup blocked"); };
+    try {
+      await expect(financialFetch(url, request)).rejects.toThrow("رفض الخادم العملية");
+      expect(stored.size).toBe(1);
+    } finally {
+      sessionStorage.removeItem = originalRemove;
+    }
+    expect((await financialFetch(url, request)).status).toBe(422);
+    expect(stored.size).toBe(0);
+  });
   it("does not send when writing the safety key is blocked, and recovers after storage is restored", async () => {
     const fetch = vi.fn(async () => Response.json({ id: 1 }));
     vi.stubGlobal("fetch", fetch);

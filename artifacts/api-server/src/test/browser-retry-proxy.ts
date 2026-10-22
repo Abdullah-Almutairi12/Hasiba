@@ -35,6 +35,9 @@ const reportDir = resolve(import.meta.dirname, "../../../../generated-artifacts/
 mkdirSync(reportDir, { recursive: true });
 const receiptMode = process.argv.includes("--receipts");
 const returnMode = process.argv.includes("--returns");
+// Cleanup-after-success tests need the real successful response in the tab.
+// Keep the default lost-response scenario unchanged for existing callers.
+const passSuccess = process.argv.includes("--pass-success");
 assert.ok(!(receiptMode && returnMode), "Choose one isolated scenario");
 const reportFile = resolve(reportDir, returnMode ? "browser-identical-return-proxy.json" : receiptMode ? "browser-identical-receipt-proxy.json" : "browser-retry-proxy.json");
 const readCounts = async () => (await pool.query(`
@@ -131,7 +134,7 @@ const readPaymentState = async () => {
 };
 // Read-only follow-up evidence, without another browser submission or modifying
 // the original event snapshots. Only the validated disposable database is used.
-if (process.argv.includes("--capture-receipts")) {
+if (process.argv.includes("--capture-receipts") || process.argv.includes("--capture-cleanup-success")) {
   const report = JSON.parse(readFileSync(reportFile, "utf8"));
   const finalReceipts = await readReceipts();
   assert.ok(report.runId && report.events.length);
@@ -139,6 +142,39 @@ if (process.argv.includes("--capture-receipts")) {
     JSON.stringify([r.companyId, r.userId, r.operation, r.key])).sort();
   assert.deepEqual(identities(finalReceipts), identities(report.events.at(-1).receipts),
     "The live disposable receipts must match this proxy run");
+  if (process.argv.includes("--capture-cleanup-success")) {
+    assert.ok(returnMode && !receiptMode, "Cleanup-success capture requires --returns");
+    assert.deepEqual(report.initialCounts, { invoices: 1, creditNotes: 0, receipts: 0 });
+    assert.equal(report.returnPostCount, 2);
+    assert.equal(report.invoicePostCount, 0);
+    assert.equal(report.receiptPostCount, 0);
+    assert.equal(report.events.length, 2);
+    const [first, retry] = report.events;
+    assert.equal(first.replayed, false);
+    assert.equal(retry.replayed, true);
+    assert.equal(first.key, retry.key);
+    assert.equal(first.bodyHash, retry.bodyHash);
+    assert.deepEqual(first.body, retry.body);
+    assert.equal(first.creditNoteId, retry.creditNoteId);
+    for (const event of report.events) {
+      assert.equal(event.dropped, false, "The browser must receive the confirmed success");
+      assert.equal(event.upstreamStatus, 201);
+      assert.deepEqual(event.counts, { invoices: 1, creditNotes: 1, receipts: 1 });
+      assert.equal(event.returnState.notes.length, 1);
+      assert.equal(event.returnState.moves.length, 1);
+      assert.equal(event.returnState.moves[0].quantity, 1);
+      assert.equal(event.returnState.moves[0].unitCost, report.returnFixture.unitCost);
+      assert.equal(event.returnState.stock, 1);
+    }
+    assert.deepEqual(first.returnState, retry.returnState);
+    assert.deepEqual(await readScenarioCounts(), retry.counts);
+    assert.deepEqual(await readReturnState(), retry.returnState);
+    assert.equal(finalReceipts.length, 1);
+    writeFileSync(resolve(reportDir, "browser-return-cleanup-success-proxy.json"), JSON.stringify({
+      ...report, finalReceipts, finalReturnState: await readReturnState(),
+      capturedAt: Date.now(), assertionsPassed: true,
+    }, null, 2));
+  }
   writeFileSync(reportFile, JSON.stringify({
     ...report, finalReceipts, receiptsObservedAt: Date.now(),
     ...(receiptMode ? { finalPaymentState: await readPaymentState() } : {}),
@@ -215,7 +251,7 @@ const proxy = createServer((req, res) => {
             const receipts = await readReceipts();
             const paymentState = receiptMode ? await readPaymentState() : undefined;
             const returnState = returnMode ? await readReturnState() : undefined;
-            const drop = successful && !dropped;
+            const drop = successful && !dropped && !passSuccess;
             if (drop) dropped = true;
             events.push({
               recordedAt: Date.now(),
