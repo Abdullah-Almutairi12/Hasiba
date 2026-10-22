@@ -42,6 +42,10 @@ const passSuccess = process.argv.includes("--pass-success");
 // arrive. A bounded timeout releases the server but makes the guard fail.
 const overlapReturns = process.argv.includes("--overlap-returns");
 assert.ok(!overlapReturns || (returnMode && passSuccess), "Overlap requires --returns --pass-success");
+const overlapInvoices = process.argv.includes("--overlap-invoices");
+assert.ok(!overlapInvoices || (!returnMode && !receiptMode && passSuccess),
+  "Invoice overlap requires --pass-success without --returns or --receipts");
+const overlap = overlapReturns || overlapInvoices;
 assert.ok(!(receiptMode && returnMode), "Choose one isolated scenario");
 const reportFile = resolve(reportDir, returnMode ? "browser-identical-return-proxy.json" : receiptMode ? "browser-identical-receipt-proxy.json" : "browser-retry-proxy.json");
 const readCounts = async () => (await pool.query(`
@@ -52,6 +56,16 @@ const readCounts = async () => (await pool.query(`
 const readJournals = async () => (await pool.query(
   "SELECT id FROM journal_entries ORDER BY id",
 )).rows;
+// Customer invoices bill goods; delivery orders issue them. Invoice saves
+// must not change either the product balance or the warehouse ledger.
+const readInvoiceState = async () => ({
+  invoices: (await pool.query(`SELECT id, reference, customer_id AS "customerId",
+    total::float8 AS total FROM customer_invoices ORDER BY id`)).rows,
+  products: (await pool.query("SELECT id, stock::float8 AS stock FROM products ORDER BY id")).rows,
+  moves: (await pool.query("SELECT id FROM stock_moves ORDER BY id")).rows,
+  quants: (await pool.query(`SELECT id, quantity::float8 AS quantity,
+    avg_cost::float8 AS "avgCost" FROM stock_quants ORDER BY id`)).rows,
+});
 const readScenarioCounts = async () => returnMode ? (await pool.query(`
   SELECT (SELECT count(*)::int FROM customer_invoices) AS invoices,
     (SELECT count(*)::int FROM credit_notes) AS "creditNotes",
@@ -185,7 +199,8 @@ if (process.argv.includes("--capture-receipts") || process.argv.includes("--capt
   writeFileSync(reportFile, JSON.stringify({
     ...report, finalReceipts, receiptsObservedAt: Date.now(),
     ...(!receiptMode && !returnMode ? { finalCounts: await readCounts(), finalJournals: await readJournals() } : {}),
-    ...(report.overlapReturns ? {
+    ...(report.overlapInvoices ? { finalInvoiceState: await readInvoiceState() } : {}),
+    ...(report.overlapReturns || report.overlapInvoices ? {
       finalCounts: await readScenarioCounts(),
       finalJournalCount: Number((await pool.query("SELECT count(*) AS count FROM journal_entries")).rows[0].count),
     } : {}),
@@ -212,14 +227,15 @@ const arrivals: Array<{ arrivedAt: number; forwardedAt?: number; responseSentAt?
 let releaseOverlap: (() => void) | undefined;
 let overlapTimedOut = false;
 let overlapTimer: ReturnType<typeof setTimeout> | undefined;
-const overlapGate = overlapReturns ? new Promise<void>((done) => {
+const overlapGate = overlap ? new Promise<void>((done) => {
   releaseOverlap = done;
 }) : Promise.resolve();
 const startedAt = Date.now();
 const initialCounts = await readScenarioCounts();
 const initialJournals = !returnMode ? await readJournals() : undefined;
 const journalCount = async () => Number((await pool.query("SELECT count(*) AS count FROM journal_entries")).rows[0].count);
-const initialJournalCount = overlapReturns ? await journalCount() : undefined;
+const initialJournalCount = overlap ? await journalCount() : undefined;
+const initialInvoiceState = overlapInvoices ? await readInvoiceState() : undefined;
 const initialPaymentState = receiptMode ? await readPaymentState() : undefined;
 let finalPaymentState = initialPaymentState;
 const returnFixture = returnMode ? state.accounts.find((a: { returnInvoice?: unknown }) => a.returnInvoice).returnInvoice : undefined;
@@ -228,7 +244,8 @@ let finalReturnState = initialReturnState;
 const save = () => writeFileSync(reportFile, JSON.stringify({
   runId, startedAt, initialCounts, invoicePostCount, events, finalReceipts, receiptsObservedAt,
   ...(!returnMode ? { initialJournals } : {}),
-  ...(overlapReturns ? { overlapReturns, overlapTimedOut, arrivals, initialJournalCount } : {}),
+  ...(overlap ? { overlapReturns, overlapInvoices, overlapTimedOut, arrivals, initialJournalCount } : {}),
+  ...(overlapInvoices ? { scenario: "overlapping-invoice", initialInvoiceState, receiptPostCount, returnPostCount } : {}),
   ...(receiptMode ? { scenario: "identical-receipt", receiptPostCount, initialPaymentState, finalPaymentState } : {}),
   ...(returnMode ? { scenario: "identical-return", returnPostCount, receiptPostCount, returnFixture, initialReturnState, finalReturnState } : {}),
 }, null, 2));
@@ -251,7 +268,9 @@ const proxy = createServer((req, res) => {
   }
   if (creditNote) {
     returnPostCount += 1;
-    if (overlapReturns) {
+    save();
+  }
+  if ((overlapReturns && creditNote) || (overlapInvoices && invoice)) {
       arrivals.push(arrival);
       if (arrivals.length === 1) overlapTimer = setTimeout(() => {
         overlapTimedOut = true;
@@ -263,14 +282,13 @@ const proxy = createServer((req, res) => {
         // Keep both requests pending briefly for browser/storage evidence.
         setTimeout(() => releaseOverlap?.(), 1500);
       }
-    }
     save();
   }
   const body: Buffer[] = [];
   req.on("data", (chunk: Buffer) => body.push(chunk));
   req.on("end", async () => {
     const input = Buffer.concat(body);
-    if (overlapReturns && creditNote) {
+    if ((overlapReturns && creditNote) || (overlapInvoices && invoice)) {
       await overlapGate;
       arrival.forwardedAt = Date.now();
       save();
@@ -297,7 +315,8 @@ const proxy = createServer((req, res) => {
             const drop = successful && !dropped && !passSuccess;
             if (drop) dropped = true;
             events.push({
-              ...(overlapReturns ? { arrivalIndex: arrivals.indexOf(arrival), journalCount: await journalCount() } : {}),
+              ...(overlap ? { arrivalIndex: arrivals.indexOf(arrival), journalCount: await journalCount() } : {}),
+              ...(overlapInvoices ? { invoiceState: await readInvoiceState() } : {}),
               recordedAt: Date.now(),
               ...(!receiptMode && !returnMode ? { journals: await readJournals(), body: JSON.parse(input.toString("utf8")) } : {}),
               storageKey: `hasba:financial-request:${createHash("sha256").update(`${req.url?.split("?")[0]}\n${input.toString("utf8")}`).digest("hex")}`,
@@ -328,7 +347,7 @@ const proxy = createServer((req, res) => {
           }
           res.writeHead(reply.statusCode ?? 502, reply.headers);
           res.end(output);
-          if (overlapReturns && creditNote) {
+          if ((overlapReturns && creditNote) || (overlapInvoices && invoice)) {
             arrival.responseSentAt = Date.now();
             save();
           }
