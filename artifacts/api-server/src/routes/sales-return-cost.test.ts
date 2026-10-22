@@ -220,6 +220,135 @@ describe("original sales cost, inventory carrying value and profit", () => {
       .toEqual(returnMoves);
   });
 
+  it("mixes a high-precision FIFO return with older destination layers without changing transfer profit", async () => {
+    const quantity = 2_000_000;
+    const returnValue = 20_000_100; // 2m × 10.00005, not a four-decimal cost.
+    const f = await fixture("fifo", [[quantity / 2, 10], [quantity / 2, 10.0001]]);
+    await db.update(productsTable).set({ price: "20" }).where(eq(productsTable.id, f.productId));
+    const [branch] = await db.insert(branchesTable).values({
+      companyId: f.companyId, name: `${f.tag}-mixed`, nameAr: f.tag, city: "Test",
+    }).returning();
+    const [destination] = await db.insert(warehousesTable).values({
+      companyId: f.companyId, branchId: branch.id, name: f.tag, nameAr: f.tag, isDefault: true,
+    }).returning();
+    const [session] = await db.insert(posSessionsTable).values({
+      sessionNumber: `${f.tag}-mixed`, cashierName: f.tag, branchId: branch.id, openingCash: "0", status: "open",
+    }).returning();
+    const older = await db.transaction(async (tx) => {
+      const receipts = [];
+      for (const unitCost of [6, 9]) {
+        receipts.push(await recordStockMove(tx, {
+          companyId: f.companyId, productId: f.productId, toWarehouseId: destination.id,
+          kind: "receipt", quantity: 1_000_000, unitCost, sourceRef: f.tag,
+        }));
+      }
+      return receipts;
+    });
+    await reconcile(f, { inventory: returnValue + 15_000_000, cogs: 0, profit: 0 });
+    const sold = await sale(f, [{ productId: f.productId, quantity }]);
+    await reconcile(f, { inventory: 15_000_000, cogs: returnValue, profit: 19_999_900 });
+    const credit = ok(await f.agent.post("/api/sales/credit-notes")
+      .send(returnBody(f, sold.invoice.id, sold.lines[0].id, quantity, 20)));
+    const returnMoves = await rows(
+      "SELECT * FROM stock_moves WHERE source_type='credit_note' AND source_id=$1 ORDER BY id", [credit.id]);
+    expect(returnMoves).toHaveLength(1);
+    await reconcile(f, { inventory: 35_000_100, cogs: 0, profit: 0 });
+    await db.update(productsTable).set({ costPrice: "99" }).where(eq(productsTable.id, f.productId));
+
+    async function warehouseState(warehouseId: number, qty: number, avgCost: number, value: number, tolerance = 0) {
+      // Compare PostgreSQL numerics, allowing only the explicitly supplied
+      // sub-micro-riyal binary arithmetic residue, never a cents-only check.
+      const [state] = await rows(`SELECT
+        (SELECT count(*)=1 AND bool_and(quantity=$3::numeric AND
+          abs(avg_cost-$4::numeric)*greatest(quantity,1)<=$6::numeric)
+          FROM stock_quants WHERE product_id=$1 AND warehouse_id=$2) AS quant,
+        (SELECT abs(sum(quantity*avg_cost)-$5::numeric)<=$6::numeric FROM stock_quants
+          WHERE product_id=$1 AND warehouse_id=$2) AS quant_value,
+        (SELECT coalesce(sum(remaining_qty),0)=$3::numeric AND
+          coalesce(sum(remaining_qty*unit_cost),0)=$5::numeric FROM stock_layers
+          WHERE product_id=$1 AND warehouse_id=$2) AS layers,
+        (SELECT coalesce(sum(
+          CASE WHEN to_warehouse_id=$2 AND state='done' THEN quantity*unit_cost ELSE 0 END -
+          CASE WHEN from_warehouse_id=$2 AND state IN ('done','in_transit') THEN quantity*unit_cost ELSE 0 END
+        ),0)=$5::numeric FROM stock_moves WHERE product_id=$1) AS moves`,
+      [f.productId, warehouseId, qty, avgCost, value, tolerance]);
+      expect(state).toEqual({ quant: true, quant_value: true, layers: true, moves: true });
+    }
+    // Only scoped aggregates, not a replay or snapshot of the full journal history.
+    async function financialState() {
+      return rows(`SELECT a.system_key, count(DISTINCT j.id)::int AS entries,
+        count(*)::int AS lines, sum(l.base_debit)::text AS debits, sum(l.base_credit)::text AS credits
+        FROM journal_entries j JOIN journal_entry_lines l ON l.entry_id=j.id
+        JOIN accounts a ON a.id=l.account_id WHERE j.company_id=$1 AND j.status='posted'
+        GROUP BY a.system_key ORDER BY a.system_key`, [f.companyId]);
+    }
+    await warehouseState(f.warehouseId, quantity, 10.00005, returnValue);
+    await warehouseState(destination.id, quantity, 7.5, 15_000_000);
+    const beforeTransfer = await financialState();
+    const transfer = ok(await f.agent.post("/api/inventory/transfers").send({
+      productId: f.productId, quantity, fromWarehouseId: f.warehouseId, toWarehouseId: destination.id,
+    }));
+    expect(transfer.unitCost).toBe(10.00005);
+    const [dispatched] = await rows(`SELECT state, quantity=$2::numeric AS qty,
+      unit_cost=10.00005 AS cost, quantity*unit_cost=$3::numeric AS value
+      FROM stock_moves WHERE id=$1`, [transfer.moveId, quantity, returnValue]);
+    expect(dispatched).toEqual({ state: "in_transit", qty: true, cost: true, value: true });
+    await warehouseState(f.warehouseId, 0, 0, 0);
+    await warehouseState(destination.id, quantity, 7.5, 15_000_000);
+    expect((await rows("SELECT stock=2000000 AS qty FROM products WHERE id=$1", [f.productId]))[0].qty).toBe(true);
+    // In transit the missing on-hand value remains GL inventory, not COGS.
+    expect(await financialState()).toEqual(beforeTransfer);
+
+    ok(await f.agent.post(`/api/inventory/transfers/${transfer.moveId}/receive`).send({}), 200);
+    const [received] = await rows(`SELECT state, unit_cost=10.00005 AS cost
+      FROM stock_moves WHERE id=$1`, [transfer.moveId]);
+    expect(received).toEqual({ state: "done", cost: true });
+    await warehouseState(f.warehouseId, 0, 0, 0);
+    // (1m×6 + 1m×9 + 2m×10.00005) / 4m, not the incoming cost or today's price.
+    await warehouseState(destination.id, 4_000_000, 8.750025, 35_000_100);
+    expect(await financialState()).toEqual(beforeTransfer);
+    await reconcile(f, { inventory: 35_000_100, cogs: 0, profit: 0 });
+
+    async function destinationLayers(firstQty: number, secondQty: number, returnedQty: number) {
+      const layers = await rows(`SELECT receipt_move_id,
+        remaining_qty=CASE receipt_move_id WHEN $3 THEN $6::numeric WHEN $4 THEN $7::numeric
+          WHEN $5 THEN $8::numeric END AS qty,
+        unit_cost=CASE receipt_move_id WHEN $3 THEN 6 WHEN $4 THEN 9 WHEN $5 THEN 10.00005 END AS cost
+        FROM stock_layers WHERE product_id=$1 AND warehouse_id=$2 ORDER BY created_at,id`,
+      [f.productId, destination.id, older[0].moveId, older[1].moveId, transfer.moveId,
+        firstQty, secondQty, returnedQty]);
+      expect(layers).toEqual([older[0].moveId, older[1].moveId, transfer.moveId]
+        .map((receipt_move_id) => ({ receipt_move_id, qty: true, cost: true })));
+    }
+    await destinationLayers(1_000_000, 1_000_000, quantity);
+    const destinationFixture = { ...f, sessionId: session.id };
+    // First sale exhausts the oldest layer and only half of the second.
+    // The transferred return layer must be entirely untouched.
+    const firstResale = await sale(destinationFixture, [{ productId: f.productId, quantity: 1_500_000 }]);
+    const [firstIssue] = await rows(`SELECT from_warehouse_id, quantity=1500000 AS qty,
+      unit_cost=7 AS cost, quantity*unit_cost=10500000 AS value
+      FROM stock_moves WHERE kind='issue' AND invoice_line_id=$1`, [firstResale.lines[0].id]);
+    expect(firstIssue).toEqual({ from_warehouse_id: destination.id, qty: true, cost: true, value: true });
+    await destinationLayers(0, 500_000, quantity);
+    await warehouseState(destination.id, 2_500_000, 9.80004, 24_500_100);
+    await reconcile(f, { inventory: 24_500_100, cogs: 10_500_000, profit: 19_500_000 });
+
+    // Then cross from the final old 500k×9 into 500k×10.00005 of the return.
+    const secondResale = await sale(destinationFixture, [{ productId: f.productId, quantity: 1_000_000 }]);
+    const [secondIssue] = await rows(`SELECT from_warehouse_id, quantity=1000000 AS qty,
+      unit_cost=9.500025 AS cost, quantity*unit_cost=9500025 AS value
+      FROM stock_moves WHERE kind='issue' AND invoice_line_id=$1`, [secondResale.lines[0].id]);
+    expect(secondIssue).toEqual({ from_warehouse_id: destination.id, qty: true, cost: true, value: true });
+    await destinationLayers(0, 0, 1_500_000);
+    await warehouseState(f.warehouseId, 0, 0, 0);
+    // applyQuantDelta uses JS arithmetic: the final subtraction can leave
+    // nanoriyals in the quant, while movement/layer values above remain exact.
+    await warehouseState(destination.id, 1_500_000, 10.00005, 15_000_075, 0.000001);
+    await reconcile(f, { inventory: 15_000_075, cogs: 20_000_025, profit: 29_999_975 });
+    expect(await rows("SELECT * FROM stock_moves WHERE source_type='credit_note' AND source_id=$1 ORDER BY id", [credit.id]))
+      .toEqual(returnMoves);
+  });
+
   it.each([
     ["SAR", false, null], ["USD", false, null], ["SAR", true, null], ["USD", true, null],
     ["SAR", false, 1], ["USD", false, 1], ["SAR", false, 0], ["USD", false, 0],
