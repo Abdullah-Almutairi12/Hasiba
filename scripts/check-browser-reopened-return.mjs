@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 
-export function checkBrowserReopenedReturn(proxy, browser) {
+export function checkBrowserReopenedReturn(proxy, browser, { reloadReadBlock = false } = {}) {
   assert.equal(proxy.scenario, "identical-return");
   assert.ok(proxy.runId);
   assert.equal(browser.runId, proxy.runId);
@@ -77,19 +77,29 @@ export function checkBrowserReopenedReturn(proxy, browser) {
   assert.deepEqual(proxy.finalReceipts, first.receipts);
   assert.deepEqual(proxy.finalReturnState, first.returnState);
   const { afterLostResponse, afterClose, afterReopen, afterSuccess } = browser;
+  const stages = reloadReadBlock
+    ? [afterLostResponse, browser.beforeBlockedSave, browser.afterBlockedSave, browser.restored, afterSuccess]
+    : [afterLostResponse, afterClose, afterReopen, afterSuccess];
   let previous = first.recordedAt;
-  for (const stage of [afterLostResponse, afterClose, afterReopen, afterSuccess]) {
+  for (const stage of stages) {
     assert.ok(stage && Number.isFinite(stage.observedAt));
     assert.ok(stage.observedAt > previous);
     previous = stage.observedAt;
     assert.ok(Number.isFinite(stage.timeOrigin));
-    assert.equal(stage.timeOrigin, afterLostResponse.timeOrigin, "No reload allowed");
+    if (reloadReadBlock && stage !== afterLostResponse) {
+      assert.ok(stage.timeOrigin > afterLostResponse.timeOrigin, "A real reload must discard in-memory intent");
+      assert.equal(stage.timeOrigin, browser.beforeBlockedSave.timeOrigin);
+    } else {
+      assert.equal(stage.timeOrigin, afterLostResponse.timeOrigin, "No reload allowed");
+    }
     assert.ok(Array.isArray(stage.entries));
   }
   assert.equal(afterLostResponse.formOpen, true);
-  assert.equal(afterClose.formClosed, true, "Must actually close before reopening");
-  assert.equal(afterReopen.formOpen, true);
-  for (const stage of [afterLostResponse, afterClose, afterReopen]) {
+  if (!reloadReadBlock) {
+    assert.equal(afterClose.formClosed, true, "Must actually close before reopening");
+    assert.equal(afterReopen.formOpen, true);
+  }
+  for (const stage of stages.slice(0, -1)) {
     assert.deepEqual(stage.entries, [[first.storageKey, first.key]], "Unconfirmed intent must remain stored");
     assert.ok(stage.observedAt < retry.recordedAt, "No retry/confirmation before reopening");
   }
@@ -97,7 +107,14 @@ export function checkBrowserReopenedReturn(proxy, browser) {
     reason: first.body.reason, restock: true, description: f.description,
     quantity: "1", unitPrice: "100", taxRate: "0" };
   assert.deepEqual(afterLostResponse.fields, fields);
-  assert.deepEqual(afterReopen.fields, fields, "Read actual reopened fields; refill only if reset");
+  if (reloadReadBlock) {
+    for (const stage of stages.slice(1, -1)) {
+      assert.equal(stage.formOpen, true);
+      assert.deepEqual(stage.fields, fields, "Same linked return fields after reload and blocked save");
+    }
+  } else {
+    assert.deepEqual(afterReopen.fields, fields, "Read actual reopened fields; refill only if reset");
+  }
   assert.ok(retry.recordedAt <= afterSuccess.observedAt);
   assert.deepEqual(afterSuccess.entries, []);
   assert.equal(afterSuccess.formClosed, true);

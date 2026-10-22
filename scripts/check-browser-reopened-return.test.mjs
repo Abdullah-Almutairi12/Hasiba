@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { checkBrowserReopenedReturn } from "./check-browser-reopened-return.mjs";
 
-function evidence() {
+export function evidence() {
   const fixture = { id: 10, reference: "SINV-RETURN", lineId: 20, productId: 30,
     warehouseId: 40, issueMoveId: 50, soldQuantity: 4, returnQuantity: 1,
     unitCost: 50, description: "Synthetic return item" };
