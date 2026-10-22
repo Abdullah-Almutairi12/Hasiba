@@ -49,6 +49,9 @@ const readCounts = async () => (await pool.query(`
     (SELECT count(*)::int FROM customer_invoices) AS invoices,
     (SELECT count(*)::int FROM financial_requests) AS receipts
 `)).rows[0];
+const readJournals = async () => (await pool.query(
+  "SELECT id FROM journal_entries ORDER BY id",
+)).rows;
 const readScenarioCounts = async () => returnMode ? (await pool.query(`
   SELECT (SELECT count(*)::int FROM customer_invoices) AS invoices,
     (SELECT count(*)::int FROM credit_notes) AS "creditNotes",
@@ -181,6 +184,7 @@ if (process.argv.includes("--capture-receipts") || process.argv.includes("--capt
   }
   writeFileSync(reportFile, JSON.stringify({
     ...report, finalReceipts, receiptsObservedAt: Date.now(),
+    ...(!receiptMode && !returnMode ? { finalCounts: await readCounts(), finalJournals: await readJournals() } : {}),
     ...(report.overlapReturns ? {
       finalCounts: await readScenarioCounts(),
       finalJournalCount: Number((await pool.query("SELECT count(*) AS count FROM journal_entries")).rows[0].count),
@@ -213,6 +217,7 @@ const overlapGate = overlapReturns ? new Promise<void>((done) => {
 }) : Promise.resolve();
 const startedAt = Date.now();
 const initialCounts = await readScenarioCounts();
+const initialJournals = !receiptMode && !returnMode ? await readJournals() : undefined;
 const journalCount = async () => Number((await pool.query("SELECT count(*) AS count FROM journal_entries")).rows[0].count);
 const initialJournalCount = overlapReturns ? await journalCount() : undefined;
 const initialPaymentState = receiptMode ? await readPaymentState() : undefined;
@@ -222,6 +227,7 @@ const initialReturnState = returnMode ? await readReturnState() : undefined;
 let finalReturnState = initialReturnState;
 const save = () => writeFileSync(reportFile, JSON.stringify({
   runId, startedAt, initialCounts, invoicePostCount, events, finalReceipts, receiptsObservedAt,
+  ...(!receiptMode && !returnMode ? { initialJournals } : {}),
   ...(overlapReturns ? { overlapReturns, overlapTimedOut, arrivals, initialJournalCount } : {}),
   ...(receiptMode ? { scenario: "identical-receipt", receiptPostCount, initialPaymentState, finalPaymentState } : {}),
   ...(returnMode ? { scenario: "identical-return", returnPostCount, receiptPostCount, returnFixture, initialReturnState, finalReturnState } : {}),
@@ -293,6 +299,7 @@ const proxy = createServer((req, res) => {
             events.push({
               ...(overlapReturns ? { arrivalIndex: arrivals.indexOf(arrival), journalCount: await journalCount() } : {}),
               recordedAt: Date.now(),
+              ...(!receiptMode && !returnMode ? { journals: await readJournals(), body: JSON.parse(input.toString("utf8")) } : {}),
               storageKey: `hasba:financial-request:${createHash("sha256").update(`${req.url?.split("?")[0]}\n${input.toString("utf8")}`).digest("hex")}`,
               key, bodyHash: createHash("sha256").update(input).digest("hex"),
               upstreamStatus: reply.statusCode,
