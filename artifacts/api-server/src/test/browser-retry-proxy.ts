@@ -54,7 +54,8 @@ const readScenarioCounts = async () => returnMode ? (await pool.query(`
 `)).rows[0] : readCounts();
 // Read-only post-check for the no-send scenario. Run while this same
 // disposable proxy/database are still alive, after restoring tab storage.
-if (process.argv.includes("--capture-storage-block")) {
+if (process.argv.includes("--capture-storage-block") && !returnMode) {
+  assert.ok(!receiptMode, "Storage-block capture supports invoices or --returns");
   const report = JSON.parse(readFileSync(reportFile, "utf8"));
   assert.ok(report.runId);
   assert.equal(report.invoicePostCount, 0, "No invoice POST may reach the proxy");
@@ -91,6 +92,27 @@ const readReturnState = async () => {
   const product = (await pool.query(`SELECT stock::float8 AS stock FROM products WHERE id = $1`, [fixture.productId])).rows[0];
   return { notes, moves, quants, stock: product.stock };
 };
+if (process.argv.includes("--capture-storage-block") && returnMode) {
+  const report = JSON.parse(readFileSync(reportFile, "utf8"));
+  assert.ok(report.runId);
+  assert.equal(report.scenario, "identical-return");
+  assert.equal(report.returnPostCount, 0, "No return POST may reach the proxy");
+  assert.equal(report.invoicePostCount, 0);
+  assert.equal(report.receiptPostCount, 0);
+  assert.deepEqual(report.events, []);
+  assert.deepEqual(report.initialCounts, { invoices: 1, creditNotes: 0, receipts: 0 });
+  const finalCounts = await readScenarioCounts();
+  const finalReturnState = await readReturnState();
+  assert.deepEqual(finalCounts, report.initialCounts, "No return or financial receipt may exist");
+  assert.deepEqual(report.initialReturnState.notes, []);
+  assert.deepEqual(report.initialReturnState.moves, []);
+  assert.deepEqual(finalReturnState, report.initialReturnState, "No stock restoration may occur");
+  writeFileSync(resolve(reportDir, "browser-return-storage-block-proxy.json"), JSON.stringify({
+    ...report, finalCounts, finalReturnState, capturedAt: Date.now(),
+  }, null, 2));
+  await pool.end();
+  process.exit(0);
+}
 const readPaymentState = async () => {
   const payments = (await pool.query(`
     SELECT id, reference, customer_id AS "customerId", amount::float8 AS amount,

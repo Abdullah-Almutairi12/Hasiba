@@ -25,6 +25,18 @@ pass a test intended to prove the browser never sent financial data.
 counter and unchanged disposable invoice/financial-receipt counts. Scope storage
 fault injection to the test tab and restore the original methods in `finally`.
 
+A no-send storage test must prove it reached the intended financial operation,
+not merely a form-validation failure. Verify the rejected storage key against
+the complete intended payload, including source-line links and zero tax.
+
+**Why:** There is intentionally no outgoing request body to inspect in a
+successful no-send test. An arbitrary blocked key and empty database do not
+prove the completed linked-return form exercised the intended submission.
+
+**How to apply:** Compare the captured attempted key's digest with the expected
+endpoint and payload, alongside actual before/after rendered fields and the
+specific storage-safety message.
+
 For reload recovery checks, discard the form, query cache, and transport module's
 in-memory state while preserving the tab's session storage. Do not treat retrying
 in a mounted dialog as evidence of reload safety.
