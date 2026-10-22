@@ -62,7 +62,7 @@ try {
   if (process.argv.includes("--browser")) {
     const state = join(tmpdir(), "hasba-browser-state.json");
     pnpm(["--filter", "@workspace/scripts", "exec", "tsx", "../artifacts/api-server/src/test/browser-fixtures.ts"],
-      { ...env, HASBA_BROWSER_STATE: state });
+      { ...env, HASBA_BROWSER_STATE: state, HASBA_BROWSER_RECEIPTS: process.argv.includes("--receipts") ? "true" : "" });
     console.log("[test:isolated] Browser fixtures ready. State: /tmp/hasba-browser-state.json (synthetic data only).");
     await new Promise((done) => {
       const timer = setTimeout(done, 15 * 60 * 1000);

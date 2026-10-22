@@ -1,7 +1,7 @@
 import { writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import bcrypt from "bcryptjs";
-import { db, pool, companiesTable, usersTable, userCompaniesTable, customersTable, fiscalYearsTable, fiscalPeriodsTable, categoriesTable, productsTable } from "@workspace/db";
+import { db, pool, companiesTable, usersTable, userCompaniesTable, customersTable, fiscalYearsTable, fiscalPeriodsTable, categoriesTable, productsTable, customerInvoicesTable, customerInvoiceLinesTable } from "@workspace/db";
 
 if (!process.env.HASBA_BROWSER_STATE || !process.env.TEST_DATABASE_URL) {
   throw new Error("Run through node scripts/test-isolated.mjs --browser");
@@ -30,7 +30,21 @@ for (const role of ["owner", "sales"] as const) {
     companyId: company.id, categoryId: category.id, name: `Verification product ${tag}`,
     nameAr: "منتج اختبار", sku: `verify-${role}-${tag}`, price: "100", costPrice: "50", stock: "0",
   });
-  accounts.push({ email, password, companyId: company.id, role, customerId: customer.id, customerName: customer.name });
+  let receiptInvoice;
+  if (role === "owner" && process.env.HASBA_BROWSER_RECEIPTS === "true") {
+    const [invoice] = await db.insert(customerInvoicesTable).values({
+      companyId: company.id, customerId: customer.id, customerName: customer.name,
+      reference: `SINV-VERIFY-${tag}`, status: "open",
+      invoiceDate: new Date().toISOString().slice(0, 10),
+      subtotal: "300", total: "300", amountPaid: "0", createdBy: user.id,
+    }).returning();
+    await db.insert(customerInvoiceLinesTable).values({
+      invoiceId: invoice.id, description: "Synthetic receipt balance", quantity: "1",
+      unitPrice: "300", lineTotal: "300", taxRate: "0",
+    });
+    receiptInvoice = { id: invoice.id, reference: invoice.reference, total: 300, receiptAmount: 50 };
+  }
+  accounts.push({ email, password, companyId: company.id, role, customerId: customer.id, customerName: customer.name, receiptInvoice });
 }
 writeFileSync(process.env.HASBA_BROWSER_STATE, JSON.stringify({
   // Both URLs point only to the generated, disposable loopback cluster.

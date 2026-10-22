@@ -3,7 +3,7 @@
  * Start only after `node scripts/test-isolated.mjs --browser` is ready
  * and the normal API workflow is stopped. Restore that workflow afterwards.
  *
- * Drops the first successful customer-invoice response AFTER the real app
+ * Drops the first successful customer-invoice (or --receipts) response AFTER the real app
  * has committed it. Later requests pass through, including receipt replays.
  * No test endpoint, auth bypass, or production data is used.
  */
@@ -33,12 +33,19 @@ const { pool } = await import("@workspace/db");
 await assertApplicationReady();
 const reportDir = resolve(import.meta.dirname, "../../../../generated-artifacts/verification");
 mkdirSync(reportDir, { recursive: true });
-const reportFile = resolve(reportDir, "browser-retry-proxy.json");
+const receiptMode = process.argv.includes("--receipts");
+const reportFile = resolve(reportDir, receiptMode ? "browser-identical-receipt-proxy.json" : "browser-retry-proxy.json");
 const readCounts = async () => (await pool.query(`
   SELECT
     (SELECT count(*)::int FROM customer_invoices) AS invoices,
     (SELECT count(*)::int FROM financial_requests) AS receipts
 `)).rows[0];
+const readScenarioCounts = async () => receiptMode ? (await pool.query(`
+  SELECT
+    (SELECT count(*)::int FROM customer_invoices) AS invoices,
+    (SELECT count(*)::int FROM customer_receipts) AS "paymentReceipts",
+    (SELECT count(*)::int FROM financial_requests) AS receipts
+`)).rows[0] : readCounts();
 // Read-only post-check for the no-send scenario. Run while this same
 // disposable proxy/database are still alive, after restoring tab storage.
 if (process.argv.includes("--capture-storage-block")) {
@@ -57,9 +64,27 @@ if (process.argv.includes("--capture-storage-block")) {
 }
 const readReceipts = async () => (await pool.query(`
   SELECT company_id AS "companyId", user_id AS "userId", operation,
-    request_key AS key, result->'value'->'inv'->>'id' AS "invoiceId"
+    request_key AS key, ${receiptMode
+      ? `result->'value'->>'id' AS "paymentReceiptId"`
+      : `result->'value'->'inv'->>'id' AS "invoiceId"`}
   FROM financial_requests ORDER BY request_key
 `)).rows;
+const readPaymentState = async () => {
+  const payments = (await pool.query(`
+    SELECT id, reference, customer_id AS "customerId", amount::float8 AS amount,
+      payment_method AS "paymentMethod", journal_entry_id AS "journalEntryId"
+    FROM customer_receipts ORDER BY id
+  `)).rows;
+  const allocations = (await pool.query(`
+    SELECT receipt_id AS "receiptId", invoice_id AS "invoiceId", amount::float8 AS amount
+    FROM customer_receipt_allocations ORDER BY receipt_id, invoice_id
+  `)).rows;
+  const invoices = (await pool.query(`
+    SELECT id, customer_id AS "customerId", total::float8 AS total,
+      amount_paid::float8 AS "amountPaid", status FROM customer_invoices ORDER BY id
+  `)).rows;
+  return { payments, allocations, invoices };
+};
 // Read-only follow-up evidence, without another browser submission or modifying
 // the original event snapshots. Only the validated disposable database is used.
 if (process.argv.includes("--capture-receipts")) {
@@ -72,6 +97,7 @@ if (process.argv.includes("--capture-receipts")) {
     "The live disposable receipts must match this proxy run");
   writeFileSync(reportFile, JSON.stringify({
     ...report, finalReceipts, receiptsObservedAt: Date.now(),
+    ...(receiptMode ? { finalPaymentState: await readPaymentState() } : {}),
   }, null, 2));
   await pool.end();
   process.exit(0);
@@ -87,19 +113,28 @@ let finalReceipts: Array<Record<string, unknown>> = [];
 let receiptsObservedAt = 0;
 let dropped = false;
 let invoicePostCount = 0;
+let receiptPostCount = 0;
 const startedAt = Date.now();
-const initialCounts = await readCounts();
+const initialCounts = await readScenarioCounts();
+const initialPaymentState = receiptMode ? await readPaymentState() : undefined;
+let finalPaymentState = initialPaymentState;
 const save = () => writeFileSync(reportFile, JSON.stringify({
   runId, startedAt, initialCounts, invoicePostCount, events, finalReceipts, receiptsObservedAt,
+  ...(receiptMode ? { scenario: "identical-receipt", receiptPostCount, initialPaymentState, finalPaymentState } : {}),
 }, null, 2));
 save();
 
 const proxy = createServer((req, res) => {
   const invoice = req.method === "POST" && req.url?.split("?")[0] === "/api/sales/invoices";
+  const receipt = req.method === "POST" && req.url?.split("?")[0] === "/api/sales/receipts";
   // Record arrival, not just successful upstream replies: zero events alone
   // would miss rejected requests or requests still in flight.
   if (invoice) {
     invoicePostCount += 1;
+    save();
+  }
+  if (receipt) {
+    receiptPostCount += 1;
     save();
   }
   const body: Buffer[] = [];
@@ -115,18 +150,15 @@ const proxy = createServer((req, res) => {
       reply.on("end", () => {
         void (async () => {
           const output = Buffer.concat(chunks);
-          if (invoice) {
+          if (receiptMode ? receipt : invoice) {
             const key = req.headers["idempotency-key"];
             assert.equal(typeof key, "string", "The real UI must send Idempotency-Key");
             const successful = reply.statusCode !== undefined && reply.statusCode >= 200 && reply.statusCode < 300;
             const result = successful ? JSON.parse(output.toString("utf8")) : null;
             // This query uses only the disposable pool, after the response ended.
-            const counts = await pool.query(`
-              SELECT
-                (SELECT count(*)::int FROM customer_invoices) AS invoices,
-                (SELECT count(*)::int FROM financial_requests) AS receipts
-            `);
+            const counts = await readScenarioCounts();
             const receipts = await readReceipts();
+            const paymentState = receiptMode ? await readPaymentState() : undefined;
             const drop = successful && !dropped;
             if (drop) dropped = true;
             events.push({
@@ -136,16 +168,20 @@ const proxy = createServer((req, res) => {
               upstreamStatus: reply.statusCode,
               replayed: reply.headers["idempotency-replayed"] === "true",
               replayHeader: reply.headers["idempotency-replayed"] ?? null,
-              invoiceId: result?.id, reference: result?.reference,
-              counts: counts.rows[0], receipts, dropped: drop,
+              ...(receiptMode ? { paymentReceiptId: result?.id, paymentState, body: JSON.parse(input.toString("utf8")) } : { invoiceId: result?.id }),
+              reference: result?.reference,
+              counts, receipts, dropped: drop,
             });
             finalReceipts = receipts;
+            finalPaymentState = paymentState;
             receiptsObservedAt = Date.now();
             save();
             if (drop) {
               // No bytes from the committed success are sent to the browser.
               res.destroy();
-              console.log("[browser-retry] Committed success dropped; capture sessionStorage, reload, then re-enter the same data.");
+              console.log(receiptMode
+                ? "[browser-retry] Committed receipt success dropped; capture sessionStorage, then retry the unchanged dialog."
+                : "[browser-retry] Committed success dropped; capture sessionStorage, reload, then re-enter the same data.");
               return;
             }
           }
