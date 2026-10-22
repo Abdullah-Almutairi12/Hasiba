@@ -155,6 +155,9 @@ async function nextEntryNumber(tx: DbOrTx, year: number): Promise<string> {
  * Resolves the fiscal period from entry date and refuses closed periods.
  *
  * Default status is "posted" — pass status: "draft" to leave it unposted.
+ * All input line amounts are in header.currencyCode; base amounts are derived
+ * exactly once here. Callers combining foreign commercial amounts with SAR
+ * inventory costs must express those costs in the header currency first.
  */
 export async function postJournalEntry(
   tx: DbOrTx,

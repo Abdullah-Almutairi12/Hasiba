@@ -58,6 +58,7 @@ import { sendMessage } from "../lib/integrations/messaging";
 import { sendByTemplate } from "../lib/integrations/messaging-templates";
 import { buildSignedInvoiceQrPath } from "./integrations";
 import { recordStockMove, getDefaultWarehouseId } from "../lib/stock-engine";
+import { allocateDeliveryIssueCost, originalInvoiceRate, restoreOriginalSaleCost } from "../lib/sales-return-cost";
 import { requireSupplyReference } from "../lib/supply-chain-scope";
 import type { DbOrTx } from "../lib/journal-posting";
 import { mirrorSalesInvoice, mirrorCreditNote, voidMirrorForSourceTx } from "../lib/intercompany-mirror";
@@ -143,6 +144,14 @@ async function finalizeCreditNoteCancellation(
     const [note] = await tx.select().from(creditNotesTable).where(and(eq(creditNotesTable.id, id), eq(creditNotesTable.companyId, companyId)));
     if (!note) throw Object.assign(new Error("Not found"), { status: 404 });
     if (note.status === "cancelled") throw new Error("الإشعار ملغى مسبقاً");
+    if (note.invoiceId) {
+      const [source] = await tx.select({ soId: customerInvoicesTable.soId }).from(customerInvoicesTable)
+        .where(and(eq(customerInvoicesTable.id, note.invoiceId), eq(customerInvoicesTable.companyId, companyId)));
+      if (source?.soId) {
+        await tx.select({ id: salesOrdersTable.id }).from(salesOrdersTable)
+          .where(and(eq(salesOrdersTable.id, source.soId), eq(salesOrdersTable.companyId, companyId))).for("update");
+      }
+    }
 
     const cnLines = await tx
       .select()
@@ -323,29 +332,35 @@ async function finalizeCreditNoteIssue(
     if (note.status !== "draft" && note.status !== "pending_approval") {
       throw new Error(`لا يمكن ترحيل إشعار في حالة ${note.status}`);
     }
+    // SO -> invoice -> issue movements: match invoicing/reversal lock order
+    // while reserving or restoring partial-delivery cost allocations.
+    if (note.invoiceId) {
+      const [source] = await tx.select({ soId: customerInvoicesTable.soId }).from(customerInvoicesTable)
+        .where(and(eq(customerInvoicesTable.id, note.invoiceId), eq(customerInvoicesTable.companyId, companyId)));
+      if (source?.soId) {
+        await tx.select({ id: salesOrdersTable.id }).from(salesOrdersTable)
+          .where(and(eq(salesOrdersTable.id, source.soId), eq(salesOrdersTable.companyId, companyId))).for("update");
+      }
+      await tx.select({ id: customerInvoicesTable.id }).from(customerInvoicesTable)
+        .where(and(eq(customerInvoicesTable.id, note.invoiceId), eq(customerInvoicesTable.companyId, companyId))).for("update");
+    }
     const cnLines = await tx
       .select()
       .from(creditNoteLinesTable)
       .where(eq(creditNoteLinesTable.noteId, noteId));
     await validateCreditNoteInventory(tx, note.companyId, note.warehouseId, cnLines);
+    if (note.restock && !note.warehouseId && cnLines.some((line) => line.productId != null)) {
+      throw new FinancialRequestError("يلزم مستودع لإعادة المخزون المرتجع", 409);
+    }
     let restockedCost = 0;
+    const exchangeRate = await originalInvoiceRate(tx, companyId, note.invoiceId, note.currencyCode);
     // Restock — only if the CN was created with restock=true and a warehouse.
     if (note.restock && note.warehouseId) {
-      for (const cn of cnLines) {
-        if (!cn.productId) continue;
-        const restocked = await recordStockMove(tx, {
-          companyId: note.companyId,
-          productId: cn.productId,
-          quantity: Number(cn.quantity),
-          kind: "receipt",
-          toWarehouseId: note.warehouseId,
-          sourceType: "credit_note",
-          sourceRef: note.reference,
-          createdBy: sessionUserId,
-          skipJournal: true,
-        });
-        restockedCost += Number(cn.quantity) * restocked.unitCost;
-      }
+      restockedCost = await restoreOriginalSaleCost(tx, {
+        companyId, invoiceId: note.invoiceId, noteId: note.id,
+        warehouseId: note.warehouseId, reference: note.reference,
+        createdBy: sessionUserId, lines: cnLines,
+      });
     }
     // Post offsetting JE.
     const lines: Array<{ systemKey: string; debit?: number; credit?: number; description?: string }> = [
@@ -356,13 +371,15 @@ async function finalizeCreditNoteIssue(
     if (Number(note.total) > 0)
       lines.push({ systemKey: "ar", credit: Number(note.total), description: "تسوية ذمم مدينة (إشعار دائن)" });
     if (restockedCost > 0) {
-      lines.push({ systemKey: "inventory", debit: restockedCost, description: "إعادة تكلفة المخزون المرتجع" });
-      lines.push({ systemKey: "cogs", credit: restockedCost, description: "عكس تكلفة البضاعة المرتجعة" });
+      lines.push({ systemKey: "inventory", debit: restockedCost / exchangeRate, description: "إعادة تكلفة المخزون المرتجع الأصلية" });
+      lines.push({ systemKey: "cogs", credit: restockedCost / exchangeRate, description: "عكس تكلفة البضاعة المرتجعة الأصلية" });
     }
     const je = await postJournalEntry(
       tx,
       {
         entryDate: note.noteDate,
+        currencyCode: note.currencyCode,
+        exchangeRate,
         description: `إشعار دائن ${note.reference}`,
         reference: note.reference,
         source: "manual",
@@ -1501,9 +1518,10 @@ router.post("/sales/deliveries", salesWriteGuard, async (req, res) => {
               kind: "issue",
               fromWarehouseId: warehouseId,
               sourceType: "delivery_order",
+              sourceId: sl.id,
               sourceRef: reference,
               createdBy: req.session?.userId ?? null,
-              skipJournal: true,
+              skipJournal: false,
             });
           }
           await tx
@@ -1610,9 +1628,10 @@ router.post("/sales/deliveries/:id/transition", salesWriteGuard, async (req, res
               kind: "issue",
               fromWarehouseId: doc.warehouseId,
               sourceType: "delivery_order",
+              sourceId: ln.soLineId,
               sourceRef: doc.reference,
               createdBy: req.session?.userId ?? null,
-              skipJournal: true,
+              skipJournal: false,
             });
           }
           if (ln.soLineId) {
@@ -2584,7 +2603,7 @@ router.post("/sales/invoices", financeGuard, async (req, res) => {
 
       for (let i = 0; i < totals.lines.length; i++) {
         const ln = totals.lines[i];
-        await tx.insert(customerInvoiceLinesTable).values({
+        const [invoiceLine] = await tx.insert(customerInvoiceLinesTable).values({
           invoiceId: inv.id,
           soLineId: soLineByIdx[i] || null,
           productId: (ln.productId as number | null) ?? null,
@@ -2594,8 +2613,14 @@ router.post("/sales/invoices", financeGuard, async (req, res) => {
           discountPct: String(ln.discountPct),
           taxRate: String(ln.taxRate),
           lineTotal: String(ln.lineTotal),
-        });
+        }).returning();
         if (soLineByIdx[i]) {
+          if (ln.productId != null) {
+            await allocateDeliveryIssueCost(tx, {
+              companyId: getCompanyId(req), invoiceLineId: invoiceLine.id,
+              soLineId: soLineByIdx[i], productId: ln.productId, quantity: ln.quantity,
+            });
+          }
           await tx
             .update(salesOrderLinesTable)
             .set({ invoicedQty: sql`${salesOrderLinesTable.invoicedQty}::numeric + ${ln.quantity}` })
@@ -2830,6 +2855,14 @@ router.post("/sales/invoices/:id/reverse", financeGuard, async (req, res) => {
     const reverseCompanyId = getCompanyId(req);
 
     const result = await financialTransaction(req, async (tx) => {
+      // Allocation capacity is shared with SO invoicing. Lock the parent
+      // before the invoice, consistently with return issuance.
+      const [source] = await tx.select({ soId: customerInvoicesTable.soId }).from(customerInvoicesTable)
+        .where(and(eq(customerInvoicesTable.id, id), eq(customerInvoicesTable.companyId, reverseCompanyId)));
+      if (source?.soId) {
+        await tx.select({ id: salesOrdersTable.id }).from(salesOrdersTable)
+          .where(and(eq(salesOrdersTable.id, source.soId), eq(salesOrdersTable.companyId, reverseCompanyId))).for("update");
+      }
       const [orig] = await tx
         .select()
         .from(customerInvoicesTable)
@@ -3225,6 +3258,8 @@ router.post(
         if (!srcInv) throw new Error("الفاتورة المصدر غير موجودة");
         if (srcInv.customerId !== body.customerId)
           throw new Error("الفاتورة المصدر تخص عميلاً آخر");
+        if (srcInv.reversedById || srcInv.reversesId)
+          throw new FinancialRequestError("لا يمكن إرجاع فاتورة معكوسة أو فاتورة عكسية", 409);
 
         const invLines = await tx
           .select()
@@ -3296,7 +3331,21 @@ router.post(
       const noteDate = body.noteDate ?? new Date().toISOString().slice(0, 10);
 
       const warehouseId =
-        body.warehouseId ?? (body.restock ? await getDefaultWarehouseId(tx, companyId).catch(() => null) : null);
+        body.warehouseId ?? (body.restock ? await getDefaultWarehouseId(tx, companyId) : null);
+      let currencyCode = "SAR";
+      if (body.invoiceId) {
+        const [invoice] = await tx.select().from(customerInvoicesTable)
+          .where(and(eq(customerInvoicesTable.id, body.invoiceId), eq(customerInvoicesTable.companyId, companyId)));
+        currencyCode = invoice.currencyCode;
+      }
+      await originalInvoiceRate(tx, companyId, body.invoiceId ?? null, currencyCode);
+      if (body.restock && warehouseId) {
+        await restoreOriginalSaleCost(tx, {
+          companyId, invoiceId: body.invoiceId ?? null, noteId: null,
+          warehouseId, reference, createdBy: req.session?.userId ?? null, validateOnly: true,
+          lines: body.lines.map((line) => ({ ...line, productId: line.productId ?? null, invoiceLineId: line.invoiceLineId ?? null })),
+        });
+      }
 
       // Insert header + lines as a draft. The JE / inventory restock /
       // invoice settlement are deferred to finalizeCreditNoteIssue so a
@@ -3307,6 +3356,7 @@ router.post(
           companyId: getCompanyId(req),
           reference,
           invoiceId: body.invoiceId ?? null,
+          currencyCode,
           customerId: customer.id,
           customerName: customer.name,
           noteDate,

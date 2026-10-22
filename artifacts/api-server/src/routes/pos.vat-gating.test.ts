@@ -180,6 +180,14 @@ afterAll(async () => {
   if (sessionId) {
     await db.delete(posSessionsTable).where(eq(posSessionsTable.id, sessionId));
   }
+  // Stock movements now retain a restrictive reference to invoice lines.
+  // Delete this fixture's moves before deleting their source documents.
+  if (warehouseId) {
+    await tryRun(
+      `DELETE FROM stock_moves WHERE from_warehouse_id = $1 OR to_warehouse_id = $1`,
+      [warehouseId],
+    );
+  }
 
   if (walkinCustomerId) {
     await tryRun(
@@ -203,7 +211,7 @@ afterAll(async () => {
     );
     await tryRun(
       `DELETE FROM delivery_order_lines
-         WHERE delivery_order_id IN (
+         WHERE do_id IN (
            SELECT id FROM delivery_orders
             WHERE so_id IN (SELECT id FROM sales_orders WHERE customer_id = $1)
          )`,

@@ -108,6 +108,8 @@ export interface RecordMoveInput {
   sourceType?: string | null;
   sourceId?: number | null;
   sourceRef?: string | null;
+  invoiceLineId?: number | null;
+  originalMoveId?: number | null;
   occurredAt?: Date;
   createdBy?: number | null;
   notes?: string | null;
@@ -192,13 +194,10 @@ async function applyQuantDelta(
     if (newQty < -EPSILON) {
       throw new Error(`رصيد المخزون غير كافٍ (متاح ${existing.quantity}، مطلوب ${-qtyDelta})`);
     }
-    let newAvg = existing.avg_cost;
-    if (qtyDelta > 0 && unitCost > 0) {
-      const totalValue = existing.quantity * existing.avg_cost + qtyDelta * unitCost;
-      newAvg = newQty > EPSILON ? totalValue / newQty : unitCost;
-    } else if (existing.quantity <= EPSILON && qtyDelta > 0) {
-      newAvg = unitCost;
-    }
+    // avg_cost is the carrying value per remaining unit, including FIFO.
+    // Removing units at FIFO cost must remove that value, not the old average.
+    const totalValue = existing.quantity * existing.avg_cost + qtyDelta * unitCost;
+    const newAvg = newQty > EPSILON ? totalValue / newQty : 0;
     await tx.execute(sql`
       UPDATE stock_quants
          SET quantity = ${newQty}, avg_cost = ${newAvg}, updated_at = now()
@@ -344,7 +343,7 @@ export async function allocateLotsFEFO(
 export async function recordStockMove(
   tx: DbOrTx,
   input: RecordMoveInput,
-): Promise<{ moveId: number; unitCost: number }> {
+): Promise<{ moveId: number; moveIds: number[]; unitCost: number }> {
   const qty = Number(input.quantity);
   if (!(qty > 0)) throw new Error("الكمية يجب أن تكون أكبر من صفر");
 
@@ -393,13 +392,15 @@ export async function recordStockMove(
   ) {
     const slices = await allocateLotsFEFO(tx, input.productId, input.fromWarehouseId, qty);
     let firstMoveId = 0;
+    const moveIds: number[] = [];
     let weightedCost = 0;
     for (const slice of slices) {
       const r = await recordStockMove(tx, { ...input, quantity: slice.qty, lotId: slice.lotId });
       if (!firstMoveId) firstMoveId = r.moveId;
+      moveIds.push(...r.moveIds);
       weightedCost += r.unitCost * slice.qty;
     }
-    return { moveId: firstMoveId, unitCost: weightedCost / qty };
+    return { moveId: firstMoveId, moveIds, unitCost: weightedCost / qty };
   }
 
   // Block expired lots from being issued.
@@ -473,6 +474,8 @@ export async function recordStockMove(
       sourceType: input.sourceType ?? null,
       sourceId: input.sourceId ?? null,
       sourceRef: input.sourceRef ?? null,
+      invoiceLineId: input.invoiceLineId ?? null,
+      originalMoveId: input.originalMoveId ?? null,
       occurredAt: input.occurredAt ?? new Date(),
       createdBy: input.createdBy ?? null,
       notes: input.notes ?? null,
@@ -663,7 +666,7 @@ export async function recordStockMove(
     // are reversed by the related sale/purchase journal).
   }
 
-  return { moveId: move.id, unitCost };
+  return { moveId: move.id, moveIds: [move.id], unitCost };
 }
 
 /**

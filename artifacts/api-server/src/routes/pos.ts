@@ -22,6 +22,7 @@ import { getCompanyInfo } from "../lib/pdf/purchase-order";
 import { parsePagination } from "../lib/pagination";
 import { processInvoiceForZatca } from "../lib/integrations/zatca-phase2";
 import { recordStockMove } from "../lib/stock-engine";
+import { stockMovesTable } from "@workspace/db";
 import { eq, gte, sql, desc, inArray, and, isNull } from "drizzle-orm";
 import { CreatePosSessionBody, CreatePosOrderBody } from "@workspace/api-zod";
 import { posGuard, posReadGuard } from "../middlewares/require-role";
@@ -631,6 +632,7 @@ router.post(
         quantity: number;
         unitPrice: number;
         costPrice: number;
+        stockMoveIds: number[];
         total: number;
       }> = [];
       let subtotal = 0;
@@ -673,6 +675,7 @@ router.post(
           quantity: item.quantity,
           unitPrice,
           costPrice,
+          stockMoveIds: moveResult.moveIds,
           total: lineTotal,
         });
       }
@@ -1107,7 +1110,7 @@ router.post(
         .returning();
       for (let i = 0; i < orderItems.length; i++) {
         const li = orderItems[i];
-        await tx.insert(customerInvoiceLinesTable).values({
+        const [invoiceLine] = await tx.insert(customerInvoiceLinesTable).values({
           invoiceId: posInvoice.id,
           soLineId: soLineByItemIdx[i],
           productId: li.productId,
@@ -1117,7 +1120,11 @@ router.post(
           discountPct: "0",
           taxRate: vatEnabled ? "15" : "0",
           lineTotal: String(li.total),
-        });
+        }).returning();
+        for (const moveId of li.stockMoveIds) {
+          await tx.update(stockMovesTable).set({ invoiceLineId: invoiceLine.id })
+            .where(eq(stockMovesTable.id, moveId));
+        }
       }
 
       // Invoice JE — same shape as the back-office invoice route:

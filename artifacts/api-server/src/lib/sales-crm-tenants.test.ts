@@ -14,6 +14,7 @@ import {
 import app, { assertApplicationReady } from "../app";
 import { cleanupCompanyDefaults } from "../test/cleanup-company-defaults";
 import { seedCompanyFiscalCalendar } from "./fiscal-calendar";
+import { recordStockMove } from "./stock-engine";
 
 const tag = `sales-crm-tenants-${Date.now()}`;
 const date = new Date().toISOString().slice(0, 10);
@@ -129,6 +130,7 @@ afterAll(async () => {
   const ids = fixtures.map(f => f.company);
   const users = fixtures.map(f => f.user);
   if (!ids.length) return;
+  await db.delete(stockMovesTable).where(inArray(stockMovesTable.productId, fixtures.map(f => f.product)));
   await db.execute(sql`DELETE FROM sales_email_outbox WHERE reference LIKE ${`${tag}%`}`);
   await db.delete(opportunitiesTable).where(inArray(opportunitiesTable.companyId, ids));
   await db.delete(leadsTable).where(inArray(leadsTable.companyId, ids));
@@ -149,7 +151,6 @@ afterAll(async () => {
   await db.delete(quotationsTable).where(inArray(quotationsTable.companyId, ids));
   await db.delete(customersTable).where(inArray(customersTable.companyId, ids));
   const products = fixtures.map(f => f.product);
-  await db.delete(stockMovesTable).where(inArray(stockMovesTable.productId, products));
   await db.delete(stockQuantsTable).where(inArray(stockQuantsTable.productId, products));
   await db.delete(productsTable).where(inArray(productsTable.id, products));
   await db.delete(categoriesTable).where(eq(categoriesTable.id, category));
@@ -342,15 +343,27 @@ describe("Sales and CRM company isolation", () => {
   it("issues and cancels an owned inventory return without touching foreign stock", async () => {
     const own = fixtures[0], foreign = fixtures[1];
     const foreignBefore = await db.select().from(stockQuantsTable).where(eq(stockQuantsTable.productId, foreign.product));
+    // A physical return now requires a genuine original sale/issue, rather
+    // than using a free-form credit to manufacture stock at today's price.
+    const invoice = await agents[0].post("/api/sales/invoices").send({
+      customerId: own.customer,
+      lines: [{ productId: own.product, description: "Owned sale", quantity: 2, unitPrice: 10, taxRate: 0 }],
+    }).expect(201);
+    const [invoiceLine] = await db.select().from(customerInvoiceLinesTable)
+      .where(eq(customerInvoiceLinesTable.invoiceId, invoice.body.id));
+    await db.transaction((tx) => recordStockMove(tx, {
+      companyId: own.company, productId: own.product, quantity: 2, kind: "issue",
+      fromWarehouseId: own.warehouse, invoiceLineId: invoiceLine.id, sourceRef: invoice.body.reference,
+    }));
     const created = await agents[0].post("/api/sales/credit-notes").send({
-      customerId: own.customer, restock: true,
-      lines: [{ productId: own.product, description: "Owned return", quantity: 2, unitPrice: 10, taxRate: 0 }],
+      invoiceId: invoice.body.id, customerId: own.customer, restock: true,
+      lines: [{ invoiceLineId: invoiceLine.id, productId: own.product, description: "Owned return", quantity: 2, unitPrice: 10, taxRate: 0 }],
     }).expect(201);
     expect(created.body.companyId).toBe(own.company);
     expect(created.body.warehouseId).toBe(own.warehouse);
-    expect(Number((await db.select().from(stockQuantsTable).where(eq(stockQuantsTable.productId, own.product)))[0].quantity)).toBe(12);
-    await agents[0].post(`/api/sales/credit-notes/${created.body.id}/cancel`).send({}).expect(200);
     expect(Number((await db.select().from(stockQuantsTable).where(eq(stockQuantsTable.productId, own.product)))[0].quantity)).toBe(10);
+    await agents[0].post(`/api/sales/credit-notes/${created.body.id}/cancel`).send({}).expect(200);
+    expect(Number((await db.select().from(stockQuantsTable).where(eq(stockQuantsTable.productId, own.product)))[0].quantity)).toBe(8);
     expect(await db.select().from(stockQuantsTable).where(eq(stockQuantsTable.productId, foreign.product))).toEqual(foreignBefore);
   });
 });

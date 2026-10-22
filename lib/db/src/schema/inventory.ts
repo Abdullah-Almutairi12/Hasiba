@@ -9,7 +9,9 @@ import {
   date,
   uniqueIndex,
   index,
+  check,
   jsonb,
+  type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
@@ -17,6 +19,7 @@ import { sql } from "drizzle-orm";
 import { productsTable } from "./products";
 import { warehousesTable } from "./warehouses";
 import { usersTable } from "./users";
+import { customerInvoiceLinesTable } from "./sales";
 
 // ===== Lots / Batches =====
 export const stockLotsTable = pgTable(
@@ -82,6 +85,8 @@ export const stockMovesTable = pgTable(
     sourceType: text("source_type"), // pos | invoice | transfer | stocktake | manual
     sourceId: integer("source_id"),
     sourceRef: text("source_ref"),
+    invoiceLineId: integer("invoice_line_id").references(() => customerInvoiceLinesTable.id),
+    originalMoveId: integer("original_move_id").references((): AnyPgColumn => stockMovesTable.id),
     journalEntryId: integer("journal_entry_id"),
     occurredAt: timestamp("occurred_at").notNull().defaultNow(),
     createdBy: integer("created_by").references(() => usersTable.id),
@@ -94,6 +99,28 @@ export const stockMovesTable = pgTable(
     toIdx: index("stock_moves_to_idx").on(t.toWarehouseId),
     kindIdx: index("stock_moves_kind_idx").on(t.kind, t.state),
     sourceIdx: index("stock_moves_source_idx").on(t.sourceType, t.sourceId),
+    invoiceLineIdx: index("stock_moves_invoice_line_idx").on(t.invoiceLineId),
+    originalMoveIdx: index("stock_moves_original_move_idx").on(t.originalMoveId),
+  }),
+);
+
+// A delivery issue may be billed across several partial invoices. Preserve the
+// exact quantity/cost slice owned by each invoice instead of looking up an SO
+// line's oldest unreturned issue when the customer later returns goods.
+export const salesIssueAllocationsTable = pgTable(
+  "sales_issue_allocations",
+  {
+    id: serial("id").primaryKey(),
+    invoiceLineId: integer("invoice_line_id").notNull().references(() => customerInvoiceLinesTable.id),
+    issueMoveId: integer("issue_move_id").notNull().references(() => stockMovesTable.id),
+    quantity: numeric("quantity", { precision: 18, scale: 4 }).notNull(),
+    unitCost: numeric("unit_cost", { precision: 18, scale: 4 }).notNull(),
+  },
+  (t) => ({
+    lineMoveUnique: uniqueIndex("sales_issue_allocations_line_move_unique").on(t.invoiceLineId, t.issueMoveId),
+    moveIdx: index("sales_issue_allocations_move_idx").on(t.issueMoveId),
+    positiveQuantity: check("sales_issue_allocations_quantity_check", sql`${t.quantity} > 0`),
+    nonnegativeCost: check("sales_issue_allocations_unit_cost_check", sql`${t.unitCost} >= 0`),
   }),
 );
 
