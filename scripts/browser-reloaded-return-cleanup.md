@@ -1,8 +1,10 @@
 # Confirmed linked return: cleanup failure followed by a real reload
 
 This covers **readable 201 success**, not a dropped response or failed storage
-read. It recovers one issued credit note, not a new identical return. No transfer
-between warehouses or repeated cleanup failure is involved.
+read. The original scenario recovers one issued credit note. The separate
+[new identical return extension](#separate-scenario-new-identical-return-after-reload-confirmation)
+below continues with a deliberately new return. No transfer between warehouses
+or repeated cleanup failure is involved.
 
 ## Disposable setup
 
@@ -130,3 +132,94 @@ test files passed. Proxy and runner exited gracefully with code zero. Their
 processes, private fixture file and positively identified disposable cluster
 directory were removed. The normal API workflow was restored. No application
 code or business data was changed.
+
+## Separate scenario: new identical return after reload confirmation
+
+Run this independently with a fresh disposable `--browser --returns` fixture
+and **`--returns --pass-success`** proxy, normal login and no application data.
+The fixture invoice has four sold units, enough for two one-unit returns;
+historical sale cost is 50, selling price 100, tax zero, starting stock zero.
+Do not run the lost-response proxy mode, seed/replace financial keys, create
+returns via API, or involve receipt vouchers.
+
+Follow steps 1–6 above unchanged, including reason `Reload cleanup return`,
+parsed first 201 before the scoped cleanup SecurityError, restoration before
+a genuine reload, document-start observation and exact form refilling.
+Use separate evidence filenames for this run:
+
+1. At step 5, copy the unmodified read-only capture to
+   `browser-reloaded-identical-return-before-retry-proxy.json` instead.
+2. After confirmation closes the form, removes the key and leaves one visible
+   reference, **keep the document-start fetch observer installed**. Capture
+   `afterSuccess` with `returnPostCount: 1`. Run the same read-only
+   `--returns --pass-success --capture-receipts` command and copy its output
+   `browser-identical-return-proxy.json` to
+   `browser-reloaded-identical-return-after-success-proxy.json`.
+   This raw intermediate capture must contain two arrivals but only the first
+   issued note, financial receipt, journal identity and historical-cost movement;
+   stock remains one. It must precede the new intentional save.
+3. Open إشعار جديد and fill exactly the same linked source line, customer,
+   invoice, reason, restock, quantity 1, price 100 and zero tax. If the dialog
+   retains values, do not add a duplicate line. Capture `afterNewForm` with
+   actual fields, empty financial entries, `formOpen: true`,
+   `observerInstalledBeforeApp: true`, `returnPostCount: 1` and raw browser
+   timestamps. Opening/refilling must not send anything.
+4. Click حفظ وترحيل once. Record the third parsed 201 response and
+   `afterSecondSuccess`: closed form, empty financial entries,
+   `returnPostCount: 2` in the reloaded document, exactly two visible references.
+   The third request must have exactly the same bytes/fingerprint but a new
+   application-generated key; no replay header, and a new note ID/reference,
+   journal and stock movement. Only this intentional save adds a second return.
+5. Restore the observer in `finally` after this final save, prove method
+   identities and ordinary storage/remove probes, record `restoredAfterReload`
+   and close the test tab to discard any one-shot init script.
+   Save all seven browser stages and all **three** parsed responses under
+   `generated-artifacts/verification/browser-reloaded-identical-return.json`.
+   Preserve the same first-document fault/removal/restoration metadata as above.
+   Do not adjust timestamps between independent browser and proxy clocks.
+6. Take the final read-only capture and preserve it unchanged:
+
+   ```sh
+   pnpm --filter @workspace/scripts exec tsx ../artifacts/api-server/src/test/browser-retry-proxy.ts --returns --pass-success --capture-receipts
+   cp generated-artifacts/verification/browser-identical-return-proxy.json generated-artifacts/verification/browser-reloaded-identical-return-proxy.json
+   node scripts/check-browser-reloaded-identical-return.mjs
+   node --test scripts/check-browser-reloaded-identical-return.test.mjs scripts/check-browser-reloaded-return-cleanup.test.mjs scripts/check-browser-identical-return.test.mjs
+   ```
+
+The new guard applies the unchanged reload-cleanup guard to the actual
+intermediate captures, then extends the distinct-intent assertions from
+`check-browser-identical-return.mjs` without weakening its lost-response case.
+It requires exactly three ingress requests, two issued notes and financial
+receipts linked to the same tenant/user/operation, two distinct journals and
+two completed movements linked to the historical sale issue. Original records
+must remain unchanged. Final stock and warehouse quantity are two at cost 50
+(restored value 100), not three and not the selling price. It also rejects
+reusing the old key, automatic submits, stale captures and duplicated list rows.
+
+Gracefully dispose of the proxy and isolated runner and restore the normal API
+workflow as in “Check and dispose”. Runtime evidence remains ignored.
+
+### Verified extension result
+
+The independent disposable normal-login browser run passed with exactly three
+UI saves. First-save JSON was parsed before the financial-only removal fault;
+the unchanged form and key remained with the explicit cleanup-failed message.
+Both methods and the storage probe were restored before a genuine reload.
+The new document's loading-state observer saw zero POSTs through reload and
+exact refilling. The original key survived without being seeded or replaced.
+
+The confirmation replayed the original ID/reference with identical bytes/key
+and cleared storage. Its independent database capture still held one issued
+note, receipt, journal identity and return movement, with stock one.
+Opening the next identical form did not submit and its financial storage was
+empty. Only its explicit save generated a new key, note/reference, journal and
+movement. Final evidence contained three requests but exactly two notes,
+receipts and movements; stock and warehouse quantity were two at historical
+unit cost 50, preserving the original records and sale links.
+
+The real evidence guard and all 210 checks in the three regression test files
+above passed. Final methods/probes were restored and the isolated tab closed.
+Proxy and runner exited gracefully with code zero; their processes, private
+fixture file and positively identified temporary PostgreSQL directory were
+removed. The normal API workflow was restored. No application code or business
+data was changed.
