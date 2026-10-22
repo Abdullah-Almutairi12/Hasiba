@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-export function checkReceiptCleanup(proxy, browser) {
+export function checkReceiptCleanup(proxy, browser, { reloadBeforeRetry = false } = {}) {
   assert.equal(proxy.scenario, "identical-receipt");
   assert.ok(proxy.runId);
   assert.equal(browser.runId, proxy.runId);
@@ -78,14 +78,14 @@ export function checkReceiptCleanup(proxy, browser) {
     assert.deepEqual(snapshot.entries, [{ storageKey: first.storageKey, key: first.key }]);
   }
   assert.deepEqual(browser.restored, { removeItem: true, probe: true, fetch: true });
-  for (const snapshot of [browser.afterSuccess, browser.afterReload]) {
+  for (const snapshot of reloadBeforeRetry ? [browser.afterSuccess] : [browser.afterSuccess, browser.afterReload]) {
     assert.equal(snapshot.formClosed, true);
     assert.deepEqual(snapshot.entries, []);
     assert.equal(snapshot.visibleReceiptCount, 1);
     assert.deepEqual(snapshot.references, [first.reference]);
   }
   assert.ok(Number.isFinite(browser.afterSuccess.timeOrigin));
-  assert.ok(browser.afterReload.timeOrigin > browser.afterSuccess.timeOrigin, "Require a real reload");
+  if (!reloadBeforeRetry) assert.ok(browser.afterReload.timeOrigin > browser.afterSuccess.timeOrigin, "Require a real reload");
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
