@@ -16,7 +16,7 @@ const uncertainMessage =
   "تعذر تأكيد نتيجة العملية؛ قد تكون حُفظت بالفعل. أعد المحاولة بنفس البيانات لاسترجاع النتيجة دون إنشاء عملية مكررة.";
 
 describe("customer invoice form retry", () => {
-  it.each(["502", "network TypeError"] as const)("shows complete %s guidance, retains the open form, and succeeds with the same body and key", async (failure) => {
+  it.each(["502", "network TypeError", "HTTP 200 with malformed JSON"] as const)("shows complete %s guidance, retains the open form, and succeeds with the same body and key", async (failure) => {
     // Exercise the real page, dialog, toast, apiPost and financialFetch.
     // Only transport and unrelated permissions/VAT context are replaced.
     const attempts: Array<{ body: string; key: string | null }> = [];
@@ -32,6 +32,14 @@ describe("customer invoice form retry", () => {
           // Throw inside the async fetch stub to reject the request without
           // returning any HTTP response, as a browser connection failure does.
           if (failure === "network TypeError") throw new TypeError("Failed to fetch");
+          if (failure === "HTTP 200 with malformed JSON") {
+            // Use a real Response so the real transport must parse the broken
+            // success body before apiPost can confirm the save to the page.
+            return new Response('{"id":91,"reference":', {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            });
+          }
           return new Response("<h1>Bad Gateway</h1>", { status: 502 });
         }
         return Response.json({ id: 91, reference: "INV-RETRY-91" });
