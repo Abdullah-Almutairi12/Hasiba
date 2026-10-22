@@ -11,6 +11,18 @@ vi.mock("@/hooks/use-permissions", () => ({
 vi.mock("@/hooks/use-vat-status", () => ({
   useVatEnabled: () => true,
 }));
+vi.mock("@workspace/api-client-react", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@workspace/api-client-react")>();
+  return {
+    ...actual,
+    // Keep React/hooks stable, but resolve the real transport dynamically so
+    // resetModules below can discard its in-memory intent map like a reload.
+    financialFetch: async (...args: Parameters<typeof actual.financialFetch>) => {
+      const { financialFetch } = await import("../../../../lib/api-client-react/src/financial-fetch");
+      return financialFetch(...args);
+    },
+  };
+});
 
 const uncertainMessage =
   "تعذر تأكيد نتيجة العملية؛ قد تكون حُفظت بالفعل. أعد المحاولة بنفس البيانات لاسترجاع النتيجة دون إنشاء عملية مكررة.";
@@ -46,7 +58,11 @@ const cases = [
   },
 ];
 
-describe.each(cases)("$path form recovery", (scenario) => {
+const recoveryCases = cases.flatMap((scenario) =>
+  (["same dialog", "page reload"] as const).map((recovery) => ({ ...scenario, recovery })),
+);
+
+describe.each(recoveryCases)("$path form recovery: $recovery", ({ recovery, ...scenario }) => {
   it.each(["lost response", "502"] as const)(
     "keeps the form and intent after %s, then shows one replayed document",
     async (fault) => {
@@ -98,21 +114,23 @@ describe.each(cases)("$path form recovery", (scenario) => {
         }
         throw new Error(`Unexpected request: ${init?.method ?? "GET"} ${url}`);
       }));
-      const client = new QueryClient({
+      const newClient = () => new QueryClient({
         defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
       });
+      let client = newClient();
       const user = userEvent.setup();
-      const view = render(
+      const mount = () => render(
         <QueryClientProvider client={client}>
           <SalesPage />
           <Toaster />
         </QueryClientProvider>,
       );
-      try {
-        await user.click(screen.getByRole("tab", { name: scenario.tab }));
-        await waitFor(() => expect(listReads).toBe(1));
+      let view = mount();
+      const openForm = async () => {
         await user.click(screen.getByRole("button", { name: scenario.open }));
-        const dialog = screen.getByRole("dialog", { name: scenario.title });
+        return screen.getByRole("dialog", { name: scenario.title });
+      };
+      const fillForm = async (dialog: HTMLElement) => {
         const form = within(dialog);
         await user.click(form.getAllByRole("combobox")[0]);
         await user.click(await screen.findByRole("option", { name: "عميل الاختبار" }));
@@ -132,6 +150,13 @@ describe.each(cases)("$path form recovery", (scenario) => {
           // Remove the blank initial line; retain the referenced invoice line.
           await user.click(form.getAllByRole("button", { name: "×" })[0]);
         }
+      };
+      try {
+        await user.click(screen.getByRole("tab", { name: scenario.tab }));
+        await waitFor(() => expect(listReads).toBe(1));
+        let dialog = await openForm();
+        let form = within(dialog);
+        await fillForm(dialog);
         const values = () => ({
           inputs: Array.from(dialog.querySelectorAll("input, textarea")).map((el) => {
             const input = el as HTMLInputElement;
@@ -140,8 +165,8 @@ describe.each(cases)("$path form recovery", (scenario) => {
           selections: form.getAllByRole("combobox").map((el) => el.textContent),
         });
         const before = values();
-        const readsBeforeSave = listReads;
-        const save = form.getByRole("button", { name: scenario.save });
+        let readsBeforeSave = listReads;
+        let save = form.getByRole("button", { name: scenario.save });
         await user.click(save);
 
         expect(await screen.findByText(uncertainMessage, { exact: true })).toBeTruthy();
@@ -158,8 +183,58 @@ describe.each(cases)("$path form recovery", (scenario) => {
         const storageKey = sessionStorage.key(0)!;
         expect(storageKey).toMatch(/^hasba:financial-request:/);
         expect(sessionStorage.getItem(storageKey)).toBe(attempts[0].key);
+        // Financial payloads are deliberately not persisted in browser storage.
+        expect(storageKey).toMatch(/^hasba:financial-request:[0-9a-f]{64}$/);
+        expect(localStorage.length).toBe(0);
 
-        // Retry in the same mounted dialog, with no refill or page reload.
+        if (recovery === "page reload") {
+          const oldDialog = dialog;
+          const oldTransport = await import("../../../../lib/api-client-react/src/financial-fetch");
+          view.unmount();
+          client.clear();
+          vi.resetModules();
+          const freshTransport = await import("../../../../lib/api-client-react/src/financial-fetch");
+          expect(freshTransport.financialFetch).not.toBe(oldTransport.financialFetch);
+          client = newClient();
+          view = mount();
+          expect(screen.queryByRole("dialog")).toBeNull();
+          await user.click(screen.getByRole("tab", { name: scenario.tab }));
+          await waitFor(() => expect(listReads).toBe(readsBeforeSave + 1));
+          // Reload itself never re-submits. Fresh GETs show the committed row.
+          expect(attempts).toHaveLength(1);
+          expect(await screen.findAllByText(scenario.reference, { exact: true })).toHaveLength(1);
+          expect(within(screen.getByRole("table")).getAllByRole("row")).toHaveLength(2);
+          expect(sessionStorage.getItem(storageKey)).toBe(attempts[0].key);
+
+          dialog = await openForm();
+          form = within(dialog);
+          expect(dialog).not.toBe(oldDialog);
+          expect(values()).not.toEqual(before);
+          expect(form.getAllByRole("combobox")[0].textContent).not.toContain("عميل الاختبار");
+          if (scenario.path.endsWith("/receipts")) {
+            expect(form.getAllByRole("spinbutton")).toHaveLength(1);
+            expect((form.getByRole("spinbutton") as HTMLInputElement).value).toBe("0");
+            expect(form.getAllByRole("combobox")[1].textContent).toBe("نقدي");
+          } else {
+            expect((form.getByPlaceholderText("مردود/خصم/خطأ سعر") as HTMLInputElement).value).toBe("");
+            expect((form.getByRole("checkbox") as HTMLInputElement).checked).toBe(true);
+            expect(form.queryByDisplayValue(invoiceLine.description)).toBeNull();
+          }
+          const guidance = form.getByRole("note").textContent;
+          expect(guidance).toContain("راجع القائمة أولاً");
+          expect(guidance).toContain("لا تُستعاد بيانات النموذج تلقائياً");
+          expect(guidance).toContain("مفتاح المحاولة يبقى في علامة التبويب نفسها");
+          expect(guidance).toContain("أدخل البيانات الأصلية كاملة دون تغيير");
+          expect(guidance).toContain("فلا تحفظ عملية جديدة");
+          await fillForm(dialog);
+          expect(values()).toEqual(before);
+          save = form.getByRole("button", { name: scenario.save });
+          readsBeforeSave = listReads;
+          expect(attempts).toHaveLength(1);
+        }
+
+        // In the reload case this is a fresh form/cache/transport, with the
+        // original tab's sessionStorage retained.
         await user.click(save);
         await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
         await waitFor(() => expect(listReads).toBe(readsBeforeSave + 1));

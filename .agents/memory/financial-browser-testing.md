@@ -24,3 +24,13 @@ pass a test intended to prove the browser never sent financial data.
 **How to apply:** Pair a browser outgoing-request counter with a proxy ingress
 counter and unchanged disposable invoice/financial-receipt counts. Scope storage
 fault injection to the test tab and restore the original methods in `finally`.
+
+For reload recovery checks, discard the form, query cache, and transport module's
+in-memory state while preserving the tab's session storage. Do not treat retrying
+in a mounted dialog as evidence of reload safety.
+
+**Why:** An in-memory intent map can make retries pass even when the persisted key
+cannot recover an uncertain operation after a real reload.
+
+**How to apply:** Verify the fresh transport instance, unchanged request body and
+key, no automatic POST on remount, and a single list row after confirmation.

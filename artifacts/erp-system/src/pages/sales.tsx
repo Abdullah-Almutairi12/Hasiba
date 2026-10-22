@@ -1599,6 +1599,17 @@ function DocumentFormDialog({
   );
 }
 
+function FinancialRetryGuidance() {
+  return (
+    <p role="note" className="text-sm text-muted-foreground">
+      إذا تعذر تأكيد الحفظ، راجع القائمة أولاً؛ قد تكون العملية حُفظت بالفعل.
+      بعد تحديث الصفحة لا تُستعاد بيانات النموذج تلقائياً، لكن مفتاح المحاولة يبقى في علامة التبويب نفسها.
+      لإعادة المحاولة استخدم علامة التبويب نفسها وأدخل البيانات الأصلية كاملة دون تغيير، بما فيها العميل والفاتورة والمبلغ وطريقة الدفع والتوزيع أو السبب والبنود والكميات والأسعار والضريبة وخيار إعادة المخزون.
+      إذا تعذر إدخال البيانات نفسها، فلا تحفظ عملية جديدة؛ راجع السجل مع المسؤول لتجنب التكرار.
+    </p>
+  );
+}
+
 function ReceiptFormDialog({ onSuccess }: { onSuccess: () => void }) {
   const { data: customers } = useListCustomers({});
   const [customerId, setCustomerId] = useState<number | null>(null);
@@ -1628,6 +1639,7 @@ function ReceiptFormDialog({ onSuccess }: { onSuccess: () => void }) {
   return (
     <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
       <DialogHeader><DialogTitle>سند قبض جديد</DialogTitle></DialogHeader>
+      <FinancialRetryGuidance />
       <div className="space-y-4">
         <div className="grid grid-cols-2 gap-3">
           <div>
@@ -1733,6 +1745,7 @@ function CreditNoteFormDialog({ onSuccess }: { onSuccess: () => void }) {
   return (
     <DialogContent className="max-w-3xl">
       <DialogHeader><DialogTitle>إشعار دائن جديد</DialogTitle></DialogHeader>
+      <FinancialRetryGuidance />
       <div className="space-y-3">
         <div className="grid grid-cols-2 gap-2">
           <div>
