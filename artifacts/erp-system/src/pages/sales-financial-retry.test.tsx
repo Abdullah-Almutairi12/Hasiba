@@ -63,7 +63,7 @@ const recoveryCases = cases.flatMap((scenario) =>
 );
 
 describe.each(recoveryCases)("$path form recovery: $recovery", ({ recovery, ...scenario }) => {
-  it.each(["lost response", "502"] as const)(
+  it.each(["lost response", "502", "malformed JSON success"] as const)(
     "keeps the form and intent after %s, then shows one replayed document",
     async (fault) => {
       const attempts: Array<{ body: string; key: string | null }> = [];
@@ -93,10 +93,17 @@ describe.each(recoveryCases)("$path form recovery: $recovery", ({ recovery, ...s
             noteDate: "2026-10-01", total: 98.325, status: "issued",
           };
           committed.set(key, { body, row });
-          // Only the first response is lost. A mistakenly renewed retry key
+          // Only the first response is faulty. A mistakenly renewed retry key
           // would create a second row and fail the count/list assertions.
           if (attempts.length === 1) {
             if (fault === "lost response") throw new TypeError("connection lost after commit");
+            if (fault === "malformed JSON success") {
+              // The write above succeeded; only its HTTP 201 confirmation is
+              // truncated. Exercise the real financialFetch JSON parsing.
+              return new Response('{"id":91', {
+                status: 201, headers: { "Content-Type": "application/json" },
+              });
+            }
             return new Response("<h1>Bad Gateway</h1>", { status: 502 });
           }
           return Response.json(row);
@@ -172,6 +179,10 @@ describe.each(recoveryCases)("$path form recovery: $recovery", ({ recovery, ...s
         expect(await screen.findByText(uncertainMessage, { exact: true })).toBeTruthy();
         expect(screen.getByRole("dialog", { name: scenario.title })).toBe(dialog);
         expect(values()).toEqual(before);
+        const guidance = form.getByRole("note").textContent;
+        expect(guidance).toContain("راجع القائمة أولاً");
+        expect(guidance).toContain("أدخل البيانات الأصلية كاملة دون تغيير");
+        expect(guidance).toContain("فلا تحفظ عملية جديدة");
         expect(screen.getByText("خطأ", { exact: true })).toBeTruthy();
         expect(screen.queryByText(scenario.success, { exact: true })).toBeNull();
         expect(listReads).toBe(readsBeforeSave);
