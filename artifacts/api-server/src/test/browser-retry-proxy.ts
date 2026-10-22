@@ -31,18 +31,41 @@ Object.assign(process.env, state.env, {
 const { default: app, assertApplicationReady } = await import("../app");
 const { pool } = await import("@workspace/db");
 await assertApplicationReady();
+const reportDir = resolve(import.meta.dirname, "../../../../generated-artifacts/verification");
+mkdirSync(reportDir, { recursive: true });
+const reportFile = resolve(reportDir, "browser-retry-proxy.json");
+const readReceipts = async () => (await pool.query(`
+  SELECT company_id AS "companyId", user_id AS "userId", operation,
+    request_key AS key, result->'value'->'inv'->>'id' AS "invoiceId"
+  FROM financial_requests ORDER BY request_key
+`)).rows;
+// Read-only follow-up evidence, without another browser submission or modifying
+// the original event snapshots. Only the validated disposable database is used.
+if (process.argv.includes("--capture-receipts")) {
+  const report = JSON.parse(readFileSync(reportFile, "utf8"));
+  const finalReceipts = await readReceipts();
+  assert.ok(report.runId && report.events.length);
+  const identities = (rows: Array<Record<string, unknown>>) => rows.map((r) =>
+    JSON.stringify([r.companyId, r.userId, r.operation, r.key])).sort();
+  assert.deepEqual(identities(finalReceipts), identities(report.events.at(-1).receipts),
+    "The live disposable receipts must match this proxy run");
+  writeFileSync(reportFile, JSON.stringify({
+    ...report, finalReceipts, receiptsObservedAt: Date.now(),
+  }, null, 2));
+  await pool.end();
+  process.exit(0);
+}
 const backend = app.listen(0, "127.0.0.1");
 await new Promise<void>((done) => backend.once("listening", done));
 const address = backend.address();
 assert.ok(address && typeof address !== "string");
 const backendPort = address.port;
-const reportDir = resolve(import.meta.dirname, "../../../../generated-artifacts/verification");
-mkdirSync(reportDir, { recursive: true });
-const reportFile = resolve(reportDir, "browser-retry-proxy.json");
 const runId = randomUUID();
 const events: Array<Record<string, unknown>> = [];
+let finalReceipts: Array<Record<string, unknown>> = [];
+let receiptsObservedAt = 0;
 let dropped = false;
-const save = () => writeFileSync(reportFile, JSON.stringify({ runId, events }, null, 2));
+const save = () => writeFileSync(reportFile, JSON.stringify({ runId, events, finalReceipts, receiptsObservedAt }, null, 2));
 save();
 
 const proxy = createServer((req, res) => {
@@ -71,6 +94,7 @@ const proxy = createServer((req, res) => {
                 (SELECT count(*)::int FROM customer_invoices) AS invoices,
                 (SELECT count(*)::int FROM financial_requests) AS receipts
             `);
+            const receipts = await readReceipts();
             const drop = successful && !dropped;
             if (drop) dropped = true;
             events.push({
@@ -79,9 +103,12 @@ const proxy = createServer((req, res) => {
               key, bodyHash: createHash("sha256").update(input).digest("hex"),
               upstreamStatus: reply.statusCode,
               replayed: reply.headers["idempotency-replayed"] === "true",
+              replayHeader: reply.headers["idempotency-replayed"] ?? null,
               invoiceId: result?.id, reference: result?.reference,
-              counts: counts.rows[0], dropped: drop,
+              counts: counts.rows[0], receipts, dropped: drop,
             });
+            finalReceipts = receipts;
+            receiptsObservedAt = Date.now();
             save();
             if (drop) {
               // No bytes from the committed success are sent to the browser.
