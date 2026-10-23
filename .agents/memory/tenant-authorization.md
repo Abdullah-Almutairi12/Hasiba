@@ -55,7 +55,7 @@ An old approval matrix, request, or delegation does not gain verified ownership 
 
 **Why:** The earlier workflow accepted cross-company branch/user references and used global role pools. Those links can therefore be evidence of the original defect rather than evidence of the author's company.
 
-**How to apply:** Stamp new approval records from the authenticated company; resolve roles and delegates from its active memberships. Do not backfill old workflows from linked branches or whichever company first opens them.
+**How to apply:** Stamp new approval records from the authenticated company; resolve roles and delegates from its active memberships. Require explicit tenant context at internal service boundaries too, rather than making it optional or inferring it from a looked-up request ID. Do not backfill old workflows from linked branches or whichever company first opens them.
 
 Supply-chain and sales records with mixed-company references must be quarantined as a whole, rather than returning or acting on partially filtered documents. Legacy work centers and routings have no provable owner.
 

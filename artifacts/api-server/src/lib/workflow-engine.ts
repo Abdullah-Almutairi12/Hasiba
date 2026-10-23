@@ -375,13 +375,14 @@ export async function actOnApproval(
   userId: number | null,
   userName: string | null,
   action: ActionKind,
+  companyId: number,
   comment?: string,
-  companyId?: number,
 ): Promise<ActResult> {
+  if (!Number.isSafeInteger(companyId) || companyId <= 0) throw new Error("يلزم نطاق شركة للاعتماد");
   const [request] = await db
     .select()
     .from(approvalRequestsTable)
-    .where(and(eq(approvalRequestsTable.id, requestId), eq(approvalRequestsTable.companyId, companyId ?? -1)));
+    .where(and(eq(approvalRequestsTable.id, requestId), eq(approvalRequestsTable.companyId, companyId)));
   if (!request) throw new Error("طلب الاعتماد غير موجود");
   if (!companyId || !userId) throw new Error("يلزم عضو وشركة للاعتماد");
   await assertWorkflowMember(companyId, userId);

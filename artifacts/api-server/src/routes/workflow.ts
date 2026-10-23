@@ -376,7 +376,7 @@ router.post("/workflow/approval-requests/:id/act", async (req, res) => {
     const body = ActBody.parse(req.body);
     const userId = req.session.userId ?? null;
     const userName = (req.session as { userName?: string }).userName ?? null;
-    const out = await actOnApproval(id, userId, userName, body.action, body.comment ?? undefined, req.session.companyId!);
+    const out = await actOnApproval(id, userId, userName, body.action, req.session.companyId!, body.comment ?? undefined);
     void recordAudit(req, {
       action: body.action,
       entity: "approval_request",

@@ -149,6 +149,7 @@ describe("original POS invoice: independent linked return lifecycle", () => {
       "0026_pos_return_settlement.sql",
       "0027_document_print_identity.sql",
       "0028_seller_attribution.sql",
+      "0029_approval_tenant_ownership.sql",
     ]);
     expect(first.skipped).toHaveLength(26);
     expect(await snapshots()).toEqual(before);
@@ -996,12 +997,12 @@ describe("credit-note cancellation reconciles actual depletion, not only journal
       await reconcile(f, { inventory: 55, cogs: 45, profit: 255 });
       await pool.query(`UPDATE fiscal_periods SET status='closed'
         WHERE fiscal_year_id IN (SELECT id FROM fiscal_years WHERE company_id=$1)`, [f.companyId]);
-      await expect(actOnApproval(pending.approvalRequestId, approver.id, f.tag, "approve")).rejects.toThrow("الفترة");
+      await expect(actOnApproval(pending.approvalRequestId, approver.id, f.tag, "approve", f.companyId)).rejects.toThrow("الفترة");
       expect((await rows("SELECT status FROM approval_requests WHERE id=$1", [pending.approvalRequestId]))[0].status).toBe("pending");
       await reconcile(f, { inventory: 55, cogs: 45, profit: 255 });
       await pool.query(`UPDATE fiscal_periods SET status='open'
         WHERE fiscal_year_id IN (SELECT id FROM fiscal_years WHERE company_id=$1)`, [f.companyId]);
-      await actOnApproval(pending.approvalRequestId, approver.id, f.tag, "approve");
+      await actOnApproval(pending.approvalRequestId, approver.id, f.tag, "approve", f.companyId);
       await reconcile(f, { inventory: 35, cogs: 65, profit: 335 });
       expect((await rows("SELECT status FROM credit_notes WHERE id=$1", [credit.id]))[0].status).toBe("cancelled");
       expect((await f.agent.post(`/api/sales/credit-notes/${credit.id}/cancel`).send({})).status).toBe(409);

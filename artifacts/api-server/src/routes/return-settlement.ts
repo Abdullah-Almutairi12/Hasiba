@@ -292,7 +292,7 @@ router.post("/pos/returns/actions", async (req, res): Promise<void> => {
       const control = await pool.query("SELECT approval_id FROM return_controls WHERE note_id=$1 AND company_id=$2", [input.noteId, companyId]);
       if (!control.rows[0]?.approval_id) fail("لا يوجد طلب اعتماد لهذا المستند");
       let result;
-      try { result = await actOnApproval(control.rows[0].approval_id, userId, null, "approve", input.comment); }
+      try { result = await actOnApproval(control.rows[0].approval_id, userId, null, "approve", companyId, input.comment); }
       catch (error) {
         if (error instanceof Error && /لا يمكنك اعتماد|ليست لديك صلاحية/.test(error.message)) throw new FinancialRequestError(error.message, 403);
         if (error instanceof Error && /لم يعد مفتوح|لا يوجد/.test(error.message)) throw new FinancialRequestError(error.message, 409);

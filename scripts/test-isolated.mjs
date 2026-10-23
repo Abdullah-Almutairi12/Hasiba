@@ -3,7 +3,7 @@
  * No production credentials, data dump, or application rows are copied.
  */
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, mkdirSync, readdirSync, symlinkSync } from "node:fs";
+import { mkdtempSync, rmSync, mkdirSync, readdirSync, symlinkSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve, join } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -69,9 +69,32 @@ try {
     if (archive.status !== 0) throw new Error("Pinned legacy reference unavailable");
     const extract = spawnSync("tar", ["-x", "-C", legacy], { input: archive.stdout });
     if (extract.status !== 0) throw new Error("Legacy database source extraction failed");
-    symlinkSync(join(root, "lib/db/node_modules"), join(legacy, "lib/db/node_modules"), "dir");
-    mkdirSync(join(legacy, "artifacts/api-server"), { recursive: true });
-    symlinkSync(join(root, "artifacts/api-server/node_modules"), join(legacy, "artifacts/api-server/node_modules"), "dir");
+    // Reuse installed third-party dependencies, not the current workspace's
+    // package links: those would make old handlers select the NEW DB schema.
+    // Each snapshot package resolves @workspace/* to the archived libraries.
+    const linkSnapshotDependencies = (relativePackage) => {
+      const installed = join(root, relativePackage, "node_modules");
+      if (!existsSync(installed)) return;
+      const destination = join(legacy, relativePackage, "node_modules");
+      mkdirSync(destination, { recursive: true });
+      for (const entry of readdirSync(installed, { withFileTypes: true })) {
+        if (entry.name !== "@workspace") {
+          symlinkSync(join(installed, entry.name), join(destination, entry.name), "dir");
+          continue;
+        }
+        mkdirSync(join(destination, "@workspace"), { recursive: true });
+        for (const name of readdirSync(join(installed, "@workspace"))) {
+          const pinned = join(legacy, "lib", name);
+          // Never fall back to today's implementation of a package missing
+          // from the pinned snapshot.
+          if (existsSync(join(pinned, "package.json"))) {
+            symlinkSync(pinned, join(destination, "@workspace", name), "dir");
+          }
+        }
+      }
+    };
+    for (const name of readdirSync(join(legacy, "lib"))) linkSnapshotDependencies(join("lib", name));
+    linkSnapshotDependencies("artifacts/api-server");
     env.HASBA_LEGACY_API_APP = join(legacy, "artifacts/api-server/src/app.ts");
     pnpm(["--filter", "@workspace/db", "exec", "drizzle-kit", "push", "--force",
       `--config=${join(legacy, "lib/db/drizzle.config.ts")}`], env);

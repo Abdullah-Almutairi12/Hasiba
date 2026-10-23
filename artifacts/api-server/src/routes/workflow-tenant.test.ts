@@ -138,7 +138,7 @@ describe("approval company ownership", () => {
     expect((await foreign.get("/api/workflow/approval-requests")).body.some((r: { id: number }) => r.id === id)).toBe(false);
     expect((await foreign.get(`/api/workflow/approval-requests/${id}`)).status).toBe(404);
     expect((await foreign.post(`/api/workflow/approval-requests/${id}/act`).send({ action: "approve" })).status).toBe(404);
-    await expect(actOnApproval(id, foreignId, tag, "approve", undefined, b)).rejects.toThrow("غير موجود");
+    await expect(actOnApproval(id, foreignId, tag, "approve", b)).rejects.toThrow("غير موجود");
     expect((await maker.post(`/api/workflow/approval-requests/${id}/act`).send({ action: "approve" })).status).toBe(400);
     expect((await manager.get(`/api/workflow/approval-requests/${id}`)).status).toBe(200);
     expect((await manager.post(`/api/workflow/approval-requests/${id}/act`).send({ action: "approve" })).status).toBe(200);
