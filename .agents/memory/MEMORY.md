@@ -8,3 +8,4 @@
 - [Inventory revaluation](inventory-revaluation-policy.md) — independent approval covers both valuation and variance account; corrections must preserve stock/GL agreement.
 - [Product direction](product-scope.md) — flexible branch-connected ERP; retail barcode tables, nested food-service tiles, and payment choices beside checkout.
 - [Arabic print integrity](arabic-print-integrity.md) — inspect extracted logical text as well as appearance; double shaping and ligatures can silently corrupt copying.
+- [Repository synchronization](repository-sync.md) — GitHub handoff is required; verify remote equality and disclose ignored outputs rather than calling a local checkpoint synchronized.
