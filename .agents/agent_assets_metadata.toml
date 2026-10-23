@@ -168,3 +168,31 @@ mtime_ms = 1792728770719
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/6e7b4b9c-a3e2-4379-b895-f118e64d4b72/715a538e-9c72-40f9-a1c4-e38eac50d31c"
 storage_version_token = "1792729519816516"
 content_type = "application/pdf"
+
+[[outputs]]
+id = "_82DHtv7OiB6uMY_hxXOT"
+uri = "file://generated-artifacts/delivery/hasiba-implementation-report-ar.docx"
+type = "word_document"
+title = "تقرير حاسبة — التنفيذ والإصلاحات والمتبقي (Word)"
+description = "التقنيات، المرحلتان المنفذتان، نتائج الفحص النهائية، حدود التحقق، الترحيلات والتراجع، وملحق سجل المتطلبات الـ73."
+logical_id = "3827b2b3-0dc1-4a15-a941-c3d0236b09da"
+content_hash = "sha256:4405fc1dc475f7025a445071d187f7686a27fb2885197778554a0a1f3dc72c5f"
+size = 25976
+mtime_ms = 1792741727105
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/3827b2b3-0dc1-4a15-a941-c3d0236b09da/44b30038-cb2d-4c50-943f-ad0c94a606d2"
+storage_version_token = "1792741780455780"
+content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
+[[outputs]]
+id = "RmIYDLYjp2YqGq9NxSw1i"
+uri = "file://generated-artifacts/delivery/hasiba-synthetic-evidence.zip"
+type = "unspecified"
+title = "عينات PDF ولقطات الشاشة وأدلة التحقق"
+description = "ملفات ببيانات مصطنعة: إيصالات 58/80 مم وفواتير وإشعارات وسندات، لقطات الكمبيوتر واللوحي والهاتف، ونتيجة التحقق وبصمة النسخة."
+logical_id = "5b26772b-27e3-48f7-bfa4-ecb7de848101"
+content_hash = "sha256:773300b3c9cf639f75cbd4bb43a7c6d16294198a78698f97b2dc100d81051017"
+size = 984615
+mtime_ms = 1792741727437
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/5b26772b-27e3-48f7-bfa4-ecb7de848101/43d46435-a679-43c4-8547-a256f303b57f"
+storage_version_token = "1792741783883047"
+content_type = "application/octet-stream"
