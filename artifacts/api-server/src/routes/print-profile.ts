@@ -54,6 +54,7 @@ router.patch("/print/profile", async (req, res) => {
       await tx.execute(sql`SELECT id FROM companies WHERE id=${actor.companyId} FOR UPDATE`);
       const before = await state(tx, actor.companyId);
       if (before.revision !== b.revision) throw new FinancialRequestError("تغير الملف في جلسة أخرى؛ أعد تحميله", 409);
+      if (before.vatEnabled && !b.vatNumber) throw new FinancialRequestError("الرقم الضريبي مطلوب للشركة المسجلة في الضريبة", 400);
       if (b.logoObjectKey) {
         const logo = await tx.execute(sql`SELECT 1 FROM company_print_logos WHERE object_key=${b.logoObjectKey} AND company_id=${actor.companyId}`);
         if (!logo.rows.length) throw new FinancialRequestError("الشعار ليس مملوكًا للشركة", 400);

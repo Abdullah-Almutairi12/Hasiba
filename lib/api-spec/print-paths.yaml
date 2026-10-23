@@ -137,6 +137,9 @@ schemas:
       nameAr: { type: string }
       nameEn: { type: string }
       vatNumber: { type: string }
+      vatEnabled:
+        type: boolean
+        description: Authoritative company tax registration status; editing the number does not change registration.
       crNumber: { type: string }
       address: { type: string }
       addressFields:

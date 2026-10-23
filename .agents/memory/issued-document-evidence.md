@@ -20,3 +20,9 @@ Do not infer a historical commission entitlement from an assignment that does no
 **Why:** Older per-user summaries lack invoice-time policy evidence; widening a partial-period assignment into a full-period rate manufactures historical authority. Explicit ownership alone does not prove temporal applicability.
 
 **How to apply:** Keep the legacy calculation conservative and the new snapshot-based seller ledger separate. Use fixtures with genuinely applicable dates rather than relaxing ownership or period checks to make old expected amounts pass.
+
+Printer configuration is not tax registration. An unregistered company must be able to choose paper widths and save its profile without inventing a VAT number or commercial registration.
+
+**Why:** Unconditional identity-field requirements blocked 58mm setup for an explicitly unregistered test company and encouraged fabricated identifiers.
+
+**How to apply:** Use authoritative company registration status for conditional VAT validation; editing a number must not activate registration. Preserve original document evidence after any profile edit.

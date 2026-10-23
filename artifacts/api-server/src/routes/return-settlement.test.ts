@@ -108,6 +108,22 @@ describe("persisted issuer and operational print documents",()=>{
     expect((await a.owner.agent.patch("/api/print/profile").send(payload)).status).toBe(409);
     const state=ok(await a.owner.agent.get("/api/print/profile"));
     expect(state.history[0].changedFields).toContain("nameAr");expect(state.history[0].before.nameAr).toBe(a.company.name);
+    const registered=ok(await b.owner.agent.get("/api/print/profile")).profile;
+    expect((await b.owner.agent.patch("/api/print/profile").send({...payload,revision:registered.revision,vatNumber:""})).status).toBe(400);
+    expect(ok(await b.owner.agent.get("/api/print/profile")).profile.revision).toBe(registered.revision);
+    const unregistered=await fixture();
+    const draft=ok(await unregistered.owner.agent.get("/api/print/profile")).profile;
+    expect(draft.vatEnabled).toBe(false);
+    const configured=ok(await unregistered.owner.agent.patch("/api/print/profile").send({
+      ...payload,revision:draft.revision,vatNumber:"",crNumber:"",nameAr:"شركة غير مسجلة مصطنعة",
+    }));
+    expect(configured.vatEnabled).toBe(false);expect(configured.receiptWidths).toEqual([58,80]);
+    expect((await pool.query("SELECT vat_registration_status,vat_number,cr_number FROM companies WHERE id=$1",[unregistered.company.id])).rows)
+      .toEqual([{vat_registration_status:"not_registered",vat_number:null,cr_number:null}]);
+    expect((await pool.query("SELECT issuer->>'nameAr' AS name FROM document_issuer_snapshots WHERE company_id=$1 AND document_kind='invoice' AND document_id=$2",
+      [unregistered.company.id,unregistered.invoice.id])).rows[0]?.name).toBe(unregistered.company.name);
+    savePdf(await unregistered.owner.agent.get(`/api/pos/orders/${unregistered.sale.id}/receipt.pdf?width=58`),"receipt-unregistered-58");
+    savePdf(await unregistered.owner.agent.get(`/api/sales/invoices/${unregistered.invoice.id}/pdf`),"invoice-unregistered-a4");
     const before=(await pool.query(`SELECT
       (SELECT count(*) FROM customer_invoices WHERE company_id=$1) invoices,
       (SELECT count(*) FROM journal_entries WHERE company_id=$1) journals,

@@ -2368,6 +2368,8 @@ export type GetPrintProfile200Profile = {
   nameAr: string;
   nameEn: string;
   vatNumber: string;
+  /** Authoritative company tax registration status; editing the number does not change registration. */
+  vatEnabled?: boolean;
   crNumber: string;
   address: string;
   addressFields?: GetPrintProfile200ProfileAddressFields;
@@ -2426,6 +2428,8 @@ export type UpdatePrintProfile200 = {
   nameAr: string;
   nameEn: string;
   vatNumber: string;
+  /** Authoritative company tax registration status; editing the number does not change registration. */
+  vatEnabled?: boolean;
   crNumber: string;
   address: string;
   addressFields?: UpdatePrintProfile200AddressFields;

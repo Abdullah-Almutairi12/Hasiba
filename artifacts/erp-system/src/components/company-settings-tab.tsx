@@ -72,6 +72,8 @@ export function CompanySettingsTab() {
 
   const profile = q.data?.profile;
   const canEdit = !!q.data?.canEdit;
+  // Registration state is read-only here; editing the number never activates registration.
+  const vatRegistered = profile?.vatEnabled === true;
   useEffect(() => {
     if (!profile) return;
     const k = `${profile.companyId}:${profile.revision}`;
@@ -85,8 +87,8 @@ export function CompanySettingsTab() {
 
   const handleSave = async () => {
     if (!profile || !form) return;
-    if (!form.nameAr.trim() || !form.vatNumber.trim() || !form.crNumber.trim()) {
-      toast({ title: "الاسم العربي والرقم الضريبي والسجل التجاري مطلوبة", variant: "destructive" });
+    if (!form.nameAr.trim() || (vatRegistered && !form.vatNumber.trim())) {
+      toast({ title: vatRegistered ? "الاسم العربي والرقم الضريبي مطلوبان للمنشأة المسجلة ضريبيًا" : "الاسم العربي مطلوب", variant: "destructive" });
       return;
     }
     try {
@@ -190,8 +192,13 @@ export function CompanySettingsTab() {
             <div className="grid gap-4 sm:grid-cols-2">
               {field("nameAr", "الاسم القانوني (عربي) *", { testId: "input-company-name-ar" })}
               {field("nameEn", "الاسم القانوني (إنجليزي)", { dir: "ltr", testId: "input-company-name-en" })}
-              {field("vatNumber", "الرقم الضريبي (VAT) *", { dir: "ltr", testId: "input-vat", ph: "300000000000003" })}
-              {field("crNumber", "السجل التجاري *", { dir: "ltr", testId: "input-cr" })}
+              {field("vatNumber", vatRegistered ? "الرقم الضريبي (VAT) *" : "الرقم الضريبي (VAT)", { dir: "ltr", testId: "input-vat", ph: "300000000000003" })}
+              {field("crNumber", "السجل التجاري (اختياري)", { dir: "ltr", testId: "input-cr" })}
+              <p className="text-xs text-muted-foreground sm:col-span-2" data-testid="vat-help">
+                {vatRegistered
+                  ? "المنشأة مسجلة ضريبيًا؛ الرقم الضريبي إلزامي ويظهر في المستندات."
+                  : "المنشأة غير مسجلة ضريبيًا؛ يمكن ترك الرقم الضريبي فارغًا. إدخال رقم هنا لا يفعّل التسجيل الضريبي. السجل التجاري اختياري ولا يُطبع إن كان فارغًا."}
+              </p>
               {field("phone", "الهاتف", { dir: "ltr", testId: "input-phone" })}
               {field("email", "البريد الإلكتروني", { dir: "ltr", type: "email", testId: "input-email" })}
             </div>
