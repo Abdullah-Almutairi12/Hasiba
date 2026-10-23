@@ -56,3 +56,17 @@ mtime_ms = 1792710293829
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/b6e2ccfa-bebc-4dc3-a294-e69088f5c7d4/049e597b-8083-48ed-9029-4deb6cc4bfc2"
 storage_version_token = "1792710303672661"
 content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
+[[outputs]]
+id = "aC7fNcBazPN0E1F_RXTAq"
+uri = "file://generated-artifacts/enterprise-batch-a/Hasba_AI_First_Development_Batch_AR.docx"
+type = "word_document"
+title = "تقرير أول دفعة تنفيذية وسجل المتطلبات — Word"
+description = "الإصلاحات المنفذة، 73 بندًا من نطاق التطوير، نتائج الاختبارات، المتبقي، حدود التكاملات ونقطة الرجوع."
+logical_id = "58ac5fd4-4ea1-4132-b836-4ebad6f34230"
+content_hash = "sha256:476d8c40f77f560265732c5843fe0646eb1f1bb32f583e21947ed34bc1313f74"
+size = 25432
+mtime_ms = 1792713632681
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/58ac5fd4-4ea1-4132-b836-4ebad6f34230/333c74d3-0389-403b-9f59-c91f859ff779"
+storage_version_token = "1792713643094038"
+content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"

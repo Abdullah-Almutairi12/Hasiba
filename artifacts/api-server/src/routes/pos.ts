@@ -46,6 +46,7 @@ import { createCheckout } from "../lib/integrations/payments";
 import bcrypt from "bcryptjs";
 import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { branchScope } from "../lib/company-access";
+import { ensurePosWalkinCustomer } from "../lib/pos-walkin-customer";
 
 // Brute-force protection for inline manager dual-authorization on POS
 // orders. Keyed by (IP, attempted manager email) so a single station
@@ -592,13 +593,13 @@ router.post(
     // update, and GL postings all succeed-or-rollback together. Any failure in
     // posting the journal entry now rolls back the order + stock changes too.
       // Resolve the session's branch and the warehouse to issue stock from.
-      // Prefer the default warehouse for that branch; fall back to the global
-      // default. We refuse to sell when no warehouse is configured rather
+      // Require a warehouse owned by this company and this branch.
+      // We refuse to sell when no warehouse is configured rather
       // than silently bypassing the ledger.
       // Tenant ownership: cross-tenant sessionId is rejected via INNER JOIN
       // on branches.company_id (sessions inherit tenancy from branch).
       const [session] = await tx
-        .select({ branchId: posSessionsTable.branchId })
+        .select({ branchId: posSessionsTable.branchId, status: posSessionsTable.status })
         .from(posSessionsTable)
         .innerJoin(
           branchesTable,
@@ -608,23 +609,29 @@ router.post(
           ),
         )
         .where(eq(posSessionsTable.id, body.sessionId))
-        .limit(1);
-      if (!session) throw new Error("جلسة نقطة البيع غير موجودة");
+        .limit(1)
+        .for("update", { of: posSessionsTable });
+      if (!session) throw new FinancialRequestError("جلسة نقطة البيع غير موجودة", 404);
+      if (session.status !== "open") {
+        throw new FinancialRequestError("الوردية مغلقة. افتح وردية جديدة قبل إتمام البيع.", 409);
+      }
+      if (body.items.length === 0) {
+        throw new FinancialRequestError("السلة فارغة. أضف منتجًا قبل إتمام البيع.", 400);
+      }
       const [branchWh] = await tx
         .select({ id: warehousesTable.id })
         .from(warehousesTable)
-        .where(eq(warehousesTable.branchId, session.branchId))
+        .where(and(
+          eq(warehousesTable.branchId, session.branchId),
+          eq(warehousesTable.companyId, companyId),
+          eq(warehousesTable.isScrap, false),
+        ))
         .orderBy(desc(warehousesTable.isDefault))
         .limit(1);
-      const [globalWh] = branchWh
-        ? [branchWh]
-        : await tx
-            .select({ id: warehousesTable.id })
-            .from(warehousesTable)
-            .where(eq(warehousesTable.isDefault, true))
-            .limit(1);
-      const issueWarehouseId = (branchWh ?? globalWh)?.id;
-      if (!issueWarehouseId) throw new Error("لم يتم تعريف مستودع للفرع");
+      const issueWarehouseId = branchWh?.id;
+      if (!issueWarehouseId) {
+        throw new FinancialRequestError("لم يتم تعريف مستودع صالح لهذا الفرع. راجع إعدادات المستودعات قبل الدفع.", 409);
+      }
 
       const orderItems: Array<{
         productId: number;
@@ -646,7 +653,11 @@ router.post(
           .from(productsTable)
           .where(and(eq(productsTable.id, item.productId), eq(productsTable.companyId, companyId)))
           .limit(1);
-        if (!product) continue;
+        if (!product) {
+          // Reject the entire cart, including stock moves for preceding lines.
+          // Do not reveal whether the unavailable product belongs to another tenant.
+          throw new FinancialRequestError("أحد منتجات السلة غير متاح لهذه المنشأة. راجع السلة قبل الدفع.", 404);
+        }
 
         const unitPrice = Number(product.price);
         const lineTotal = unitPrice * item.quantity;
@@ -976,7 +987,7 @@ router.post(
       // SO/Invoice/Receipt artefacts that the back-office sales flow does so
       // every sale (POS, online, manual) shares one ledger and one A/R view.
       // Walk-in tickets (no customer entered) are routed to the system
-      // "POS-WALKIN" customer seeded in sales-init.
+      // tenant-owned "POS-WALKIN" customer, provisioned transactionally.
       let invoiceCustomerId = body.customerId ?? null;
       let invoiceCustomerName: string | null = null;
       if (invoiceCustomerId) {
@@ -987,18 +998,11 @@ router.post(
           .from(customersTable)
           .where(and(eq(customersTable.id, invoiceCustomerId), eq(customersTable.companyId, companyId)))
           .limit(1);
-        if (!c) throw new Error("العميل غير موجود");
+        if (!c) throw new FinancialRequestError("العميل غير موجود", 404);
         invoiceCustomerName = c.name;
       }
       if (!invoiceCustomerId) {
-        // Walk-in customer is per-tenant: the same POS-WALKIN tax number is
-        // seeded once per company, so we scope by both fields.
-        const [walkin] = await tx
-          .select({ id: customersTable.id, name: customersTable.name })
-          .from(customersTable)
-          .where(and(eq(customersTable.taxNumber, "POS-WALKIN"), eq(customersTable.companyId, companyId)))
-          .limit(1);
-        if (!walkin) throw new Error("نظام: لا يوجد عميل POS-WALKIN — إعادة تشغيل مطلوبة");
+        const walkin = await ensurePosWalkinCustomer(tx, companyId);
         invoiceCustomerId = walkin.id;
         invoiceCustomerName = walkin.name;
       }

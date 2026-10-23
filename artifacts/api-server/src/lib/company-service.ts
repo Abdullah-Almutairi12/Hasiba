@@ -1,4 +1,5 @@
-import { pool } from "@workspace/db";
+import { db, pool } from "@workspace/db";
+import { ensurePosWalkinCustomer } from "./pos-walkin-customer";
 import { seedDefaultChartOfAccounts } from "./coa-template";
 import { seedCompanyFiscalCalendar } from "./fiscal-calendar";
 import { initHr } from "./hr-init";
@@ -52,6 +53,7 @@ export async function provisionNewCompany(companyId: number): Promise<void> {
   // Application startup must not mutate every existing company's settings.
   await initHr(companyId);
   await initInventory(companyId);
+  await db.transaction((tx) => ensurePosWalkinCustomer(tx, companyId));
 }
 
 /**

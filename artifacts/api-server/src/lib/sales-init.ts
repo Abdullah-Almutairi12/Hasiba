@@ -413,14 +413,9 @@ export async function initSales(): Promise<void> {
     WHERE NOT EXISTS (SELECT 1 FROM opportunity_stages WHERE name = s.name);
   `);
 
-  // System "walk-in" customer for cash POS sales (no registered customer).
-  // Used as the FK target so POS orders flow through the same SO/Invoice ledger.
-  await pool.query(`
-    INSERT INTO customers (name, phone, email, segment, payment_terms_days, credit_limit, tax_number, company_id)
-    SELECT 'عميل نقدي - نقطة بيع', NULL, NULL, 'retail', 0, 0, 'POS-WALKIN',
-           (SELECT id FROM companies ORDER BY id LIMIT 1)
-     WHERE NOT EXISTS (SELECT 1 FROM customers WHERE tax_number = 'POS-WALKIN');
-  `);
+  // Walk-in customers are explicitly provisioned per company (and lazily
+  // inside the first checkout transaction). Startup must not assign a
+  // shared default to whichever company happens to have the lowest ID.
 
   // Email outbox — captures send attempts for quotations/invoices/etc.
   // In dev this is the durable record of every hand-off; production wiring

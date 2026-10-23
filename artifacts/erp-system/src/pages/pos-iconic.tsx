@@ -12,35 +12,24 @@ import {
   Search,
   Play,
   Trash2,
-  Banknote,
   Pause,
   Check,
 } from "lucide-react";
 import {
   useListProducts,
   useListProductCategories,
-  useCreatePosOrder,
   useListPosSessions,
 } from "@workspace/api-client-react";
 import type { CreatePosOrderBody } from "@workspace/api-client-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useAuth } from "@/hooks/use-auth";
+import { usePosCheckout, type PosProduct as Product, type PosCartItem as CartItem } from "@/hooks/use-pos-checkout";
 import { useToast } from "@/hooks/use-toast";
 import { useLanguage } from "@/hooks/use-language";
 import { useVatEnabled } from "@/hooks/use-vat-status";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-
-type Product = {
-  id: number;
-  name: string;
-  nameAr?: string;
-  price: number;
-  imageUrl?: string | null;
-  stock?: number | null;
-  categoryId?: number | null;
-};
-
-type CartItem = { product: Product; quantity: number };
 
 type ParkedOrder = {
   id: number;
@@ -80,13 +69,15 @@ export default function PosIconic({
   const { toast } = useToast();
   const { t, language } = useLanguage();
   const vatEnabled = useVatEnabled();
+  const { user } = useAuth();
+  const queryClient = useQueryClient();
+  const checkout = usePosCheckout(user?.companyId ? `${user.id}:${user.companyId}` : null);
 
   const [cart, setCart] = useState<CartItem[]>([]);
   const [search, setSearch] = useState("");
   const [categoryId, setCategoryId] = useState<number | null>(null);
   const [parkedOpen, setParkedOpen] = useState(false);
   const [parkLabel, setParkLabel] = useState("");
-  const [payOpen, setPayOpen] = useState(false);
   const [paymentMethod, setPaymentMethod] =
     useState<"cash" | "card" | "stc" | "transfer">("card");
   const [success, setSuccess] = useState<{
@@ -102,8 +93,15 @@ export default function PosIconic({
   });
   const { data: categories } = useListProductCategories();
   const { data: sessions } = useListPosSessions();
-  const createOrder = useCreatePosOrder();
   const activeSession = sessions?.find((s) => s.status === "open");
+  const checkoutLocked = !!checkout.attempt || checkout.isPending || !checkout.ready;
+
+  useEffect(() => { setCart([]); }, [user?.id, user?.companyId]);
+  useEffect(() => {
+    if (!checkout.attempt) return;
+    setCart(checkout.attempt.cart);
+    setPaymentMethod(checkout.attempt.body.paymentMethod as typeof paymentMethod);
+  }, [checkout.attempt]);
 
   // Live tally of parked orders for the Dock badge
   const refreshParked = useMemo(
@@ -136,6 +134,7 @@ export default function PosIconic({
   const total = subtotal + tax;
 
   const addToCart = (p: Product) => {
+    if (checkoutLocked) return;
     setCart((prev) => {
       const ex = prev.find((c) => c.product.id === p.id);
       if (ex) {
@@ -149,17 +148,17 @@ export default function PosIconic({
 
   const bump = (id: number, delta: number) =>
     setCart((prev) =>
-      prev.flatMap((c) => {
+      checkoutLocked ? prev : prev.flatMap((c) => {
         if (c.product.id !== id) return [c];
         const q = c.quantity + delta;
         return q <= 0 ? [] : [{ ...c, quantity: q }];
       }),
     );
 
-  const clearCart = () => setCart([]);
+  const clearCart = () => { if (!checkoutLocked) setCart([]); };
 
   const handlePark = async (labelOverride?: string) => {
-    if (!activeSession || cart.length === 0) return;
+    if (checkoutLocked || !activeSession || cart.length === 0) return;
     const base = import.meta.env.BASE_URL;
     const label = (labelOverride ?? parkLabel).trim();
     const res = await fetch(`${base}api/pos/orders/park`, {
@@ -194,6 +193,7 @@ export default function PosIconic({
   };
 
   const handleResume = async (id: number) => {
+    if (checkoutLocked) return;
     if (!activeSession) {
       toast({ title: t("pos_iconic.no_session"), variant: "destructive" });
       return;
@@ -233,7 +233,7 @@ export default function PosIconic({
 
   const handleCancelParked = async (id: number) => {
     // Cancel == resume + discard (the resume endpoint deletes the row).
-    if (!activeSession) return;
+    if (checkoutLocked || !activeSession) return;
     const base = import.meta.env.BASE_URL;
     const res = await fetch(`${base}api/pos/orders/${id}/resume`, {
       method: "POST",
@@ -247,8 +247,8 @@ export default function PosIconic({
     }
   };
 
-  const handlePay = () => {
-    if (!activeSession) {
+  const handlePay = async () => {
+    if (!checkout.attempt && !activeSession) {
       toast({
         title: t("pos_iconic.no_session"),
         variant: "destructive",
@@ -257,7 +257,7 @@ export default function PosIconic({
     }
     if (cart.length === 0) return;
     const body: CreatePosOrderBody = {
-      sessionId: activeSession.id,
+      sessionId: checkout.attempt?.body.sessionId ?? activeSession!.id,
       items: cart.map((c) => ({
         productId: c.product.id,
         quantity: c.quantity,
@@ -265,25 +265,12 @@ export default function PosIconic({
       discount: 0,
       paymentMethod,
     };
-    createOrder.mutate(
-      { data: body },
-      {
-        onSuccess: (created: { orderNumber?: string; total?: number }) => {
-          setSuccess({
-            orderNumber: created?.orderNumber ?? "",
-            total: Number(created?.total ?? total),
-          });
-          setCart([]);
-          setPayOpen(false);
-          setTimeout(() => setSuccess(null), 2200);
-        },
-        onError: () =>
-          toast({
-            title: t("pos_iconic.checkout_failed"),
-            variant: "destructive",
-          }),
-      },
-    );
+    const created = await checkout.pay(body, cart);
+    if (!created) return;
+    setSuccess({ orderNumber: created.orderNumber, total: Number(created.total) });
+    setCart([]);
+    void queryClient.invalidateQueries();
+    setTimeout(() => setSuccess(null), 2200);
   };
 
   // ---- Render ----
@@ -317,9 +304,9 @@ export default function PosIconic({
         </button>
       </div>
 
-      <div className="grid h-[calc(100vh-2.25rem)] grid-cols-[1fr_360px] gap-3 px-3 pb-24">
+      <div className="grid min-h-[calc(100vh-2.25rem)] grid-cols-1 gap-3 px-3 pb-4 lg:h-[calc(100vh-2.25rem)] lg:grid-cols-[minmax(0,1fr)_360px] lg:pb-28">
         {/* LEFT: search + categories + product grid */}
-        <div className="flex min-h-0 flex-col gap-3">
+        <div className="flex min-h-0 min-w-0 flex-col gap-3">
           <div className="flex items-center gap-2">
             <div className="relative flex-1">
               <Search className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-neutral-400" />
@@ -355,7 +342,7 @@ export default function PosIconic({
           {/* Product grid */}
           <div
             className={cn(
-              "min-h-0 flex-1 overflow-y-auto rounded-3xl border border-neutral-200/70 bg-white/60 p-3 backdrop-blur dark:border-neutral-800/70 dark:bg-neutral-900/40",
+              "max-h-[50vh] min-h-48 flex-1 overflow-y-auto rounded-3xl border border-neutral-200/70 bg-white/60 p-3 backdrop-blur lg:max-h-none lg:min-h-0 dark:border-neutral-800/70 dark:bg-neutral-900/40",
               variant === "fb"
                 ? "grid grid-cols-[repeat(auto-fill,minmax(160px,1fr))] gap-3"
                 : "grid grid-cols-[repeat(auto-fill,minmax(104px,1fr))] gap-2.5",
@@ -389,7 +376,14 @@ export default function PosIconic({
           vatEnabled={vatEnabled}
           onBump={bump}
           onClear={clearCart}
-          onPay={() => setPayOpen(true)}
+          onPay={handlePay}
+          method={paymentMethod}
+          setMethod={setPaymentMethod}
+          locked={checkoutLocked}
+          recovery={!!checkout.attempt}
+          busy={checkout.isPending}
+          ready={checkout.ready}
+          checkoutError={checkout.error}
         />
       </div>
 
@@ -400,7 +394,8 @@ export default function PosIconic({
         isParkingActive={isParkingActive}
         onPark={() => handlePark()}
         onOpenParked={() => setParkedOpen(true)}
-        onOpenPay={() => cart.length > 0 && setPayOpen(true)}
+        onOpenPay={handlePay}
+        payDisabled={!checkout.ready || checkout.isPending || cart.length === 0}
       />
 
       {/* Parked overlay */}
@@ -415,20 +410,6 @@ export default function PosIconic({
             setParkLabel={setParkLabel}
             canPark={cart.length > 0}
             onParkNow={() => handlePark()}
-          />
-        )}
-      </AnimatePresence>
-
-      {/* Fullscreen payment */}
-      <AnimatePresence>
-        {payOpen && (
-          <FullscreenPayment
-            total={total}
-            method={paymentMethod}
-            setMethod={setPaymentMethod}
-            onClose={() => setPayOpen(false)}
-            onConfirm={handlePay}
-            busy={createOrder.isPending}
           />
         )}
       </AnimatePresence>
@@ -602,6 +583,13 @@ function LiveCartRail({
   onBump,
   onClear,
   onPay,
+  method,
+  setMethod,
+  locked,
+  recovery,
+  busy,
+  ready,
+  checkoutError,
 }: {
   cart: CartItem[];
   subtotal: number;
@@ -611,12 +599,19 @@ function LiveCartRail({
   onBump: (id: number, delta: number) => void;
   onClear: () => void;
   onPay: () => void;
+  method: "cash" | "card" | "stc" | "transfer";
+  setMethod: (method: "cash" | "card" | "stc" | "transfer") => void;
+  locked: boolean;
+  recovery: boolean;
+  busy: boolean;
+  ready: boolean;
+  checkoutError: string;
 }) {
   const { t } = useLanguage();
   return (
     <aside
       data-testid="rail-pos-cart"
-      className="flex min-h-0 flex-col gap-3 rounded-3xl border border-neutral-200/70 bg-white/80 p-3 backdrop-blur dark:border-neutral-800/70 dark:bg-neutral-900/60"
+      className="flex min-h-96 flex-col gap-3 rounded-3xl border border-neutral-200/70 bg-white/80 p-3 backdrop-blur lg:min-h-0 dark:border-neutral-800/70 dark:bg-neutral-900/60"
     >
       <div className="flex items-center justify-between">
         <div className="inline-flex items-center gap-2 text-sm font-bold">
@@ -626,6 +621,7 @@ function LiveCartRail({
         {cart.length > 0 && (
           <button
             onClick={onClear}
+            disabled={locked}
             className="rounded-md p-1 text-xs text-neutral-400 hover:text-red-500"
             aria-label="clear"
           >
@@ -635,7 +631,7 @@ function LiveCartRail({
       </div>
 
       <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
-        <AnimatePresence initial={false}>
+        <>
           {cart.length === 0 ? (
             <div className="grid h-40 place-items-center text-xs text-neutral-400">
               {t("pos_iconic.cart_empty")}
@@ -647,7 +643,6 @@ function LiveCartRail({
                 layout
                 initial={{ opacity: 0, x: 20 }}
                 animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: 20 }}
                 className="flex items-center gap-2 rounded-xl border border-neutral-100 bg-white px-2.5 py-2 shadow-sm dark:border-neutral-800 dark:bg-neutral-900"
               >
                 <div className="grid size-8 place-items-center rounded-full bg-blue-50 text-base dark:bg-blue-950/40">
@@ -664,6 +659,7 @@ function LiveCartRail({
                 <div className="inline-flex items-center gap-1 rounded-full bg-neutral-100 px-1 py-0.5 text-xs dark:bg-neutral-800">
                   <button
                     onClick={() => onBump(ci.product.id, -1)}
+                    disabled={locked}
                     className="grid size-6 place-items-center rounded-full hover:bg-white dark:hover:bg-neutral-700"
                   >
                     <Minus className="size-3" />
@@ -673,6 +669,7 @@ function LiveCartRail({
                   </span>
                   <button
                     onClick={() => onBump(ci.product.id, 1)}
+                    disabled={locked}
                     className="grid size-6 place-items-center rounded-full hover:bg-white dark:hover:bg-neutral-700"
                   >
                     <Plus className="size-3" />
@@ -681,7 +678,7 @@ function LiveCartRail({
               </motion.div>
             ))
           )}
-        </AnimatePresence>
+        </>
       </div>
 
       <div className="space-y-1 rounded-2xl bg-neutral-50 p-3 text-xs dark:bg-neutral-800/60">
@@ -701,21 +698,38 @@ function LiveCartRail({
         </div>
       </div>
 
+      <fieldset disabled={locked} className="grid grid-cols-2 gap-2" aria-label={t("pos_iconic.choose_payment")}>
+        <legend className="mb-2 text-xs font-semibold">{t("pos_iconic.choose_payment")}</legend>
+        {([
+          ["cash", t("pos_iconic.cash")],
+          ["card", t("pos_iconic.card")],
+          ["stc", "STC Pay"],
+          ["transfer", t("pos_iconic.transfer")],
+        ] as const).map(([key, label]) => (
+          <button key={key} type="button" aria-pressed={method === key}
+            data-testid={`button-pay-${key}`} onClick={() => setMethod(key)}
+            className={cn("min-h-11 rounded-xl border px-2 text-sm disabled:opacity-60",
+              method === key ? "border-emerald-500 bg-emerald-50 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200" : "border-neutral-200 dark:border-neutral-700")}>
+            {label}
+          </button>
+        ))}
+      </fieldset>
+      <p className="text-[11px] text-neutral-500">{t("pos_iconic.manual_tender_notice")}</p>
+      {checkoutError && <p role="alert" className="rounded-xl bg-red-50 p-3 text-xs text-red-800 dark:bg-red-950 dark:text-red-200">{checkoutError}</p>}
       <button
         onClick={onPay}
-        disabled={cart.length === 0}
+        disabled={cart.length === 0 || busy || !ready}
         data-testid="button-pay-rail"
         className="grid h-14 w-full place-items-center rounded-2xl bg-gradient-to-br from-emerald-500 to-emerald-600 text-base font-bold text-white shadow-lg shadow-emerald-500/30 transition disabled:from-neutral-300 disabled:to-neutral-300 disabled:shadow-none"
       >
         <span className="inline-flex items-center gap-2">
           <CreditCard className="size-5" />
-          {t("pos_iconic.pay")} {cart.length > 0 && total.toFixed(2)}
+          {busy ? t("pos_iconic.processing") : recovery ? t("pos_iconic.recover_sale") : t("pos_iconic.pay")} {cart.length > 0 && total.toFixed(2)}
         </span>
       </button>
     </aside>
   );
 }
-
 function Row({ label, value }: { label: string; value: number }) {
   return (
     <div className="flex items-center justify-between">
@@ -732,6 +746,7 @@ function FloatingDock({
   onPark,
   onOpenParked,
   onOpenPay,
+  payDisabled,
 }: {
   parkedCount: number;
   cartCount: number;
@@ -739,6 +754,7 @@ function FloatingDock({
   onPark: () => void;
   onOpenParked: () => void;
   onOpenPay: () => void;
+  payDisabled: boolean;
 }) {
   const { t } = useLanguage();
   // Long-press on the Parking pill = park current cart. Tap = open list.
@@ -760,7 +776,7 @@ function FloatingDock({
   return (
     <div
       data-testid="dock-pos"
-      className="fixed inset-x-0 bottom-5 z-30 flex justify-center pointer-events-none"
+      className="relative z-30 flex justify-center px-3 pb-5 pointer-events-none lg:fixed lg:inset-x-0 lg:bottom-5 lg:pb-0"
     >
       <motion.nav
         initial={{ y: 30, opacity: 0 }}
@@ -794,6 +810,7 @@ function FloatingDock({
         <DockBtn
           label={t("pos_iconic.pay")}
           onClick={onOpenPay}
+          disabled={payDisabled}
           highlight={cartCount > 0}
           testId="dock-pay"
         >
@@ -957,109 +974,6 @@ function ParkedOverlay({
           </div>
         )}
       </motion.div>
-    </motion.div>
-  );
-}
-
-function FullscreenPayment({
-  total,
-  method,
-  setMethod,
-  onClose,
-  onConfirm,
-  busy,
-}: {
-  total: number;
-  method: "cash" | "card" | "stc" | "transfer";
-  setMethod: (m: "cash" | "card" | "stc" | "transfer") => void;
-  onClose: () => void;
-  onConfirm: () => void;
-  busy: boolean;
-}) {
-  const { t } = useLanguage();
-  const options: Array<{
-    key: typeof method;
-    label: string;
-    icon: React.ReactNode;
-    color: string;
-  }> = [
-    {
-      key: "cash",
-      label: t("pos_iconic.cash"),
-      icon: <Banknote className="size-10" />,
-      color: "from-emerald-500 to-emerald-600",
-    },
-    {
-      key: "card",
-      label: t("pos_iconic.card"),
-      icon: <CreditCard className="size-10" />,
-      color: "from-blue-500 to-indigo-600",
-    },
-    {
-      key: "stc",
-      label: "STC Pay",
-      icon: <span className="text-3xl">💜</span>,
-      color: "from-fuchsia-500 to-purple-600",
-    },
-    {
-      key: "transfer",
-      label: t("pos_iconic.transfer"),
-      icon: <span className="text-3xl">🏦</span>,
-      color: "from-slate-500 to-slate-700",
-    },
-  ];
-  return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      className="fixed inset-0 z-50 grid grid-rows-[auto_1fr_auto] bg-neutral-900/95 p-6 text-white backdrop-blur-xl"
-      data-testid="overlay-payment"
-    >
-      <div className="flex items-center justify-between">
-        <h2 className="text-xl font-bold">{t("pos_iconic.choose_payment")}</h2>
-        <button
-          onClick={onClose}
-          className="grid size-10 place-items-center rounded-full bg-white/10 hover:bg-white/20"
-        >
-          <X className="size-5" />
-        </button>
-      </div>
-
-      <div className="my-6 grid grid-cols-2 gap-4">
-        {options.map((o) => (
-          <button
-            key={o.key}
-            onClick={() => setMethod(o.key)}
-            data-testid={`button-pay-${o.key}`}
-            className={cn(
-              "flex flex-col items-center justify-center gap-3 rounded-3xl p-6 text-center transition",
-              method === o.key
-                ? `bg-gradient-to-br ${o.color} shadow-2xl ring-4 ring-white/30`
-                : "bg-white/5 hover:bg-white/10",
-            )}
-          >
-            {o.icon}
-            <span className="text-lg font-bold">{o.label}</span>
-          </button>
-        ))}
-      </div>
-
-      <div className="rounded-3xl bg-white/5 p-6 text-center">
-        <div className="text-xs text-white/60">{t("pos_iconic.total_pay")}</div>
-        <div className="my-2 font-mono text-5xl font-bold">
-          {total.toFixed(2)}
-        </div>
-        <button
-          onClick={onConfirm}
-          disabled={busy}
-          data-testid="button-pay-confirm"
-          className="mt-3 inline-flex h-16 w-full max-w-md items-center justify-center gap-2 rounded-2xl bg-emerald-500 text-xl font-bold text-white shadow-2xl shadow-emerald-500/40 transition hover:bg-emerald-600 disabled:opacity-50"
-        >
-          <Check className="size-6" />
-          {busy ? t("pos_iconic.processing") : t("pos_iconic.confirm_pay")}
-        </button>
-      </div>
     </motion.div>
   );
 }

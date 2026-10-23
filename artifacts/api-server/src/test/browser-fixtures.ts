@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import bcrypt from "bcryptjs";
 import { db, pool, companiesTable, usersTable, userCompaniesTable, customersTable, fiscalYearsTable, fiscalPeriodsTable, categoriesTable, productsTable, customerInvoicesTable, customerInvoiceLinesTable } from "@workspace/db";
 import { branchesTable, warehousesTable } from "@workspace/db";
+import { posSessionsTable } from "@workspace/db";
 import { accountsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { recordStockMove } from "../lib/stock-engine";
@@ -15,7 +16,10 @@ const password = randomUUID();
 const hash = await bcrypt.hash(password, 10);
 const accounts = [];
 for (const role of ["owner", "sales"] as const) {
-  const [company] = await db.insert(companiesTable).values({ name: `Verification ${role} ${tag}` }).returning();
+  const [company] = await db.insert(companiesTable).values({
+    name: `Verification ${role} ${tag}`,
+    ...(role === "owner" && process.env.HASBA_BROWSER_POS === "true" ? { businessType: "retail" } : {}),
+  }).returning();
   const email = `verify-${role}-${tag}@example.invalid`;
   const [user] = await db.insert(usersTable).values({
     name: `Verification ${role}`, email, passwordHash: hash, role, isActive: true, has2fa: false,
@@ -34,6 +38,23 @@ for (const role of ["owner", "sales"] as const) {
     companyId: company.id, categoryId: category.id, name: `Verification product ${tag}`,
     nameAr: "منتج اختبار", sku: `verify-${role}-${tag}`, price: "100", costPrice: "50", stock: "0",
   }).returning();
+  let posSession;
+  if (role === "owner" && process.env.HASBA_BROWSER_POS === "true") {
+    const [branch] = await db.insert(branchesTable).values({
+      companyId: company.id, name: `POS ${tag}`, nameAr: "فرع اختبار البيع", city: "Riyadh",
+    }).returning();
+    const [warehouse] = await db.insert(warehousesTable).values({
+      companyId: company.id, branchId: branch.id, name: `POS ${tag}`, nameAr: "مستودع اختبار البيع", isDefault: true,
+    }).returning();
+    await db.transaction((tx) => recordStockMove(tx, {
+      companyId: company.id, productId: product.id, toWarehouseId: warehouse.id,
+      quantity: 20, unitCost: 50, kind: "receipt", createdBy: user.id,
+    }));
+    const [session] = await db.insert(posSessionsTable).values({
+      branchId: branch.id, sessionNumber: `POS-VERIFY-${tag}`, cashierName: "كاشير الاختبار", openingCash: "0",
+    }).returning();
+    posSession = { id: session.id, branchId: branch.id, warehouseId: warehouse.id };
+  }
   let receiptInvoice;
   let receiptInvoices;
   let returnInvoice;
@@ -117,7 +138,7 @@ for (const role of ["owner", "sales"] as const) {
       ];
     }
   }
-  accounts.push({ email, password, companyId: company.id, role, customerId: customer.id, customerName: customer.name, receiptInvoice, receiptInvoices, returnInvoice });
+  accounts.push({ email, password, companyId: company.id, role, customerId: customer.id, customerName: customer.name, productId: product.id, posSession, receiptInvoice, receiptInvoices, returnInvoice });
 }
 writeFileSync(process.env.HASBA_BROWSER_STATE, JSON.stringify({
   // Both URLs point only to the generated, disposable loopback cluster.

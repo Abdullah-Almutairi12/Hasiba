@@ -30,6 +30,8 @@
     "no_session": "Open a POS session first",
     "checkout_failed": "Checkout failed",
     "choose_payment": "Choose payment method",
+    "recover_sale": "Recover sale result",
+    "manual_tender_notice": "Records a tender only; selecting it does not operate a payment terminal or charge the customer's card.",
     "cash": "Cash",
     "card": "Card",
     "transfer": "Bank transfer",

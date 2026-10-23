@@ -126,15 +126,8 @@ beforeAll(async () => {
     avgCost: "50",
   });
 
-  const [walkin] = await db
-    .insert(customersTable)
-    .values({
-      name: `Walkin ${RUN_TAG}`,
-      taxNumber: "POS-WALKIN",
-      companyId,
-    })
-    .returning();
-  walkinCustomerId = walkin.id;
+  // Deliberately omit the walk-in customer: the first real checkout must
+  // provision its OWN tenant's default without requiring a server restart.
 
   const [s] = await db
     .insert(posSessionsTable)
@@ -313,6 +306,11 @@ describe("POS — VAT gating for not_registered tenant", () => {
       );
     }
     createdOrderId = (res.body as { id: number }).id;
+    const walkin = await pool.query<{ id: number }>(
+      "SELECT id FROM customers WHERE company_id = $1 AND tax_number = 'POS-WALKIN'", [companyId],
+    );
+    expect(walkin.rows).toHaveLength(1);
+    walkinCustomerId = walkin.rows[0].id;
 
     const [row] = await db
       .select({
@@ -326,5 +324,82 @@ describe("POS — VAT gating for not_registered tenant", () => {
     expect(Number(row.tax)).toBe(0);
     // Subtotal=100, discount=0, tax=0 → total should equal subtotal.
     expect(Number(row.total)).toBe(Number(row.subtotal));
+  });
+});
+
+describe("POS checkout rejects invalid context without partial financial effects", () => {
+  const checkoutBody = () => ({
+    sessionId, items: [{ productId, quantity: 1 }], paymentMethod: "cash", discount: 0,
+  });
+  const snapshot = async () => {
+    const result = await pool.query(`
+      SELECT
+        (SELECT count(*) FROM pos_orders WHERE company_id = $1) AS orders,
+        (SELECT count(*) FROM customer_invoices WHERE company_id = $1) AS invoices,
+        (SELECT count(*) FROM journal_entries WHERE company_id = $1) AS journals,
+        (SELECT count(*) FROM stock_moves WHERE product_id = $2) AS moves,
+        (SELECT quantity::text FROM stock_quants WHERE product_id = $2 AND warehouse_id = $3) AS quantity,
+        (SELECT orders_count FROM pos_sessions WHERE id = $4) AS session_orders
+    `, [companyId, productId, warehouseId, sessionId]);
+    return result.rows[0];
+  };
+  it("rejects a closed session with an actionable 409 instead of writing a sale", async () => {
+    const before = await snapshot();
+    await db.update(posSessionsTable).set({ status: "closed" }).where(eq(posSessionsTable.id, sessionId));
+    try {
+      const response = await agent.post("/api/pos/orders").send(checkoutBody());
+      expect(response.status).toBe(409);
+      expect(response.body.error).toContain("الوردية مغلقة");
+      expect(await snapshot()).toEqual(before);
+    } finally {
+      await db.update(posSessionsTable).set({ status: "open" }).where(eq(posSessionsTable.id, sessionId));
+    }
+  });
+  it("rejects an empty cart before creating financial documents", async () => {
+    const before = await snapshot();
+    const response = await agent.post("/api/pos/orders").send({ ...checkoutBody(), items: [] });
+    expect(response.status).toBe(400);
+    expect(await snapshot()).toEqual(before);
+  });
+  it("rolls back the first line when a later product is unavailable", async () => {
+    const before = await snapshot();
+    const response = await agent.post("/api/pos/orders").send({
+      ...checkoutBody(), items: [{ productId, quantity: 1 }, { productId: 2147483647, quantity: 1 }],
+    });
+    expect(response.status).toBe(404);
+    expect(response.body.error).toContain("أحد منتجات السلة غير متاح");
+    expect(await snapshot()).toEqual(before);
+  });
+  it("does not fall back to a default warehouse belonging to a different branch", async () => {
+    const before = await snapshot();
+    // The generated warehouse remains a global default, but NOT for this till.
+    await db.update(warehousesTable).set({ branchId: 0 }).where(eq(warehousesTable.id, warehouseId));
+    try {
+      const response = await agent.post("/api/pos/orders").send(checkoutBody());
+      expect(response.status).toBe(409);
+      expect(response.body.error).toContain("مستودع صالح لهذا الفرع");
+      expect(await snapshot()).toEqual(before);
+    } finally {
+      await db.update(warehousesTable).set({ branchId }).where(eq(warehousesTable.id, warehouseId));
+    }
+  });
+  it("rejects a mixed-company cart as a whole, without disclosing the other company", async () => {
+    const [foreignCompany] = await db.insert(companiesTable).values({ name: `Foreign ${RUN_TAG}` }).returning();
+    const [foreignProduct] = await db.insert(productsTable).values({
+      name: "Foreign product", nameAr: "منتج خارجي", sku: `foreign-${RUN_TAG}`,
+      categoryId, companyId: foreignCompany.id, price: "10", costPrice: "5",
+    }).returning();
+    const before = await snapshot();
+    try {
+      const response = await agent.post("/api/pos/orders").send({
+        ...checkoutBody(), items: [{ productId, quantity: 1 }, { productId: foreignProduct.id, quantity: 1 }],
+      });
+      expect(response.status).toBe(404);
+      expect(response.body.error).toBe("أحد منتجات السلة غير متاح لهذه المنشأة. راجع السلة قبل الدفع.");
+      expect(await snapshot()).toEqual(before);
+    } finally {
+      await db.delete(productsTable).where(eq(productsTable.id, foreignProduct.id));
+      await db.delete(companiesTable).where(eq(companiesTable.id, foreignCompany.id));
+    }
   });
 });
