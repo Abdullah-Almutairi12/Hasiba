@@ -5,6 +5,7 @@ import { db, usersTable, userCompaniesTable, companiesTable } from "@workspace/d
 import { and, eq, desc } from "drizzle-orm";
 import { z } from "zod";
 import { isRole } from "../middlewares/require-role";
+import { isPublishedBootstrapPassword } from "../lib/bootstrap-password";
 
 /**
  * Look up the company the user should land in after login. Returns the
@@ -57,6 +58,12 @@ router.post("/auth/login", loginLimiter, async (req, res) => {
       return res.status(400).json({ error: "بيانات غير صحيحة" });
     }
     const { email, password } = parsed.data;
+
+    // Do not look up identities, establish sessions or update lastLoginAt for
+    // credentials that were formerly published on the sign-in page.
+    if (isPublishedBootstrapPassword(password)) {
+      return res.status(401).json({ error: "البريد الإلكتروني أو كلمة المرور غير صحيحة" });
+    }
 
     const [user] = await db
       .select()
@@ -157,6 +164,9 @@ router.post("/auth/signup", signupLimiter, async (req, res) => {
       return res.status(400).json({ error: "بيانات غير صحيحة" });
     }
     const { name, email, password } = parsed.data;
+    if (isPublishedBootstrapPassword(password)) {
+      return res.status(400).json({ error: "اختر كلمة مرور غير منشورة وغير مستخدمة للتجربة" });
+    }
     const normalizedEmail = email.toLowerCase();
 
     const [existing] = await db

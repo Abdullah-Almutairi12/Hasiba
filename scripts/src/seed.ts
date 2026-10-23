@@ -19,8 +19,7 @@ import {
 } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import bcrypt from "bcryptjs";
-
-const DEFAULT_PASSWORD = "admin123";
+import { assertDisposableSeedTarget, requireSeedPassword } from "./seed-safety";
 
 function rand(min: number, max: number) {
   return Math.floor(Math.random() * (max - min + 1)) + min;
@@ -162,9 +161,9 @@ async function seedCustomers() {
     .returning();
 }
 
-async function seedUsers(branchIds: number[]) {
-  console.log("→ إضافة المستخدمين (كلمة مرور افتراضية: admin123)...");
-  const hash = await bcrypt.hash(DEFAULT_PASSWORD, 10);
+async function seedUsers(branchIds: number[], password: string) {
+  console.log("→ إضافة مستخدمين تجريبيين بكلمة مرور مقدمة عبر الإعدادات الآمنة...");
+  const hash = await bcrypt.hash(password, 12);
   return db
     .insert(usersTable)
     .values([
@@ -481,6 +480,15 @@ async function seedAuditLogs() {
 }
 
 async function main() {
+  // Validate everything BEFORE the first destructive statement. Never print the
+  // password or connection URL, even when a validation step fails.
+  const password = requireSeedPassword(process.env.SEED_ADMIN_PASSWORD);
+  const result = await db.execute<{ database_name: string }>(sql`SELECT current_database() AS database_name`);
+  assertDisposableSeedTarget({
+    databaseName: result.rows[0]?.database_name ?? "",
+    environment: process.env.NODE_ENV,
+    args: process.argv.slice(2),
+  });
   console.log("🌱 بدء زرع البيانات التجريبية...\n");
   await clear();
   const branches = await seedBranches();
@@ -489,7 +497,7 @@ async function main() {
   const categories = await seedCategories();
   const products = await seedProducts(categories.map((c) => c.id));
   const customers = await seedCustomers();
-  const users = await seedUsers(branchIds);
+  const users = await seedUsers(branchIds, password);
   await seedSessionsAndOrders(branchIds, products);
   await seedInvoices();
   await seedAlerts();

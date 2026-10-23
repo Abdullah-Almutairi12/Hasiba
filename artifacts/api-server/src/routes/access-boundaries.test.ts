@@ -207,6 +207,30 @@ describe("Company role boundaries", () => {
     await manager.post("/api/auth/switch-company").send({ companyId: a }).expect(200);
   });
 
+  it("rejects the published bootstrap password without modifying an identity and permits rotation", async () => {
+    const [before] = await db.select().from(usersTable).where(eq(usersTable.id, sharedId));
+    const published = ["admin", "123"].join("");
+    const candidate = request.agent(app);
+    await candidate.post("/api/auth/login").send({ email: before.email, password: published }).expect(401);
+    await candidate.get("/api/auth/me").expect(401);
+    const [after] = await db.select().from(usersTable).where(eq(usersTable.id, sharedId));
+    expect(after).toEqual(before);
+    await candidate.post("/api/auth/login").send({ email: before.email, password }).expect(200);
+    await request(app).post("/api/auth/signup").send({
+      name: "Blocked synthetic bootstrap", email: `blocked-${tag}@test.local`, password: published,
+    }).expect(400);
+    const blocked = await db.select().from(usersTable).where(eq(usersTable.email, `blocked-${tag}@test.local`));
+    expect(blocked).toHaveLength(0);
+    await owner.post("/api/users").send({
+      name: "Blocked synthetic staff", email: `blocked-staff-${tag}@test.local`,
+      password: published, role: "sales",
+    }).expect(400);
+    const [localBefore] = await db.select().from(usersTable).where(eq(usersTable.id, localUserId));
+    await owner.patch(`/api/users/${localUserId}`).send({ password: published }).expect(400);
+    const [localAfter] = await db.select().from(usersTable).where(eq(usersTable.id, localUserId));
+    expect(localAfter).toEqual(localBefore);
+  });
+
   it("login ignores the global role; demotion and membership revocation affect existing sessions", async () => {
     expect((await shared.get("/api/users")).status).toBe(403);
     await db.update(userCompaniesTable).set({ role: "cashier" }).where(and(

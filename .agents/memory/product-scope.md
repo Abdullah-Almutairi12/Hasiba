@@ -4,6 +4,12 @@ description: User-stated product scope and the distinct retail and food-service 
 ---
 The product is intended to combine cashier operations, branch connectivity and flexible ERP functions for employees and administration. Scope includes HR, finance, procurement, CRM and reporting rather than a cashier-only product.
 
+The administration/accounting client is web/PWA; the Windows cashier target is Electron with the shared application UI. Hardware, synchronization and offline support require separate acceptance evidence rather than being inferred from a desktop wrapper.
+
+**Why:** The user explicitly selected these client targets in the commercial execution instructions on 2026-10-23.
+
+**How to apply:** Reuse the existing application and domain services; do not fork a second ERP or claim USB/Bluetooth/payment-device support merely because Electron can load the web interface.
+
 **Why:** The user explicitly described this business direction on 2026-10-23. A feature's presence in a prototype is not evidence of completed operational support.
 
 **How to apply:** Configure modules, roles and activity templates without weakening financial integrity or tenant isolation. Initial setup should select retail versus restaurants/cafés. Retail should provide a barcode-driven cart table; food service should provide main category tiles opening subcategories and products. Show payment-method choices next to the checkout button instead of requiring a fullscreen selection step. Plan for customer displays, supported payment terminals and attendance devices, with real-device acceptance tests before claiming support.

@@ -11,7 +11,7 @@ const source = verificationSource(root);
 writeFileSync(join(out, "source-revision.json"), JSON.stringify(source, null, 2));
 const checks = [
   ["typecheck", ["run", "typecheck"]],
-  ["isolated-runner-tests", ["exec", "node", "--test", "scripts/test-isolated.test.mjs"]],
+  ["isolated-runner-tests", ["exec", "node", "--test", "scripts/test-isolated.test.mjs", "scripts/seed-safety.test.mjs"]],
   ["invoice-cleanup-evidence-tests", ["exec", "node", "--test",
     "scripts/check-browser-repeated-invoice-cleanup.test.mjs",
     "scripts/check-browser-cleanup-identical-invoice.test.mjs",

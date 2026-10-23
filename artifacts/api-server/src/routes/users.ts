@@ -13,6 +13,7 @@ import { handleRouteError } from "../lib/handle-error";
 import { recordAudit } from "../lib/audit";
 import { requireCompanyContext } from "../middlewares/require-company-context";
 import { assertCompanyBranch } from "../lib/company-access";
+import { isPublishedBootstrapPassword } from "../lib/bootstrap-password";
 
 const router = Router();
 router.use(["/users", "/admin/team-consents"], requireCompanyContext);
@@ -183,7 +184,10 @@ const CreateUserBody = z.object({
   name: z.string().min(2).max(120),
   email: z.string().email(),
   phone: z.string().max(40).nullish(),
-  password: z.string().min(8).max(200),
+  password: z.string().min(8).max(200).refine(
+    (value) => !isPublishedBootstrapPassword(value),
+    "اختر كلمة مرور غير منشورة وغير مستخدمة للتجربة",
+  ),
   role: RoleEnum,
   branchId: z.number().int().positive().nullish(),
   isActive: z.boolean().optional(),
@@ -236,7 +240,10 @@ const UpdateUserBody = z.object({
   branchId: z.number().int().positive().nullish(),
   isActive: z.boolean().optional(),
   has2fa: z.boolean().optional(),
-  password: z.string().min(8).max(200).optional(),
+  password: z.string().min(8).max(200).refine(
+    (value) => !isPublishedBootstrapPassword(value),
+    "اختر كلمة مرور غير منشورة وغير مستخدمة للتجربة",
+  ).optional(),
 });
 
 router.patch("/users/:id", adminGuard, async (req, res) => {

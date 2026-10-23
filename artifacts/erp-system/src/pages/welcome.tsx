@@ -110,7 +110,7 @@ export default function Welcome() {
                 <span className="relative inline-flex size-2 rounded-full bg-emerald-500" />
               </span>
               <span className="text-[11px] font-semibold text-neutral-700 sm:text-xs">
-                نظام محاسبي ذكي معتمد من هيئة الزكاة
+                نظام ERP ومحاسبة للأعمال السعودية
               </span>
             </div>
 
@@ -126,9 +126,9 @@ export default function Welcome() {
             </h1>
 
             <p className="max-w-2xl text-base font-normal leading-relaxed text-neutral-600 md:text-xl">
-              حاسبة ليس مجرد كاشير. هو نظام ذكاء اصطناعي يقرأ الفواتير، يحلل
-              المبيعات، ويكتشف الأخطاء المحاسبية قبل حدوثها. إدارة كاملة لفروعك
-              بلا جهد.
+              حاسبة يجمع نقطة البيع والمحاسبة والمخزون والفروع في نظام واحد، مع
+              أدوات مساعدة لقراءة فواتير الموردين وتنبيهات للمراجعة. التكاملات
+              الخارجية قيد التحقق.
             </p>
 
             {/* CTAs */}
@@ -158,7 +158,7 @@ export default function Welcome() {
             <div className="mt-6 flex flex-wrap items-center gap-x-6 gap-y-3 border-t border-neutral-200 pt-6 text-neutral-500 sm:gap-x-8">
               {[
                 { icon: QrCode, label: "فاتورة إلكترونية" },
-                { icon: Percent, label: "ضريبة 15%" },
+                { icon: Percent, label: "حساب ضريبة 15%" },
                 { icon: Wifi, label: "يعمل بدون إنترنت" },
                 { icon: ShieldCheck, label: "سجل تدقيق آمن" },
               ].map((t) => (
@@ -184,6 +184,9 @@ export default function Welcome() {
                   <span className="text-[10px] font-medium text-neutral-400">
                     hasba.app/dashboard
                   </span>
+                </div>
+                <div className="rounded-md bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700" data-testid="text-illustrative">
+                  أرقام توضيحية - ليست بيانات حية
                 </div>
                 <div className="size-7 rounded-full bg-neutral-200 sm:size-8" />
               </div>
@@ -293,7 +296,7 @@ export default function Welcome() {
                     المساعد الذكي
                   </div>
                   <div className="text-[10px] text-neutral-500">
-                    تم اكتشاف فرصة لزيادة الربح 5%
+                    مثال توضيحي لاقتراح
                   </div>
                 </div>
               </div>
@@ -304,7 +307,7 @@ export default function Welcome() {
               <div className="flex items-center gap-2">
                 <div className="size-2 animate-pulse rounded-full bg-emerald-500" />
                 <span className="text-xs font-bold text-neutral-700">
-                  متصل بالهيئة (ZATCA)
+                  تكامل ZATCA قيد التحقق
                 </span>
               </div>
             </div>
@@ -326,12 +329,11 @@ export default function Welcome() {
               نظام واحد يغنيك عن
               <br />
               <span className="text-slate-400 underline decoration-[#3B82F6] decoration-4 underline-offset-4">
-                جيش من المحاسبين
+                أدوات متفرقة
               </span>
             </h2>
             <p className="text-base text-neutral-500 sm:text-lg">
-              صمم خصيصاً للتجار الذين يريدون التركيز على النمو وترك الأرقام
-              المعقدة للذكاء الاصطناعي.
+              صمم للتجار الذين يريدون إدارة البيع والمحاسبة والمخزون في مكان واحد.
             </p>
           </div>
 
@@ -342,7 +344,7 @@ export default function Welcome() {
                 color: "text-[#2563EB]",
                 border: "hover:border-blue-200",
                 title: "قارئ فواتير ذكي",
-                desc: "وداعاً للإدخال اليدوي. صور الفاتورة، وسيقوم النظام بقراءة 500 صنف في ثوانٍ وتخزينها بدقة 99%.",
+                desc: "ارفع صورة الفاتورة ليقترح النظام البنود والمبالغ، ثم راجعها قبل الحفظ. الدقة تختلف حسب جودة الصورة.",
                 cta: "جرب الآن",
                 ctaColor: "text-[#2563EB]",
               },
@@ -351,7 +353,7 @@ export default function Welcome() {
                 color: "text-violet-600",
                 border: "hover:border-violet-200",
                 title: "محاسب آلي",
-                desc: "يكتشف الأخطاء، يطابق القيود، وينبهك عند وجود تلاعب أو خلل في الحسابات فور حدوثه.",
+                desc: "يساعد في مطابقة القيود ويعرض تنبيهات على أنماط غير معتادة لمراجعتها.",
                 cta: "شاهد التفاصيل",
                 ctaColor: "text-violet-600",
               },
@@ -360,7 +362,7 @@ export default function Welcome() {
                 color: "text-amber-500",
                 border: "hover:border-amber-200",
                 title: "تسعير ذكي",
-                desc: "لا تخمن الأسعار. النظام يحلل التكلفة والسوق ويقترح السعر الأمثل لزيادة هامش الربح.",
+                desc: "يعرض التكلفة والهامش لمساعدتك في مراجعة الأسعار.",
                 cta: "اعرف المزيد",
                 ctaColor: "text-amber-600",
               },
@@ -428,10 +430,10 @@ export default function Welcome() {
                       </div>
                       <div className="flex-1">
                         <div className="text-sm font-bold text-slate-800">
-                          تم التعرف على 42 صنف
+                          مثال توضيحي: 3 أصناف
                         </div>
                         <div className="text-xs text-slate-500">
-                          دقة القراءة 99.8%
+                          تتطلب مراجعة المستخدم
                         </div>
                       </div>
                     </div>
@@ -473,7 +475,7 @@ export default function Welcome() {
             <div className="absolute -left-3 top-12 z-20 hidden items-center gap-3 rounded-xl border border-slate-100 bg-white px-4 py-3 shadow-lg sm:-left-6 sm:flex">
               <div className="size-2 animate-pulse rounded-full bg-rose-500" />
               <span className="text-sm font-bold text-slate-700">
-                توفير 4 ساعات عمل يومياً
+                مثال توضيحي
               </span>
             </div>
           </div>
@@ -488,14 +490,13 @@ export default function Welcome() {
               <span className="text-[#2563EB]">بضغطة زر واحدة</span>
             </h2>
             <p className="mb-6 text-base leading-relaxed text-slate-600 sm:mb-8 sm:text-lg">
-              عند إدخال فاتورة فيها 500 صنف يدوياً، نسبة الخطأ تصل إلى 10%. مع
-              حاسبة، صور الفاتورة فقط. النظام يقرأ الأصناف، يطابقها مع قاعدة
-              البيانات، يقترح تعريف الأصناف الجديدة، ويدخلها للمخزون فوراً.
+              ارفع صورة الفاتورة ليقترح النظام الأصناف ويطابقها مع قاعدة البيانات،
+              ثم تراجعها وتعتمدها قبل إدخالها للمخزون.
             </p>
             <ul className="mb-6 space-y-3 sm:mb-8 sm:space-y-4">
               {[
                 "دعم الفواتير الورقية والإلكترونية (PDF/Image)",
-                "كشف التلاعب في الأسعار ومقارنتها بالسابق",
+                "مقارنة الأسعار بالفواتير السابقة",
                 "تنبيه فوري عند وجود اختلاف في الكميات",
               ].map((line) => (
                 <li key={line} className="flex items-start gap-3">
@@ -534,12 +535,12 @@ export default function Welcome() {
           <div className="grid grid-cols-1 gap-5 sm:gap-6 md:grid-cols-2">
             {[
               {
-                q: "هل النظام معتمد من هيئة الزكاة والضريبة (ZATCA)؟",
-                a: "نعم. نُصدر فواتير ضريبية إلكترونية متوافقة مع المرحلة الثانية، وتتضمن رمز QR وفق المواصفة السعودية، مع تكامل مباشر مع بوّابة فاتورة.",
+                q: "ما وضع التكامل مع هيئة الزكاة والضريبة (ZATCA)؟",
+                a: "يدعم النظام إعداد فواتير ضريبية مع رمز QR. الربط المباشر مع بوابة فاتورة والاعتماد الرسمي قيد التحقق ولم يكتملا بعد.",
               },
               {
                 q: "كم تستغرق عملية التهيئة الأولى؟",
-                a: "معالج تهيئة موجّه من 5 خطوات يكتمل عادة في أقل من 30 دقيقة: بيانات الشركة، الفروع، المخزون، المستخدمون، والربط الضريبي.",
+                a: "معالج تهيئة موجّه يغطي بيانات الشركة، الفروع، المخزون، والمستخدمين. تختلف المدة حسب حجم بياناتك.",
               },
               {
                 q: "هل تدعمون الفروع المتعدّدة والشركات المرتبطة؟",
@@ -547,11 +548,11 @@ export default function Welcome() {
               },
               {
                 q: "كيف تعمل ميزة استخراج فواتير الموردين بالذكاء الاصطناعي؟",
-                a: "صوّر الفاتورة بالجوال أو ارفعها صورة، فيستخرج النموذج اسم المورّد، البنود، الضريبة والإجمالي خلال ثوانٍ — مع مراجعة المستخدم قبل الترحيل.",
+                a: "صوّر الفاتورة بالجوال أو ارفعها صورة، فيستخرج النموذج اسم المورّد، البنود، الضريبة والإجمالي — مع مراجعة المستخدم قبل الترحيل.",
               },
               {
                 q: "هل بياناتي محميّة ومن يطّلع عليها؟",
-                a: "نظام صلاحيات من 8 أدوار مع 14 حارساً على الخادم، جلسات مشفّرة، حماية CSRF، وسجل تدقيق كامل لكل عملية حسّاسة.",
+                a: "نظام صلاحيات قائم على الأدوار، جلسات محمية، وسجل تدقيق للعمليات الحساسة.",
               },
               {
                 q: "هل أستطيع تجربة النظام قبل الاشتراك؟",
@@ -559,7 +560,7 @@ export default function Welcome() {
               },
               {
                 q: "هل يعمل النظام بدون إنترنت؟",
-                a: "شاشة نقطة البيع تواصل العمل في وضع عدم الاتصال وتزامن العمليات تلقائياً عند عودة الشبكة، حتى لا تتوقّف المبيعات أبداً.",
+                a: "شاشة نقطة البيع تواصل العمل في وضع عدم الاتصال وتزامن العمليات تلقائياً عند عودة الشبكة، ويُنصح بالتحقق من المزامنة بعد عودة الاتصال.",
               },
               {
                 q: "هل ينطبق على نشاطي؟ (تجزئة / مطاعم / خدمات / B2B)",
@@ -571,7 +572,7 @@ export default function Welcome() {
               },
               {
                 q: "ما هي خيارات الدعم الفني؟",
-                a: "دعم باللغة العربية عبر تذاكر داخل النظام، قاعدة معرفة، وفريق فني خلال ساعات العمل السعودية. خطط Enterprise تشمل دعم على مدار الساعة.",
+                a: "دعم باللغة العربية عبر تذاكر داخل النظام، قاعدة معرفة، وفريق فني خلال ساعات العمل السعودية.",
               },
               {
                 q: "هل أستطيع الإلغاء في أي وقت؟",
@@ -579,7 +580,7 @@ export default function Welcome() {
               },
               {
                 q: "هل توجد ضرائب أو رسوم خفية؟",
-                a: "لا. الأسعار شفافة وشاملة. تشمل التحديثات، الاستضافة، النسخ الاحتياطي، وامتثال ZATCA دون أي رسوم إضافية.",
+                a: "لا. الأسعار شفافة وشاملة. تشمل التحديثات، الاستضافة، النسخ الاحتياطي، دون أي رسوم إضافية.",
               },
             ].map((item, i) => (
               <div
@@ -603,7 +604,7 @@ export default function Welcome() {
 
           <div className="mx-auto mt-12 max-w-2xl rounded-2xl border border-blue-100 bg-blue-50/60 p-6 text-center sm:mt-16">
             <p className="mb-4 text-sm font-semibold text-neutral-700 sm:text-base">
-              لم تجد إجابتك؟ فريقنا جاهز للرد خلال ساعة عمل واحدة.
+              لم تجد إجابتك؟ تواصل معنا وسنرد عليك.
             </p>
             <Button
               onClick={() => setLocation("/signup")}
@@ -626,14 +627,13 @@ export default function Welcome() {
         <div className="relative z-10 mx-auto max-w-4xl px-6 text-center">
           <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/10 px-3 py-1 text-[11px] font-bold backdrop-blur">
             <Sparkles className="size-3" />
-            انضم للثورة المالية
+            ابدأ اليوم
           </div>
           <h2 className="mb-5 text-3xl font-extrabold sm:mb-6 sm:text-4xl md:text-5xl">
             جاهز لتحويل أعمالك للمستقبل؟
           </h2>
           <p className="mx-auto mb-8 max-w-2xl text-base text-slate-300 sm:mb-10 sm:text-lg">
-            انضم لأكثر من 5,000 تاجر يستخدمون حاسبة لإدارة فروعهم بذكاء. تجربة
-            مجانية لمدة 14 يوم، لا تتطلب بطاقة ائتمان.
+            أنشئ حساباً واستعرض الوحدات المتاحة ببيانات تجريبية.
           </p>
           <div className="flex flex-col justify-center gap-3 sm:flex-row sm:gap-4">
             <Button
@@ -656,8 +656,8 @@ export default function Welcome() {
           <div className="mt-6 flex flex-wrap justify-center gap-x-4 gap-y-2 text-xs text-slate-400 sm:mt-8 sm:gap-6 sm:text-sm">
             {[
               "بدون عقد التزام",
-              "دعم فني 24/7",
-              "بياناتك آمنة 100%",
+              "دعم باللغة العربية",
+              "سجل تدقيق للعمليات",
             ].map((line) => (
               <span key={line} className="flex items-center gap-2">
                 <CircleCheck className="size-3 text-emerald-400" /> {line}
@@ -680,7 +680,7 @@ export default function Welcome() {
               </div>
               <p className="mb-5 max-w-xs text-sm leading-relaxed text-slate-500 sm:mb-6">
                 نظام كاشير ومحاسبة سحابي ذكي، مصمم لتمكين تجار التجزئة من إدارة
-                أعمالهم بكفاءة ودقة متناهية.
+                أعمالهم في مكان واحد.
               </p>
               <div className="flex gap-3 sm:gap-4">
                 {[Twitter, Linkedin, Instagram].map((Icon, i) => (
@@ -730,7 +730,7 @@ export default function Welcome() {
             </p>
             <div className="flex items-center gap-2 text-xs text-slate-400 sm:text-sm">
               <ShieldCheck className="size-4 text-emerald-500" />
-              مرخصة من وزارة الاتصالات
+              التكاملات الخارجية قيد التحقق
             </div>
           </div>
         </div>
