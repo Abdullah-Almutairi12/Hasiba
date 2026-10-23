@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect, useRef } from "react";
+import {printWhenFontsReady} from "@/lib/browser-print";
 import { Money } from "@/components/riyal";
 import { useLocation } from "wouter";
 import {
@@ -1665,7 +1666,7 @@ export default function POS() {
                       <div className="flex items-center justify-between text-sm">
                         <span className="text-neutral-500">حالة ZATCA</span>
                         <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-bold text-emerald-700">
-                          تم التشفير والختم
+                          بيانات العملية — ليست إثبات قبول من الهيئة
                         </span>
                       </div>
                     )}
@@ -1687,7 +1688,7 @@ export default function POS() {
 
                   <div className="grid grid-cols-2 gap-3">
                     <Button
-                      onClick={() => window.print()}
+                      onClick={() => void printWhenFontsReady()}
                       className="h-11 bg-[#2563EB] text-sm font-bold text-white hover:bg-[#1D4ED8] print:hidden"
                     >
                       طباعة فاتورة

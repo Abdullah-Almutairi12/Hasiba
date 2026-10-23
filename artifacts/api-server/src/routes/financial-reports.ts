@@ -18,6 +18,7 @@ import {
   type ConsolidatedPL,
 } from "../lib/consolidated-reports";
 import { renderPdf, renderXlsx, type Cell } from "../lib/report-render";
+import { aggregatePrintGuard } from "../lib/print-permissions";
 import { recordAudit } from "../lib/audit";
 import { getCompanyId } from "../lib/scoped-db";
 
@@ -709,7 +710,7 @@ async function handleConsolidatedExport(
     if (format === "xlsx") {
       await renderXlsx(res, { slug, title, subtitle, headers: table.headers, rows: table.rows });
     } else {
-      await renderPdf(res, { slug, title, subtitle, headers: table.headers, rows: table.rows });
+      await renderPdf(res, { slug, title, subtitle, headers: table.headers, rows: table.rows,companyId:getCompanyId(req) });
     }
     void recordAudit(req, {
       action: "export",

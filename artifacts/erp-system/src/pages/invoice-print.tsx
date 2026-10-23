@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import {printWhenFontsReady} from "@/lib/browser-print";
 import { Money, RiyalSymbol } from "@/components/riyal";
 import { useRoute } from "wouter";
 import { useGetInvoice } from "@workspace/api-client-react";
@@ -60,7 +61,7 @@ export default function InvoicePrint() {
         <div className="mb-6 flex justify-between items-center print:hidden">
           <h1 className="text-2xl font-bold">معاينة الفاتورة</h1>
           <div className="flex gap-2">
-            <Button onClick={() => window.print()} className="gap-2">
+            <Button onClick={() => void printWhenFontsReady()} className="gap-2">
               <Printer className="size-4" />
               طباعة
             </Button>

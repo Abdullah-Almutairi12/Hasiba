@@ -43,6 +43,7 @@ timeoutMs = 60000
 
 [nix]
 channel = "stable-25_05"
+packages = ["freetype", "gumbo", "harfbuzz", "jbig2dec", "libjpeg_turbo", "mupdf", "openjpeg", "swig", "xcbuild"]
 
 [objectStorage]
 defaultBucketID = "replit-objstore-2cff9f39-edcc-4ea1-b733-49785cde030c"

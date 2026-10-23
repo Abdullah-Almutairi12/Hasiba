@@ -51,7 +51,8 @@ import { getCompanyId } from "../lib/scoped-db";
 import { financialTransaction, FinancialRequestError } from "../lib/financial-transaction";
 import { buildZatcaQrBase64 } from "../lib/zatca-qr";
 import { getCompanyInfo } from "../lib/pdf/purchase-order";
-import { buildCustomerInvoicePdf } from "../lib/pdf/customer-invoice";
+import { getPrintCompany } from "../lib/pdf/print-company";
+import { buildCustomerInvoicePdf } from "../lib/pdf/business-documents";
 import QRCode from "qrcode";
 import { processInvoiceForZatca } from "../lib/integrations/zatca-phase2";
 import { createAwb } from "../lib/integrations/shipping";
@@ -1970,7 +1971,7 @@ export async function renderCustomerInvoicePdfById(id: number, companyId: number
     .select()
     .from(customerInvoiceLinesTable)
     .where(eq(customerInvoiceLinesTable.invoiceId, id));
-  const company = await getCompanyInfo();
+  const company = await getPrintCompany(companyId);
   let qrDataUrl: string | null = null;
   if (head.zatcaQr) {
     try {
@@ -3823,7 +3824,7 @@ router.post("/sales/invoices/:id/send", financeGuard, async (req, res) => {
       .select()
       .from(customerInvoiceLinesTable)
       .where(eq(customerInvoiceLinesTable.invoiceId, id));
-    const company = await getCompanyInfo();
+    const company = await getPrintCompany(getCompanyId(req));
     let qrDataUrl: string | null = null;
     if (head.zatcaQr) {
       try {

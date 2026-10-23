@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync,readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Router, type IRouter, type Request, type Response } from "express";
@@ -15,6 +15,7 @@ import {
   type Lang,
 } from "@workspace/docs-content";
 import { registerArabicFonts } from "../lib/pdf/arabic-font";
+import { buildPrintPdf,type PrintDocument } from "../lib/pdf/print-document";
 
 const SCREENSHOT_ROOTS = [
   path.resolve(fileURLToPath(import.meta.url), "../../../docs/public/screenshots"),
@@ -209,6 +210,22 @@ function writeModule(
 }
 
 function buildPdf(modules: DocModule[], lang: Lang, title: string): Promise<Buffer> {
+  const sections:NonNullable<PrintDocument["sections"]>=[];
+  if(modules.length>1){
+    sections.push({title:lang==="ar"?"جدول المحتويات":"Contents",body:modules.map(m=>`${m.position}. ${m.title[lang]}`).join("\n")});
+    sections.push({title:lang==="ar"?"المصطلحات":"Glossary",body:GLOSSARY.map(g=>`${g.term[lang]}: ${g.definition[lang]}`).join("\n\n")});
+    sections.push({title:lang==="ar"?"أسئلة شائعة":"FAQ",body:FAQ.map(f=>`${f.q[lang]}\n${f.a[lang]}`).join("\n\n")});
+    sections.push({title:lang==="ar"?"البدء السريع":"Quick start",body:QUICK_START.map(s=>`${s.index}. ${s.title[lang]} (${s.minutes})\n${s.body[lang]}`).join("\n\n")});
+  }
+  for(const m of modules){
+    const shot=resolveScreenshot(m.slug,lang);
+    sections.push({title:`${m.position}. ${m.title[lang]}`,image:shot?`data:image/png;base64,${readFileSync(shot).toString("base64")}`:undefined,
+      body:[m.summary[lang],`${m.appPath??""} | ${m.roles.join(", ")} | ${m.lastUpdated}`,(m.screenshotAlt??m.summary)[lang],...(m.hotspots??[]).map(h=>`${h.n}. ${h.label[lang]}`),...(m.prerequisites??[]).map(p=>p[lang]),...(m.steps??[]).map((s,i)=>`${i+1}. ${s.action[lang]}${s.result?`\n${s.result[lang]}`:""}`),...(m.sections??[]).map(s=>`${s.heading[lang]}\n${s.body[lang]}`),...(m.scenarios??[]).map(s=>`${s.title[lang]}\n${s.body[lang]}`),...(m.callouts??[]).map(s=>s.body[lang]),...(m.tips??[]).map(s=>s[lang]),...(m.troubleshooting??[]).map(s=>`${s.q[lang]}\n${s.a[lang]}`)].join("\n\n")});
+  }
+  return buildPrintPdf({title,language:lang,headers:[],rows:[],subtitle:`حاسبة.AI — ${DOCS_VERSION}`,sections});
+}
+/** Pinned comparison implementation; not used by the export route. */
+function legacyBuildPdf(modules: DocModule[], lang: Lang, title: string): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({
       size: "A4",

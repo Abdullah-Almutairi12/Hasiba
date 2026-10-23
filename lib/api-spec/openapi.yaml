@@ -3738,6 +3738,11 @@ paths:
           name: format
           required: false
           schema: { type: string, enum: [json, pdf], default: json }
+        - in: query
+          name: lang
+          required: false
+          description: PDF label language. Company-wide report, using Asia/Riyadh quarter boundaries.
+          schema: { type: string, enum: [ar, en], default: ar }
       responses:
         "200":
           description: VAT return

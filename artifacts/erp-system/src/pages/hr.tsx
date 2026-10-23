@@ -1,4 +1,5 @@
 import { useState } from "react";
+import {openFileDownload} from "@/lib/download-file";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -2008,7 +2009,7 @@ export default function HrPage() {
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={() => window.open(`${API_BASE}/hr/payslips/${p.id}/pdf`, "_blank")}
+                          onClick={() => openFileDownload(`${API_BASE}/hr/payslips/${p.id}/pdf`)}
                         >
                           <Download className="ml-1 h-4 w-4" /> عرض / طباعة
                         </Button>

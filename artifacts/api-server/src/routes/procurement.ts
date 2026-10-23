@@ -49,7 +49,8 @@ import {
   isMailerConfigured,
   recipientStatusesFromDispatch,
 } from "../lib/mailer";
-import { buildPurchaseOrderPdf, getCompanyInfo } from "../lib/pdf/purchase-order";
+import { buildPurchaseOrderPdf } from "../lib/pdf/business-documents";
+import { getPrintCompany as getCompanyInfo } from "../lib/pdf/print-company";
 import { supplyScope, supplyParam, supplyReferencesGuard, requireSupplyReference } from "../lib/supply-chain-scope";
 
 const router = Router();
@@ -1416,7 +1417,7 @@ export async function renderPurchaseOrderForRetry(id: number): Promise<
       })),
       vatEnabled,
     },
-    await getCompanyInfo(),
+    await getCompanyInfo(po.companyId),
   );
   const subject = `Purchase Order ${po.reference} / أمر شراء`;
   const body = [
@@ -1491,7 +1492,7 @@ router.get("/procurement/purchase-orders/:id/pdf", async (req, res) => {
   try {
     const id = Number(req.params.id);
     const { po, pdfInput } = await loadPoForPdf(id, getCompanyId(req));
-    const buf = await buildPurchaseOrderPdf(pdfInput, await getCompanyInfo());
+    const buf = await buildPurchaseOrderPdf(pdfInput, await getCompanyInfo(po.companyId));
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader(
       "Content-Disposition",
@@ -1537,7 +1538,7 @@ export async function dispatchPurchaseOrder(opts: {
   if (!recipient) {
     return { status: 400, payload: { error: "لا يوجد بريد إلكتروني للمورد" } };
   }
-  const pdf = await buildPurchaseOrderPdf(pdfInput, await getCompanyInfo());
+  const pdf = await buildPurchaseOrderPdf(pdfInput, await getCompanyInfo(po.companyId));
   const subject = opts.subjectOverride ?? `Purchase Order ${po.reference} / أمر شراء`;
   const emailBody = opts.messageOverride ?? [
     `Dear ${supplier?.name ?? po.supplierName},`,

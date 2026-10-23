@@ -47,6 +47,17 @@ export async function buildAlertsCleanupPdf(
     .where(conds.length ? and(...conds) : undefined)
     .orderBy(desc(alertsCleanupRunsTable.ranAt));
 
+  const {buildPrintPdf}=await import("./pdf/print-document");
+  const c=options.compliance;
+  const buffer=await buildPrintPdf({title:"سجل تنظيف التنبيهات",subtitle:`${from?.toISOString().slice(0,10)??"البداية"} — ${to?.toISOString().slice(0,10)??"النهاية"}`,headers:["وقت التشغيل","المحذوفات","الاحتفاظ بالأيام"],rows:rows.map(r=>[r.ranAt.toISOString(),r.rowsDeleted,r.retentionDays]),
+    sections:c?[{title:"ملخص الامتثال",body:`المفتوح: ${c.counts.openTotal}\nتسعير التحويل: ${c.counts.transferPricing}\nاتفاقية مفقودة: ${c.counts.agreementMissing}\nالزكاة: ${c.counts.zakat}`},{title:"التنبيهات",body:c.alerts.map(a=>`${a.createdAt.toISOString().slice(0,10)} | ${a.companyName} | ${a.kind} | ${a.ref??""} | ${a.message} | ${a.status}`).join("\n\n")},{title:"اتفاقيات بين الشركات",body:c.agreements.map(a=>`${a.companyName} | ${a.counterpartyName} | ${a.title} | ${a.effectiveFrom} — ${a.effectiveTo??""}\n${a.pdfUrl}`).join("\n\n")}]:[]});
+  return {buffer,filename:`alerts-cleanup-runs-${new Date().toISOString().slice(0,10)}.pdf`,rowCount:rows.length,complianceAlertCount:c?.alerts.length??0};
+}
+/** Historical PDFKit reference; not used by HTTP or scheduled delivery. */
+async function legacyAlertsCleanupPdf(window:AlertsCleanupPdfWindow,options:AlertsCleanupPdfOptions={}):Promise<AlertsCleanupPdfResult>{
+  const {from,to}=window;
+  const rows=await db.select().from(alertsCleanupRunsTable).where(and(...[from?gte(alertsCleanupRunsTable.ranAt,from):undefined,to?lte(alertsCleanupRunsTable.ranAt,to):undefined].filter((x):x is NonNullable<typeof x>=>x!=null))).orderBy(desc(alertsCleanupRunsTable.ranAt));
+
   const PDFDocument = (await import("pdfkit")).default;
   const { registerArabicFonts } = await import("./pdf/arabic-font");
   const { drawBrandedHeader, drawBrandedFooter, loadBrand, BRAND } =

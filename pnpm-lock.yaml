@@ -260,6 +260,9 @@ importers:
       pino-http:
         specifier: ^10
         version: 10.5.0
+      playwright-core:
+        specifier: 1.60.0
+        version: 1.60.0
       qrcode:
         specifier: ^1.5.4
         version: 1.5.4
@@ -306,6 +309,9 @@ importers:
       esbuild-plugin-pino:
         specifier: ^2.3.3
         version: 2.3.3(esbuild@0.28.1)(pino-pretty@13.2.0)(pino@9.14.0)(thread-stream@3.1.0)
+      jsqr:
+        specifier: 1.4.0
+        version: 1.4.0
       pino-pretty:
         specifier: ^13.2.0
         version: 13.2.0
@@ -3706,6 +3712,9 @@ packages:
     resolution: {integrity: sha512-XmOWe7eyHYH14cLdVPoyg+GOH3rYX++KpzrylJwSW98t3Nk+U8XOl8FWKOgwtzdb8lXGf6zYwDUzeHMWfxasyg==}
     engines: {node: '>=6'}
     hasBin: true
+
+  jsqr@1.4.0:
+    resolution: {integrity: sha512-dxLob7q65Xg2DvstYkRpkYtmKm2sPJ9oFhrhmudT1dZvNFFTlroai3AWSpLey/w5vMcLBXRgOJsbXpdN9HzU/A==}
 
   jszip@3.10.1:
     resolution: {integrity: sha512-xXDvecyTpGLrqFrvkrUSoxxfJI5AH7U8zxxtVclpsUtMCq4JQ290LY8AW5c7Ggnr/Y/oK+bQMbqK2qmtk3pN4g==}
@@ -7791,6 +7800,8 @@ snapshots:
   json-schema-traverse@1.0.0: {}
 
   json5@2.2.3: {}
+
+  jsqr@1.4.0: {}
 
   jszip@3.10.1:
     dependencies:

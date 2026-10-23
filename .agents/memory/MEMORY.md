@@ -7,3 +7,4 @@
 - [Standard issue valuation](standard-issue-valuation.md) — standard price edits are prospective; ordinary issues realize carrying-cost differences net in COGS, not by automatic revaluation.
 - [Inventory revaluation](inventory-revaluation-policy.md) — independent approval covers both valuation and variance account; corrections must preserve stock/GL agreement.
 - [Product direction](product-scope.md) — flexible branch-connected ERP; retail barcode tables, nested food-service tiles, and payment choices beside checkout.
+- [Arabic print integrity](arabic-print-integrity.md) — inspect extracted logical text as well as appearance; double shaping and ligatures can silently corrupt copying.

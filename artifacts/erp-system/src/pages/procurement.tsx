@@ -1,4 +1,5 @@
 import { useState, useMemo } from "react";
+import {openFileDownload} from "@/lib/download-file";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiGet, apiPost } from "@/hooks/use-api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -515,7 +516,7 @@ function PODetailDialog({ po, onClose }: { po: PO | null; onClose: () => void })
 
   const previewPdf = () => {
     if (!po) return;
-    window.open(`/api/procurement/purchase-orders/${po.id}/pdf`, "_blank");
+    openFileDownload(`${(import.meta.env.BASE_URL||"/").replace(/\/$/,"")}/api/procurement/purchase-orders/${po.id}/pdf`);
   };
 
   return (

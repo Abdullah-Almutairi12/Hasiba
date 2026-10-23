@@ -4,6 +4,7 @@ import { useTheme } from "@/hooks/use-theme";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { createAppQueryClient } from "@/lib/query-client";
 import { Toaster } from "@/components/ui/toaster";
+import {PdfDownloadStatus} from "@/components/pdf-download-status";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import Layout from "@/components/layout";
 import ProtectedRoute from "@/components/protected-route";
@@ -260,6 +261,7 @@ function App() {
             <Router />
           </WouterRouter>
           <Toaster />
+          <PdfDownloadStatus/>
         </TooltipProvider>
       </QueryClientProvider>
     </ErrorBoundary>

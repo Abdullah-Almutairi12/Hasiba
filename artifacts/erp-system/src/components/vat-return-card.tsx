@@ -1,91 +1,37 @@
-import { useMemo, useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useMemo,useRef,useState } from "react";
+import { useTranslation } from "react-i18next";
+import { Card,CardContent,CardHeader,CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { FileText, Download } from "lucide-react";
+import { Select,SelectContent,SelectItem,SelectTrigger,SelectValue } from "@/components/ui/select";
+import { FileText,Download } from "lucide-react";
 import { useVatEnabled } from "@/hooks/use-vat-status";
-
-/**
- * Dashboard card that lets accountants pick a quarter and download
- * the quarterly ZATCA VAT-return PDF. Hidden for tenants whose VAT
- * registration status is `not_registered` (gated by `useVatEnabled`).
- */
-export function VatReturnCard() {
-  const enabled = useVatEnabled();
-  const apiBase = (import.meta.env.BASE_URL || "/").replace(/\/$/, "") + "/api";
-  const now = new Date();
-  const defaultQuarter = (Math.floor(now.getMonth() / 3) + 1) as 1 | 2 | 3 | 4;
-  // Default to the most recently CLOSED quarter when possible —
-  // accountants almost never file the current one.
-  const defaultPrevQuarter: 1 | 2 | 3 | 4 = defaultQuarter === 1 ? 4 : ((defaultQuarter - 1) as 1 | 2 | 3 | 4);
-  const defaultYear = defaultQuarter === 1 ? now.getFullYear() - 1 : now.getFullYear();
-  const [year, setYear] = useState(String(defaultYear));
-  const [quarter, setQuarter] = useState(String(defaultPrevQuarter));
-
-  const years = useMemo(() => {
-    const y = now.getFullYear();
-    return [y, y - 1, y - 2, y - 3];
-  }, [now]);
-
-  if (!enabled) return null;
-
-  const pdfUrl = `${apiBase}/vat/return?year=${year}&quarter=${quarter}&format=pdf`;
-
-  return (
-    <Card className="bg-card" data-testid="vat-return-card">
-      <CardHeader className="pb-2">
-        <CardTitle className="text-sm font-medium flex items-center gap-2">
-          <FileText className="size-4 text-blue-500" />
-          الإقرار الضريبي ربع السنوي
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        <p className="text-xs text-muted-foreground">
-          صدّر تقرير ZATCA لربع كامل (المخرجات − المدخلات) جاهز للرفع على بوابة هيئة الزكاة.
-        </p>
-        <div className="flex gap-2">
-          <Select value={year} onValueChange={setYear}>
-            <SelectTrigger className="h-9 flex-1" data-testid="select-vat-year">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {years.map((y) => (
-                <SelectItem key={y} value={String(y)}>
-                  {y}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select value={quarter} onValueChange={setQuarter}>
-            <SelectTrigger className="h-9 w-28" data-testid="select-vat-quarter">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="1">الربع 1</SelectItem>
-              <SelectItem value="2">الربع 2</SelectItem>
-              <SelectItem value="3">الربع 3</SelectItem>
-              <SelectItem value="4">الربع 4</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <Button
-          asChild
-          size="sm"
-          className="w-full gap-2"
-          data-testid="button-vat-return-download"
-        >
-          <a href={pdfUrl} target="_blank" rel="noopener">
-            <Download className="size-4" />
-            تنزيل PDF
-          </a>
-        </Button>
-      </CardContent>
-    </Card>
-  );
+import { downloadPdf,DownloadError } from "@/lib/download-file";
+export function VatReturnCard(){
+  const enabled=useVatEnabled(),{i18n}=useTranslation(),en=i18n.language.startsWith("en");
+  const now=new Date(),q=Math.floor(now.getMonth()/3)+1;
+  const [year,setYear]=useState(String(q===1?now.getFullYear()-1:now.getFullYear()));
+  const [quarter,setQuarter]=useState(String(q===1?4:q-1));
+  const [busy,setBusy]=useState(false),[error,setError]=useState<DownloadError|null>(null);
+  const working=useRef(false);
+  const years=useMemo(()=>Array.from({length:4},(_,i)=>now.getFullYear()-i),[now.getFullYear()]);
+  if(!enabled)return null;
+  async function download(){
+    if(working.current)return;working.current=true;setBusy(true);setError(null);
+    try{
+      const base=(import.meta.env.BASE_URL||"/").replace(/\/$/,"");
+      await downloadPdf(`${base}/api/vat/return?year=${year}&quarter=${quarter}&format=pdf&lang=${en?"en":"ar"}`,`VAT-${year}-Q${quarter}-${en?"en":"ar"}.pdf`);
+    }catch(e){setError(e instanceof DownloadError?e:new DownloadError("تعذر التنزيل","DOWNLOAD_FAILED"));}
+    finally{working.current=false;setBusy(false);}
+  }
+  return <Card className="bg-card" data-testid="vat-return-card"><CardHeader><CardTitle className="flex items-center gap-2"><FileText className="size-5"/>{en?"Quarterly VAT report":"تقرير ضريبة القيمة المضافة الربعي"}</CardTitle></CardHeader>
+  <CardContent className="space-y-4">
+  <p className="text-sm text-muted-foreground">{en?"For review and return preparation. Not an official upload format or evidence of filing.":"للمراجعة وإعداد الإقرار؛ ليس ملف رفع رسميًا ولا إثباتًا لتقديم الإقرار أو قبوله."}</p>
+  <p className="text-xs text-muted-foreground">{en?"Current company · all branches · Asia/Riyadh time":"الشركة الحالية · جميع الفروع · توقيت الرياض"}</p>
+  <div className="flex flex-wrap gap-3">
+  <Select value={year} onValueChange={setYear} disabled={busy}><SelectTrigger className="h-9 w-28" data-testid="select-vat-year"><SelectValue/></SelectTrigger><SelectContent>{years.map(y=><SelectItem key={y} value={String(y)}>{y}</SelectItem>)}</SelectContent></Select>
+  <Select value={quarter} onValueChange={setQuarter} disabled={busy}><SelectTrigger className="h-9 w-28" data-testid="select-vat-quarter"><SelectValue/></SelectTrigger><SelectContent>{[1,2,3,4].map(n=><SelectItem key={n} value={String(n)}>{en?"Quarter":"الربع"} {n}</SelectItem>)}</SelectContent></Select>
+  </div>
+  <Button type="button" size="sm" disabled={busy} onClick={download} className="w-full gap-2" data-testid="button-vat-return-download"><Download className="size-4"/>{busy?(en?"Generating…":"جارٍ الإنشاء…"):`${en?"Download":"تنزيل"} PDF — ${year} Q${quarter}`}</Button>
+  {error&&<div role="alert" className="space-y-2 rounded border border-destructive/40 p-3 text-sm"><p>{en?"Report download failed":error.message}</p><p dir="ltr">{error.diagnosticRef}</p><Button type="button" variant="outline" size="sm" onClick={()=>navigator.clipboard.writeText(error.diagnosticRef)}>{en?"Copy diagnostic reference":"نسخ مرجع التشخيص"}</Button></div>}
+  </CardContent></Card>;
 }

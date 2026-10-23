@@ -2730,7 +2730,7 @@ router.get("/hr/payslips/:id/view", async (req, res) => {
 // employees get a binary PDF artifact rather than a print-to-PDF HTML
 // shim. The Arabic labels are written via right-aligned columns so the
 // output is readable even though pdfkit's RTL handling is limited.
-router.get("/hr/payslips/:id/pdf", async (req, res) => {
+router.get(["/hr/payslips/:id/pdf","/hr/payslips/:id/print"], async (req, res) => {
   try {
     const { id } = IdParam.parse(req.params);
     const [slip] = await db.select().from(payslipsTable).where(and(eq(payslipsTable.id, id), payslipScope(req))).limit(1);
@@ -2753,87 +2753,22 @@ router.get("/hr/payslips/:id/pdf", async (req, res) => {
       : [];
     if (!emp || !line || !run || !period) return res.status(404).send("incomplete");
 
-    type PDFDoc = {
-      fontSize: (n: number) => PDFDoc;
-      text: (s: string, opts?: object) => PDFDoc;
-      moveDown: (n?: number) => PDFDoc;
-      pipe: (dest: unknown) => PDFDoc;
-      end: () => void;
-      font: (n: string) => PDFDoc;
-      fillColor: (c: string) => PDFDoc;
-      registerFont: (name: string, src: Buffer) => PDFDoc;
-    };
-    const PDFDocumentMod = (await import("pdfkit")) as unknown as {
-      default: new (opts?: object) => PDFDoc;
-    };
-    const doc: PDFDoc = new PDFDocumentMod.default({ size: "A4", margin: 40 });
-    res.setHeader("Content-Type", "application/pdf");
-    res.setHeader("Content-Disposition", `inline; filename="payslip-${slip.reference}.pdf"`);
-    doc.pipe(res);
-
-    const { useReg, useBold, T } = registerArabicFonts(doc);
-
     const fmt = (n: string | number) =>
       num(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     const hijri = toHijri(period.payDate).formatted;
-
-    // Branded company header (logo + bilingual name + VAT) so payslips
-    // match the rest of the document set (invoices / reports / exports).
-    const { drawBrandedHeader, loadBrand } = await import("../lib/pdf/branding-header");
-    const company = await loadBrand();
-    drawBrandedHeader(doc as unknown as Parameters<typeof drawBrandedHeader>[0], company, {
-      title: `Payslip / بيان راتب — ${slip.reference}`,
-    });
-
-    useReg();
-    doc.fontSize(10).fillColor("#555")
-      .text(T(`Run: ${run.reference}   Period: ${period.name}   Pay date: ${period.payDate} (Hijri ${hijri})`))
-      .moveDown(0.5).fillColor("#000");
-    doc.fontSize(11)
-      .text(T(`Employee: ${emp.nameAr ?? emp.name} (${emp.employeeNo})`))
-      .text(T(`National ID: ${emp.nationalId ?? "—"}`))
-      .text(T(`IBAN: ${emp.bankIban ?? "—"}   Bank: ${emp.bankName ?? "—"}`))
-      .text(T(`Worked days: ${num(line.workedDays)}   LWP days: ${num(line.leaveWithoutPayDays)}   OT hours: ${num(line.overtimeHours)}`))
-      .moveDown(0.5);
-
-    const writeRow = (label: string, amount: string | number) => {
-      doc.fontSize(11).text(`${T(label).padEnd(45, " ")} ${fmt(amount).padStart(15, " ")}`);
-    };
-
-    useBold();
-    doc.text(T("Earnings / الاستحقاقات"));
-    useReg();
-    writeRow("Basic salary / الراتب الأساسي", line.basicSalary);
-    writeRow("Housing allowance / بدل سكن", line.housingAllowance);
-    writeRow("Transport allowance / بدل مواصلات", line.transportAllowance);
-    writeRow("Other allowances / بدلات أخرى", line.otherAllowances);
-    writeRow("Overtime amount / قيمة الإضافي", line.overtimeAmount);
-    useBold();
-    writeRow("Gross / إجمالي الاستحقاقات", line.grossPay);
-    useReg();
-    doc.moveDown(0.5);
-
-    useBold();
-    doc.text(T("Deductions / الخصومات"));
-    useReg();
-    writeRow("GOSI (employee) / تأمينات الموظف", line.gosiEmployee);
-    writeRow("LWP / إجازة بدون راتب", line.lwpDeduction);
-    writeRow("Loan installment / قسط القرض", line.loanDeduction);
-    writeRow("Other / خصومات أخرى", line.otherDeductions);
-    useBold();
-    writeRow("Total deductions / إجمالي الخصومات", line.totalDeductions);
-    useReg();
-    doc.moveDown(0.5);
-
-    useBold();
-    doc.fontSize(13);
-    writeRow("NET PAY / صافي الراتب (SAR)", line.netPay);
-    useReg();
-    doc.fontSize(9).fillColor("#666")
-      .text(T(`Employer GOSI / حصة الشركة من التأمينات: ${fmt(line.gosiEmployer)}`))
-      .text(T(`Issued ${slip.createdAt.toISOString().slice(0, 10)} — حاسبة.AI`));
-
-    doc.end();
+    const {returnActor}=await import("../lib/return-access");
+    const actor=await returnActor(req.session.userId!,getCompanyId(req));
+    if(actor.custom&&isPayslipPrivileged(req.session.role)&&!actor.capabilities.includes("hr_view"))return res.status(403).json({error:"لا توجد صلاحية قراءة الرواتب",diagnosticRef:String(req.id)});
+    if(actor.branches!==null&&(emp.branchId==null||!actor.branches.includes(emp.branchId)))return res.status(403).json({error:"الموظف خارج نطاق الفروع",diagnosticRef:String(req.id)});
+    const {sendPrintPdf,printBrowserHtml}=await import("../lib/pdf/print-document");
+    const {getPrintCompany}=await import("../lib/pdf/print-company");
+    const printInput:import("../lib/pdf/print-document").PrintDocument={title:`بيان راتب — ${slip.reference}`,company:await getPrintCompany(getCompanyId(req)),
+      subtitle:`${emp.nameAr??emp.name} (${emp.employeeNo}) | ${period.name} | ${period.payDate} | ${hijri}`,
+      headers:["البيان","المبلغ (SAR)"],rows:[
+        ["الراتب الأساسي",fmt(line.basicSalary)],["بدل السكن",fmt(line.housingAllowance)],["بدل المواصلات",fmt(line.transportAllowance)],["بدلات أخرى",fmt(line.otherAllowances)],["الإضافي",fmt(line.overtimeAmount)],["إجمالي الاستحقاقات",fmt(line.grossPay)],["تأمينات الموظف",fmt(line.gosiEmployee)],["إجازة بدون راتب",fmt(line.lwpDeduction)],["قسط القرض",fmt(line.loanDeduction)],["خصومات أخرى",fmt(line.otherDeductions)],["إجمالي الخصومات",fmt(line.totalDeductions)]],
+      totals:[["صافي الراتب",fmt(line.netPay)]],notes:[`الهوية: ${emp.nationalId??"—"} | IBAN ${emp.bankIban??"—"} | ${emp.bankName??"—"}`,`أيام العمل: ${num(line.workedDays)} | بدون راتب: ${num(line.leaveWithoutPayDays)} | ساعات إضافية: ${num(line.overtimeHours)}`,`حصة الشركة من التأمينات: ${fmt(line.gosiEmployer)} | ${run.reference}`]};
+    if(req.path.endsWith("/print"))res.setHeader("Cache-Control","private, no-store"),res.type("html").send(printBrowserHtml(printInput));
+    else await sendPrintPdf(res,`payslip-${slip.reference}`,printInput);
     return;
   } catch (err) {
     return handleRouteError(err, res);
@@ -2842,7 +2777,7 @@ router.get("/hr/payslips/:id/pdf", async (req, res) => {
 
 // Printable HTML payslip — kept for print-from-browser use cases and as a
 // fallback for users who want full RTL Arabic styling.
-router.get("/hr/payslips/:id/print", async (req, res) => {
+const legacyPayslipHtml:import("express").RequestHandler=async (req, res) => {
   try {
     const { id } = IdParam.parse(req.params);
     const [slip] = await db.select().from(payslipsTable).where(and(eq(payslipsTable.id, id), payslipScope(req))).limit(1);
@@ -2928,7 +2863,7 @@ router.get("/hr/payslips/:id/print", async (req, res) => {
   } catch (err) {
     return handleRouteError(err, res);
   }
-});
+};
 
 // =========================================================================
 // Org chart — returns the department hierarchy plus the manager for each

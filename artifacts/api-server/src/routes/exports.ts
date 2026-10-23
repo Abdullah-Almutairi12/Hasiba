@@ -9,6 +9,8 @@ import { drawBrandedHeader, drawBrandedFooter, loadBrand, BRAND } from "../lib/p
 import { exportsGuard, reportReadGuard } from "../middlewares/require-role";
 import { getCompanyId } from "../lib/scoped-db";
 import type { Request, Response, NextFunction } from "express";
+import { renderPdf } from "../lib/report-render";
+import { aggregatePrintGuard } from "../lib/print-permissions";
 
 const router = Router();
 
@@ -53,8 +55,8 @@ function exportAuthByType(req: Request, res: Response, next: NextFunction) {
   return guard(req, res, next);
 }
 
-router.use("/exports/:type.xlsx", exportAuthByType);
-router.use("/exports/:type.pdf", exportAuthByType);
+router.use("/exports/:type.xlsx", exportAuthByType,aggregatePrintGuard);
+router.use("/exports/:type.pdf", exportAuthByType,aggregatePrintGuard);
 
 // Aggregate posted-only line totals per account, optionally filtered by date
 // range. Used by the four financial-statement exports below.
@@ -376,51 +378,12 @@ router.get("/exports/:type.pdf", async (req, res) => {
   try {
     const { title, headers, rows } = await fetchReportRows(type, getCompanyId(req), { from, to });
 
-    const doc = new PDFDocument({ size: "A4", margin: 36, layout: "landscape", info: { Title: title } });
-    res.setHeader("Content-Type", "application/pdf");
-    res.setHeader("Content-Disposition", `attachment; filename="${type}-${new Date().toISOString().slice(0, 10)}.pdf"`);
-    doc.pipe(res);
-
-    const company = await loadBrand();
-    const { useReg, useBold, T } = registerArabicFonts(doc);
-    const startY = drawBrandedHeader(doc, company, { title });
-
-    const tableTop = startY;
-    const colWidth = (doc.page.width - doc.page.margins.left - doc.page.margins.right) / headers.length;
-
-    doc.fontSize(10).fillColor("#fff").rect(doc.page.margins.left, tableTop, doc.page.width - doc.page.margins.left - doc.page.margins.right, 22).fill(BRAND.accent);
-    doc.fillColor("#fff");
-    useBold();
-    headers.forEach((h, i) => {
-      doc.text(T(h), doc.page.margins.left + i * colWidth + 4, tableTop + 6, { width: colWidth - 8, align: "center" });
-    });
-    useReg();
-
-    let y = tableTop + 24;
-    doc.fillColor("#000").fontSize(9);
-    for (const row of rows) {
-      if (y > doc.page.height - doc.page.margins.bottom - 30) {
-        doc.addPage();
-        y = doc.page.margins.top;
-      }
-      row.forEach((cell, i) => {
-        doc.text(T(String(cell)), doc.page.margins.left + i * colWidth + 4, y, { width: colWidth - 8, align: "center" });
-      });
-      doc.moveTo(doc.page.margins.left, y + 14)
-        .lineTo(doc.page.width - doc.page.margins.right, y + 14)
-        .strokeColor("#eee")
-        .stroke();
-      y += 18;
-    }
-
-    doc.fontSize(9).fillColor("#666").text(`Total rows: ${rows.length}`, doc.page.margins.left, doc.page.height - doc.page.margins.bottom - 20);
-    drawBrandedFooter(doc, company, `${type} export`);
+    await renderPdf(res,{slug:`${type}-${new Date().toISOString().slice(0,10)}`,title,headers,rows,companyId:getCompanyId(req),subtitle:from||to?`${from??"البداية"} — ${to??"النهاية"}`:null});
     void recordAudit(req, { action: "export", entity: "report", details: `PDF: ${type}` });
-    doc.end();
     return;
   } catch (err) {
     req.log.error({ err }, "pdf export failed");
-    return res.status(500).json({ error: "فشل توليد الملف" });
+    return res.status(500).json({ error: "فشل توليد الملف",diagnosticRef:String(req.id) });
   }
 });
 

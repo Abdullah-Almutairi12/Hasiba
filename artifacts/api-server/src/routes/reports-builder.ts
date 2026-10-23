@@ -13,6 +13,7 @@ import { requireRole, isRole, type Role } from "../middlewares/require-role";
 import { listSourcesForRole, getDataSource, userCanReadSource } from "../lib/data-sources";
 import { runReport, type ReportConfig } from "../lib/query-builder";
 import { streamCsv, streamXlsx, streamPdf } from "../lib/report-exporters";
+import { aggregatePrintGuard } from "../lib/print-permissions";
 import { handleRouteError } from "../lib/handle-error";
 import { getCompanyId } from "../lib/scoped-db";
 import { readableReport } from "../lib/finance-scope";
@@ -213,7 +214,7 @@ router.post("/reports/definitions/:id/run", async (req, res) => {
   }
 });
 
-router.get("/reports/definitions/:id/export", async (req, res) => {
+router.get("/reports/definitions/:id/export", aggregatePrintGuard,async (req, res) => {
   try {
     const id = Number(req.params.id);
     const format = String(req.query.format || "xlsx") as "csv" | "xlsx" | "pdf";
@@ -223,7 +224,7 @@ router.get("/reports/definitions/:id/export", async (req, res) => {
     const result = await runReport(def.dataSource, def.config as ReportConfig, getCompanyId(req));
     const filename = `${def.name.replace(/[^a-z0-9-_ \u0600-\u06FF]/gi, "_")}-${new Date().toISOString().slice(0, 10)}`;
     if (format === "csv") streamCsv(res, filename, result);
-    else if (format === "pdf") streamPdf(res, filename, result);
+    else if (format === "pdf") await streamPdf(res, filename, result,getCompanyId(req));
     else await streamXlsx(res, filename, result);
     return;
   } catch (err) {

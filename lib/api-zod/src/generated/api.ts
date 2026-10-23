@@ -3598,11 +3598,13 @@ export const UpdateVatRegistrationResponse = zod.object({
 export const getVatReturnQueryQuarterMax = 4;
 
 export const getVatReturnQueryFormatDefault = `json`;
+export const getVatReturnQueryLangDefault = `ar`;
 
 export const GetVatReturnQueryParams = zod.object({
   "year": zod.coerce.number().int(),
   "quarter": zod.coerce.number().int().min(1).max(getVatReturnQueryQuarterMax),
-  "format": zod.enum(['json', 'pdf']).default(getVatReturnQueryFormatDefault)
+  "format": zod.enum(['json', 'pdf']).default(getVatReturnQueryFormatDefault),
+  "lang": zod.enum(['ar', 'en']).default(getVatReturnQueryLangDefault).describe('PDF label language. Company-wide report, using Asia/Riyadh quarter boundaries.')
 })
 
 export const getVatReturnResponseQuarterMax = 4;

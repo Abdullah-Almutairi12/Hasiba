@@ -8,6 +8,7 @@ import {
   journalEntryLinesTable,
   accountsTable,
   companiesTable,
+  pool,
 } from "@workspace/db";
 import { and, eq, gte, lt, sql } from "drizzle-orm";
 
@@ -42,6 +43,8 @@ export interface VatReturnSupplySplit {
 }
 
 export interface VatReturn {
+  timezone?: "UTC" | "Asia/Riyadh";
+  branchLabel?: string;
   companyId: number;
   companyName: string;
   vatNumber: string | null;
@@ -88,13 +91,18 @@ export async function computeVatReturn(
   companyId: number,
   year: number,
   quarter: 1 | 2 | 3 | 4,
+  options: { timezone?: "UTC" | "Asia/Riyadh" } = {},
 ): Promise<VatReturn> {
-  const { start, end } = quarterRangeUTC(year, quarter);
+  return db.transaction(async(db)=>{
+  const raw = quarterRangeUTC(year, quarter);
+  const offset = options.timezone === "Asia/Riyadh" ? 3 * 60 * 60 * 1000 : 0;
+  const start = new Date(raw.start.getTime()-offset), end = new Date(raw.end.getTime()-offset);
 
   const [co] = await db
     .select({
       name: companiesTable.name,
       vatNumber: companiesTable.vatNumber,
+      currency: companiesTable.baseCurrency,
     })
     .from(companiesTable)
     .where(eq(companiesTable.id, companyId))
@@ -102,6 +110,7 @@ export async function computeVatReturn(
   if (!co) {
     throw new Error(`vat-return: company #${companyId} not found`);
   }
+  if(co.currency!=="SAR") throw new Error("VAT_REPORT_INCOMPLETE");
 
   // ---- POS half (output VAT + standard-rated supplies) ----
   const [posRow] = await db
@@ -119,8 +128,11 @@ export async function computeVatReturn(
     );
 
   // ---- Customer-invoice half (output VAT, excluding POS mirrors) ----
-  const periodStartStr = start.toISOString().slice(0, 10);
-  const periodEndExclusiveStr = end.toISOString().slice(0, 10);
+  const periodStartStr = raw.start.toISOString().slice(0, 10);
+  const periodEndExclusiveStr = raw.end.toISOString().slice(0, 10);
+  const standaloneInvoice=sql`${customerInvoicesTable.source} <> 'pos' AND NOT EXISTS (
+    SELECT 1 FROM sales_orders so WHERE so.id=${customerInvoicesTable.soId}
+    AND so.company_id=${customerInvoicesTable.companyId} AND so.source='pos')`;
 
   const [invRow] = await db
     .select({
@@ -137,7 +149,7 @@ export async function computeVatReturn(
         gte(customerInvoicesTable.invoiceDate, periodStartStr),
         lt(customerInvoicesTable.invoiceDate, periodEndExclusiveStr),
         sql`${customerInvoicesTable.status} IN ('open','partially_paid','paid')`,
-        sql`${customerInvoicesTable.source} <> 'pos'`,
+        standaloneInvoice,
       ),
     );
 
@@ -162,7 +174,7 @@ export async function computeVatReturn(
         gte(customerInvoicesTable.invoiceDate, periodStartStr),
         lt(customerInvoicesTable.invoiceDate, periodEndExclusiveStr),
         sql`${customerInvoicesTable.status} IN ('open','partially_paid','paid')`,
-        sql`${customerInvoicesTable.source} <> 'pos'`,
+        standaloneInvoice,
       ),
     )
     .groupBy(customerInvoiceLinesTable.taxRate);
@@ -178,7 +190,7 @@ export async function computeVatReturn(
   // ---- Input VAT from GL (supplier invoices + adjustments) ----
   const [vatInputRow] = await db
     .select({
-      debit: sql<string>`COALESCE(SUM(${journalEntryLinesTable.debit} - ${journalEntryLinesTable.credit}), 0)::text`,
+      debit: sql<string>`COALESCE(SUM(${journalEntryLinesTable.baseDebit} - ${journalEntryLinesTable.baseCredit}), 0)::text`,
     })
     .from(journalEntryLinesTable)
     .innerJoin(
@@ -199,22 +211,40 @@ export async function computeVatReturn(
       ),
     );
 
-  const posTax = round2(num(posRow?.tax));
+  const incomplete=await db.execute(sql`SELECT 1 FROM customer_invoices WHERE company_id=${companyId} AND invoice_date >= ${periodStartStr} AND invoice_date < ${periodEndExclusiveStr}
+    AND status IN ('open','paid','partially_paid') AND currency_code <> 'SAR'
+    UNION ALL SELECT 1 FROM credit_notes WHERE company_id=${companyId} AND note_date >= ${periodStartStr} AND note_date < ${periodEndExclusiveStr}
+    AND status IN ('issued','applied') AND currency_code <> 'SAR' LIMIT 1`);
+  if(incomplete.rows.length) throw new Error("VAT_REPORT_INCOMPLETE");
+  const {rows:returned}=await db.execute(sql`SELECT
+    COALESCE(SUM(CASE WHEN i.source='pos' OR so.source='pos' THEN n.vat ELSE 0 END),0)::text AS pos,
+    COALESCE(SUM(CASE WHEN i.source='pos' OR so.source='pos' THEN 0 ELSE n.vat END),0)::text AS other
+    FROM credit_notes n LEFT JOIN customer_invoices i ON i.id=n.invoice_id AND i.company_id=n.company_id
+    LEFT JOIN sales_orders so ON so.id=i.so_id AND so.company_id=i.company_id
+    WHERE n.company_id=${companyId} AND n.note_date >= ${periodStartStr} AND n.note_date < ${periodEndExclusiveStr} AND n.status IN ('issued','applied')`);
+  const {rows:returnedNet}=await db.execute(sql`SELECT
+    COALESCE(SUM(CASE WHEN l.tax_rate>0 THEN l.line_total ELSE 0 END),0)::text AS standard,
+    COALESCE(SUM(CASE WHEN l.tax_rate=0 THEN l.line_total ELSE 0 END),0)::text AS zero
+    FROM credit_notes n JOIN credit_note_lines l ON l.note_id=n.id
+    WHERE n.company_id=${companyId} AND n.note_date >= ${periodStartStr} AND n.note_date < ${periodEndExclusiveStr} AND n.status IN ('issued','applied')`);
+  const posTax = round2(num(posRow?.tax)-Number(returned[0]?.pos??0));
   const posNet = round2(num(posRow?.net));
-  const invoiceVat = round2(num(invRow?.vat));
-  const inputVatJournals = round2(Math.max(0, num(vatInputRow?.debit)));
+  const invoiceVat = round2(num(invRow?.vat)-Number(returned[0]?.other??0));
+  const inputVatJournals = round2(num(vatInputRow?.debit));
 
   const outputTotal = round2(posTax + invoiceVat);
   const inputTotal = round2(inputVatJournals);
   const netPayable = round2(outputTotal - inputTotal);
 
   // Periods displayed inclusive of last day (e.g. Q1 = Mar 31, not Apr 1).
-  const lastDay = new Date(end.getTime() - 24 * 60 * 60 * 1000)
+  const lastDay = new Date(raw.end.getTime() - 24 * 60 * 60 * 1000)
     .toISOString()
     .slice(0, 10);
 
   return {
     companyId,
+    timezone: options.timezone ?? "UTC",
+    branchLabel: "جميع فروع الشركة",
     companyName: co.name,
     vatNumber: co.vatNumber ?? null,
     year,
@@ -222,8 +252,8 @@ export async function computeVatReturn(
     periodStart: periodStartStr,
     periodEnd: lastDay,
     supplies: {
-      standardRated: round2(posNet + standardInvoiceNet),
-      zeroRated: round2(zeroRatedInvoiceNet),
+      standardRated: round2(posNet + standardInvoiceNet-Number(returnedNet[0]?.standard??0)),
+      zeroRated: round2(zeroRatedInvoiceNet-Number(returnedNet[0]?.zero??0)),
       exempt: 0,
     },
     outputVat: {
@@ -238,6 +268,7 @@ export async function computeVatReturn(
     netPayable,
     generatedAt: new Date().toISOString(),
   };
+  },{isolationLevel:"repeatable read",accessMode:"read only"});
 }
 
 function round2(n: number): number {

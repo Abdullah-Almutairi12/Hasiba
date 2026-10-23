@@ -1,4 +1,5 @@
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it,vi } from "vitest";
+import * as vatService from "../lib/vat-return";
 import request from "supertest";
 import bcrypt from "bcryptjs";
 import { randomUUID } from "node:crypto";
@@ -60,6 +61,26 @@ async function fixture(method: "cash" | "card" = "cash") {
   return { company, branch, otherBranch, warehouse, product, session, owner, cashier, manager, invoice, noteBody, note, payment };
 }
 describe("branch-authorized return / approval / refund / till lifecycle", () => {
+  it("print links keep company/branch boundaries and never turn fetch failures into zero PDFs",async()=>{
+    const f=await fixture(),other=await fixture();
+    const pdf=await f.owner.agent.get(`/api/sales/invoices/${f.invoice.id}/pdf`);
+    ok(pdf);expect(pdf.headers["content-type"]).toContain("application/pdf");expect(pdf.body.subarray(0,5).toString()).toBe("%PDF-");
+    expect(pdf.headers["cache-control"]).toContain("no-store");
+    expect((await other.owner.agent.get(`/api/sales/invoices/${f.invoice.id}/pdf`)).status).toBe(404);
+    await db.update(usersTable).set({branchId:f.otherBranch.id}).where((await import("drizzle-orm")).eq(usersTable.id,f.cashier.user.id));
+    expect((await f.cashier.agent.get(`/api/sales/invoices/${f.invoice.id}/pdf`)).status).toBe(403);
+    const query="/api/vat/return?year=2026&quarter=3";
+    const empty=ok(await f.owner.agent.get(query));expect(empty.netPayable).toBe(0);
+    expect((await f.owner.agent.get(query+"&branchId="+f.branch.id)).status).toBe(422);
+    const spy=vi.spyOn(vatService,"computeVatReturn").mockRejectedValueOnce(new Error("SYNTHETIC_READ_FAILURE"));
+    try{
+      const failed=await f.owner.agent.get(query+"&format=pdf");
+      expect(failed.status).toBe(500);expect(failed.headers["content-type"]).toContain("application/json");
+      expect(failed.body.diagnosticRef).toBeTruthy();expect(failed.body.error).not.toContain("SYNTHETIC_READ_FAILURE");expect(failed.body.netPayable).toBeUndefined();
+    }finally{spy.mockRestore();}
+    const bad=await f.owner.agent.get("/api/vat/return?year=2026&quarter=0&format=pdf");
+    expect(bad.status).toBe(400);expect(bad.body.diagnosticRef).toBeTruthy();
+  },30000);
   it("noncash remains requested and reserved until authorized external evidence; blocks closing and posts only once on confirmation", async () => {
     const f = await fixture("card"), note = await f.note();
     const p = ok(await action(f.cashier.agent, "payout", f.payment(note.id)));

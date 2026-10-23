@@ -15,6 +15,7 @@ import {
   fiscalPeriodsTable,
   journalEntriesTable,
   journalEntryLinesTable,
+  creditNotesTable,creditNoteLinesTable,salesOrdersTable,
 } from "@workspace/db";
 import { eq, inArray } from "drizzle-orm";
 import { computeVatReturn, quarterRangeUTC } from "./vat-return";
@@ -128,6 +129,7 @@ afterAll(async () => {
   // Don't delete vat_input if it was pre-existing (created by coa template).
   await db.delete(posOrdersTable).where(eq(posOrdersTable.sessionId, sessionId));
   await db.delete(posSessionsTable).where(eq(posSessionsTable.id, sessionId));
+  await db.delete(creditNotesTable).where(eq(creditNotesTable.companyId,companyId));
   await db
     .delete(customerInvoiceLinesTable)
     .where(
@@ -142,6 +144,7 @@ afterAll(async () => {
   await db
     .delete(customerInvoicesTable)
     .where(eq(customerInvoicesTable.customerId, customerId));
+  await db.delete(salesOrdersTable).where(eq(salesOrdersTable.companyId,companyId));
   await db.delete(customersTable).where(eq(customersTable.id, customerId));
   await db.delete(branchesTable).where(eq(branchesTable.id, branchId));
   await db.delete(companiesTable).where(eq(companiesTable.id, companyId));
@@ -215,9 +218,11 @@ async function seedCustomerInvoice(opts: {
       lineTotal: String(ln.lineTotal),
     });
   }
+  return inv.id;
 }
 
 async function seedVatInputJournal(date: string, amount: number) {
+  const debit=Math.max(0,amount),credit=Math.max(0,-amount);
   const [je] = await db
     .insert(journalEntriesTable)
     .values({
@@ -235,24 +240,55 @@ async function seedVatInputJournal(date: string, amount: number) {
       entryId: je.id,
       lineNumber: 1,
       accountId: vatInputAccountId,
-      debit: String(amount),
-      credit: "0",
-      baseDebit: String(amount),
-      baseCredit: "0",
+      debit: String(debit),
+      credit: String(credit),
+      baseDebit: String(debit),
+      baseCredit: String(credit),
     },
     {
       entryId: je.id,
       lineNumber: 2,
       accountId: arAccountId,
-      debit: "0",
-      credit: String(amount),
-      baseDebit: "0",
-      baseCredit: String(amount),
+      debit: String(credit),
+      credit: String(debit),
+      baseDebit: String(credit),
+      baseCredit: String(debit),
     },
   ]);
 }
 
 describe("vat-return service", () => {
+  it("nets returns once, excludes SO-linked POS mirrors, and honors Riyadh boundaries",async()=>{
+    await seedPosOrder(`${TAG}-riyadh-start`,new Date("2026-06-30T21:00:00Z"),100,15);
+    await seedPosOrder(`${TAG}-riyadh-main`,new Date("2026-08-20T10:00:00Z"),1000,150);
+    await seedPosOrder(`${TAG}-riyadh-excluded`,new Date("2026-09-30T21:00:00Z"),200,30);
+    const mirror=await seedCustomerInvoice({ref:`${TAG}-so-mirror`,invoiceDate:"2026-08-20",subtotal:1000,vat:150,lines:[{taxRate:15,lineTotal:1000}]});
+    const [so]=await db.insert(salesOrdersTable).values({companyId,reference:`${TAG}-so`,customerId,customerName:TAG,source:"pos",orderDate:"2026-08-20",subtotal:"1000",vat:"150",total:"1150"}).returning();
+    await db.update(customerInvoicesTable).set({soId:so!.id}).where(eq(customerInvoicesTable.id,mirror));
+    const manual=await seedCustomerInvoice({ref:`${TAG}-manual`,invoiceDate:"2026-08-20",subtotal:500,vat:75,lines:[{taxRate:15,lineTotal:500}]});
+    for(const [invoiceId,net,vat] of [[mirror,100,15],[manual,50,7.5]] as const){
+      const [note]=await db.insert(creditNotesTable).values({companyId,reference:`${TAG}-return-${invoiceId}`,invoiceId,customerId,customerName:TAG,noteDate:"2026-09-30",restock:false,status:"issued",subtotal:String(net),vat:String(vat),total:String(net+vat)}).returning();
+      await db.insert(creditNoteLinesTable).values({noteId:note!.id,description:"Synthetic non-stock return",quantity:"1",unitPrice:String(net),taxRate:"15",lineTotal:String(net)});
+    }
+    const [fy]=await db.insert(fiscalYearsTable).values({companyId,name:`${TAG}-2026`,startDate:"2026-01-01",endDate:"2026-12-31"}).returning();
+    const [p]=await db.insert(fiscalPeriodsTable).values({fiscalYearId:fy!.id,code:`${TAG}-2026-Q3`,name:"Q3",startDate:"2026-07-01",endDate:"2026-09-30"}).returning();
+    const oldPeriod=periodId;periodId=p!.id;await seedVatInputJournal("2026-08-20",45);await seedVatInputJournal("2026-09-20",-7.5);periodId=oldPeriod;
+    const vr=await computeVatReturn(companyId,2026,3,{timezone:"Asia/Riyadh"});
+    expect(vr.outputVat).toEqual({pos:150,customerInvoices:67.5,total:217.5});
+    expect(vr.supplies.standardRated).toBe(1450);
+    expect(vr.inputVat.total).toBe(37.5);expect(vr.netPayable).toBe(180);
+    expect(vr.periodStart).toBe("2026-07-01");expect(vr.periodEnd).toBe("2026-09-30");
+    const {buildVatReturnPdf}=await import("./pdf/business-documents");
+    const {getPrintCompany}=await import("./pdf/print-company");
+    const {mkdir,writeFile}=await import("node:fs/promises");
+    const output=new URL("../../../../generated-artifacts/print-quality/after/",import.meta.url);
+    await mkdir(output,{recursive:true});
+    await writeFile(new URL("vat-financial-Q3-2026.pdf",output),await buildVatReturnPdf(vr,await getPrintCompany(companyId)));
+    await writeFile(new URL("vat-financial-Q3-2026.expected.json",output),JSON.stringify({scenario:"Synthetic ledger/invoice/return fixtures only",expected:{standardRated:1450,outputVat:217.5,inputVat:37.5,netPayable:180},actual:vr},null,2));
+    await db.delete(journalEntryLinesTable).where(inArray(journalEntryLinesTable.entryId,db.select({id:journalEntriesTable.id}).from(journalEntriesTable).where(eq(journalEntriesTable.periodId,p!.id))));
+    await db.delete(journalEntriesTable).where(eq(journalEntriesTable.periodId,p!.id));
+    await db.delete(fiscalPeriodsTable).where(eq(fiscalPeriodsTable.id,p!.id));await db.delete(fiscalYearsTable).where(eq(fiscalYearsTable.id,fy!.id));
+  });
   it("quarterRangeUTC returns the right half-open boundaries", () => {
     const q1 = quarterRangeUTC(2024, 1);
     expect(q1.start.toISOString()).toBe("2024-01-01T00:00:00.000Z");

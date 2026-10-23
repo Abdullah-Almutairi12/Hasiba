@@ -1,5 +1,6 @@
 {pkgs}: {
   deps = [
+    pkgs.chromium
     pkgs.gdk-pixbuf
     pkgs.freetype
     pkgs.fontconfig

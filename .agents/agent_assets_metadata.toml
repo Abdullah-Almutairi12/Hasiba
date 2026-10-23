@@ -98,3 +98,73 @@ mtime_ms = 1792722835441
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/63f1ba1e-ac02-4f5c-8010-19027547519f/508788de-3cfa-4a69-af15-f296453c5dc1"
 storage_version_token = "1792723685268478"
 content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
+[[outputs]]
+id = "ZqEL4jHVgqluKTR61X7Zo"
+uri = "file://generated-artifacts/print-quality/Hasba_Print_Quality_Report_AR.docx"
+type = "word_document"
+title = "ملف Word — الإصلاحات والنواقص والتقنيات"
+description = "تقرير عربي قابل للتعديل: تقنيات البرنامج، الإصلاحات، نتائج الفحص، المشاكل المتبقية، جرد المطبوعات، وسجل المتطلبات الأصلي ذي 73 معرفًا."
+logical_id = "a67aafe0-71ab-4813-83fa-45f4e4d6045b"
+content_hash = "sha256:fabcfdc517bd9813a509241ef84c7ec3eda644ae015e5776a2fa6ec5fc99a9f7"
+size = 31769
+mtime_ms = 1792729417510
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/a67aafe0-71ab-4813-83fa-45f4e4d6045b/70766b99-26fb-40b7-97a7-a8a45d3f965d"
+storage_version_token = "1792729513264214"
+content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
+[[outputs]]
+id = "ZLJLr9KdTer3foNzUQEEx"
+uri = "file://generated-artifacts/print-quality/Before_After_Arabic_VAT.png"
+type = "image"
+title = "معاينة العربية قبل الإصلاح وبعده"
+description = "نفس بيانات الضريبة المصطنعة؛ قبل الإصلاح يسارًا وبعده يمينًا."
+logical_id = "d06b1eb0-5920-4fa4-b066-779cf1e0c2ac"
+content_hash = "sha256:23ce3b8dd6f544792f5b6dc87d4e185ade6c991af104089180f9932bdee988c5"
+size = 152825
+mtime_ms = 1792729198139
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/d06b1eb0-5920-4fa4-b066-779cf1e0c2ac/b4776b2e-eb7e-47a7-8f3d-868bc0e1c48f"
+storage_version_token = "1792729515154148"
+content_type = "image/png"
+
+[[outputs]]
+id = "EUJf5n237BApSJUXQ8zCP"
+uri = "file://generated-artifacts/print-quality/after/vat-Q3-2026.pdf"
+type = "pdf"
+title = "عينة PDF — تقرير الضريبة بعد الإصلاح"
+description = "بيانات مصطنعة للربع الثالث 2026، بنص عربي قابل للنسخ وخطوط مضمّنة؛ ليست نسخة إقرار رسمي."
+logical_id = "188bf38a-5020-4f4b-af32-31569fc43271"
+content_hash = "sha256:234912c0ebfeef2a268c7aaf47a2412aeccc9e86ddf08876e9391b8761419ae9"
+size = 38571
+mtime_ms = 1792728767143
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/188bf38a-5020-4f4b-af32-31569fc43271/9756f20a-258c-4a91-809c-78e5f1cc9879"
+storage_version_token = "1792729516429333"
+content_type = "application/pdf"
+
+[[outputs]]
+id = "QklnchNWYcQnq_RVkP3cR"
+uri = "file://generated-artifacts/print-quality/after/invoice-mixed.pdf"
+type = "pdf"
+title = "عينة PDF — فاتورة عربية وإنجليزية"
+description = "عينة مصطنعة لاختبار النص المختلط والمبالغ والسالب وقراءة QR؛ ليست فاتورة إنتاجية أو قبولًا من الهيئة."
+logical_id = "ffa4dcf6-a2e8-4bef-88ea-61a7116453e0"
+content_hash = "sha256:0be97e67619c0c966776d6bfe3ea027305a14950497ef0e79f1eab05ebdd9b31"
+size = 43801
+mtime_ms = 1792728769067
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/ffa4dcf6-a2e8-4bef-88ea-61a7116453e0/11762cdb-8fb9-425a-8d39-91f1138f8bf7"
+storage_version_token = "1792729517779435"
+content_type = "application/pdf"
+
+[[outputs]]
+id = "MdcE8R1S6PRMDHQVCsB1L"
+uri = "file://generated-artifacts/print-quality/after/long-table.pdf"
+type = "pdf"
+title = "عينة PDF — جدول ممتد إلى 9 صفحات"
+description = "اختبار التفاف الوصف العربي والإنجليزي، تكرار العناوين، الأرقام الكبيرة، وترقيم الصفحات."
+logical_id = "6e7b4b9c-a3e2-4379-b895-f118e64d4b72"
+content_hash = "sha256:13dc4d840ba70f4f0a61856812f1af05b3bd307e308592d0b8c454f680237e14"
+size = 154316
+mtime_ms = 1792728770719
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/6e7b4b9c-a3e2-4379-b895-f118e64d4b72/715a538e-9c72-40f9-a1c4-e38eac50d31c"
+storage_version_token = "1792729519816516"
+content_type = "application/pdf"

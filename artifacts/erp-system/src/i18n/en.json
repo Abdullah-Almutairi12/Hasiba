@@ -136,6 +136,7 @@
     "insightModeHint": "Turn warning copy into opportunity-framed insights."
   },
   "nav": {
+    "intercompany": "Intercompany transactions",
     "returns": "Returns",
     "dashboard": "Dashboard",
     "pos": "Point of Sale",

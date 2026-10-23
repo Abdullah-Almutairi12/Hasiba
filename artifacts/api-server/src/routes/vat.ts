@@ -13,8 +13,9 @@ import {
 } from "../lib/vat-threshold";
 import { evaluateAndEmit } from "../lib/vat-threshold-sweep";
 import { computeVatReturn } from "../lib/vat-return";
-import { buildVatReturnPdf } from "../lib/pdf/vat-return";
-import { getCompanyInfo } from "../lib/pdf/purchase-order";
+import { buildVatReturnPdf } from "../lib/pdf/business-documents";
+import { getPrintCompany as getCompanyInfo } from "../lib/pdf/print-company";
+import { aggregatePrintGuard } from "../lib/print-permissions";
 import { requireRole, financeGuard } from "../middlewares/require-role";
 
 const router = Router();
@@ -139,26 +140,30 @@ const VatReturnQuery = z.object({
   format: z.enum(["json", "pdf"]).optional().default("json"),
 });
 
-router.get("/vat/return", financeGuard, async (req, res) => {
+router.get("/vat/return", financeGuard, aggregatePrintGuard,async (req, res) => {
   try {
     const companyId = getCompanyId(req);
     const { year, quarter, format } = VatReturnQuery.parse(req.query);
     const q = quarter as 1 | 2 | 3 | 4;
-    const vr = await computeVatReturn(companyId, year, q);
+    if(req.query.branchId!=null){res.status(422).json({error:"التقرير الحالي على مستوى الشركة؛ قيود المدخلات غير موسومة بالفروع، ولا يمكن توزيعها دون بيانات موثوقة",diagnosticRef:String(req.id)});return;}
+    const vr = await computeVatReturn(companyId, year, q,{timezone:"Asia/Riyadh"});
     if (format === "pdf") {
-      const buf = await buildVatReturnPdf(vr, await getCompanyInfo());
+      const buf = await buildVatReturnPdf(vr, await getCompanyInfo(companyId), req.query.lang === "en" ? "en" : "ar");
       res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Cache-Control","private, no-store");
       res.setHeader(
         "Content-Disposition",
-        `inline; filename="vat-return-${year}-Q${q}.pdf"`,
+        `inline; filename="vat-company-${companyId}-${year}-Q${q}-${req.query.lang==="en"?"en":"ar"}.pdf"`,
       );
       res.send(buf);
       return;
     }
     res.json(vr);
   } catch (err) {
-    req.log.error({ err }, "GET /vat/return failed");
-    handleRouteError(err, res);
+    req.log.error({ errorName:err instanceof Error?err.name:"Unknown",diagnosticRef:String(req.id) }, "GET /vat/return failed");
+    if(err instanceof z.ZodError){res.status(400).json({error:"اختر سنة وربعًا صالحين",diagnosticRef:String(req.id)});return;}
+    const incomplete=err instanceof Error&&err.message==="VAT_REPORT_INCOMPLETE";
+    res.status(incomplete?422:500).json({error:incomplete?"بيانات العملات غير كافية لإعداد تقرير موحد بالريال":"تعذر جلب بيانات التقرير أو توليد الملف؛ لم يُنشأ تقرير صفري",diagnosticRef:String(req.id)});
   }
 });
 

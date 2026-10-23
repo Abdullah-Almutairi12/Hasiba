@@ -3224,6 +3224,10 @@ year: number;
  */
 quarter: number;
 format?: GetVatReturnFormat;
+/**
+ * PDF label language. Company-wide report, using Asia/Riyadh quarter boundaries.
+ */
+lang?: GetVatReturnLang;
 };
 
 export type GetVatReturnFormat = typeof GetVatReturnFormat[keyof typeof GetVatReturnFormat];
@@ -3232,6 +3236,14 @@ export type GetVatReturnFormat = typeof GetVatReturnFormat[keyof typeof GetVatRe
 export const GetVatReturnFormat = {
   json: 'json',
   pdf: 'pdf',
+} as const;
+
+export type GetVatReturnLang = typeof GetVatReturnLang[keyof typeof GetVatReturnLang];
+
+
+export const GetVatReturnLang = {
+  ar: 'ar',
+  en: 'en',
 } as const;
 
 export type SimulateVatTrajectoryBody = {

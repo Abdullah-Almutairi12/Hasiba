@@ -5,6 +5,7 @@ import type { BuiltReport } from "./query-builder";
 import { rowsToCsv } from "./query-builder";
 import { registerArabicFonts } from "./pdf/arabic-font";
 import { drawBrandedHeader, drawBrandedFooter, loadBrand, BRAND } from "./pdf/branding-header";
+import { renderPdf } from "./report-render";
 
 export function streamCsv(res: Response, name: string, report: BuiltReport): void {
   const headers = report.outputColumns.map((c) => c.label);
@@ -53,7 +54,12 @@ export async function streamXlsx(res: Response, name: string, report: BuiltRepor
   res.end();
 }
 
-export function streamPdf(res: Response, name: string, report: BuiltReport): void {
+export async function streamPdf(res: Response, name: string, report: BuiltReport,companyId?:number): Promise<void> {
+  await renderPdf(res,{slug:name,title:name,headers:report.outputColumns.map(c=>c.label),rows:report.rows.map(r=>report.outputColumns.map(c=>r[c.key] as string|number|null)),companyId});
+}
+
+/** Historical PDFKit path retained only for comparison; no HTTP caller. */
+function legacyStreamPdf(res: Response, name: string, report: BuiltReport): void {
   const headers = report.outputColumns.map((c) => c.label);
   const doc = new PDFDocument({ size: "A4", margin: 36, layout: "landscape", info: { Title: name } });
   res.setHeader("Content-Type", "application/pdf");

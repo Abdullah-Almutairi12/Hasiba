@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { build as esbuild } from "esbuild";
 import esbuildPluginPino from "esbuild-plugin-pino";
-import { rm, cp } from "node:fs/promises";
+import { rm, cp,access } from "node:fs/promises";
 
 // Plugins (e.g. 'esbuild-plugin-pino') may use `require` to resolve dependencies
 globalThis.require = createRequire(import.meta.url);
@@ -97,6 +97,7 @@ async function buildAll() {
       "zeromq",
       "zeromq-prebuilt",
       "playwright",
+      "playwright-core",
       "puppeteer",
       "puppeteer-core",
       "electron",
@@ -157,11 +158,12 @@ globalThis.__dirname = __bannerPath.dirname(globalThis.__filename);
   // (purchase orders, etc.) can register them at runtime with pdfkit.
   try {
     const fontsSrc = path.resolve(artifactDir, "src/lib/pdf/fonts");
+  for(const name of ["Tajawal-Regular.ttf","Tajawal-Bold.ttf","Tajawal-OFL.txt"])await access(path.join(fontsSrc,name));
     const fontsDest = path.resolve(distDir, "fonts");
     await cp(fontsSrc, fontsDest, { recursive: true });
     console.log(`✓ Copied PDF fonts → ${path.relative(artifactDir, fontsDest)}`);
   } catch (err) {
-    console.warn("⚠ PDF font copy skipped:", err?.message || err);
+    throw new Error("Required bundled PDF fonts could not be copied", { cause: err });
   }
 }
 

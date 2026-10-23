@@ -9,6 +9,12 @@ Tenant administrators may manage only the active company's membership role. They
 
 **How to apply:** Check both target membership and whether a requested field affects other companies; never use the global user role as the active company's authorization source.
 
+Missing company-specific print identity must not fall back to global legacy branding, even if this means omitting bank, logo, or legal profile details until ownership is established.
+
+**Why:** A global configuration can describe another legal entity. A polished invoice with the wrong issuer or bank is worse than an explicitly incomplete profile.
+
+**How to apply:** Apply the same ownership rule to browser prints, downloaded PDFs, and email attachments. Public generic manuals may remain unbranded; tenant financial documents may not borrow another issuer.
+
 Legacy branchless integration configurations have no provable tenant owner. Do not infer ownership or fall back to global secrets for branch-scoped operations.
 
 **Why:** Assigning old global configuration to whichever company requests it would reintroduce cross-company credential and payment access.

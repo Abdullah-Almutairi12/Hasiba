@@ -20,7 +20,8 @@ import { recordAudit } from "../lib/audit";
 import { recordStockMove, getDefaultWarehouseId } from "../lib/stock-engine";
 import { evaluateAnomalies } from "../lib/anomaly-engine";
 import { getCompanyInfo } from "../lib/pdf/purchase-order";
-import { buildSupplierInvoicePdf } from "../lib/pdf/supplier-invoice";
+import { getPrintCompany } from "../lib/pdf/print-company";
+import { buildSupplierInvoicePdf } from "../lib/pdf/business-documents";
 
 // Postgres unique-violation SQLSTATE.
 // Drizzle wraps pg errors and may surface the original on `.cause`,
@@ -389,7 +390,7 @@ router.get("/invoices/:id/pdf", invoiceReadGuard, async (req, res) => {
       }));
     }
 
-    const company = await getCompanyInfo();
+    const company = await getPrintCompany(getCompanyId(req));
 
     // Build a ZATCA QR (Phase 1, TLV-base64) on the fly so the printed
     // copy is scannable. We back-calculate the VAT portion at 15% — the

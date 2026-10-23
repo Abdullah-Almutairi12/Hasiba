@@ -65,6 +65,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { format } from "date-fns";
+import {openFileDownload} from "@/lib/download-file";
 import { arSA } from "date-fns/locale";
 
 const fmtSAR = (v: number) =>
@@ -89,7 +90,7 @@ function ExportMenu() {
   ];
   function download(reportKey: string, ext: "xlsx" | "pdf") {
     // Open in a new tab so the download starts but the page stays in place.
-    window.open(`${base}/exports/${reportKey}.${ext}`, "_blank", "noopener");
+    openFileDownload(`${base}/exports/${reportKey}.${ext}`);
   }
   return (
     <DropdownMenu>

@@ -49,8 +49,15 @@ import docsRouter from "./docs";
 import { requireAuth } from "../middlewares/require-auth";
 import { requireCompanyContext } from "../middlewares/require-company-context";
 import { requireSameOrigin } from "../middlewares/require-same-origin";
+import { aggregatePrintGuard,checkDocumentPrint } from "../lib/print-permissions";
+import { FinancialRequestError } from "../lib/financial-transaction";
 
 const router: IRouter = Router();
+router.use((req,res,next)=>{
+  res.setHeader("X-Request-ID",String(req.id));
+  if(req.method==="GET"){res.setHeader("Cache-Control","private, no-store");res.setHeader("X-Content-Type-Options","nosniff");}
+  next();
+});
 
 // Public routes (no auth required)
 router.use(healthRouter);
@@ -101,6 +108,23 @@ router.use(storageRouter);
 
 // Everything past this point operates inside a single tenant.
 router.use(requireCompanyContext);
+router.use("/exports",aggregatePrintGuard);
+router.use(async(req,res,next)=>{
+  if(req.method!=="GET")return next();
+  const documents:Array<[RegExp,"invoice"|"supplier"|"po"|"pos"]>=[
+    [/^\/sales\/invoices\/(\d+)(?:\/pdf)?$/,"invoice"],
+    [/^\/invoices\/(\d+)(?:\/pdf)?$/,"supplier"],
+    [/^\/procurement\/purchase-orders\/(\d+)\/pdf$/,"po"],
+    [/^\/pos\/orders\/(\d+)\/receipt$/,"pos"],
+  ];
+  try{
+    for(const [pattern,kind] of documents){const m=req.path.match(pattern);if(m){await checkDocumentPrint(req,kind,Number(m[1]));break;}}
+    next();
+  }catch(e){
+    req.log.warn({errorName:e instanceof Error?e.name:"Unknown",diagnosticRef:String(req.id)},"document download scope denied");
+    res.status(e instanceof FinancialRequestError?e.status:500).json({error:e instanceof FinancialRequestError?e.message:"تعذر التحقق من صلاحية المستند",diagnosticRef:String(req.id)});
+  }
+});
 
 router.use(dashboardRouter);
 router.use(productsRouter);

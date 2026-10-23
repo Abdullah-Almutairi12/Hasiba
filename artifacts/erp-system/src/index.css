@@ -1,6 +1,9 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @plugin "@tailwindcss/typography";
+@font-face{font-family:PrintTajawal;src:url("/fonts/Tajawal-Regular.ttf") format("truetype");font-weight:400;font-style:normal;font-display:block}
+@font-face{font-family:PrintTajawal;src:url("/fonts/Tajawal-Bold.ttf") format("truetype");font-weight:700;font-style:normal;font-display:block}
+@media print{body,body *{font-family:PrintTajawal,sans-serif!important;font-feature-settings:"liga" 0,"rlig" 0!important}thead{display:table-header-group}tr{break-inside:avoid}}
 
 @custom-variant dark (&:is(.dark *));
 
