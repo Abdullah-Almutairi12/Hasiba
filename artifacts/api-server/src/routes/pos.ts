@@ -19,6 +19,8 @@ import {
 } from "@workspace/db";
 import { nextRef } from "../lib/sales-engine";
 import { buildZatcaQrBase64 } from "../lib/zatca-qr";
+import { captureIssuer, saveIssuer } from "../lib/document-identity";
+import { recordSaleSellers } from "../lib/seller-ledger";
 import { getCompanyInfo } from "../lib/pdf/purchase-order";
 import { parsePagination } from "../lib/pagination";
 import { processInvoiceForZatca } from "../lib/integrations/zatca-phase2";
@@ -521,17 +523,16 @@ router.post(
       notes: string | null;
     } | null = null;
     const companyId = getCompanyId(req);
-    const company = await getCompanyInfo();
-    const sellerNameForZatca = company.nameAr && company.nameAr !== "—"
-      ? company.nameAr : process.env["ZATCA_SELLER_NAME"] ?? "حاسبة AI";
-    const sellerVatForZatca = company.vatNumber && company.vatNumber !== "—"
-      ? company.vatNumber : process.env["ZATCA_VAT_NUMBER"] ?? "300000000000003";
     const [companyRow] = await db.select({ vatRegistrationStatus: companiesTable.vatRegistrationStatus })
       .from(companiesTable).where(eq(companiesTable.id, companyId)).limit(1);
     const vatEnabled = companyRow?.vatRegistrationStatus === "registered" || companyRow?.vatRegistrationStatus === "voluntary";
     // Replay lookup runs before one-use approval/manager validation.
     // New intents still validate and consume approval in this transaction.
     const result = await financialTransaction(req, async (tx) => {
+      const issuer = await captureIssuer(tx, companyId);
+      const vatEnabled = issuer.vatEnabled;
+      const sellerNameForZatca = issuer.nameAr;
+      const sellerVatForZatca = issuer.vatNumber;
     if (typeof rawApprovalReqId === "number" && Number.isFinite(rawApprovalReqId)) {
       const sessionIdRaw = (req.body as { sessionId?: unknown } | undefined)?.sessionId;
       const sessionId = typeof sessionIdRaw === "number" ? sessionIdRaw : null;
@@ -1100,7 +1101,7 @@ router.post(
       const invRef = await nextRef(tx, "PINV");
       // Non-registered tenants do not get a ZATCA QR — the badge is
       // reserved for VAT-registered sellers per ZATCA Phase 1.
-      const zatcaQr = vatEnabled
+      const zatcaQr = vatEnabled && !!sellerVatForZatca
         ? buildZatcaQrBase64({
             timestamp: new Date(),
             totalWithVat: total,
@@ -1115,6 +1116,7 @@ router.post(
           companyId: getCompanyId(req),
           reference: invRef,
           soId: posSo.id,
+          branchId: session.branchId,
           customerId: invoiceCustomerId,
           customerName: invoiceCustomerName ?? "عميل نقدي",
           status: invoiceStatus,
@@ -1131,6 +1133,8 @@ router.post(
           createdBy: req.session?.userId ?? null,
         })
         .returning();
+      await saveIssuer(tx, "invoice", posInvoice.id, issuer);
+      await saveIssuer(tx, "pos", created.id, issuer);
       for (let i = 0; i < orderItems.length; i++) {
         const li = orderItems[i];
         const [invoiceLine] = await tx.insert(customerInvoiceLinesTable).values({
@@ -1277,8 +1281,13 @@ router.post(
         );
       }
 
+      const attribution=await recordSaleSellers(tx,companyId,posInvoice.id,req.session.userId!,req.body);
+      const sellerAttribution=attribution.map(l=>({invoiceLineId:l.invoice_line_id,employeeId:l.employee_id,sellerName:l.seller_name,revision:l.revision}));
       return {
-        order: created,
+        order: {...created,sellerAttribution},
+        sellerAttribution,
+        sellerNameForZatca,
+        sellerVatForZatca,
         total,
         subtotal,
         tax,
@@ -1298,7 +1307,7 @@ router.post(
 
     if (res.getHeader("Idempotency-Replayed")) {
       res.status(201).json({
-        ...result.order, items: result.orderItems, subtotal: result.subtotal,
+        ...result.order, sellerAttribution:result.sellerAttribution,items: result.orderItems, subtotal: result.subtotal,
         tax: result.tax, discount, total: result.total, payments: result.payments,
         createdAt: result.order.createdAt.toISOString(),
       }); return;
@@ -1312,8 +1321,8 @@ router.post(
       invoiceNumber: result.invoiceRef,
       issueDate: new Date(),
       invoiceType: "simplified",
-      sellerName: sellerNameForZatca,
-      sellerVat: sellerVatForZatca,
+      sellerName: result.sellerNameForZatca,
+      sellerVat: result.sellerVatForZatca,
       buyerName: result.invoiceCustomerName,
       buyerVat: null,
       totalExclVat: Number(result.subtotal.toFixed(2)),
@@ -1370,6 +1379,7 @@ router.post(
 
     res.status(201).json({
       ...result.order,
+      sellerAttribution:result.sellerAttribution,
       items: result.orderItems,
       subtotal: result.subtotal,
       tax: result.tax,

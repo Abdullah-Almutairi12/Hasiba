@@ -19,6 +19,8 @@ import {
   useListProducts,
   useListProductCategories,
   useListPosSessions,
+  useGetPrintProfile,
+  useGetSellerWorkspace,
 } from "@workspace/api-client-react";
 import type { CreatePosOrderBody } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -30,6 +32,9 @@ import { useVatEnabled } from "@/hooks/use-vat-status";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { configuredWidths, docUrls, PrintDocButton } from "@/lib/print-docs";
+import { buildSellerFields, parseWorkspace, savedSellerLabel, selectionFromBody } from "@/lib/sellers";
+import { SellerSelect, wholeEmptyLabel } from "@/components/sellers/seller-picker";
 
 type ParkedOrder = {
   id: number;
@@ -84,6 +89,14 @@ export default function PosIconic({
     orderNumber: string;
     total: number;
   } | null>(null);
+  // Confirmed, server-saved sale. Survives cart clear so the cashier can print.
+  const [lastReceipt, setLastReceipt] = useState<{ id: number; orderNumber: string; total: number; seller: string | null } | null>(null);
+  // Seller attribution (HR employees, independent of the cashier). Lines keyed by product id.
+  const [sellerWhole, setSellerWhole] = useState<number | null>(null);
+  const [sellerLines, setSellerLines] = useState<Record<number, number | undefined>>({});
+  const [sellerError, setSellerError] = useState("");
+  const printProfile = useGetPrintProfile({ query: { retry: false, staleTime: 60_000 } });
+  const receiptWidths = configuredWidths(printProfile.data?.profile?.receiptWidths);
   const [parkedList, setParkedList] = useState<ParkedOrder[]>([]);
   const [isParkingActive, setIsParkingActive] = useState(false);
 
@@ -97,12 +110,25 @@ export default function PosIconic({
   });
   const activeSession = sessions?.find((s) => s.status === "open");
   const checkoutLocked = !!checkout.attempt || checkout.isPending || !checkout.ready;
+  const sellerBranchId = activeSession?.branchId;
+  const sellerWs = useGetSellerWorkspace(sellerBranchId ? { branchId: sellerBranchId } : undefined, {
+    query: { enabled: !!activeSession, retry: false, staleTime: 30_000 },
+  });
+  const sellerData = useMemo(() => (sellerWs.data ? parseWorkspace(sellerWs.data) : null), [sellerWs.data]);
+  const sellerPolicy = sellerData?.policy ?? null;
+  const sellerVisible = !!sellerPolicy && sellerPolicy.mode !== "hidden";
 
   useEffect(() => { setCart([]); }, [user?.id, user?.companyId]);
   useEffect(() => {
     if (!checkout.attempt) return;
     setCart(checkout.attempt.cart);
     setPaymentMethod(checkout.attempt.body.paymentMethod as typeof paymentMethod);
+    // Restore the exact saved seller selection; never re-derive it.
+    const saved = selectionFromBody(checkout.attempt.body);
+    setSellerWhole(saved.whole);
+    const byProduct: Record<number, number | undefined> = {};
+    checkout.attempt.cart.forEach((ci, idx) => { if (saved.lines[idx] !== undefined) byProduct[ci.product.id] = saved.lines[idx]; });
+    setSellerLines(byProduct);
   }, [checkout.attempt]);
 
   // Live tally of parked orders for the Dock badge
@@ -258,14 +284,31 @@ export default function PosIconic({
       return;
     }
     if (cart.length === 0) return;
-    const body: CreatePosOrderBody = {
-      sessionId: checkout.attempt?.body.sessionId ?? activeSession!.id,
+    let sellerFields = {};
+    // A new sale needs a loaded policy; recovery reuses the saved body and needs no new decision.
+    if (!checkout.attempt && !sellerPolicy) {
+      setSellerError(sellerWs.isError ? "تعذر تحميل سياسة البائعين. أعد المحاولة قبل تحصيل الدفع." : "جارٍ تحميل سياسة البائعين، انتظر لحظة ثم أعد المحاولة.");
+      if (sellerWs.isError) void sellerWs.refetch();
+      return;
+    }
+    if (!checkout.attempt && sellerPolicy) {
+      const built = buildSellerFields(sellerPolicy, {
+        whole: sellerWhole,
+        lines: Object.fromEntries(cart.map((ci, idx) => [idx, sellerLines[ci.product.id]])),
+      }, cart.length);
+      if (!built.ok) { setSellerError(built.error); return; }
+      sellerFields = built.fields;
+    }
+    setSellerError("");
+    const body: CreatePosOrderBody = checkout.attempt ? checkout.attempt.body : {
+      sessionId: activeSession!.id,
       items: cart.map((c) => ({
         productId: c.product.id,
         quantity: c.quantity,
       })),
       discount: 0,
       paymentMethod,
+      ...sellerFields,
     };
     const created = await checkout.pay(body, cart);
     if (!created) {
@@ -276,6 +319,10 @@ export default function PosIconic({
       return;
     }
     setSuccess({ orderNumber: created.orderNumber, total: Number(created.total) });
+    setLastReceipt({ id: created.id, orderNumber: created.orderNumber, total: Number(created.total), seller: "sellerAttribution" in created || body.sellerEmployeeId !== undefined || body.lineSellers !== undefined
+      ? savedSellerLabel((created as { sellerAttribution?: unknown }).sellerAttribution) : null });
+    setSellerWhole(null);
+    setSellerLines({});
     setCart([]);
     void queryClient.invalidateQueries();
     setTimeout(() => setSuccess(null), 2200);
@@ -399,6 +446,52 @@ export default function PosIconic({
           busy={checkout.isPending}
           ready={checkout.ready}
           checkoutError={checkout.error}
+          sellerSlot={checkout.attempt && !sellerData && (checkout.attempt.body.sellerEmployeeId !== undefined || checkout.attempt.body.lineSellers !== undefined) ? (
+            <p className="text-xs text-neutral-500" data-testid="pos-seller-frozen">اختيار البائع محفوظ مع محاولة الدفع المعلقة وسيُعاد إرساله كما هو.</p>
+          ) : !checkout.attempt && activeSession && !sellerData ? (
+            <div data-testid="pos-seller-status" className="text-xs">
+              {sellerWs.isError ? (
+                <p role="alert" className="text-red-700 dark:text-red-300">
+                  تعذر تحميل سياسة البائعين؛ لا يمكن بدء بيع جديد حتى تُحمَّل.{" "}
+                  <button type="button" className="underline" onClick={() => { setSellerError(""); void sellerWs.refetch(); }} data-testid="button-retry-seller-policy">إعادة المحاولة</button>
+                </p>
+              ) : <span className="text-neutral-500">جارٍ تحميل سياسة البائعين…</span>}
+              {sellerError && !sellerWs.isError && <p role="alert" className="text-red-700" data-testid="pos-seller-error">{sellerError}</p>}
+            </div>
+          ) : sellerVisible && sellerPolicy && sellerData ? (
+            <div data-testid="pos-seller" className="space-y-1">
+              <label className="text-xs font-semibold">البائع {sellerPolicy.mode === "required" ? "(إلزامي)" : "(اختياري)"}</label>
+              <SellerSelect sellers={sellerData.sellers} value={sellerWhole} disabled={checkoutLocked}
+                onChange={(v) => { setSellerWhole(v); setSellerError(""); }}
+                allowEmpty={sellerPolicy.mode === "optional" || sellerPolicy.granularity === "line"}
+                emptyLabel={wholeEmptyLabel(sellerPolicy)} testId="select-pos-seller" label="البائع"
+                className="h-10 w-full rounded-xl border border-neutral-200 bg-white px-2 text-sm disabled:opacity-60 dark:border-neutral-700 dark:bg-neutral-900" />
+              {sellerError && <p role="alert" className="text-xs text-red-700 dark:text-red-300" data-testid="pos-seller-error">{sellerError}</p>}
+            </div>
+          ) : null}
+          lineSeller={sellerVisible && sellerPolicy?.granularity === "line" && sellerData ? (productId: number) => (
+            <SellerSelect sellers={sellerData.sellers} value={sellerLines[productId]} disabled={checkoutLocked}
+              onChange={(v) => { setSellerLines((m) => ({ ...m, [productId]: v ?? undefined })); setSellerError(""); }}
+              allowEmpty emptyLabel="كبائع البيع" testId={`select-pos-line-seller-${productId}`} label="بائع البند"
+              className="mt-1 h-7 w-full rounded-lg border border-neutral-200 bg-white px-1 text-[11px] disabled:opacity-60 dark:border-neutral-700 dark:bg-neutral-900" />
+          ) : undefined}
+          receiptSlot={lastReceipt && !checkout.attempt ? (
+            <div data-testid="panel-last-receipt" className="rounded-2xl border border-emerald-200 bg-emerald-50/70 p-3 text-xs dark:border-emerald-900 dark:bg-emerald-950/40">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <span className="font-semibold">{`آخر بيع مؤكد: ${lastReceipt.orderNumber}`}</span>
+                <span className="font-mono">{lastReceipt.total.toFixed(2)}</span>
+              </div>
+              {lastReceipt.seller && <div className="mb-2 text-neutral-600 dark:text-neutral-300" data-testid="last-receipt-seller">{`البائع: ${lastReceipt.seller}`}</div>}
+              <div className="flex flex-wrap gap-2">
+                {(receiptWidths.length ? receiptWidths : [undefined]).map((w) => (
+                  <PrintDocButton key={w ?? "default"} id={lastReceipt.id} url={(id) => docUrls.receipt(id, w)}
+                    filename={`receipt-${lastReceipt.orderNumber}${w ? `-${w}mm` : ""}.pdf`}
+                    label={w ? `طباعة الإيصال ${w} مم` : "طباعة الإيصال"} testId={`button-print-receipt${w ? `-${w}` : ""}`} />
+                ))}
+                <button type="button" onClick={() => setLastReceipt(null)} className="ms-auto text-neutral-500 hover:underline" data-testid="button-dismiss-receipt">إخفاء</button>
+              </div>
+            </div>
+          ) : null}
         />
       </div>
 
@@ -605,6 +698,9 @@ function LiveCartRail({
   busy,
   ready,
   checkoutError,
+  receiptSlot,
+  sellerSlot,
+  lineSeller,
 }: {
   cart: CartItem[];
   subtotal: number;
@@ -621,6 +717,9 @@ function LiveCartRail({
   busy: boolean;
   ready: boolean;
   checkoutError: string;
+  receiptSlot?: React.ReactNode;
+  sellerSlot?: React.ReactNode;
+  lineSeller?: (productId: number) => React.ReactNode;
 }) {
   const { t } = useLanguage();
   return (
@@ -670,6 +769,7 @@ function LiveCartRail({
                   <div className="font-mono text-[10px] text-neutral-500">
                     {Number(ci.product.price).toFixed(2)} × {ci.quantity}
                   </div>
+                  {lineSeller?.(ci.product.id)}
                 </div>
                 <div className="inline-flex items-center gap-1 rounded-full bg-neutral-100 px-1 py-0.5 text-xs dark:bg-neutral-800">
                   <button
@@ -713,6 +813,7 @@ function LiveCartRail({
         </div>
       </div>
 
+      {sellerSlot}
       <fieldset disabled={locked} className="grid grid-cols-2 gap-2" aria-label={t("pos_iconic.choose_payment")}>
         <legend className="mb-2 text-xs font-semibold">{t("pos_iconic.choose_payment")}</legend>
         {([
@@ -730,6 +831,7 @@ function LiveCartRail({
         ))}
       </fieldset>
       <p className="text-[11px] text-neutral-500">{t("pos_iconic.manual_tender_notice")}</p>
+      {receiptSlot}
       {checkoutError && <p role="alert" className="rounded-xl bg-red-50 p-3 text-xs text-red-800 dark:bg-red-950 dark:text-red-200">{checkoutError}</p>}
       <button
         onClick={onPay}

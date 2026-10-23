@@ -6,9 +6,9 @@ import { FinancialRequestError } from "./financial-transaction";
 
 export const returnTemplates: Record<string, string[]> = {
   cashier: ["view", "request", "payout", "close", "sell"],
-  branch_manager: ["view", "request", "approve", "payout", "close", "difference", "reports", "export", "sell", "expense"],
-  branch_accountant: ["view", "payout", "external", "close", "reports", "export", "expense"],
-  finance_manager: ["view", "request", "approve", "payout", "external", "close", "difference", "reports", "export", "expense"],
+  branch_manager: ["view", "request", "approve", "payout", "close", "difference", "reports", "export", "sell", "expense", "seller_edit", "commission_approve"],
+  branch_accountant: ["view", "payout", "external", "close", "reports", "export", "expense", "commission_approve", "commission_paid"],
+  finance_manager: ["view", "request", "approve", "payout", "external", "close", "difference", "reports", "export", "expense", "seller_edit", "commission_approve", "commission_paid"],
   auditor: ["view", "reports", "export"],
 };
 export const returnCapabilities = [...new Set([...Object.values(returnTemplates).flat(), "hr_view", "hr_write"])];

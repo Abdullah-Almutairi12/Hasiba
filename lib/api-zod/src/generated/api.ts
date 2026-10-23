@@ -8,6 +8,228 @@
 import * as zod from 'zod';
 
 
+
+
+
+export const GetSellerWorkspaceQueryParams = zod.object({
+  "branchId": zod.coerce.number().int().min(1).optional()
+})
+
+export const GetSellerWorkspaceResponse = zod.record(zod.string(), zod.unknown())
+
+
+export const configureSellerPolicyBodyBranchIdMin = 0;
+
+export const configureSellerPolicyBodyCommissionRatePercentMin = 0;
+export const configureSellerPolicyBodyCommissionRatePercentMax = 100;
+
+
+
+export const ConfigureSellerPolicyBody = zod.object({
+  "branchId": zod.number().int().min(configureSellerPolicyBodyBranchIdMin),
+  "inherit": zod.boolean(),
+  "mode": zod.enum(['hidden', 'optional', 'required']),
+  "granularity": zod.enum(['invoice', 'line']),
+  "commissionEnabled": zod.boolean(),
+  "commissionPlanId": zod.number().int().nullish(),
+  "commissionRatePercent": zod.number().min(configureSellerPolicyBodyCommissionRatePercentMin).max(configureSellerPolicyBodyCommissionRatePercentMax).optional(),
+  "effectiveFrom": zod.coerce.date()
+})
+
+export const ConfigureSellerPolicyResponse = zod.record(zod.string(), zod.unknown())
+
+
+export const ConfigureSellerEligibilityBody = zod.object({
+  "employeeId": zod.number().int(),
+  "enabled": zod.boolean(),
+  "branchIds": zod.array(zod.number().int()).nullable()
+})
+
+export const ConfigureSellerEligibilityResponse = zod.record(zod.string(), zod.unknown())
+
+
+export const GetSellerReportQueryParams = zod.object({
+  "from": zod.date(),
+  "to": zod.date(),
+  "branchId": zod.coerce.number().int().optional(),
+  "sellerId": zod.coerce.number().int().optional()
+})
+
+export const GetSellerReportResponse = zod.record(zod.string(), zod.unknown())
+
+
+
+
+
+export const CorrectInvoiceAttributionParams = zod.object({
+  "id": zod.coerce.number().int().min(1)
+})
+
+export const correctInvoiceAttributionBodyReasonMin = 5;
+
+
+
+export const CorrectInvoiceAttributionBody = zod.object({
+  "reason": zod.string().min(correctInvoiceAttributionBodyReasonMin),
+  "sellerEmployeeId": zod.number().int().nullable(),
+  "lineSellers": zod.array(zod.object({
+  "invoiceLineId": zod.number().int(),
+  "employeeId": zod.number().int().nullable()
+}))
+})
+
+export const CorrectInvoiceAttributionResponse = zod.record(zod.string(), zod.unknown())
+
+
+
+
+
+export const ChangeCommissionStateParams = zod.object({
+  "id": zod.coerce.number().int().min(1)
+})
+
+export const changeCommissionStateBodyReferenceMin = 5;
+
+
+
+export const ChangeCommissionStateBody = zod.object({
+  "action": zod.enum(['approve', 'record_paid']),
+  "reference": zod.string().min(changeCommissionStateBodyReferenceMin)
+})
+
+export const ChangeCommissionStateResponse = zod.record(zod.string(), zod.unknown())
+
+
+export const GetPrintProfileResponse = zod.object({
+  "profile": zod.object({
+  "companyId": zod.number().int(),
+  "revision": zod.number().int(),
+  "nameAr": zod.string(),
+  "nameEn": zod.string(),
+  "vatNumber": zod.string(),
+  "crNumber": zod.string(),
+  "address": zod.string(),
+  "addressFields": zod.record(zod.string(), zod.string()).optional(),
+  "phone": zod.string(),
+  "email": zod.string(),
+  "bankName": zod.string(),
+  "bankIban": zod.string(),
+  "termsAr": zod.string(),
+  "termsEn": zod.string(),
+  "logoObjectKey": zod.string().nullable(),
+  "receiptWidths": zod.array(zod.number().int())
+}),
+  "canEdit": zod.boolean(),
+  "history": zod.array(zod.record(zod.string(), zod.unknown()))
+})
+
+
+export const UpdatePrintProfileBody = zod.object({
+  "revision": zod.number().int(),
+  "nameAr": zod.string(),
+  "nameEn": zod.string(),
+  "vatNumber": zod.string(),
+  "crNumber": zod.string(),
+  "address": zod.record(zod.string(), zod.string()),
+  "phone": zod.string(),
+  "email": zod.string(),
+  "bankName": zod.string(),
+  "bankIban": zod.string(),
+  "termsAr": zod.string(),
+  "termsEn": zod.string(),
+  "logoObjectKey": zod.string().nullable(),
+  "receiptWidths": zod.array(zod.union([zod.literal(58),zod.literal(80)]))
+})
+
+export const UpdatePrintProfileResponse = zod.object({
+  "companyId": zod.number().int(),
+  "revision": zod.number().int(),
+  "nameAr": zod.string(),
+  "nameEn": zod.string(),
+  "vatNumber": zod.string(),
+  "crNumber": zod.string(),
+  "address": zod.string(),
+  "addressFields": zod.record(zod.string(), zod.string()).optional(),
+  "phone": zod.string(),
+  "email": zod.string(),
+  "bankName": zod.string(),
+  "bankIban": zod.string(),
+  "termsAr": zod.string(),
+  "termsEn": zod.string(),
+  "logoObjectKey": zod.string().nullable(),
+  "receiptWidths": zod.array(zod.number().int())
+})
+
+
+export const uploadPrintLogoBodyContentBase64Max = 2800000;
+
+
+
+export const UploadPrintLogoBody = zod.object({
+  "contentBase64": zod.string().max(uploadPrintLogoBodyContentBase64Max)
+})
+
+export const UploadPrintLogoResponse = zod.object({
+  "objectKey": zod.string()
+})
+
+
+
+
+
+export const GetPosReceiptPdfParams = zod.object({
+  "id": zod.coerce.number().int().min(1)
+})
+
+export const getPosReceiptPdfQueryWidthDefault = 80;
+
+export const GetPosReceiptPdfQueryParams = zod.object({
+  "width": zod.union([zod.literal(58),zod.literal(80)]).default(getPosReceiptPdfQueryWidthDefault)
+})
+
+export const GetPosReceiptPdfResponse = zod.unknown()
+
+
+
+
+
+export const GetCreditNotePdfParams = zod.object({
+  "id": zod.coerce.number().int().min(1)
+})
+
+export const GetCreditNotePdfResponse = zod.unknown()
+
+
+
+
+
+export const GetRefundVoucherPdfParams = zod.object({
+  "id": zod.coerce.number().int().min(1)
+})
+
+export const GetRefundVoucherPdfResponse = zod.unknown()
+
+
+
+
+
+export const GetShiftClosingPdfParams = zod.object({
+  "id": zod.coerce.number().int().min(1)
+})
+
+export const GetShiftClosingPdfResponse = zod.unknown()
+
+
+
+
+
+export const InspectInvoiceIdentityParams = zod.object({
+  "id": zod.coerce.number().int().min(1)
+})
+
+export const InspectInvoiceIdentityResponse = zod.record(zod.string(), zod.unknown())
+
+
 export const GetReturnWorkspaceResponse = zod.object({
   "accounts": zod.array(zod.record(zod.string(), zod.unknown())).optional(),
   "reports": zod.array(zod.record(zod.string(), zod.unknown())).optional(),
@@ -496,6 +718,12 @@ export const ListPosOrdersQueryParams = zod.object({
 })
 
 export const ListPosOrdersResponseItem = zod.object({
+  "sellerAttribution": zod.array(zod.object({
+  "invoiceLineId": zod.number().int(),
+  "employeeId": zod.number().int().nullable(),
+  "sellerName": zod.string(),
+  "revision": zod.number().int()
+})).optional().describe('Saved seller names and IDs from the committed sale, not today\'s employee picker.'),
   "id": zod.number().int(),
   "orderNumber": zod.string(),
   "sessionId": zod.number().int(),
@@ -526,11 +754,18 @@ export const ListPosOrdersResponse = zod.array(ListPosOrdersResponseItem)
 /**
  * @summary Create POS order / sale
  */
+export const createPosOrderBodyLineSellersItemLineIndexMin = 0;
+
 export const createPosOrderBodyItemsItemQuantityExclusiveMin = 0;
 
 
 
 export const CreatePosOrderBody = zod.object({
+  "sellerEmployeeId": zod.number().int().nullish().describe('Employee seller, never implicitly the cashier.'),
+  "lineSellers": zod.array(zod.object({
+  "lineIndex": zod.number().int().min(createPosOrderBodyLineSellersItemLineIndexMin),
+  "employeeId": zod.number().int().nullable()
+})).optional(),
   "sessionId": zod.number().int(),
   "items": zod.array(zod.object({
   "productId": zod.number().int(),
@@ -549,6 +784,12 @@ export const CreatePosOrderBody = zod.object({
 })
 
 export const CreatePosOrderResponse = zod.object({
+  "sellerAttribution": zod.array(zod.object({
+  "invoiceLineId": zod.number().int(),
+  "employeeId": zod.number().int().nullable(),
+  "sellerName": zod.string(),
+  "revision": zod.number().int()
+})).optional().describe('Saved seller names and IDs from the committed sale, not today\'s employee picker.'),
   "id": zod.number().int(),
   "orderNumber": zod.string(),
   "sessionId": zod.number().int(),
@@ -583,6 +824,12 @@ export const GetPosOrderParams = zod.object({
 })
 
 export const GetPosOrderResponse = zod.object({
+  "sellerAttribution": zod.array(zod.object({
+  "invoiceLineId": zod.number().int(),
+  "employeeId": zod.number().int().nullable(),
+  "sellerName": zod.string(),
+  "revision": zod.number().int()
+})).optional().describe('Saved seller names and IDs from the committed sale, not today\'s employee picker.'),
   "id": zod.number().int(),
   "orderNumber": zod.string(),
   "sessionId": zod.number().int(),
@@ -3622,7 +3869,7 @@ export const GetVatReturnResponse = zod.object({
   "supplies": zod.object({
   "standardRated": zod.number(),
   "zeroRated": zod.number(),
-  "exempt": zod.number()
+  "exempt": zod.number().nullable()
 }),
   "outputVat": zod.object({
   "pos": zod.number(),

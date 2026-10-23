@@ -102,7 +102,8 @@ export interface VatStatusResponse {
 export type VatReturnResponseSupplies = {
   standardRated: number;
   zeroRated: number;
-  exempt: number;
+  /** @nullable */
+  exempt: number | null;
 };
 
 export type VatReturnResponseOutputVat = {
@@ -789,6 +790,14 @@ export interface CreatePosSessionBody {
   openingCash: number;
 }
 
+export type PosOrderSellerAttributionItem = {
+  invoiceLineId: number;
+  /** @nullable */
+  employeeId: number | null;
+  sellerName: string;
+  revision: number;
+};
+
 export type PosOrderPaymentMethod = typeof PosOrderPaymentMethod[keyof typeof PosOrderPaymentMethod];
 
 
@@ -819,6 +828,8 @@ export interface PosOrderPayment {
 }
 
 export interface PosOrder {
+  /** Saved seller names and IDs from the committed sale, not today's employee picker. */
+  sellerAttribution?: PosOrderSellerAttributionItem[];
   id: number;
   orderNumber: string;
   sessionId: number;
@@ -833,6 +844,13 @@ export interface PosOrder {
   customerId?: number | null;
   createdAt: string;
 }
+
+export type CreatePosOrderBodyLineSellersItem = {
+  /** @minimum 0 */
+  lineIndex: number;
+  /** @nullable */
+  employeeId: number | null;
+};
 
 export type CreatePosOrderBodyItemsItem = {
   productId: number;
@@ -858,6 +876,12 @@ export const CreatePosOrderBodyPaymentMethod = {
 } as const;
 
 export interface CreatePosOrderBody {
+  /**
+     * Employee seller, never implicitly the cashier.
+     * @nullable
+     */
+  sellerEmployeeId?: number | null;
+  lineSellers?: CreatePosOrderBodyLineSellersItem[];
   sessionId: number;
   items: CreatePosOrderBodyItemsItem[];
   /** Single payment method. Required if `payments` is omitted; ignored when `payments` is provided. */
@@ -2240,6 +2264,204 @@ export interface CreateSupplierBody {
   /** @nullable */
   notes?: string | null;
 }
+
+export type GetSellerWorkspaceParams = {
+/**
+ * @minimum 1
+ */
+branchId?: number;
+};
+
+export type GetSellerWorkspace200 = { [key: string]: unknown };
+
+export type ConfigureSellerPolicyBodyMode = typeof ConfigureSellerPolicyBodyMode[keyof typeof ConfigureSellerPolicyBodyMode];
+
+
+export const ConfigureSellerPolicyBodyMode = {
+  hidden: 'hidden',
+  optional: 'optional',
+  required: 'required',
+} as const;
+
+export type ConfigureSellerPolicyBodyGranularity = typeof ConfigureSellerPolicyBodyGranularity[keyof typeof ConfigureSellerPolicyBodyGranularity];
+
+
+export const ConfigureSellerPolicyBodyGranularity = {
+  invoice: 'invoice',
+  line: 'line',
+} as const;
+
+export type ConfigureSellerPolicyBody = {
+  /** @minimum 0 */
+  branchId: number;
+  inherit: boolean;
+  mode: ConfigureSellerPolicyBodyMode;
+  granularity: ConfigureSellerPolicyBodyGranularity;
+  commissionEnabled: boolean;
+  /** @nullable */
+  commissionPlanId?: number | null;
+  /**
+     * @minimum 0
+     * @maximum 100
+     */
+  commissionRatePercent?: number;
+  effectiveFrom: string;
+};
+
+export type ConfigureSellerPolicy200 = { [key: string]: unknown };
+
+export type ConfigureSellerEligibilityBody = {
+  employeeId: number;
+  enabled: boolean;
+  /** @nullable */
+  branchIds: number[] | null;
+};
+
+export type ConfigureSellerEligibility200 = { [key: string]: unknown };
+
+export type GetSellerReportParams = {
+from: string;
+to: string;
+branchId?: number;
+sellerId?: number;
+};
+
+export type GetSellerReport200 = { [key: string]: unknown };
+
+export type CorrectInvoiceAttributionBodyLineSellersItem = {
+  invoiceLineId: number;
+  /** @nullable */
+  employeeId: number | null;
+};
+
+export type CorrectInvoiceAttributionBody = {
+  /** @minLength 5 */
+  reason: string;
+  /** @nullable */
+  sellerEmployeeId: number | null;
+  lineSellers: CorrectInvoiceAttributionBodyLineSellersItem[];
+};
+
+export type CorrectInvoiceAttribution200 = { [key: string]: unknown };
+
+export type ChangeCommissionStateBodyAction = typeof ChangeCommissionStateBodyAction[keyof typeof ChangeCommissionStateBodyAction];
+
+
+export const ChangeCommissionStateBodyAction = {
+  approve: 'approve',
+  record_paid: 'record_paid',
+} as const;
+
+export type ChangeCommissionStateBody = {
+  action: ChangeCommissionStateBodyAction;
+  /** @minLength 5 */
+  reference: string;
+};
+
+export type ChangeCommissionState200 = { [key: string]: unknown };
+
+export type GetPrintProfile200ProfileAddressFields = {[key: string]: string};
+
+export type GetPrintProfile200Profile = {
+  companyId: number;
+  revision: number;
+  nameAr: string;
+  nameEn: string;
+  vatNumber: string;
+  crNumber: string;
+  address: string;
+  addressFields?: GetPrintProfile200ProfileAddressFields;
+  phone: string;
+  email: string;
+  bankName: string;
+  bankIban: string;
+  termsAr: string;
+  termsEn: string;
+  /** @nullable */
+  logoObjectKey: string | null;
+  receiptWidths: number[];
+};
+
+export type GetPrintProfile200HistoryItem = { [key: string]: unknown };
+
+export type GetPrintProfile200 = {
+  profile: GetPrintProfile200Profile;
+  canEdit: boolean;
+  history: GetPrintProfile200HistoryItem[];
+};
+
+export type UpdatePrintProfileBodyAddress = {[key: string]: string};
+
+export type UpdatePrintProfileBodyReceiptWidthsItem = typeof UpdatePrintProfileBodyReceiptWidthsItem[keyof typeof UpdatePrintProfileBodyReceiptWidthsItem];
+
+
+export const UpdatePrintProfileBodyReceiptWidthsItem = {
+  NUMBER_58: 58,
+  NUMBER_80: 80,
+} as const;
+
+export type UpdatePrintProfileBody = {
+  revision: number;
+  nameAr: string;
+  nameEn: string;
+  vatNumber: string;
+  crNumber: string;
+  address: UpdatePrintProfileBodyAddress;
+  phone: string;
+  email: string;
+  bankName: string;
+  bankIban: string;
+  termsAr: string;
+  termsEn: string;
+  /** @nullable */
+  logoObjectKey: string | null;
+  receiptWidths: UpdatePrintProfileBodyReceiptWidthsItem[];
+};
+
+export type UpdatePrintProfile200AddressFields = {[key: string]: string};
+
+export type UpdatePrintProfile200 = {
+  companyId: number;
+  revision: number;
+  nameAr: string;
+  nameEn: string;
+  vatNumber: string;
+  crNumber: string;
+  address: string;
+  addressFields?: UpdatePrintProfile200AddressFields;
+  phone: string;
+  email: string;
+  bankName: string;
+  bankIban: string;
+  termsAr: string;
+  termsEn: string;
+  /** @nullable */
+  logoObjectKey: string | null;
+  receiptWidths: number[];
+};
+
+export type UploadPrintLogoBody = {
+  /** @maxLength 2800000 */
+  contentBase64: string;
+};
+
+export type UploadPrintLogo201 = {
+  objectKey: string;
+};
+
+export type GetPosReceiptPdfParams = {
+width?: GetPosReceiptPdfWidth;
+};
+
+export type GetPosReceiptPdfWidth = typeof GetPosReceiptPdfWidth[keyof typeof GetPosReceiptPdfWidth];
+
+
+export const GetPosReceiptPdfWidth = {
+  NUMBER_58: 58,
+  NUMBER_80: 80,
+} as const;
+
+export type InspectInvoiceIdentity200 = { [key: string]: unknown };
 
 export type GetReturnWorkspace200AccountsItem = { [key: string]: unknown };
 

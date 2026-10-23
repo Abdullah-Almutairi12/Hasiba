@@ -1,0 +1,163 @@
+profile:
+  get:
+    operationId: getPrintProfile
+    tags: [companies]
+    responses:
+      "200":
+        description: Active legal entity print profile and authorized change history
+        content:
+          application/json:
+            schema:
+              $ref: "#/schemas/PrintProfileState"
+  patch:
+    operationId: updatePrintProfile
+    tags: [companies]
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/schemas/PrintProfilePatch"
+    responses:
+      "200":
+        description: Updated profile; stale revision returns 409
+        content:
+          application/json:
+            schema:
+              $ref: "#/schemas/PrintProfile"
+logo:
+  post:
+    operationId: uploadPrintLogo
+    tags: [companies]
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/schemas/PrintLogoInput"
+    responses:
+      "201":
+        description: Immutable company-owned App Storage object
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [objectKey]
+              properties:
+                objectKey: { type: string }
+receipt:
+  get:
+    operationId: getPosReceiptPdf
+    tags: [pos]
+    parameters:
+      - $ref: "#/parameters/Id"
+      - name: width
+        in: query
+        schema: { type: integer, enum: [58, 80], default: 80 }
+    responses:
+      "200": { $ref: "#/responses/Pdf" }
+credit:
+  get:
+    operationId: getCreditNotePdf
+    tags: [pos]
+    parameters: [{ $ref: "#/parameters/Id" }]
+    responses:
+      "200": { $ref: "#/responses/Pdf" }
+refund:
+  get:
+    operationId: getRefundVoucherPdf
+    tags: [pos]
+    parameters: [{ $ref: "#/parameters/Id" }]
+    responses:
+      "200": { $ref: "#/responses/Pdf" }
+closing:
+  get:
+    operationId: getShiftClosingPdf
+    tags: [pos]
+    parameters: [{ $ref: "#/parameters/Id" }]
+    responses:
+      "200": { $ref: "#/responses/Pdf" }
+identityCheck:
+  get:
+    operationId: inspectInvoiceIdentity
+    tags: [pos]
+    parameters: [{ $ref: "#/parameters/Id" }]
+    responses:
+      "200":
+        description: Read-only QR/issuer/money consistency, not official clearance
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: true }
+parameters:
+  Id:
+    name: id
+    in: path
+    required: true
+    schema: { type: integer, minimum: 1 }
+responses:
+  Pdf:
+    description: Persisted authorized document, never a financial write
+    content:
+      application/pdf:
+        schema: { type: string, format: binary }
+schemas:
+  PrintLogoInput:
+    type: object
+    required: [contentBase64]
+    properties:
+      contentBase64: { type: string, maxLength: 2800000 }
+  PrintProfilePatch:
+    type: object
+    required: [revision, nameAr, nameEn, vatNumber, crNumber, address, phone, email, bankName, bankIban, termsAr, termsEn, logoObjectKey, receiptWidths]
+    properties:
+      revision: { type: integer }
+      nameAr: { type: string }
+      nameEn: { type: string }
+      vatNumber: { type: string }
+      crNumber: { type: string }
+      address:
+        type: object
+        additionalProperties: { type: string }
+      phone: { type: string }
+      email: { type: string }
+      bankName: { type: string }
+      bankIban: { type: string }
+      termsAr: { type: string }
+      termsEn: { type: string }
+      logoObjectKey: { type: [string, "null"] }
+      receiptWidths:
+        type: array
+        items: { type: integer, enum: [58, 80] }
+  PrintProfile:
+    type: object
+    required: [companyId, revision, nameAr, nameEn, vatNumber, crNumber, address, phone, email, bankName, bankIban, termsAr, termsEn, receiptWidths, logoObjectKey]
+    properties:
+      companyId: { type: integer }
+      revision: { type: integer }
+      nameAr: { type: string }
+      nameEn: { type: string }
+      vatNumber: { type: string }
+      crNumber: { type: string }
+      address: { type: string }
+      addressFields:
+        type: object
+        additionalProperties: { type: string }
+      phone: { type: string }
+      email: { type: string }
+      bankName: { type: string }
+      bankIban: { type: string }
+      termsAr: { type: string }
+      termsEn: { type: string }
+      logoObjectKey: { type: [string, "null"] }
+      receiptWidths:
+        type: array
+        items: { type: integer }
+  PrintProfileState:
+    type: object
+    required: [profile, canEdit, history]
+    properties:
+      profile: { $ref: "#/schemas/PrintProfile" }
+      canEdit: { type: boolean }
+      history:
+        type: array
+        items: { type: object, additionalProperties: true }

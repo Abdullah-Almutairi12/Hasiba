@@ -189,3 +189,34 @@ describe("POS inline tender and durable checkout recovery", () => {
     expect(sessionStorage.getItem("hasba:pos-checkout:11:23")).toBe("invalid saved intent");
   });
 });
+
+describe("POS confirmed receipt printing", () => {
+  it("keeps the saved order receipt action after cart clear and prints by actual saved ID", async () => {
+    saleTransport();
+    const user = userEvent.setup();
+    mount();
+    await user.click(await screen.findByTestId("product-icon-5"));
+    await user.click(screen.getByTestId("button-pay-rail"));
+    const panel = await screen.findByTestId("panel-last-receipt");
+    expect(panel.textContent).toContain("ORD-TEST-1");
+    expect(screen.getByText(ar.pos_iconic.cart_empty).isConnected).toBe(true);
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockClear();
+    await user.click(screen.getByTestId("button-print-receipt"));
+    await waitFor(() => expect(fetchMock.mock.calls.some(([u]) => String(u).endsWith("/api/pos/orders/1/receipt.pdf"))).toBe(true));
+    expect(fetchMock.mock.calls.every(([, i]) => (i as RequestInit | undefined)?.method !== "POST")).toBe(true);
+  });
+
+  it("recovers the original saved order before offering a receipt", async () => {
+    const transport = saleTransport("lost");
+    const user = userEvent.setup();
+    mount();
+    await user.click(await screen.findByTestId("product-icon-5"));
+    await user.click(screen.getByTestId("button-pay-rail"));
+    await screen.findByRole("alert");
+    expect(screen.queryByTestId("panel-last-receipt")).toBeNull();
+    await user.click(screen.getByTestId("button-pay-rail"));
+    expect((await screen.findByTestId("panel-last-receipt")).textContent).toContain("ORD-TEST-1");
+    expect(transport.committed.size).toBe(1);
+  });
+});

@@ -10,6 +10,19 @@ import QRCode from "qrcode";
 import jsQR from "jsqr";
 import {buildPrintPdf,printHtml,printBrowserHtml} from "./print-document";
 describe("offline Arabic printing and download integrity",()=>{
+  it.each([58,80] as const)("prints long searchable Arabic on a true %d mm thermal roll",async width=>{
+    const dir=mkdtempSync(join(tmpdir(),"thermal-arabic-"));
+    try{
+      const pdf=await buildPrintPdf({title:"إيصال بيع تجريبي",thermalWidth:width,headers:["الصنف","الكمية","المبلغ"],
+        rows:Array.from({length:32},(_,i)=>[`قهوة عربية مع الهيل — وصف عربي طويل لاختبار الالتفاف سلام ${i+1}`,1,"115.00 SAR"])});
+      const path=join(dir,"receipt.pdf");writeFileSync(path,pdf);
+      const result=JSON.parse(execFileSync("python",["-c","import pymupdf,sys,json; d=pymupdf.open(sys.argv[1]); print(json.dumps({'width':d[0].rect.width*25.4/72,'pages':len(d),'text':' '.join(p.get_text() for p in d)}))",path],{encoding:"utf8"}));
+      expect(result.width).toBeCloseTo(width,0);
+      expect(result.text.match(/قهوة عربية/g)).toHaveLength(32);
+      expect(result.text).toMatch(/\b32\b/);
+      expect(result.text.match(/سلام/g)).toHaveLength(32);
+    }finally{rmSync(dir,{recursive:true,force:true});}
+  },30000);
   it("isolates signed amounts in Arabic notes without reversing ISO dates",()=>{
     const html=printHtml({title:"فحص الأرقام",headers:["البيان"],rows:[["سالب (-125.50) وموجب +50.25 بتاريخ 2026-09-30"] ]});
     expect(html).toContain('<bdi class="numeric-ltr" dir="ltr">(-125.50)</bdi>');

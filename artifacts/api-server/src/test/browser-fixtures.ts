@@ -5,7 +5,8 @@ import { db, pool, companiesTable, usersTable, userCompaniesTable, customersTabl
 import { branchesTable, warehousesTable } from "@workspace/db";
 import { posSessionsTable } from "@workspace/db";
 import { accountsTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { eq,sql } from "drizzle-orm";
+import { employeesTable,commissionPlansTable } from "@workspace/db";
 import { recordStockMove } from "../lib/stock-engine";
 
 if (!process.env.HASBA_BROWSER_STATE || !process.env.TEST_DATABASE_URL) {
@@ -55,6 +56,18 @@ for (const role of ["owner", "sales"] as const) {
       branchId: branch.id, sessionNumber: `POS-VERIFY-${tag}`, cashierName: "كاشير الاختبار", openingCash: "0",
     }).returning();
     posSession = { id: session.id, branchId: branch.id, warehouseId: warehouse.id };
+    // Explicit synthetic-owner test configuration, NOT a product default.
+    const sellerIds:number[]=[];
+    for(const label of ["ألف","باء"]){
+      const [seller]=await db.insert(employeesTable).values({companyId:company.id,employeeNo:`seller-${label}-${tag}`,
+        name:`Synthetic seller ${label}`,nameAr:`بائع اختبار ${label}`,branchId:branch.id,hireDate:"2026-01-01"}).returning();
+      sellerIds.push(seller.id);
+      await db.execute(sql`INSERT INTO sales_seller_eligibility(company_id,employee_id,enabled,branch_ids,updated_by)
+        VALUES(${company.id},${seller.id},true,${JSON.stringify([branch.id])}::jsonb,${user.id})`);
+    }
+    const [plan]=await db.insert(commissionPlansTable).values({companyId:company.id,name:"سياسة اختبار صريحة فقط",rate:"10",quota:"0",bonusRate:"0"}).returning();
+    await db.execute(sql`INSERT INTO sales_seller_policies(company_id,branch_id,inherit,mode,granularity,commission_enabled,commission_plan_id,effective_from,created_by)
+      VALUES(${company.id},0,false,'required','line',true,${plan.id},now()-interval '1 minute',${user.id})`);
     if (process.env.HASBA_BROWSER_RETURN_SETTLEMENT === "true") {
       for (const staffRole of ["cashier", "manager"] as const) {
         const email = `verify-${staffRole}-${tag}@example.invalid`;

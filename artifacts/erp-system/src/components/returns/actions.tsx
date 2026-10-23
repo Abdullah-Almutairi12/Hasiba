@@ -7,6 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { listScopedIntents, useAct, useActorScope } from "@/hooks/use-returns-actions";
 import { Empty, ErrorBox, Pill } from "@/components/returns/ui";
+import { docUrls, PrintDocButton } from "@/lib/print-docs";
 import { label, METHODS, money, num, str, type ErrInfo, type Rec } from "@/lib/returns/shared";
 
 export function ApproveButton({ noteId }: { noteId: string }) {
@@ -54,6 +55,12 @@ export function PayoutsTab({ payouts, notes, can }: { payouts: Rec[]; notes: Rec
               {str(p.reference) && <span className="text-xs" dir="ltr">{str(p.reference)}</span>}
               <span className="text-xs text-muted-foreground">بواسطة {str(p.created_by, "—")}{str(p.confirmed_by) && ` · أكده ${str(p.confirmed_by)}`}</span>
             </div>
+            {!open && !st.includes("cancel") && !st.includes("reject") && (
+              <div className="mt-2"><PrintDocButton id={num(p.id)} url={docUrls.refund} filename={`refund-${str(p.id)}.pdf`} label="طباعة سند الصرف" testId={`button-print-payout-${str(p.id)}`} /></div>
+            )}
+            {nonCash && st === "requested" && (
+              <div className="mt-2"><PrintDocButton id={num(p.id)} url={docUrls.refund} filename={`refund-request-${str(p.id)}.pdf`} label="طباعة طلب الاسترداد (غير منفذ)" testId={`button-print-payout-${str(p.id)}`} /></div>
+            )}
             {nonCash && open && <p className="mt-1 text-xs text-violet-700 dark:text-violet-300">مطلوب فقط — لم يُرسل لأي مزود ولم تثبت تسويته.</p>}
             {open && (
               <div className="mt-2 flex flex-wrap gap-2">

@@ -21,6 +21,8 @@ export interface PrintDocument {
   landscape?: boolean;
   metadata?: Array<[string,string]>;
   sections?: Array<{ title:string;body:string;image?:string }>;
+  /** Only explicitly supported thermal widths; same Unicode/font pipeline. */
+  thermalWidth?: 58 | 80;
 }
 export const escapePrint = (v: unknown) => String(v ?? "").replace(/[\u20c1\ufdfc]/g,"ر.س").replace(/[&<>"']/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" })[c]!);
 export function printBrowserHtml(input:PrintDocument):string{
@@ -46,7 +48,7 @@ export function printHtml(input: PrintDocument): string {
   return `<!doctype html><html lang="${lang}" dir="${lang==="ar"?"rtl":"ltr"}"><head><meta charset="utf-8">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; font-src data:; img-src data:">
   <title>${escapePrint(input.title)}</title><style>${printFonts()}
-  @page{size:A4 ${input.landscape?"landscape":"portrait"};margin:15mm 12mm 18mm}
+   @page{size:${input.thermalWidth?`${input.thermalWidth}mm 297mm`:`A4 ${input.landscape?"landscape":"portrait"}`};margin:${input.thermalWidth?"4mm 3mm 8mm":"15mm 12mm 18mm"}}
   *{box-sizing:border-box}body{margin:0;background:white;color:#142033;font:12px/1.65 Tajawal,sans-serif;font-feature-settings:"liga" 0,"rlig" 0}
   h1{font-size:23px;color:#152d50;margin:12px 0 5px}h2{font-size:16px;margin:0}p{white-space:pre-wrap;overflow-wrap:anywhere;margin:5px 0}
   header{border-bottom:2px solid #285886;padding-bottom:10px;margin-bottom:14px}b,strong,th{font-weight:700}
@@ -57,8 +59,10 @@ export function printHtml(input: PrintDocument): string {
   .totals tr:last-child{font-weight:700;background:#eef3f8;font-size:15px}.qr{width:30mm;height:30mm;image-rendering:pixelated;object-fit:contain}
   .note{font-size:11px;margin-top:12px}h1,h2{break-after:avoid}
   section{margin:18px 0}.illustration{display:block;width:100%;max-height:170mm;object-fit:contain}
-  dl{display:grid;grid-template-columns:1fr 2fr;gap:5px 12px;margin:12px 0}dt{font-weight:700}dd{margin:0}
-  </style></head><body><header>${c?`<h2>${cell(lang==="ar"?c.nameAr:c.nameEn)}</h2><p>${cell(c.address)}</p><p class="muted">${cell(c.vatNumber)} · ${cell(c.phone)} · ${cell(c.email)}</p>`:""}<h1>${cell(input.title)}</h1></header>
+   dl{display:grid;grid-template-columns:1fr 2fr;gap:5px 12px;margin:12px 0}dt{font-weight:700}dd{margin:0}
+   .brand-logo{max-width:40mm;max-height:18mm;object-fit:contain}
+   ${input.thermalWidth?`body{width:calc(${input.thermalWidth}mm - 6mm);font-size:${input.thermalWidth===58?9:11}px;overflow-wrap:anywhere}h1{font-size:16px}h2{font-size:13px}th,td{padding:4px 2px}.totals{width:100%}dl{grid-template-columns:1fr;gap:1px}.qr{width:27mm;height:27mm}`:""}
+   </style></head><body><header>${c?`${c.logo?image(`data:${c.logo.contentType};base64,${c.logo.data.toString("base64")}`,"brand-logo"):""}<h2>${cell(lang==="ar"?c.nameAr:c.nameEn)}</h2><p>${cell(c.address)}</p><p class="muted">${cell(c.vatNumber)} · ${cell(c.phone)} · ${cell(c.email)}</p>`:""}<h1>${cell(input.title)}</h1></header>
   ${input.subtitle?`<p class="subtitle">${cell(input.subtitle)}</p>`:""}
   ${input.metadata?.length?`<dl>${input.metadata.map(([label,value])=>`<dt>${cell(label)}</dt><dd>${cell(value)}</dd>`).join("")}</dl>`:""}
   ${input.headers.length?`<table><thead><tr>${input.headers.map(h=>`<th>${cell(h)}</th>`).join("")}</tr></thead><tbody>${input.rows.length?input.rows.map(r=>`<tr>${r.map(v=>`<td>${cell(v)}</td>`).join("")}</tr>`).join(""):`<tr><td colspan="${Math.max(1,input.headers.length)}">${lang==="ar"?"لا توجد عمليات مؤهلة في النطاق المختار":"No eligible transactions in the selected scope"}</td></tr>`}</tbody></table>`:""}
@@ -77,11 +81,17 @@ export async function buildPrintPdf(input: PrintDocument): Promise<Buffer> {
     const context=await browser.newContext({javaScriptEnabled:false,locale:input.language==="en"?"en-US":"ar-SA",timezoneId:"Asia/Riyadh",serviceWorkers:"block"});
     await context.route("**/*",r=>r.abort()); // No HTTP/file requests from untrusted fields.
     const page=await context.newPage();
+    if(input.thermalWidth) await page.setViewportSize({width:Math.ceil(input.thermalWidth*96/25.4),height:1000});
     await page.setContent(html,{waitUntil:"load",timeout:20000});
     await page.emulateMedia({media:"print",colorScheme:"light"});
     const deadline=setTimeout(()=>{void browser?.close().catch(()=>{});},30000);
     try{
       await page.evaluate(`(async()=>{await document.fonts.load("12px Tajawal");await document.fonts.load("700 12px Tajawal");await document.fonts.ready;if(!document.fonts.check("12px Tajawal")||!document.fonts.check("700 12px Tajawal"))throw new Error("PRINT_FONTS_NOT_LOADED");})()`);
+      if(input.thermalWidth){
+        const pixels=await page.evaluate("document.body.getBoundingClientRect().height") as number;
+        const height=Math.max(60,Math.min(3000,Math.ceil(pixels*25.4/96+12)));
+        await page.evaluate(`document.styleSheets[0].insertRule(${JSON.stringify(`@page{size:${input.thermalWidth}mm ${height}mm}`)},document.styleSheets[0].cssRules.length)`);
+      }
       return await page.pdf({format:"A4",landscape:input.landscape,preferCSSPageSize:true,printBackground:true,tagged:true,displayHeaderFooter:true,headerTemplate:"<span></span>",footerTemplate:'<div style="font:9px sans-serif;width:100%;text-align:center;color:#516071"><span class="pageNumber"></span> / <span class="totalPages"></span></div>'});
     }finally{clearTimeout(deadline);}
   } finally {

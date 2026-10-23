@@ -1446,6 +1446,9 @@ function PermissionsMatrixTab() {
   const KEY_LABELS: Record<string, string> = {
     dashboard: "لوحة القيادة",
     pos: "نقاط البيع",
+    seller_edit: "تصحيح بائع الفاتورة",
+    commission_approve: "اعتماد العمولات",
+    commission_paid: "توثيق دفع العمولات خارجيًا",
     products: "المنتجات",
     invoices: "فواتير الموردين",
     customers: "العملاء",

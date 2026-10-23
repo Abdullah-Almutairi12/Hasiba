@@ -38,8 +38,8 @@ export interface VatReturnSupplySplit {
   standardRated: number;
   /** Net sales explicitly invoiced at 0% (zero-rated). */
   zeroRated: number;
-  /** Sales tagged as exempt (no taxRate metadata available → always 0 today). */
-  exempt: number;
+  /** Unknown until an evidenced exempt tax classification exists. */
+  exempt: number | null;
 }
 
 export interface VatReturn {
@@ -254,7 +254,7 @@ export async function computeVatReturn(
     supplies: {
       standardRated: round2(posNet + standardInvoiceNet-Number(returnedNet[0]?.standard??0)),
       zeroRated: round2(zeroRatedInvoiceNet-Number(returnedNet[0]?.zero??0)),
-      exempt: 0,
+      exempt: null,
     },
     outputVat: {
       pos: posTax,

@@ -1,12 +1,11 @@
-import { db, companiesTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { db } from "@workspace/db";
+import { captureIssuer, issuerLogo, type IssuerSnapshot } from "../document-identity";
 import type { CompanyInfo } from "./purchase-order";
 /** Legacy company_settings is global: never use it as another tenant's identity. */
 export async function getPrintCompany(companyId: number): Promise<CompanyInfo & {vatEnabled:boolean}> {
-  const [c]=await db.select().from(companiesTable).where(eq(companiesTable.id,companyId)).limit(1);
-  if(!c) throw new Error("PRINT_COMPANY_NOT_FOUND");
-  const a=c.address as Record<string,unknown>;
-  return {nameAr:c.name,nameEn:c.nameEn??c.name,vatNumber:c.vatNumber??"—",vatEnabled:c.vatRegistrationStatus==="registered"||c.vatRegistrationStatus==="voluntary",
-    address:Object.values(a??{}).filter(v=>typeof v==="string").join("، "),phone:"",email:"",
-    bankName:"",bankIban:"",termsAr:"",termsEn:""};
+  return printableIssuer(await captureIssuer(db,companyId));
+}
+export async function printableIssuer(issuer: IssuerSnapshot) {
+  const url = await issuerLogo(issuer);
+  return { ...issuer, logo: url ? { data:Buffer.from(url.split(",")[1]!, "base64"),contentType:url.startsWith("data:image/png")?"image/png":"image/jpeg" } : null };
 }

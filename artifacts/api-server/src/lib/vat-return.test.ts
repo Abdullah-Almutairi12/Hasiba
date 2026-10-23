@@ -147,6 +147,7 @@ afterAll(async () => {
   await db.delete(salesOrdersTable).where(eq(salesOrdersTable.companyId,companyId));
   await db.delete(customersTable).where(eq(customersTable.id, customerId));
   await db.delete(branchesTable).where(eq(branchesTable.id, branchId));
+  await (await import("../test/cleanup-company-defaults")).cleanupCompanyDefaults([companyId]);
   await db.delete(companiesTable).where(eq(companiesTable.id, companyId));
 });
 
@@ -379,6 +380,6 @@ describe("vat-return service", () => {
     // POS net (1000) + invoice standard line (2000) = 3000
     expect(vr.supplies.standardRated).toBe(3000);
     expect(vr.supplies.zeroRated).toBe(500);
-    expect(vr.supplies.exempt).toBe(0);
+    expect(vr.supplies.exempt).toBeNull();
   });
 });

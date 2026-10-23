@@ -14,3 +14,9 @@ Include signed amounts embedded in Arabic prose as well as standalone table cell
 **Why:** Correct numeric columns did not prevent a minus sign from moving in a free-text Arabic note.
 
 **How to apply:** Isolate complete signed tokens without treating hyphens inside ISO dates or document references as negative amounts; verify both the visual sign and extracted logical text.
+
+Do not wait for a style-tag load event in a Chromium page with JavaScript disabled.
+
+**Why:** Playwright's style injection waited until the PDF deadline even for inline page sizing in that configuration.
+
+**How to apply:** Prepare the stylesheet before rendering or synchronously insert the page-size rule after measurement. Retain the existing single native Arabic text pipeline.

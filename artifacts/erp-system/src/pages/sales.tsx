@@ -36,6 +36,8 @@ import { useVatEnabled } from "@/hooks/use-vat-status";
 import { ApprovalActions } from "@/components/approval-actions";
 import { SendStatusBadge } from "@/components/send-status-badge";
 import { PdfPreviewSheet } from "@/components/pdf-preview-sheet";
+import { SellerCommissionsPanel } from "@/components/sellers/seller-commissions";
+import { InvoiceSellerFields, useInvoiceSellers } from "@/components/sellers/invoice-seller-fields";
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
@@ -1238,13 +1240,9 @@ function PricelistItemsPanel({ pricelist, onClose }: { pricelist: Pricelist; onC
 
 // ===== Commissions =====
 function CommissionsTab() {
-  const today = new Date();
-  const [from, setFrom] = useState(new Date(today.getFullYear(), today.getMonth(), 1).toISOString().slice(0, 10));
-  const [to, setTo] = useState(today.toISOString().slice(0, 10));
-  const { data: report, refetch } = useApiQuery<{ from: string; to: string; total: number; rows: Array<{ repId: number | null; repName: string; netRevenue: number; commission: number; planName: string | null; baseRate: number; bonusRate: number; invoiceCount: number }> }>(`/sales/commission-report?from=${from}&to=${to}`);
   const { data: plans, refetch: refetchPlans } = useApiQuery<Array<{ id: number; name: string; rate: number; quota: number; bonusRate: number; isActive: boolean }>>("/sales/commission-plans");
   const [open, setOpen] = useState(false);
-  const { isAdmin, canManageFinance } = usePermissions();
+  const { isAdmin } = usePermissions();
 
   return (
     <div className="space-y-4">
@@ -1275,39 +1273,7 @@ function CommissionsTab() {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between gap-2">
-          <CardTitle className="flex items-center gap-2"><Award className="size-4" /> تقرير العمولات</CardTitle>
-          <div className="flex items-center gap-2">
-            <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="w-40" />
-            <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="w-40" />
-            <Button variant="outline" size="sm" onClick={() => refetch()}>تحديث</Button>
-            {canManageFinance && <PostCommissionsButton from={from} to={to} onPosted={() => refetch()} />}
-          </div>
-        </CardHeader>
-        <CardContent className="p-0">
-          <Table>
-            <TableHeader><TableRow>
-              <TableHead>المندوب</TableHead><TableHead>الفواتير</TableHead><TableHead>صافي الإيراد</TableHead><TableHead>الخطة</TableHead><TableHead>العمولة</TableHead>
-            </TableRow></TableHeader>
-            <TableBody>
-              {report?.rows?.map((r, i) => (
-                <TableRow key={i}>
-                  <TableCell className="font-medium">{r.repName}</TableCell>
-                  <TableCell className="tabular-nums">{r.invoiceCount}</TableCell>
-                  <TableCell className="tabular-nums"><Money value={r.netRevenue} /></TableCell>
-                  <TableCell>{r.planName ?? "—"}</TableCell>
-                  <TableCell className="tabular-nums font-bold"><Money value={r.commission} /></TableCell>
-                </TableRow>
-              ))}
-              {(!report || report.rows.length === 0) && <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground h-20">لا توجد بيانات في الفترة المحددة</TableCell></TableRow>}
-            </TableBody>
-            {report && report.rows.length > 0 && (
-              <tfoot><tr className="border-t font-bold"><td className="p-3" colSpan={4}>إجمالي العمولات</td><td className="p-3 tabular-nums"><Money value={report.total} /></td></tr></tfoot>
-            )}
-          </Table>
-        </CardContent>
-      </Card>
+      <SellerCommissionsPanel />
     </div>
   );
 }
@@ -1510,14 +1476,22 @@ function DocumentFormDialog({
     { productId: null, description: "", quantity: 1, unitPrice: 0, discountPct: 0, taxRate: defaultTaxRate },
   ]);
   const total = useMemo(() => lines.reduce((a, l) => a + (l.quantity * l.unitPrice * (1 - l.discountPct / 100) * (1 + (vatEnabled ? l.taxRate : 0) / 100)), 0), [lines, vatEnabled]);
+  const sellers = useInvoiceSellers(kind === "invoice");
 
   const submit = async () => {
     if (!customerId) { toast({ title: "اختر العميل", variant: "destructive" }); return; }
-    const cleanLines = lines.filter((l) => l.description && l.quantity > 0);
+    const kept = lines.map((l, i) => ({ l, i })).filter(({ l }) => l.description && l.quantity > 0);
+    const cleanLines = kept.map(({ l }) => l);
     if (cleanLines.length === 0) { toast({ title: "أضف بنوداً", variant: "destructive" }); return; }
+    let sellerFields: Record<string, unknown> = {};
+    if (kind === "invoice") {
+      const built = sellers.build(kept.map(({ i }) => i));
+      if (!built.ok) { toast({ title: built.error, variant: "destructive" }); return; }
+      sellerFields = built.fields;
+    }
     try {
       const path = kind === "quotation" ? "/sales/quotations" : kind === "order" ? "/sales/orders" : "/sales/invoices";
-      const body: { customerId: number; lines: typeof cleanLines; notes: string; validUntil?: string } = { customerId, lines: cleanLines, notes };
+      const body: { customerId: number; lines: typeof cleanLines; notes: string; validUntil?: string } & Record<string, unknown> = { customerId, lines: cleanLines, notes, ...sellerFields };
       if (kind === "quotation" && validUntil) body.validUntil = validUntil;
       await apiPost(path, body);
       toast({ title: kind === "quotation" ? "تم إنشاء عرض السعر" : kind === "order" ? "تم إنشاء أمر البيع" : "تم إنشاء الفاتورة" });
@@ -1580,11 +1554,13 @@ function DocumentFormDialog({
                 <div className="col-span-1 tabular-nums text-sm">
                   <Money value={+(ln.quantity * ln.unitPrice * (1 - ln.discountPct / 100)).toFixed(2)} />
                 </div>
-                <div className="col-span-1"><Button size="sm" variant="ghost" onClick={() => setLines(lines.filter((_, idx) => idx !== i))}>×</Button></div>
+                <div className="col-span-1"><Button size="sm" variant="ghost" onClick={() => { setLines(lines.filter((_, idx) => idx !== i)); sellers.setSel((s) => ({ ...s, lines: {} })); }}>×</Button></div>
               </div>
             ))}
           </div>
         </div>
+
+        {kind === "invoice" && <InvoiceSellerFields state={sellers} lines={lines.map((l, i) => l.description || `بند ${i + 1}`)} />}
 
         <div>
           <Label>ملاحظات</Label>
@@ -1894,27 +1870,6 @@ function CommissionPlanRow({ plan }: { plan: { id: number; name: string; rate: n
       </TableCell>
     </TableRow>
   );
-}
-
-function PostCommissionsButton({ from, to, onPosted }: { from: string; to: string; onPosted: () => void }) {
-  const { toast } = useToast();
-  const [busy, setBusy] = useState(false);
-  const post = async () => {
-    if (!confirm(`ترحيل عمولات الفترة ${from} → ${to}؟`)) return;
-    setBusy(true);
-    try {
-      const r = await apiPost<{ total: number; posted: boolean; alreadyPosted?: boolean; breakdown: Array<{ repId: number | null; commission: number }> }>(
-        "/sales/commissions/post", { from, to },
-      );
-      if (r.alreadyPosted) toast({ title: "سبق ترحيل هذه الفترة", description: `الإجمالي: ${r.total.toFixed(2)}` });
-      else if (!r.posted) toast({ title: "لا توجد عمولات للترحيل" });
-      else toast({ title: "تم الترحيل", description: `إجمالي العمولات: ${r.total.toFixed(2)}` });
-      onPosted();
-    } catch (e) {
-      toast({ title: "تعذّر الترحيل", description: errMsg(e), variant: "destructive" });
-    } finally { setBusy(false); }
-  };
-  return <Button size="sm" onClick={post} disabled={busy}>ترحيل عمولات الفترة</Button>;
 }
 
 function CommissionPlanDialog({ onSuccess }: { onSuccess: () => void }) {

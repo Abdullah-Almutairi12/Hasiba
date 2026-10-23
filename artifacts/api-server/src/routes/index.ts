@@ -48,6 +48,9 @@ import documentsRouter, { signPublicRouter } from "./documents";
 import docsRouter from "./docs";
 import { requireAuth } from "../middlewares/require-auth";
 import { requireCompanyContext } from "../middlewares/require-company-context";
+import printProfileRouter from "./print-profile";
+import operationalDocumentsRouter from "./operational-documents";
+import sellersRouter from "./sellers";
 import { requireSameOrigin } from "../middlewares/require-same-origin";
 import { aggregatePrintGuard,checkDocumentPrint } from "../lib/print-permissions";
 import { FinancialRequestError } from "../lib/financial-transaction";
@@ -108,6 +111,9 @@ router.use(storageRouter);
 
 // Everything past this point operates inside a single tenant.
 router.use(requireCompanyContext);
+router.use(printProfileRouter);
+router.use(operationalDocumentsRouter);
+router.use(sellersRouter);
 router.use("/exports",aggregatePrintGuard);
 router.use(async(req,res,next)=>{
   if(req.method!=="GET")return next();

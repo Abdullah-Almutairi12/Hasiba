@@ -15,6 +15,7 @@ import { RequestTab } from "@/components/returns/request-form";
 import { ApproveButton, ApproveClose, CloseForm, PayoutsTab } from "@/components/returns/actions";
 import { ConfigTab } from "@/components/returns/config-tab";
 import { RecoveryPanel } from "@/components/returns/recovery-panel";
+import { docUrls, fmtDate, PrintDocButton } from "@/lib/print-docs";
 
 type Tab = "notes" | "new" | "payouts" | "sessions" | "reports" | "config";
 
@@ -200,6 +201,16 @@ function NoteCard({ note: n, payouts, sessions, invoices, can, branchName }: {
               <span className="text-muted-foreground">{label(METHODS, str(p.method))}</span>
               <Pill status={str(p.status)} />
               {str(p.reference) && <span dir="ltr" className="text-muted-foreground">{str(p.reference)}</span>}
+              {str(p.created_at) && <span className="text-muted-foreground">{fmtDate(p.created_at)}</span>}
+              {payoutPrintKind(p) === "voucher" && (
+                <PrintDocButton id={num(p.id)} url={docUrls.refund} filename={`refund-${str(p.id)}.pdf`} label="سند الصرف" variant="ghost" testId={`button-print-refund-${str(p.id)}`} />
+              )}
+              {payoutPrintKind(p) === "request" && (
+                <>
+                  <span className="text-violet-700 dark:text-violet-300">طلب غير منفذ — لم يُرسل لأي مزود ولم يُصرف</span>
+                  <PrintDocButton id={num(p.id)} url={docUrls.refund} filename={`refund-request-${str(p.id)}.pdf`} label="طباعة طلب الاسترداد (غير منفذ)" variant="ghost" testId={`button-print-refund-${str(p.id)}`} />
+                </>
+              )}
             </li>
           ))}
         </ul>
@@ -207,6 +218,7 @@ function NoteCard({ note: n, payouts, sessions, invoices, can, branchName }: {
 
       <div className="mt-3 flex flex-wrap gap-2">
         {can("approve") && pending && <ApproveButton noteId={id} />}
+        {!pending && <PrintDocButton id={num(n.id)} url={docUrls.creditNote} filename={`credit-note-${id}.pdf`} label="طباعة الإشعار الدائن" testId={`button-print-credit-${id}`} />}
         {can("payout") && !pending && remaining > 0 && !showForm && (
           <Button size="sm" onClick={() => setPaying(true)}><Wallet className="me-1 size-4" /> تسجيل صرف</Button>
         )}
@@ -252,6 +264,12 @@ function SessionCard({ s, can, branchName, meId, accounts }: {
           {can("close") && <CloseForm sessionId={str(s.id)} expected={num(s.expected) ?? 0} />}
         </div>
       )}
+      {cs && (can("close") || can("reports") || can("difference")) && (
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <PrintDocButton id={num(s.id)} url={docUrls.closing} filename={`shift-closing-${str(s.id)}.pdf`} label={closingPrintLabel(cs)} testId={`button-print-closing-${str(s.id)}`} />
+          <span className="text-[11px] text-muted-foreground" data-testid={`closing-state-${str(s.id)}`}>حالة الإغلاق الحالية: {statusTone(cs).text}</span>
+        </div>
+      )}
       {pendingClose && (
         <div className="mt-3 rounded-xl bg-amber-50 p-3 text-xs text-amber-900 dark:bg-amber-950/40 dark:text-amber-100">
           إغلاق بفرق بانتظار اعتماد مستخدم مخول آخر.
@@ -261,4 +279,20 @@ function SessionCard({ s, can, branchName, meId, accounts }: {
       )}
     </article>
   );
+}
+
+/** Confirmed payouts print a voucher; requested electronic refunds print an explicitly unexecuted request. */
+export function payoutPrintKind(p: Rec): "voucher" | "request" | null {
+  const st = str(p.status).toLowerCase();
+  if (st.includes("cancel") || st.includes("reject")) return null;
+  if (st === "requested") return str(p.method) !== "cash" ? "request" : null;
+  if (st.includes("pending")) return null;
+  return "voucher";
+}
+
+export function closingPrintLabel(closingStatus: string): string {
+  const k = closingStatus.toLowerCase();
+  if (k.includes("pending") || k.includes("await")) return "طباعة الإغلاق (بانتظار الاعتماد)";
+  if (k.includes("approv")) return "طباعة الإغلاق (معتمد)";
+  return "تقرير إغلاق الوردية";
 }

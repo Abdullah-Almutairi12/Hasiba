@@ -52,6 +52,7 @@ describe("customer invoice form retry", () => {
         return Response.json({ exhaustedCount: 0, maxAttempts: 3 });
       }
       if (path === "/api/sales/quotations") return Response.json([]);
+      if (path === "/api/sales/sellers/workspace") return Response.json({ policy: { mode: "hidden", granularity: "invoice" }, sellers: [], branches: [] });
       if (path === "/api/customers") return Response.json([{ id: 7, name: "عميل الاختبار" }]);
       if (path === "/api/products") {
         return Response.json([{ id: 12, nameAr: "منتج الاختبار", price: 20 }]);

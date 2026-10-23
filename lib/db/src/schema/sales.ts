@@ -77,6 +77,8 @@ export const discountRulesTable = pgTable("discount_rules", {
 // =====================================================================
 export const commissionPlansTable = pgTable("commission_plans", {
   id: serial("id").primaryKey(),
+  /** Legacy NULL ownership is unproven; never infer a company from the caller. */
+  companyId: integer("company_id").references(() => companiesTable.id),
   name: text("name").notNull(),
   // Percent of net revenue per period
   rate: numeric("rate", { precision: 5, scale: 2 }).notNull().default("0"),

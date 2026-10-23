@@ -1,5 +1,6 @@
 import { randomUUID, createHash } from "node:crypto";
 import { Router } from "express";
+import { captureIssuer, saveIssuer } from "../lib/document-identity";
 import { z } from "zod/v4";
 import { db, pool, posSessionsTable, creditNotesTable } from "@workspace/db";
 import { sql, eq, and } from "drizzle-orm";
@@ -159,6 +160,7 @@ async function payout(tx: Tx, companyId: number, userId: number, input: unknown)
     VALUES(${companyId},${note.id},${note.invoiceId!},${b.receiptId},${b.sessionId},${String(b.amount)},${b.method},
       ${b.method === "cash" ? "confirmed" : "requested"},${reference + " / " + b.reference},${b.idempotencyKey},${fingerprint},${userId},
       ${b.method === "cash" ? userId : null},${journalId},${b.method === "cash" ? new Date() : null}) RETURNING *`);
+  await saveIssuer(tx,"refund",Number(created.id),await captureIssuer(tx,companyId));
   return created;
 }
 
@@ -234,6 +236,7 @@ async function closeShift(tx: Tx, companyId: number, userId: number, input: unkn
   const [closing] = await query(tx, sql`INSERT INTO pos_cash_closings(session_id,company_id,expected,counted,difference,reason,status,created_by,approved_by,approved_at)
     VALUES(${session.id},${companyId},${String(summary.expected)},${String(b.counted)},${money(difference)},${b.reason},${status},${userId},
       ${difference === 0 ? userId : null},${difference === 0 ? new Date() : null}) RETURNING *`);
+  await saveIssuer(tx,"closing",session.id,await captureIssuer(tx,companyId));
   await tx.update(posSessionsTable).set({ status: difference === 0 ? "closed" : "closing", closedAt: difference === 0 ? new Date() : null }).where(eq(posSessionsTable.id, session.id));
   return closing;
 }

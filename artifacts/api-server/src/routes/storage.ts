@@ -3,6 +3,7 @@ import { randomUUID } from "crypto";
 import { z } from "zod/v4";
 import { ObjectStorageService, ObjectNotFoundError, objectStorageClient } from "../lib/objectStorage";
 import { handleRouteError } from "../lib/handle-error";
+import { returnActor } from "../lib/return-access";
 
 const router = Router();
 const storage = new ObjectStorageService();
@@ -83,6 +84,13 @@ router.get("/storage/objects/*splat", async (req, res) => {
     const raw = (req.params as Record<string, string | string[]>)["splat"];
     const objectKey = Array.isArray(raw) ? raw.join("/") : raw;
     if (!objectKey) return res.status(400).json({ error: "missing key" });
+    // New print logos are tenant-owned immutable assets, not public opaque URLs.
+    if(objectKey.startsWith("company-print/")){
+      const match=/^company-print\/(\d+)\//.exec(objectKey);
+      if(!match||!req.session.userId||Number(match[1])!==req.session.companyId)
+        return res.status(404).json({error:"not found"});
+      await returnActor(req.session.userId,Number(match[1]));
+    }
 
     const privateDir = process.env["PRIVATE_OBJECT_DIR"] ?? "";
     if (!privateDir) return res.status(500).json({ error: "object storage not configured" });

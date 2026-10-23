@@ -1,5 +1,6 @@
 import type { Response } from "express";
 import { ZodError } from "zod";
+import { ZodError as ZodErrorV4 } from "zod/v4";
 import { ClosedPeriodError } from "./journal-posting";
 
 /**
@@ -8,7 +9,7 @@ import { ClosedPeriodError } from "./journal-posting";
  * everything else.
  */
 export function handleRouteError(err: unknown, res: Response): void {
-  if (err instanceof ZodError) {
+  if (err instanceof ZodError || err instanceof ZodErrorV4) {
     res.status(400).json({
       error: "بيانات غير صالحة",
       details: err.issues.map((i) => ({ path: i.path.join("."), message: i.message })),

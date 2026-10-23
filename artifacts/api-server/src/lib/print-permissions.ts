@@ -22,10 +22,15 @@ export async function checkDocumentPrint(req:Request, kind:"invoice"|"supplier"|
   const a=await returnActor(req.session.userId!,companyId);
   if(a.custom) await returnAuthorize(a.userId,companyId,"view");
   const queries={
-    invoice:"SELECT branch_id FROM customer_invoices WHERE id=$1 AND company_id=$2",
+    invoice:`SELECT coalesce(i.branch_id,b.id) AS branch_id FROM customer_invoices i
+      LEFT JOIN sales_orders so ON so.id=i.so_id AND so.company_id=i.company_id AND so.source='pos'
+      LEFT JOIN pos_orders o ON so.notes='POS '||o.order_number AND o.company_id=i.company_id
+      LEFT JOIN pos_sessions s ON s.id=o.session_id
+      LEFT JOIN branches b ON b.id=s.branch_id AND b.company_id=i.company_id
+      WHERE i.id=$1 AND i.company_id=$2`,
     supplier:"SELECT NULL::integer AS branch_id FROM invoices WHERE id=$1 AND company_id=$2",
     po:"SELECT NULL::integer AS branch_id FROM purchase_orders WHERE id=$1 AND company_id=$2",
-    pos:"SELECT s.branch_id FROM pos_orders o JOIN pos_sessions s ON s.id=o.session_id AND s.company_id=o.company_id WHERE o.id=$1 AND o.company_id=$2",
+    pos:"SELECT s.branch_id FROM pos_orders o JOIN pos_sessions s ON s.id=o.session_id JOIN branches b ON b.id=s.branch_id AND b.company_id=o.company_id WHERE o.id=$1 AND o.company_id=$2",
   };
   const {rows}=await pool.query(queries[kind],[id,companyId]);
   if(!rows.length)throw new FinancialRequestError("المستند غير موجود",404);

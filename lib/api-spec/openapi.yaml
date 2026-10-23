@@ -30,6 +30,32 @@ tags:
   - name: auth
     description: Authentication & session management
 paths:
+  /sales/sellers/workspace:
+    $ref: "./seller-paths.yaml#/workspace"
+  /sales/sellers/configure:
+    $ref: "./seller-paths.yaml#/configure"
+  /sales/sellers/eligibility:
+    $ref: "./seller-paths.yaml#/eligibility"
+  /sales/sellers/report:
+    $ref: "./seller-paths.yaml#/report"
+  /sales/invoices/{id}/attribution:
+    $ref: "./seller-paths.yaml#/attribution"
+  /sales/commissions/{id}/state:
+    $ref: "./seller-paths.yaml#/commissionState"
+  /print/profile:
+    $ref: "./print-paths.yaml#/profile"
+  /print/profile/logo:
+    $ref: "./print-paths.yaml#/logo"
+  /pos/orders/{id}/receipt.pdf:
+    $ref: "./print-paths.yaml#/receipt"
+  /sales/credit-notes/{id}/pdf:
+    $ref: "./print-paths.yaml#/credit"
+  /pos/refunds/{id}/pdf:
+    $ref: "./print-paths.yaml#/refund"
+  /pos/sessions/{id}/closing.pdf:
+    $ref: "./print-paths.yaml#/closing"
+  /sales/invoices/{id}/identity-check:
+    $ref: "./print-paths.yaml#/identityCheck"
   /pos/returns/workspace:
     get:
       operationId: getReturnWorkspace
@@ -3889,7 +3915,7 @@ components:
           properties:
             standardRated: { type: number }
             zeroRated: { type: number }
-            exempt: { type: number }
+            exempt: { type: [number, "null"] }
           required: [standardRated, zeroRated, exempt]
         outputVat:
           type: object
@@ -4524,6 +4550,17 @@ components:
     PosOrder:
       type: object
       properties:
+        sellerAttribution:
+          type: array
+          description: Saved seller names and IDs from the committed sale, not today's employee picker.
+          items:
+            type: object
+            required: [invoiceLineId,employeeId,sellerName,revision]
+            properties:
+              invoiceLineId: { type: integer }
+              employeeId: { type: [integer, "null"] }
+              sellerName: { type: string }
+              revision: { type: integer }
         id:
           type: integer
         orderNumber:
@@ -4590,6 +4627,17 @@ components:
     CreatePosOrderBody:
       type: object
       properties:
+        sellerEmployeeId:
+          type: [integer, "null"]
+          description: Employee seller, never implicitly the cashier.
+        lineSellers:
+          type: array
+          items:
+            type: object
+            required: [lineIndex, employeeId]
+            properties:
+              lineIndex: { type: integer, minimum: 0 }
+              employeeId: { type: [integer, "null"] }
         sessionId:
           type: integer
         items:

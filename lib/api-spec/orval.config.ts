@@ -17,6 +17,7 @@ export default defineConfig({
   "api-client-react": {
     input: {
       target: "./openapi.yaml",
+      parserOptions: { externalRefs: { allow: ["./print-paths.yaml","./seller-paths.yaml"] } },
       override: {
         transformer: titleTransformer,
       },
@@ -44,6 +45,7 @@ export default defineConfig({
   zod: {
     input: {
       target: "./openapi.yaml",
+      parserOptions: { externalRefs: { allow: ["./print-paths.yaml","./seller-paths.yaml"] } },
       override: {
         transformer: titleTransformer,
       },

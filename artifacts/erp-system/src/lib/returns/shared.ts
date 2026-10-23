@@ -38,6 +38,8 @@ const VIOLET = "bg-violet-100 text-violet-900 dark:bg-violet-950 dark:text-viole
 const SLATE = "bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-200";
 
 const EXACT: Record<string, { text: string; cls: string }> = {
+  partially_paid: { text: "مدفوع جزئيًا", cls: AMBER },
+  partially_refunded: { text: "مسترد جزئيًا", cls: AMBER },
   requested: { text: "مطلوب — لم يُرسل لأي مزود", cls: VIOLET },
   external_confirmed: { text: "توثيق رد خارجي (يدوي)", cls: SKY },
   cancelled: { text: "ملغى", cls: ROSE },

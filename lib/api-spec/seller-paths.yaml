@@ -1,0 +1,132 @@
+workspace:
+  get:
+    operationId: getSellerWorkspace
+    tags: [pos]
+    parameters:
+      - { name: branchId, in: query, schema: { type: integer, minimum: 1 } }
+    responses:
+      "200":
+        description: Effective inherited policy, eligible employee sellers, permitted branches; managers also get configuration data
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: true }
+configure:
+  post:
+    operationId: configureSellerPolicy
+    tags: [pos]
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [branchId, inherit, mode, granularity, commissionEnabled, effectiveFrom]
+            properties:
+              branchId: { type: integer, minimum: 0 }
+              inherit: { type: boolean }
+              mode: { type: string, enum: [hidden, optional, required] }
+              granularity: { type: string, enum: [invoice, line] }
+              commissionEnabled: { type: boolean }
+              commissionPlanId: { type: [integer, "null"] }
+              commissionRatePercent: { type: number, minimum: 0, maximum: 100 }
+              effectiveFrom: { type: string, format: date-time }
+    responses:
+      "200":
+        description: New immutable effective policy version
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: true }
+eligibility:
+  post:
+    operationId: configureSellerEligibility
+    tags: [pos]
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [employeeId, enabled, branchIds]
+            properties:
+              employeeId: { type: integer }
+              enabled: { type: boolean }
+              branchIds:
+                type: [array, "null"]
+                items: { type: integer }
+    responses:
+      "200":
+        description: Company employee eligibility, null branchIds explicitly means all company branches
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: true }
+report:
+  get:
+    operationId: getSellerReport
+    tags: [reports]
+    parameters:
+      - { name: from, in: query, required: true, schema: { type: string, format: date } }
+      - { name: to, in: query, required: true, schema: { type: string, format: date } }
+      - { name: branchId, in: query, schema: { type: integer } }
+      - { name: sellerId, in: query, schema: { type: integer } }
+    responses:
+      "200":
+        description: Source-linked pre-VAT sales/discounts/returns/cancellations/net and unique invoices by seller/currency; append-only commission states
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: true }
+attribution:
+  post:
+    operationId: correctInvoiceAttribution
+    tags: [pos]
+    parameters: [{ $ref: "#/parameters/Id" }]
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [reason, sellerEmployeeId, lineSellers]
+            properties:
+              reason: { type: string, minLength: 5 }
+              sellerEmployeeId: { type: [integer, "null"] }
+              lineSellers:
+                type: array
+                items:
+                  type: object
+                  required: [invoiceLineId, employeeId]
+                  properties:
+                    invoiceLineId: { type: integer }
+                    employeeId: { type: [integer, "null"] }
+    responses:
+      "200":
+        description: Audited attribution correction only; immutable approved/paid commissions get new adjustment events, never rewritten or paid
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: true }
+commissionState:
+  post:
+    operationId: changeCommissionState
+    tags: [pos]
+    parameters: [{ $ref: "#/parameters/Id" }]
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [action, reference]
+            properties:
+              action: { type: string, enum: [approve, record_paid] }
+              reference: { type: string, minLength: 5 }
+    responses:
+      "200":
+        description: Approve or record evidence of external payment only; no payout/provider call/journal
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: true }
+parameters:
+  Id:
+    name: id
+    in: path
+    required: true
+    schema: { type: integer, minimum: 1 }

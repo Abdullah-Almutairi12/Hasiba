@@ -7,7 +7,9 @@ export { getCompanyInfo, getCompanyInfoFromEnv } from "./purchase-order";
 export type { CompanyInfo, PoPdfInput } from "./purchase-order";
 export type { CustomerInvoicePdfInput } from "./customer-invoice";
 export type { SupplierInvoicePdfInput } from "./supplier-invoice";
-const money=(v:number,currency="SAR")=>`${new Intl.NumberFormat("en-US",{minimumFractionDigits:2,maximumFractionDigits:2}).format(v)} ${currency}`;
+const money=(v:number|null,currency="SAR")=>v===null?"غير متاح":`${new Intl.NumberFormat("en-US",{minimumFractionDigits:2,maximumFractionDigits:2}).format(v)} ${currency}`;
+const statusLabel=(v:string)=>({partially_paid:"مدفوعة جزئيًا",paid:"مدفوعة",open:"غير مسددة",draft:"مسودة",cancelled:"ملغاة",issued:"صادرة"}[v]??v);
+const readableDate=(v:string)=>/^\d{4}-\d{2}-\d{2}$/.test(v)?v.split("-").reverse().join("/"):v;
 const langTitle=(ar:string,en:string,language:"ar"|"en")=>language==="ar"?ar:en;
 export function buildVatReturnPdf(v:VatReturn,c:CompanyInfo=getCompanyInfoFromEnv(),language:"ar"|"en"="ar") {
   const label=(ar:string,en:string)=>langTitle(ar,en,language);
@@ -20,15 +22,16 @@ export function buildVatReturnPdf(v:VatReturn,c:CompanyInfo=getCompanyInfoFromEn
 }
 function commercial(input:{reference:string;date:string;currency:string;party:string;metadata?:Array<[string,string]>;lines:PoPdfInput["lines"];subtotal?:number;discount?:number;vat?:number;total:number;paid?:number;vatEnabled?:boolean;notes?:string|null;qr?:string|null},company:CompanyInfo,title:string):Promise<Buffer> {
   const vat=input.vatEnabled!==false;
-  const options:PrintDocument={company,title,metadata:[["المرجع",input.reference],["التاريخ",input.date],["الطرف",input.party],["العملة",input.currency],...(input.metadata??[])],headers:["الوصف","الكمية","سعر الوحدة",...(vat?["الضريبة %"]:[]),"الإجمالي"],rows:input.lines.map(l=>[l.description,l.quantity,money(l.unitPrice,input.currency),...(vat?[`${l.taxRate}%`]:[]),money(l.lineTotal,input.currency)]),
+  const options:PrintDocument={company,title,metadata:[["المرجع",input.reference],["التاريخ",readableDate(input.date)],["الطرف",input.party],["العملة",input.currency],...(input.metadata??[])],headers:["الوصف","الكمية","سعر الوحدة",...(vat?["الضريبة %"]:[]),"الإجمالي"],rows:input.lines.map(l=>[l.description,l.quantity,money(l.unitPrice,input.currency),...(vat?[`${l.taxRate}%`]:[]),money(l.lineTotal,input.currency)]),
     totals:[...(input.subtotal!=null?[["قبل الضريبة",money(input.subtotal,input.currency)] as [string,string]]:[]),...(input.discount?[["الخصم",money(-input.discount,input.currency)] as [string,string]]:[]),...(vat&&input.vat!=null?[["ضريبة القيمة المضافة",money(input.vat,input.currency)] as [string,string]]:[]),["الإجمالي",money(input.total,input.currency)],...(input.paid!=null?[["المدفوع",money(input.paid,input.currency)] as [string,string],["المتبقي",money(Math.max(0,input.total-input.paid),input.currency)] as [string,string]]:[])],
     notes:[input.notes??"",company.termsAr,...(company.bankName||company.bankIban?[`${company.bankName} | IBAN ${company.bankIban}`]:[])].filter(Boolean),qr:vat?input.qr:undefined};
   return buildPrintPdf(options);
 }
 function partyMetadata(p:object):Array<[string,string]>{const labels:Record<string,string>={vatNumber:"الرقم الضريبي للطرف",email:"بريد الطرف",phone:"هاتف الطرف",address:"عنوان الطرف"};return Object.entries(p).filter(([k,v])=>labels[k]&&v!=null&&String(v)!=="").map(([k,v])=>[labels[k]!,String(v)]);}
 export function buildCustomerInvoicePdf(i:CustomerInvoicePdfInput,c:CompanyInfo=getCompanyInfoFromEnv()) {
-  const registered=(c as CompanyInfo&{vatEnabled?:boolean}).vatEnabled??true;
-  return commercial({reference:i.reference,date:i.invoiceDate,currency:i.currencyCode,party:i.customer.name,metadata:[["الاستحقاق",i.dueDate??"—"],["الحالة",i.status],...partyMetadata(i.customer)],lines:i.lines,subtotal:i.subtotal,discount:i.discount,vat:i.vat,total:i.total,paid:i.amountPaid,vatEnabled:registered,notes:i.notes,qr:i.zatcaQrDataUrl},c,registered?"فاتورة ضريبية":"فاتورة");
+  const issuer=c as CompanyInfo&{vatEnabled?:boolean;verifiedSnapshot?:boolean};
+  const registered=issuer.verifiedSnapshot===false?null:issuer.vatEnabled??true;
+  return commercial({reference:i.reference,date:i.invoiceDate,currency:i.currencyCode,party:i.customer.name,metadata:[["الاستحقاق",i.dueDate?readableDate(i.dueDate):"غير متاح"],["الحالة",statusLabel(i.status)],...partyMetadata(i.customer)],lines:i.lines,subtotal:i.subtotal,discount:i.discount,vat:i.vat,total:i.total,paid:i.amountPaid,vatEnabled:registered??true,notes:registered===null?[i.notes,"هوية الإصدار غير محفوظة؛ الأرقام والرمز من المستند الأصلي ولا يعاد توليدهما."].filter(Boolean).join("\n"):i.notes,qr:i.zatcaQrDataUrl},c,registered===true?"فاتورة ضريبية":"فاتورة");
 }
 export function buildPurchaseOrderPdf(i:PoPdfInput,c:CompanyInfo=getCompanyInfoFromEnv()) {return commercial({reference:i.reference,date:i.orderDate,currency:i.currencyCode,party:i.supplier.name,metadata:[["التسليم المتوقع",i.expectedDate??"—"],...partyMetadata(i.supplier)],lines:i.lines,subtotal:i.subtotal,vat:i.vat,total:i.total,vatEnabled:i.vatEnabled,notes:i.notes},c,"أمر شراء");}
-export function buildSupplierInvoicePdf(i:SupplierInvoicePdfInput,c:CompanyInfo=getCompanyInfoFromEnv()) {return commercial({reference:i.invoiceNumber,date:i.invoiceDate??"—",currency:i.currencyCode,party:i.supplier.name,metadata:[["الاستحقاق",i.dueDate??"—"],["الحالة",i.status],["أمر الشراء",i.poReference??"—"],...partyMetadata(i.supplier)],lines:i.lines.length?i.lines:[{description:i.notes??"ملخص فاتورة المورد",quantity:1,unitPrice:i.amount,taxRate:0,lineTotal:i.amount}],total:i.amount,vatEnabled:i.vatEnabled,notes:i.notes,qr:i.zatcaQrDataUrl},c,"فاتورة مورد");}
+export function buildSupplierInvoicePdf(i:SupplierInvoicePdfInput,c:CompanyInfo=getCompanyInfoFromEnv()) {return commercial({reference:i.invoiceNumber,date:i.invoiceDate??"—",currency:i.currencyCode,party:i.supplier.name,metadata:[["الاستحقاق",i.dueDate??"—"],["الحالة",statusLabel(i.status)],["أمر الشراء",i.poReference??"—"],...partyMetadata(i.supplier)],lines:i.lines.length?i.lines:[{description:i.notes??"ملخص فاتورة المورد",quantity:1,unitPrice:i.amount,taxRate:0,lineTotal:i.amount}],total:i.amount,vatEnabled:i.vatEnabled,notes:i.notes,qr:i.zatcaQrDataUrl},c,"فاتورة مورد");}

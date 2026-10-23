@@ -6,6 +6,12 @@ import { Select,SelectContent,SelectItem,SelectTrigger,SelectValue } from "@/com
 import { FileText,Download } from "lucide-react";
 import { useVatEnabled } from "@/hooks/use-vat-status";
 import { downloadPdf,DownloadError } from "@/lib/download-file";
+import { useGetVatReturn } from "@workspace/api-client-react";
+/** Null means no provable classification: never show it as zero. Proven zeros stay zero. */
+export function fmtSupply(v:unknown,en=false):string{
+  if(typeof v!=="number"||!Number.isFinite(v))return en?"Not available":"غير متاح";
+  return v.toLocaleString(en?"en-US":"ar-SA",{minimumFractionDigits:2,maximumFractionDigits:2});
+}
 export function VatReturnCard(){
   const enabled=useVatEnabled(),{i18n}=useTranslation(),en=i18n.language.startsWith("en");
   const now=new Date(),q=Math.floor(now.getMonth()/3)+1;
@@ -13,6 +19,8 @@ export function VatReturnCard(){
   const [quarter,setQuarter]=useState(String(q===1?4:q-1));
   const [busy,setBusy]=useState(false),[error,setError]=useState<DownloadError|null>(null);
   const working=useRef(false);
+  const vr=useGetVatReturn({year:Number(year),quarter:Number(quarter)},{query:{enabled,retry:false}});
+  const vd=vr.data as {supplies?:Record<string,unknown>}|undefined;const sup=vd&&!(vd instanceof Blob)?vd.supplies:undefined;
   const years=useMemo(()=>Array.from({length:4},(_,i)=>now.getFullYear()-i),[now.getFullYear()]);
   if(!enabled)return null;
   async function download(){
@@ -31,6 +39,7 @@ export function VatReturnCard(){
   <Select value={year} onValueChange={setYear} disabled={busy}><SelectTrigger className="h-9 w-28" data-testid="select-vat-year"><SelectValue/></SelectTrigger><SelectContent>{years.map(y=><SelectItem key={y} value={String(y)}>{y}</SelectItem>)}</SelectContent></Select>
   <Select value={quarter} onValueChange={setQuarter} disabled={busy}><SelectTrigger className="h-9 w-28" data-testid="select-vat-quarter"><SelectValue/></SelectTrigger><SelectContent>{[1,2,3,4].map(n=><SelectItem key={n} value={String(n)}>{en?"Quarter":"الربع"} {n}</SelectItem>)}</SelectContent></Select>
   </div>
+  {sup&&<dl className="grid grid-cols-3 gap-2 text-center text-xs" data-testid="vat-supplies">{([["standardRated",en?"Standard":"خاضعة"],["zeroRated",en?"Zero-rated":"صفرية"],["exempt",en?"Exempt":"معفاة"]] as const).map(([k,l])=><div key={k} className="rounded border p-2"><dt className="text-muted-foreground">{l}</dt><dd className="font-mono" data-testid={`vat-supply-${k}`}>{fmtSupply(sup[k],en)}</dd></div>)}</dl>}
   <Button type="button" size="sm" disabled={busy} onClick={download} className="w-full gap-2" data-testid="button-vat-return-download"><Download className="size-4"/>{busy?(en?"Generating…":"جارٍ الإنشاء…"):`${en?"Download":"تنزيل"} PDF — ${year} Q${quarter}`}</Button>
   {error&&<div role="alert" className="space-y-2 rounded border border-destructive/40 p-3 text-sm"><p>{en?"Report download failed":error.message}</p><p dir="ltr">{error.diagnosticRef}</p><Button type="button" variant="outline" size="sm" onClick={()=>navigator.clipboard.writeText(error.diagnosticRef)}>{en?"Copy diagnostic reference":"نسخ مرجع التشخيص"}</Button></div>}
   </CardContent></Card>;

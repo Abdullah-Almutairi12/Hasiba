@@ -50,6 +50,11 @@ import { postJournalEntry, reverseJournalEntry, ClosedPeriodError } from "../lib
 import { getCompanyId } from "../lib/scoped-db";
 import { financialTransaction, FinancialRequestError } from "../lib/financial-transaction";
 import { buildZatcaQrBase64 } from "../lib/zatca-qr";
+import { captureIssuer, saveIssuer, documentIssuer } from "../lib/document-identity";
+import { recordSaleSellers, recordReturnSellers, cancelSellerInvoice,savedSellerLines,sellerLineDescription } from "../lib/seller-ledger";
+import { resolveSellerBranch } from "../lib/seller-policy";
+import { returnActor } from "../lib/return-access";
+import { printableIssuer } from "../lib/pdf/print-company";
 import { getCompanyInfo } from "../lib/pdf/purchase-order";
 import { getPrintCompany } from "../lib/pdf/print-company";
 import { buildCustomerInvoicePdf } from "../lib/pdf/business-documents";
@@ -224,6 +229,7 @@ async function finalizeCreditNoteCancellation(
       .set({ status: "cancelled" })
       .where(and(eq(creditNotesTable.id, id), eq(creditNotesTable.companyId, companyId)))
       .returning();
+    await recordReturnSellers(tx,companyId,id,sessionUserId,true);
 
     // Mirror cascade: if this CN had a debit-note mirror in a sibling
     // company, void it inside the same transaction.
@@ -375,6 +381,8 @@ async function finalizeCreditNoteIssue(
       .update(creditNotesTable)
       .set({ journalEntryId: je.id, inventoryCost: String(restockedCost), status: "issued" })
       .where(eq(creditNotesTable.id, noteId));
+    await saveIssuer(tx, "credit", noteId, await captureIssuer(tx, companyId));
+    await recordReturnSellers(tx,companyId,noteId,sessionUserId);
     // Intercompany mirror: when the source customer invoice was itself
     // mirrored to a sibling company, emit a debit-note (negative supplier
     // invoice) in that sibling so AP and AR stay symmetric.
@@ -639,7 +647,7 @@ router.post("/sales/discount-rules", adminGuard, async (req, res) => {
 // ===================================================================
 router.get("/sales/commission-plans", reportReadGuard, async (req, res) => {
   try {
-    const rows = await db.select().from(commissionPlansTable);
+    const rows = await db.select().from(commissionPlansTable).where(eq(commissionPlansTable.companyId,getCompanyId(req)));
     res.json(rows.map((r) => ({
       ...r,
       rate: Number(r.rate),
@@ -664,6 +672,7 @@ router.post("/sales/commission-plans", adminGuard, async (req, res) => {
     const [row] = await db
       .insert(commissionPlansTable)
       .values({
+        companyId:getCompanyId(req),
         name: b.name,
         rate: String(b.rate),
         quota: String(b.quota),
@@ -685,6 +694,9 @@ router.post("/sales/commission-plans/:id/assign", adminGuard, async (req, res) =
       effectiveTo: z.string().nullable().optional(),
     });
     const b = Body.parse(req.body);
+    const allowed=await db.execute(sql`SELECT p.id FROM commission_plans p JOIN user_companies uc ON uc.company_id=p.company_id
+      JOIN users u ON u.id=uc.user_id AND u.is_active WHERE p.id=${Number(req.params.id)} AND p.company_id=${getCompanyId(req)} AND uc.user_id=${b.userId}`);
+    if(!allowed.rows.length)throw new FinancialRequestError("الخطة أو المندوب ليس ضمن الشركة",404);
     const [row] = await db
       .insert(salesRepAssignmentsTable)
       .values({
@@ -722,19 +734,20 @@ router.get("/sales/commission-report", reportReadGuard, async (req, res) => {
         and(
           gte(customerInvoicesTable.invoiceDate, from),
           eq(customerInvoicesTable.companyId, getCompanyId(req)),
+          sql`NOT EXISTS (SELECT 1 FROM invoice_seller_lines a WHERE a.invoice_id=${customerInvoicesTable.id} AND a.company_id=${getCompanyId(req)})`,
           lte(customerInvoicesTable.invoiceDate, to),
           inArray(customerInvoicesTable.status, ["open", "partially_paid", "paid"]),
         ),
       )
       .groupBy(customerInvoicesTable.salesRepId, usersTable.name);
 
-    const plans = await db.select().from(commissionPlansTable).where(eq(commissionPlansTable.isActive, true));
-    const assignments = await db.select().from(salesRepAssignmentsTable);
+    const plans = await db.select().from(commissionPlansTable).where(and(eq(commissionPlansTable.isActive, true),eq(commissionPlansTable.companyId,getCompanyId(req))));
+    const assignments = await db.select().from(salesRepAssignmentsTable).where(inArray(salesRepAssignmentsTable.planId,plans.map(p=>p.id)));
     const planById = new Map(plans.map((p) => [p.id, p]));
     function planFor(userId: number | null): typeof plans[number] | null {
       if (!userId) return null;
-      const a = assignments.find((x) => x.userId === userId);
-      if (!a) return plans[0] ?? null;
+      const a = assignments.find((x) => x.userId === userId && x.effectiveFrom<=from && (!x.effectiveTo||x.effectiveTo>=to));
+      if (!a) return null;
       return planById.get(a.planId) ?? null;
     }
 
@@ -1655,6 +1668,7 @@ router.post("/sales/deliveries/:id/transition", salesWriteGuard, async (req, res
 // Customer Invoices (AR)
 // ===================================================================
 const InvoiceBody = z.object({
+  branchId: z.number().int().positive().nullable().optional(),
   customerId: z.number().int().optional(),
   soId: z.number().int().nullable().optional(),
   invoiceDate: z.string().optional(),
@@ -1942,7 +1956,14 @@ router.get("/sales/invoices/:id", invoiceViewGuard, async (req, res) => {
       .where(and(eq(customerInvoicesTable.id, id), eq(customerInvoicesTable.companyId, companyId), eq(customersTable.companyId, companyId)));
     if (!row) { res.status(404).json({ error: "Not found" }); return; }
     const lines = await db.select().from(customerInvoiceLinesTable).where(eq(customerInvoiceLinesTable.invoiceId, id));
-    res.json({ ...serializeMoneyDoc(row.inv), lines: lines.map(serializeLine) });
+    const actor=await returnActor(req.session.userId!,companyId);
+    const canSee=actor.capabilities.includes("view")&&(actor.branches===null||(row.inv.branchId!==null&&actor.branches.includes(row.inv.branchId)));
+    const attribution=canSee?await savedSellerLines(companyId,id):[],byLine=new Map(attribution.map(a=>[a.invoice_line_id,a]));
+    const first=attribution[0],same=attribution.length>0&&attribution.every(a=>a.employee_id===first!.employee_id);
+    res.json({ ...serializeMoneyDoc(row.inv),hasSellerSnapshot:attribution.length>0,
+      sellerEmployeeId:same?first!.employee_id:null,sellerName:[...new Set(attribution.map(a=>a.seller_name))].join("، "),
+      attributionPolicy:first?{version:first.policy.version,mode:first.policy.mode,granularity:first.policy.granularity}:null,
+      lines: lines.map(l=>{const a=byLine.get(l.id);return {...serializeLine(l),sellerEmployeeId:a?.employee_id??null,sellerName:a?.seller_name??null,sellerRevision:a?.revision??null};}) });
   } catch (err) {
     handleRouteError(err, res);
   }
@@ -1971,7 +1992,8 @@ export async function renderCustomerInvoicePdfById(id: number, companyId: number
     .select()
     .from(customerInvoiceLinesTable)
     .where(eq(customerInvoiceLinesTable.invoiceId, id));
-  const company = await getPrintCompany(companyId);
+  const company = await printableIssuer(await documentIssuer(companyId, "invoice", id));
+  const sellers=new Map((await savedSellerLines(companyId,id)).map(l=>[l.invoice_line_id,l]));
   let qrDataUrl: string | null = null;
   if (head.zatcaQr) {
     try {
@@ -2002,10 +2024,10 @@ export async function renderCustomerInvoicePdfById(id: number, companyId: number
         email: customer?.email ?? null,
         phone: customer?.phone ?? null,
         address: customer?.billingAddress ?? customer?.shippingAddress ?? null,
-        vatNumber: customer?.taxNumber ?? null,
+        vatNumber: customer?.taxNumber === "POS-WALKIN" ? "غير متاح" : customer?.taxNumber ?? null,
       },
       lines: lines.map((l) => ({
-        description: l.description,
+        description: sellerLineDescription(l.description,sellers.get(l.id)),
         quantity: Number(l.quantity),
         unitPrice: Number(l.unitPrice),
         taxRate: Number(l.taxRate),
@@ -2366,15 +2388,6 @@ router.post(
 router.post("/sales/invoices", financeGuard, async (req, res) => {
   try {
     const body = InvoiceBody.parse(req.body);
-    const company = await getCompanyInfo();
-    const sellerNameForZatca =
-      company.nameAr && company.nameAr !== "—"
-        ? company.nameAr
-        : process.env["ZATCA_SELLER_NAME"] ?? "حاسبة AI";
-    const sellerVatForZatca =
-      company.vatNumber && company.vatNumber !== "—"
-        ? company.vatNumber
-        : process.env["ZATCA_VAT_NUMBER"] ?? "300000000000003";
     // Tenant VAT gating: non-registered companies cannot legally
     // charge VAT (ZATCA rule). Force every line's taxRate → 0 and
     // skip the ZATCA QR — regardless of the inbound payload.
@@ -2387,6 +2400,10 @@ router.post("/sales/invoices", financeGuard, async (req, res) => {
       companyRow?.vatRegistrationStatus === "registered" ||
       companyRow?.vatRegistrationStatus === "voluntary";
     const result = await financialTransaction(req, async (tx) => {
+      const issuer = await captureIssuer(tx, getCompanyId(req));
+      const vatEnabled = issuer.vatEnabled;
+      const sellerNameForZatca = issuer.nameAr;
+      const sellerVatForZatca = issuer.vatNumber;
       let customerId = body.customerId;
       let so: typeof salesOrdersTable.$inferSelect | undefined;
       let soLines: typeof salesOrderLinesTable.$inferSelect[] = [];
@@ -2557,7 +2574,7 @@ router.post("/sales/invoices", financeGuard, async (req, res) => {
 
       // Non-registered tenants do not get a ZATCA QR — the badge is
       // reserved for VAT-registered sellers per ZATCA Phase 1.
-      const zatcaQr = vatEnabled
+      const zatcaQr = vatEnabled && !!sellerVatForZatca
         ? buildZatcaQrBase64({
             timestamp: new Date(invoiceDate),
             totalWithVat: totals.total,
@@ -2566,6 +2583,7 @@ router.post("/sales/invoices", financeGuard, async (req, res) => {
             vatNumber: sellerVatForZatca,
           })
         : null;
+      const invoiceBranch=await resolveSellerBranch(tx,getCompanyId(req),req.session.userId!,so?.branchId??body.branchId??null);
       const [inv] = await tx
         .insert(customerInvoicesTable)
         .values({
@@ -2574,7 +2592,7 @@ router.post("/sales/invoices", financeGuard, async (req, res) => {
           soId: so?.id ?? null,
           customerId: customer.id,
           customerName: customer.name,
-          branchId: so?.branchId ?? null,
+          branchId: invoiceBranch,
           salesRepId: so?.salesRepId ?? req.session?.userId ?? null,
           status: "open",
           invoiceDate,
@@ -2596,6 +2614,7 @@ router.post("/sales/invoices", financeGuard, async (req, res) => {
           createdBy: req.session?.userId ?? null,
         })
         .returning();
+      await saveIssuer(tx, "invoice", inv.id, issuer);
 
       for (let i = 0; i < totals.lines.length; i++) {
         const ln = totals.lines[i];
@@ -2626,6 +2645,7 @@ router.post("/sales/invoices", financeGuard, async (req, res) => {
 
       // ====== Post journal entry ======
       // Dr AR (total)  / Cr Sales Revenue (net)  / Cr VAT Output (vat)
+      await recordSaleSellers(tx,getCompanyId(req),inv.id,req.session.userId!,req.body);
       // Plus optional Dr Sales Discount if order-level discount > 0.
       const lines: Array<{ systemKey: string; debit?: number; credit?: number; description?: string }> = [
         { systemKey: "ar", debit: totals.total, description: `فاتورة عميل ${reference}` },
@@ -2956,6 +2976,8 @@ router.post("/sales/invoices/:id/reverse", financeGuard, async (req, res) => {
           status: "cancelled",
         })
         .where(and(eq(customerInvoicesTable.id, orig.id), eq(customerInvoicesTable.companyId, reverseCompanyId)));
+      await cancelSellerInvoice(tx,reverseCompanyId,orig.id,req.session.userId!);
+      await saveIssuer(tx,"invoice",reverse.id,await documentIssuer(reverseCompanyId,"invoice",orig.id));
 
       // Roll back customer aggregates.
       await tx
@@ -3820,50 +3842,9 @@ router.post("/sales/invoices/:id/send", financeGuard, async (req, res) => {
       return;
     }
 
-    const lines = await db
-      .select()
-      .from(customerInvoiceLinesTable)
-      .where(eq(customerInvoiceLinesTable.invoiceId, id));
-    const company = await getPrintCompany(getCompanyId(req));
-    let qrDataUrl: string | null = null;
-    if (head.zatcaQr) {
-      try {
-        qrDataUrl = await QRCode.toDataURL(head.zatcaQr, {
-          errorCorrectionLevel: "M", margin: 1, width: 220,
-        });
-      } catch { qrDataUrl = null; }
-    }
-    const pdf = await buildCustomerInvoicePdf(
-      {
-        reference: head.reference,
-        invoiceDate: head.invoiceDate,
-        dueDate: head.dueDate,
-        currencyCode: head.currencyCode,
-        subtotal: Number(head.subtotal),
-        discount: Number(head.discount),
-        vat: Number(head.vat),
-        total: Number(head.total),
-        amountPaid: Number(head.amountPaid),
-        status: head.status,
-        notes: head.notes,
-        customer: {
-          name: head.customerName,
-          email: customer?.email ?? null,
-          phone: customer?.phone ?? null,
-          address: customer?.billingAddress ?? customer?.shippingAddress ?? null,
-          vatNumber: customer?.taxNumber ?? null,
-        },
-        lines: lines.map((l) => ({
-          description: l.description,
-          quantity: Number(l.quantity),
-          unitPrice: Number(l.unitPrice),
-          taxRate: Number(l.taxRate),
-          lineTotal: Number(l.lineTotal),
-        })),
-        zatcaQrDataUrl: qrDataUrl,
-      },
-      company,
-    );
+    const rendered=await renderCustomerInvoicePdfById(id,getCompanyId(req));
+    if(!rendered.ok){res.status(rendered.status).json({error:rendered.error});return;}
+    const pdf=rendered.pdf;
 
     const subject = body.subject ?? `فاتورة ${head.reference} / Invoice`;
     const emailBody = body.message ?? [
@@ -4005,19 +3986,20 @@ router.post("/sales/commissions/post", financeGuard, async (req, res) => {
           and(
             gte(customerInvoicesTable.invoiceDate, from),
             eq(customerInvoicesTable.companyId, commissionCompanyId),
+            sql`NOT EXISTS (SELECT 1 FROM invoice_seller_lines a WHERE a.invoice_id=${customerInvoicesTable.id} AND a.company_id=${commissionCompanyId})`,
             lte(customerInvoicesTable.invoiceDate, to),
             inArray(customerInvoicesTable.status, ["open", "partially_paid", "paid"]),
           ),
         )
         .groupBy(customerInvoicesTable.salesRepId);
 
-      const plans = await tx.select().from(commissionPlansTable).where(eq(commissionPlansTable.isActive, true));
-      const assignments = await tx.select().from(salesRepAssignmentsTable);
+      const plans = await tx.select().from(commissionPlansTable).where(and(eq(commissionPlansTable.isActive, true),eq(commissionPlansTable.companyId,commissionCompanyId)));
+      const assignments = await tx.select().from(salesRepAssignmentsTable).where(inArray(salesRepAssignmentsTable.planId,plans.map(p=>p.id)));
       const planById = new Map(plans.map((p) => [p.id, p]));
       const planForUser = (userId: number | null) => {
         if (!userId) return null;
-        const a = assignments.find((x) => x.userId === userId);
-        if (!a) return plans[0] ?? null;
+        const a = assignments.find((x) => x.userId === userId && x.effectiveFrom<=from && (!x.effectiveTo||x.effectiveTo>=to));
+        if (!a) return null;
         return planById.get(a.planId) ?? null;
       };
 

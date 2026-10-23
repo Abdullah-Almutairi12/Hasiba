@@ -3,7 +3,7 @@ import { registerArabicFonts } from "./arabic-font";
 import { type CompanyInfo, getCompanyInfoFromEnv } from "./purchase-order";
 import type { VatReturn } from "../vat-return";
 
-const fmt = (n: number) =>
+const fmt = (n: number | null) => n===null ? "غير متاح" :
   new Intl.NumberFormat("en-US", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
