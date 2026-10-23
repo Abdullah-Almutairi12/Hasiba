@@ -102,7 +102,7 @@ export function CompaniesTable() {
               <Building2 className="size-4 text-primary" /> الشركات
             </CardTitle>
             <CardDescription>
-              قائمة كل الكيانات القانونية المسجلة في النظام. التبديل بينها من القائمة العلوية.
+              الشركات التي لديك فيها عضوية مالك صريحة. التبديل بين الشركات المسموح بها من القائمة العلوية.
             </CardDescription>
           </div>
           <Button

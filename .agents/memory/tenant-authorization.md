@@ -9,6 +9,12 @@ Tenant administrators may manage only the active company's membership role. They
 
 **How to apply:** Check both target membership and whether a requested field affects other companies; never use the global user role as the active company's authorization source.
 
+Company ownership is not platform-wide authority. Managing another legal company requires an explicit owner membership there, and a tenant administrator cannot choose another shared user's default company on their behalf.
+
+**Why:** The user's commercial execution plan explicitly separates the platform operator from customer data; the earlier company administration design treated one company's owner as a cross-tenant administrator.
+
+**How to apply:** Keep target-company authorization on every administration API and list, not just in navigation. Preserve this rule when adding group/headquarters supervision: organizational proximity alone is not a membership grant.
+
 Missing company-specific print identity must not fall back to global legacy branding, even if this means omitting bank, logo, or legal profile details until ownership is established.
 
 **Why:** A global configuration can describe another legal entity. A polished invoice with the wrong issuer or bank is worse than an explicitly incomplete profile.

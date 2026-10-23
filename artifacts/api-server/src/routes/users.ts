@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { db, usersTable, branchesTable, userCompaniesTable } from "@workspace/db";
+import { db, usersTable, branchesTable, userCompaniesTable, companiesTable } from "@workspace/db";
 import { desc, eq, and, ne, inArray } from "drizzle-orm";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
@@ -14,6 +14,7 @@ import { recordAudit } from "../lib/audit";
 import { requireCompanyContext } from "../middlewares/require-company-context";
 import { assertCompanyBranch } from "../lib/company-access";
 import { isPublishedBootstrapPassword } from "../lib/bootstrap-password";
+import { assertAnotherActiveOwner } from "../lib/company-ownership";
 
 const router = Router();
 router.use(["/users", "/admin/team-consents"], requireCompanyContext);
@@ -280,13 +281,6 @@ router.patch("/users/:id", adminGuard, async (req, res) => {
     if (globalChange && memberships.some((m) => m.companyId !== companyId)) {
       return res.status(403).json({ error: "لا يمكن تعديل حساب مشترك مع شركة أخرى" });
     }
-    if (membership.role === "owner" && body.role && body.role !== "owner") {
-      const others = await db.select().from(userCompaniesTable).where(and(
-        eq(userCompaniesTable.companyId, companyId), eq(userCompaniesTable.role, "owner"),
-        ne(userCompaniesTable.userId, id),
-      ));
-      if (!others.length) return res.status(400).json({ error: "لا يمكن تعديل آخر مالك" });
-    }
     const update: Record<string, unknown> = {};
     if (body.name !== undefined) update.name = body.name;
     if (body.phone !== undefined) update.phone = body.phone;
@@ -296,11 +290,20 @@ router.patch("/users/:id", adminGuard, async (req, res) => {
     if (body.password !== undefined) update.passwordHash = await bcrypt.hash(body.password, 12);
 
     const updated = await db.transaction(async (tx) => {
+      await tx.select({ id: companiesTable.id }).from(companiesTable)
+        .where(eq(companiesTable.id, companyId)).for("update");
+      const [currentMembership] = await tx.select().from(userCompaniesTable)
+        .where(and(eq(userCompaniesTable.userId, id), eq(userCompaniesTable.companyId, companyId))).limit(1);
+      if (!currentMembership) throw Object.assign(new Error("المستخدم غير موجود"), { status: 404 });
+      if (currentMembership.role === "owner" &&
+        (body.isActive === false || (body.role !== undefined && body.role !== "owner"))) {
+        await assertAnotherActiveOwner(tx, companyId, id);
+      }
       if (body.role !== undefined) await tx.update(userCompaniesTable).set({ role: body.role })
         .where(and(eq(userCompaniesTable.userId, id), eq(userCompaniesTable.companyId, companyId)));
       if (Object.keys(update).length) await tx.update(usersTable).set(update).where(eq(usersTable.id, id));
       const [user] = await tx.select(safeUserColumns).from(usersTable).where(eq(usersTable.id, id));
-      return { ...user, role: body.role ?? membership.role };
+      return { ...user, role: body.role ?? currentMembership.role };
     });
     return res.json({
       ...updated,
@@ -325,24 +328,22 @@ router.delete("/users/:id", ownerOnly, async (req, res) => {
       eq(userCompaniesTable.userId, id), eq(userCompaniesTable.companyId, req.session.companyId!),
     )).limit(1);
     if (!target) return res.status(404).json({ error: "المستخدم غير موجود" });
-    if (target.role === "owner") {
-      const others = await db
-        .select({ id: userCompaniesTable.userId })
-        .from(userCompaniesTable)
-        .where(and(eq(userCompaniesTable.companyId, req.session.companyId!),
-          eq(userCompaniesTable.role, "owner"), ne(userCompaniesTable.userId, id)));
-      if (others.length === 0) {
-        return res.status(400).json({ error: "لا يمكن حذف آخر مالك في النظام" });
-      }
-    }
     // Removing access must not delete an identity used by another tenant.
-    await db.delete(userCompaniesTable).where(and(
-      eq(userCompaniesTable.userId, id), eq(userCompaniesTable.companyId, req.session.companyId!),
-    ));
+    await db.transaction(async (tx) => {
+      const companyId = req.session.companyId!;
+      await tx.select({ id: companiesTable.id }).from(companiesTable)
+        .where(eq(companiesTable.id, companyId)).for("update");
+      const [membership] = await tx.select().from(userCompaniesTable).where(and(
+        eq(userCompaniesTable.userId, id), eq(userCompaniesTable.companyId, companyId),
+      )).limit(1);
+      if (!membership) throw Object.assign(new Error("المستخدم غير موجود"), { status: 404 });
+      if (membership.role === "owner") await assertAnotherActiveOwner(tx, companyId, id);
+      await tx.delete(userCompaniesTable).where(eq(userCompaniesTable.id, membership.id));
+    });
     return res.json({ ok: true });
   } catch (err) {
     req.log.error({ err }, "Error deleting user");
-    return res.status(500).json({ error: "Internal server error" });
+    return handleRouteError(err, res);
   }
 });
 

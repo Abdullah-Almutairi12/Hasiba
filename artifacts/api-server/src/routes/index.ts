@@ -103,8 +103,8 @@ router.use(requireSameOrigin);
 // inside this router using the active company's membership roster.
 router.use(usersRouter);
 router.use(adminRouter);
-// Multi-Company Phase 3: companies CRUD + access matrix. Owner-only and
-// cross-tenant by design — must NOT be wrapped by requireCompanyContext.
+// Company administration validates active context internally; target-company
+// management also requires an explicit owner membership in that company.
 router.use(companiesRouter);
 router.use(appSettingsRouter);
 router.use(storageRouter);

@@ -3536,7 +3536,7 @@ paths:
     get:
       tags: [companies]
       operationId: listCompanies
-      summary: List every tenant (owner-only)
+      summary: List only companies explicitly owned by the caller
       responses:
         "200":
           description: list

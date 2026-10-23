@@ -16724,7 +16724,7 @@ export const getListCompaniesUrl = () => {
 }
 
 /**
- * @summary List every tenant (owner-only)
+ * @summary List only companies explicitly owned by the caller
  */
 export const listCompanies = async ( options?: Parameters<typeof customFetch>[1]): Promise<Company[]> => {
 
@@ -16795,7 +16795,7 @@ export function useListCompanies<TData = Awaited<ReturnType<typeof listCompanies
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 /**
- * @summary List every tenant (owner-only)
+ * @summary List only companies explicitly owned by the caller
  */
 
 export function useListCompanies<TData = Awaited<ReturnType<typeof listCompanies>>, TError = ErrorType<unknown>>(

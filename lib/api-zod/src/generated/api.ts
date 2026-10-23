@@ -3589,7 +3589,7 @@ export const ListApproverCandidatesResponse = zod.array(ListApproverCandidatesRe
 
 
 /**
- * @summary List every tenant (owner-only)
+ * @summary List only companies explicitly owned by the caller
  */
 export const ListCompaniesResponseItem = zod.object({
   "id": zod.number().int(),

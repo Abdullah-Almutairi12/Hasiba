@@ -3,7 +3,7 @@ import request from "supertest";
 import bcrypt from "bcryptjs";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import {
-  db, companiesTable, usersTable, userCompaniesTable, branchesTable,
+  db, companiesTable, usersTable, userCompaniesTable, branchesTable, auditLogsTable,
   customersTable, customerInvoicesTable, posSessionsTable, posOrdersTable,
   paymentGatewaysTable, paymentIntentsTable,
   externalCredentialsTable, marketplaceConnectorsTable, marketplaceOrderImportsTable,
@@ -190,12 +190,115 @@ afterAll(async () => {
   await db.delete(warehousesTable).where(inArray(warehousesTable.companyId, [a, b]));
   await db.delete(branchesTable).where(inArray(branchesTable.id, [branchA, branchB]));
   await db.delete(userCompaniesTable).where(inArray(userCompaniesTable.companyId, [a, b]));
+  await db.delete(auditLogsTable).where(inArray(auditLogsTable.companyId, [a, b]));
   await db.delete(usersTable).where(inArray(usersTable.id, userIds));
   await cleanupCompanyDefaults([a, b]);
   await db.delete(companiesTable).where(inArray(companiesTable.id, [a, b]));
 });
 
 describe("Company role boundaries", () => {
+  it("selects an active company instead of a disabled default, without reviving the disabled tenant", async () => {
+    const [identity] = await db.select().from(usersTable).where(eq(usersTable.id, managerId));
+    const candidate = request.agent(app);
+    await db.update(companiesTable).set({ isActive: false }).where(eq(companiesTable.id, a));
+    try {
+      const login = await candidate.post("/api/auth/login").send({ email: identity.email, password }).expect(200);
+      expect(login.body.companyId).toBe(b);
+      expect(login.body.role).toBe("sales");
+      await candidate.get("/api/users").expect(403);
+      await candidate.post("/api/auth/switch-company").send({ companyId: a }).expect(409);
+      await manager.get("/api/products").expect(403);
+      await manager.get("/api/companies/siblings").expect(403);
+      await owner.get("/api/admin/companies").expect(403);
+      const blocked = request.agent(app);
+      const [ownerIdentity] = await db.select().from(usersTable).where(eq(usersTable.id, userIds[0]));
+      await blocked.post("/api/auth/login").send({ email: ownerIdentity.email, password }).expect(403);
+      await blocked.get("/api/auth/me").expect(401);
+      const [after] = await db.select().from(usersTable).where(eq(usersTable.id, ownerIdentity.id));
+      expect(after.lastLoginAt).toEqual(ownerIdentity.lastLoginAt);
+    } finally {
+      await db.update(companiesTable).set({ isActive: true }).where(eq(companiesTable.id, a));
+    }
+  });
+
+  it("does not treat company ownership as authority over other tenants", async () => {
+    const list = await owner.get("/api/admin/companies").expect(200);
+    expect(list.body.map((company: { id: number }) => company.id)).toEqual([a]);
+    const [before] = await db.select().from(companiesTable).where(eq(companiesTable.id, b));
+    await owner.get(`/api/admin/companies/${b}/users`).expect(404);
+    await owner.patch(`/api/admin/companies/${b}`).send({ name: "Unauthorized change" }).expect(404);
+    await owner.delete(`/api/admin/companies/${b}`).expect(404);
+    await owner.post(`/api/admin/companies/${b}/users`).send({ userId: userIds[0], role: "owner" }).expect(404);
+    await owner.delete(`/api/admin/companies/${b}/users/${foreignUserId}`).expect(404);
+    const [after] = await db.select().from(companiesTable).where(eq(companiesTable.id, b));
+    expect(after).toEqual(before);
+    await owner.get(`/api/admin/companies/${a}/users`).expect(200);
+    await manager.get("/api/admin/companies").expect(403);
+    await shared.get("/api/admin/companies").expect(403);
+    await shared.post("/api/auth/switch-company").send({ companyId: b }).expect(200);
+    try {
+      const owned = await shared.get("/api/admin/companies").expect(200);
+      expect(owned.body.map((company: { id: number }) => company.id)).toEqual([b]);
+      await shared.get(`/api/admin/companies/${b}/users`).expect(200);
+      await shared.get(`/api/admin/companies/${a}/users`).expect(404);
+    } finally {
+      await shared.post("/api/auth/switch-company").send({ companyId: a }).expect(200);
+    }
+  });
+
+  it("keeps the last active owner and denies assignment of unrelated identities", async () => {
+    const ownerId = userIds[0];
+    await owner.post(`/api/admin/companies/${a}/users`).send({ userId: ownerId, role: "sales" }).expect(409);
+    await owner.delete(`/api/admin/companies/${a}/users/${ownerId}`).expect(409);
+    await owner.patch(`/api/users/${ownerId}`).send({ role: "sales" }).expect(409);
+    await owner.patch(`/api/users/${ownerId}`).send({ isActive: false }).expect(409);
+    await owner.post(`/api/admin/companies/${a}/users`).send({ userId: foreignUserId, role: "manager" }).expect(404);
+    const [membership] = await db.select().from(userCompaniesTable).where(and(
+      eq(userCompaniesTable.userId, ownerId), eq(userCompaniesTable.companyId, a),
+    ));
+    expect(membership.role).toBe("owner");
+    expect(await db.select().from(userCompaniesTable).where(and(
+      eq(userCompaniesTable.userId, foreignUserId), eq(userCompaniesTable.companyId, a),
+    ))).toEqual([]);
+  });
+
+  it("serializes concurrent owner demotions across both administration APIs", async () => {
+    const ownerId = userIds[0];
+    await db.update(userCompaniesTable).set({ role: "owner" }).where(and(
+      eq(userCompaniesTable.userId, localUserId), eq(userCompaniesTable.companyId, a),
+    ));
+    try {
+      const [localIdentity] = await db.select().from(usersTable).where(eq(usersTable.id, localUserId));
+      const secondOwner = request.agent(app);
+      await secondOwner.post("/api/auth/login").send({ email: localIdentity.email, password }).expect(200);
+      const results = await Promise.all([
+        owner.post(`/api/admin/companies/${a}/users`).send({ userId: ownerId, role: "sales" }),
+        secondOwner.patch(`/api/users/${localUserId}`).send({ role: "sales" }),
+      ]);
+      expect(results.filter((result) => result.status === 409)).toHaveLength(1);
+      expect(results.filter((result) => result.status === 200 || result.status === 201)).toHaveLength(1);
+      const owners = await db.select().from(userCompaniesTable).where(and(
+        eq(userCompaniesTable.companyId, a), eq(userCompaniesTable.role, "owner"),
+      ));
+      expect(owners).toHaveLength(1);
+    } finally {
+      await db.update(userCompaniesTable).set({ role: "owner" }).where(and(
+        eq(userCompaniesTable.userId, ownerId), eq(userCompaniesTable.companyId, a),
+      ));
+      await db.update(userCompaniesTable).set({ role: "cashier" }).where(and(
+        eq(userCompaniesTable.userId, localUserId), eq(userCompaniesTable.companyId, a),
+      ));
+    }
+  });
+
+  it("does not let a tenant owner change a shared identity's default company", async () => {
+    const before = await db.select().from(userCompaniesTable).where(eq(userCompaniesTable.userId, sharedId));
+    await owner.post(`/api/admin/companies/${a}/users`).send({
+      userId: sharedId, role: "sales", isDefault: true,
+    }).expect(403);
+    expect(await db.select().from(userCompaniesTable).where(eq(userCompaniesTable.userId, sharedId))).toEqual(before);
+  });
+
   it("switching replaces privileges and /auth/me reports the membership role", async () => {
     expect((await manager.get("/api/users")).status).toBe(200);
     const switched = await manager.post("/api/auth/switch-company").send({ companyId: b });

@@ -9,23 +9,18 @@ import { isPublishedBootstrapPassword } from "../lib/bootstrap-password";
 
 /**
  * Look up the company the user should land in after login. Returns the
- * `is_default = true` row when present, otherwise the most recently
- * created membership, otherwise `null` (caller decides what to do).
+ * active default company when present, otherwise the most recently
+ * created valid membership in an active company. Never choose a disabled
+ * tenant or an unsupported membership role just because it is the default.
  */
 async function resolveLoginCompanyId(userId: number): Promise<number | null> {
-  const [def] = await db
-    .select({ companyId: userCompaniesTable.companyId })
+  const memberships = await db
+    .select({ companyId: userCompaniesTable.companyId, role: userCompaniesTable.role })
     .from(userCompaniesTable)
-    .where(and(eq(userCompaniesTable.userId, userId), eq(userCompaniesTable.isDefault, true)))
-    .limit(1);
-  if (def?.companyId) return def.companyId;
-  const [any] = await db
-    .select({ companyId: userCompaniesTable.companyId })
-    .from(userCompaniesTable)
-    .where(eq(userCompaniesTable.userId, userId))
-    .orderBy(desc(userCompaniesTable.createdAt))
-    .limit(1);
-  return any?.companyId ?? null;
+    .innerJoin(companiesTable, eq(companiesTable.id, userCompaniesTable.companyId))
+    .where(and(eq(userCompaniesTable.userId, userId), eq(companiesTable.isActive, true)))
+    .orderBy(desc(userCompaniesTable.isDefault), desc(userCompaniesTable.createdAt), desc(userCompaniesTable.id));
+  return memberships.find((membership) => isRole(membership.role))?.companyId ?? null;
 }
 
 const router = Router();
@@ -84,11 +79,6 @@ router.post("/auth/login", loginLimiter, async (req, res) => {
       return res.status(401).json({ error: "البريد الإلكتروني أو كلمة المرور غير صحيحة" });
     }
 
-    await db
-      .update(usersTable)
-      .set({ lastLoginAt: new Date() })
-      .where(eq(usersTable.id, user.id));
-
     const companyId = await resolveLoginCompanyId(user.id);
     if (!companyId) {
       return res
@@ -104,6 +94,8 @@ router.post("/auth/login", loginLimiter, async (req, res) => {
     if (!membership || !isRole(membership.role)) {
       return res.status(403).json({ error: "ليس لديك وصول إلى هذه الشركة" });
     }
+
+    await db.update(usersTable).set({ lastLoginAt: new Date() }).where(eq(usersTable.id, user.id));
 
     req.session.regenerate((regenErr) => {
       if (regenErr) {

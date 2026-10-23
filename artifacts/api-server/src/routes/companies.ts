@@ -5,10 +5,12 @@ import {
   userCompaniesTable,
   usersTable,
 } from "@workspace/db";
-import { and, asc, desc, eq, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import { ownerOnly } from "../middlewares/require-role";
 import { ALL_ROLES, isRole } from "../middlewares/require-role";
+import { requireCompanyContext } from "../middlewares/require-company-context";
+import { assertAnotherActiveOwner } from "../lib/company-ownership";
 import { handleRouteError } from "../lib/handle-error";
 import { recordAudit } from "../lib/audit";
 import {
@@ -18,6 +20,9 @@ import {
 } from "../lib/company-service";
 
 const router = Router();
+// Company administration is tenant authority, not platform-wide authority.
+// Revalidate membership even on endpoints mounted before the global scope guard.
+router.use(requireCompanyContext);
 
 // ============== Validation schemas ==============
 
@@ -53,12 +58,27 @@ const AssignUserBody = z.object({
 
 const IdParam = z.coerce.number().int().positive();
 
+router.use("/admin/companies/:id", ownerOnly, async (req, res, next) => {
+  const parsed = IdParam.safeParse(req.params.id);
+  if (!parsed.success) {
+    res.status(400).json({ error: "INVALID_REFERENCE" });
+    return;
+  }
+  const [membership] = await db.select({ id: userCompaniesTable.id }).from(userCompaniesTable)
+    .where(and(eq(userCompaniesTable.userId, req.session.userId!),
+      eq(userCompaniesTable.companyId, parsed.data), eq(userCompaniesTable.role, "owner"))).limit(1);
+  if (!membership) {
+    res.status(404).json({ error: "INVALID_REFERENCE", message: "الشركة غير متاحة" });
+    return;
+  }
+  next();
+});
+
 // ============== List companies ==============
 
 /**
- * GET /admin/companies — list every company (owner-only). Multi-Company
- * Phase 3: this is the only place that returns the full tenant list,
- * regardless of session scope.
+ * GET /admin/companies — only companies the caller explicitly owns.
+ * Ownership of one company never grants platform-wide tenant access.
  */
 /**
  * GET /companies/siblings — list every company the *current user* can
@@ -147,10 +167,13 @@ router.get("/companies/siblings", async (req, res) => {
 router.get("/admin/companies", ownerOnly, async (req, res) => {
   try {
     const rows = await db
-      .select()
+      .select({ company: companiesTable })
       .from(companiesTable)
+      .innerJoin(userCompaniesTable, eq(userCompaniesTable.companyId, companiesTable.id))
+      .where(and(eq(userCompaniesTable.userId, req.session.userId!),
+        eq(userCompaniesTable.role, "owner")))
       .orderBy(asc(companiesTable.name));
-    res.json(rows);
+    res.json(rows.map((row) => row.company));
   } catch (err) {
     req.log.error({ err }, "List companies failed");
     handleRouteError(err, res);
@@ -403,7 +426,9 @@ router.post("/admin/companies/:id/users", ownerOnly, async (req, res) => {
     const [user] = await db
       .select({ id: usersTable.id })
       .from(usersTable)
-      .where(eq(usersTable.id, body.userId))
+      .innerJoin(userCompaniesTable, eq(userCompaniesTable.userId, usersTable.id))
+      .where(and(eq(usersTable.id, body.userId),
+        inArray(userCompaniesTable.companyId, [companyId, req.session.companyId!])))
       .limit(1);
     if (!user) {
       res.status(404).json({ error: "INVALID_REFERENCE", message: "المستخدم غير موجود" });
@@ -411,6 +436,17 @@ router.post("/admin/companies/:id/users", ownerOnly, async (req, res) => {
     }
 
     const inserted = await db.transaction(async (tx) => {
+      // Serialize role changes/removals for this tenant, preserving at least
+      // one active owner. A company-local admin cannot change another tenant's
+      // default landing preference for a shared identity.
+      await tx.select({ id: companiesTable.id }).from(companiesTable)
+        .where(eq(companiesTable.id, companyId)).for("update");
+      const [foreignMembership] = await tx.select({ id: userCompaniesTable.id }).from(userCompaniesTable)
+        .where(and(eq(userCompaniesTable.userId, body.userId),
+          ne(userCompaniesTable.companyId, companyId))).limit(1);
+      if (body.isDefault && foreignMembership && body.userId !== req.session.userId) {
+        throw Object.assign(new Error("لا يمكن تغيير الشركة الافتراضية لهوية مشتركة نيابة عن صاحبها"), { status: 403 });
+      }
       // Wipe any previous default flag for this user if we're setting one.
       if (body.isDefault) {
         await tx
@@ -434,6 +470,9 @@ router.post("/admin/companies/:id/users", ownerOnly, async (req, res) => {
         )
         .limit(1);
       if (existing) {
+        if (existing.role === "owner" && body.role !== "owner") {
+          await assertAnotherActiveOwner(tx, companyId, body.userId);
+        }
         const [updated] = await tx
           .update(userCompaniesTable)
           .set({
@@ -484,38 +523,22 @@ router.delete(
       const companyId = IdParam.parse(req.params.id);
       const userId = IdParam.parse(req.params.userId);
 
-      const [existing] = await db
-        .select()
-        .from(userCompaniesTable)
-        .where(
-          and(
-            eq(userCompaniesTable.userId, userId),
-            eq(userCompaniesTable.companyId, companyId),
-          ),
-        )
-        .limit(1);
-      if (!existing) {
-        res
-          .status(404)
-          .json({ error: "INVALID_REFERENCE", message: "لا يوجد ربط بين المستخدم والشركة" });
-        return;
-      }
-
-      const [{ count }] = await db
-        .select({ count: sql<number>`count(*)::int` })
-        .from(userCompaniesTable)
-        .where(eq(userCompaniesTable.companyId, companyId));
-      if (Number(count) <= 1) {
-        res.status(409).json({
-          error: "LAST_COMPANY_USER",
-          message: "لا يمكن إزالة آخر مستخدم في الشركة",
-        });
-        return;
-      }
-
-      await db
-        .delete(userCompaniesTable)
-        .where(eq(userCompaniesTable.id, existing.id));
+      await db.transaction(async (tx) => {
+        await tx.select({ id: companiesTable.id }).from(companiesTable)
+          .where(eq(companiesTable.id, companyId)).for("update");
+        const [existing] = await tx.select().from(userCompaniesTable)
+          .where(and(eq(userCompaniesTable.userId, userId), eq(userCompaniesTable.companyId, companyId))).limit(1);
+        if (!existing) {
+          throw Object.assign(new Error("لا يوجد ربط بين المستخدم والشركة"), { status: 404 });
+        }
+        if (existing.role === "owner") await assertAnotherActiveOwner(tx, companyId, userId);
+        const [{ count }] = await tx.select({ count: sql<number>`count(*)::int` }).from(userCompaniesTable)
+          .where(eq(userCompaniesTable.companyId, companyId));
+        if (Number(count) <= 1) {
+          throw Object.assign(new Error("لا يمكن إزالة آخر مستخدم في الشركة"), { status: 409 });
+        }
+        await tx.delete(userCompaniesTable).where(eq(userCompaniesTable.id, existing.id));
+      });
 
       await recordAudit(req, {
         action: "company.user.revoke",
