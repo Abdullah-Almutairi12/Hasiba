@@ -84,6 +84,7 @@ import type {
   CorrectInvoiceAttributionBody,
   CountAlertsCleanupRuns200,
   CountAlertsCleanupRunsParams,
+  CountUnreadInbox200,
   CreateAccountBody,
   CreateAnnouncementBody,
   CreateApprovalRule201,
@@ -16472,6 +16473,101 @@ export function useListInbox<TData = Awaited<ReturnType<typeof listInbox>>, TErr
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getListInboxQueryOptions(params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCountUnreadInboxUrl = () => {
+
+
+
+
+  return `/api/workflow/inbox/unread-count`
+}
+
+export const countUnreadInbox = async ( options?: Parameters<typeof customFetch>[1]): Promise<CountUnreadInbox200> => {
+
+  return customFetch<CountUnreadInbox200>(getCountUnreadInboxUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getCountUnreadInboxQueryKey = () => {
+    return [
+    `/api/workflow/inbox/unread-count`
+    ] as const;
+    }
+
+
+export const getCountUnreadInboxQueryOptions = <TData = Awaited<ReturnType<typeof countUnreadInbox>>, TError = ErrorType<unknown>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof countUnreadInbox>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getCountUnreadInboxQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof countUnreadInbox>>> = ({ signal }) => countUnreadInbox({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof countUnreadInbox>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type CountUnreadInboxQueryResult = NonNullable<Awaited<ReturnType<typeof countUnreadInbox>>>
+export type CountUnreadInboxQueryError = ErrorType<unknown>
+
+
+export function useCountUnreadInbox<TData = Awaited<ReturnType<typeof countUnreadInbox>>, TError = ErrorType<unknown>>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof countUnreadInbox>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof countUnreadInbox>>,
+          TError,
+          Awaited<ReturnType<typeof countUnreadInbox>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useCountUnreadInbox<TData = Awaited<ReturnType<typeof countUnreadInbox>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof countUnreadInbox>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof countUnreadInbox>>,
+          TError,
+          Awaited<ReturnType<typeof countUnreadInbox>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useCountUnreadInbox<TData = Awaited<ReturnType<typeof countUnreadInbox>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof countUnreadInbox>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useCountUnreadInbox<TData = Awaited<ReturnType<typeof countUnreadInbox>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof countUnreadInbox>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getCountUnreadInboxQueryOptions(options)
 
   const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 

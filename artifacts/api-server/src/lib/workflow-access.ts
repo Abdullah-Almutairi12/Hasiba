@@ -1,9 +1,10 @@
 import { db, userCompaniesTable, usersTable, companiesTable } from "@workspace/db";
 import { and, eq } from "drizzle-orm";
 import { isRole } from "../middlewares/require-role";
+import type { DbOrTx } from "./journal-posting";
 
-export async function workflowMember(companyId: number, userId: number) {
-  const [member] = await db.select({ id: usersTable.id, role: userCompaniesTable.role, branchId: usersTable.branchId })
+export async function workflowMember(companyId: number, userId: number, connection: DbOrTx = db) {
+  const [member] = await connection.select({ id: usersTable.id, role: userCompaniesTable.role, branchId: usersTable.branchId })
     .from(userCompaniesTable)
     .innerJoin(usersTable, eq(usersTable.id, userCompaniesTable.userId))
     .innerJoin(companiesTable, eq(companiesTable.id, userCompaniesTable.companyId))
@@ -12,8 +13,8 @@ export async function workflowMember(companyId: number, userId: number) {
   return member && isRole(member.role) ? member : null;
 }
 
-export async function assertWorkflowMember(companyId: number, userId: number) {
-  const member = await workflowMember(companyId, userId);
+export async function assertWorkflowMember(companyId: number, userId: number, connection: DbOrTx = db) {
+  const member = await workflowMember(companyId, userId, connection);
   if (!member) throw Object.assign(new Error("العضو غير متاح في الشركة"), { status: 404 });
   return member;
 }

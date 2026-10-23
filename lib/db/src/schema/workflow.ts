@@ -8,6 +8,7 @@ import {
   numeric,
   jsonb,
   index,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
 import { companiesTable } from "./companies";
 
@@ -140,6 +141,7 @@ export const financialLimitsTable = pgTable(
   "financial_limits",
   {
     id: serial("id").primaryKey(),
+    companyId: integer("company_id").references(() => companiesTable.id),
     role: text("role").notNull(),
     actionKey: text("action_key").notNull(),
     maxValue: numeric("max_value", { precision: 18, scale: 4 }),
@@ -148,6 +150,7 @@ export const financialLimitsTable = pgTable(
   },
   (t) => ({
     byKey: index("financial_limits_key_idx").on(t.role, t.actionKey),
+    companyKey: uniqueIndex("financial_limits_company_key").on(t.companyId, t.role, t.actionKey),
   }),
 );
 
@@ -167,6 +170,8 @@ export const automationRulesTable = pgTable(
   "automation_rules",
   {
     id: serial("id").primaryKey(),
+    companyId: integer("company_id").references(() => companiesTable.id),
+    branchIds: jsonb("branch_ids").$type<number[] | null>(),
     name: text("name").notNull(),
     description: text("description"),
     trigger: jsonb("trigger").notNull(),
@@ -183,6 +188,7 @@ export const automationRunsTable = pgTable(
   "automation_runs",
   {
     id: serial("id").primaryKey(),
+    companyId: integer("company_id").references(() => companiesTable.id),
     ruleId: integer("rule_id")
       .notNull()
       .references(() => automationRulesTable.id, { onDelete: "cascade" }),
@@ -206,6 +212,7 @@ export const notificationInboxTable = pgTable(
   "notification_inbox",
   {
     id: serial("id").primaryKey(),
+    companyId: integer("company_id").references(() => companiesTable.id),
     userId: integer("user_id").notNull(),
     type: text("type").notNull(), // approval | automation | system
     title: text("title").notNull(),

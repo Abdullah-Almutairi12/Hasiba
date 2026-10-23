@@ -842,7 +842,7 @@ router.post("/procurement/purchase-orders", async (req, res) => {
     // Automation hook: rules with trigger.type='record_created' on the
     // 'purchase_order' entity are evaluated against the new row so admins
     // can auto-notify on big-ticket POs, kick off webhooks, etc.
-    void triggerEvent("record_created", "purchase_order", {
+    void triggerEvent(getCompanyId(req), "record_created", "purchase_order", {
       id: out.id,
       total: Number(out.total),
       supplierId: out.supplierId,
@@ -996,7 +996,7 @@ async function finalizePurchaseOrderConfirm(
       }
     }
   });
-  void triggerEvent("state_changed", "purchase_order", { id, total: Number(po.total) }, "confirmed");
+  void triggerEvent(po.companyId!, "state_changed", "purchase_order", { id, total: Number(po.total) }, "confirmed");
   // Module hook: WhatsApp/SMS supplier confirmation. Runs after the
   // commit so the supplier never gets a notification for a PO that
   // failed to persist.
@@ -1134,7 +1134,7 @@ registerOnApprove("payment_run", async (recordId) => {
       throw new Error(`payment_run ${recordId}: cannot resolve companyId from supplier`);
     }
     await finalizePaymentRunExecute(recordId, null, supplierRow.companyId);
-    void triggerEvent("state_changed", "payment_run", { id: recordId }, "executed");
+    void triggerEvent(supplierRow.companyId, "state_changed", "payment_run", { id: recordId }, "executed");
   } catch (err) {
     logger.error({ err, recordId }, "payment_run onApprove finalize failed");
     throw err;

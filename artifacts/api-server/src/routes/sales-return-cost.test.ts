@@ -144,15 +144,22 @@ describe("original POS invoice: independent linked return lifecycle", () => {
       return result;
     };
     const before = await snapshots();
+    await rows(`INSERT INTO financial_limits(role,action_key,max_value,description)
+      VALUES('hr','sales.refund_amount',333,'Synthetic pre-upgrade policy evidence') ON CONFLICT DO NOTHING RETURNING id`);
+    const oldLimits = await rows("SELECT id,role,action_key,max_value,description,updated_at FROM financial_limits ORDER BY id");
     const first = await runMigrations(process.env.TEST_DATABASE_URL!, () => {});
     expect(first.applied).toEqual([
       "0026_pos_return_settlement.sql",
       "0027_document_print_identity.sql",
       "0028_seller_attribution.sql",
       "0029_approval_tenant_ownership.sql",
+      "0030_financial_limit_company.sql",
+      "0031_automation_notification_company.sql",
     ]);
     expect(first.skipped).toHaveLength(26);
     expect(await snapshots()).toEqual(before);
+    expect(await rows("SELECT id,role,action_key,max_value,description,updated_at FROM financial_limits ORDER BY id")).toEqual(oldLimits);
+    expect(await rows("SELECT count(*)::int AS n FROM financial_limits WHERE company_id IS NOT NULL")).toEqual([{ n: 0 }]);
     expect(await rows("SELECT count(*)::int AS n FROM document_issuer_snapshots WHERE company_id=$1", [f.companyId])).toEqual([{ n: 0 }]);
     expect(await rows("SELECT count(*)::int AS n FROM invoice_seller_lines WHERE company_id=$1", [f.companyId])).toEqual([{ n: 0 }]);
     const second = await runMigrations(process.env.TEST_DATABASE_URL!, () => {});

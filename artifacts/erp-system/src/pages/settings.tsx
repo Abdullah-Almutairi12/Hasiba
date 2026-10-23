@@ -10,6 +10,8 @@ import {
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
+import { WorkflowTab } from "@/components/workflow-tab";
+import { SellerCommissionsPanel } from "@/components/sellers/seller-commissions";
 import { useInsightMode } from "@/hooks/use-insight-mode";
 import { useAuditConsent } from "@/hooks/use-audit-consent";
 import { useLanguage } from "@/hooks/use-language";
@@ -1374,6 +1376,8 @@ const SETTINGS_NAV: Array<{
       { value: "pos", label: "نقاط البيع", icon: CreditCard },
       { value: "integrations", label: "الربط", icon: Plug },
       { value: "templates", label: "القوالب", icon: FileText },
+      { value: "workflow", label: "الموافقات والحدود والأتمتة", icon: ShieldCheck },
+      { value: "seller-policy", label: "سياسات البائع ووراثة الفرع", icon: Users },
     ],
   },
   {
@@ -1448,7 +1452,7 @@ export default function SettingsPage() {
                   {group.label}
                 </div>
               )}
-              {group.items.map((it) => (
+              {group.items.filter(it => isAdmin || !["workflow", "seller-policy"].includes(it.value)).map((it) => (
                 <TabsTrigger
                   key={it.value}
                   value={it.value}
@@ -1478,6 +1482,8 @@ export default function SettingsPage() {
         <TabsContent value="tax"><TaxTab readOnly={readOnly} /></TabsContent>
         <TabsContent value="branches"><BranchesTab readOnly={readOnly} /></TabsContent>
         <TabsContent value="pos"><PosTab readOnly={readOnly} /></TabsContent>
+        {isAdmin && <TabsContent value="workflow"><WorkflowTab /></TabsContent>}
+        {isAdmin && <TabsContent value="seller-policy"><SellerCommissionsPanel /></TabsContent>}
         <TabsContent value="users"><UsersTab /></TabsContent>
         <TabsContent value="accounting"><AccountingTab readOnly={readOnly} /></TabsContent>
         <TabsContent value="integrations"><IntegrationsTab readOnly={readOnly} /></TabsContent>

@@ -449,6 +449,9 @@ export interface ApproverDelegation {
 
 export interface FinancialLimit {
   id: number;
+  /** @nullable */
+  readonly companyId?: number | null;
+  readonly source?: string;
   role: string;
   actionKey: string;
   /** @nullable */
@@ -466,6 +469,10 @@ export type AutomationRuleActionsItem = { [key: string]: unknown };
 
 export interface AutomationRule {
   id: number;
+  /** @nullable */
+  readonly companyId?: number | null;
+  /** @nullable */
+  readonly branchIds?: readonly number[] | null;
   name: string;
   /** @nullable */
   description?: string | null;
@@ -484,6 +491,9 @@ export type AutomationRuleInputConditionsItem = { [key: string]: unknown };
 
 export type AutomationRuleInputActionsItem = { [key: string]: unknown };
 
+/**
+ * Company-owned automation. Supported sources: purchase_order, invoice, leave_request; scheduled may omit source for a clock. Only in-app notifications, create_record of notification_inbox, and set_field of draft purchase_order notes are allowed. Financial/status/ownership writes and external dispatch are rejected.
+ */
 export interface AutomationRuleInput {
   name: string;
   /** @nullable */
@@ -515,6 +525,8 @@ export interface AutomationRulePatch {
 
 export interface AutomationRun {
   id: number;
+  /** @nullable */
+  readonly companyId?: number | null;
   ruleId: number;
   triggeredAt: string;
   status: string;
@@ -526,6 +538,8 @@ export interface AutomationRun {
 
 export interface InboxItem {
   id: number;
+  /** @nullable */
+  readonly companyId?: number | null;
   userId: number;
   type: string;
   title: string;
@@ -3405,6 +3419,11 @@ ruleId?: number;
 
 export type ListInboxParams = {
 unread?: string;
+};
+
+export type CountUnreadInbox200 = {
+  /** @minimum 0 */
+  count: number;
 };
 
 export type MarkInboxRead200 = {

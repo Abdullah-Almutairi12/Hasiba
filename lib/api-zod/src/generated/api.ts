@@ -3461,6 +3461,8 @@ export const DeleteDelegationResponse = zod.object({
 
 export const ListFinancialLimitsResponseItem = zod.object({
   "id": zod.number().int(),
+  "companyId": zod.number().int().nullish(),
+  "source": zod.string().optional(),
   "role": zod.string(),
   "actionKey": zod.string(),
   "maxValue": zod.number().nullish(),
@@ -3484,6 +3486,8 @@ export const UpsertFinancialLimitResponse = zod.object({
 
 export const ListAutomationRulesResponseItem = zod.object({
   "id": zod.number().int(),
+  "companyId": zod.number().int().nullish(),
+  "branchIds": zod.array(zod.number().int()).nullish(),
   "name": zod.string(),
   "description": zod.string().nullish(),
   "trigger": zod.record(zod.string(), zod.unknown()),
@@ -3503,7 +3507,7 @@ export const CreateAutomationRuleBody = zod.object({
   "conditions": zod.array(zod.record(zod.string(), zod.unknown())).optional(),
   "actions": zod.array(zod.record(zod.string(), zod.unknown())).optional(),
   "isActive": zod.boolean().optional()
-})
+}).describe('Company-owned automation. Supported sources: purchase_order, invoice, leave_request; scheduled may omit source for a clock. Only in-app notifications, create_record of notification_inbox, and set_field of draft purchase_order notes are allowed. Financial/status/ownership writes and external dispatch are rejected.')
 
 export const CreateAutomationRuleResponse = zod.object({
   "id": zod.number().int()
@@ -3543,6 +3547,7 @@ export const ListAutomationRunsQueryParams = zod.object({
 
 export const ListAutomationRunsResponseItem = zod.object({
   "id": zod.number().int(),
+  "companyId": zod.number().int().nullish(),
   "ruleId": zod.number().int(),
   "triggeredAt": zod.string(),
   "status": zod.string(),
@@ -3559,6 +3564,7 @@ export const ListInboxQueryParams = zod.object({
 
 export const ListInboxResponseItem = zod.object({
   "id": zod.number().int(),
+  "companyId": zod.number().int().nullish(),
   "userId": zod.number().int(),
   "type": zod.string(),
   "title": zod.string(),
@@ -3568,6 +3574,15 @@ export const ListInboxResponseItem = zod.object({
   "createdAt": zod.string()
 })
 export const ListInboxResponse = zod.array(ListInboxResponseItem)
+
+
+export const countUnreadInboxResponseCountMin = 0;
+
+
+
+export const CountUnreadInboxResponse = zod.object({
+  "count": zod.number().int().min(countUnreadInboxResponseCountMin)
+})
 
 
 export const MarkInboxReadParams = zod.object({

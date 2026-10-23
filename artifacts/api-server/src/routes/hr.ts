@@ -155,7 +155,7 @@ async function applyLeaveDecision(
       .update(leaveRequestsTable)
       .set({ status: "approved", approvedBy: approverUserId, approvedAt: new Date() })
       .where(eq(leaveRequestsTable.id, recordId));
-    void triggerEvent("state_changed", "leave_request", { id: recordId, days }, "approved");
+    void triggerEvent(lr.companyId, "state_changed", "leave_request", { id: recordId, days }, "approved");
   } else {
     await db
       .update(leaveBalancesTable)
@@ -188,10 +188,10 @@ registerOnApprove("expense_claim", async (recordId) => {
   // Rethrow on failure: actOnApproval rolls the request back to pending
   // and surfaces the error so workflow + document state stay consistent.
   try {
-    await db.execute(
-      sql`UPDATE expense_claims SET status = 'approved', approved_at = now() WHERE id = ${recordId} AND status IN ('pending','pending_approval')`,
+    const result = await db.execute(
+      sql`UPDATE expense_claims SET status = 'approved', approved_at = now() WHERE id = ${recordId} AND status IN ('pending','pending_approval') RETURNING company_id`,
     );
-    void triggerEvent("state_changed", "expense_claim", { id: recordId }, "approved");
+    if (result.rows[0]?.company_id) void triggerEvent(Number(result.rows[0].company_id), "state_changed", "expense_claim", { id: recordId }, "approved");
   } catch (err) {
     logger.error({ err, recordId }, "expense_claim onApprove failed");
     throw err;
@@ -530,7 +530,7 @@ router.patch("/hr/employees/:id", hrGuard, async (req, res) => {
     // Automation hook: rules with trigger.type='record_updated' on the
     // 'employee' entity can react to changes (e.g. notify HR when an
     // employee's department or status changes).
-    void triggerEvent("record_updated", "employee", {
+    void triggerEvent(getCompanyId(req), "record_updated", "employee", {
       id: row.id,
       changedKeys: Object.keys(update),
       branchId: row.branchId,
@@ -843,7 +843,7 @@ router.post("/hr/leave-requests", hrGuard, async (req, res) => {
 
     // Automation hook: rules on 'leave_request' record_created can fan
     // out notifications to HR or trigger calendar webhooks.
-    void triggerEvent("record_created", "leave_request", {
+    void triggerEvent(getCompanyId(req), "record_created", "leave_request", {
       id: row.id,
       employeeId: row.employeeId,
       leaveTypeId: row.leaveTypeId,
@@ -1025,7 +1025,7 @@ router.post("/hr/expense-claims", hrGuard, async (req, res) => {
       req.log.error({ err }, "expense_claim submitForApproval failed");
     }
 
-    void triggerEvent("record_created", "expense_claim", {
+    void triggerEvent(getCompanyId(req), "record_created", "expense_claim", {
       id: newId,
       employeeId: body.employeeId,
       amount: body.amount,

@@ -33,6 +33,12 @@ Previously shared AI training state must not seed a company's learned parameters
 
 **How to apply:** Keep training state company-specific and start without legacy learned values. Preserve the public model keys when changing internal storage.
 
+Quarantining an unowned policy must not turn a previously required approval or financial restriction into automatic approval or unlimited authority.
+
+**Why:** The user explicitly required preserving legacy restrictions without guessing their company; merely excluding an unknown policy from a query can otherwise remove its protection.
+
+**How to apply:** Require an authorized, audited company configuration when an unknown matching policy could restrict the operation. Preserve historical evidence rather than assigning it from a branch, user, or global role.
+
 Unowned legacy bank accounts and saved reports must remain quarantined until ownership is verified; do not assign them using the first company or a shared user's memberships. Legacy fiscal controls must be copied conservatively, retaining closed states independently for each company.
 
 **Why:** These records were previously global. Membership does not prove who owns historical financial data, and resetting closed fiscal controls to open would weaken posting restrictions.

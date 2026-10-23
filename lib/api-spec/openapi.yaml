@@ -3495,6 +3495,20 @@ paths:
           content:
             application/json:
               schema: { type: array, items: { $ref: "#/components/schemas/InboxItem" } }
+  /workflow/inbox/unread-count:
+    get:
+      tags: [Workflow]
+      operationId: countUnreadInbox
+      responses:
+        "200":
+          description: Count of currently authorized unread notifications for the active company and member.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count: { type: integer, minimum: 0 }
+                required: [count]
   /workflow/inbox/{id}/read:
     parameters:
       - { name: id, in: path, required: true, schema: { type: integer } }
@@ -4171,6 +4185,8 @@ components:
       type: object
       properties:
         id: { type: integer }
+        companyId: { type: integer, nullable: true, readOnly: true }
+        source: { type: string, readOnly: true }
         role: { type: string }
         actionKey: { type: string }
         maxValue: { type: number, nullable: true }
@@ -4181,6 +4197,8 @@ components:
       type: object
       properties:
         id: { type: integer }
+        companyId: { type: integer, nullable: true, readOnly: true }
+        branchIds: { type: array, items: { type: integer }, nullable: true, readOnly: true }
         name: { type: string }
         description: { type: string, nullable: true }
         trigger: { type: object, additionalProperties: true }
@@ -4192,6 +4210,7 @@ components:
       required: [id, name, trigger, conditions, actions, isActive, createdAt]
     AutomationRuleInput:
       type: object
+      description: "Company-owned automation. Supported sources: purchase_order, invoice, leave_request; scheduled may omit source for a clock. Only in-app notifications, create_record of notification_inbox, and set_field of draft purchase_order notes are allowed. Financial/status/ownership writes and external dispatch are rejected."
       properties:
         name: { type: string }
         description: { type: string, nullable: true }
@@ -4214,6 +4233,7 @@ components:
       type: object
       properties:
         id: { type: integer }
+        companyId: { type: integer, nullable: true, readOnly: true }
         ruleId: { type: integer }
         triggeredAt: { type: string }
         status: { type: string }
@@ -4225,6 +4245,7 @@ components:
       type: object
       properties:
         id: { type: integer }
+        companyId: { type: integer, nullable: true, readOnly: true }
         userId: { type: integer }
         type: { type: string }
         title: { type: string }

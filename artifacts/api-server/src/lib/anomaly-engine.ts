@@ -8,7 +8,6 @@ import {
 } from "@workspace/db";
 import { and, eq, gte, sql } from "drizzle-orm";
 import { logger } from "./logger";
-import { notify } from "./workflow-engine";
 
 export type AnomalyEventType =
   | "pos.refund"
@@ -293,33 +292,8 @@ async function fireEvent(
     .returning({ id: anomalyEventsTable.id });
   if (!created) return;
 
-  // Notify all active managers/owners. WhatsApp is requested; the
-  // notify helper falls back to email automatically when the user has
-  // no phone configured or messaging credentials are missing.
-  try {
-    const recipients = await db
-      .select({ id: usersTable.id })
-      .from(usersTable)
-      .where(
-        and(
-          sql`${usersTable.role} in ('owner', 'manager')`,
-          eq(usersTable.isActive, true),
-        ),
-      );
-    const title = `تنبيه شاذ: ${rule.name}`;
-    const actor = input.actorName ?? "غير محدد";
-    const message = `تم اكتشاف نشاط مريب — ${rule.name}. المنفّذ: ${actor}.`;
-    for (const r of recipients) {
-      await notify(r.id, {
-        type: "system",
-        title,
-        message,
-        link: `/anomalies?event=${created.id}`,
-        payload: { eventId: created.id, ruleKey: rule.ruleKey, severity: rule.severity },
-        channel: "whatsapp",
-      });
-    }
-  } catch (err) {
-    logger.warn({ err, ruleKey: rule.ruleKey }, "anomaly notification dispatch failed");
-  }
+  // These legacy event/signal tables have no verified company ownership.
+  // Retain the evidence, but never broadcast actor details to the global
+  // owner/manager pool or use a global outbound configuration.
+  logger.info({ eventId: created.id }, "legacy anomaly notification quarantined pending verified source ownership");
 }

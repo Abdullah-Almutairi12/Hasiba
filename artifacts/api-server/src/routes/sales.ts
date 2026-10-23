@@ -113,7 +113,7 @@ async function finalizeSalesOrderConfirm(id: number): Promise<void> {
   if (!so) return;
   if (so.status !== "draft" && so.status !== "pending_approval") return;
   await db.update(salesOrdersTable).set({ status: "confirmed" }).where(eq(salesOrdersTable.id, id));
-  void triggerEvent("state_changed", "sales_order", { id, total: Number(so.total) }, "confirmed");
+  void triggerEvent(so.companyId!, "state_changed", "sales_order", { id, total: Number(so.total) }, "confirmed");
 }
 registerOnApprove("sales_order", async (recordId) => {
   await finalizeSalesOrderConfirm(recordId);
@@ -270,7 +270,7 @@ async function finalizeCreditNoteCancellation(
         }
       }
     }
-    void triggerEvent("state_changed", "credit_note", { id, total: Number(updated.total) }, "cancelled");
+    void triggerEvent(updated.companyId!, "state_changed", "credit_note", { id, total: Number(updated.total) }, "cancelled");
     return updated;
   });
 }
@@ -472,7 +472,7 @@ async function finalizeCreditNoteIssue(
       .select()
       .from(creditNotesTable)
       .where(eq(creditNotesTable.id, noteId));
-    void triggerEvent("state_changed", "credit_note", { id: noteId, total: Number(updated.total) }, "issued");
+    void triggerEvent(updated.companyId!, "state_changed", "credit_note", { id: noteId, total: Number(updated.total) }, "issued");
     return updated;
   });
 }
@@ -1258,7 +1258,7 @@ router.post("/sales/orders", salesWriteGuard, async (req, res) => {
     });
     // Automation hook: rules with trigger.type='record_created' on the
     // 'sales_order' entity can auto-notify, post webhooks, etc.
-    void triggerEvent("record_created", "sales_order", {
+    void triggerEvent(getCompanyId(req), "record_created", "sales_order", {
       id: result.id,
       total: Number(result.total),
       customerId: result.customerId,
@@ -3480,7 +3480,7 @@ export const createCreditNoteHandler: RequestHandler = async (req, res) => {
         }
         throw new FinancialRequestError("تغيرت حالة الإشعار؛ أعد تحميله", 409);
       }
-      void triggerEvent("record_created", "credit_note", { id: result.id, total: Number(result.total) });
+      void triggerEvent(getCompanyId(req), "record_created", "credit_note", { id: result.id, total: Number(result.total) });
       res.status(202).json({
         ok: false,
         pendingApproval: true,
@@ -3495,7 +3495,7 @@ export const createCreditNoteHandler: RequestHandler = async (req, res) => {
     // below was relocated into finalizeCreditNoteIssue() so both paths
     // (inline + onApprove) run identical logic.
     const issued = await finalizeCreditNoteIssue(result.id, req.session?.userId ?? null, getCompanyId(req));
-    void triggerEvent("record_created", "credit_note", { id: issued.id, total: Number(issued.total) });
+    void triggerEvent(getCompanyId(req), "record_created", "credit_note", { id: issued.id, total: Number(issued.total) });
     res.status(201).json(serializeMoneyDoc(issued));
     return;
 

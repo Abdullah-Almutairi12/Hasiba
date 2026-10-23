@@ -1,4 +1,4 @@
-import { pool, db, financialLimitsTable } from "@workspace/db";
+import { pool } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import { logger } from "./logger";
 
@@ -130,38 +130,8 @@ export async function initWorkflow(): Promise<void> {
     CREATE INDEX IF NOT EXISTS notification_inbox_user_idx ON notification_inbox(user_id, is_read, created_at);
   `);
 
-  // Seed default financial limits per role.
-  const seeds: Array<{
-    role: string;
-    actionKey: string;
-    maxValue: string | null;
-    description: string;
-  }> = [
-    { role: "cashier",    actionKey: "pos.discount_pct",       maxValue: "5",     description: "أقصى خصم نسبي على فاتورة POS (%)" },
-    { role: "sales",      actionKey: "pos.discount_pct",       maxValue: "10",    description: "أقصى خصم نسبي على فاتورة POS (%)" },
-    { role: "manager",    actionKey: "pos.discount_pct",       maxValue: "20",    description: "أقصى خصم نسبي على فاتورة POS (%)" },
-    { role: "owner",      actionKey: "pos.discount_pct",       maxValue: null,    description: "بدون حد" },
-    { role: "cashier",    actionKey: "pos.refund_amount",      maxValue: "500",   description: "أقصى مبلغ استرداد نقدي (ر.س)" },
-    { role: "manager",    actionKey: "pos.refund_amount",      maxValue: "5000",  description: "أقصى مبلغ استرداد نقدي (ر.س)" },
-    { role: "owner",      actionKey: "pos.refund_amount",      maxValue: null,    description: "بدون حد" },
-    { role: "accountant", actionKey: "ap.payment_amount",      maxValue: "100000", description: "أقصى دفعة مورّد بدون اعتماد" },
-    { role: "manager",    actionKey: "ap.payment_amount",      maxValue: "500000", description: "أقصى دفعة مورّد بدون اعتماد" },
-    { role: "owner",      actionKey: "ap.payment_amount",      maxValue: null,    description: "بدون حد" },
-    { role: "sales",      actionKey: "sales.credit_note_amount", maxValue: "1000", description: "أقصى قيمة إشعار دائن بدون اعتماد" },
-    { role: "manager",    actionKey: "sales.credit_note_amount", maxValue: "20000", description: "أقصى قيمة إشعار دائن بدون اعتماد" },
-    { role: "owner",      actionKey: "sales.credit_note_amount", maxValue: null,  description: "بدون حد" },
-  ];
-
-  for (const s of seeds) {
-    try {
-      await db
-        .insert(financialLimitsTable)
-        .values({ role: s.role, actionKey: s.actionKey, maxValue: s.maxValue, description: s.description })
-        .onConflictDoNothing();
-    } catch (err) {
-      logger.warn({ err, seed: s }, "seed financial_limit failed");
-    }
-  }
+  // Defaults are prospective code policies in financial-policy.ts. Never
+  // recreate global rows: unknown historical caps remain preserved/quarantined.
 
   // Schedule the automation cron sweep every 60 seconds.
   void scheduleAutomationSweep();

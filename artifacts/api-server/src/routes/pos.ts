@@ -737,7 +737,7 @@ router.post(
       const trustedDiscountPct =
         positiveSubtotal > 0 && discount > 0 ? (discount / positiveSubtotal) * 100 : 0;
       const refundCash = refundFromReturns + Math.max(0, discount - positiveSubtotal);
-      const dCheck = await checkFinancialLimit(role, "pos.discount_pct", trustedDiscountPct);
+      const dCheck = await checkFinancialLimit(companyId, overrideUserId ?? req.session.userId!, "pos.discount_pct", trustedDiscountPct, session.branchId, pendingApprovalRow?.id);
       if (!dCheck.allowed) {
         throw new FinancialLimitError(
           "pos.discount_pct",
@@ -754,7 +754,7 @@ router.post(
         // financial_limits row. Manager/owner/sales roles can refund up
         // to their own cap directly.
         if (role !== "manager" && role !== "owner") {
-          const rCheck = await checkFinancialLimit(role, "pos.refund_amount", refundCash);
+          const rCheck = await checkFinancialLimit(companyId, overrideUserId ?? req.session.userId!, "pos.refund_amount", refundCash, session.branchId, pendingApprovalRow?.id);
           if (role === "cashier" || !rCheck.allowed) {
             throw new FinancialLimitError(
               "pos.refund_amount",

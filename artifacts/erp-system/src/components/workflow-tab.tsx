@@ -525,7 +525,7 @@ function AutomationRules() {
   const submit = async () => {
     try {
       const trigger: Record<string, unknown> = { type: triggerType };
-      if (triggerType === "scheduled") trigger.intervalMinutes = Number(intervalMinutes);
+      if (triggerType === "scheduled") { trigger.intervalMinutes = Number(intervalMinutes); if (entity) trigger.entity = entity; }
       else { trigger.entity = entity; if (triggerType === "state_changed") trigger.state = state; }
       const serialActions = actions.map((a) => {
         if (a.type === "call_webhook") {
@@ -539,9 +539,7 @@ function AutomationRules() {
           return { type: a.type, entity: a.entity, payload };
         }
         if (a.type === "set_field") {
-          let value: unknown = a.value;
-          try { value = JSON.parse(a.value); } catch { /* keep string */ }
-          return { type: a.type, field: a.field, value };
+          return { type: a.type, field: "notes", value: a.value };
         }
         return a;
       });
@@ -579,6 +577,7 @@ function AutomationRules() {
             <DialogContent className="max-w-xl">
               <DialogHeader><DialogTitle>قاعدة أتمتة</DialogTitle></DialogHeader>
               <div className="space-y-3">
+                <p className="text-xs text-muted-foreground">النطاق: الشركة الحالية وصلاحيات مُنشئ القاعدة عند التنفيذ. التعديل الآلي محصور بملاحظات أمر شراء مسودة، والإنشاء بتنبيه داخلي. لا تعديل مالي أو اعتماد آلي ولا إرسال خارجي. مصادر الأحداث المتحققة حاليًا: purchase_order وinvoice وleave_request.</p>
                 <div><Label>الاسم</Label><Input value={name} onChange={(e) => setName(e.target.value)} /></div>
                 <div><Label>الوصف</Label><Textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} /></div>
                 <div className="grid grid-cols-2 gap-2">
@@ -594,7 +593,7 @@ function AutomationRules() {
                     </Select>
                   </div>
                   {triggerType === "scheduled" ? (
-                    <div><Label>كل (دقيقة)</Label><Input value={intervalMinutes} onChange={(e) => setIntervalMinutes(e.target.value)} /></div>
+                    <div><Label>كل (دقيقة)</Label><Input value={intervalMinutes} onChange={(e) => setIntervalMinutes(e.target.value)} /><Label>الكيان (فارغ لتنبيه زمني فقط)</Label><Input value={entity} onChange={e => setEntity(e.target.value)} placeholder="invoice" /></div>
                   ) : (
                     <div><Label>الكيان</Label><Input value={entity} onChange={(e) => setEntity(e.target.value)} placeholder="purchase_order" /></div>
                   )}
@@ -635,16 +634,16 @@ function AutomationRules() {
                     <Select value="" onValueChange={(v) => {
                       if (!v) return;
                       if (v === "send_notification") setActions([...actions, { type: "send_notification", recipientRole: "manager", title: "", message: "", channel: "inapp" }]);
-                      if (v === "set_field") setActions([...actions, { type: "set_field", field: "", value: "" }]);
+                      if (v === "set_field") setActions([...actions, { type: "set_field", field: "notes", value: "" }]);
                       if (v === "call_webhook") setActions([...actions, { type: "call_webhook", url: "", method: "POST", payload: "" }]);
                       if (v === "create_record") setActions([...actions, { type: "create_record", entity: "notification_inbox", payload: "{}" }]);
                     }}>
                       <SelectTrigger className="w-40"><SelectValue placeholder="+ إضافة إجراء" /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="send_notification">إرسال إشعار</SelectItem>
-                        <SelectItem value="set_field">تحديث حقل</SelectItem>
-                        <SelectItem value="call_webhook">استدعاء webhook</SelectItem>
-                        <SelectItem value="create_record">إنشاء سجل</SelectItem>
+                        <SelectItem value="set_field">ملاحظات مسودة شراء</SelectItem>
+                        <SelectItem value="call_webhook" disabled>webhook — غير متاح دون موصل متحقق</SelectItem>
+                        <SelectItem value="create_record">إنشاء تنبيه داخلي</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -670,8 +669,8 @@ function AutomationRules() {
                                 <SelectTrigger><SelectValue /></SelectTrigger>
                                 <SelectContent>
                                   <SelectItem value="inapp">داخل النظام</SelectItem>
-                                  <SelectItem value="email">بريد</SelectItem>
-                                  <SelectItem value="whatsapp">واتساب</SelectItem>
+                                  <SelectItem value="email" disabled>بريد — غير مفعّل لهذا المسار</SelectItem>
+                                  <SelectItem value="whatsapp" disabled>واتساب — غير مفعّل لهذا المسار</SelectItem>
                                 </SelectContent>
                               </Select>
                             </div>
@@ -681,8 +680,8 @@ function AutomationRules() {
                         )}
                         {a.type === "set_field" && (
                           <div className="grid grid-cols-2 gap-2">
-                            <div><Label className="text-xs">الحقل</Label><Input placeholder="status" value={a.field} onChange={(e) => { const n = [...actions]; n[i] = { ...a, field: e.target.value }; setActions(n); }} /></div>
-                            <div><Label className="text-xs">القيمة (JSON أو نص)</Label><Input placeholder='"approved"' value={a.value} onChange={(e) => { const n = [...actions]; n[i] = { ...a, value: e.target.value }; setActions(n); }} /></div>
+                            <div><Label className="text-xs">الحقل المسموح</Label><Input value="notes" readOnly /></div>
+                            <div><Label className="text-xs">الملاحظات (أمر شراء مسودة فقط)</Label><Input value={a.value} onChange={(e) => { const n = [...actions]; n[i] = { ...a, value: e.target.value }; setActions(n); }} /></div>
                           </div>
                         )}
                         {a.type === "call_webhook" && (
@@ -709,13 +708,10 @@ function AutomationRules() {
                                 <SelectTrigger><SelectValue /></SelectTrigger>
                                 <SelectContent>
                                   <SelectItem value="notification_inbox">notification_inbox</SelectItem>
-                                  <SelectItem value="purchase_order">purchase_order</SelectItem>
-                                  <SelectItem value="invoice">invoice</SelectItem>
-                                  <SelectItem value="leave_request">leave_request</SelectItem>
                                 </SelectContent>
                               </Select>
                             </div>
-                            <div className="col-span-2"><Label className="text-xs">الحمولة (JSON)</Label><Textarea rows={3} value={a.payload} onChange={(e) => { const n = [...actions]; n[i] = { ...a, payload: e.target.value }; setActions(n); }} /></div>
+                            <div className="col-span-2"><Label className="text-xs">التنبيه (JSON: recipientRole، title، message)</Label><Textarea rows={3} placeholder={'{"recipientRole":"manager","title":"تذكير","message":"المستند {{reference}}"}'} value={a.payload} onChange={(e) => { const n = [...actions]; n[i] = { ...a, payload: e.target.value }; setActions(n); }} /></div>
                           </div>
                         )}
                       </div>

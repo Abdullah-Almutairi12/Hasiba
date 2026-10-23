@@ -15,6 +15,7 @@ import {
   useMarkInboxRead,
   useMarkAllInboxRead,
   getListInboxQueryKey,
+  useCountUnreadInbox,
 } from "@workspace/api-client-react";
 
 export function WorkflowInboxBell() {
@@ -29,7 +30,8 @@ export function WorkflowInboxBell() {
   const markAllRead = useMarkAllInboxRead();
 
   const list = items ?? [];
-  const unreadCount = list.filter((i) => !i.isRead).length;
+  const { data: unread } = useCountUnreadInbox({ query: { refetchInterval: 30_000 } });
+  const unreadCount = unread?.count ?? 0;
 
   const invalidate = () =>
     qc.invalidateQueries({

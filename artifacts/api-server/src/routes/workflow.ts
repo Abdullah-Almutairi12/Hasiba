@@ -25,6 +25,11 @@ import { isPublishedBootstrapPassword } from "../lib/bootstrap-password";
 import { assertCompanyBranch, branchScope } from "../lib/company-access";
 import { assertWorkflowMember } from "../lib/workflow-access";
 import { handleRouteError } from "../lib/handle-error";
+import { FINANCIAL_DEFAULTS, FINANCIAL_ACTIONS, financialPolicy } from "../lib/financial-policy";
+import { ALL_ROLES } from "../middlewares/require-role";
+import { AutomationDefinition, assertAutomationAdministrator, automationVisibility } from "../lib/workflow-automation";
+import { canReadNotification } from "../lib/workflow-notifications";
+import type { DbOrTx } from "../lib/journal-posting";
 
 const router = Router();
 
@@ -476,46 +481,62 @@ router.delete("/workflow/delegations/:id", async (req, res) => {
 // --------------------------------------------------------------------------
 // Financial Limits
 // --------------------------------------------------------------------------
-router.get("/workflow/financial-limits", adminGuard, async (_req, res) => {
+router.get("/workflow/financial-limits", adminGuard, async (req, res) => {
   const rows = await db
     .select()
     .from(financialLimitsTable)
+    .where(eq(financialLimitsTable.companyId, req.session.companyId!))
     .orderBy(asc(financialLimitsTable.actionKey), asc(financialLimitsTable.role));
-  res.json(
-    rows.map((r) => ({
+  const defaults = await Promise.all(FINANCIAL_DEFAULTS.filter(([role, key]) => !rows.some(x => x.role === role && x.actionKey === key))
+    .map(async ([role, actionKey], i) => {
+      const policy = await financialPolicy(req.session.companyId!, role, actionKey);
+      return { id: -1 - i, companyId: req.session.companyId, role, actionKey, maxValue: policy.max,
+        description: policy.blocked ? "موقوف حتى إعادة التهيئة — سياسة قديمة مجهولة المالك" : "سياسة النظام الأساسية — التخصيص محفوظ للشركة فقط",
+        updatedAt: "1970-01-01T00:00:00.000Z", source: policy.source };
+    }));
+  res.json([
+    ...defaults, ...rows.map((r) => ({
       ...r,
+      source: "company",
       maxValue: r.maxValue == null ? null : Number(r.maxValue),
       updatedAt: r.updatedAt.toISOString(),
     })),
-  );
+  ]);
 });
 
 const LimitBody = z.object({
-  role: z.string().min(1),
-  actionKey: z.string().min(1),
-  maxValue: z.number().nullable(),
+  role: z.enum(ALL_ROLES),
+  actionKey: z.enum(FINANCIAL_ACTIONS),
+  maxValue: z.number().finite().min(0).max(9999999999999).multipleOf(0.01).nullable(),
   description: z.string().nullish(),
-});
+}).refine(x => x.actionKey !== "pos.discount_pct" || x.maxValue == null || x.maxValue <= 100, "الخصم لا يتجاوز 100%");
 
 router.post("/workflow/financial-limits", adminGuard, async (req, res) => {
   try {
+    const actor = await assertAutomationAdministrator(req.session.companyId!, req.session.userId!);
+    if (actor.branches != null) {
+      res.status(403).json({ error: "تعديل حدود الشركة يتطلب صلاحية على الشركة كاملة" });
+      return;
+    }
     const body = LimitBody.parse(req.body);
     await db
       .insert(financialLimitsTable)
       .values({
+        companyId: req.session.companyId!,
         role: body.role,
         actionKey: body.actionKey,
         maxValue: body.maxValue == null ? null : String(body.maxValue),
         description: body.description ?? null,
       })
       .onConflictDoUpdate({
-        target: [financialLimitsTable.role, financialLimitsTable.actionKey],
+        target: [financialLimitsTable.companyId, financialLimitsTable.role, financialLimitsTable.actionKey],
         set: {
           maxValue: body.maxValue == null ? null : String(body.maxValue),
           description: body.description ?? null,
           updatedAt: new Date(),
         },
       });
+    await recordAudit(req, { action: "configure", entity: "financial_limit", details: JSON.stringify(body) });
     res.json({ ok: true });
   } catch (err) {
     res.status(400).json({ error: err instanceof Error ? err.message : "خطأ" });
@@ -523,21 +544,22 @@ router.post("/workflow/financial-limits", adminGuard, async (req, res) => {
 });
 
 router.get("/workflow/financial-limits/check", async (req, res) => {
-  const role = String(req.query.role ?? req.session.role ?? "");
   const actionKey = String(req.query.actionKey ?? "");
   const value = Number(req.query.value ?? 0);
-  if (!role || !actionKey) return res.status(400).json({ error: "role/actionKey required" });
-  const r = await checkFinancialLimit(role, actionKey, value);
+  if (!actionKey || !Number.isFinite(value) || value < 0) return res.status(400).json({ error: "actionKey/value invalid" });
+  const r = await checkFinancialLimit(req.session.companyId!, req.session.userId!, actionKey, value);
   return res.json(r);
 });
 
 // --------------------------------------------------------------------------
 // Automation Rules
 // --------------------------------------------------------------------------
-router.get("/workflow/automation-rules", adminGuard, async (_req, res) => {
+router.get("/workflow/automation-rules", adminGuard, async (req, res) => {
+  const actor = await assertAutomationAdministrator(req.session.companyId!, req.session.userId!);
   const rows = await db
     .select()
     .from(automationRulesTable)
+    .where(and(eq(automationRulesTable.companyId, req.session.companyId!), automationVisibility(actor)))
     .orderBy(desc(automationRulesTable.createdAt));
   res.json(
     rows.map((r) => ({
@@ -548,6 +570,17 @@ router.get("/workflow/automation-rules", adminGuard, async (_req, res) => {
   );
 });
 
+router.use("/workflow/automation-rules/:id", async (req, res, next) => {
+  const actor = await assertAutomationAdministrator(req.session.companyId!, req.session.userId!);
+  const id = Number(req.params.id);
+  if (!Number.isSafeInteger(id) || id <= 0) return res.status(400).json({ error: "معرّف غير صحيح" });
+  const [rule] = await db.select({ id: automationRulesTable.id }).from(automationRulesTable).where(and(
+    eq(automationRulesTable.id, id), eq(automationRulesTable.companyId, req.session.companyId!), automationVisibility(actor),
+  ));
+  if (!rule) return res.status(404).json({ error: "غير موجود" });
+  await assertAutomationAdministrator(req.session.companyId!, req.session.userId!);
+  return next();
+});
 const AutomationBody = z.object({
   name: z.string().min(1),
   description: z.string().nullish(),
@@ -573,9 +606,13 @@ const AutomationBody = z.object({
 router.post("/workflow/automation-rules", adminGuard, async (req, res) => {
   try {
     const body = AutomationBody.parse(req.body);
+    AutomationDefinition.parse(body);
+    const actor = await assertAutomationAdministrator(req.session.companyId!, req.session.userId!);
     const [created] = await db
       .insert(automationRulesTable)
       .values({
+        companyId: req.session.companyId!,
+        branchIds: actor.branches,
         name: body.name,
         description: body.description ?? null,
         trigger: body.trigger,
@@ -603,9 +640,19 @@ router.patch("/workflow/automation-rules/:id", adminGuard, async (req, res) => {
     if (body.conditions !== undefined) updates.conditions = body.conditions;
     if (body.actions !== undefined) updates.actions = body.actions;
     if (body.isActive !== undefined) updates.isActive = body.isActive;
-    if (Object.keys(updates).length) {
-      await db.update(automationRulesTable).set(updates).where(eq(automationRulesTable.id, id));
-    }
+    await db.transaction(async tx => {
+      const actor = await assertAutomationAdministrator(req.session.companyId!, req.session.userId!, tx);
+      const [rule] = await tx.select().from(automationRulesTable).where(and(
+        eq(automationRulesTable.id, id), eq(automationRulesTable.companyId, req.session.companyId!), automationVisibility(actor),
+      )).for("update");
+      if (!rule) throw new Error("غير موجود");
+      AutomationDefinition.parse({ ...rule, ...updates });
+      // Updating a rule does not silently replace its owner with a different
+      // company. It does transfer execution responsibility to this local editor.
+      await tx.update(automationRulesTable).set({ ...updates, createdByUserId: req.session.userId! })
+        .where(and(eq(automationRulesTable.id, id), eq(automationRulesTable.companyId, req.session.companyId!)));
+    });
+    await recordAudit(req, { action: "update", entity: "automation_rule", details: `#${id}` });
     res.json({ ok: true });
   } catch (err) {
     res.status(400).json({ error: err instanceof Error ? err.message : "خطأ" });
@@ -613,16 +660,32 @@ router.patch("/workflow/automation-rules/:id", adminGuard, async (req, res) => {
 });
 
 router.delete("/workflow/automation-rules/:id", adminGuard, async (req, res) => {
-  await db.delete(automationRulesTable).where(eq(automationRulesTable.id, Number(req.params.id)));
-  res.json({ ok: true });
+  const actor = await assertAutomationAdministrator(req.session.companyId!, req.session.userId!);
+  const removed = await db.transaction(async tx => {
+    const [rule] = await tx.select().from(automationRulesTable).where(and(
+      eq(automationRulesTable.id, Number(req.params.id)), eq(automationRulesTable.companyId, req.session.companyId!), automationVisibility(actor),
+    )).for("update");
+    if (!rule) return false;
+    const [run] = await tx.select({ id: automationRunsTable.id }).from(automationRunsTable).where(eq(automationRunsTable.ruleId, rule.id)).limit(1);
+    if (run) return false;
+    await tx.delete(automationRulesTable).where(and(eq(automationRulesTable.id, rule.id), eq(automationRulesTable.companyId, req.session.companyId!)));
+    return true;
+  });
+  if (!removed) return res.status(409).json({ error: "للقاعدة سجل تنفيذ محفوظ؛ أوقفها بدل حذفها" });
+  await recordAudit(req, { action: "delete", entity: "automation_rule", details: `#${req.params.id}` });
+  return res.json({ ok: true });
 });
 
 router.get("/workflow/automation-runs", adminGuard, async (req, res) => {
+  const actor = await assertAutomationAdministrator(req.session.companyId!, req.session.userId!);
   const ruleId = req.query.ruleId ? Number(req.query.ruleId) : null;
   const rows = await db
     .select()
     .from(automationRunsTable)
-    .where(ruleId ? eq(automationRunsTable.ruleId, ruleId) : sql`true`)
+    .where(and(eq(automationRunsTable.companyId, req.session.companyId!),
+      inArray(automationRunsTable.ruleId, db.select({ id: automationRulesTable.id }).from(automationRulesTable)
+        .where(and(eq(automationRulesTable.companyId, req.session.companyId!), automationVisibility(actor)))),
+      ruleId ? eq(automationRunsTable.ruleId, ruleId) : sql`true`))
     .orderBy(desc(automationRunsTable.triggeredAt))
     .limit(100);
   res.json(rows.map((r) => ({ ...r, triggeredAt: r.triggeredAt.toISOString() })));
@@ -631,46 +694,54 @@ router.get("/workflow/automation-runs", adminGuard, async (req, res) => {
 // --------------------------------------------------------------------------
 // Notification Inbox
 // --------------------------------------------------------------------------
+async function visibleInbox(companyId: number, userId: number, connection: DbOrTx = db) {
+  await assertWorkflowMember(companyId, userId, connection);
+  const all = await connection.select().from(notificationInboxTable).where(and(
+    eq(notificationInboxTable.companyId, companyId), eq(notificationInboxTable.userId, userId),
+  )).orderBy(desc(notificationInboxTable.createdAt));
+  const visible = [];
+  for (const row of all) if (await canReadNotification(userId, row, connection)) visible.push(row);
+  return visible;
+}
+router.get("/workflow/inbox/unread-count", async (req, res) => {
+  const rows = await visibleInbox(req.session.companyId!, req.session.userId!);
+  return res.json({ count: rows.filter(r => !r.isRead).length });
+});
 router.get("/workflow/inbox", async (req, res) => {
   const userId = req.session.userId;
   if (!userId) return res.status(401).json({ error: "غير مصرّح" });
   const onlyUnread = req.query.unread === "true";
-  const rows = await db
-    .select()
-    .from(notificationInboxTable)
-    .where(
-      and(
-        eq(notificationInboxTable.userId, userId),
-        onlyUnread ? eq(notificationInboxTable.isRead, false) : sql`true`,
-      ),
-    )
-    .orderBy(desc(notificationInboxTable.createdAt))
-    .limit(50);
+  const rows = (await visibleInbox(req.session.companyId!, userId)).filter(r => !onlyUnread || !r.isRead).slice(0, 50);
   return res.json(rows.map((r) => ({ ...r, createdAt: r.createdAt.toISOString() })));
 });
 
 router.patch("/workflow/inbox/:id/read", async (req, res) => {
   const userId = req.session.userId;
   if (!userId) return res.status(401).json({ error: "غير مصرّح" });
-  await db
-    .update(notificationInboxTable)
-    .set({ isRead: true })
-    .where(
-      and(
-        eq(notificationInboxTable.id, Number(req.params.id)),
-        eq(notificationInboxTable.userId, userId),
-      ),
-    );
+  const found = await db.transaction(async tx => {
+    const rows = await visibleInbox(req.session.companyId!, userId, tx);
+    const row = rows.find(r => r.id === Number(req.params.id));
+    if (!row) return false;
+    await tx.update(notificationInboxTable).set({ isRead: true }).where(and(
+      eq(notificationInboxTable.id, row.id), eq(notificationInboxTable.userId, userId),
+      eq(notificationInboxTable.companyId, req.session.companyId!),
+    ));
+    return true;
+  });
+  if (!found) return res.status(404).json({ error: "غير موجود" });
   return res.json({ ok: true });
 });
 
 router.post("/workflow/inbox/mark-all-read", async (req, res) => {
   const userId = req.session.userId;
   if (!userId) return res.status(401).json({ error: "غير مصرّح" });
-  await db
-    .update(notificationInboxTable)
-    .set({ isRead: true })
-    .where(eq(notificationInboxTable.userId, userId));
+  await db.transaction(async tx => {
+    const rows = await visibleInbox(req.session.companyId!, userId, tx);
+    if (rows.length) await tx.update(notificationInboxTable).set({ isRead: true }).where(and(
+      eq(notificationInboxTable.userId, userId), eq(notificationInboxTable.companyId, req.session.companyId!),
+      inArray(notificationInboxTable.id, rows.map(r => r.id)),
+    ));
+  });
   return res.json({ ok: true });
 });
 
