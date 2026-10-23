@@ -4063,6 +4063,7 @@ components:
       type: object
       properties:
         id: { type: integer }
+        companyId: { type: integer, nullable: true, readOnly: true }
         name: { type: string }
         docType: { type: string }
         branchId: { type: integer, nullable: true }
@@ -4119,6 +4120,7 @@ components:
       type: object
       properties:
         id: { type: integer }
+        companyId: { type: integer, nullable: true, readOnly: true }
         ruleId: { type: integer, nullable: true }
         docType: { type: string }
         recordId: { type: integer }
@@ -4157,6 +4159,7 @@ components:
       type: object
       properties:
         id: { type: integer }
+        companyId: { type: integer, nullable: true, readOnly: true }
         fromUserId: { type: integer }
         toUserId: { type: integer }
         fromDate: { type: string }

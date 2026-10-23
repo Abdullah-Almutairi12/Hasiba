@@ -9,6 +9,7 @@ import {
   jsonb,
   index,
 } from "drizzle-orm/pg-core";
+import { companiesTable } from "./companies";
 
 // ---------------------------------------------------------------------------
 // Approval Matrix: per (docType + optional branch) a chain of steps.
@@ -21,6 +22,7 @@ export const approvalRulesTable = pgTable(
   "approval_rules",
   {
     id: serial("id").primaryKey(),
+    companyId: integer("company_id").references(() => companiesTable.id),
     name: text("name").notNull(),
     docType: text("doc_type").notNull(), // purchase_order, sales_order, expense_claim, leave_request, journal_entry, credit_note, payment_run
     branchId: integer("branch_id"),
@@ -32,6 +34,7 @@ export const approvalRulesTable = pgTable(
   },
   (t) => ({
     byDoc: index("approval_rules_doc_idx").on(t.docType, t.isActive),
+    byCompany: index("approval_rules_company_lookup").on(t.companyId, t.docType, t.isActive),
   }),
 );
 
@@ -61,6 +64,7 @@ export const approvalRequestsTable = pgTable(
   "approval_requests",
   {
     id: serial("id").primaryKey(),
+    companyId: integer("company_id").references(() => companiesTable.id),
     ruleId: integer("rule_id").references(() => approvalRulesTable.id, { onDelete: "set null" }),
     docType: text("doc_type").notNull(),
     recordId: integer("record_id").notNull(),
@@ -84,6 +88,7 @@ export const approvalRequestsTable = pgTable(
   },
   (t) => ({
     byStatus: index("approval_requests_status_idx").on(t.status),
+    byCompany: index("approval_requests_company_lookup").on(t.companyId, t.status, t.createdAt),
     byDocRecord: index("approval_requests_doc_idx").on(t.docType, t.recordId),
   }),
 );
@@ -111,6 +116,7 @@ export const approverDelegationsTable = pgTable(
   "approver_delegations",
   {
     id: serial("id").primaryKey(),
+    companyId: integer("company_id").references(() => companiesTable.id),
     fromUserId: integer("from_user_id").notNull(),
     toUserId: integer("to_user_id").notNull(),
     fromDate: timestamp("from_date", { withTimezone: true }).notNull(),
@@ -120,6 +126,7 @@ export const approverDelegationsTable = pgTable(
   },
   (t) => ({
     byUser: index("approver_delegations_from_idx").on(t.fromUserId, t.fromDate, t.toDate),
+    byCompany: index("approver_delegations_company_lookup").on(t.companyId, t.fromUserId, t.fromDate, t.toDate),
   }),
 );
 

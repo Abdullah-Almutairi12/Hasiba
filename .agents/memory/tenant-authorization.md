@@ -51,6 +51,12 @@ Historical HR positions cannot be assigned a company from their department refer
 
 **How to apply:** Keep unowned positions quarantined until explicitly verified; new positions must be stamped with the active company even when no department is selected.
 
+An old approval matrix, request, or delegation does not gain verified ownership merely because it names a branch or a member. Preserve it without activating it for a tenant until independent ownership evidence exists.
+
+**Why:** The earlier workflow accepted cross-company branch/user references and used global role pools. Those links can therefore be evidence of the original defect rather than evidence of the author's company.
+
+**How to apply:** Stamp new approval records from the authenticated company; resolve roles and delegates from its active memberships. Do not backfill old workflows from linked branches or whichever company first opens them.
+
 Supply-chain and sales records with mixed-company references must be quarantined as a whole, rather than returning or acting on partially filtered documents. Legacy work centers and routings have no provable owner.
 
 **Why:** Earlier procurement, inventory, manufacturing, and sales credit-note writes accepted foreign references. A foreign product and foreign warehouse can agree with each other while both disagree with the document's company. Trusting only a header stamp or silently omitting foreign children can both expose data and change the meaning of financial or stock operations. Historical routing/BoM links are not evidence of who authored a shared production resource.

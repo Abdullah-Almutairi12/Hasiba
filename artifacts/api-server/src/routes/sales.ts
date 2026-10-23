@@ -1335,6 +1335,7 @@ router.post("/sales/orders/:id/transition", salesWriteGuard, async (req, res) =>
         }
       }
       const submission = await submitForApproval({
+        companyId: req.session.companyId!,
         docType: "sales_order",
         recordId: id,
         recordRef: so.reference,
@@ -3453,6 +3454,7 @@ export const createCreditNoteHandler: RequestHandler = async (req, res) => {
       if (!canApprove || (policy.approval_above != null && Number(result.total) >= Number(policy.approval_above))) forcedRoles = ["manager"];
     }
     const submission = await submitForApproval({
+      companyId: req.session.companyId!,
       docType: "credit_note",
       recordId: result.id,
       recordRef: result.reference,
@@ -3526,6 +3528,7 @@ router.post("/sales/credit-notes/:id/cancel", salesWriteGuard, async (req, res) 
       }
       if (pre) {
         const submission = await submitForApproval({
+          companyId: req.session.companyId!,
           docType: "credit_note_cancel",
           recordId: id,
           recordRef: pre.reference,

@@ -985,6 +985,7 @@ describe("credit-note cancellation reconciles actual depletion, not only journal
     }).returning();
     await db.insert(userCompaniesTable).values({ userId: approver.id, companyId: f.companyId, role: "manager" });
     const [rule] = await db.insert(approvalRulesTable).values({
+      companyId: f.companyId,
       name: f.tag, docType: "credit_note_cancel", minAmount: "0", isActive: true, mode: "sequential",
     }).returning();
     try {

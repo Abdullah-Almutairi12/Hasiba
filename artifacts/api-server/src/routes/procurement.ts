@@ -1161,6 +1161,7 @@ router.post("/procurement/purchase-orders/:id/confirm", async (req, res) => {
     // the confirm and respond 202. The registered onApprove handler will
     // run finalizePurchaseOrderConfirm when the chain completes.
     const submission = await submitForApproval({
+      companyId: req.session.companyId!,
       docType: "purchase_order",
       recordId: id,
       recordRef: po.reference,
@@ -2252,6 +2253,7 @@ router.post("/procurement/payment-runs/:id/execute", financeGuard, async (req, r
       return;
     }
     const submission = await submitForApproval({
+      companyId: req.session.companyId!,
       docType: "payment_run",
       recordId: id,
       recordRef: pre.reference,

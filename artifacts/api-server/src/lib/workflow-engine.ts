@@ -14,6 +14,8 @@ import {
   purchaseOrdersTable,
   invoicesTable,
   leaveRequestsTable,
+  userCompaniesTable,
+  companiesTable,
 } from "@workspace/db";
 import type { PgTable } from "drizzle-orm/pg-core";
 import { and, asc, desc, eq, gt, isNull, lte, or, sql } from "drizzle-orm";
@@ -21,6 +23,8 @@ import { logger } from "./logger";
 import { sendMail, isMailerConfigured } from "./mailer";
 import { recordAudit } from "./audit";
 import { returnAuthorize, assertReturnSnapshot } from "./return-access";
+import { assertCompanyBranch } from "./company-access";
+import { assertWorkflowMember, workflowMember } from "./workflow-access";
 
 // ---------------------------------------------------------------------------
 // Document types known to the engine. Each module that wants to trigger an
@@ -58,6 +62,7 @@ export function registerOnReject(docType: DocType, handler: OnRejectHandler): vo
 //   { required: false, autoApproved: true } if rule matched but no steps.
 // ---------------------------------------------------------------------------
 export interface SubmitInput {
+  companyId: number;
   /** Branchless legacy matrices have no provable company owner. */
   scopedBranchOnly?: boolean;
   docType: DocType;
@@ -85,7 +90,11 @@ export interface SubmitResult {
 }
 
 export async function submitForApproval(input: SubmitInput): Promise<SubmitResult> {
+  if (!Number.isSafeInteger(input.companyId) || input.companyId <= 0) throw new Error("يلزم نطاق شركة للاعتماد");
+  if (input.branchId != null) await assertCompanyBranch(input.branchId, input.companyId);
+  if (input.submittedByUserId != null) await assertWorkflowMember(input.companyId, input.submittedByUserId);
   const amount = Number(input.amount ?? 0);
+  if (!Number.isFinite(amount) || amount < 0) throw new Error("قيمة اعتماد غير صحيحة");
   // Find the most-specific active rule: same branch beats null branch,
   // tighter amount window beats wider. Take the highest min_amount that
   // still matches our amount, then highest specificity.
@@ -94,6 +103,7 @@ export async function submitForApproval(input: SubmitInput): Promise<SubmitResul
     .from(approvalRulesTable)
     .where(
       and(
+        eq(approvalRulesTable.companyId, input.companyId),
         eq(approvalRulesTable.docType, input.docType),
         eq(approvalRulesTable.isActive, true),
         lte(approvalRulesTable.minAmount, String(amount)),
@@ -136,6 +146,7 @@ export async function submitForApproval(input: SubmitInput): Promise<SubmitResul
     .from(approvalRequestsTable)
     .where(
       and(
+        eq(approvalRequestsTable.companyId, input.companyId),
         eq(approvalRequestsTable.docType, input.docType),
         eq(approvalRequestsTable.recordId, input.recordId),
       ),
@@ -168,6 +179,7 @@ export async function submitForApproval(input: SubmitInput): Promise<SubmitResul
   const [request] = await db
     .insert(approvalRequestsTable)
     .values({
+      companyId: input.companyId,
       ruleId: matched.id,
       docType: input.docType,
       recordId: input.recordId,
@@ -184,6 +196,7 @@ export async function submitForApproval(input: SubmitInput): Promise<SubmitResul
 
   // Notify all currently-pending approvers.
   await notifyStepApprovers(request.id, steps, matched.mode, request.currentStep, {
+    companyId: input.companyId,
     docType: input.docType,
     recordRef: input.recordRef ?? `#${input.recordId}`,
     amount,
@@ -209,6 +222,7 @@ async function createForcedApproval(
     .from(approvalRequestsTable)
     .where(
       and(
+        eq(approvalRequestsTable.companyId, input.companyId),
         eq(approvalRequestsTable.docType, input.docType),
         eq(approvalRequestsTable.recordId, input.recordId),
       ),
@@ -233,6 +247,7 @@ async function createForcedApproval(
   const [request] = await db
     .insert(approvalRequestsTable)
     .values({
+      companyId: input.companyId,
       ruleId: null,
       docType: input.docType,
       recordId: input.recordId,
@@ -248,6 +263,7 @@ async function createForcedApproval(
     })
     .returning();
   await notifyStepApprovers(request.id, synthSteps, "sequential", request.currentStep, {
+    companyId: input.companyId,
     docType: input.docType,
     recordRef: input.recordRef ?? `#${input.recordId}`,
     amount,
@@ -262,13 +278,13 @@ async function notifyStepApprovers(
   steps: Array<{ sequence: number; approverRole: string; approverUserId: number | null }>,
   mode: string,
   currentStep: number,
-  ctx: { docType: string; recordRef: string; amount: number; branchId: number | null },
+  ctx: { companyId: number; docType: string; recordRef: string; amount: number; branchId: number | null },
 ): Promise<void> {
   const targets = mode === "parallel"
     ? steps
     : steps.filter((s) => s.sequence === currentStep);
   for (const s of targets) {
-    const recipients = await resolveApprovers(s.approverRole, s.approverUserId, ctx.branchId);
+    const recipients = await resolveApprovers(s.approverRole, s.approverUserId, ctx.branchId, ctx.companyId);
     for (const userId of recipients) {
       await notify(userId, {
         type: "approval",
@@ -290,16 +306,18 @@ async function notifyStepApprovers(
 // A fixed user id (rule-level pick) and the resulting delegate are
 // always honored even if their branch differs — that's an explicit
 // admin choice, not a role pool resolution.
-async function resolveApprovers(
+export async function resolveApprovers(
   role: string,
   fixedUserId: number | null,
   requestBranchId: number | null,
+  companyId: number,
 ): Promise<number[]> {
   let baseIds: number[] = [];
   if (fixedUserId) {
-    baseIds = [fixedUserId];
+    baseIds = await workflowMember(companyId, fixedUserId) ? [fixedUserId] : [];
   } else {
-    const conds = [eq(usersTable.role, role), eq(usersTable.isActive, true)];
+    const conds = [eq(userCompaniesTable.role, role), eq(usersTable.isActive, true),
+      eq(userCompaniesTable.companyId, companyId), eq(companiesTable.isActive, true)];
     if (requestBranchId != null) {
       conds.push(
         or(
@@ -311,6 +329,8 @@ async function resolveApprovers(
     const rows = await db
       .select({ id: usersTable.id })
       .from(usersTable)
+      .innerJoin(userCompaniesTable, eq(userCompaniesTable.userId, usersTable.id))
+      .innerJoin(companiesTable, eq(companiesTable.id, userCompaniesTable.companyId))
       .where(and(...conds));
     baseIds = rows.map((r) => r.id);
   }
@@ -322,12 +342,19 @@ async function resolveApprovers(
       .from(approverDelegationsTable)
       .where(
         and(
+          eq(approverDelegationsTable.companyId, companyId),
           eq(approverDelegationsTable.fromUserId, id),
           lte(approverDelegationsTable.fromDate, now),
           gt(approverDelegationsTable.toDate, now),
         ),
       );
-    if (dels[0]) out.add(dels[0].toUserId);
+    const delegates = [];
+    for (const delegation of dels) {
+      if (await workflowMember(companyId, delegation.toUserId)) delegates.push(delegation.toUserId);
+    }
+    // Ambiguous overlapping legacy delegations must not select an arbitrary
+    // recipient. The original approver remains available if no valid delegate.
+    if (new Set(delegates).size === 1) out.add(delegates[0]);
     else out.add(id);
   }
   return Array.from(out);
@@ -349,12 +376,16 @@ export async function actOnApproval(
   userName: string | null,
   action: ActionKind,
   comment?: string,
+  companyId?: number,
 ): Promise<ActResult> {
   const [request] = await db
     .select()
     .from(approvalRequestsTable)
-    .where(eq(approvalRequestsTable.id, requestId));
+    .where(and(eq(approvalRequestsTable.id, requestId), eq(approvalRequestsTable.companyId, companyId ?? -1)));
   if (!request) throw new Error("طلب الاعتماد غير موجود");
+  if (!companyId || !userId) throw new Error("يلزم عضو وشركة للاعتماد");
+  await assertWorkflowMember(companyId, userId);
+  if (request.branchId != null) await assertCompanyBranch(request.branchId, companyId);
   if (request.status !== "pending") throw new Error("هذا الطلب لم يعد مفتوحاً");
   let returnApprover = false;
   if (request.docType === "credit_note" && action !== "comment") {
@@ -369,8 +400,10 @@ export async function actOnApproval(
   }
 
   const rule = request.ruleId
-    ? (await db.select().from(approvalRulesTable).where(eq(approvalRulesTable.id, request.ruleId)))[0]
+    ? (await db.select().from(approvalRulesTable).where(and(eq(approvalRulesTable.id, request.ruleId),
+      eq(approvalRulesTable.companyId, companyId))))[0]
     : undefined;
+  if (request.ruleId && !rule) throw new Error("قاعدة اعتماد غير متاحة في الشركة");
   // Forced approvals (ruleId === null) persist their synthesized step
   // chain on the request itself (forcedSteps jsonb). We materialize that
   // chain so the rest of the act flow works uniformly with rule-based
@@ -416,7 +449,7 @@ export async function actOnApproval(
   if (returnApprover && request.ruleId == null) actingStep = actionableSteps[0]?.sequence ?? null;
   if (userId != null) {
     for (const s of actionableSteps) {
-      const resolved = await resolveApprovers(s.approverRole, s.approverUserId, request.branchId ?? null);
+      const resolved = await resolveApprovers(s.approverRole, s.approverUserId, request.branchId ?? null, companyId);
       if (resolved.includes(userId)) {
         actingStep = s.sequence;
         break;
@@ -542,6 +575,7 @@ export async function actOnApproval(
         .set({ currentStep: next.sequence })
         .where(eq(approvalRequestsTable.id, requestId));
       await notifyStepApprovers(requestId, steps, "sequential", next.sequence, {
+        companyId,
         docType: request.docType,
         recordRef: request.recordRef ?? `#${request.recordId}`,
         amount: Number(request.amount),

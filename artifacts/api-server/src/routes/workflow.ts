@@ -17,11 +17,14 @@ import {
   userCompaniesTable,
   companiesTable,
 } from "@workspace/db";
-import { and, asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, sql, or, isNull, inArray, lt, gt } from "drizzle-orm";
 import { adminGuard } from "../middlewares/require-role";
-import { actOnApproval, checkFinancialLimit } from "../lib/workflow-engine";
+import { actOnApproval, checkFinancialLimit, resolveApprovers } from "../lib/workflow-engine";
 import { recordAudit } from "../lib/audit";
 import { isPublishedBootstrapPassword } from "../lib/bootstrap-password";
+import { assertCompanyBranch, branchScope } from "../lib/company-access";
+import { assertWorkflowMember } from "../lib/workflow-access";
+import { handleRouteError } from "../lib/handle-error";
 
 const router = Router();
 
@@ -30,20 +33,55 @@ function isAdmin(req: { session?: { role?: string } }): boolean {
   return r === "owner" || r === "manager";
 }
 
+router.use("/workflow/approval-rules/:id", async (req, res, next) => {
+  if (!Number.isSafeInteger(Number(req.params.id)) || Number(req.params.id) <= 0) {
+    res.status(400).json({ error: "معرف غير صحيح" }); return;
+  }
+  const [owned] = await db.select({ id: approvalRulesTable.id }).from(approvalRulesTable)
+    .where(and(eq(approvalRulesTable.id, Number(req.params.id)),
+      eq(approvalRulesTable.companyId, req.session.companyId!),
+      or(isNull(approvalRulesTable.branchId), branchScope(approvalRulesTable.branchId, req.session.companyId!))));
+  if (!owned) { res.status(404).json({ error: "قاعدة الاعتماد غير متاحة" }); return; }
+  next();
+});
+
+router.use("/workflow/approval-requests/:id", async (req, res, next) => {
+  if (!Number.isSafeInteger(Number(req.params.id)) || Number(req.params.id) <= 0) {
+    res.status(400).json({ error: "معرف غير صحيح" }); return;
+  }
+  const [owned] = await db.select({ id: approvalRequestsTable.id }).from(approvalRequestsTable)
+    .where(and(eq(approvalRequestsTable.id, Number(req.params.id)),
+      eq(approvalRequestsTable.companyId, req.session.companyId!),
+      or(isNull(approvalRequestsTable.branchId), branchScope(approvalRequestsTable.branchId, req.session.companyId!))));
+  if (!owned) { res.status(404).json({ error: "طلب الاعتماد غير متاح" }); return; }
+  next();
+});
+
+async function validateRuleMembers(companyId: number, body: {
+  branchId?: number | null; steps?: Array<{ approverUserId?: number | null }>;
+}) {
+  if (body.branchId != null) await assertCompanyBranch(body.branchId, companyId);
+  for (const step of body.steps ?? []) {
+    if (step.approverUserId != null) await assertWorkflowMember(companyId, step.approverUserId);
+  }
+}
+
 // --------------------------------------------------------------------------
 // Approval Rules (admin/manager only — read & write)
 // --------------------------------------------------------------------------
-router.get("/workflow/approval-rules", adminGuard, async (_req, res) => {
+router.get("/workflow/approval-rules", adminGuard, async (req, res) => {
   const rules = await db
     .select()
     .from(approvalRulesTable)
+    .where(and(eq(approvalRulesTable.companyId, req.session.companyId!),
+      or(isNull(approvalRulesTable.branchId), branchScope(approvalRulesTable.branchId, req.session.companyId!))))
     .orderBy(asc(approvalRulesTable.docType), asc(approvalRulesTable.minAmount));
   const ids = rules.map((r) => r.id);
   const steps = ids.length
     ? await db
         .select()
         .from(approvalStepsTable)
-        .where(sql`rule_id = ANY(${ids})`)
+        .where(inArray(approvalStepsTable.ruleId, ids))
         .orderBy(asc(approvalStepsTable.ruleId), asc(approvalStepsTable.sequence))
     : [];
   const stepsByRule = new Map<number, typeof steps>();
@@ -96,10 +134,12 @@ const RuleBody = z.object({
 router.post("/workflow/approval-rules", adminGuard, async (req, res) => {
   try {
     const body = RuleBody.parse(req.body);
+    await validateRuleMembers(req.session.companyId!, body);
     const out = await db.transaction(async (tx) => {
       const [rule] = await tx
         .insert(approvalRulesTable)
         .values({
+          companyId: req.session.companyId!,
           name: body.name,
           docType: body.docType,
           branchId: body.branchId ?? null,
@@ -124,7 +164,7 @@ router.post("/workflow/approval-rules", adminGuard, async (req, res) => {
     res.status(201).json({ id: out.id });
   } catch (err) {
     req.log.error({ err }, "create approval rule failed");
-    res.status(400).json({ error: err instanceof Error ? err.message : "بيانات غير صحيحة" });
+    handleRouteError(err, res);
   }
 });
 
@@ -132,6 +172,7 @@ router.patch("/workflow/approval-rules/:id", adminGuard, async (req, res) => {
   try {
     const id = Number(req.params.id);
     const body = RuleBody.partial().parse(req.body);
+    await validateRuleMembers(req.session.companyId!, body);
     const updates: Record<string, unknown> = {};
     if (body.name !== undefined) updates.name = body.name;
     if (body.docType !== undefined) updates.docType = body.docType;
@@ -140,31 +181,48 @@ router.patch("/workflow/approval-rules/:id", adminGuard, async (req, res) => {
     if (body.maxAmount !== undefined) updates.maxAmount = body.maxAmount == null ? null : String(body.maxAmount);
     if (body.mode !== undefined) updates.mode = body.mode;
     if (body.isActive !== undefined) updates.isActive = body.isActive;
-    if (Object.keys(updates).length) {
-      await db.update(approvalRulesTable).set(updates).where(eq(approvalRulesTable.id, id));
-    }
-    if (body.steps) {
-      await db.delete(approvalStepsTable).where(eq(approvalStepsTable.ruleId, id));
-      for (const s of body.steps) {
-        await db.insert(approvalStepsTable).values({
-          ruleId: id,
-          sequence: s.sequence,
-          approverRole: s.approverRole,
-          approverUserId: s.approverUserId ?? null,
-          minAmount: String(s.minAmount),
-        });
+    await db.transaction(async (tx) => {
+      await tx.select({ id: approvalRulesTable.id }).from(approvalRulesTable)
+        .where(and(eq(approvalRulesTable.id, id), eq(approvalRulesTable.companyId, req.session.companyId!))).for("update");
+      const [used] = await tx.select({ id: approvalRequestsTable.id }).from(approvalRequestsTable)
+        .where(eq(approvalRequestsTable.ruleId, id)).limit(1);
+      if (used && Object.keys(body).some(key => key !== "isActive")) {
+        throw Object.assign(new Error("قاعدة مستخدمة تاريخيًا؛ أنشئ قاعدة جديدة بدل تغيير سلسلة اعتماد قائمة"), { status: 409 });
       }
-    }
+      if (Object.keys(updates).length) {
+        await tx.update(approvalRulesTable).set(updates).where(and(eq(approvalRulesTable.id, id),
+          eq(approvalRulesTable.companyId, req.session.companyId!)));
+      }
+      if (body.steps) {
+        await tx.delete(approvalStepsTable).where(eq(approvalStepsTable.ruleId, id));
+        for (const s of body.steps) {
+          await tx.insert(approvalStepsTable).values({
+            ruleId: id, sequence: s.sequence, approverRole: s.approverRole,
+            approverUserId: s.approverUserId ?? null, minAmount: String(s.minAmount),
+          });
+        }
+      }
+    });
     res.json({ ok: true });
   } catch (err) {
-    res.status(400).json({ error: err instanceof Error ? err.message : "خطأ" });
+    handleRouteError(err, res);
   }
 });
 
 router.delete("/workflow/approval-rules/:id", adminGuard, async (req, res) => {
   const id = Number(req.params.id);
-  await db.delete(approvalRulesTable).where(eq(approvalRulesTable.id, id));
-  res.json({ ok: true });
+  try {
+    await db.transaction(async (tx) => {
+      await tx.select({ id: approvalRulesTable.id }).from(approvalRulesTable)
+        .where(and(eq(approvalRulesTable.id, id), eq(approvalRulesTable.companyId, req.session.companyId!))).for("update");
+      const [used] = await tx.select({ id: approvalRequestsTable.id }).from(approvalRequestsTable)
+        .where(eq(approvalRequestsTable.ruleId, id)).limit(1);
+      if (used) throw Object.assign(new Error("لا تحذف قاعدة مرتبطة بسجل اعتماد؛ يمكن تعطيلها للمستقبل"), { status: 409 });
+      await tx.delete(approvalRulesTable).where(and(eq(approvalRulesTable.id, id),
+        eq(approvalRulesTable.companyId, req.session.companyId!)));
+    });
+    res.json({ ok: true });
+  } catch (error) { handleRouteError(error, res); }
 });
 
 // --------------------------------------------------------------------------
@@ -175,12 +233,15 @@ async function userCanSeeRequest(
   userId: number | null,
   userRole: string | undefined,
   request: {
+    companyId: number | null;
     submittedByUserId: number | null;
     ruleId: number | null;
     forcedSteps: unknown;
     branchId: number | null;
   },
+  companyId: number,
 ): Promise<boolean> {
+  if (request.companyId !== companyId) return false;
   if (userRole === "owner" || userRole === "manager") return true;
   if (userId == null) return false;
   if (request.submittedByUserId === userId) return true;
@@ -208,43 +269,8 @@ async function userCanSeeRequest(
         })));
   if (steps.length === 0) return false;
   for (const s of steps) {
-    if (s.approverUserId === userId) return true;
-    if (userRole && s.approverRole === userRole) {
-      // Honor branch-aware role pool: if the request is branch-scoped,
-      // only same-branch or company-wide users in the role qualify.
-      if (request.branchId == null) return true;
-      const [u] = await db
-        .select({ branchId: usersTable.branchId })
-        .from(usersTable)
-        .where(eq(usersTable.id, userId));
-      if (!u) return false;
-      if (u.branchId == null || u.branchId === request.branchId) return true;
-    }
-  }
-  // Delegation: any active delegation pointing to this user from a current
-  // approver (by role or fixed user) also grants visibility.
-  const now = new Date();
-  const dels = await db
-    .select()
-    .from(approverDelegationsTable)
-    .where(
-      and(
-        eq(approverDelegationsTable.toUserId, userId),
-        sql`${approverDelegationsTable.fromDate} <= ${now}`,
-        sql`${approverDelegationsTable.toDate} > ${now}`,
-      ),
-    );
-  if (dels.length === 0) return false;
-  const fromIds = new Set(dels.map((d) => d.fromUserId));
-  for (const s of steps) {
-    if (s.approverUserId && fromIds.has(s.approverUserId)) return true;
-    if (s.approverRole) {
-      const roleUsers = await db
-        .select({ id: usersTable.id })
-        .from(usersTable)
-        .where(eq(usersTable.role, s.approverRole));
-      if (roleUsers.some((u) => fromIds.has(u.id))) return true;
-    }
+    const recipients = await resolveApprovers(s.approverRole ?? "", s.approverUserId, request.branchId, companyId);
+    if (recipients.includes(userId)) return true;
   }
   return false;
 }
@@ -256,6 +282,10 @@ router.get("/workflow/approval-requests", async (req, res) => {
   const status = req.query.status ? String(req.query.status) : undefined;
   const docType = req.query.docType ? String(req.query.docType) : undefined;
   const where = and(
+    eq(approvalRequestsTable.companyId, req.session.companyId!),
+    or(isNull(approvalRequestsTable.branchId), branchScope(approvalRequestsTable.branchId, req.session.companyId!)),
+    or(isNull(approvalRequestsTable.ruleId), inArray(approvalRequestsTable.ruleId,
+      db.select({ id: approvalRulesTable.id }).from(approvalRulesTable).where(eq(approvalRulesTable.companyId, req.session.companyId!)))),
     status ? eq(approvalRequestsTable.status, status) : sql`true`,
     docType ? eq(approvalRequestsTable.docType, docType) : sql`true`,
   );
@@ -267,7 +297,7 @@ router.get("/workflow/approval-requests", async (req, res) => {
     .limit(200);
   const visible: typeof rows = [];
   for (const r of rows) {
-    if (await userCanSeeRequest(userId, userRole, r)) visible.push(r);
+    if (await userCanSeeRequest(userId, userRole, r, req.session.companyId!)) visible.push(r);
   }
   return res.json(
     visible.map((r) => ({
@@ -287,9 +317,14 @@ router.get("/workflow/approval-requests/:id", async (req, res) => {
   const [request] = await db
     .select()
     .from(approvalRequestsTable)
-    .where(eq(approvalRequestsTable.id, id));
+    .where(and(eq(approvalRequestsTable.id, id), eq(approvalRequestsTable.companyId, req.session.companyId!)));
   if (!request) return res.status(404).json({ error: "not found" });
-  if (!(await userCanSeeRequest(userId, userRole, request))) {
+  if (request.ruleId) {
+    const [rule] = await db.select({ id: approvalRulesTable.id }).from(approvalRulesTable)
+      .where(and(eq(approvalRulesTable.id, request.ruleId), eq(approvalRulesTable.companyId, req.session.companyId!)));
+    if (!rule) { res.status(404).json({ error: "قاعدة الاعتماد غير متاحة" }); return; }
+  }
+  if (!(await userCanSeeRequest(userId, userRole, request, req.session.companyId!))) {
     return res.status(403).json({ error: "ليست لديك صلاحية لعرض هذا الطلب" });
   }
   // For rule-based requests, return the configured steps. For forced
@@ -341,7 +376,7 @@ router.post("/workflow/approval-requests/:id/act", async (req, res) => {
     const body = ActBody.parse(req.body);
     const userId = req.session.userId ?? null;
     const userName = (req.session as { userName?: string }).userName ?? null;
-    const out = await actOnApproval(id, userId, userName, body.action, body.comment ?? undefined);
+    const out = await actOnApproval(id, userId, userName, body.action, body.comment ?? undefined, req.session.companyId!);
     void recordAudit(req, {
       action: body.action,
       entity: "approval_request",
@@ -366,7 +401,7 @@ router.get("/workflow/delegations", async (req, res) => {
   const rows = await db
     .select()
     .from(approverDelegationsTable)
-    .where(where)
+    .where(and(eq(approverDelegationsTable.companyId, req.session.companyId!), where))
     .orderBy(desc(approverDelegationsTable.createdAt));
   return res.json(
     rows.map((r) => ({
@@ -379,12 +414,13 @@ router.get("/workflow/delegations", async (req, res) => {
 });
 
 const DelegationBody = z.object({
-  fromUserId: z.number().int(),
-  toUserId: z.number().int(),
-  fromDate: z.string(),
-  toDate: z.string(),
+  fromUserId: z.number().int().positive(),
+  toUserId: z.number().int().positive(),
+  fromDate: z.string().datetime({ offset: true }),
+  toDate: z.string().datetime({ offset: true }),
   reason: z.string().nullish(),
-});
+}).refine(body => body.fromUserId !== body.toUserId && Date.parse(body.toDate) > Date.parse(body.fromDate),
+  "يلزم مفوض مختلف وفترة زمنية صحيحة");
 
 router.post("/workflow/delegations", async (req, res) => {
   try {
@@ -396,20 +432,27 @@ router.post("/workflow/delegations", async (req, res) => {
         error: "يمكنك تفويض صلاحياتك أنت فقط",
       });
     }
-    const [created] = await db
-      .insert(approverDelegationsTable)
-      .values({
-        fromUserId: body.fromUserId,
-        toUserId: body.toUserId,
-        fromDate: new Date(body.fromDate),
-        toDate: new Date(body.toDate),
-        reason: body.reason ?? null,
-      })
-      .returning();
+    await assertWorkflowMember(req.session.companyId!, body.fromUserId);
+    await assertWorkflowMember(req.session.companyId!, body.toUserId);
+    const created = await db.transaction(async (tx) => {
+      await tx.select({ id: companiesTable.id }).from(companiesTable)
+        .where(eq(companiesTable.id, req.session.companyId!)).for("update");
+      const [overlap] = await tx.select({ id: approverDelegationsTable.id }).from(approverDelegationsTable)
+        .where(and(eq(approverDelegationsTable.companyId, req.session.companyId!),
+          eq(approverDelegationsTable.fromUserId, body.fromUserId),
+          lt(approverDelegationsTable.fromDate, new Date(body.toDate)),
+          gt(approverDelegationsTable.toDate, new Date(body.fromDate)))).limit(1);
+      if (overlap) throw Object.assign(new Error("يوجد تفويض متداخل لهذا العضو في الشركة"), { status: 409 });
+      const [row] = await tx.insert(approverDelegationsTable).values({
+        companyId: req.session.companyId!, fromUserId: body.fromUserId, toUserId: body.toUserId,
+        fromDate: new Date(body.fromDate), toDate: new Date(body.toDate), reason: body.reason ?? null,
+      }).returning();
+      return row;
+    });
     void recordAudit(req, { action: "create", entity: "approver_delegation", details: `${body.fromUserId}→${body.toUserId}` });
     return res.status(201).json({ id: created.id });
   } catch (err) {
-    return res.status(400).json({ error: err instanceof Error ? err.message : "خطأ" });
+    return handleRouteError(err, res);
   }
 });
 
@@ -420,7 +463,7 @@ router.delete("/workflow/delegations/:id", async (req, res) => {
   const [existing] = await db
     .select()
     .from(approverDelegationsTable)
-    .where(eq(approverDelegationsTable.id, id));
+    .where(and(eq(approverDelegationsTable.id, id), eq(approverDelegationsTable.companyId, req.session.companyId!)));
   if (!existing) return res.status(404).json({ error: "not found" });
   if (!isAdmin(req) && existing.fromUserId !== userId) {
     return res.status(403).json({ error: "يمكنك حذف تفويضاتك أنت فقط" });
@@ -647,9 +690,10 @@ router.get("/workflow/approver-candidates", async (req, res) => {
     return;
   }
   const rows = await db
-    .select({ id: usersTable.id, name: usersTable.name, role: usersTable.role })
+    .select({ id: usersTable.id, name: usersTable.name, role: userCompaniesTable.role })
     .from(usersTable)
-    .where(eq(usersTable.isActive, true))
+    .innerJoin(userCompaniesTable, eq(userCompaniesTable.userId, usersTable.id))
+    .where(and(eq(usersTable.isActive, true), eq(userCompaniesTable.companyId, req.session.companyId!)))
     .orderBy(asc(usersTable.name));
   res.json(rows);
 });

@@ -313,6 +313,8 @@ export const ApprovalRuleMode = {
 
 export interface ApprovalRule {
   id: number;
+  /** @nullable */
+  readonly companyId?: number | null;
   name: string;
   docType: string;
   /** @nullable */
@@ -390,6 +392,8 @@ export interface ApprovalRulePatch {
 export interface ApprovalRequest {
   id: number;
   /** @nullable */
+  readonly companyId?: number | null;
+  /** @nullable */
   ruleId?: number | null;
   docType: string;
   recordId: number;
@@ -432,6 +436,8 @@ export type ApprovalRequestDetail = ApprovalRequest & {
 
 export interface ApproverDelegation {
   id: number;
+  /** @nullable */
+  readonly companyId?: number | null;
   fromUserId: number;
   toUserId: number;
   fromDate: string;

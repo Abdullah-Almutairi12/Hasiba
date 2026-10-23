@@ -3266,6 +3266,7 @@ export const ExportPdfResponse = zod.unknown()
  */
 export const ListApprovalRulesResponseItem = zod.object({
   "id": zod.number().int(),
+  "companyId": zod.number().int().nullish(),
   "name": zod.string(),
   "docType": zod.string(),
   "branchId": zod.number().int().nullish(),
@@ -3348,6 +3349,7 @@ export const ListApprovalRequestsQueryParams = zod.object({
 
 export const ListApprovalRequestsResponseItem = zod.object({
   "id": zod.number().int(),
+  "companyId": zod.number().int().nullish(),
   "ruleId": zod.number().int().nullish(),
   "docType": zod.string(),
   "recordId": zod.number().int(),
@@ -3371,6 +3373,7 @@ export const GetApprovalRequestParams = zod.object({
 
 export const GetApprovalRequestResponse = zod.object({
   "id": zod.number().int(),
+  "companyId": zod.number().int().nullish(),
   "ruleId": zod.number().int().nullish(),
   "docType": zod.string(),
   "recordId": zod.number().int(),
@@ -3423,6 +3426,7 @@ export const ActOnApprovalRequestResponse = zod.object({
 
 export const ListDelegationsResponseItem = zod.object({
   "id": zod.number().int(),
+  "companyId": zod.number().int().nullish(),
   "fromUserId": zod.number().int(),
   "toUserId": zod.number().int(),
   "fromDate": zod.string(),

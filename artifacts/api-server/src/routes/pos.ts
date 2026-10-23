@@ -539,7 +539,8 @@ router.post(
       const [reqRow] = await tx
         .select()
         .from(approvalRequestsTable)
-        .where(eq(approvalRequestsTable.id, rawApprovalReqId))
+        .where(and(eq(approvalRequestsTable.id, rawApprovalReqId),
+          eq(approvalRequestsTable.companyId, companyId)))
         .limit(1).for("update");
       if (
         !reqRow ||
@@ -1416,6 +1417,7 @@ router.post(
           ?.sessionId;
         const sessionId = typeof sessionIdRaw === "number" ? sessionIdRaw : 0;
         const result = await submitForApproval({
+          companyId: req.session.companyId!,
           docType: "pos_over_limit",
           recordId: sessionId,
           recordRef: `POS session #${sessionId} — ${err.actionKey}`,

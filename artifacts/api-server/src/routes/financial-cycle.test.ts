@@ -234,6 +234,7 @@ describe.sequential("purchase → receipt → POS sale → return → balanced b
   });
   it("replays a committed POS order after its one-use approval has been consumed", async () => {
     const [approval] = await db.insert(approvalRequestsTable).values({
+      companyId,
       docType: "pos_over_limit", recordId: sessionId, recordRef: `POS session #${sessionId} — pos.discount_pct`,
       amount: "10", status: "approved", submittedByName: tag,
     }).returning();
@@ -254,6 +255,7 @@ describe.sequential("purchase → receipt → POS sale → return → balanced b
   });
   it("does not regress or reissue a credit note when approval rules change before replay", async () => {
     const [rule] = await db.insert(approvalRulesTable).values({
+      companyId,
       name: `Changed credit policy ${tag}`, docType: "credit_note", minAmount: "0", mode: "sequential", isActive: true,
     }).returning();
     try {

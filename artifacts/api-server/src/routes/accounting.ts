@@ -956,6 +956,7 @@ router.post(
       // already verified above). When a rule matches we lock the row to
       // 'pending_approval' and return 202.
       const submission = await submitForApproval({
+        companyId: req.session.companyId!,
         docType: "journal_entry",
         recordId: id,
         recordRef: entry.entryNumber,

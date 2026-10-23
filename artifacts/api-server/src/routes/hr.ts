@@ -820,6 +820,7 @@ router.post("/hr/leave-requests", hrGuard, async (req, res) => {
         .from(employeesTable)
         .where(eq(employeesTable.id, body.employeeId));
       const submission = await submitForApproval({
+        companyId: req.session.companyId!,
         docType: "leave_request",
         recordId: row.id,
         recordRef: reference,
@@ -1004,6 +1005,7 @@ router.post("/hr/expense-claims", hrGuard, async (req, res) => {
         .from(employeesTable)
         .where(eq(employeesTable.id, body.employeeId));
       const submission = await submitForApproval({
+        companyId: req.session.companyId!,
         docType: "expense_claim",
         recordId: newId,
         recordRef: reference,
