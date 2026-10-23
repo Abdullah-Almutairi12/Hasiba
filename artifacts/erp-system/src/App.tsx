@@ -75,6 +75,7 @@ const CompliancePage = lazy(() => import("@/pages/compliance"));
 const IntercompanyEmailActionPage = lazy(
   () => import("@/pages/intercompany-email-action"),
 );
+const ReturnsPage = lazy(() => import("@/pages/returns"));
 const HelpPage = lazy(() => import("@/pages/help"));
 
 const queryClient = createAppQueryClient();
@@ -181,6 +182,9 @@ function Router() {
         </Route>
         <Route path="/procurement">
           <Protected><ProcurementPage /></Protected>
+        </Route>
+        <Route path="/returns">
+          <Protected><ReturnsPage /></Protected>
         </Route>
         <Route path="/sales">
           <Protected><SalesPage /></Protected>

@@ -57,19 +57,22 @@ try {
   // Legacy installation mode is reserved for the documented upgrade fixture.
   // Normal verification must exercise the actual empty-database installer.
   if (process.argv.includes("--legacy-upgrade")) {
-    const reference = "6e39f6f";
+    const reference = "e6775a382647c0043e801d16f40f6df41cf11a18";
     const initializers = readdirSync(join(root, "artifacts/api-server/src/lib"))
       .filter((name) => name.endsWith("-init.ts")).map((name) => `artifacts/api-server/src/lib/${name}`);
-    const unchanged = spawnSync("git", ["diff", "--quiet", reference, "--", "lib/db/src/schema",
+    const unchanged = spawnSync("git", ["diff", "--quiet", reference, "--",
       "artifacts/api-server/src/app.ts", "artifacts/api-server/src/test/bootstrap.ts", ...initializers], { cwd: root });
     if (unchanged.status !== 0) throw new Error("Legacy fixture schema/initializers no longer match the pinned reference");
     const legacy = join(work, "legacy");
     mkdirSync(join(legacy, "lib/db"), { recursive: true });
-    const archive = spawnSync("git", ["archive", reference, "lib/db"], { cwd: root, maxBuffer: 16 * 1024 * 1024 });
+    const archive = spawnSync("git", ["archive", reference, "lib", "artifacts/api-server", "tsconfig.base.json", "package.json"], { cwd: root, maxBuffer: 64 * 1024 * 1024 });
     if (archive.status !== 0) throw new Error("Pinned legacy reference unavailable");
     const extract = spawnSync("tar", ["-x", "-C", legacy], { input: archive.stdout });
     if (extract.status !== 0) throw new Error("Legacy database source extraction failed");
     symlinkSync(join(root, "lib/db/node_modules"), join(legacy, "lib/db/node_modules"), "dir");
+    mkdirSync(join(legacy, "artifacts/api-server"), { recursive: true });
+    symlinkSync(join(root, "artifacts/api-server/node_modules"), join(legacy, "artifacts/api-server/node_modules"), "dir");
+    env.HASBA_LEGACY_API_APP = join(legacy, "artifacts/api-server/src/app.ts");
     pnpm(["--filter", "@workspace/db", "exec", "drizzle-kit", "push", "--force",
       `--config=${join(legacy, "lib/db/drizzle.config.ts")}`], env);
     pnpm(["--filter", "@workspace/db", "exec", "tsx", join(legacy, "lib/db/src/migrate.ts")], env);
@@ -84,12 +87,13 @@ try {
     pnpm(["--filter", "@workspace/scripts", "exec", "tsx", "../artifacts/api-server/src/test/browser-fixtures.ts"],
       { ...env, HASBA_BROWSER_STATE: state, HASBA_BROWSER_RECEIPTS: process.argv.includes("--receipts") ? "true" : "",
         HASBA_BROWSER_POS: process.argv.includes("--pos") ? "true" : "",
+        HASBA_BROWSER_RETURN_SETTLEMENT: process.argv.includes("--return-settlement") ? "true" : "",
         HASBA_BROWSER_MULTI_RECEIPTS: process.argv.includes("--multi-receipts") ? "true" : "",
         HASBA_BROWSER_RETURNS: process.argv.includes("--returns") ? "true" : "",
         HASBA_BROWSER_REVALUATIONS: process.argv.includes("--revaluations") ? "true" : "" });
     console.log("[test:isolated] Browser fixtures ready. State: /tmp/hasba-browser-state.json (synthetic data only).");
     await new Promise((done) => {
-      const timer = setTimeout(done, 15 * 60 * 1000);
+      const timer = setTimeout(done, (process.argv.includes("--return-settlement") ? 30 : 15) * 60 * 1000);
       for (const signal of ["SIGINT", "SIGTERM"]) process.once(signal, () => { clearTimeout(timer); done(); });
     });
     rmSync(state, { force: true });

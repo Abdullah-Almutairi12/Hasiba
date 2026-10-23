@@ -20,6 +20,7 @@ import { and, asc, desc, eq, gt, isNull, lte, or, sql } from "drizzle-orm";
 import { logger } from "./logger";
 import { sendMail, isMailerConfigured } from "./mailer";
 import { recordAudit } from "./audit";
+import { returnAuthorize, assertReturnSnapshot } from "./return-access";
 
 // ---------------------------------------------------------------------------
 // Document types known to the engine. Each module that wants to trigger an
@@ -57,6 +58,8 @@ export function registerOnReject(docType: DocType, handler: OnRejectHandler): vo
 //   { required: false, autoApproved: true } if rule matched but no steps.
 // ---------------------------------------------------------------------------
 export interface SubmitInput {
+  /** Branchless legacy matrices have no provable company owner. */
+  scopedBranchOnly?: boolean;
   docType: DocType;
   recordId: number;
   recordRef?: string | null;
@@ -104,7 +107,7 @@ export async function submitForApproval(input: SubmitInput): Promise<SubmitResul
   // Specificity: branch-specific rule beats global; within ties the
   // tightest min_amount wins.
   const matched = candidates
-    .filter((r) => r.branchId == null || r.branchId === input.branchId)
+    .filter((r) => input.scopedBranchOnly ? r.branchId != null && r.branchId === input.branchId : r.branchId == null || r.branchId === input.branchId)
     .sort((a, b) => {
       const branchA = a.branchId === input.branchId && a.branchId != null ? 1 : 0;
       const branchB = b.branchId === input.branchId && b.branchId != null ? 1 : 0;
@@ -353,6 +356,17 @@ export async function actOnApproval(
     .where(eq(approvalRequestsTable.id, requestId));
   if (!request) throw new Error("طلب الاعتماد غير موجود");
   if (request.status !== "pending") throw new Error("هذا الطلب لم يعد مفتوحاً");
+  let returnApprover = false;
+  if (request.docType === "credit_note" && action !== "comment") {
+    const controls = await db.execute(sql`SELECT company_id,branch_id FROM return_controls WHERE note_id=${request.recordId}`);
+    const control = controls.rows[0];
+    if (control) {
+      if (!userId) throw new Error("يلزم معتمد مسجل");
+      await returnAuthorize(userId, Number(control.company_id), "approve", Number(control.branch_id));
+      await assertReturnSnapshot(db, request.recordId);
+      returnApprover = true;
+    }
+  }
 
   const rule = request.ruleId
     ? (await db.select().from(approvalRulesTable).where(eq(approvalRulesTable.id, request.ruleId)))[0]
@@ -399,6 +413,7 @@ export async function actOnApproval(
   // on accountant-only steps and defeat the approval matrix. Use the admin
   // matrix UI to reconfigure rules instead.
   let actingStep: number | null = null;
+  if (returnApprover && request.ruleId == null) actingStep = actionableSteps[0]?.sequence ?? null;
   if (userId != null) {
     for (const s of actionableSteps) {
       const resolved = await resolveApprovers(s.approverRole, s.approverUserId, request.branchId ?? null);

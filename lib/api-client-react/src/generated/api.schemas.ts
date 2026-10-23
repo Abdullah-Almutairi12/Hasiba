@@ -2241,6 +2241,73 @@ export interface CreateSupplierBody {
   notes?: string | null;
 }
 
+export type GetReturnWorkspace200AccountsItem = { [key: string]: unknown };
+
+export type GetReturnWorkspace200ReportsItem = { [key: string]: unknown };
+
+export type GetReturnWorkspace200NotesItem = { [key: string]: unknown };
+
+export type GetReturnWorkspace200InvoicesItem = { [key: string]: unknown };
+
+export type GetReturnWorkspace200SessionsItem = { [key: string]: unknown };
+
+export type GetReturnWorkspace200PayoutsItem = { [key: string]: unknown };
+
+export type GetReturnWorkspace200BranchesItem = { [key: string]: unknown };
+
+export type GetReturnWorkspace200Templates = {[key: string]: string[]};
+
+export type GetReturnWorkspace200MembersItem = { [key: string]: unknown };
+
+export type GetReturnWorkspace200PoliciesItem = { [key: string]: unknown };
+
+export type GetReturnWorkspace200AccessItem = { [key: string]: unknown };
+
+export type GetReturnWorkspace200 = {
+  accounts?: GetReturnWorkspace200AccountsItem[];
+  reports?: GetReturnWorkspace200ReportsItem[];
+  notes: GetReturnWorkspace200NotesItem[];
+  invoices: GetReturnWorkspace200InvoicesItem[];
+  sessions: GetReturnWorkspace200SessionsItem[];
+  payouts: GetReturnWorkspace200PayoutsItem[];
+  capabilities: string[];
+  branches: GetReturnWorkspace200BranchesItem[];
+  templates: GetReturnWorkspace200Templates;
+  members: GetReturnWorkspace200MembersItem[];
+  policies: GetReturnWorkspace200PoliciesItem[];
+  access: GetReturnWorkspace200AccessItem[];
+};
+
+export type ReturnActionBodyAction = typeof ReturnActionBodyAction[keyof typeof ReturnActionBodyAction];
+
+
+export const ReturnActionBodyAction = {
+  request: 'request',
+  approve: 'approve',
+  payout: 'payout',
+  confirm_external: 'confirm_external',
+  cancel_payout: 'cancel_payout',
+  close: 'close',
+  approve_close: 'approve_close',
+  expense: 'expense',
+  export: 'export',
+  configure_access: 'configure_access',
+  configure_policy: 'configure_policy',
+} as const;
+
+/**
+ * Validated per action. Request uses invoiceId/customerId/warehouseId/lines/reason/disposition/settlementMethod/proofRef; payout uses noteId/receiptId/sessionId/amount/method/reference/delivered/idempotencyKey; close uses sessionId/counted/reason/unresolvedSalesCleared; configure_access uses userId/template/capabilities/branches; configure_policy uses branchId/approvalAbove/allowResale.
+ */
+export type ReturnActionBodyPayload = { [key: string]: unknown };
+
+export type ReturnActionBody = {
+  action: ReturnActionBodyAction;
+  /** Validated per action. Request uses invoiceId/customerId/warehouseId/lines/reason/disposition/settlementMethod/proofRef; payout uses noteId/receiptId/sessionId/amount/method/reference/delivered/idempotencyKey; close uses sessionId/counted/reason/unresolvedSalesCleared; configure_access uses userId/template/capabilities/branches; configure_policy uses branchId/approvalAbove/allowResale. */
+  payload: ReturnActionBodyPayload;
+};
+
+export type ReturnAction200 = { [key: string]: unknown };
+
 export type GetDashboardSalesChartParams = {
 period?: GetDashboardSalesChartPeriod;
 };

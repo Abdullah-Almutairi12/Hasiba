@@ -54,7 +54,9 @@ async function fixture(method: "fifo" | "average" | "standard" = "fifo", layers 
   const [session] = await db.insert(posSessionsTable).values({
     sessionNumber: tag, cashierName: tag, branchId: branch.id, openingCash: "0", status: "open",
   }).returning();
-  const agent = request.agent(app);
+  const legacyApp = process.env.HASBA_LEGACY_API_APP ? await import(process.env.HASBA_LEGACY_API_APP) : null;
+  if (legacyApp) await legacyApp.assertApplicationReady();
+  const agent = request.agent(legacyApp?.default ?? app);
   // Independent synthetic clients; preserve the real login limiter in tests.
   ok(await agent.post("/api/auth/login").set("X-Forwarded-For", `192.0.2.${++clientNumber}`)
     .send({ email: user.email, password }), 200);
@@ -143,7 +145,7 @@ describe("original POS invoice: independent linked return lifecycle", () => {
     };
     const before = await snapshots();
     const first = await runMigrations(process.env.TEST_DATABASE_URL!, () => {});
-    expect(first.applied).toHaveLength(0);
+    expect(first.applied).toEqual(["0026_pos_return_settlement.sql"]);
     expect(first.skipped).toHaveLength(26);
     expect(await snapshots()).toEqual(before);
     const second = await runMigrations(process.env.TEST_DATABASE_URL!, () => {});
@@ -153,7 +155,7 @@ describe("original POS invoice: independent linked return lifecycle", () => {
       JOIN journal_entry_lines l ON l.entry_id=j.id WHERE j.company_id=$1
       GROUP BY j.id HAVING sum(l.base_debit)<>sum(l.base_credit)`, [f.companyId]);
     expect(unbalanced).toHaveLength(0);
-    const out = resolve(process.cwd(), "../../generated-artifacts/enterprise-batch-a2");
+    const out = resolve(process.cwd(), "../../generated-artifacts/return-settlement");
     mkdirSync(out, { recursive: true });
     writeFileSync(resolve(out, "legacy-upgrade.json"), JSON.stringify({
       reference: process.env.HASBA_MIGRATION_REFERENCE,

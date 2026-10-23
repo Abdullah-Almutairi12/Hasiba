@@ -32,6 +32,7 @@ import {
   AlertTriangle,
   Truck,
   HelpCircle,
+  Undo2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useTheme, type ThemeMode } from "@/hooks/use-theme";
@@ -72,6 +73,7 @@ import {
 const mainNavItems = [
   { key: "dashboard", url: "/", icon: LayoutDashboard },
   { key: "pos", url: "/pos", icon: ShoppingCart },
+  { key: "returns", url: "/returns", icon: Undo2 },
   { key: "products", url: "/products", icon: Package },
   { key: "sales", url: "/sales", icon: Receipt },
   { key: "crm", url: "/crm", icon: Target },

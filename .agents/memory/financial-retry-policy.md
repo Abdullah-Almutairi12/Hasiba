@@ -14,6 +14,12 @@ Committed replays must not re-run one-use business authorizations or regress an 
 
 **How to apply:** Keep consumable per-intent validation inside the idempotent transaction for new work. In multi-stage approval flows, consult persisted document state and use guarded transitions rather than relying on a draft snapshot.
 
+After an uncertain result, a later authorization or validation denial does not prove that the original request failed to commit.
+
+**Why:** Membership can be revoked or a shift can close after the first transaction committed but before its response reached the client. A later 403 or409 may occur before receipt lookup.
+
+**How to apply:** Preserve the original body/key and reconciliation state after such a denial. Only a confirmed outcome or explicit reconciliation can justify starting a new intent; do not automatically replace the key.
+
 Treat confirmed server success followed by browser-key cleanup failure as a saved operation awaiting local confirmation, not as an unknown or failed financial write.
 
 **Why:** Completing the dialog while its persisted key remains can make a later intentionally identical operation replay the old document. A generic storage exception also encourages users to repeat an already-committed write without understanding its state.

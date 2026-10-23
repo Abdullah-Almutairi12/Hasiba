@@ -8,6 +8,30 @@
 import * as zod from 'zod';
 
 
+export const GetReturnWorkspaceResponse = zod.object({
+  "accounts": zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+  "reports": zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+  "notes": zod.array(zod.record(zod.string(), zod.unknown())),
+  "invoices": zod.array(zod.record(zod.string(), zod.unknown())),
+  "sessions": zod.array(zod.record(zod.string(), zod.unknown())),
+  "payouts": zod.array(zod.record(zod.string(), zod.unknown())),
+  "capabilities": zod.array(zod.string()),
+  "branches": zod.array(zod.record(zod.string(), zod.unknown())),
+  "templates": zod.record(zod.string(), zod.array(zod.string())),
+  "members": zod.array(zod.record(zod.string(), zod.unknown())),
+  "policies": zod.array(zod.record(zod.string(), zod.unknown())),
+  "access": zod.array(zod.record(zod.string(), zod.unknown()))
+})
+
+
+export const ReturnActionBody = zod.object({
+  "action": zod.enum(['request', 'approve', 'payout', 'confirm_external', 'cancel_payout', 'close', 'approve_close', 'expense', 'export', 'configure_access', 'configure_policy']),
+  "payload": zod.record(zod.string(), zod.unknown()).describe('Validated per action. Request uses invoiceId/customerId/warehouseId/lines/reason/disposition/settlementMethod/proofRef; payout uses noteId/receiptId/sessionId/amount/method/reference/delivered/idempotencyKey; close uses sessionId/counted/reason/unresolvedSalesCleared; configure_access uses userId/template/capabilities/branches; configure_policy uses branchId/approvalAbove/allowResale.')
+})
+
+export const ReturnActionResponse = zod.record(zod.string(), zod.unknown())
+
+
 export const ListInventoryRevaluationsResponseItem = zod.object({
   "id": zod.number().int(),
   "quantId": zod.number().int(),

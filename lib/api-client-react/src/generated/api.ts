@@ -130,6 +130,7 @@ import type {
   GetProductRecommendations200,
   GetProductRecommendationsParams,
   GetProfitLossParams,
+  GetReturnWorkspace200,
   GetSalesForecast200,
   GetSalesReportParams,
   GetSupplier200,
@@ -185,6 +186,8 @@ import type {
   RetryInvoiceSendFailure200,
   RetryInvoiceSendFailure404,
   RetryInvoiceSendFailure409,
+  ReturnAction200,
+  ReturnActionBody,
   RevaluationAccount,
   RevaluationBalance,
   ReverseJournalEntry200,
@@ -275,6 +278,183 @@ const withQueryKey = <T extends object, K>(query: T, queryKey: K): T & { queryKe
   }
   return result;
 };
+
+export const getGetReturnWorkspaceUrl = () => {
+
+
+
+
+  return `/api/pos/returns/workspace`
+}
+
+export const getReturnWorkspace = async ( options?: Parameters<typeof customFetch>[1]): Promise<GetReturnWorkspace200> => {
+
+  return customFetch<GetReturnWorkspace200>(getGetReturnWorkspaceUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetReturnWorkspaceQueryKey = () => {
+    return [
+    `/api/pos/returns/workspace`
+    ] as const;
+    }
+
+
+export const getGetReturnWorkspaceQueryOptions = <TData = Awaited<ReturnType<typeof getReturnWorkspace>>, TError = ErrorType<unknown>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getReturnWorkspace>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetReturnWorkspaceQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getReturnWorkspace>>> = ({ signal }) => getReturnWorkspace({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getReturnWorkspace>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetReturnWorkspaceQueryResult = NonNullable<Awaited<ReturnType<typeof getReturnWorkspace>>>
+export type GetReturnWorkspaceQueryError = ErrorType<unknown>
+
+
+export function useGetReturnWorkspace<TData = Awaited<ReturnType<typeof getReturnWorkspace>>, TError = ErrorType<unknown>>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getReturnWorkspace>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getReturnWorkspace>>,
+          TError,
+          Awaited<ReturnType<typeof getReturnWorkspace>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetReturnWorkspace<TData = Awaited<ReturnType<typeof getReturnWorkspace>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getReturnWorkspace>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getReturnWorkspace>>,
+          TError,
+          Awaited<ReturnType<typeof getReturnWorkspace>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetReturnWorkspace<TData = Awaited<ReturnType<typeof getReturnWorkspace>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getReturnWorkspace>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useGetReturnWorkspace<TData = Awaited<ReturnType<typeof getReturnWorkspace>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getReturnWorkspace>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetReturnWorkspaceQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getReturnActionUrl = () => {
+
+
+
+
+  return `/api/pos/returns/actions`
+}
+
+export const returnAction = async (returnActionBody: ReturnActionBody, options?: Parameters<typeof customFetch>[1]): Promise<ReturnAction200 | void> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<ReturnAction200 | void>(getReturnActionUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(returnActionBody)
+  }
+);}
+
+
+
+
+
+export const getReturnActionMutationKey = () => ['returnAction'] as const;
+
+export const getReturnActionMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof returnAction>>, TError,ReturnActionMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof returnAction>>, TError,ReturnActionMutationVariables, TContext> => {
+
+const mutationKey = getReturnActionMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof returnAction>>, ReturnActionMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  returnAction(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ReturnActionMutationResult = NonNullable<Awaited<ReturnType<typeof returnAction>>>
+    export type ReturnActionMutationBody = BodyType<ReturnActionBody>
+    export type ReturnActionMutationError = ErrorType<void>
+    export type ReturnActionMutationVariables = {data: BodyType<ReturnActionBody>}
+
+    export const useReturnAction = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof returnAction>>, TError,ReturnActionMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof returnAction>>,
+        TError,
+        ReturnActionMutationVariables,
+        TContext
+      > => {
+      return useMutation(getReturnActionMutationOptions(options), queryClient);
+    }
 
 export const getListInventoryRevaluationsUrl = () => {
 

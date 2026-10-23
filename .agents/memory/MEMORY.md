@@ -1,6 +1,7 @@
 - [Dependency compatibility](dependency-compatibility.md) — keep Vite consumers aligned; avoid security upgrades that silently split plugin type versions.
 - [Tenant authorization](tenant-authorization.md) — shared identities, branchless integrations, and legacy AI state must not inherit company-local authority.
 - [Financial retry retention](financial-retry-policy.md) — retry receipts are commit evidence, not an expiring cache; late retries must not create new invoices.
+- [Historical upgrade evidence](historical-upgrade-evidence.md) — seed with a coherent pinned previous application, not new handlers that already require new tables.
 - [Financial browser faults](financial-browser-testing.md) — prove commit before dropping a response; the preview proxy may turn the dropped connection into HTTP 502.
 - [Sales return costs](sales-return-cost-policy.md) — restore evidenced historical sale cost, not today's price/FX; reconcile inventory value and profit without repairing history.
 - [Standard issue valuation](standard-issue-valuation.md) — standard price edits are prospective; ordinary issues realize carrying-cost differences net in COGS, not by automatic revaluation.

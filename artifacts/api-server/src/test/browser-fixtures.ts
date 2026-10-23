@@ -19,6 +19,7 @@ for (const role of ["owner", "sales"] as const) {
   const [company] = await db.insert(companiesTable).values({
     name: `Verification ${role} ${tag}`,
     ...(role === "owner" && process.env.HASBA_BROWSER_POS === "true" ? { businessType: "retail" } : {}),
+    ...(role === "owner" && process.env.HASBA_BROWSER_RETURN_SETTLEMENT === "true" ? { vatRegistrationStatus: "not_registered" } : {}),
   }).returning();
   const email = `verify-${role}-${tag}@example.invalid`;
   const [user] = await db.insert(usersTable).values({
@@ -54,6 +55,16 @@ for (const role of ["owner", "sales"] as const) {
       branchId: branch.id, sessionNumber: `POS-VERIFY-${tag}`, cashierName: "كاشير الاختبار", openingCash: "0",
     }).returning();
     posSession = { id: session.id, branchId: branch.id, warehouseId: warehouse.id };
+    if (process.env.HASBA_BROWSER_RETURN_SETTLEMENT === "true") {
+      for (const staffRole of ["cashier", "manager"] as const) {
+        const email = `verify-${staffRole}-${tag}@example.invalid`;
+        const [staff] = await db.insert(usersTable).values({ name: `Verification ${staffRole}`, email,
+          passwordHash: hash, role: staffRole, branchId: branch.id, isActive: true, has2fa: false }).returning();
+        await db.insert(userCompaniesTable).values({ companyId: company.id, userId: staff.id, role: staffRole, isDefault: true });
+        accounts.push({ role: staffRole, companyId: company.id, userId: staff.id, email, password, customerId: customer.id,
+          productId: product.id, posSession });
+      }
+    }
   }
   let receiptInvoice;
   let receiptInvoices;

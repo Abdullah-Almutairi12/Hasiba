@@ -1,6 +1,7 @@
 import type { Request, Response, NextFunction } from "express";
 import { db, usersTable, userCompaniesTable, companiesTable } from "@workspace/db";
 import { and, eq } from "drizzle-orm";
+import { returnActor } from "../lib/return-access";
 
 export const ALL_ROLES = [
   "owner",
@@ -66,15 +67,31 @@ export const adminGuard = requireRole("owner", "manager");
 export const ownerOnly = requireRole("owner");
 export const financeGuard = requireRole("owner", "manager", "accountant");
 // HR write guard: owners, managers, and the dedicated HR role.
-export const hrGuard = requireRole("owner", "manager", "hr");
+function sensitiveGuard(base: ReturnType<typeof requireRole>, capability: "hr_view" | "hr_write") {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    void base(req, res, async () => {
+      try {
+        const actor = await returnActor(req.session.userId!, req.session.companyId!);
+        if (actor.custom && actor.role !== "owner" && !actor.capabilities.includes(capability)) {
+          res.status(403).json({ error: "إدارة المستخدمين أو دور الفرع لا يمنحان بيانات الموارد البشرية والرواتب الحساسة", diagnosticRef: String(req.id) });
+          return;
+        }
+        next();
+      } catch {
+        res.status(403).json({ error: "الصلاحية الحساسة غير متاحة", diagnosticRef: String(req.id) });
+      }
+    });
+  };
+}
+export const hrGuard = sensitiveGuard(requireRole("owner", "manager", "hr"), "hr_write");
 // HR read guard: PII-bearing data (employees, contracts, loans, attendance,
 // expiry alerts, Saudization). Auditor + accountant get read-only because they
 // need it for compliance / payroll review. Sales / cashier / inventory /
 // marketing must NOT see HR PII.
-export const hrReadGuard = requireRole("owner", "manager", "hr", "accountant", "auditor");
+export const hrReadGuard = sensitiveGuard(requireRole("owner", "manager", "hr", "accountant", "auditor"), "hr_view");
 // Payroll read guard: same as hrReadGuard — payroll runs/lines/WPS contain
 // salary data which is sensitive PII.
-export const payrollReadGuard = requireRole("owner", "manager", "hr", "accountant", "auditor");
+export const payrollReadGuard = sensitiveGuard(requireRole("owner", "manager", "hr", "accountant", "auditor"), "hr_view");
 // Back-office sales writes (quotes, sales orders, deliveries, invoices,
 // credit notes, CRM opportunities). Cashiers are intentionally EXCLUDED:
 // they own the till (posGuard) but must not be able to mutate B2B

@@ -30,6 +30,92 @@ tags:
   - name: auth
     description: Authentication & session management
 paths:
+  /pos/returns/workspace:
+    get:
+      operationId: getReturnWorkspace
+      tags: [pos]
+      responses:
+        "200":
+          description: Live branch-scoped returns, original invoice lines and receipts, refund vouchers, shift cash summaries, access templates and policy.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [notes, invoices, sessions, payouts, capabilities, branches, templates, members, policies, access]
+                properties:
+                  accounts:
+                    type: array
+                    items: { type: object, additionalProperties: true }
+                  reports:
+                    type: array
+                    items: { type: object, additionalProperties: true }
+                  notes:
+                    type: array
+                    items: { type: object, additionalProperties: true }
+                  invoices:
+                    type: array
+                    items: { type: object, additionalProperties: true }
+                  sessions:
+                    type: array
+                    items: { type: object, additionalProperties: true }
+                  payouts:
+                    type: array
+                    items: { type: object, additionalProperties: true }
+                  capabilities:
+                    type: array
+                    items: { type: string }
+                  branches:
+                    type: array
+                    items: { type: object, additionalProperties: true }
+                  templates:
+                    type: object
+                    additionalProperties:
+                      type: array
+                      items: { type: string }
+                  members:
+                    type: array
+                    items: { type: object, additionalProperties: true }
+                  policies:
+                    type: array
+                    items: { type: object, additionalProperties: true }
+                  access:
+                    type: array
+                    items: { type: object, additionalProperties: true }
+  /pos/returns/actions:
+    post:
+      operationId: returnAction
+      tags: [pos]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [action, payload]
+              properties:
+                action:
+                  type: string
+                  enum: [request, approve, payout, confirm_external, cancel_payout, close, approve_close, expense, export, configure_access, configure_policy]
+                payload:
+                  type: object
+                  description: Validated per action. Request uses invoiceId/customerId/warehouseId/lines/reason/disposition/settlementMethod/proofRef; payout uses noteId/receiptId/sessionId/amount/method/reference/delivered/idempotencyKey; close uses sessionId/counted/reason/unresolvedSalesCleared; configure_access uses userId/template/capabilities/branches; configure_policy uses branchId/approvalAbove/allowResale.
+                  additionalProperties: true
+      responses:
+        "200":
+          description: Recorded action result. Noncash requested is not a completed refund.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        "201":
+          description: Created return or voucher.
+        "202":
+          description: Awaiting approval.
+        "400":
+          description: Invalid action or missing cash handover confirmation.
+        "403":
+          description: Current membership, branch or capability does not authorize action.
+        "409":
+          description: Insufficient entitlement, closed shift, pending actions or changed approved facts.
   /inventory/revaluations:
     get:
       operationId: listInventoryRevaluations

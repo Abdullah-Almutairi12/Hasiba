@@ -1,4 +1,5 @@
-import { Router } from "express";
+import { Router, type RequestHandler } from "express";
+import { returnRequestGuard, returnInvoiceBranch, returnAuthorize, returnPolicy, returnFingerprint, assertReturnSnapshot } from "../lib/return-access";
 import { z } from "zod";
 import {
   db,
@@ -144,6 +145,10 @@ async function finalizeCreditNoteCancellation(
   return await db.transaction(async (tx) => {
     const [note] = await tx.select().from(creditNotesTable).where(and(eq(creditNotesTable.id, id), eq(creditNotesTable.companyId, companyId))).for("update");
     if (!note) throw Object.assign(new Error("Not found"), { status: 404 });
+    const control = await tx.execute(sql`SELECT branch_id FROM return_controls WHERE note_id=${id} AND company_id=${companyId}`);
+    if (control.rows[0]) await returnAuthorize(sessionUserId ?? -1, companyId, "request", Number(control.rows[0].branch_id), tx);
+    const paidRefund = await tx.execute(sql`SELECT id FROM return_payouts WHERE note_id=${id} AND company_id=${companyId} AND status<>'cancelled' LIMIT 1`);
+    if (paidRefund.rows.length) throw new FinancialRequestError("لا يمكن إلغاء مرتجع له صرف أو رد محجوز؛ يلزم تصحيح مالي مستقل", 409);
     if (note.status === "cancelled") throw new FinancialRequestError("الإشعار ملغى مسبقاً", 409);
     const posted = note.status === "issued" || note.status === "applied";
     if (!posted && note.status !== "draft" && note.status !== "pending_approval") {
@@ -302,6 +307,7 @@ async function finalizeCreditNoteIssue(
     if (note.status !== "draft" && note.status !== "pending_approval") {
       throw new Error(`لا يمكن ترحيل إشعار في حالة ${note.status}`);
     }
+    await assertReturnSnapshot(tx, note.id);
     // SO -> invoice -> issue movements: match invoicing/reversal lock order
     // while reserving or restoring partial-delivery cost allocations.
     if (note.invoiceId) {
@@ -1908,7 +1914,22 @@ router.get("/sales/invoices/email-failure-count", customerReadGuard, async (req,
   }
 });
 
-router.get("/sales/invoices/:id", customerReadGuard, async (req, res) => {
+const invoiceViewGuard: RequestHandler = async (req, res, next) => {
+  try {
+    const branchId = await returnInvoiceBranch(getCompanyId(req), Number(req.params.id));
+    if (branchId != null) {
+      await returnAuthorize(req.session.userId!, getCompanyId(req), "view", branchId);
+      next(); return;
+    }
+    void customerReadGuard(req, res, next);
+  } catch (error) {
+    res.status(error instanceof FinancialRequestError ? error.status : 500).json({
+      error: error instanceof FinancialRequestError ? error.message : "تعذر عرض المستند",
+      diagnosticRef: String(req.id),
+    });
+  }
+};
+router.get("/sales/invoices/:id", invoiceViewGuard, async (req, res) => {
   try {
     const id = Number(req.params.id);
     const companyId = getCompanyId(req);
@@ -1996,7 +2017,7 @@ export async function renderCustomerInvoicePdfById(id: number, companyId: number
   return { ok: true, pdf, head, customer };
 }
 
-router.get("/sales/invoices/:id/pdf", customerReadGuard, async (req, res) => {
+router.get("/sales/invoices/:id/pdf", invoiceViewGuard, async (req, res) => {
   try {
     const id = Number(req.params.id);
     const rendered = await renderCustomerInvoicePdfById(id, getCompanyId(req));
@@ -3152,6 +3173,10 @@ router.post("/sales/receipts", financeGuard, async (req, res) => {
 // Credit Notes (returns)
 // ===================================================================
 const CreditNoteBody = z.object({
+  operationalReturn: z.boolean().default(false),
+  disposition: z.enum(["resale", "discard", "no_goods"]).optional(),
+  settlementMethod: z.enum(["credit", "cash", "card", "transfer", "stc"]).default("credit"),
+  proofRef: z.string().min(3).max(200).optional(),
   invoiceId: z.number().int().nullable().optional(),
   customerId: z.number().int(),
   noteDate: z.string().optional(),
@@ -3187,26 +3212,43 @@ router.get("/sales/credit-notes", customerReadGuard, async (req, res) => {
   }
 });
 
-router.post(
-  "/sales/credit-notes",
-  salesWriteGuard,
-  // Pre-flight financial-limit check: estimate the gross total from the
-  // body (sum of quantity * unitPrice * (1+vat)). Cashiers/sales reps with
-  // an `ar.credit_note` cap configured in the workflow tab cannot exceed
-  // it without an admin re-issuing the note.
-  // Limit key matches workflow-init seed (sales.credit_note_amount).
-  requireFinancialLimit("sales.credit_note_amount", (req) => {
+export const creditNoteLimit = requireFinancialLimit("sales.credit_note_amount", (req) => {
     const lines = (req.body?.lines ?? []) as Array<{
       quantity?: number; unitPrice?: number; taxRate?: number;
     }>;
     return lines.reduce((s, l) =>
       s + Number(l.quantity ?? 0) * Number(l.unitPrice ?? 0) * (1 + Number(l.taxRate ?? 0) / 100),
     0);
-  }),
-  async (req, res) => {
+  });
+export const createCreditNoteHandler: RequestHandler = async (req, res) => {
   try {
     const body = CreditNoteBody.parse(req.body);
     const companyId = getCompanyId(req);
+    const operationalBranch = body.invoiceId ? await returnInvoiceBranch(companyId, body.invoiceId) : undefined;
+    const operationalPolicy = operationalBranch ? await returnPolicy(companyId, operationalBranch) : null;
+    // An older API client must not bypass a newly configured company/branch policy.
+    if (!body.operationalReturn && operationalBranch && operationalPolicy?.approval_above != null) {
+      body.operationalReturn = true;
+      body.disposition = body.restock ? "resale" : "no_goods";
+      body.proofRef ??= `مرجع مستند قديم: ${body.invoiceId}`;
+    }
+    if (operationalBranch && body.restock) {
+      const [company] = await db.select({ businessType: companiesTable.businessType }).from(companiesTable).where(eq(companiesTable.id, companyId));
+      if (!operationalPolicy?.allow_resale || ["restaurant", "cafe", "cafeteria", "food", "fnb", "fb"].includes(company?.businessType ?? "")) {
+        throw new FinancialRequestError("المنتج المحضر أو سياسة الفرع لا تسمح بإعادته لمخزون صالح للبيع", 400);
+      }
+    }
+    if (body.operationalReturn) {
+      if (!operationalBranch || !body.proofRef || !body.disposition || body.restock !== (body.disposition === "resale")) {
+        throw new FinancialRequestError("يلزم مصدر نقطة بيع وإثبات الاستحقاق ومصير متوافق للمنتج", 400);
+      }
+      await returnAuthorize(req.session.userId!, companyId, "request", operationalBranch);
+      const [sourceMoney] = await db.select({ currency: customerInvoicesTable.currencyCode })
+        .from(customerInvoicesTable).where(and(eq(customerInvoicesTable.id, body.invoiceId!), eq(customerInvoicesTable.companyId, companyId)));
+      if (sourceMoney?.currency !== "SAR") {
+        throw new FinancialRequestError("مسار المرتجع التشغيلي حاليًا بعملة الدفاتر SAR فقط؛ رد العملة الأجنبية يحتاج معالجة صريحة ولا يُقدّر تلقائيًا", 400);
+      }
+    }
     const result = await financialTransaction(req, async (tx) => {
       const [customer] = await tx
         .select()
@@ -3360,6 +3402,12 @@ router.post(
           lineTotal: String(ln.lineTotal),
         });
       }
+      if (body.operationalReturn) {
+        await tx.execute(sql`INSERT INTO return_controls(note_id,company_id,branch_id,created_by,fingerprint,disposition,settlement_method,proof_ref)
+          VALUES(${note.id},${companyId},${operationalBranch!},${req.session.userId!},'',${body.disposition!},${body.settlementMethod},${body.proofRef!})`);
+        const fingerprint = await returnFingerprint(tx, note.id);
+        await tx.execute(sql`UPDATE return_controls SET fingerprint=${fingerprint} WHERE note_id=${note.id}`);
+      }
       return note;
     });
     // The receipt intentionally references the persisted draft, not a stale
@@ -3374,6 +3422,13 @@ router.post(
     // Workflow-engine gate: posting approval. If a credit_note rule
     // matches, lock the row to pending_approval and return 202 — the
     // registered onApprove handler will run finalizeCreditNoteIssue.
+    let forcedRoles: string[] | undefined;
+    if (body.operationalReturn && operationalBranch) {
+      const policy = await returnPolicy(companyId, operationalBranch);
+      let canApprove = true;
+      try { await returnAuthorize(req.session.userId!, companyId, "approve", operationalBranch); } catch { canApprove = false; }
+      if (!canApprove || (policy.approval_above != null && Number(result.total) >= Number(policy.approval_above))) forcedRoles = ["manager"];
+    }
     const submission = await submitForApproval({
       docType: "credit_note",
       recordId: result.id,
@@ -3381,7 +3436,11 @@ router.post(
       amount: Number(result.total),
       submittedByUserId: req.session?.userId ?? null,
       submittedByName: (req.session as { userName?: string } | undefined)?.userName ?? null,
+      branchId: operationalBranch,
+      forceRoles: forcedRoles,
+      scopedBranchOnly: body.operationalReturn,
     });
+    if (body.operationalReturn && submission.requestId) await db.execute(sql`UPDATE return_controls SET approval_id=${submission.requestId} WHERE note_id=${result.id} AND company_id=${companyId}`);
     if (submission.required) {
       const moved = await db
         .update(creditNotesTable)
@@ -3417,10 +3476,12 @@ router.post(
 
     // (legacy inline issuance block removed — see finalizeCreditNoteIssue)
   } catch (err) {
-    req.log.error({ err }, "create credit note");
-    handleRouteError(err, res);
+    req.log.error({ errorName: err instanceof Error ? err.name : "unknown", diagnosticRef: String(req.id) }, "create credit note");
+    if (err instanceof FinancialRequestError) res.status(err.status).json({ error: err.message, diagnosticRef: String(req.id) });
+    else handleRouteError(err, res);
   }
-});
+};
+router.post("/sales/credit-notes", returnRequestGuard, creditNoteLimit, createCreditNoteHandler);
 
 // Cancel an outstanding credit note. Posts a reversing JE (mirror of the
 // original lines) and reverses any SO fulfilment counter adjustments the

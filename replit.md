@@ -213,3 +213,9 @@ order esbuild produces.
 - UI is fully RTL (Arabic)
 
 See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details.
+
+## Returns / till settlement continuation
+- The bounded follow-on to A2 is documented in `docs/enterprise-return-settlement-ar.md`; the unchanged original requirement IDs remain in `docs/enterprise-requirements-ar.md`.
+- The operator workspace is `/returns`; the existing POS route is `/pos` (not its source filename).
+- Preserve the distinction between a requested noncash refund and manually evidenced external confirmation; this batch does not execute network refunds.
+- New operational role bindings cover this journey, not a wholesale IAM migration. Read the documented legacy compatibility and SAR-only payout limits before extending it.

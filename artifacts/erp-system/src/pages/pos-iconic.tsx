@@ -304,8 +304,15 @@ export default function PosIconic({
             : t("pos_iconic.mode_retail")}
         </span>
         <button
-          onClick={() => setLocation("/")}
+          onClick={() => setLocation("/returns")}
           className="ms-auto rounded-md px-2 py-1 hover:bg-neutral-200/60 dark:hover:bg-neutral-800/60"
+          data-testid="button-pos-returns"
+        >
+          {language === "ar" ? "المرتجعات" : "Returns"}
+        </button>
+        <button
+          onClick={() => setLocation("/")}
+          className=" rounded-md px-2 py-1 hover:bg-neutral-200/60 dark:hover:bg-neutral-800/60"
           data-testid="button-pos-exit"
         >
           ✕ {t("pos_iconic.exit")}

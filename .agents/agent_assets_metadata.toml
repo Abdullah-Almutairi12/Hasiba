@@ -84,3 +84,17 @@ mtime_ms = 1792716397381
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/e2baf473-fd42-40f5-9502-20e11ed1fd14/780c24f1-8142-4786-a26f-deb1647d3643"
 storage_version_token = "1792716417682584"
 content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
+[[outputs]]
+id = "ScfqAyx56P-KmLMocVLSB"
+uri = "file://generated-artifacts/return-settlement/Hasba_Returns_Shift_Settlement_AR.docx"
+type = "word_document"
+title = "تقرير المرتجعات والصرف والوردية — Word"
+description = "تقرير عربي قابل للتعديل: التقنيات، التنفيذ والإصلاحات، نتائج التحقق النهائية، القيود والمتبقي، وملحق المتطلبات الأصلية الـ73."
+logical_id = "63f1ba1e-ac02-4f5c-8010-19027547519f"
+content_hash = "sha256:7112d9e3708942e954db98805729acc11304083ec0dc9d7f190662147a91ef2e"
+size = 30237
+mtime_ms = 1792722835441
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/63f1ba1e-ac02-4f5c-8010-19027547519f/cc8740de-6060-4905-84a3-84ae62ac613f"
+storage_version_token = "1792722898019217"
+content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { returnAuthorize } from "../lib/return-access";
 import { Router } from "express";
 import {
   db,
@@ -278,6 +279,7 @@ router.get("/pos/sessions", posReadGuard, async (req, res) => {
     // enforce isolation via INNER JOIN on branches.company_id —
     // sessions belonging to other tenants' branches are filtered out.
     const companyId = getCompanyId(req);
+    const actor = await returnAuthorize(req.session.userId!, companyId, "view");
     const sessions = await db
       .select({
         id: posSessionsTable.id,
@@ -303,7 +305,7 @@ router.get("/pos/sessions", posReadGuard, async (req, res) => {
       .limit(20);
 
     res.json(
-      sessions.map((s) => ({
+      sessions.filter(s => !actor.branches || actor.branches.includes(s.branchId)).map((s) => ({
         ...s,
         totalSales: Number(s.totalSales),
         openedAt: s.openedAt.toISOString(),
@@ -312,6 +314,7 @@ router.get("/pos/sessions", posReadGuard, async (req, res) => {
     );
   } catch (err) {
     req.log.error({ err }, "Error fetching POS sessions");
+    if (err instanceof FinancialRequestError) { res.status(err.status).json({ error: err.message, diagnosticRef: String(req.id) }); return; }
     res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -324,6 +327,7 @@ router.post("/pos/sessions", posGuard, async (req, res) => {
     // that belongs to a different company. Returns 404 to hide
     // existence of foreign branches.
     const companyId = getCompanyId(req);
+    await returnAuthorize(req.session.userId!, companyId, "sell", body.branchId);
     const [branchRow] = await db
       .select()
       .from(branchesTable)
@@ -355,6 +359,7 @@ router.post("/pos/sessions", posGuard, async (req, res) => {
     });
   } catch (err) {
     req.log.error({ err }, "Error creating POS session");
+    if (err instanceof FinancialRequestError) { res.status(err.status).json({ error: err.message, diagnosticRef: String(req.id) }); return; }
     res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -365,12 +370,16 @@ router.get("/pos/orders", posReadGuard, async (req, res) => {
     // Tenant scope: pos_orders.company_id is NOT NULL — enforce per-tenant.
     const companyId = getCompanyId(req);
     const { limit, offset } = parsePagination(req);
+    const actor = await returnAuthorize(req.session.userId!, companyId, "view");
+    const branchFilter = actor.branches == null ? sql`true` : actor.branches.length
+      ? inArray(posOrdersTable.sessionId, db.select({ id: posSessionsTable.id }).from(posSessionsTable).where(inArray(posSessionsTable.branchId, actor.branches)))
+      : sql`false`;
 
     const orders = await db
       .select()
       .from(posOrdersTable)
       .where(
-        sql`${posOrdersTable.companyId} = ${companyId}
+        sql`${posOrdersTable.companyId} = ${companyId} and ${branchFilter}
           ${sessionId ? sql`and ${posOrdersTable.sessionId} = ${Number(sessionId)}` : sql``}
           ${date ? sql`and date(${posOrdersTable.createdAt}) = ${date}` : sql``}`
       )
@@ -405,6 +414,7 @@ router.get("/pos/orders", posReadGuard, async (req, res) => {
     );
   } catch (err) {
     req.log.error({ err }, "Error fetching POS orders");
+    if (err instanceof FinancialRequestError) { res.status(err.status).json({ error: err.message, diagnosticRef: String(req.id) }); return; }
     res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -620,6 +630,7 @@ router.post(
         .limit(1)
         .for("update", { of: posSessionsTable });
       if (!session) throw new FinancialRequestError("جلسة نقطة البيع غير موجودة", 404);
+      await returnAuthorize(req.session.userId!, companyId, "sell", session.branchId, tx);
       if (session.status !== "open") {
         throw new FinancialRequestError("الوردية مغلقة. افتح وردية جديدة قبل إتمام البيع.", 409);
       }
