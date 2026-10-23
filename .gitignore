@@ -11,6 +11,28 @@ out-tsc
 # dependencies
 node_modules
 
+# Local credentials and private certificates (never commit real values).
+.env
+.env.*
+!.env.example
+!.env.sample
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Local databases, backups, uploads and generated test state.
+*.db
+*.sqlite
+*.sqlite3
+*.dump
+*.backup
+/backups/
+/uploads/
+/attached_assets/
+/test-results/
+/.pythonlibs/
+
 # IDEs and editors
 /.idea
 .project

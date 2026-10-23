@@ -26,3 +26,9 @@ Do not repeat account settings → Git Providers as a verified navigation path f
 **Why:** The user supplied a screenshot showing the current settings interface without that entry after following this advice. Documentation searches still returned the unavailable path.
 
 **How to apply:** Start from the project's Git tool rather than workspace Advanced settings. If authorization controls are not visible, inspect a screenshot of the Git panel before giving another precise settings path. The visible Integrations entry alone does not establish that it manages the Git remote's source-control authorization.
+
+Keep a separately authorized repository's existing work intact when it has unrelated history.
+
+**Why:** The user explicitly requires preserving both Replit and GitHub files, retaining the previous remote and a rollback point, avoiding force pushes and hard resets, and using a separate branch when histories or configuration conflicts need a decision.
+
+**How to apply:** Compare history and shared files first. Publish the ERP work to an independent branch when necessary, do not claim the requested main branch is synchronized until integration is actually approved and verified, and disclose ignored reports and data. Inspect reachable history for sensitive files as well as the current tree: ignore rules do not remove old uploads from existing commits.
