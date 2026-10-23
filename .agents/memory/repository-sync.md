@@ -19,4 +19,10 @@ The legacy source-control connection may be healthy yet unavailable to integrati
 
 **Why:** Reconnect cards rejected both its handle and canonical connection ID; the ordinary connect card could not resolve a connector ID.
 
-**How to apply:** Do not keep retrying identity aliases. Consult current Replit documentation and have the user disconnect/reconnect GitHub under account settings → Git Providers when this occurs; never extract or request a token to work around the UI.
+**How to apply:** Do not keep retrying identity aliases. Consult current Replit documentation, but verify navigation against the user's actual interface; never extract or request a token to work around the UI.
+
+Do not repeat account settings → Git Providers as a verified navigation path for this environment.
+
+**Why:** The user supplied a screenshot showing the current settings interface without that entry after following this advice. Documentation searches still returned the unavailable path.
+
+**How to apply:** Start from the project's Git tool rather than workspace Advanced settings. If authorization controls are not visible, inspect a screenshot of the Git panel before giving another precise settings path. The visible Integrations entry alone does not establish that it manages the Git remote's source-control authorization.
