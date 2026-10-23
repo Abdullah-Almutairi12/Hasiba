@@ -3,7 +3,7 @@
  * No production credentials, data dump, or application rows are copied.
  */
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, mkdirSync } from "node:fs";
+import { mkdtempSync, rmSync, mkdirSync, readdirSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve, join } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -54,10 +54,30 @@ try {
     LOG_LEVEL: "error",
   };
   console.log("[test:isolated] Created a fresh local database; application data is not used.");
-  // Legacy SQL history assumes tables created by application initializers.
-  // For an EMPTY disposable database, materialize the current schema first.
-  pnpm(["--filter", "@workspace/db", "exec", "drizzle-kit", "push", "--force"], env);
-  pnpm(["--filter", "@workspace/db", "run", "migrate"], env);
+  // Legacy installation mode is reserved for the documented upgrade fixture.
+  // Normal verification must exercise the actual empty-database installer.
+  if (process.argv.includes("--legacy-upgrade")) {
+    const reference = "6e39f6f";
+    const initializers = readdirSync(join(root, "artifacts/api-server/src/lib"))
+      .filter((name) => name.endsWith("-init.ts")).map((name) => `artifacts/api-server/src/lib/${name}`);
+    const unchanged = spawnSync("git", ["diff", "--quiet", reference, "--", "lib/db/src/schema",
+      "artifacts/api-server/src/app.ts", "artifacts/api-server/src/test/bootstrap.ts", ...initializers], { cwd: root });
+    if (unchanged.status !== 0) throw new Error("Legacy fixture schema/initializers no longer match the pinned reference");
+    const legacy = join(work, "legacy");
+    mkdirSync(join(legacy, "lib/db"), { recursive: true });
+    const archive = spawnSync("git", ["archive", reference, "lib/db"], { cwd: root, maxBuffer: 16 * 1024 * 1024 });
+    if (archive.status !== 0) throw new Error("Pinned legacy reference unavailable");
+    const extract = spawnSync("tar", ["-x", "-C", legacy], { input: archive.stdout });
+    if (extract.status !== 0) throw new Error("Legacy database source extraction failed");
+    symlinkSync(join(root, "lib/db/node_modules"), join(legacy, "lib/db/node_modules"), "dir");
+    pnpm(["--filter", "@workspace/db", "exec", "drizzle-kit", "push", "--force",
+      `--config=${join(legacy, "lib/db/drizzle.config.ts")}`], env);
+    pnpm(["--filter", "@workspace/db", "exec", "tsx", join(legacy, "lib/db/src/migrate.ts")], env);
+    env.HASBA_MIGRATION_REFERENCE = reference;
+    console.log(`[test:isolated] Reconstructed legacy install from ${reference}; synthetic data only.`);
+  } else {
+    pnpm(["--filter", "@workspace/db", "run", "migrate"], env);
+  }
   pnpm(["--filter", "@workspace/scripts", "exec", "tsx", "../artifacts/api-server/src/test/bootstrap.ts"], env);
   if (process.argv.includes("--browser")) {
     const state = join(tmpdir(), "hasba-browser-state.json");
@@ -75,7 +95,7 @@ try {
     rmSync(state, { force: true });
     exitCode = 0;
   } else {
-  const args = process.argv.slice(2);
+  const args = process.argv.slice(2).filter((arg) => !["--migrations-only", "--legacy-upgrade"].includes(arg));
   // pnpm run forwards its optional separator; Vitest must see filters, not "--".
   // Only strip leading separators so option values and later "--" stay intact.
   while (args[0] === "--") args.shift();

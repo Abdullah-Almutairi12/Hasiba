@@ -2,6 +2,9 @@ import { beforeAll, describe, expect, it } from "vitest";
 import request from "supertest";
 import bcrypt from "bcryptjs";
 import { randomUUID } from "node:crypto";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { runMigrations } from "../../../../lib/db/src/migrate";
 import {
   db, pool, companiesTable, usersTable, userCompaniesTable, categoriesTable,
   productsTable, customersTable, branchesTable, warehousesTable, posSessionsTable,
@@ -115,6 +118,121 @@ async function reconcile(f: Fixture, expected: { inventory: number; cogs: number
     expect(Number(layers.value)).toBeCloseTo(expected.inventory, 2);
   }
 }
+
+describe("original POS invoice: independent linked return lifecycle", () => {
+  it.skipIf(!process.env.HASBA_MIGRATION_REFERENCE)("upgrade preserves a pinned previous installation and its financial relationships", async () => {
+    const f = await fixture();
+    const sold = await sale(f);
+    ok(await f.agent.post("/api/sales/credit-notes").set("Idempotency-Key", `${f.tag}-upgrade-credit`)
+      .send(returnBody(f, sold.invoice.id, sold.lines[0].id, 1)));
+    const snapshots = async () => {
+      const result: Record<string, unknown> = {};
+      for (const table of ["companies", "branches", "warehouses", "products", "customers",
+        "customer_invoices", "customer_receipts", "credit_notes", "journal_entries",
+        "stock_moves", "stock_quants", "stock_layers"]) {
+        const stock = ["stock_moves", "stock_quants", "stock_layers"].includes(table);
+        const receipt = table === "customer_receipts";
+        const column = stock ? "product_id" : receipt ? "customer_id" : table === "companies" ? "id" : "company_id";
+        result[table] = await rows(`SELECT * FROM ${table} WHERE ${column}=$1 ORDER BY id`,
+          [stock ? f.productId : receipt ? f.customerId : f.companyId]);
+      }
+      result.lines = await rows(`SELECT l.* FROM journal_entry_lines l
+        JOIN journal_entries j ON j.id=l.entry_id WHERE j.company_id=$1 ORDER BY l.id`, [f.companyId]);
+      result.invoiceLines = await rows("SELECT * FROM customer_invoice_lines WHERE invoice_id=$1 ORDER BY id", [sold.invoice.id]);
+      return result;
+    };
+    const before = await snapshots();
+    const first = await runMigrations(process.env.TEST_DATABASE_URL!, () => {});
+    expect(first.applied).toHaveLength(0);
+    expect(first.skipped).toHaveLength(26);
+    expect(await snapshots()).toEqual(before);
+    const second = await runMigrations(process.env.TEST_DATABASE_URL!, () => {});
+    expect(second.applied).toHaveLength(0);
+    expect(await snapshots()).toEqual(before);
+    const unbalanced = await rows(`SELECT j.id FROM journal_entries j
+      JOIN journal_entry_lines l ON l.entry_id=j.id WHERE j.company_id=$1
+      GROUP BY j.id HAVING sum(l.base_debit)<>sum(l.base_credit)`, [f.companyId]);
+    expect(unbalanced).toHaveLength(0);
+    const out = resolve(process.cwd(), "../../generated-artifacts/enterprise-batch-a2");
+    mkdirSync(out, { recursive: true });
+    writeFileSync(resolve(out, "legacy-upgrade.json"), JSON.stringify({
+      reference: process.env.HASBA_MIGRATION_REFERENCE,
+      fixture: "Pinned old database source and old migrator; unchanged application initializers; synthetic data",
+      unchangedTables: Object.keys(before), passes: 2, applied: first.applied, skipped: first.skipped,
+      journalsBalanced: true,
+      limitation: "Representative financial relationships, not a backup or proof for all older installations",
+    }, null, 2));
+  });
+  it("returns part then the remainder exactly once, leaving cash as explicit customer credit", async () => {
+    const f = await fixture();
+    const { invoice, lines } = await sale(f);
+    const snapshot = async () => (await rows(`SELECT
+      (SELECT count(*) FROM credit_notes WHERE company_id=$1) AS credits,
+      (SELECT count(*) FROM journal_entries WHERE company_id=$1) AS journals,
+      (SELECT count(*) FROM stock_moves WHERE product_id=$2) AS moves,
+      (SELECT sum(quantity) FROM stock_quants WHERE product_id=$2) AS quantity,
+      (SELECT sum(r.amount) FROM customer_receipts r JOIN customers c ON c.id=r.customer_id WHERE c.company_id=$1) AS collected`, [f.companyId, f.productId]))[0];
+    const initial = await snapshot();
+    const partialBody = returnBody(f, invoice.id, lines[0].id, 1);
+    const partialKey = `${f.tag}-partial`;
+    const partial = ok(await f.agent.post("/api/sales/credit-notes").set("Idempotency-Key", partialKey).send(partialBody));
+    const afterPartial = await snapshot();
+    expect(Number(afterPartial.quantity)).toBe(3);
+    expect(afterPartial.collected).toBe(initial.collected);
+    expect(ok(await f.agent.post("/api/sales/credit-notes").set("Idempotency-Key", partialKey).send(partialBody)).id).toBe(partial.id);
+    expect(await snapshot()).toEqual(afterPartial);
+    const finalBody = returnBody(f, invoice.id, lines[0].id, 3);
+    const finalKey = `${f.tag}-remainder`;
+    const finalCredit = ok(await f.agent.post("/api/sales/credit-notes").set("Idempotency-Key", finalKey).send(finalBody));
+    await reconcile(f, { inventory: 100, cogs: 0, profit: 0 });
+    const afterFull = await snapshot();
+    expect(Number(afterFull.quantity)).toBe(6);
+    expect(Number(afterFull.credits) - Number(initial.credits)).toBe(2);
+    expect(afterFull.collected).toBe(initial.collected);
+    expect(ok(await f.agent.post("/api/sales/credit-notes").set("Idempotency-Key", finalKey).send(finalBody)).id).toBe(finalCredit.id);
+    const excess = await f.agent.post("/api/sales/credit-notes")
+      .set("Idempotency-Key", `${f.tag}-excess`).send(partialBody);
+    expect(excess.status, JSON.stringify(excess.body)).toBeGreaterThanOrEqual(400);
+    expect(excess.status).toBeLessThan(500);
+    expect(await snapshot()).toEqual(afterFull);
+    const ledger = await rows(`SELECT a.system_key, sum(l.base_debit-l.base_credit)::float8 AS amount
+      FROM journal_entries j JOIN journal_entry_lines l ON l.entry_id=j.id JOIN accounts a ON a.id=l.account_id
+      WHERE j.company_id=$1 AND j.status='posted' GROUP BY a.system_key`, [f.companyId]);
+    const balance = (key: string) => Number(ledger.find((line) => line.system_key === key)?.amount ?? 0);
+    // A credit note is NOT a cash refund. No fabricated cash-out journal.
+    expect(balance("cash")).toBe(400);
+    expect(balance("ar")).toBe(-400);
+    const unbalanced = await rows(`SELECT j.id FROM journal_entries j
+      JOIN journal_entry_lines l ON l.entry_id=j.id WHERE j.company_id=$1
+      GROUP BY j.id HAVING sum(l.base_debit)<>sum(l.base_credit)`, [f.companyId]);
+    expect(unbalanced).toHaveLength(0);
+  });
+  it("rejects foreign invoice, customer, warehouse, and product references without effects", async () => {
+    const own = await fixture();
+    const foreign = await fixture();
+    const a = await sale(own);
+    const b = await sale(foreign);
+    const snapshot = async () => rows(`SELECT
+      (SELECT count(*) FROM credit_notes WHERE company_id=ANY($1::int[])) AS credits,
+      (SELECT count(*) FROM journal_entries WHERE company_id=ANY($1::int[])) AS journals,
+      (SELECT count(*) FROM stock_moves WHERE product_id=ANY($2::int[])) AS moves,
+      (SELECT sum(quantity) FROM stock_quants WHERE product_id=ANY($2::int[])) AS quantity`,
+    [[own.companyId, foreign.companyId], [own.productId, foreign.productId]]);
+    const before = await snapshot();
+    const base = returnBody(own, a.invoice.id, a.lines[0].id, 1);
+    for (const body of [
+      { ...base, invoiceId: b.invoice.id },
+      { ...base, customerId: foreign.customerId },
+      { ...base, warehouseId: foreign.warehouseId },
+      { ...base, lines: [{ ...base.lines[0], productId: foreign.productId }] },
+    ]) {
+      const result = await own.agent.post("/api/sales/credit-notes").send(body);
+      expect(result.status, JSON.stringify(result.body)).toBeGreaterThanOrEqual(400);
+      expect(result.status, JSON.stringify({ body, error: result.body })).toBeLessThan(500);
+      expect(await snapshot()).toEqual(before);
+    }
+  });
+});
 
 describe("original sales cost, inventory carrying value and profit", () => {
   it("preserves large fractional FIFO return value through transfer receipt and destination resale", async () => {

@@ -111,6 +111,7 @@ overrides:
   lightningcss>lightningcss-win32-arm64-msvc: '-'
   lightningcss>lightningcss-win32-x64-msvc: '-'
   lodash@4: 4.18.1
+  ip-address: 10.7.4
   path-to-regexp@8: 8.4.2
   picomatch@2: 2.3.2
   picomatch@4: 4.0.5

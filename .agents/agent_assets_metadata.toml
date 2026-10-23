@@ -70,3 +70,17 @@ mtime_ms = 1792713632681
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/58ac5fd4-4ea1-4132-b836-4ebad6f34230/333c74d3-0389-403b-9f59-c91f859ff779"
 storage_version_token = "1792713643094038"
 content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
+[[outputs]]
+id = "oJH3UZPrKJIYHS7zZ_nXF"
+uri = "file://generated-artifacts/enterprise-batch-a2/Hasba_AI_Stage_A_Followup_AR.docx"
+type = "word_document"
+title = "حاسبة.AI — تقرير استكمال المرحلة أ وسجل المتطلبات"
+description = "الإصلاحات المنفذة، مصفوفة القبول، نتائج المتصفح والترحيلات والمرتجعات والاعتماديات، النسخ المختبرة وحدود المتبقي، مع سجل البنود الـ73."
+logical_id = "e2baf473-fd42-40f5-9502-20e11ed1fd14"
+content_hash = "sha256:51b280ec7d0ced1f75db7b523893cfe40aedfe1f3f33c71566805d2b847a5b8a"
+size = 30712
+mtime_ms = 1792716397381
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/e2baf473-fd42-40f5-9502-20e11ed1fd14/780c24f1-8142-4786-a26f-deb1647d3643"
+storage_version_token = "1792716417682584"
+content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"

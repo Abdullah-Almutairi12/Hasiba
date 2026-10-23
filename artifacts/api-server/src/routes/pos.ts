@@ -464,7 +464,15 @@ router.post(
   posOverrideLimiter,
   async (req, res) => {
   try {
-    const body = CreatePosOrderBody.parse(req.body);
+    const parsed = CreatePosOrderBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({
+        error: "بيانات البيع غير صالحة. راجع الحقول والكميات الموجبة؛ المرتجع يتم من الفاتورة الأصلية.",
+        details: parsed.error.issues.map((issue) => ({ path: issue.path.join("."), message: issue.message })),
+      });
+      return;
+    }
+    const body = parsed.data;
 
     const discount = body.discount ?? 0;
     const orderNumber = `ORD-${Date.now()}-${randomUUID().slice(0, 8)}`;

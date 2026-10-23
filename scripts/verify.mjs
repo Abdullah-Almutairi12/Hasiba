@@ -2,10 +2,13 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { writeVerificationReport } from "./verification-report.mjs";
+import { verificationSource } from "./verification-source.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 const out = join(root, "generated-artifacts", "verification");
 mkdirSync(out, { recursive: true });
+const source = verificationSource(root);
+writeFileSync(join(out, "source-revision.json"), JSON.stringify(source, null, 2));
 const checks = [
   ["typecheck", ["run", "typecheck"]],
   ["isolated-runner-tests", ["exec", "node", "--test", "scripts/test-isolated.test.mjs"]],
@@ -24,6 +27,8 @@ const checks = [
     "scripts/check-browser-repeated-return-cleanup.test.mjs",
     "scripts/check-browser-reloaded-return-cleanup.test.mjs",
     "scripts/check-browser-reloaded-identical-return.test.mjs"]],
+  ["migration-upgrade", ["run", "test:isolated", "--", "--legacy-upgrade",
+    "src/routes/sales-return-cost.test.ts", "-t", "upgrade preserves"]],
   ["tests", ["run", "test:isolated"]],
   ["erp-ui-tests", ["--filter", "@workspace/erp-system", "run", "test"]],
   ["api-build", ["--filter", "@workspace/api-server", "run", "build"]],
@@ -53,7 +58,9 @@ for (const [name, args, env] of checks) {
   results.push({ name, passed, exitCode: result.status, durationMs: Date.now() - start });
   console.log(`[verify] ${passed ? "PASS" : "FAIL"} ${name}; log: generated-artifacts/verification/${name}.log`);
 }
-const summary = { at: new Date().toISOString(), results };
+const after = verificationSource(root);
+results.push({ name: "source-unchanged", passed: source.sourceSha256 === after.sourceSha256, exitCode: 0, durationMs: 0 });
+const summary = { at: new Date().toISOString(), source, results };
 writeFileSync(join(out, "summary.json"), JSON.stringify(summary, null, 2));
 writeVerificationReport(out, summary);
 console.table(results);

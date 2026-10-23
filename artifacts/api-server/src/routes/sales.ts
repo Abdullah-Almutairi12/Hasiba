@@ -3212,7 +3212,7 @@ router.post(
         .select()
         .from(customersTable)
         .where(and(eq(customersTable.id, body.customerId), eq(customersTable.companyId, companyId)));
-      if (!customer) throw new Error("العميل غير موجود");
+      if (!customer) throw new FinancialRequestError("العميل غير موجود", 404);
 
       await validateCreditNoteInventory(tx, companyId, body.warehouseId, body.lines);
 
@@ -3230,9 +3230,9 @@ router.post(
           .select()
           .from(customerInvoicesTable)
           .where(and(eq(customerInvoicesTable.id, body.invoiceId), eq(customerInvoicesTable.companyId, companyId))).for("update");
-        if (!srcInv) throw new Error("الفاتورة المصدر غير موجودة");
+        if (!srcInv) throw new FinancialRequestError("الفاتورة المصدر غير موجودة", 404);
         if (srcInv.customerId !== body.customerId)
-          throw new Error("الفاتورة المصدر تخص عميلاً آخر");
+          throw new FinancialRequestError("الفاتورة المصدر تخص عميلاً آخر", 400);
         if (srcInv.reversedById || srcInv.reversesId)
           throw new FinancialRequestError("لا يمكن إرجاع فاتورة معكوسة أو فاتورة عكسية", 409);
 
@@ -3267,7 +3267,7 @@ router.post(
         for (const ln of body.lines) {
           if (ln.invoiceLineId == null) continue;
           const il = invLineById.get(ln.invoiceLineId);
-          if (!il) throw new Error(`بند ${ln.invoiceLineId} لا يخص الفاتورة المصدر`);
+          if (!il) throw new FinancialRequestError("البند لا يخص الفاتورة المصدر", 400);
           if ((ln.productId ?? null) !== il.productId) throw new FinancialRequestError("منتج المرتجع لا يطابق بند الفاتورة", 400);
           const prior = priorByLine.get(ln.invoiceLineId) ?? { qty: 0, amt: 0 };
           const remainingQty = Number(il.quantity) - prior.qty;
@@ -3289,7 +3289,7 @@ router.post(
         // Free-form credit note (no source invoice): forbid invoiceLineId
         // references entirely so we never decrement an SO line we don't own.
         if (body.lines.some((l) => l.invoiceLineId != null))
-          throw new Error("لا يمكن ربط بنود بفاتورة عند عدم اختيار فاتورة مصدر");
+          throw new FinancialRequestError("لا يمكن ربط بنود بفاتورة عند عدم اختيار فاتورة مصدر", 400);
       }
       // =========================================================
 

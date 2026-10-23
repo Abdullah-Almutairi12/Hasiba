@@ -836,6 +836,10 @@ export interface PosOrder {
 
 export type CreatePosOrderBodyItemsItem = {
   productId: number;
+  /**
+     * Positive sale quantity. Returns must use a credit note linked to the original invoice.
+     * @exclusiveMinimum 0
+     */
   quantity: number;
 };
 

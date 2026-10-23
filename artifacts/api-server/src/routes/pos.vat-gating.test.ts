@@ -355,6 +355,15 @@ describe("POS checkout rejects invalid context without partial financial effects
       await db.update(posSessionsTable).set({ status: "open" }).where(eq(posSessionsTable.id, sessionId));
     }
   });
+  it.each([0, -1])("rejects an unlinked zero/negative POS line (%s) even in a net-positive cart", async (quantity) => {
+    const before = await snapshot();
+    const res = await agent.post("/api/pos/orders").send({
+      ...checkoutBody(), items: [{ productId, quantity: 2 }, { productId, quantity }],
+    });
+    expect(res.status).toBe(400);
+    expect(await snapshot()).toEqual(before);
+  });
+
   it("rejects an empty cart before creating financial documents", async () => {
     const before = await snapshot();
     const response = await agent.post("/api/pos/orders").send({ ...checkoutBody(), items: [] });

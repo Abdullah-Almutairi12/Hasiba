@@ -3,6 +3,13 @@ import { act, render, renderHook, screen, waitFor } from "@testing-library/react
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import PosIconic from "./pos-iconic";
+import { beforeEach } from "vitest";
+
+const sessionMock = vi.hoisted(() => ({ status: "open", refetch: vi.fn() }));
+beforeEach(() => {
+  sessionMock.status = "open";
+  sessionMock.refetch.mockClear();
+});
 import { usePosCheckout } from "@/hooks/use-pos-checkout";
 import ar from "@/i18n/ar.json";
 
@@ -21,7 +28,7 @@ vi.mock("@workspace/api-client-react", async (original) => ({
   ...await original<typeof import("@workspace/api-client-react")>(),
   useListProducts: () => ({ data: [{ id: 5, name: "منتج تجريبي", nameAr: "منتج تجريبي", price: 100, stock: 20 }] }),
   useListProductCategories: () => ({ data: [] }),
-  useListPosSessions: () => ({ data: [{ id: 9, status: "open" }] }),
+  useListPosSessions: () => ({ data: [{ id: 9, status: sessionMock.status }], refetch: sessionMock.refetch }),
 }));
 
 const storageKey = "hasba:pos-checkout:11:21";
@@ -42,6 +49,7 @@ function saleTransport(fault?: "lost" | "502" | "malformed" | "incomplete" | "re
     const body = String(init.body);
     attempts.push({ key: key!, body });
     if (attempts.length === 1 && fault === "reject") {
+      sessionMock.status = "closed";
       return Response.json({ error: "الوردية مغلقة. افتح وردية جديدة قبل إتمام البيع." }, { status: 409 });
     }
     let row = committed.get(key!);
@@ -109,13 +117,19 @@ describe("POS inline tender and durable checkout recovery", () => {
   it("shows a confirmed rejection, keeps the cart and allows corrections", async () => {
     const transport = saleTransport("reject");
     const user = userEvent.setup();
-    mount();
+    const view = mount();
     await user.click(await screen.findByTestId("product-icon-5"));
     await user.click(screen.getByTestId("button-pay-rail"));
     expect((await screen.findByRole("alert")).textContent).toContain("الوردية مغلقة");
     expect(screen.getByTestId("button-pay-cash").matches(":disabled")).toBe(false);
     expect(sessionStorage.getItem(storageKey)).toBeNull();
     expect(screen.queryByText(ar.pos_iconic.cart_empty)).toBeNull();
+    expect(screen.getByText(ar.pos_iconic.session_closed).isConnected).toBe(true);
+    expect(sessionMock.refetch).toHaveBeenCalled();
+    view.unmount();
+    sessionMock.status = "open";
+    mount();
+    await user.click(await screen.findByTestId("product-icon-5"));
     await user.click(screen.getByTestId("button-pay-rail"));
     expect((await screen.findByText("ORD-TEST-1")).isConnected).toBe(true);
     expect(transport.committed.size).toBe(1);

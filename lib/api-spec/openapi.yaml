@@ -4510,6 +4510,8 @@ components:
                 type: integer
               quantity:
                 type: number
+                exclusiveMinimum: 0
+                description: Positive sale quantity. Returns must use a credit note linked to the original invoice.
             required: [productId, quantity]
         paymentMethod:
           type: string

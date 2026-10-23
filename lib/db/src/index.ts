@@ -2,7 +2,7 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
 import * as schema from "./schema";
 
-const { Pool } = pg;
+export const { Pool } = pg;
 
 // Fail closed: tests must never silently connect to application data.
 const isTest = process.env.NODE_ENV === "test" || process.env.VITEST === "true";

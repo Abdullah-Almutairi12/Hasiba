@@ -11,6 +11,7 @@ function run(args, failVitest = false) {
   const root = mkdtempSync(join(tmpdir(), "hasba-runner-regression-"));
   try {
     mkdirSync(join(root, "scripts"));
+    mkdirSync(join(root, "artifacts/api-server/src/lib"), { recursive: true });
     copyFileSync(new URL("./test-isolated.mjs", import.meta.url), join(root, "scripts/test-isolated.mjs"));
     writeFileSync(join(root, "package.json"), JSON.stringify({
       private: true,
@@ -45,7 +46,8 @@ function run(args, failVitest = false) {
     assert.ifError(result.error);
     const calls = readFileSync(join(root, "calls.jsonl"), "utf8").trim().split("\n").map(JSON.parse);
     const stages = calls.filter((call) => call.command === "pnpm");
-    assert.equal(stages.length, 4, "schema push, migration, bootstrap, then Vitest only");
+    assert.equal(stages.length, args.includes("--legacy-upgrade") ? 4 : 3, "migration-only install, bootstrap, then Vitest; push only in explicit legacy fixture");
+    if (!args.includes("--legacy-upgrade")) assert.equal(stages.some((stage) => stage.args.includes("push")), false);
     for (const stage of stages) {
       assert.match(stage.database, /^postgresql:\/\/hasba_test@127\.0\.0\.1:\d+\/hasba_test_verify$/);
       assert.equal(stage.database, stage.testDatabase);
@@ -81,6 +83,11 @@ for (const prefix of [[], ["--"], ["--", "--"]]) {
 
 test("keeps a no-filter invocation as the full suite", () => {
   assert.deepEqual(run([]).slice(0, -3), ["--filter", "@workspace/api-server", "exec", "vitest", "run"]);
+});
+
+test("does not forward installer-only flags to Vitest", () => {
+  assert.deepEqual(run(["--migrations-only", ...filters]).slice(5, -3), filters);
+  assert.deepEqual(run(["--legacy-upgrade", ...filters]).slice(5, -3), filters);
 });
 
 test("preserves option values and non-leading separators", () => {

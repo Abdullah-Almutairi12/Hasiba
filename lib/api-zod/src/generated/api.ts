@@ -502,11 +502,15 @@ export const ListPosOrdersResponse = zod.array(ListPosOrdersResponseItem)
 /**
  * @summary Create POS order / sale
  */
+export const createPosOrderBodyItemsItemQuantityExclusiveMin = 0;
+
+
+
 export const CreatePosOrderBody = zod.object({
   "sessionId": zod.number().int(),
   "items": zod.array(zod.object({
   "productId": zod.number().int(),
-  "quantity": zod.number()
+  "quantity": zod.number().gt(createPosOrderBodyItemsItemQuantityExclusiveMin).describe('Positive sale quantity. Returns must use a credit note linked to the original invoice.')
 })),
   "paymentMethod": zod.enum(['cash', 'card', 'transfer', 'stc', 'deferred']).optional().describe('Single payment method. Required if `payments` is omitted; ignored when `payments` is provided.'),
   "payments": zod.array(zod.object({

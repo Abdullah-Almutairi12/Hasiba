@@ -92,7 +92,9 @@ export default function PosIconic({
     category: categoryId?.toString(),
   });
   const { data: categories } = useListProductCategories();
-  const { data: sessions } = useListPosSessions();
+  const { data: sessions, refetch: refetchSessions } = useListPosSessions({
+    query: { refetchInterval: 15_000, staleTime: 0, refetchOnWindowFocus: true },
+  });
   const activeSession = sessions?.find((s) => s.status === "open");
   const checkoutLocked = !!checkout.attempt || checkout.isPending || !checkout.ready;
 
@@ -266,7 +268,13 @@ export default function PosIconic({
       paymentMethod,
     };
     const created = await checkout.pay(body, cart);
-    if (!created) return;
+    if (!created) {
+      // Another till/manager may have closed the shift since the last read.
+      // Recovery stays available through its saved intent, even without an
+      // active shift; a new sale must use fresh server session information.
+      void refetchSessions();
+      return;
+    }
     setSuccess({ orderNumber: created.orderNumber, total: Number(created.total) });
     setCart([]);
     void queryClient.invalidateQueries();
@@ -284,7 +292,7 @@ export default function PosIconic({
       {/* Status strip */}
       <div className="flex items-center gap-3 px-4 py-2 text-xs text-neutral-500 dark:text-neutral-400">
         <span className="inline-flex items-center gap-1.5">
-          <span className="size-2 rounded-full bg-emerald-500" />
+          <span className={cn("size-2 rounded-full", activeSession ? "bg-emerald-500" : "bg-neutral-400")} />
           {activeSession
             ? t("pos_iconic.session_open")
             : t("pos_iconic.session_closed")}
