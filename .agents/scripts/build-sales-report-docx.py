@@ -84,7 +84,10 @@ def main():
     body = paragraph("نتائج النسخة المسلّمة", "Heading1")
     body += ''.join(paragraph(f"{key}: {value}") for key, value in facts.items())
     body += markdown(report)
-    changed = subprocess.check_output(["git","show","--format=","--name-only","HEAD"], cwd=ROOT, text=True)
+    changed = subprocess.check_output(
+        ["git","diff","--name-only","before-document-identity-seller-20261023","HEAD"],
+        cwd=ROOT, text=True,
+    )
     body += paragraph("ملفات الدفعة المحفوظة في النسخة المحلية", "Heading1")
     body += ''.join(paragraph(f"`{p}`") for p in changed.splitlines() if p)
     body += paragraph("ملحق: سجل المتطلبات الأصلي وحالته — 73 معرفًا دون إعادة ترقيم", "Heading1") + markdown(ledger)

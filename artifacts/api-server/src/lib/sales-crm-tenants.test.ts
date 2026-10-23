@@ -26,6 +26,7 @@ const fixtures: Fixture[] = [];
 const agents: request.Agent[] = [];
 let stage = 0;
 let plan = 0;
+const ownedPlans: number[] = [];
 let category = 0;
 
 beforeAll(async () => {
@@ -36,7 +37,7 @@ beforeAll(async () => {
     name: tag, nameAr: tag, sequence: 999, probability: 100, isWon: true,
   }).returning())[0].id;
   plan = (await db.insert(commissionPlansTable).values({
-    name: tag, rate: "10", quota: "0", bonusRate: "0",
+    name: `${tag}-unowned-decoy`, rate: "99", quota: "0", bonusRate: "0",
   }).returning())[0].id;
   for (let n = 0; n < 2; n++) {
     const f = {} as Fixture;
@@ -111,7 +112,14 @@ beforeAll(async () => {
       companyId: f.company, name, stageId: stage, expectedRevenue: amount,
       probability: 100, salesRepId: f.user,
     }).returning())[0].id;
-    await db.insert(salesRepAssignmentsTable).values({ userId: f.user, planId: plan, effectiveFrom: date });
+    const ownedPlan = (await db.insert(commissionPlansTable).values({
+      companyId: f.company, name, rate: "10", quota: "0", bonusRate: "0",
+    }).returning())[0].id;
+    ownedPlans.push(ownedPlan);
+    await db.insert(salesRepAssignmentsTable).values([
+      { userId: f.user, planId: plan, effectiveFrom: date },
+      { userId: f.user, planId: ownedPlan, effectiveFrom: date },
+    ]);
     const outbox = await db.execute(sql`
       INSERT INTO sales_email_outbox (kind, ref_id, reference, recipient, subject, body, status,
         attempts, next_retry_at)
@@ -135,8 +143,8 @@ afterAll(async () => {
   await db.delete(opportunitiesTable).where(inArray(opportunitiesTable.companyId, ids));
   await db.delete(leadsTable).where(inArray(leadsTable.companyId, ids));
   await db.delete(opportunityStagesTable).where(eq(opportunityStagesTable.id, stage));
-  await db.delete(salesRepAssignmentsTable).where(eq(salesRepAssignmentsTable.planId, plan));
-  await db.delete(commissionPlansTable).where(eq(commissionPlansTable.id, plan));
+  await db.delete(salesRepAssignmentsTable).where(inArray(salesRepAssignmentsTable.planId, [plan, ...ownedPlans]));
+  await db.delete(commissionPlansTable).where(inArray(commissionPlansTable.id, [plan, ...ownedPlans]));
   const credits = await db.select({ id: creditNotesTable.id }).from(creditNotesTable).where(inArray(creditNotesTable.companyId, ids));
   if (credits.length) await db.delete(creditNoteLinesTable).where(inArray(creditNoteLinesTable.noteId, credits.map(c => c.id)));
   await db.delete(creditNotesTable).where(inArray(creditNotesTable.companyId, ids));

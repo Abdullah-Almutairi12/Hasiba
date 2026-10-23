@@ -145,9 +145,15 @@ describe("original POS invoice: independent linked return lifecycle", () => {
     };
     const before = await snapshots();
     const first = await runMigrations(process.env.TEST_DATABASE_URL!, () => {});
-    expect(first.applied).toEqual(["0026_pos_return_settlement.sql"]);
+    expect(first.applied).toEqual([
+      "0026_pos_return_settlement.sql",
+      "0027_document_print_identity.sql",
+      "0028_seller_attribution.sql",
+    ]);
     expect(first.skipped).toHaveLength(26);
     expect(await snapshots()).toEqual(before);
+    expect(await rows("SELECT count(*)::int AS n FROM document_issuer_snapshots WHERE company_id=$1", [f.companyId])).toEqual([{ n: 0 }]);
+    expect(await rows("SELECT count(*)::int AS n FROM invoice_seller_lines WHERE company_id=$1", [f.companyId])).toEqual([{ n: 0 }]);
     const second = await runMigrations(process.env.TEST_DATABASE_URL!, () => {});
     expect(second.applied).toHaveLength(0);
     expect(await snapshots()).toEqual(before);
