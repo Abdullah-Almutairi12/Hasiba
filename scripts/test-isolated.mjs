@@ -58,17 +58,22 @@ try {
   // Normal verification must exercise the actual empty-database installer.
   if (process.argv.includes("--legacy-upgrade")) {
     const reference = "e6775a382647c0043e801d16f40f6df41cf11a18";
-    const initializers = readdirSync(join(root, "artifacts/api-server/src/lib"))
-      .filter((name) => name.endsWith("-init.ts")).map((name) => `artifacts/api-server/src/lib/${name}`);
-    const unchanged = spawnSync("git", ["diff", "--quiet", reference, "--",
-      "artifacts/api-server/src/app.ts", "artifacts/api-server/src/test/bootstrap.ts", ...initializers], { cwd: root });
-    if (unchanged.status !== 0) throw new Error("Legacy fixture schema/initializers no longer match the pinned reference");
     const legacy = join(work, "legacy");
     mkdirSync(join(legacy, "lib/db"), { recursive: true });
     const archive = spawnSync("git", ["archive", reference, "lib", "artifacts/api-server", "tsconfig.base.json", "package.json"], { cwd: root, maxBuffer: 64 * 1024 * 1024 });
     if (archive.status !== 0) throw new Error("Pinned legacy reference unavailable");
     const extract = spawnSync("tar", ["-x", "-C", legacy], { input: archive.stdout });
     if (extract.status !== 0) throw new Error("Legacy database source extraction failed");
+    const initializers = readdirSync(join(legacy, "artifacts/api-server/src/lib"))
+      .filter((name) => name.endsWith("-init.ts")).map((name) => `artifacts/api-server/src/lib/${name}`);
+    // Validate the archived installation, not today's evolving initializers.
+    for (const path of ["artifacts/api-server/src/app.ts", "artifacts/api-server/src/test/bootstrap.ts", ...initializers]) {
+      const expected = spawnSync("git", ["rev-parse", `${reference}:${path}`], { cwd: root, encoding: "utf8" });
+      const actual = spawnSync("git", ["hash-object", join(legacy, path)], { cwd: root, encoding: "utf8" });
+      if (expected.status !== 0 || actual.status !== 0 || expected.stdout.trim() !== actual.stdout.trim()) {
+        throw new Error("Archived legacy initializer does not match the pinned reference");
+      }
+    }
     // Reuse installed third-party dependencies, not the current workspace's
     // package links: those would make old handlers select the NEW DB schema.
     // Each snapshot package resolves @workspace/* to the archived libraries.
@@ -96,6 +101,7 @@ try {
     for (const name of readdirSync(join(legacy, "lib"))) linkSnapshotDependencies(join("lib", name));
     linkSnapshotDependencies("artifacts/api-server");
     env.HASBA_LEGACY_API_APP = join(legacy, "artifacts/api-server/src/app.ts");
+    env.HASBA_LEGACY_TEST_BOOTSTRAP = join(legacy, "artifacts/api-server/src/test/bootstrap.ts");
     pnpm(["--filter", "@workspace/db", "exec", "drizzle-kit", "push", "--force",
       `--config=${join(legacy, "lib/db/drizzle.config.ts")}`], env);
     pnpm(["--filter", "@workspace/db", "exec", "tsx", join(legacy, "lib/db/src/migrate.ts")], env);
@@ -104,7 +110,7 @@ try {
   } else {
     pnpm(["--filter", "@workspace/db", "run", "migrate"], env);
   }
-  pnpm(["--filter", "@workspace/scripts", "exec", "tsx", "../artifacts/api-server/src/test/bootstrap.ts"], env);
+  pnpm(["--filter", "@workspace/scripts", "exec", "tsx", env.HASBA_LEGACY_TEST_BOOTSTRAP ?? "../artifacts/api-server/src/test/bootstrap.ts"], env);
   if (process.argv.includes("--browser")) {
     const state = join(tmpdir(), "hasba-browser-state.json");
     pnpm(["--filter", "@workspace/scripts", "exec", "tsx", "../artifacts/api-server/src/test/browser-fixtures.ts"],

@@ -13,7 +13,7 @@ import { eq } from "drizzle-orm";
 
 // Everything here is synthetic and retained only until the isolated cluster
 // is destroyed. No SMTP, payment gateway, OCR, or production DB is contacted.
-let maker: request.Agent, receiver: request.Agent;
+let maker: request.Agent, receiver: request.Agent, makerId: number;
 let companyId: number, productId: number, warehouseId: number, customerId: number, supplierId: number, sessionId: number;
 let poId: number, poLineId: number, posInvoiceId: number, posLineId: number;
 let issuedCreditId: number, issuedCreditBody: object, issuedCreditKey: string;
@@ -67,6 +67,7 @@ beforeAll(async () => {
   const accounts = await db.insert(usersTable).values(["maker", "receiver"].map((role) => ({
     name: `${tag}-${role}`, email: `${tag}-${role}@example.invalid`, passwordHash, role: "owner", isActive: true,
   }))).returning();
+  makerId = accounts[0].id;
   await db.insert(userCompaniesTable).values(accounts.map((u) => ({ userId: u.id, companyId, role: "owner", isDefault: true })));
   const [branch] = await db.insert(branchesTable).values({ companyId, name: tag, nameAr: tag, city: "Test" }).returning();
   const [warehouse] = await db.insert(warehousesTable).values({ companyId, branchId: branch.id, name: tag, nameAr: tag, isDefault: true }).returning();
@@ -233,8 +234,21 @@ describe.sequential("purchase → receipt → POS sale → return → balanced b
     expect(await stock()).toBe(before - 2);
   });
   it("replays a committed POS order after its one-use approval has been consumed", async () => {
+    const beforeStock = await stock();
+    const [unbound] = await db.insert(approvalRequestsTable).values({
+      companyId, docType: "pos_over_limit", recordId: sessionId,
+      recordRef: `POS session #${sessionId} — pos.discount_pct`, amount: "10", status: "approved",
+    }).returning();
+    const refused = await sent(maker, "/pos/orders", {
+      sessionId, customerId, items: [{ productId, quantity: 1 }], paymentMethod: "cash",
+      discount: 10, approvalRequestId: unbound.id,
+    }, "cycle-unbound-approval");
+    expect(refused.status, JSON.stringify(refused.body)).toBe(403);
+    expect(await stock()).toBe(beforeStock);
+    const [session] = await rows("SELECT branch_id FROM pos_sessions WHERE id=$1", [sessionId]);
     const [approval] = await db.insert(approvalRequestsTable).values({
       companyId,
+      submittedByUserId: makerId, branchId: Number(session.branch_id),
       docType: "pos_over_limit", recordId: sessionId, recordRef: `POS session #${sessionId} — pos.discount_pct`,
       amount: "10", status: "approved", submittedByName: tag,
     }).returning();

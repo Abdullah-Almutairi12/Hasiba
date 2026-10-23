@@ -12,13 +12,17 @@ import {
   approvalRulesTable, approvalStepsTable,
 } from "@workspace/db";
 import { eq } from "drizzle-orm";
-import app, { assertApplicationReady } from "../app";
 import { recordStockMove } from "../lib/stock-engine";
 import { postJournalEntry } from "../lib/journal-posting";
 import { actOnApproval } from "../lib/workflow-engine";
 
 // Run only through test:isolated: all rows are synthetic in a disposable PG cluster.
-beforeAll(assertApplicationReady);
+// Never initialize today's application against the pre-upgrade fixture.
+const application = process.env.HASBA_LEGACY_API_APP
+  ? await import(process.env.HASBA_LEGACY_API_APP)
+  : await import("../app");
+const app = application.default;
+beforeAll(application.assertApplicationReady);
 let clientNumber = 0;
 async function rows(sql: string, params: unknown[] = []) { return (await pool.query(sql, params)).rows; }
 function ok(response: request.Response, status = 201) {
@@ -71,6 +75,24 @@ async function fixture(method: "fifo" | "average" | "standard" = "fifo", layers 
   });
   return { tag, companyId, userId: user.id, productId: product.id, warehouseId: warehouse.id, customerId: customer.id, sessionId: session.id, agent };
 }
+it("checks credit-note limits against normalized tax defaults before any financial effect", async () => {
+  const f = await fixture();
+  await rows("INSERT INTO financial_limits(company_id,role,action_key,max_value) VALUES($1,'sales','sales.credit_note_amount',100)", [f.companyId]);
+  await rows("UPDATE user_companies SET role='sales' WHERE company_id=$1 AND user_id=$2", [f.companyId, f.userId]);
+  const before = await rows(`SELECT
+    (SELECT count(*) FROM credit_notes WHERE company_id=$1) AS notes,
+    (SELECT count(*) FROM journal_entries WHERE company_id=$1) AS entries`, [f.companyId]);
+  // The document schema defaults taxRate to 15. The old raw-body check saw
+  // only 100 and let a 115-total request pass a company cap of 100.
+  const response = await f.agent.post("/api/sales/credit-notes").send({
+    customerId: f.customerId, restock: false,
+    lines: [{ description: f.tag, quantity: 1, unitPrice: 100 }],
+  });
+  expect(response.status, JSON.stringify(response.body)).toBe(403);
+  expect(await rows(`SELECT
+    (SELECT count(*) FROM credit_notes WHERE company_id=$1) AS notes,
+    (SELECT count(*) FROM journal_entries WHERE company_id=$1) AS entries`, [f.companyId])).toEqual(before);
+});
 type Fixture = Awaited<ReturnType<typeof fixture>>;
 async function sale(f: Fixture, items = [{ productId: f.productId, quantity: 4 }]) {
   const pos = ok(await f.agent.post("/api/pos/orders").send({
@@ -173,7 +195,7 @@ describe("original POS invoice: independent linked return lifecycle", () => {
     mkdirSync(out, { recursive: true });
     writeFileSync(resolve(out, "legacy-upgrade.json"), JSON.stringify({
       reference: process.env.HASBA_MIGRATION_REFERENCE,
-      fixture: "Pinned old database source and old migrator; unchanged application initializers; synthetic data",
+      fixture: "Pinned old application, initializers, workspace schema and migrator; synthetic data",
       unchangedTables: Object.keys(before), passes: 2, applied: first.applied, skipped: first.skipped,
       journalsBalanced: true,
       limitation: "Representative financial relationships, not a backup or proof for all older installations",

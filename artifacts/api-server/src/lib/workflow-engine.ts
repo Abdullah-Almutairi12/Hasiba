@@ -17,6 +17,7 @@ import { returnAuthorize, assertReturnSnapshot } from "./return-access";
 import { assertCompanyBranch } from "./company-access";
 import { assertWorkflowMember, workflowMember } from "./workflow-access";
 import { financialPolicy } from "./financial-policy";
+import { FinancialRequestError } from "./financial-transaction";
 import { notify } from "./workflow-notifications";
 
 // ---------------------------------------------------------------------------
@@ -606,10 +607,10 @@ export async function checkFinancialLimit(
   if (branchId != null) {
     await assertCompanyBranch(branchId, companyId);
     if (member.role !== "owner" && member.branchId != null && member.branchId !== branchId) {
-      throw Object.assign(new Error("الفرع خارج نطاق العضو"), { status: 403 });
+      throw new FinancialRequestError("الفرع خارج نطاق العضو", 403);
     }
   }
-  if (!Number.isFinite(value) || value < 0) throw Object.assign(new Error("قيمة مالية غير صحيحة"), { status: 400 });
+  if (!Number.isFinite(value) || value < 0) throw new FinancialRequestError("قيمة مالية غير صحيحة", 400);
   let role = member.role;
   // This only selects the cap; POS still verifies the immutable transaction
   // fingerprint and consumes the approval atomically with the sale.
@@ -620,7 +621,7 @@ export async function checkFinancialLimit(
       eq(approvalRequestsTable.docType, "pos_over_limit"),
     ));
     if (!approval || !actionKey.startsWith("pos.") || approval.branchId !== branchId) {
-      throw Object.assign(new Error("اعتماد الحد غير متاح"), { status: 403 });
+      throw new FinancialRequestError("اعتماد الحد غير متاح", 403);
     }
     role = "manager";
   }

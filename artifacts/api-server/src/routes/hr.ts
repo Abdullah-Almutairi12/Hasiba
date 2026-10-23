@@ -189,7 +189,9 @@ registerOnApprove("expense_claim", async (recordId) => {
   // and surfaces the error so workflow + document state stay consistent.
   try {
     const result = await db.execute(
-      sql`UPDATE expense_claims SET status = 'approved', approved_at = now() WHERE id = ${recordId} AND status IN ('pending','pending_approval') RETURNING company_id`,
+      sql`UPDATE expense_claims c SET status = 'approved', approved_at = now()
+        FROM employees e WHERE c.id = ${recordId} AND e.id=c.employee_id
+        AND c.status IN ('pending','pending_approval') RETURNING e.company_id`,
     );
     if (result.rows[0]?.company_id) void triggerEvent(Number(result.rows[0].company_id), "state_changed", "expense_claim", { id: recordId }, "approved");
   } catch (err) {

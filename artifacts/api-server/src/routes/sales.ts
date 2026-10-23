@@ -3237,12 +3237,12 @@ router.get("/sales/credit-notes", customerReadGuard, async (req, res) => {
 });
 
 export const creditNoteLimit = requireFinancialLimit("sales.credit_note_amount", (req) => {
-    const lines = (req.body?.lines ?? []) as Array<{
-      quantity?: number; unitPrice?: number; taxRate?: number;
-    }>;
-    return lines.reduce((s, l) =>
-      s + Number(l.quantity ?? 0) * Number(l.unitPrice ?? 0) * (1 + Number(l.taxRate ?? 0) / 100),
-    0);
+    // Apply the same defaults and rounding as the issued document. In
+    // particular, omitting taxRate must not reduce the authorization amount.
+    const body = CreditNoteBody.parse(req.body);
+    return computeTotals(body.lines.map((line) => ({
+      ...line, productId: line.productId ?? null, discountPct: 0,
+    })), 0).total;
   });
 export const createCreditNoteHandler: RequestHandler = async (req, res) => {
   try {

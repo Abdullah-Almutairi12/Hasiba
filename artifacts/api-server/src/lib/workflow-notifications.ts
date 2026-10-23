@@ -21,8 +21,13 @@ async function approvalSourceAllowed(companyId: number, userId: number, request:
   const table = ({ expense_claim: "expense_claims", sales_order: "sales_orders", journal_entry: "journal_entries",
     credit_note: "credit_notes", credit_note_cancel: "credit_notes", payment_run: "payment_runs" } as Record<string, string>)[request.docType];
   if (!table) return false;
-  const result = await connection.execute(sql`SELECT to_jsonb(s) AS source FROM ${sql.identifier(table)} s
-    WHERE s.id=${request.recordId} AND s.company_id=${companyId}`);
+  // Expense claims are natively owned through employees, not a company_id
+  // column on the claim. Require the parent relationship in the query itself.
+  const result = table === "expense_claims"
+    ? await connection.execute(sql`SELECT to_jsonb(s) AS source FROM expense_claims s
+        JOIN employees e ON e.id=s.employee_id WHERE s.id=${request.recordId} AND e.company_id=${companyId}`)
+    : await connection.execute(sql`SELECT to_jsonb(s) AS source FROM ${sql.identifier(table)} s
+        WHERE s.id=${request.recordId} AND s.company_id=${companyId}`);
   const row = result.rows[0]?.source as Record<string, unknown> | undefined;
   if (!row) return false;
   if (!["owner", "manager", "accountant", "auditor", ...(request.docType === "sales_order" || request.docType.startsWith("credit_note") ? ["sales"] : []),

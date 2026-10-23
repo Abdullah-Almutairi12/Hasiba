@@ -16,6 +16,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { Loader2, RefreshCw, Users, Award, Settings2, PenLine, AlertTriangle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiGet } from "@/hooks/use-api";
+import { useCurrentCompany } from "@/hooks/use-current-company";
 import { fmtDate } from "@/lib/print-docs";
 import {
   COMMISSION_STATUS, GRAN_AR, MODE_AR, fmtMoney, n, parseReport, parseWorkspace, s, totalsByCurrency,
@@ -29,7 +30,13 @@ const today = () => new Date().toISOString().slice(0, 10);
 const monthStart = () => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().slice(0, 10); };
 
 export function SellerCommissionsPanel() {
-  const [branchId, setBranchId] = useState<number | null>(null);
+  const { activeCompanyId } = useCurrentCompany();
+  const [selection, setSelection] = useState<{ companyId: number | null; branchId: number | null }>({
+    companyId: activeCompanyId, branchId: null,
+  });
+  // Never send the previous company's selected branch to the new workspace.
+  const branchId = selection.companyId === activeCompanyId ? selection.branchId : null;
+  const setBranchId = (value: number | null) => setSelection({ companyId: activeCompanyId, branchId: value });
   const q = useGetSellerWorkspace(branchId ? { branchId } : undefined, { query: { retry: false } });
   const ws = useMemo(() => (q.data ? parseWorkspace(q.data) : null), [q.data]);
 
@@ -73,7 +80,9 @@ function PolicyCard({ ws, branchId, setBranchId }: { ws: Workspace; branchId: nu
 
   const save = async () => {
     const body: Parameters<typeof mut.mutateAsync>[0]["data"] = {
-      branchId: branchId ?? 0, inherit: branchId ? inherit : false, mode, granularity: gran, commissionEnabled: commission, effectiveFrom: from,
+      branchId: branchId ?? 0, inherit: branchId ? inherit : false, mode, granularity: gran, commissionEnabled: commission,
+      // Saudi launch: the selected civil date starts at midnight in Riyadh.
+      effectiveFrom: `${from}T00:00:00+03:00`,
     };
     if (commission && !(branchId && inherit)) {
       if (source === "rate") {
