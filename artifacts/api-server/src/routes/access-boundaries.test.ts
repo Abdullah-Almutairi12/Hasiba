@@ -299,6 +299,44 @@ describe("Company role boundaries", () => {
     expect(await db.select().from(userCompaniesTable).where(eq(userCompaniesTable.userId, sharedId))).toEqual(before);
   });
 
+  it("verifies a different manager's credentials only within the active company and membership role", async () => {
+    const identities = await db.select().from(usersTable).where(inArray(usersTable.id, [managerId, sharedId, foreignUserId]));
+    const localManager = identities.find((user) => user.id === managerId)!;
+    const sharedIdentity = identities.find((user) => user.id === sharedId)!;
+    const foreignIdentity = identities.find((user) => user.id === foreignUserId)!;
+    const verified = await sales.post("/api/approvals/verify-pin").send({
+      email: localManager.email, password, reason: "Synthetic tenant-only identity verification",
+    }).expect(200);
+    expect(verified.body.overrideUserId).toBe(managerId);
+    // The global role is owner, but this company's membership is only sales.
+    await sales.post("/api/approvals/verify-pin").send({ email: sharedIdentity.email, password }).expect(403);
+    await db.update(usersTable).set({ role: "owner" }).where(eq(usersTable.id, foreignUserId));
+    await db.update(userCompaniesTable).set({ role: "owner" }).where(and(
+      eq(userCompaniesTable.userId, foreignUserId), eq(userCompaniesTable.companyId, b),
+    ));
+    try {
+      await sales.post("/api/approvals/verify-pin").send({ email: foreignIdentity.email, password }).expect(401);
+    } finally {
+      await db.update(usersTable).set({ role: "sales" }).where(eq(usersTable.id, foreignUserId));
+      await db.update(userCompaniesTable).set({ role: "sales" }).where(and(
+        eq(userCompaniesTable.userId, foreignUserId), eq(userCompaniesTable.companyId, b),
+      ));
+    }
+    await manager.post("/api/approvals/verify-pin").send({ email: localManager.email, password }).expect(403);
+    await sales.post("/api/approvals/verify-pin").send({ email: localManager.email, password: "synthetic-wrong" }).expect(401);
+    await sales.post("/api/approvals/verify-pin").send({ email: localManager.email, password: ["admin", "123"].join("") }).expect(401);
+    await db.update(userCompaniesTable).set({ role: "sales" }).where(and(
+      eq(userCompaniesTable.userId, managerId), eq(userCompaniesTable.companyId, a),
+    ));
+    try {
+      await sales.post("/api/approvals/verify-pin").send({ email: localManager.email, password }).expect(403);
+    } finally {
+      await db.update(userCompaniesTable).set({ role: "manager" }).where(and(
+        eq(userCompaniesTable.userId, managerId), eq(userCompaniesTable.companyId, a),
+      ));
+    }
+  });
+
   it("switching replaces privileges and /auth/me reports the membership role", async () => {
     expect((await manager.get("/api/users")).status).toBe(200);
     const switched = await manager.post("/api/auth/switch-company").send({ companyId: b });

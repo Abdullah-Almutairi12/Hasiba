@@ -14,11 +14,14 @@ import {
   automationRunsTable,
   notificationInboxTable,
   usersTable,
+  userCompaniesTable,
+  companiesTable,
 } from "@workspace/db";
 import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { adminGuard } from "../middlewares/require-role";
 import { actOnApproval, checkFinancialLimit } from "../lib/workflow-engine";
 import { recordAudit } from "../lib/audit";
+import { isPublishedBootstrapPassword } from "../lib/bootstrap-password";
 
 const router = Router();
 
@@ -695,11 +698,24 @@ router.post("/approvals/verify-pin", verifyPinLimiter, async (req, res) => {
     return;
   }
   const { email, password, reason } = parsed.data;
+  if (isPublishedBootstrapPassword(password)) {
+    res.status(401).json({ error: "بيانات المدير غير صحيحة" });
+    return;
+  }
   const [user] = await db
-    .select()
+    .select({
+      id: usersTable.id,
+      name: usersTable.name,
+      email: usersTable.email,
+      passwordHash: usersTable.passwordHash,
+      role: userCompaniesTable.role,
+    })
     .from(usersTable)
-    .where(eq(usersTable.email, email.toLowerCase().trim()));
-  if (!user || !user.passwordHash || !user.isActive) {
+    .innerJoin(userCompaniesTable, eq(userCompaniesTable.userId, usersTable.id))
+    .innerJoin(companiesTable, eq(companiesTable.id, userCompaniesTable.companyId))
+    .where(and(eq(usersTable.email, email.toLowerCase().trim()), eq(usersTable.isActive, true),
+      eq(userCompaniesTable.companyId, req.session.companyId!), eq(companiesTable.isActive, true)));
+  if (!user || !user.passwordHash) {
     res.status(401).json({ error: "بيانات المدير غير صحيحة" });
     return;
   }

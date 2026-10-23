@@ -2,6 +2,18 @@
 name: Financial browser fault injection
 description: Verify a genuinely lost committed response through the preview proxy without relying on browser request routing
 ---
+Keep the full PDF-heavy verification run separate from deliberate service
+rebuilds and additional preview/browser workloads on the shared workspace.
+
+**Why:** A Chromium launch exceeded its existing 20-second limit during a full
+run that overlapped service restarts/builds and a screenshot. Contention is a
+plausible contributor, not proven to be the sole cause; the failed gate remains
+a failure even when all financial assertions outside that launch passed.
+
+**How to apply:** Preserve the failed evidence, avoid overlapping those extra
+workloads in the next run, and do not raise timeouts or skip native-PDF tests
+just to report success.
+
 Use disposable test infrastructure for committed-response-loss checks, not a production fault endpoint or an authentication bypass. Confirm the upstream success and committed database state before dropping the response, then compare the real browser retry's key, body digest, replay header, and document identity.
 
 **Why:** The browser testing environment did not expose request routing. Destroying the test proxy's response socket surfaced as HTTP 502 through the shared preview proxy rather than a raw browser network error. A generic failed request alone does not prove that the original transaction committed.
