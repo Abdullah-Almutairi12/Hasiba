@@ -38,3 +38,9 @@ Treat Hasiba as the existing repository for the existing Replit project, not as 
 **Why:** The user explicitly corrected that framing and stated that Hasiba contains previous work and had already been synchronized. They prohibited replacing main or archiving its site based on an assumption that it is old.
 
 **How to apply:** Audit all remote branches and available reflogs before inferring the previous synchronization path. Distinguish a safety branch created by the agent from an established historical branch. If older pushes or remote-URL changes cannot be established from retained evidence, state that limitation rather than denying the user's account. Preserve main and its files; do not propose archiving based solely on unrelated branch histories, commit age, or a different directory layout.
+
+Inspect remote URLs only through redacted output; do not print raw `git remote -v` or the complete Git configuration.
+
+**Why:** The retained legacy source-control remote contained an embedded credential. Keeping the previous repository location must not expose or preserve that credential in reports or command output.
+
+**How to apply:** Strip URL user information before logging configuration. Retain canonical repository URLs without credentials. Removing a credential from local configuration is not provider-side revocation; never claim otherwise or copy its value into project files.
