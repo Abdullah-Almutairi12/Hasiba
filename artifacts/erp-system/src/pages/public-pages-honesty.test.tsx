@@ -27,7 +27,7 @@ vi.mock("@/hooks/use-language", () => ({
 const FORBIDDEN = [
   /admin@hasba\.ai/i, /admin123/i, /demo credentials/i, /للتجربة:/,
   /NCA/, /Phase 2/i, /ZATCA[- ]certified/i, /معتمد من/, /معتمدة من/, /متصل بالهيئة/,
-  /Protected by 2FA/i, /محمي بـ 2FA/, /reset link/i, /will be sent/i, /رابط الاستعادة/, /سيتم إرسال/,
+  /2FA/i, /مصادقة ثنائية/, /reset link/i, /will be sent/i, /رابط الاستعادة/, /سيتم إرسال/,
   /99\.9/, /99\.8/, /99%/, /uptime/i, /جاهزية/, /\+2\.4K/, /5,000/, /24\/7/, /مرخصة/, /14h/,
 ];
 
