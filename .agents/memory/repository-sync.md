@@ -32,3 +32,9 @@ Keep a separately authorized repository's existing work intact when it has unrel
 **Why:** The user explicitly requires preserving both Replit and GitHub files, retaining the previous remote and a rollback point, avoiding force pushes and hard resets, and using a separate branch when histories or configuration conflicts need a decision.
 
 **How to apply:** Compare history and shared files first. Publish the ERP work to an independent branch when necessary, do not claim the requested main branch is synchronized until integration is actually approved and verified, and disclose ignored reports and data. Inspect reachable history for sensitive files as well as the current tree: ignore rules do not remove old uploads from existing commits.
+
+Treat Hasiba as the existing repository for the existing Replit project, not as a replacement project or a newly created repository.
+
+**Why:** The user explicitly corrected that framing and stated that Hasiba contains previous work and had already been synchronized. They prohibited replacing main or archiving its site based on an assumption that it is old.
+
+**How to apply:** Audit all remote branches and available reflogs before inferring the previous synchronization path. Distinguish a safety branch created by the agent from an established historical branch. If older pushes or remote-URL changes cannot be established from retained evidence, state that limitation rather than denying the user's account. Preserve main and its files; do not propose archiving based solely on unrelated branch histories, commit age, or a different directory layout.
