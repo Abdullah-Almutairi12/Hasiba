@@ -196,3 +196,17 @@ mtime_ms = 1792741727437
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/5b26772b-27e3-48f7-bfa4-ecb7de848101/43d46435-a679-43c4-8547-a256f303b57f"
 storage_version_token = "1792741783883047"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "4maSoMCCmbN82BnHFZnu_"
+uri = "file://generated-artifacts/workflow-foundation/verification-evidence.zip"
+type = "unspecified"
+title = "حاسبة — تقرير التنفيذ وأدلة التحقق"
+description = "التقرير العربي ونتائج التحقق وهوية النسخة، ببيانات اختبار مصطنعة فقط. هذه شريحة متحققة من الدفعة 1، وليست إقفالًا للخطة أو قبولًا إنتاجيًا."
+logical_id = "27713ad4-0ac1-4952-9b53-d7d2a1c18900"
+content_hash = "sha256:09d4e1a9883e079c1251599b21387b24ea4cc157ab5c0bb6b786d4da2e0d450b"
+size = 42413
+mtime_ms = 1792770567762
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/27713ad4-0ac1-4952-9b53-d7d2a1c18900/fc8bbac4-227a-49a9-a5a7-8861495f1c86"
+storage_version_token = "1792770578357761"
+content_type = "application/octet-stream"
