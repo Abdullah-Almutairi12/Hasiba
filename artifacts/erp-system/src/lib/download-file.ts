@@ -8,7 +8,13 @@ export function openFileDownload(url:string):void{
 }
 /** Validate the response before creating any downloadable file. Never save JSON as PDF. */
 export async function downloadPdf(url:string,filename:string):Promise<void>{
-  if(pending.has(url))return;
+  const got=await fetchPdf(url,filename);if(!got)return;
+  const href=URL.createObjectURL(got.blob),a=document.createElement("a");a.href=href;a.download=got.filename;
+  document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(href),1000);
+}
+/** Fetch and validate a PDF; returns null when the same URL is already in flight. */
+export async function fetchPdf(url:string,filename:string):Promise<{blob:Blob;filename:string}|null>{
+  if(pending.has(url))return null;
   pending.add(url);
   const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),45000);
   try {
@@ -27,8 +33,7 @@ export async function downloadPdf(url:string,filename:string):Promise<void>{
     }catch{}
     filename=filename.replace(/[\\/:*?"<>|\u0000-\u001f]/g,"_").slice(0,180);
     if(!filename.toLowerCase().endsWith(".pdf"))filename+=".pdf";
-    const href=URL.createObjectURL(b),a=document.createElement("a");a.href=href;a.download=filename;
-    document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(href),1000);
+    return {blob:b,filename};
   }catch(e){if(e instanceof DownloadError)throw e;throw new DownloadError("تعذر تنزيل الملف؛ تحقق من الاتصال وأعد المحاولة","DOWNLOAD_CONNECTION");}
   finally{clearTimeout(timer);pending.delete(url);}
 }

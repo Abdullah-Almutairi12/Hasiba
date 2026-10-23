@@ -36,6 +36,15 @@ import { configuredWidths, docUrls, PrintDocButton } from "@/lib/print-docs";
 import { buildSellerFields, parseWorkspace, savedSellerLabel, selectionFromBody } from "@/lib/sellers";
 import { SellerSelect, wholeEmptyLabel } from "@/components/sellers/seller-picker";
 
+type LastReceipt = { id: number; orderNumber: string; total: number; seller: string | null };
+function readLastReceipt(key: string): LastReceipt | null {
+  try {
+    const v = JSON.parse(sessionStorage.getItem(key) ?? "null") as Partial<LastReceipt> | null;
+    if (!v || !Number.isInteger(v.id) || (v.id as number) <= 0 || typeof v.orderNumber !== "string" || typeof v.total !== "number") return null;
+    return { id: v.id as number, orderNumber: v.orderNumber, total: v.total, seller: typeof v.seller === "string" ? v.seller : null };
+  } catch { return null; }
+}
+
 type ParkedOrder = {
   id: number;
   orderNumber: string;
@@ -90,7 +99,18 @@ export default function PosIconic({
     total: number;
   } | null>(null);
   // Confirmed, server-saved sale. Survives cart clear so the cashier can print.
-  const [lastReceipt, setLastReceipt] = useState<{ id: number; orderNumber: string; total: number; seller: string | null } | null>(null);
+  // Persisted (pointer + frozen label only) under the same user+company scoped checkout key.
+  const receiptKey = user?.companyId ? `hasba:pos-checkout:${user.id}:${user.companyId}:last-receipt` : null;
+  const [receiptState, setReceiptState] = useState<{ scope: string | null; value: LastReceipt | null }>({ scope: null, value: null });
+  const lastReceipt = receiptState.scope === receiptKey ? receiptState.value : null;
+  const setLastReceipt = (value: LastReceipt | null) => {
+    if (!receiptKey) return;
+    try {
+      if (value) sessionStorage.setItem(receiptKey, JSON.stringify(value)); else sessionStorage.removeItem(receiptKey);
+    } catch { /* storage unavailable: keep in memory */ }
+    setReceiptState({ scope: receiptKey, value });
+  };
+  useEffect(() => { setReceiptState({ scope: receiptKey, value: receiptKey ? readLastReceipt(receiptKey) : null }); }, [receiptKey]);
   // Seller attribution (HR employees, independent of the cashier). Lines keyed by product id.
   const [sellerWhole, setSellerWhole] = useState<number | null>(null);
   const [sellerLines, setSellerLines] = useState<Record<number, number | undefined>>({});

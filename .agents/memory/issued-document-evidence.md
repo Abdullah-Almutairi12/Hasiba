@@ -14,3 +14,9 @@ Old logo versions are retained evidence when issued documents still reference th
 **Why:** Replacing or deleting a mutable logo at the same object key would change a historical reprint without changing its saved issuer data.
 
 **How to apply:** Use company-owned immutable object versions and retain referenced objects; do not clean them up simply because the current profile selects a different logo.
+
+Do not infer a historical commission entitlement from an assignment that does not cover the legacy report period.
+
+**Why:** Older per-user summaries lack invoice-time policy evidence; widening a partial-period assignment into a full-period rate manufactures historical authority. Explicit ownership alone does not prove temporal applicability.
+
+**How to apply:** Keep the legacy calculation conservative and the new snapshot-based seller ledger separate. Use fixtures with genuinely applicable dates rather than relaxing ownership or period checks to make old expected amounts pass.

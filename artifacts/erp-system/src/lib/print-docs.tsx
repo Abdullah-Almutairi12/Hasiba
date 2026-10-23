@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Printer, Loader2 } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Printer, Loader2, Download, ExternalLink } from "lucide-react";
 import {
   getGetPosReceiptPdfUrl,
   getGetCreditNotePdfUrl,
@@ -7,7 +7,8 @@ import {
 } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
-import { downloadPdf, DownloadError } from "@/lib/download-file";
+import { fetchPdf, DownloadError } from "@/lib/download-file";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 /** Prefix a generated `/api/...` URL with the artifact base path. */
 export function withBase(apiPath: string): string {
@@ -51,11 +52,15 @@ export function PrintDocButton({
 }) {
   const { toast } = useToast();
   const [busy, setBusy] = useState(false);
+  const [ready, setReady] = useState<{ href: string; filename: string } | null>(null);
+  // This component owns the blob URL: revoke when replaced, closed or unmounted.
+  useEffect(() => () => { if (ready) URL.revokeObjectURL(ready.href); }, [ready]);
   if (!validId(id)) return null;
   const run = async () => {
     setBusy(true);
     try {
-      await downloadPdf(url(id), filename);
+      const got = await fetchPdf(url(id), filename);
+      if (got) setReady({ href: URL.createObjectURL(got.blob), filename: got.filename });
     } catch (e) {
       const ref = e instanceof DownloadError ? e.diagnosticRef : "";
       toast({ title: e instanceof Error ? e.message : "تعذر إنشاء الملف", description: ref ? `مرجع: ${ref}` : undefined, variant: "destructive" });
@@ -64,9 +69,26 @@ export function PrintDocButton({
     }
   };
   return (
+    <>
     <Button type="button" size={size} variant={variant} onClick={run} disabled={busy} data-testid={testId}>
       {busy ? <Loader2 className="me-1 size-4 animate-spin" /> : <Printer className="me-1 size-4" />}
       {label}
     </Button>
+    <Dialog open={!!ready} onOpenChange={(o) => { if (!o) setReady(null); }}>
+      <DialogContent data-testid={testId ? `${testId}-ready` : "print-doc-ready"}>
+        <DialogHeader>
+          <DialogTitle>الملف جاهز</DialogTitle>
+          <DialogDescription>تم إنشاء {label} بنجاح ({ready?.filename}). اختر التنزيل أو الفتح للطباعة.</DialogDescription>
+        </DialogHeader>
+        <DialogFooter className="gap-2 sm:justify-start">
+          {ready && <>
+            <Button asChild><a href={ready.href} download={ready.filename} data-testid="link-pdf-download"><Download className="me-1 size-4" />تنزيل PDF</a></Button>
+            <Button asChild variant="outline"><a href={ready.href} target="_blank" rel="noopener" data-testid="link-pdf-open"><ExternalLink className="me-1 size-4" />فتح PDF</a></Button>
+          </>}
+          <Button variant="ghost" onClick={() => setReady(null)} data-testid="button-pdf-ready-close">إغلاق</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+    </>
   );
 }

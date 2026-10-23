@@ -6,7 +6,8 @@ import PosIconic from "./pos-iconic";
 import ar from "@/i18n/ar.json";
 
 const ws = vi.hoisted(() => ({ policy: { mode: "hidden", granularity: "invoice" } as Record<string, unknown>, error: false, refetch: vi.fn(), names: { 7: "سارة البائعة", 8: "خالد" } as Record<number, string> }));
-vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { id: 11, companyId: 21 } }) }));
+const auth = vi.hoisted(() => ({ user: { id: 11, companyId: 21 } }));
+vi.mock("@/hooks/use-auth", () => ({ useAuth: () => auth }));
 vi.mock("@/hooks/use-vat-status", () => ({ useVatEnabled: () => false }));
 vi.mock("@/hooks/use-language", () => ({
   useLanguage: () => ({ language: "ar", t: (k: string) => k.startsWith("pos_iconic.") ? (ar.pos_iconic as Record<string, string>)[k.slice(11)] ?? k : k }),
@@ -25,7 +26,7 @@ let posts: Array<Record<string, unknown>> = [];
 let fault = false;
 let historic = false;
 const SAVED: Record<number, string> = { 7: "سارة البائعة", 8: "خالد" };
-beforeEach(() => { posts = []; fault = false; historic = false; ws.error = false; ws.names = { 7: "سارة البائعة", 8: "خالد" }; sessionStorage.clear(); });
+beforeEach(() => { auth.user = { id: 11, companyId: 21 }; posts = []; fault = false; historic = false; ws.error = false; ws.names = { 7: "سارة البائعة", 8: "خالد" }; sessionStorage.clear(); });
 afterEach(() => vi.unstubAllGlobals());
 function stub() {
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -132,5 +133,30 @@ describe("POS seller attribution", () => {
     expect(posts).toHaveLength(0);
     await u.click(screen.getByTestId("button-retry-seller-policy"));
     expect(ws.refetch).toHaveBeenCalled();
+  });
+
+  it("restores the confirmed receipt after reload, clears on dismiss, and never leaks across company scope", async () => {
+    ws.policy = { mode: "required", granularity: "invoice" };
+    stub(); const u = userEvent.setup(); const first = mount();
+    await u.click(await screen.findByTestId("product-icon-5"));
+    await u.selectOptions(screen.getByTestId("select-pos-seller"), "7");
+    await u.click(screen.getByTestId("button-pay-rail"));
+    await screen.findByTestId("panel-last-receipt");
+    first.unmount();
+    ws.names = { 7: "اسم آخر اليوم", 8: "خالد" };
+    const second = mount();
+    expect((await screen.findByTestId("last-receipt-seller")).textContent).toContain("سارة البائعة");
+    expect(screen.getByTestId("panel-last-receipt").textContent).toContain("ORD-41");
+    second.unmount();
+    auth.user = { id: 11, companyId: 99 };
+    const other = mount();
+    await screen.findByTestId("product-icon-5");
+    expect(screen.queryByTestId("panel-last-receipt")).toBeNull();
+    other.unmount();
+    auth.user = { id: 11, companyId: 21 };
+    mount();
+    await u.click(await screen.findByTestId("button-dismiss-receipt"));
+    expect(screen.queryByTestId("panel-last-receipt")).toBeNull();
+    expect(sessionStorage.getItem("hasba:pos-checkout:11:21:last-receipt")).toBeNull();
   });
 });

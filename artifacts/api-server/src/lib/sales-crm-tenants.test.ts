@@ -118,7 +118,7 @@ beforeAll(async () => {
     ownedPlans.push(ownedPlan);
     await db.insert(salesRepAssignmentsTable).values([
       { userId: f.user, planId: plan, effectiveFrom: date },
-      { userId: f.user, planId: ownedPlan, effectiveFrom: date },
+      { userId: f.user, planId: ownedPlan, effectiveFrom: range.from },
     ]);
     const outbox = await db.execute(sql`
       INSERT INTO sales_email_outbox (kind, ref_id, reference, recipient, subject, body, status,

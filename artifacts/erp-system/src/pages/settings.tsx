@@ -20,6 +20,7 @@ import {
 import { useCurrentCompany } from "@/hooks/use-current-company";
 import { usePermissions } from "@/hooks/use-permissions";
 import { useToast } from "@/hooks/use-toast";
+import { CompanySettingsTab } from "@/components/company-settings-tab";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -120,46 +121,11 @@ function CompanyTab({ readOnly }: { readOnly: boolean }) {
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Building2 className="size-5 text-primary" />
-          هوية المنشأة
+          الإعدادات الإقليمية
         </CardTitle>
-        <CardDescription>تظهر في الفواتير والتقارير الرسمية وترويسة النظام.</CardDescription>
+        <CardDescription>العملة والمنطقة الزمنية ولغة الواجهة. الهوية القانونية وعروض الإيصال (58/80 مم) تُدار في قسم «الهوية القانونية والطباعة» أعلاه لكل شركة.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="grid gap-3 md:grid-cols-2">
-          <div>
-            <Label>الاسم التجاري (عربي)</Label>
-            <Input value={String(draft.nameAr ?? "")} onChange={setF("nameAr")} disabled={readOnly} data-testid="input-company-name-ar" />
-          </div>
-          <div>
-            <Label>Trade Name (English)</Label>
-            <Input value={String(draft.nameEn ?? "")} onChange={setF("nameEn")} disabled={readOnly} dir="ltr" data-testid="input-company-name-en" />
-          </div>
-          <div>
-            <Label>الرقم الضريبي (VAT)</Label>
-            <Input value={String(draft.vatNumber ?? "")} onChange={setF("vatNumber")} disabled={readOnly} dir="ltr" placeholder="3xxxxxxxxxxxxx3" data-testid="input-company-vat" />
-          </div>
-          <div>
-            <Label>السجل التجاري</Label>
-            <Input value={String(draft.crNumber ?? "")} onChange={setF("crNumber")} disabled={readOnly} dir="ltr" data-testid="input-company-cr" />
-          </div>
-          <div className="md:col-span-2">
-            <Label>العنوان الوطني</Label>
-            <Textarea rows={2} value={String(draft.address ?? "")} onChange={setF("address")} disabled={readOnly} data-testid="input-company-address" />
-          </div>
-          <div>
-            <Label>رقم الهاتف</Label>
-            <Input value={String(draft.phone ?? "")} onChange={setF("phone")} disabled={readOnly} dir="ltr" data-testid="input-company-phone" />
-          </div>
-          <div>
-            <Label>البريد الإلكتروني الرسمي</Label>
-            <Input value={String(draft.email ?? "")} onChange={setF("email")} disabled={readOnly} dir="ltr" data-testid="input-company-email" />
-          </div>
-          <div>
-            <Label>رابط الشعار (Logo URL)</Label>
-            <Input value={String(draft.logoUrl ?? "")} onChange={setF("logoUrl")} disabled={readOnly} dir="ltr" data-testid="input-company-logo" />
-          </div>
-        </div>
-        <Separator />
         <div className="grid gap-3 md:grid-cols-3">
           <div>
             <Label>العملة الأساسية</Label>
@@ -1502,7 +1468,13 @@ export default function SettingsPage() {
         </TabsList>
 
         <div className="min-w-0 flex-1 space-y-4">
-        <TabsContent value="company" className="mt-0"><CompanyTab readOnly={readOnly} /></TabsContent>
+        <TabsContent value="company" className="mt-0 space-y-4">
+          <section aria-labelledby="settings-print-identity" data-testid="settings-company-print-profile">
+            <h2 id="settings-print-identity" className="mb-2 text-lg font-bold">الهوية القانونية والطباعة (الإيصالات 58/80 مم)</h2>
+            <CompanySettingsTab />
+          </section>
+          <CompanyTab readOnly={readOnly} />
+        </TabsContent>
         <TabsContent value="tax"><TaxTab readOnly={readOnly} /></TabsContent>
         <TabsContent value="branches"><BranchesTab readOnly={readOnly} /></TabsContent>
         <TabsContent value="pos"><PosTab readOnly={readOnly} /></TabsContent>
