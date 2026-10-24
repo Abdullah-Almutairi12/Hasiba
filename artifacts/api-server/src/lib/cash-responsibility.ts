@@ -4,9 +4,8 @@ import { z } from "zod/v4";
 import type { DbOrTx } from "./journal-posting";
 import { FinancialRequestError } from "./financial-transaction";
 import { verifyAccountPassword } from "./account-password";
-import { managedProfile, requireResponsibility } from "./responsibility-context";
+import { currentResponsibilities, managedProfile, requireResponsibility } from "./responsibility-context";
 import { returnAuthorize } from "./return-access";
-import { currentResponsibilities, managedProfile } from "./responsibility-context";
 
 const fail = (message: string, status=403): never => { throw new FinancialRequestError(message,status); };
 const hash = (data: unknown) => createHash("sha256").update(JSON.stringify(data)).digest("hex");

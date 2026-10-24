@@ -344,7 +344,7 @@ describe("native POS lifecycle for new and converted scoped employees", () => {
     const limited=ok(await f.owner.get("/api/team/people")).find((x:any)=>x.personId===responsible.employee.personId);
     ok(await f.owner.put(`/api/team/people/${limited.personId}/access`).send({expectedRevision:limited.revision,person:responsible.person,suspended:false}));
     ok(await liveAction({...decision,employeeId:999999999}),403);
-    const [otherBranch]=await db.insert(branchesTable).values({companyId:f.company,name:randomUUID(),city:"جدة"}).returning();
+    const [otherBranch]=await db.insert(branchesTable).values({companyId:f.company,name:randomUUID(),nameAr:"فرع جدة المعزول",city:"جدة"}).returning();
     const workspace=ok(await f.owner.get("/api/pos/returns/workspace"));
     expect(workspace.responsibility_employees).toContainEqual(expect.objectContaining({id:f.employee.personId,branch_id:f.branch}));
     expect(workspace.responsibility_employees.some((e:any)=>e.id===f.employee.personId&&e.branch_id===otherBranch.id)).toBe(false);
