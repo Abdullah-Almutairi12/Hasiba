@@ -20,7 +20,8 @@ import {
 } from "@workspace/db";
 import { and, asc, desc, eq, sql, or, isNull, inArray, lt, gt } from "drizzle-orm";
 import { adminGuard } from "../middlewares/require-role";
-import { actOnApproval, checkFinancialLimit, resolveApprovers } from "../lib/workflow-engine";
+import { actOnApproval, actionableApprovalSteps, checkFinancialLimit, resolveApprovers } from "../lib/workflow-engine";
+import { FinancialRequestError } from "../lib/financial-transaction";
 import { frozenApprovalPolicy } from "../lib/approval-policy";
 import { approvalViewer } from "../lib/workflow-notifications";
 import { recordAudit } from "../lib/audit";
@@ -66,9 +67,12 @@ router.use("/workflow/approval-requests/:id", async (req, res, next) => {
 });
 
 async function validateRuleMembers(companyId: number, body: {
-  branchId?: number | null; steps?: Array<{ approverUserId?: number | null }>;
+  branchId?: number | null; steps?: Array<{ approverUserId?: number | null; sequence: number }>;
 }) {
   if (body.branchId != null) await assertCompanyBranch(body.branchId, companyId);
+  if (body.steps && new Set(body.steps.map(s => s.sequence)).size !== body.steps.length) {
+    throw new FinancialRequestError("يجب أن تكون هوية ترتيب كل خطوة مستقلة وغير مكررة", 400);
+  }
   for (const step of body.steps ?? []) {
     if (step.approverUserId != null) await assertWorkflowMember(companyId, step.approverUserId);
   }
@@ -130,6 +134,7 @@ const RuleBody = z.object({
     "credit_note",
     "credit_note_cancel",
     "payment_run",
+    "pos_over_limit",
   ]),
   branchId: z.number().int().nullish(),
   minAmount: z.number().min(0).default(0),
@@ -304,14 +309,15 @@ router.get("/workflow/approval-requests", async (req, res) => {
     if (await userCanSeeRequest(userId, userRole, r, req.session.companyId!)) visible.push(r);
   }
   return res.json(
-    visible.map((r) => ({
+    await Promise.all(visible.map(async (r) => ({
       ...r,
       amount: Number(r.amount),
       policyRevision: frozenApprovalPolicy(r)?.revision ?? null,
-      policyReviewRequired: r.policySnapshot == null || r.reviewInvalidatedAt != null,
+      policyReviewRequired: r.policySnapshot == null || !r.sourceFingerprint || r.reviewInvalidatedAt != null,
+      actionableSteps: await actionableApprovalSteps(r, userId),
       createdAt: r.createdAt.toISOString(),
       decidedAt: r.decidedAt?.toISOString() ?? null,
-    })),
+    }))),
   );
 });
 
@@ -366,7 +372,8 @@ router.get("/workflow/approval-requests/:id", async (req, res) => {
     ...request,
     amount: Number(request.amount),
     policyRevision: policy?.revision ?? null,
-    policyReviewRequired: !policy || request.reviewInvalidatedAt != null,
+    policyReviewRequired: !policy || !request.sourceFingerprint || request.reviewInvalidatedAt != null,
+    actionableSteps: await actionableApprovalSteps(request, userId),
     createdAt: request.createdAt.toISOString(),
     decidedAt: request.decidedAt?.toISOString() ?? null,
     steps: steps.map((s) => ({ ...s, minAmount: Number(s.minAmount) })),
@@ -377,7 +384,9 @@ router.get("/workflow/approval-requests/:id", async (req, res) => {
 const ActBody = z.object({
   action: z.enum(["approve", "reject", "request_changes", "comment"]),
   comment: z.string().nullish(),
-});
+  stepToken: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+  decisionId: z.string().uuid().optional(),
+}).refine(v => Boolean(v.stepToken) === Boolean(v.decisionId), "يلزم إرسال هوية الخطوة والمحاولة معًا");
 
 router.post("/workflow/approval-requests/:id/act", async (req, res) => {
   try {
@@ -385,7 +394,8 @@ router.post("/workflow/approval-requests/:id/act", async (req, res) => {
     const body = ActBody.parse(req.body);
     const userId = req.session.userId ?? null;
     const userName = (req.session as { userName?: string }).userName ?? null;
-    const out = await actOnApproval(id, userId, userName, body.action, req.session.companyId!, body.comment ?? undefined);
+    const out = await actOnApproval(id, userId, userName, body.action, req.session.companyId!, body.comment ?? undefined,
+      { stepToken: body.stepToken, decisionId: body.decisionId });
     void recordAudit(req, {
       action: body.action,
       entity: "approval_request",
@@ -716,7 +726,29 @@ router.get("/workflow/inbox", async (req, res) => {
   if (!userId) return res.status(401).json({ error: "غير مصرّح" });
   const onlyUnread = req.query.unread === "true";
   const rows = (await visibleInbox(req.session.companyId!, userId)).filter(r => !onlyUnread || !r.isRead).slice(0, 50);
-  return res.json(rows.map((r) => ({ ...r, createdAt: r.createdAt.toISOString() })));
+  const labels: Record<string, string> = {
+    approved: "معتمد", rejected: "مرفوض", changes_requested: "بحاجة لتعديلات",
+    pending: "قيد المراجعة", cancelled: "ملغى", consumed: "مستخدم في العملية",
+  };
+  return res.json(await Promise.all(rows.map(async r => {
+    const payload = r.payload as { requestId?: number; stepSequence?: number } | null;
+    if (r.type !== "approval" || !payload?.requestId) {
+      return { ...r, requiresAction: false, requestStatus: null, createdAt: r.createdAt.toISOString() };
+    }
+    const [review] = await db.select().from(approvalRequestsTable).where(and(
+      eq(approvalRequestsTable.id, payload.requestId), eq(approvalRequestsTable.companyId, req.session.companyId!)));
+    const actionable = review ? await actionableApprovalSteps(review, userId) : [];
+    const requiresAction = actionable.some(s => payload.stepSequence == null || s.sequence === payload.stepSequence);
+    return {
+      ...r, requiresAction, requestStatus: review?.status ?? null,
+      // The stored message/read flag remain history. Current responsibility
+      // is derived from the live review and explicitly separate from unread.
+      message: requiresAction ? r.message : review
+        ? `حالة الطلب: ${labels[review.status] ?? "غير متاح للإجراء"}. هذا إشعار محفوظ وليس مهمة اعتماد مفتوحة لك.`
+        : "الطلب غير متاح للإجراء؛ الإشعار محفوظ في السجل.",
+      createdAt: r.createdAt.toISOString(),
+    };
+  })));
 });
 
 router.patch("/workflow/inbox/:id/read", async (req, res) => {

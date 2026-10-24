@@ -3361,8 +3361,14 @@ export const ListApprovalRequestsResponseItem = zod.object({
   "status": zod.string(),
   "currentStep": zod.number().int(),
   "policyRevision": zod.string().nullish(),
+  "actionableSteps": zod.array(zod.object({
+  "sequence": zod.number().int(),
+  "approverRole": zod.string(),
+  "stepToken": zod.string()
+})).optional(),
   "policyReviewRequired": zod.boolean().optional(),
   "reviewInvalidatedAt": zod.string().nullish(),
+  "reviewInvalidatedReason": zod.string().nullish(),
   "policySnapshot": zod.record(zod.string(), zod.unknown()).nullish(),
   "notes": zod.string().nullish(),
   "createdAt": zod.string(),
@@ -3389,8 +3395,14 @@ export const GetApprovalRequestResponse = zod.object({
   "status": zod.string(),
   "currentStep": zod.number().int(),
   "policyRevision": zod.string().nullish(),
+  "actionableSteps": zod.array(zod.object({
+  "sequence": zod.number().int(),
+  "approverRole": zod.string(),
+  "stepToken": zod.string()
+})).optional(),
   "policyReviewRequired": zod.boolean().optional(),
   "reviewInvalidatedAt": zod.string().nullish(),
+  "reviewInvalidatedReason": zod.string().nullish(),
   "policySnapshot": zod.record(zod.string(), zod.unknown()).nullish(),
   "notes": zod.string().nullish(),
   "createdAt": zod.string(),
@@ -3423,6 +3435,8 @@ export const ActOnApprovalRequestParams = zod.object({
 
 export const ActOnApprovalRequestBody = zod.object({
   "action": zod.enum(['approve', 'reject', 'request_changes', 'comment']),
+  "stepToken": zod.string().optional().describe('Immutable review and step identity; required with decisionId and for multistep decisions'),
+  "decisionId": zod.string().uuid().optional().describe('Reuse this id with identical input when retrying the same decision'),
   "comment": zod.string().nullish()
 })
 
@@ -3571,6 +3585,8 @@ export const ListInboxQueryParams = zod.object({
 })
 
 export const ListInboxResponseItem = zod.object({
+  "requiresAction": zod.boolean().optional(),
+  "requestStatus": zod.string().nullish(),
   "id": zod.number().int(),
   "companyId": zod.number().int().nullish(),
   "userId": zod.number().int(),

@@ -28,7 +28,6 @@ import type {
   Account,
   AccountingSummary,
   ActOnApprovalRequest200,
-  ActOnApprovalRequestBody,
   AdminStats,
   AdminSystemHealth,
   AiModel,
@@ -42,6 +41,7 @@ import type {
   AnomalyStats,
   AppSettings,
   AppSettingsPatch,
+  ApprovalDecisionInput,
   ApprovalRequest,
   ApprovalRequestDetail,
   ApprovalRule,
@@ -15457,7 +15457,7 @@ export const getActOnApprovalRequestUrl = (id: number,) => {
 }
 
 export const actOnApprovalRequest = async (id: number,
-    actOnApprovalRequestBody: ActOnApprovalRequestBody, options?: Parameters<typeof customFetch>[1]): Promise<ActOnApprovalRequest200> => {
+    approvalDecisionInput: ApprovalDecisionInput, options?: Parameters<typeof customFetch>[1]): Promise<ActOnApprovalRequest200> => {
 
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
@@ -15478,7 +15478,7 @@ return customFetch<ActOnApprovalRequest200>(getActOnApprovalRequestUrl(id),
     ...options,
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
-    body: JSON.stringify(actOnApprovalRequestBody)
+    body: JSON.stringify(approvalDecisionInput)
   }
 );}
 
@@ -15516,9 +15516,9 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
   return  { mutationFn, ...mutationOptions }}
 
     export type ActOnApprovalRequestMutationResult = NonNullable<Awaited<ReturnType<typeof actOnApprovalRequest>>>
-    export type ActOnApprovalRequestMutationBody = BodyType<ActOnApprovalRequestBody>
+    export type ActOnApprovalRequestMutationBody = BodyType<ApprovalDecisionInput>
     export type ActOnApprovalRequestMutationError = ErrorType<unknown>
-    export type ActOnApprovalRequestMutationVariables = {id: number;data: BodyType<ActOnApprovalRequestBody>}
+    export type ActOnApprovalRequestMutationVariables = {id: number;data: BodyType<ApprovalDecisionInput>}
 
     export const useActOnApprovalRequest = <TError = ErrorType<unknown>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof actOnApprovalRequest>>, TError,ActOnApprovalRequestMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}

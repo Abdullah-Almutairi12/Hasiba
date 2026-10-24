@@ -394,6 +394,12 @@ export interface ApprovalRulePatch {
  */
 export type ApprovalRequestPolicySnapshot = { [key: string]: unknown } | null;
 
+export interface ApprovalDecisionStep {
+  sequence: number;
+  approverRole: string;
+  stepToken: string;
+}
+
 export interface ApprovalRequest {
   id: number;
   /** @nullable */
@@ -415,9 +421,12 @@ export interface ApprovalRequest {
   currentStep: number;
   /** @nullable */
   readonly policyRevision?: string | null;
+  readonly actionableSteps?: readonly ApprovalDecisionStep[];
   readonly policyReviewRequired?: boolean;
   /** @nullable */
   readonly reviewInvalidatedAt?: string | null;
+  /** @nullable */
+  readonly reviewInvalidatedReason?: string | null;
   /** @nullable */
   readonly policySnapshot?: ApprovalRequestPolicySnapshot;
   /** @nullable */
@@ -439,6 +448,26 @@ export interface ApprovalAction {
   /** @nullable */
   comment?: string | null;
   actedAt: string;
+}
+
+export type ApprovalDecisionInputAction = typeof ApprovalDecisionInputAction[keyof typeof ApprovalDecisionInputAction];
+
+
+export const ApprovalDecisionInputAction = {
+  approve: 'approve',
+  reject: 'reject',
+  request_changes: 'request_changes',
+  comment: 'comment',
+} as const;
+
+export interface ApprovalDecisionInput {
+  action: ApprovalDecisionInputAction;
+  /** Immutable review and step identity; required with decisionId and for multistep decisions */
+  stepToken?: string;
+  /** Reuse this id with identical input when retrying the same decision */
+  decisionId?: string;
+  /** @nullable */
+  comment?: string | null;
 }
 
 export type ApprovalRequestDetail = ApprovalRequest & {
@@ -549,6 +578,9 @@ export interface AutomationRun {
 }
 
 export interface InboxItem {
+  readonly requiresAction?: boolean;
+  /** @nullable */
+  readonly requestStatus?: string | null;
   id: number;
   /** @nullable */
   readonly companyId?: number | null;
@@ -3360,22 +3392,6 @@ export type DeleteApprovalRule200 = {
 export type ListApprovalRequestsParams = {
 status?: string;
 docType?: string;
-};
-
-export type ActOnApprovalRequestBodyAction = typeof ActOnApprovalRequestBodyAction[keyof typeof ActOnApprovalRequestBodyAction];
-
-
-export const ActOnApprovalRequestBodyAction = {
-  approve: 'approve',
-  reject: 'reject',
-  request_changes: 'request_changes',
-  comment: 'comment',
-} as const;
-
-export type ActOnApprovalRequestBody = {
-  action: ActOnApprovalRequestBodyAction;
-  /** @nullable */
-  comment?: string | null;
 };
 
 export type ActOnApprovalRequest200 = {

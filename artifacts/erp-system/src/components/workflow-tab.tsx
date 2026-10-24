@@ -69,9 +69,14 @@ const DOC_TYPES = [
   { v: "expense_claim",   label: "مطالبات المصروفات" },
   { v: "leave_request",   label: "طلبات الإجازة" },
   { v: "journal_entry",   label: "قيود محاسبية" },
+  { v: "pos_over_limit",  label: "تجاوزات حدود نقاط البيع" },
 ];
 
 const ROLES = ["owner", "manager", "accountant", "sales", "cashier", "inventory", "marketing", "auditor", "hr", "production"];
+const ROLE_LABELS: Record<string, string> = {
+  owner: "مالك المنشأة", manager: "مدير", accountant: "محاسب", sales: "مبيعات", cashier: "كاشير",
+  inventory: "مستودع", marketing: "تسويق", auditor: "مدقق", hr: "موارد بشرية", production: "إنتاج",
+};
 
 function useInvalidateWorkflow() {
   const qc = useQueryClient();
@@ -188,7 +193,7 @@ function ApprovalMatrix() {
                       <div className="col-span-5"><Label className="text-xs">دور المعتمِد</Label>
                         <Select value={s.approverRole} onValueChange={(v) => { const n = [...steps]; n[i] = { ...s, approverRole: v }; setSteps(n); }}>
                           <SelectTrigger><SelectValue /></SelectTrigger>
-                          <SelectContent>{ROLES.map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}</SelectContent>
+                          <SelectContent>{ROLES.map((r) => <SelectItem key={r} value={r}>{ROLE_LABELS[r]}</SelectItem>)}</SelectContent>
                         </Select>
                       </div>
                       <div className="col-span-4"><Label className="text-xs">الحد الأدنى</Label><Input type="number" value={s.minAmount} onChange={(e) => { const n = [...steps]; n[i] = { ...s, minAmount: Number(e.target.value) }; setSteps(n); }} /></div>
@@ -388,7 +393,7 @@ function FinancialLimits() {
           <div><Label>الدور</Label>
             <Select value={role} onValueChange={setRole}>
               <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>{ROLES.map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}</SelectContent>
+              <SelectContent>{ROLES.map((r) => <SelectItem key={r} value={r}>{ROLE_LABELS[r]}</SelectItem>)}</SelectContent>
             </Select>
           </div>
           <div><Label>المفتاح</Label><Input value={actionKey} onChange={(e) => setActionKey(e.target.value)} placeholder="pos.discount_pct" /></div>
@@ -660,7 +665,7 @@ function AutomationRules() {
                               <Label className="text-xs">دور المستلم</Label>
                               <Select value={a.recipientRole} onValueChange={(v) => { const n = [...actions]; n[i] = { ...a, recipientRole: v }; setActions(n); }}>
                                 <SelectTrigger><SelectValue /></SelectTrigger>
-                                <SelectContent>{ROLES.map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}</SelectContent>
+                                <SelectContent>{ROLES.map((r) => <SelectItem key={r} value={r}>{ROLE_LABELS[r]}</SelectItem>)}</SelectContent>
                               </Select>
                             </div>
                             <div>

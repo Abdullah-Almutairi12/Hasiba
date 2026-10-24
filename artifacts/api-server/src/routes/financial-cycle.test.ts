@@ -9,7 +9,7 @@ import {
 } from "@workspace/db";
 import app, { assertApplicationReady } from "../app";
 import { postJournalEntry } from "../lib/journal-posting";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
 // Everything here is synthetic and retained only until the isolated cluster
 // is destroyed. No SMTP, payment gateway, OCR, or production DB is contacted.
@@ -246,15 +246,51 @@ describe.sequential("purchase → receipt → POS sale → return → balanced b
     expect(refused.status, JSON.stringify(refused.body)).toBe(403);
     expect(await stock()).toBe(beforeStock);
     const [session] = await rows("SELECT branch_id FROM pos_sessions WHERE id=$1", [sessionId]);
-    const [approval] = await db.insert(approvalRequestsTable).values({
-      companyId,
-      submittedByUserId: makerId, branchId: Number(session.branch_id),
-      docType: "pos_over_limit", recordId: sessionId, recordRef: `POS session #${sessionId} — pos.discount_pct`,
-      amount: "10", status: "approved", submittedByName: tag,
-    }).returning();
-    const body = { sessionId, customerId, items: [{ productId, quantity: 1 }], paymentMethod: "cash", discount: 10, approvalRequestId: approval.id };
+    const intent = { sessionId, customerId, items: [{ productId, quantity: 1 }], paymentMethod: "cash", discount: 10 };
+    const configured = await receiver.post("/api/workflow/approval-rules").send({
+      name: `${tag}-checkout-review`, docType: "pos_over_limit", branchId: Number(session.branch_id),
+      minAmount: 0, mode: "sequential", isActive: true, steps: [{ sequence: 1, approverRole: "owner" }],
+    });
+    expect(configured.status).toBe(201);
+    await db.update(userCompaniesTable).set({ role: "cashier" }).where(and(eq(userCompaniesTable.userId, makerId), eq(userCompaniesTable.companyId, companyId)));
+    // A real cashier needs an explicitly assigned branch; the owner fixture
+    // previously had no branch and must not inherit owner-wide POS authority.
+    await db.update(usersTable).set({ branchId: Number(session.branch_id) }).where(eq(usersTable.id, makerId));
+    try {
+    const blocked = await sent(maker, "/pos/orders", intent, "cycle-approval-quote");
+    expect(blocked.status, JSON.stringify(blocked.body)).toBe(403);
+    expect(blocked.body.approvalRequestId, JSON.stringify(blocked.body)).toBeTypeOf("number");
+    let approvalId = blocked.body.approvalRequestId as number;
+    const decision = await receiver.post(`/api/workflow/approval-requests/${approvalId}/act`).send({ action: "approve" });
+    expect(decision.status, JSON.stringify({ error: decision.body, review: (await receiver.get(`/api/workflow/approval-requests/${approvalId}`)).body })).toBe(200);
+    const beforeQuoteChange = await totals();
+    const [pricedProduct] = await db.select({ price: productsTable.price }).from(productsTable).where(eq(productsTable.id, productId));
+    try {
+      await db.update(productsTable).set({ price: "111" }).where(eq(productsTable.id, productId));
+      const repriced = await sent(maker, "/pos/orders", { ...intent, approvalRequestId: approvalId }, "cycle-repriced-approval");
+      expect(repriced.status, JSON.stringify(repriced.body)).toBe(403);
+      expect(repriced.body.approvalRequestId).toBeTypeOf("number");
+      expect(repriced.body.approvalRequestId).not.toBe(approvalId);
+      expect(await totals()).toEqual(beforeQuoteChange);
+      const [superseded] = await rows("SELECT status,review_invalidated_at FROM approval_requests WHERE id=$1", [approvalId]);
+      expect(superseded.status).toBe("approved");
+      expect(superseded.review_invalidated_at).not.toBeNull();
+      approvalId = repriced.body.approvalRequestId as number;
+      expect((await receiver.post(`/api/workflow/approval-requests/${approvalId}/act`).send({ action: "approve" })).status).toBe(200);
+    } finally {
+      await db.update(productsTable).set({ price: pricedProduct.price }).where(eq(productsTable.id, productId));
+    }
+    // Restoring the earlier price does not resurrect superseded authority.
+    const restored = await sent(maker, "/pos/orders", { ...intent, approvalRequestId: approvalId }, "cycle-restored-approval");
+    expect(restored.status, JSON.stringify(restored.body)).toBe(403);
+    expect(restored.body.approvalRequestId).toBeTypeOf("number");
+    expect(restored.body.approvalRequestId).not.toBe(approvalId);
+    expect(await totals()).toEqual(beforeQuoteChange);
+    approvalId = restored.body.approvalRequestId as number;
+    expect((await receiver.post(`/api/workflow/approval-requests/${approvalId}/act`).send({ action: "approve" })).status).toBe(200);
+    const body = { ...intent, approvalRequestId: approvalId };
     const original = ok(await sent(maker, "/pos/orders", body, "cycle-approved-pos"));
-    const [consumed] = await rows("SELECT status FROM approval_requests WHERE id=$1", [approval.id]);
+    const [consumed] = await rows("SELECT status FROM approval_requests WHERE id=$1", [approvalId]);
     expect(consumed.status).toBe("consumed");
     const before = await totals();
     // Discarding the original response and reissuing exactly this body/key
@@ -266,6 +302,11 @@ describe.sequential("purchase → receipt → POS sale → return → balanced b
     // A different intent must NOT reuse the consumed authority.
     expect((await sent(maker, "/pos/orders", body, "cycle-new-approval-intent")).status).toBe(403);
     expect(await totals()).toEqual(before);
+    } finally {
+      await db.update(userCompaniesTable).set({ role: "owner" }).where(and(eq(userCompaniesTable.userId, makerId), eq(userCompaniesTable.companyId, companyId)));
+      await db.update(usersTable).set({ branchId: null }).where(eq(usersTable.id, makerId));
+      await rows("UPDATE approval_rules SET is_active=false WHERE id=$1 AND company_id=$2", [configured.body.id, companyId]);
+    }
   });
   it("does not regress or reissue a credit note when approval rules change before replay", async () => {
     const [rule] = await db.insert(approvalRulesTable).values({

@@ -31,21 +31,30 @@ export function ApprovalActions({ docType, recordId, compact }: ApprovalActionsP
   const qc = useQueryClient();
   const act = useActOnApprovalRequest();
   const { toast } = useToast();
-  const [open, setOpen] = useState<{ action: Action; id: number } | null>(null);
+  const [open, setOpen] = useState<{ action: Action; id: number; stepToken: string; decisionId: string } | null>(null);
+  const [selectedStepToken, setSelectedStepToken] = useState("");
   const [comment, setComment] = useState("");
 
   if (isLoading) return null;
   const list = data ?? [];
   const req = list.find((r) => r.recordId === recordId);
   if (!req) return null;
+  const available = req.actionableSteps ?? [];
+  const selectedStep = available.find(s => s.stepToken === selectedStepToken) ?? available[0];
+  const begin = (action: Action) => {
+    if (!selectedStep) return;
+    setOpen({ action, id: req.id, stepToken: selectedStep.stepToken, decisionId: crypto.randomUUID() });
+  };
 
   const submit = async () => {
     if (!open) return;
     try {
-      await act.mutateAsync({ id: open.id, data: { action: open.action, comment: comment || null } });
+      const result = await act.mutateAsync({ id: open.id, data: {
+        action: open.action, comment: comment || null, stepToken: open.stepToken, decisionId: open.decisionId,
+      } });
       toast({
         title:
-          open.action === "approve" ? "تم الاعتماد" :
+          open.action === "approve" ? (result.finished ? "تم الاعتماد" : "اعتمدت الخطوة؛ المراجعة مستمرة") :
           open.action === "reject" ? "تم الرفض" : "تم طلب تعديلات",
       });
       setOpen(null);
@@ -67,13 +76,17 @@ export function ApprovalActions({ docType, recordId, compact }: ApprovalActionsP
     <div className={compact ? "inline-flex items-center gap-1" : "flex items-center gap-2"}>
       <Badge variant="outline" className="text-xs">بانتظار اعتماد · خطوة {req.currentStep}</Badge>
       {req.policyReviewRequired && <Badge variant="outline">يحتاج إعادة تقديم للمراجعة</Badge>}
-      <Button size="sm" variant="default" disabled={req.policyReviewRequired} onClick={() => setOpen({ action: "approve", id: req.id })}>
+      {available.length > 1 && <select aria-label="خطوة المراجعة" value={selectedStep?.stepToken ?? ""} onChange={e => setSelectedStepToken(e.target.value)}>
+        {available.map(s => <option key={s.stepToken} value={s.stepToken}>الخطوة {s.sequence}</option>)}
+      </select>}
+      {!selectedStep && <span className="text-xs text-muted-foreground">لا يوجد إجراء متاح لصلاحيتك الحالية</span>}
+      <Button size="sm" variant="default" disabled={req.policyReviewRequired || !selectedStep} onClick={() => begin("approve")}>
         <Check className="size-3" /> اعتماد
       </Button>
-      <Button size="sm" variant="destructive" onClick={() => setOpen({ action: "reject", id: req.id })}>
+      <Button size="sm" variant="destructive" disabled={!selectedStep} onClick={() => begin("reject")}>
         <X className="size-3" /> رفض
       </Button>
-      <Button size="sm" variant="outline" onClick={() => setOpen({ action: "request_changes", id: req.id })}>
+      <Button size="sm" variant="outline" disabled={!selectedStep} onClick={() => begin("request_changes")}>
         <MessageSquare className="size-3" /> تعديل
       </Button>
       <Link to={`/inbox?request=${req.id}`}>

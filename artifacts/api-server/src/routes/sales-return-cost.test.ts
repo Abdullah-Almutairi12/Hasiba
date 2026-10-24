@@ -179,6 +179,8 @@ describe("original POS invoice: independent linked return lifecycle", () => {
       "0030_financial_limit_company.sql",
       "0031_automation_notification_company.sql",
       "0032_approval_policy_snapshot.sql",
+      "0033_approval_source_facts.sql",
+      "0034_approval_decision_identity.sql",
     ]);
     expect(first.skipped).toHaveLength(26);
     expect(await snapshots()).toEqual(before);

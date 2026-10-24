@@ -3350,11 +3350,7 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              properties:
-                action: { type: string, enum: [approve, reject, request_changes, comment] }
-                comment: { type: string, nullable: true }
-              required: [action]
+              $ref: "#/components/schemas/ApprovalDecisionInput"
       responses:
         "200":
           description: ok
@@ -4146,8 +4142,14 @@ components:
         status: { type: string }
         currentStep: { type: integer }
         policyRevision: { type: string, nullable: true, readOnly: true }
+        actionableSteps:
+          type: array
+          readOnly: true
+          items:
+            $ref: "#/components/schemas/ApprovalDecisionStep"
         policyReviewRequired: { type: boolean, readOnly: true }
         reviewInvalidatedAt: { type: string, nullable: true, readOnly: true }
+        reviewInvalidatedReason: { type: string, nullable: true, readOnly: true }
         policySnapshot: { type: object, additionalProperties: true, nullable: true, readOnly: true }
         notes: { type: string, nullable: true }
         createdAt: { type: string }
@@ -4165,6 +4167,21 @@ components:
         comment: { type: string, nullable: true }
         actedAt: { type: string }
       required: [id, requestId, stepSequence, action, actedAt]
+    ApprovalDecisionInput:
+      type: object
+      properties:
+        action: { type: string, enum: [approve, reject, request_changes, comment] }
+        stepToken: { type: string, description: "Immutable review and step identity; required with decisionId and for multistep decisions" }
+        decisionId: { type: string, format: uuid, description: "Reuse this id with identical input when retrying the same decision" }
+        comment: { type: string, nullable: true }
+      required: [action]
+    ApprovalDecisionStep:
+      type: object
+      properties:
+        sequence: { type: integer }
+        approverRole: { type: string }
+        stepToken: { type: string }
+      required: [sequence, approverRole, stepToken]
     ApprovalRequestDetail:
       allOf:
         - $ref: "#/components/schemas/ApprovalRequest"
@@ -4248,6 +4265,8 @@ components:
     InboxItem:
       type: object
       properties:
+        requiresAction: { type: boolean, readOnly: true }
+        requestStatus: { type: ["string", "null"], readOnly: true }
         id: { type: integer }
         companyId: { type: integer, nullable: true, readOnly: true }
         userId: { type: integer }

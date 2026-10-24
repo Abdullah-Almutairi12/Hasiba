@@ -85,6 +85,9 @@ export const approvalRequestsTable = pgTable(
     // Shape: Array<{ sequence: number; approverRole: string; approverUserId: number | null }>
     forcedSteps: jsonb("forced_steps"),
     policySnapshot: jsonb("policy_snapshot"),
+    sourceFingerprint: text("source_fingerprint"),
+    sourceFingerprintVersion: integer("source_fingerprint_version"),
+    reviewInvalidatedReason: text("review_invalidated_reason"),
     reviewInvalidatedAt: timestamp("review_invalidated_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     decidedAt: timestamp("decided_at", { withTimezone: true }),
@@ -109,6 +112,9 @@ export const approvalActionsTable = pgTable(
     action: text("action").notNull(), // approve | reject | request_changes | comment | delegated
     comment: text("comment"),
     actedAt: timestamp("acted_at", { withTimezone: true }).notNull().defaultNow(),
+    decisionKey: text("decision_key"),
+    decisionFingerprint: text("decision_fingerprint"),
+    decisionResult: jsonb("decision_result"),
   },
   (t) => ({
     byReq: index("approval_actions_req_idx").on(t.requestId),

@@ -384,4 +384,6 @@ export async function initHr(provisionCompanyId?: number): Promise<void> {
     CREATE INDEX IF NOT EXISTS expense_claims_emp_idx ON expense_claims (employee_id);
     CREATE INDEX IF NOT EXISTS expense_claims_status_idx ON expense_claims (status);
   `);
+  // This legacy-owned table is created after migrations on an empty database.
+  await pool.query("SELECT install_approval_source_guards_v1()");
 }

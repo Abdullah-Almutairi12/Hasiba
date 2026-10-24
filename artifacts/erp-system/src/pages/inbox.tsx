@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import {
@@ -148,6 +148,14 @@ function MyDelegations() {
   );
 }
 
+const APPROVAL_ROLES: Record<string, string> = {
+  owner: "مالك المنشأة", manager: "مدير", accountant: "محاسب", hr: "الموارد البشرية",
+  sales: "مبيعات", cashier: "كاشير", auditor: "مدقق", employee: "موظف", warehouse: "مستودع",
+};
+const APPROVAL_ACTIONS: Record<string, string> = {
+  approve: "اعتماد", reject: "رفض", request_changes: "طلب تعديلات", comment: "تعليق", delegated: "تفويض",
+};
+
 export default function InboxPage() {
   const { isRTL } = useLanguage();
   const { toast } = useToast();
@@ -164,6 +172,13 @@ export default function InboxPage() {
 
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [comment, setComment] = useState("");
+  const [selectedStepToken, setSelectedStepToken] = useState("");
+  const decisionAttempt = useRef<{ intent: string; decisionId: string; stepToken: string } | null>(null);
+  const decisionInFlight = useRef(false);
+  useEffect(() => {
+    setSelectedStepToken("");
+    decisionAttempt.current = null;
+  }, [selectedId]);
 
   // Deep-link: ?request=N opens that approval request directly. Used by
   // email notification links so approvers land on the action dialog.
@@ -176,7 +191,7 @@ export default function InboxPage() {
 
   const { data: detail } = useGetApprovalRequest(
     selectedId ?? 0,
-    { query: { enabled: !!selectedId, queryKey: getGetApprovalRequestQueryKey(selectedId ?? 0) } },
+    { query: { enabled: !!selectedId, refetchInterval: 30_000, queryKey: getGetApprovalRequestQueryKey(selectedId ?? 0) } },
   );
 
   const list = items ?? [];
@@ -191,12 +206,22 @@ export default function InboxPage() {
     });
 
   const onActionClick = async (action: "approve" | "reject" | "request_changes") => {
-    if (!selectedId) return;
+    const step = detail?.actionableSteps?.find(s => s.stepToken === selectedStepToken) ?? detail?.actionableSteps?.[0];
+    if (!selectedId || !step || decisionInFlight.current) return;
+    // Polling may reveal a subsequent step. A retry remains bound to the
+    // originally selected step until the user explicitly changes selection.
+    const intent = JSON.stringify([selectedId, selectedStepToken, action, comment]);
+    if (decisionAttempt.current?.intent !== intent) {
+      decisionAttempt.current = { intent, decisionId: crypto.randomUUID(), stepToken: step.stepToken };
+    }
+    decisionInFlight.current = true;
     try {
-      await act.mutateAsync({ id: selectedId, data: { action, comment: comment || null } });
+      const result = await act.mutateAsync({ id: selectedId, data: {
+        action, comment: comment || null, stepToken: decisionAttempt.current.stepToken, decisionId: decisionAttempt.current.decisionId,
+      } });
       toast({
         title:
-          action === "approve" ? "تم الاعتماد" :
+          action === "approve" ? (result.finished ? "تم الاعتماد" : "اعتمدت الخطوة؛ المراجعة مستمرة") :
           action === "reject" ? "تم الرفض" : "تم طلب تعديلات",
       });
       setSelectedId(null);
@@ -204,6 +229,8 @@ export default function InboxPage() {
       invalidate();
     } catch (err) {
       toast({ title: "خطأ", description: String(err), variant: "destructive" });
+    } finally {
+      decisionInFlight.current = false;
     }
   };
 
@@ -262,7 +289,7 @@ export default function InboxPage() {
       </Card>
 
       <Card>
-        <CardHeader><CardTitle>الإشعارات</CardTitle></CardHeader>
+        <CardHeader><CardTitle>الإشعارات — حالة القراءة مستقلة عن مهام الاعتماد</CardTitle></CardHeader>
         <CardContent>
           {list.length === 0 ? (
             <div className="py-6 text-center text-sm text-muted-foreground">لا توجد إشعارات</div>
@@ -285,6 +312,9 @@ export default function InboxPage() {
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-sm font-bold">{it.title}</div>
+                      {it.type === "approval" && <Badge variant={it.requiresAction ? "default" : "outline"}>
+                        {it.requiresAction ? "يحتاج إجراء منك" : "إشعار محفوظ — لا يتطلب إجراء منك"}
+                      </Badge>}
                       <div className="text-xs text-muted-foreground">{it.message}</div>
                       <div className="mt-1 text-[10px] text-muted-foreground">
                         {new Date(it.createdAt).toLocaleString("ar-SA")}
@@ -310,7 +340,8 @@ export default function InboxPage() {
             <div className="space-y-3 text-sm">
               {detail.policyReviewRequired ? (
                 <p role="status" className="rounded border border-amber-500 p-2">
-                  لا توجد نسخة مثبتة من سياسة هذا الطلب أو انتهت صلاحية مراجعته. أعد تقديمه من المستند؛ وللطلب المعلق يمكن طلب تعديلات أولًا. لا يمكن اعتماده مباشرة.
+                  لم تثبت سياسة هذه المراجعة وحقائق مصدرها، أو انتهت صلاحيتها. أعد تقديمها من المستند؛ لا يمكن اعتمادها مباشرة.
+                  {detail.reviewInvalidatedReason && <span className="block">السبب: {detail.reviewInvalidatedReason}</span>}
                 </p>
               ) : detail.policyRevision && (
                 <p className="text-xs text-muted-foreground">نسخة السياسة المحفوظة: <code dir="ltr">{detail.policyRevision.slice(0, 12)}</code> · تبقى الصلاحيات الحالية مطلوبة.</p>
@@ -319,13 +350,16 @@ export default function InboxPage() {
                 <div><span className="text-muted-foreground">المستند: </span>{DOC_LABELS[detail.docType] ?? detail.docType}</div>
                 <div><span className="text-muted-foreground">المبلغ: </span>{detail.amount.toLocaleString("ar-SA")}</div>
                 <div><span className="text-muted-foreground">مُقدِّم: </span>{detail.submittedByName ?? "—"}</div>
-                <div><span className="text-muted-foreground">الحالة: </span>{detail.status}</div>
+                <div><span className="text-muted-foreground">الحالة: </span>{
+                  ({ pending: "قيد المراجعة", approved: "معتمد", rejected: "مرفوض", changes_requested: "بحاجة لتعديلات",
+                    cancelled: "ملغى", consumed: "مستخدم في العملية" } as Record<string, string>)[detail.status] ?? "غير متاحة للإجراء"
+                }</div>
               </div>
               <div>
                 <div className="mb-1 text-xs font-bold">السلسلة</div>
                 <ol className="list-decimal space-y-1 ps-5">
                   {detail.steps.map((s) => (
-                    <li key={s.id}>دور: <Badge variant="outline">{s.approverRole}</Badge></li>
+                    <li key={s.id}>الخطوة {s.sequence} · دور: <Badge variant="outline">{APPROVAL_ROLES[s.approverRole] ?? "دور مخصص"}</Badge></li>
                   ))}
                 </ol>
               </div>
@@ -335,7 +369,7 @@ export default function InboxPage() {
                   <ul className="space-y-1 text-xs">
                     {detail.actions.map((a) => (
                       <li key={a.id} className="rounded border p-1.5">
-                        <strong>{a.approverName ?? "—"}</strong> — {a.action}
+                        <strong>{a.approverName ?? "—"}</strong> — {APPROVAL_ACTIONS[a.action] ?? "إجراء محفوظ"}
                         {a.comment && <div className="text-muted-foreground">{a.comment}</div>}
                       </li>
                     ))}
@@ -346,9 +380,14 @@ export default function InboxPage() {
             </div>
           )}
           <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => onActionClick("request_changes")}>طلب تعديلات</Button>
-            <Button variant="destructive" onClick={() => onActionClick("reject")}>رفض</Button>
-            <Button disabled={!detail || detail.policyReviewRequired} onClick={() => onActionClick("approve")}>اعتماد</Button>
+            {(detail?.actionableSteps?.length ?? 0) > 1 && <select aria-label="خطوة المراجعة"
+              value={selectedStepToken || detail?.actionableSteps?.[0]?.stepToken || ""} onChange={e => setSelectedStepToken(e.target.value)}>
+              {detail?.actionableSteps?.map(s => <option key={s.stepToken} value={s.stepToken}>الخطوة {s.sequence}</option>)}
+            </select>}
+            {!detail?.actionableSteps?.length && <p className="text-xs text-muted-foreground">لا يوجد إجراء متاح لصلاحيتك وحالة الطلب الحالية</p>}
+            <Button disabled={act.isPending || !detail?.actionableSteps?.length} variant="outline" onClick={() => onActionClick("request_changes")}>طلب تعديلات</Button>
+            <Button disabled={act.isPending || !detail?.actionableSteps?.length} variant="destructive" onClick={() => onActionClick("reject")}>رفض</Button>
+            <Button disabled={act.isPending || !detail?.actionableSteps?.length || detail.policyReviewRequired} onClick={() => onActionClick("approve")}>اعتماد</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

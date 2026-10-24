@@ -50,6 +50,9 @@ export function freezeApprovalPolicy(
   forcedName?: string,
 ): FrozenApprovalPolicy {
   if (rule && rule.companyId !== companyId) throw new FinancialRequestError("سياسة الاعتماد خارج الشركة", 403);
+  if (new Set(steps.map(step => step.sequence)).size !== steps.length) {
+    throw new FinancialRequestError("تعريف خطوات متداخل؛ يلزم تصحيح السياسة قبل تقديم مراجعة جديدة", 409);
+  }
   const definition = definitionSchema.parse({
     version: 1, companyId, ruleId: rule?.id ?? null, name: rule?.name ?? forcedName ?? "سلسلة مراجعة إلزامية",
     branchId: rule?.branchId ?? null, mode: rule?.mode ?? "sequential",
@@ -66,7 +69,8 @@ export function freezeApprovalPolicy(
 export function frozenApprovalPolicy(request: Pick<ApprovalRequest, "companyId" | "policySnapshot">): FrozenApprovalPolicy | null {
   if (request.policySnapshot == null) return null;
   const parsed = snapshotSchema.safeParse(request.policySnapshot);
-  if (!parsed.success || parsed.data.companyId !== request.companyId) {
+  if (!parsed.success || parsed.data.companyId !== request.companyId ||
+    new Set(parsed.data.steps.map(step => step.sequence)).size !== parsed.data.steps.length) {
     throw new FinancialRequestError("نسخة سياسة الاعتماد غير صالحة؛ يلزم إعادة المراجعة", 409);
   }
   const { capturedAt: _capturedAt, revision: expected, ...definition } = parsed.data;

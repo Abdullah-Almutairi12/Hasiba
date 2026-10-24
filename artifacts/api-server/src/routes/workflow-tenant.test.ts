@@ -1,19 +1,21 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import request from "supertest";
 import bcrypt from "bcryptjs";
+import { randomUUID } from "node:crypto";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import {
   db, companiesTable, usersTable, userCompaniesTable, branchesTable, auditLogsTable,
   approvalRulesTable, approvalStepsTable, approvalRequestsTable, approvalActionsTable, approverDelegationsTable, notificationInboxTable,
   warehousesTable, posSessionsTable,
   financialLimitsTable,
-  automationRulesTable, automationRunsTable, purchaseOrdersTable, suppliersTable,
+  automationRulesTable, automationRunsTable, purchaseOrdersTable, purchaseOrderLinesTable, suppliersTable,
 } from "@workspace/db";
 import app from "../app";
 import { cleanupCompanyDefaults } from "../test/cleanup-company-defaults";
 import { submitForApproval, resolveApprovers, actOnApproval, checkFinancialLimit } from "../lib/workflow-engine";
 import { triggerEvent, runScheduledAutomations } from "../lib/workflow-automation";
 import { notify } from "../lib/workflow-notifications";
+import { approvalSourceFingerprint } from "../lib/approval-source";
 
 const tag = `workflow-tenants-${Date.now()}`;
 const password = "SyntheticWorkflow123!";
@@ -114,6 +116,9 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await db.delete(automationRulesTable).where(sql`${automationRulesTable.companyId} IN (${a},${b}) OR ${automationRulesTable.name} = ${tag}`);
+  // Financial history is removed only in this disposable fixture, before
+  // deleting its confirmed source records. The application forbids that edit.
+  await db.delete(approvalRequestsTable).where(inArray(approvalRequestsTable.id, requestIds));
   await db.delete(purchaseOrdersTable).where(inArray(purchaseOrdersTable.id, [poA, poB, poA2, ...extraPoIds]));
   await db.delete(suppliersTable).where(inArray(suppliersTable.id, supplierIds));
   await db.delete(financialLimitsTable).where(sql`${financialLimitsTable.companyId} IN (${a},${b}) OR ${financialLimitsTable.id} IN (${legacyLimitIds.length ? sql.join(legacyLimitIds.map(x => sql`${x}`), sql`,`) : sql`-1`})`);
@@ -136,6 +141,184 @@ function orOwnedDelegations() {
 
 function registerApprovalSnapshotCases() {
 describe("approval snapshot and atomic execution", () => {
+  it("does not let the native document creator approve a request submitted by another employee", async () => {
+    const po = await approvalOrder("24");
+    await db.update(purchaseOrdersTable).set({ createdBy: managerId }).where(eq(purchaseOrdersTable.id, po.id));
+    const review = await orderReview(po.id, 24);
+    expect((await manager.get(`/api/workflow/approval-requests/${review.requestId}`)).body.actionableSteps).toEqual([]);
+    expect((await manager.post(`/api/workflow/approval-requests/${review.requestId}/act`).send({ action: "approve" })).status).toBe(403);
+    expect((await db.select().from(purchaseOrdersTable).where(eq(purchaseOrdersTable.id, po.id)))[0].status).not.toBe("confirmed");
+  });
+  it("binds a repeated concurrent decision to its original sequential step and original result", async () => {
+    const created = await owner.post("/api/workflow/approval-rules").send(ruleBody({
+      branchId: branchA, minAmount: 500, maxAmount: 501,
+      steps: [{ sequence: 1, approverRole: "manager" }, { sequence: 2, approverRole: "manager" }],
+    }));
+    expect(created.status).toBe(201); ruleIds.push(created.body.id);
+    const po = await approvalOrder("500");
+    const review = await orderReview(po.id, 500);
+    const detail = await manager.get(`/api/workflow/approval-requests/${review.requestId}`);
+    expect(detail.body.actionableSteps).toHaveLength(1);
+    const first = { action: "approve", stepToken: detail.body.actionableSteps[0].stepToken, decisionId: randomUUID() };
+    const responses = await Promise.all([manager.post(`/api/workflow/approval-requests/${review.requestId}/act`).send(first),
+      manager.post(`/api/workflow/approval-requests/${review.requestId}/act`).send(first)]);
+    for (const response of responses) expect(response.body).toMatchObject({ status: "pending", finished: false });
+    const later = await manager.get(`/api/workflow/approval-requests/${review.requestId}`);
+    expect(later.body.currentStep).toBe(2);
+    expect(later.body.actions.filter((x: { action: string }) => x.action === "approve")).toHaveLength(1);
+    expect((await manager.post(`/api/workflow/approval-requests/${review.requestId}/act`).send(first)).body).toMatchObject({ status: "pending", finished: false });
+    expect((await manager.post(`/api/workflow/approval-requests/${review.requestId}/act`).send({ ...first, comment: "different intent" })).status).toBe(409);
+    expect((await manager.post(`/api/workflow/approval-requests/${review.requestId}/act`).send({ ...first, decisionId: randomUUID() })).status).toBe(409);
+    expect((await manager.post(`/api/workflow/approval-requests/${review.requestId}/act`).send({
+      action: "approve", stepToken: later.body.actionableSteps[0].stepToken, decisionId: randomUUID(),
+    })).body).toMatchObject({ status: "approved", finished: true });
+    expect((await db.select().from(purchaseOrdersTable).where(eq(purchaseOrdersTable.id, po.id)))[0].status).toBe("confirmed");
+  });
+
+  it("targets independent parallel steps and preserves a rejected decision under retries", async () => {
+    const created = await owner.post("/api/workflow/approval-rules").send(ruleBody({
+      branchId: branchA, minAmount: 501, maxAmount: 502, mode: "parallel",
+      steps: [{ sequence: 1, approverRole: "manager" }, { sequence: 2, approverRole: "manager" }],
+    }));
+    expect(created.status).toBe(201); ruleIds.push(created.body.id);
+    const po = await approvalOrder("501");
+    const review = await orderReview(po.id, 501);
+    let detail = await manager.get(`/api/workflow/approval-requests/${review.requestId}`);
+    expect(detail.body.actionableSteps).toHaveLength(2);
+    const approve = { action: "approve", stepToken: detail.body.actionableSteps[1].stepToken, decisionId: randomUUID() };
+    expect((await manager.post(`/api/workflow/approval-requests/${review.requestId}/act`).send(approve)).body.finished).toBe(false);
+    detail = await manager.get(`/api/workflow/approval-requests/${review.requestId}`);
+    expect(detail.body.actionableSteps.map((s: { sequence: number }) => s.sequence)).toEqual([1]);
+    const reject = { action: "reject", stepToken: detail.body.actionableSteps[0].stepToken, decisionId: randomUUID(), comment: "needs correction" };
+    expect((await manager.post(`/api/workflow/approval-requests/${review.requestId}/act`).send(reject)).body).toMatchObject({ status: "rejected", finished: true });
+    expect((await manager.post(`/api/workflow/approval-requests/${review.requestId}/act`).send(reject)).body).toMatchObject({ status: "rejected", finished: true });
+    const history = await db.select().from(approvalActionsTable).where(eq(approvalActionsTable.requestId, review.requestId!));
+    expect(history.filter(a => a.action === "approve")).toHaveLength(1);
+    expect(history.filter(a => a.action === "reject")).toHaveLength(1);
+    expect((await db.select().from(purchaseOrdersTable).where(eq(purchaseOrdersTable.id, po.id)))[0].status).not.toBe("confirmed");
+    const changedSource = await approvalOrder("501");
+    const changedReview = await orderReview(changedSource.id, 501);
+    const changedDetail = await manager.get(`/api/workflow/approval-requests/${changedReview.requestId}`);
+    const changes = { action: "request_changes", stepToken: changedDetail.body.actionableSteps[0].stepToken,
+      decisionId: randomUUID(), comment: "Please amend the source" };
+    for (let attempt = 0; attempt < 2; attempt++) {
+      expect((await manager.post(`/api/workflow/approval-requests/${changedReview.requestId}/act`).send(changes)).body)
+        .toMatchObject({ status: "changes_requested", finished: true });
+    }
+    const changeActions = await db.select().from(approvalActionsTable).where(eq(approvalActionsTable.requestId, changedReview.requestId!));
+    expect(changeActions.filter(a => a.action === "request_changes")).toHaveLength(1);
+    expect((await db.select().from(purchaseOrdersTable).where(eq(purchaseOrdersTable.id, changedSource.id)))[0].status).not.toBe("confirmed");
+  });
+
+  it("distinguishes unread notification history from an actionable approval after the decision", async () => {
+    const po = await approvalOrder("23");
+    const review = await orderReview(po.id, 23);
+    const before = await manager.get("/api/workflow/inbox");
+    const entry = before.body.find((x: { payload?: { requestId?: number } }) => x.payload?.requestId === review.requestId);
+    expect(entry).toMatchObject({ isRead: false, requiresAction: true });
+    expect((await manager.post(`/api/workflow/approval-requests/${review.requestId}/act`).send({ action: "approve" })).status).toBe(200);
+    const after = await manager.get("/api/workflow/inbox");
+    const updated = after.body.find((x: { id: number }) => x.id === entry.id);
+    expect(updated).toMatchObject({ isRead: false, requiresAction: false, requestStatus: "approved" });
+    expect(updated.message).not.toContain("بانتظار اعتمادك");
+    const [stored] = await db.select().from(notificationInboxTable).where(eq(notificationInboxTable.id, entry.id));
+    expect(stored.message).toContain("بانتظار اعتمادك");
+  });
+  it("invalidates a supplier change with an unchanged total and requires a new source review", async () => {
+    const po = await approvalOrder("40");
+    const original = await orderReview(po.id, 40);
+    const [supplier] = await db.insert(suppliersTable).values({ companyId: a, name: `${tag}-replacement` }).returning();
+    supplierIds.push(supplier.id);
+    await db.update(purchaseOrdersTable).set({ supplierId: supplier.id, supplierName: supplier.name }).where(eq(purchaseOrdersTable.id, po.id));
+    const [old] = await db.select().from(approvalRequestsTable).where(eq(approvalRequestsTable.id, original.requestId!));
+    expect(old).toMatchObject({ status: "changes_requested" });
+    expect(old.reviewInvalidatedAt).not.toBeNull();
+    expect((await manager.post(`/api/workflow/approval-requests/${old.id}/act`).send({ action: "approve" })).status).toBe(409);
+    const replacement = await orderReview(po.id, 40);
+    expect(replacement.requestId).not.toBe(old.id);
+    const [fresh] = await db.select().from(approvalRequestsTable).where(eq(approvalRequestsTable.id, replacement.requestId!));
+    expect(fresh.sourceFingerprint).not.toBe(old.sourceFingerprint);
+    expect(fresh.sourceFingerprintVersion).toBe(1);
+  });
+
+  it("binds line quantities and equal-total distributions, not just the header amount", async () => {
+    const po = await approvalOrder("40");
+    const lines = await db.insert(purchaseOrderLinesTable).values([
+      { poId: po.id, description: "أول", quantity: "2", unitPrice: "10", lineTotal: "20" },
+      { poId: po.id, description: "ثان", quantity: "2", unitPrice: "10", lineTotal: "20" },
+    ]).returning();
+    const review = await orderReview(po.id, 40);
+    await db.transaction(async tx => {
+      await tx.update(purchaseOrderLinesTable).set({ quantity: "1", lineTotal: "10" }).where(eq(purchaseOrderLinesTable.id, lines[0].id));
+      await tx.update(purchaseOrderLinesTable).set({ quantity: "3", lineTotal: "30" }).where(eq(purchaseOrderLinesTable.id, lines[1].id));
+    });
+    const [stored] = await db.select().from(approvalRequestsTable).where(eq(approvalRequestsTable.id, review.requestId!));
+    expect(stored.reviewInvalidatedAt).not.toBeNull();
+    expect((await db.select().from(purchaseOrdersTable).where(eq(purchaseOrdersTable.id, po.id)))[0].total).toBe("40.00");
+    expect((await manager.post(`/api/workflow/approval-requests/${stored.id}/act`).send({ action: "approve" })).status).toBe(409);
+  });
+
+  it("binds currency and warehouse branch but excludes supplier-email display metadata", async () => {
+    const po = await approvalOrder("20");
+    const first = await orderReview(po.id, 20);
+    await db.update(purchaseOrdersTable).set({ sentToSupplierAt: new Date(), sentToSupplierEmail: "synthetic@example.invalid" }).where(eq(purchaseOrdersTable.id, po.id));
+    let [stored] = await db.select().from(approvalRequestsTable).where(eq(approvalRequestsTable.id, first.requestId!));
+    expect(stored.reviewInvalidatedAt).toBeNull();
+    expect(await approvalSourceFingerprint(a, "purchase_order", po.id, db)).toBe(stored.sourceFingerprint);
+    await db.update(purchaseOrdersTable).set({ currencyCode: "USD" }).where(eq(purchaseOrdersTable.id, po.id));
+    [stored] = await db.select().from(approvalRequestsTable).where(eq(approvalRequestsTable.id, first.requestId!));
+    expect(stored.reviewInvalidatedAt).not.toBeNull();
+    const fresh = await orderReview(po.id, 20);
+    const [warehouse] = await db.select().from(warehousesTable).where(eq(warehousesTable.branchId, branchA2));
+    await db.update(purchaseOrdersTable).set({ warehouseId: warehouse.id }).where(eq(purchaseOrdersTable.id, po.id));
+    expect((await db.select().from(approvalRequestsTable).where(eq(approvalRequestsTable.id, fresh.requestId!)))[0].reviewInvalidatedAt).not.toBeNull();
+  });
+
+  it("does not lose decimal precision through JavaScript JSON parsing", async () => {
+    const po = await approvalOrder("90071992547409.01");
+    const first = await approvalSourceFingerprint(a, "purchase_order", po.id, db);
+    await db.update(purchaseOrdersTable).set({ total: "90071992547409.02" }).where(eq(purchaseOrdersTable.id, po.id));
+    expect(await approvalSourceFingerprint(a, "purchase_order", po.id, db)).not.toBe(first);
+  });
+
+  it("authorizes the intended reviewer before invalidating mismatching evidence", async () => {
+    const po = await approvalOrder("21");
+    const review = await orderReview(po.id, 21);
+    await db.update(approvalRequestsTable).set({ sourceFingerprint: "mismatching-test-proof" }).where(eq(approvalRequestsTable.id, review.requestId!));
+    expect((await owner.post(`/api/workflow/approval-requests/${review.requestId}/act`).send({ action: "approve" })).status).toBe(403);
+    expect((await db.select().from(approvalRequestsTable).where(eq(approvalRequestsTable.id, review.requestId!)))[0].reviewInvalidatedAt).toBeNull();
+    expect((await manager.post(`/api/workflow/approval-requests/${review.requestId}/act`).send({ action: "approve" })).status).toBe(409);
+    expect((await db.select().from(approvalRequestsTable).where(eq(approvalRequestsTable.id, review.requestId!)))[0].status).toBe("changes_requested");
+    expect((await db.select().from(purchaseOrdersTable).where(eq(purchaseOrdersTable.id, po.id)))[0].status).toBe("pending_approval");
+  });
+
+  it("serializes material edits against decision and execution without rewriting a committed decision", async () => {
+    const po = await approvalOrder("22");
+    const review = await orderReview(po.id, 22);
+    const outcomes = await Promise.allSettled([
+      db.update(purchaseOrdersTable).set({ supplierName: `${tag}-concurrent` }).where(eq(purchaseOrdersTable.id, po.id)),
+      manager.post(`/api/workflow/approval-requests/${review.requestId}/act`).send({ action: "approve" }),
+    ]);
+    const [stored] = await db.select().from(approvalRequestsTable).where(eq(approvalRequestsTable.id, review.requestId!));
+    const [current] = await db.select().from(purchaseOrdersTable).where(eq(purchaseOrdersTable.id, po.id));
+    const decisions = await db.select().from(approvalActionsTable).where(and(
+      eq(approvalActionsTable.requestId, stored.id), eq(approvalActionsTable.action, "approve")));
+    if (stored.status === "approved") {
+      expect(current).toMatchObject({ status: "confirmed", supplierName: po.supplierName });
+      expect(decisions).toHaveLength(1);
+      expect(outcomes[0].status).toBe("rejected");
+      const decidedAt = stored.decidedAt;
+      await expect(db.update(purchaseOrdersTable).set({ notes: "material purpose changed" }).where(eq(purchaseOrdersTable.id, po.id))).rejects.toThrow();
+      expect((await db.select().from(approvalRequestsTable).where(eq(approvalRequestsTable.id, stored.id)))[0].decidedAt).toEqual(decidedAt);
+    } else {
+      expect(stored).toMatchObject({ status: "changes_requested" });
+      expect(stored.reviewInvalidatedAt).not.toBeNull();
+      expect(current.status).toBe("pending_approval");
+      expect(decisions).toHaveLength(0);
+      expect(outcomes[0].status).toBe("fulfilled");
+      expect(outcomes[1].status === "fulfilled" && outcomes[1].value.status).toBe(409);
+    }
+  });
   it("starts a new review for a changed POS intent without rewriting the original approved decision", async () => {
     const firstId = await pending();
     expect((await manager.post(`/api/workflow/approval-requests/${firstId}/act`).send({ action: "approve" })).status).toBe(200);
@@ -266,7 +449,11 @@ describe("approval company ownership", () => {
   it("blocks an unowned required approval until an authorized local policy is configured", async () => {
     const [old] = await db.insert(approvalRulesTable).values({ name: tag, docType: "expense_claim", minAmount: "0" }).returning();
     ruleIds.push(old.id);
-    const input = { companyId: a, docType: "expense_claim" as const, recordId: 910_000, amount: 10, submittedByUserId: makerId };
+    const employee = await db.execute(sql`INSERT INTO employees(company_id,employee_no,name,name_ar,hire_date,branch_id)
+      VALUES(${a},${`${tag}-claimant`},${tag},${tag},'2026-01-01',${branchA}) RETURNING id`);
+    const claim = await db.execute(sql`INSERT INTO expense_claims(reference,employee_id,claim_date,amount,description)
+      VALUES(${`${tag}-expense`},${Number(employee.rows[0].id)},'2026-10-24',10,${tag}) RETURNING id`);
+    const input = { companyId: a, docType: "expense_claim" as const, recordId: Number(claim.rows[0].id), amount: 10, submittedByUserId: makerId };
     await expect(submitForApproval(input)).rejects.toThrow("إعادة تهيئة");
     const created = await owner.post("/api/workflow/approval-rules").send(ruleBody({ docType: "expense_claim" }));
     expect(created.status).toBe(201); ruleIds.push(created.body.id);
@@ -274,6 +461,9 @@ describe("approval company ownership", () => {
     expect(result.required).toBe(true); requestIds.push(result.requestId!);
     const [unchanged] = await db.select().from(approvalRulesTable).where(eq(approvalRulesTable.id, old.id));
     expect(unchanged.companyId).toBeNull();
+    await db.delete(approvalRequestsTable).where(eq(approvalRequestsTable.id, result.requestId!));
+    await db.execute(sql`DELETE FROM expense_claims WHERE id=${input.recordId}`);
+    await db.execute(sql`DELETE FROM employees WHERE id=${Number(employee.rows[0].id)}`);
   });
   it("lists active local membership roles, not global roles or another company's users", async () => {
     const response = await maker.get("/api/workflow/approver-candidates");
@@ -436,6 +626,7 @@ describe("company automation and inbox", () => {
   });
 
   it("rolls back an entire failed action chain and receipt, then retries internal effects once", async () => {
+    const source = await approvalOrder("10");
     const title = `${tag}-atomic`;
     const result = await owner.post("/api/workflow/automation-rules").send(autoBody({
       trigger: { type: "record_updated", entity: "purchase_order" },
@@ -443,14 +634,14 @@ describe("company automation and inbox", () => {
         { type: "set_field", field: "notes", value: "safe notes" }],
     }));
     expect(result.status).toBe(201);
-    await db.update(purchaseOrdersTable).set({ status: "confirmed" }).where(eq(purchaseOrdersTable.id, poA));
-    await triggerEvent(a, "record_updated", "purchase_order", { id: poA });
+    await db.update(purchaseOrdersTable).set({ status: "confirmed" }).where(eq(purchaseOrdersTable.id, source.id));
+    await triggerEvent(a, "record_updated", "purchase_order", { id: source.id });
     expect(await db.select().from(notificationInboxTable).where(eq(notificationInboxTable.title, title))).toHaveLength(0);
-    await db.update(purchaseOrdersTable).set({ status: "draft" }).where(eq(purchaseOrdersTable.id, poA));
-    await triggerEvent(a, "record_updated", "purchase_order", { id: poA });
-    await triggerEvent(a, "record_updated", "purchase_order", { id: poA });
+    await db.update(purchaseOrdersTable).set({ status: "draft" }).where(eq(purchaseOrdersTable.id, source.id));
+    await triggerEvent(a, "record_updated", "purchase_order", { id: source.id });
+    await triggerEvent(a, "record_updated", "purchase_order", { id: source.id });
     expect(await db.select().from(notificationInboxTable).where(and(eq(notificationInboxTable.title, title), eq(notificationInboxTable.userId, managerId)))).toHaveLength(1);
-    const [row] = await db.select().from(purchaseOrdersTable).where(eq(purchaseOrdersTable.id, poA));
+    const [row] = await db.select().from(purchaseOrdersTable).where(eq(purchaseOrdersTable.id, source.id));
     expect(row.notes).toBe("safe notes"); expect(row.total).toBe("10.00");
   });
 
@@ -464,7 +655,10 @@ describe("company automation and inbox", () => {
     await db.insert(automationRulesTable).values({ name: tag, trigger: { type: "scheduled" }, conditions: [], actions: [{ type: "set_field", field: "total", value: 0 }] });
     await Promise.all([runScheduledAutomations(), runScheduledAutomations()]);
     const notices = await db.select().from(notificationInboxTable).where(eq(notificationInboxTable.title, title));
-    expect(notices.filter(x => x.userId === managerId)).toHaveLength(2); // A and A2, never B
+    const ownedSources = await db.select({ reference: purchaseOrdersTable.reference }).from(purchaseOrdersTable)
+      .where(eq(purchaseOrdersTable.companyId, a));
+    expect(notices.filter(x => x.userId === managerId).map(x => x.message).sort())
+      .toEqual(ownedSources.map(x => x.reference).sort()); // Includes the independently created retry fixture, never B.
     expect(notices.some(x => x.message === `${tag}-B` || x.userId === foreignId)).toBe(false);
     const [old] = await db.select().from(automationRulesTable).where(sql`${automationRulesTable.name}=${tag} AND ${automationRulesTable.companyId} IS NULL`);
     expect(old.companyId).toBeNull(); expect(old.lastRunAt).toBeNull();

@@ -42,6 +42,8 @@ import {
   approvalRequestsTable,
 } from "@workspace/db";
 import { checkFinancialLimit, submitForApproval } from "../lib/workflow-engine";
+import { approvalSourceFingerprint, approvalSourceMatches } from "../lib/approval-source";
+import { matchesPosApprovalNotes, posApprovalNotes } from "../lib/pos-approval-intent";
 import { recordAudit } from "../lib/audit";
 import { evaluateAnomalies } from "../lib/anomaly-engine";
 import { z } from "zod";
@@ -475,6 +477,7 @@ router.post(
   posGuard,
   posOverrideLimiter,
   async (req, res) => {
+  let approvalQuote: Record<string, unknown> | null = null;
   try {
     const parsed = CreatePosOrderBody.safeParse(req.body);
     if (!parsed.success) {
@@ -536,6 +539,9 @@ router.post(
     if (typeof rawApprovalReqId === "number" && Number.isFinite(rawApprovalReqId)) {
       const sessionIdRaw = (req.body as { sessionId?: unknown } | undefined)?.sessionId;
       const sessionId = typeof sessionIdRaw === "number" ? sessionIdRaw : null;
+      if (sessionId == null) throw new FinancialRequestError("يلزم تحديد وردية الاعتماد", 400);
+      // Source then approval row: same order as submission and decisions.
+      await approvalSourceFingerprint(companyId, "pos_over_limit", sessionId, tx);
       const [reqRow] = await tx
         .select()
         .from(approvalRequestsTable)
@@ -544,11 +550,15 @@ router.post(
         .limit(1).for("update");
       if (
         !reqRow ||
+        !reqRow.sourceFingerprint || reqRow.sourceFingerprintVersion !== 1 ||
         reqRow.docType !== "pos_over_limit" ||
         reqRow.status !== "approved" ||
         reqRow.recordId !== sessionId
       ) {
         throw new FinancialRequestError("طلب الموافقة غير صالح أو مستهلك", 403);
+      }
+      if (reqRow.reviewInvalidatedAt || !await approvalSourceMatches(reqRow, tx)) {
+        throw new FinancialRequestError("المراجعة لا تطابق حقائق الوردية ونية البيع الحالية؛ يلزم اعتماد جديد", 409);
       }
       // Recover the original action key from recordRef which was written
       // as `POS session #<id> — <actionKey>`. Used to refuse mismatches
@@ -737,6 +747,23 @@ router.post(
       const trustedDiscountPct =
         positiveSubtotal > 0 && discount > 0 ? (discount / positiveSubtotal) * 100 : 0;
       const refundCash = refundFromReturns + Math.max(0, discount - positiveSubtotal);
+      // These values came from product prices, stock costing and company
+      // configuration in this attempt, not the browser's alleged prices.
+      // Exclude generated move IDs: a rolled-back attempt must reproduce
+      // the same quote rather than commit inventory just to request review.
+      approvalQuote = {
+        companyId, branchId: session.branchId, warehouseId: issueWarehouseId,
+        vatRegistrationStatus: companyRow?.vatRegistrationStatus ?? null,
+        subtotal, discount,
+        items: orderItems.map(({ productId, productName, quantity, unitPrice, costPrice, total }) =>
+          ({ productId, productName, quantity, unitPrice, costPrice, total })),
+      };
+      if (pendingApprovalRow && !matchesPosApprovalNotes(req.body, pendingApprovalRow.notes, approvalQuote)) {
+        const key = pendingApprovalRow.actionKey ?? "pos.discount_pct";
+        throw new FinancialLimitError(key, pendingApprovalRow.approvedAmount,
+          key === "pos.discount_pct" ? trustedDiscountPct : refundCash,
+          "تغيرت تفاصيل السلة المحسوبة في الخادم؛ يلزم اعتماد جديد قبل الدفع");
+      }
       const dCheck = await checkFinancialLimit(companyId, overrideUserId ?? req.session.userId!, "pos.discount_pct", trustedDiscountPct, session.branchId, pendingApprovalRow?.id);
       if (!dCheck.allowed) {
         throw new FinancialLimitError(
@@ -807,6 +834,7 @@ router.post(
             and(
               eq(approvalRequestsTable.id, pendingApprovalRow.id),
               eq(approvalRequestsTable.status, "approved"),
+              sql`${approvalRequestsTable.reviewInvalidatedAt} IS NULL`,
             ),
           )
           .returning({ id: approvalRequestsTable.id });
@@ -1424,9 +1452,7 @@ router.post(
           amount: err.attempted,
           submittedByUserId: sess?.userId ?? null,
           submittedByName: sess?.userName ?? null,
-          notes: `تجاوز ${err.actionKey} — المحاولة ${err.attempted.toFixed(
-            2,
-          )} والحد ${err.max ?? "—"}`,
+          notes: posApprovalNotes(req.body, `تجاوز ${err.actionKey} — المحاولة ${err.attempted.toFixed(2)} والحد ${err.max ?? "—"}`, approvalQuote),
           forceRoles: ["manager", "owner"],
           forceReason: "POS over-limit",
         });
