@@ -1,12 +1,12 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import {printWhenFontsReady} from "@/lib/browser-print";
 import { Money } from "@/components/riyal";
+import { LegacyShiftStart } from "@/components/legacy-shift-start";
 import { useLocation } from "wouter";
 import {
   useListProducts,
   useListProductCategories,
   useCreatePosOrder,
-  useCreatePosSession,
   useListPosSessions,
   useGetZatcaStatus,
 } from "@workspace/api-client-react";
@@ -185,10 +185,9 @@ export default function POS() {
     category: categoryId?.toString(),
   });
 
-  const { data: sessions } = useListPosSessions();
+  const { data: sessions, refetch: refreshSessions } = useListPosSessions();
   const { data: zatca } = useGetZatcaStatus();
   const vatEnabled = useVatEnabled();
-  const createSession = useCreatePosSession();
   const createOrder = useCreatePosOrder();
 
   const activeSession = sessions?.find((s) => s.status === "open");
@@ -586,49 +585,9 @@ export default function POS() {
     );
   };
 
-  const handleStartSession = () => {
-    createSession.mutate({
-      data: {
-        branchId: 1,
-        cashierName: "الكاشير",
-        openingCash: 0,
-      },
-    });
-  };
-
   if (!activeSession && sessions !== undefined) {
     return (
-      <div
-        dir="rtl"
-        className="flex h-screen items-center justify-center bg-neutral-50 font-sans"
-      >
-        <Card className="w-full max-w-md border-neutral-200 p-8 text-center shadow-xl">
-          <div className="mx-auto mb-4 grid size-16 place-items-center rounded-2xl bg-blue-50 text-[#2563EB]">
-            <ShoppingCart className="size-8" />
-          </div>
-          <h2 className="mb-2 text-2xl font-extrabold text-neutral-900">
-            جلسة البيع مغلقة
-          </h2>
-          <p className="mb-6 text-neutral-500">
-            يجب فتح جلسة بيع جديدة للبدء في استقبال الطلبات.
-          </p>
-          <Button
-            onClick={handleStartSession}
-            size="lg"
-            className="h-12 w-full bg-[#2563EB] font-bold text-white shadow-lg shadow-blue-500/30 hover:bg-[#1D4ED8]"
-            disabled={createSession.isPending}
-          >
-            {createSession.isPending ? "جاري الفتح..." : "فتح جلسة جديدة"}
-          </Button>
-          <Button
-            variant="ghost"
-            onClick={() => setLocation("/")}
-            className="mt-2 w-full"
-          >
-            العودة للوحة القيادة
-          </Button>
-        </Card>
-      </div>
+      <LegacyShiftStart onOpened={() => { void refreshSessions(); }} onBack={() => setLocation("/")} />
     );
   }
 
