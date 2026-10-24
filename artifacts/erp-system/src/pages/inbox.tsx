@@ -12,6 +12,7 @@ import {
   useCreateDelegation,
   useDeleteDelegation,
   useListApproverCandidates,
+  useListBranches,
   getListInboxQueryKey,
   getGetApprovalRequestQueryKey,
 } from "@workspace/api-client-react";
@@ -44,6 +45,7 @@ const DOC_LABELS: Record<string, string> = {
   expense_claim: "مطالبة مصروف",
   leave_request: "طلب إجازة",
   journal_entry: "قيد محاسبي",
+  pos_over_limit: "تجاوز حد نقطة البيع",
 };
 
 // ---------------------------------------------------------------------------
@@ -57,14 +59,18 @@ function MyDelegations() {
   const qc = useQueryClient();
   const { user } = useAuth();
   const meId = user?.id ?? null;
-  const { data: dels } = useListDelegations();
+  const { data: dels, isLoading, error } = useListDelegations();
   const { data: users } = useListApproverCandidates();
+  const { data: branches } = useListBranches();
   const create = useCreateDelegation();
   const del = useDeleteDelegation();
   const [toUserId, setToUserId] = useState<number | null>(null);
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [reason, setReason] = useState("");
+  const [branchId, setBranchId] = useState("all");
+  const [docType, setDocType] = useState("purchase_order");
+  const [maxAmount, setMaxAmount] = useState("");
 
   const inv = () =>
     qc.invalidateQueries({
@@ -79,7 +85,10 @@ function MyDelegations() {
     }
     try {
       await create.mutateAsync({
-        data: { fromUserId: meId, toUserId, fromDate, toDate, reason: reason || null },
+        data: { fromUserId: meId, toUserId, fromDate: new Date(fromDate).toISOString(),
+          toDate: new Date(toDate).toISOString(), reason: reason || null,
+          branchId: branchId === "all" ? null : Number(branchId), docTypes: [docType],
+          maxAmount: maxAmount === "" ? null : Number(maxAmount) },
       });
       toast({ title: "تم إنشاء التفويض" });
       setReason(""); setToUserId(null); setFromDate(""); setToDate("");
@@ -96,6 +105,7 @@ function MyDelegations() {
     <Card>
       <CardHeader><CardTitle>تفويضاتي</CardTitle></CardHeader>
       <CardContent className="space-y-3">
+        <p className="text-sm text-muted-foreground">حدد نوع العملية والفرع والحد. التفويض لا يمنح وصولًا إلى مستندات غير مسموحة، وإلغاؤه لا يحذف تاريخ القرارات.</p>
         <div className="grid grid-cols-1 gap-2 rounded border p-3 md:grid-cols-5">
           <div>
             <Label>تفويض إلى</Label>
@@ -103,16 +113,28 @@ function MyDelegations() {
               <SelectTrigger><SelectValue placeholder="اختر زميلاً" /></SelectTrigger>
               <SelectContent>
                 {(users ?? []).filter((u) => u.id !== meId).map((u) => (
-                  <SelectItem key={u.id} value={u.id.toString()}>{u.name} ({u.role})</SelectItem>
+                  <SelectItem key={u.id} value={u.id.toString()}>{u.name} ({APPROVAL_ROLES[u.role] ?? u.role})</SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </div>
           <div><Label>من تاريخ</Label><Input type="datetime-local" value={fromDate} onChange={(e) => setFromDate(e.target.value)} /></div>
           <div><Label>إلى تاريخ</Label><Input type="datetime-local" value={toDate} onChange={(e) => setToDate(e.target.value)} /></div>
+          <div><Label>نوع العملية</Label><Select value={docType} onValueChange={setDocType}>
+            <SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{Object.entries(DOC_LABELS).map(([value, label]) =>
+              <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent></Select></div>
+          <div><Label>الفرع</Label><Select value={branchId} onValueChange={setBranchId}>
+            <SelectTrigger><SelectValue /></SelectTrigger><SelectContent>
+              <SelectItem value="all">كل الفروع — يتطلب صلاحية شاملة</SelectItem>
+              {(branches ?? []).map(b => <SelectItem key={b.id} value={String(b.id)}>{b.nameAr || b.name}</SelectItem>)}
+            </SelectContent></Select></div>
+          <div><Label>حد قيمة العملية (بنفس وحدة نوعها)</Label><Input type="number" min="0" step="0.0001" value={maxAmount}
+            placeholder="دون حد إضافي؛ تبقى حدود الشخص سارية" onChange={e => setMaxAmount(e.target.value)} /></div>
           <div><Label>السبب</Label><Input value={reason} onChange={(e) => setReason(e.target.value)} /></div>
-          <div className="flex items-end"><Button onClick={submit} className="w-full">إضافة</Button></div>
+          <div className="flex items-end"><Button onClick={submit} disabled={create.isPending} className="w-full">{create.isPending ? "جارٍ الحفظ…" : "إضافة"}</Button></div>
         </div>
+        {isLoading && <p role="status">جارٍ تحميل التفويضات…</p>}
+        {error && <p role="alert" className="text-destructive">تعذر تحميل التفويضات، ولم تُمسح بيانات الإدخال.</p>}
         <Table>
           <TableHeader><TableRow>
             <TableHead>من</TableHead><TableHead>إلى</TableHead><TableHead>الفترة</TableHead>
@@ -126,10 +148,17 @@ function MyDelegations() {
                 <TableCell className="text-xs">
                   {new Date(d.fromDate).toLocaleString("ar-SA")} → {new Date(d.toDate).toLocaleString("ar-SA")}
                 </TableCell>
-                <TableCell className="text-xs text-muted-foreground">{d.reason ?? "—"}</TableCell>
+                <TableCell className="text-xs text-muted-foreground">
+                  <div>{d.docTypes?.map(t => DOC_LABELS[t] ?? t).join("، ") || "قديم — يلزم مراجعة النطاق"}</div>
+                  <div>{d.branchId ? branches?.find(b => b.id === d.branchId)?.nameAr || `فرع #${d.branchId}` : "نطاق المنشأة"} · الحد {d.maxAmount ?? "دون حد إضافي"}</div>
+                  <div>{d.reason ?? "—"} · {d.revokedAt ? "ملغى — محفوظ تاريخيًا" : new Date(d.toDate) <= new Date() ? "منتهي" : "ضمن الفترة المحددة"}</div>
+                </TableCell>
                 <TableCell>
                   {d.fromUserId === meId && (
-                    <Button variant="ghost" size="icon" onClick={async () => { await del.mutateAsync({ id: d.id }); inv(); }}>
+                    <Button variant="ghost" size="icon" aria-label="إلغاء التفويض مع حفظ السجل" disabled={!!d.revokedAt || del.isPending} onClick={async () => {
+                      try { await del.mutateAsync({ id: d.id }); await inv(); toast({ title: "ألغي التفويض وحُفظ السجل" }); }
+                      catch { toast({ title: "تعذر إلغاء التفويض", variant: "destructive" }); }
+                    }}>
                       <Trash2 className="size-4 text-rose-600" />
                     </Button>
                   )}

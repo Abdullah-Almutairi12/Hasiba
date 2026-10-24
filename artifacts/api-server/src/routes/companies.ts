@@ -1,3 +1,4 @@
+import { lockApprovalAuthorityWrite } from "../lib/approval-authority";
 import { Router } from "express";
 import {
   db,
@@ -436,6 +437,7 @@ router.post("/admin/companies/:id/users", ownerOnly, async (req, res) => {
     }
 
     const inserted = await db.transaction(async (tx) => {
+      await lockApprovalAuthorityWrite(tx);
       // Serialize role changes/removals for this tenant, preserving at least
       // one active owner. A company-local admin cannot change another tenant's
       // default landing preference for a shared identity.
@@ -524,6 +526,7 @@ router.delete(
       const userId = IdParam.parse(req.params.userId);
 
       await db.transaction(async (tx) => {
+        await lockApprovalAuthorityWrite(tx);
         await tx.select({ id: companiesTable.id }).from(companiesTable)
           .where(eq(companiesTable.id, companyId)).for("update");
         const [existing] = await tx.select().from(userCompaniesTable)

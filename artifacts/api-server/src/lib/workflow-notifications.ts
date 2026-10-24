@@ -7,7 +7,8 @@ import { supplyScope } from "./supply-chain-scope";
 import { paymentRunsTable } from "@workspace/db";
 import { frozenApprovalPolicy } from "./approval-policy";
 
-export async function approvalViewer(userId: number, request: typeof approvalRequestsTable.$inferSelect,
+type ApprovalSourceScope = Pick<typeof approvalRequestsTable.$inferSelect, "companyId" | "branchId" | "recordId" | "docType">;
+export async function approvalViewer(userId: number, request: ApprovalSourceScope,
   connection: DbOrTx = db, existingActor?: Awaited<ReturnType<typeof returnActor>>) {
   if (request.companyId == null) return null;
   const actor = existingActor ?? await returnActor(userId, request.companyId, connection);
@@ -19,7 +20,7 @@ export async function approvalViewer(userId: number, request: typeof approvalReq
   return actor;
 }
 
-async function approvalSourceAllowed(companyId: number, userId: number, request: typeof approvalRequestsTable.$inferSelect,
+async function approvalSourceAllowed(companyId: number, userId: number, request: ApprovalSourceScope,
   actor: Awaited<ReturnType<typeof returnActor>>, connection: DbOrTx) {
   if (request.docType === "purchase_order" || request.docType === "leave_request") {
     const { canReadAutomationSource } = await import("./workflow-automation");
@@ -109,7 +110,7 @@ export async function canReadNotification(userId: number, row: {
     }
     const { resolveApprovers } = await import("./workflow-engine");
     for (const step of steps ?? []) {
-      if ((await resolveApprovers(step.approverRole, step.approverUserId, request.branchId, row.companyId, connection)).includes(userId)) return true;
+      if ((await resolveApprovers(step.approverRole, step.approverUserId, request.branchId, row.companyId, connection, request)).includes(userId)) return true;
     }
     return false;
   }

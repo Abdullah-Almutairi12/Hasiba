@@ -1,3 +1,4 @@
+import { lockApprovalAuthorityWrite } from "../lib/approval-authority";
 import { Router } from "express";
 import { parsePatchBody } from "../lib/patch-body";
 import { z } from "zod";
@@ -34,6 +35,7 @@ import { ALL_ROLES } from "../middlewares/require-role";
 import { AutomationDefinition, assertAutomationAdministrator, automationVisibility } from "../lib/workflow-automation";
 import { canReadNotification } from "../lib/workflow-notifications";
 import type { DbOrTx } from "../lib/journal-posting";
+import { returnActor } from "../lib/return-access";
 
 const router = Router();
 
@@ -278,7 +280,7 @@ async function userCanSeeRequest(
         }))));
   if (steps.length === 0) return false;
   for (const s of steps) {
-    const recipients = await resolveApprovers(s.approverRole ?? "", s.approverUserId, request.branchId, companyId);
+    const recipients = await resolveApprovers(s.approverRole ?? "", s.approverUserId, request.branchId, companyId, db, request);
     if (recipients.includes(userId)) return true;
   }
   return false;
@@ -377,7 +379,7 @@ router.get("/workflow/approval-requests/:id", async (req, res) => {
     createdAt: request.createdAt.toISOString(),
     decidedAt: request.decidedAt?.toISOString() ?? null,
     steps: steps.map((s) => ({ ...s, minAmount: Number(s.minAmount) })),
-    actions: actions.map((a) => ({ ...a, actedAt: a.actedAt.toISOString() })),
+    actions: actions.map(({ authorityFingerprint: _serverEvidence, ...a }) => ({ ...a, actedAt: a.actedAt.toISOString() })),
   });
 });
 
@@ -428,6 +430,8 @@ router.get("/workflow/delegations", async (req, res) => {
       fromDate: r.fromDate.toISOString(),
       toDate: r.toDate.toISOString(),
       createdAt: r.createdAt.toISOString(),
+      maxAmount: r.maxAmount == null ? null : Number(r.maxAmount),
+      revokedAt: r.revokedAt?.toISOString() ?? null,
     })),
   );
 });
@@ -438,6 +442,11 @@ const DelegationBody = z.object({
   fromDate: z.string().datetime({ offset: true }),
   toDate: z.string().datetime({ offset: true }),
   reason: z.string().nullish(),
+  branchId: z.number().int().positive().nullable(),
+  docTypes: z.array(z.enum(["purchase_order", "sales_order", "expense_claim", "leave_request",
+    "journal_entry", "credit_note", "credit_note_cancel", "payment_run", "pos_over_limit"])).min(1).max(9),
+  maxAmount: z.number().finite().nonnegative().max(99999999999999).nullable()
+    .refine(value => value == null || Math.abs(value * 10000 - Math.round(value * 10000)) < 0.001, "الحد يدعم أربع منازل عشرية"),
 }).refine(body => body.fromUserId !== body.toUserId && Date.parse(body.toDate) > Date.parse(body.fromDate),
   "يلزم مفوض مختلف وفترة زمنية صحيحة");
 
@@ -446,7 +455,9 @@ router.post("/workflow/delegations", async (req, res) => {
     const userId = req.session?.userId ?? null;
     if (!userId) return res.status(401).json({ error: "غير مسجل دخول" });
     const body = DelegationBody.parse(req.body);
-    if (!isAdmin(req) && body.fromUserId !== userId) {
+    const companyId = req.session.companyId!;
+    const administrator = await returnActor(userId, companyId);
+    if (administrator.role !== "owner" && body.fromUserId !== userId) {
       return res.status(403).json({
         error: "يمكنك تفويض صلاحياتك أنت فقط",
       });
@@ -454,21 +465,36 @@ router.post("/workflow/delegations", async (req, res) => {
     await assertWorkflowMember(req.session.companyId!, body.fromUserId);
     await assertWorkflowMember(req.session.companyId!, body.toUserId);
     const created = await db.transaction(async (tx) => {
+      await lockApprovalAuthorityWrite(tx);
+      const current = await returnActor(userId, companyId, tx);
+      if (current.role !== "owner" && body.fromUserId !== userId) throw new FinancialRequestError("لا يمكنك تفويض صلاحيات مستخدم آخر", 403);
+      await assertWorkflowMember(companyId, body.fromUserId, tx);
+      await assertWorkflowMember(companyId, body.toUserId, tx);
+      if (body.branchId != null) await assertCompanyBranch(body.branchId, companyId);
+      const from = await returnActor(body.fromUserId, companyId, tx);
+      if ((current.branches != null && (body.branchId == null || !current.branches.includes(body.branchId))) ||
+        (from.branches != null && (body.branchId == null || !from.branches.includes(body.branchId)))) {
+        throw new FinancialRequestError("نطاق التفويض يتجاوز الفروع المسموحة", 403);
+      }
       await tx.select({ id: companiesTable.id }).from(companiesTable)
         .where(eq(companiesTable.id, req.session.companyId!)).for("update");
       const [overlap] = await tx.select({ id: approverDelegationsTable.id }).from(approverDelegationsTable)
         .where(and(eq(approverDelegationsTable.companyId, req.session.companyId!),
           eq(approverDelegationsTable.fromUserId, body.fromUserId),
+          isNull(approverDelegationsTable.revokedAt),
           lt(approverDelegationsTable.fromDate, new Date(body.toDate)),
           gt(approverDelegationsTable.toDate, new Date(body.fromDate)))).limit(1);
       if (overlap) throw Object.assign(new Error("يوجد تفويض متداخل لهذا العضو في الشركة"), { status: 409 });
       const [row] = await tx.insert(approverDelegationsTable).values({
         companyId: req.session.companyId!, fromUserId: body.fromUserId, toUserId: body.toUserId,
         fromDate: new Date(body.fromDate), toDate: new Date(body.toDate), reason: body.reason ?? null,
+        branchId: body.branchId, docTypes: [...new Set(body.docTypes)],
+        maxAmount: body.maxAmount == null ? null : String(body.maxAmount),
       }).returning();
       return row;
     });
-    void recordAudit(req, { action: "create", entity: "approver_delegation", details: `${body.fromUserId}→${body.toUserId}` });
+    await recordAudit(req, { action: "create", entity: "approver_delegation",
+      details: JSON.stringify({ id: created.id, ...body }) });
     return res.status(201).json({ id: created.id });
   } catch (err) {
     return handleRouteError(err, res);
@@ -484,12 +510,22 @@ router.delete("/workflow/delegations/:id", async (req, res) => {
     .from(approverDelegationsTable)
     .where(and(eq(approverDelegationsTable.id, id), eq(approverDelegationsTable.companyId, req.session.companyId!)));
   if (!existing) return res.status(404).json({ error: "not found" });
-  if (!isAdmin(req) && existing.fromUserId !== userId) {
-    return res.status(403).json({ error: "يمكنك حذف تفويضاتك أنت فقط" });
-  }
-  await db.delete(approverDelegationsTable).where(eq(approverDelegationsTable.id, id));
-  void recordAudit(req, { action: "delete", entity: "approver_delegation", details: `#${id}` });
-  return res.json({ ok: true });
+  try {
+    await db.transaction(async tx => {
+      await lockApprovalAuthorityWrite(tx);
+      const actor = await returnActor(userId, req.session.companyId!, tx);
+      const [current] = await tx.select().from(approverDelegationsTable).where(and(
+        eq(approverDelegationsTable.id, id), eq(approverDelegationsTable.companyId, req.session.companyId!))).for("update");
+      if (!current) throw new FinancialRequestError("التفويض غير متاح", 404);
+      if (actor.role !== "owner" && current.fromUserId !== userId) {
+        throw new FinancialRequestError("يمكنك إلغاء تفويضاتك أنت فقط", 403);
+      }
+      await tx.update(approverDelegationsTable).set({ revokedAt: new Date(), revokedBy: userId })
+        .where(and(eq(approverDelegationsTable.id, id), isNull(approverDelegationsTable.revokedAt)));
+    });
+    await recordAudit(req, { action: "revoke", entity: "approver_delegation", details: `#${id}` });
+    return res.json({ ok: true });
+  } catch (error) { return handleRouteError(error, res); }
 });
 
 // --------------------------------------------------------------------------

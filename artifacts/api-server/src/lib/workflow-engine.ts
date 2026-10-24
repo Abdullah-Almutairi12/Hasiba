@@ -24,6 +24,7 @@ import type { ApprovalExecutionContext, ApprovalEffect } from "./approval-contex
 import { freezeApprovalPolicy, frozenApprovalPolicy } from "./approval-policy";
 import { approvalSourceFingerprint, approvalSourceMatches, isApprovalSourceCreator } from "./approval-source";
 import { decisionIntent, decisionResultSchema, reviewStepToken, type DecisionIdentity } from "./approval-decision";
+import { authorityFingerprint, lockApprovalAuthority } from "./approval-authority";
 
 // ---------------------------------------------------------------------------
 // Document types known to the engine. Each module that wants to trigger an
@@ -93,6 +94,7 @@ export async function submitForApproval(input: SubmitInput, connection: DbOrTx =
 }
 
 async function submitForApprovalTransaction(input: SubmitInput, db: DbOrTx): Promise<SubmitResult> {
+  await lockApprovalAuthority(db);
   if (!Number.isSafeInteger(input.companyId) || input.companyId <= 0) throw new Error("يلزم نطاق شركة للاعتماد");
   if (input.branchId != null) await assertCompanyBranch(input.branchId, input.companyId);
   if (input.submittedByUserId != null) await assertWorkflowMember(input.companyId, input.submittedByUserId, db);
@@ -131,8 +133,16 @@ async function submitForApprovalTransaction(input: SubmitInput, db: DbOrTx): Pro
   )).orderBy(desc(approvalRequestsTable.id)).limit(1);
   let replacesReview = false;
   if (prior && ["pending", "approved"].includes(prior.status)) {
+    let currentAuthority = true;
+    if (prior.status === "approved" && prior.docType === "pos_over_limit") {
+      try { await assertDeferredPosApproval(prior, db); }
+      catch (error) {
+        if (!(error instanceof FinancialRequestError) || error.status !== 403) throw error;
+        currentAuthority = false;
+      }
+    }
     const same = await db.execute(sql`SELECT ${String(amount)}::numeric(18,2) = ${prior.amount}::numeric AS same`);
-    if (!prior.reviewInvalidatedAt && frozenApprovalPolicy(prior) &&
+    if (currentAuthority && !prior.reviewInvalidatedAt && frozenApprovalPolicy(prior) &&
       prior.sourceFingerprintVersion === 1 && prior.sourceFingerprint === sourceFingerprint &&
       same.rows[0]?.same === true && (prior.branchId ?? null) === (input.branchId ?? null) &&
       (prior.notes ?? null) === (input.notes ?? null) &&
@@ -318,8 +328,9 @@ async function notifyStepApprovers(
   const targets = mode === "parallel"
     ? steps
     : steps.filter((s) => s.sequence === currentStep);
+  const [source] = await connection.select().from(approvalRequestsTable).where(eq(approvalRequestsTable.id, requestId));
   for (const s of targets) {
-    const recipients = await resolveApprovers(s.approverRole, s.approverUserId, ctx.branchId, ctx.companyId, connection);
+    const recipients = await resolveApprovers(s.approverRole, s.approverUserId, ctx.branchId, ctx.companyId, connection, source);
     for (const userId of recipients) {
       await notify(userId, {
         companyId: ctx.companyId,
@@ -348,7 +359,17 @@ export async function resolveApprovers(
   requestBranchId: number | null,
   companyId: number,
   connection: DbOrTx = db,
+  scope?: { docType: string; recordId: number; amount: string | number },
 ): Promise<number[]> {
+  return [...new Set((await resolveApproverAuthorities(role, fixedUserId, requestBranchId, companyId, connection, scope))
+    .map(a => a.userId))];
+}
+
+async function resolveApproverAuthorities(
+  role: string, fixedUserId: number | null, requestBranchId: number | null,
+  companyId: number, connection: DbOrTx,
+  scope?: { docType: string; recordId: number; amount: string | number },
+) {
   let baseIds: number[] = [];
   if (fixedUserId) {
     baseIds = await workflowMember(companyId, fixedUserId, connection) ? [fixedUserId] : [];
@@ -371,7 +392,7 @@ export async function resolveApprovers(
       .where(and(...conds));
     baseIds = rows.map((r) => r.id);
   }
-  const out = new Set<number>();
+  const out: Array<{ userId: number; fromUserId: number; delegationId: number | null }> = [];
   const now = new Date();
   for (const id of baseIds) {
     const dels = await connection
@@ -383,18 +404,83 @@ export async function resolveApprovers(
           eq(approverDelegationsTable.fromUserId, id),
           lte(approverDelegationsTable.fromDate, now),
           gt(approverDelegationsTable.toDate, now),
+          isNull(approverDelegationsTable.revokedAt),
+          scope ? sql`${scope.docType} = ANY(${approverDelegationsTable.docTypes})` : sql`false`,
+          or(isNull(approverDelegationsTable.branchId), eq(approverDelegationsTable.branchId, requestBranchId ?? -1)),
+          scope ? or(isNull(approverDelegationsTable.maxAmount),
+            sql`${approverDelegationsTable.maxAmount} >= ${String(scope.amount)}::numeric`) : sql`false`,
         ),
       );
-    const delegates = [];
+    const delegates: typeof dels = [];
     for (const delegation of dels) {
-      if (await workflowMember(companyId, delegation.toUserId, connection)) delegates.push(delegation.toUserId);
+      const nativeScope = scope && { companyId, branchId: requestBranchId, docType: scope.docType, recordId: scope.recordId };
+      if (nativeScope && await workflowMember(companyId, delegation.toUserId, connection) &&
+        await approvalViewer(id, nativeScope, connection) && await approvalViewer(delegation.toUserId, nativeScope, connection)) {
+        delegates.push(delegation);
+      }
     }
     // Ambiguous overlapping legacy delegations must not select an arbitrary
     // recipient. The original approver remains available if no valid delegate.
-    if (new Set(delegates).size === 1) out.add(delegates[0]);
-    else out.add(id);
+    if (delegates.length === 1) out.push({ userId: delegates[0].toUserId, fromUserId: id, delegationId: delegates[0].id });
+    else out.push({ userId: id, fromUserId: id, delegationId: null });
   }
-  return Array.from(out);
+  return out;
+}
+
+/** Trusted operation scope, not a generic manager role or browser-provided cap. */
+async function posDecisionAuthority(
+  request: typeof approvalRequestsTable.$inferSelect, step: { approverRole: string; approverUserId: number | null },
+  userId: number, connection: DbOrTx,
+): Promise<string | null> {
+  const key = request.recordRef?.split("— ")[1]?.trim();
+  if (!request.companyId || !["pos.discount_pct", "pos.refund_amount"].includes(key ?? "") ||
+    userId === request.submittedByUserId) return null;
+  const paths = (await resolveApproverAuthorities(step.approverRole, step.approverUserId,
+    request.branchId, request.companyId, connection, request)).filter(p => p.userId === userId);
+  if (!paths.length) return null;
+  const evidence = [];
+  for (const path of paths.sort((a, b) => a.fromUserId - b.fromUserId || (a.delegationId ?? 0) - (b.delegationId ?? 0))) {
+    const principals = [];
+    for (const principal of [...new Set([path.userId, path.fromUserId])]) {
+      const member = await workflowMember(request.companyId, principal, connection);
+      if (!member) return null;
+      const viewer = await approvalViewer(principal, request, connection);
+      if (!viewer) return null;
+      const cap = await financialPolicy(request.companyId, member.role, key!, connection);
+      if (cap.blocked || (cap.max != null && Number(request.amount) > cap.max)) return null;
+      principals.push({ userId: principal, role: member.role, branch: member.branchId,
+        capabilities: [...viewer.capabilities].sort(), branches: viewer.branches?.slice().sort((a,b) => a-b) ?? null,
+        cap: cap.max, capSource: cap.source });
+    }
+    evidence.push({ ...path, principals });
+  }
+  return authorityFingerprint({ version: 1, company: request.companyId, branch: request.branchId, key, evidence });
+}
+
+/** Caller holds the source then request locks inside the financial transaction. */
+export async function assertDeferredPosApproval(
+  request: typeof approvalRequestsTable.$inferSelect, connection: DbOrTx,
+) {
+  await lockApprovalAuthority(connection);
+  const policy = frozenApprovalPolicy(request);
+  if (request.docType !== "pos_over_limit" || request.status !== "approved" ||
+    request.reviewInvalidatedAt || !policy || !policy.steps.length) {
+    throw new FinancialRequestError("اعتماد POS غير متاح للتنفيذ", 403);
+  }
+  const actions = await connection.select().from(approvalActionsTable)
+    .where(and(eq(approvalActionsTable.requestId, request.id), eq(approvalActionsTable.action, "approve")))
+    .orderBy(asc(approvalActionsTable.id));
+  if (actions.length !== policy.steps.length) throw new FinancialRequestError("سلسلة الاعتماد غير مكتملة أو مكررة", 403);
+  for (let index = 0; index < policy.steps.length; index++) {
+    const step = policy.steps[index];
+    const matches = actions.filter(a => a.stepSequence === step.sequence);
+    const action = matches[0];
+    if (matches.length !== 1 || action.approverUserId == null || !action.authorityFingerprint ||
+      (policy.mode !== "parallel" && actions[index].id !== action.id) ||
+      action.authorityFingerprint !== await posDecisionAuthority(request, step, action.approverUserId, connection)) {
+      throw new FinancialRequestError("انتهت أهلية أحد المعتمدين أو تفويضه؛ يلزم مراجعة جديدة قبل تنفيذ البيع", 403);
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -434,7 +520,7 @@ export async function actionableApprovalSteps(
   const available = [];
   for (const step of policy.steps) {
     if (approved.has(step.sequence) || (policy.mode !== "parallel" && step.sequence !== request.currentStep)) continue;
-    const resolved = await resolveApprovers(step.approverRole, step.approverUserId, request.branchId, request.companyId!, connection);
+    const resolved = await resolveApprovers(step.approverRole, step.approverUserId, request.branchId, request.companyId!, connection, request);
     if (resolved.includes(userId) || nativeReturnApprover) available.push({
       sequence: step.sequence, approverRole: step.approverRole, stepToken: reviewStepToken(request, step.sequence),
     });
@@ -476,6 +562,7 @@ async function actOnApprovalTransaction(
   companyId: number, comment: string | undefined, db: DbOrTx, effects: ApprovalEffect[],
   identity: DecisionIdentity,
 ): Promise<ActResult> {
+  await lockApprovalAuthority(db);
   if (!Number.isSafeInteger(companyId) || companyId <= 0) throw new FinancialRequestError("يلزم نطاق شركة للاعتماد", 400);
   const [locator] = await db.select().from(approvalRequestsTable).where(and(
     eq(approvalRequestsTable.id, requestId), eq(approvalRequestsTable.companyId, companyId)));
@@ -588,7 +675,7 @@ async function actOnApprovalTransaction(
   if (returnApprover && request.ruleId == null) actingStep = targetedSteps[0]?.sequence ?? null;
   if (userId != null) {
     for (const s of targetedSteps) {
-      const resolved = await resolveApprovers(s.approverRole, s.approverUserId, request.branchId ?? null, companyId, db);
+      const resolved = await resolveApprovers(s.approverRole, s.approverUserId, request.branchId ?? null, companyId, db, request);
       if (resolved.includes(userId)) {
         actingStep = s.sequence;
         break;
@@ -642,6 +729,11 @@ async function actOnApprovalTransaction(
     : action === "request_changes" ? { status: "changes_requested", finished: true }
     : steps.every(s => approvedSeq.has(s.sequence) || s.sequence === actingStep)
       ? { status: "approved", finished: true } : { status: "pending", finished: false };
+  const authority = action === "approve" && request.docType === "pos_over_limit" && userId != null
+    ? await posDecisionAuthority(request, steps.find(s => s.sequence === actingStep)!, userId, db) : null;
+  if (action === "approve" && request.docType === "pos_over_limit" && !authority) {
+    throw new FinancialRequestError("صلاحية المعتمد الحالية أو حده المالي لا يسمحان بهذه العملية", 403);
+  }
   await db.insert(approvalActionsTable).values({
     requestId,
     stepSequence: actingStep,
@@ -652,6 +744,7 @@ async function actOnApprovalTransaction(
     decisionKey: identity.decisionId ?? null,
     decisionFingerprint: identity.decisionId ? decisionIntent(userId, action, comment, identity.stepToken) : null,
     decisionResult: identity.decisionId ? decisionResult : null,
+    authorityFingerprint: authority,
   });
 
   if (action === "comment") {
@@ -753,8 +846,9 @@ export async function checkFinancialLimit(
   value: number,
   branchId?: number | null,
   approvalRequestId?: number | null,
+  connection: DbOrTx = db,
 ): Promise<{ allowed: boolean; max: number | null; source: string; reason?: string }> {
-  const member = await assertWorkflowMember(companyId, userId);
+  const member = await assertWorkflowMember(companyId, userId, connection);
   if (branchId != null) {
     await assertCompanyBranch(branchId, companyId);
     if (member.role !== "owner" && member.branchId != null && member.branchId !== branchId) {
@@ -762,11 +856,11 @@ export async function checkFinancialLimit(
     }
   }
   if (!Number.isFinite(value) || value < 0) throw new FinancialRequestError("قيمة مالية غير صحيحة", 400);
-  let role = member.role;
+  const role = member.role;
   // This only selects the cap; POS still verifies the immutable transaction
   // fingerprint and consumes the approval atomically with the sale.
   if (approvalRequestId != null) {
-    const [approval] = await db.select().from(approvalRequestsTable).where(and(
+    const [approval] = await connection.select().from(approvalRequestsTable).where(and(
       eq(approvalRequestsTable.id, approvalRequestId), eq(approvalRequestsTable.companyId, companyId),
       eq(approvalRequestsTable.submittedByUserId, userId), eq(approvalRequestsTable.status, "approved"),
       eq(approvalRequestsTable.docType, "pos_over_limit"),
@@ -775,9 +869,14 @@ export async function checkFinancialLimit(
       !frozenApprovalPolicy(approval) || !actionKey.startsWith("pos.") || approval.branchId !== branchId) {
       throw new FinancialRequestError("اعتماد الحد غير متاح", 403);
     }
-    role = "manager";
+    // Only this exact approved action is exempt from the submitter's cap.
+    // The approvers' real, current caps are checked; no role is promoted.
+    if (approval.recordRef?.split("— ")[1]?.trim() === actionKey && value <= Number(approval.amount)) {
+      await assertDeferredPosApproval(approval, connection);
+      return { allowed: true, max: Number(approval.amount), source: "operation_approval" };
+    }
   }
-  const policy = await financialPolicy(companyId, role, actionKey);
+  const policy = await financialPolicy(companyId, role, actionKey, connection);
   const { max, source } = policy;
   if (policy.blocked) return { allowed: false, max, source, reason: "يلزم تهيئة الحد المالي للشركة بواسطة صاحب الصلاحية؛ السياسة القديمة غير منسوبة" };
   if (max == null) return { allowed: true, max, source };

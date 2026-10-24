@@ -1,3 +1,4 @@
+import { lockApprovalAuthorityWrite } from "../lib/approval-authority";
 import { Router } from "express";
 import { db, usersTable, branchesTable, userCompaniesTable, companiesTable } from "@workspace/db";
 import { desc, eq, and, ne, inArray } from "drizzle-orm";
@@ -208,6 +209,7 @@ router.post("/users", adminGuard, async (req, res) => {
     }
     const passwordHash = await bcrypt.hash(body.password, 12);
     const created = await db.transaction(async (tx) => {
+      await lockApprovalAuthorityWrite(tx);
       const [user] = await tx.insert(usersTable).values({
           name: body.name,
           email: body.email.toLowerCase(),
@@ -290,6 +292,7 @@ router.patch("/users/:id", adminGuard, async (req, res) => {
     if (body.password !== undefined) update.passwordHash = await bcrypt.hash(body.password, 12);
 
     const updated = await db.transaction(async (tx) => {
+      await lockApprovalAuthorityWrite(tx);
       await tx.select({ id: companiesTable.id }).from(companiesTable)
         .where(eq(companiesTable.id, companyId)).for("update");
       const [currentMembership] = await tx.select().from(userCompaniesTable)
@@ -330,6 +333,7 @@ router.delete("/users/:id", ownerOnly, async (req, res) => {
     if (!target) return res.status(404).json({ error: "المستخدم غير موجود" });
     // Removing access must not delete an identity used by another tenant.
     await db.transaction(async (tx) => {
+      await lockApprovalAuthorityWrite(tx);
       const companyId = req.session.companyId!;
       await tx.select({ id: companiesTable.id }).from(companiesTable)
         .where(eq(companiesTable.id, companyId)).for("update");

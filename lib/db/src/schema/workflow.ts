@@ -11,6 +11,7 @@ import {
   uniqueIndex,
 } from "drizzle-orm/pg-core";
 import { companiesTable } from "./companies";
+import { branchesTable } from "./branches";
 
 // ---------------------------------------------------------------------------
 // Approval Matrix: per (docType + optional branch) a chain of steps.
@@ -115,6 +116,7 @@ export const approvalActionsTable = pgTable(
     decisionKey: text("decision_key"),
     decisionFingerprint: text("decision_fingerprint"),
     decisionResult: jsonb("decision_result"),
+    authorityFingerprint: text("authority_fingerprint"),
   },
   (t) => ({
     byReq: index("approval_actions_req_idx").on(t.requestId),
@@ -130,6 +132,11 @@ export const approverDelegationsTable = pgTable(
     toUserId: integer("to_user_id").notNull(),
     fromDate: timestamp("from_date", { withTimezone: true }).notNull(),
     toDate: timestamp("to_date", { withTimezone: true }).notNull(),
+    branchId: integer("branch_id").references(() => branchesTable.id),
+    docTypes: text("doc_types").array(),
+    maxAmount: numeric("max_amount", { precision: 18, scale: 4 }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    revokedBy: integer("revoked_by"),
     reason: text("reason"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },

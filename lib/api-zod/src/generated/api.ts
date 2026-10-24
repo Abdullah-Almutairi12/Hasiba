@@ -3454,9 +3454,19 @@ export const ListDelegationsResponseItem = zod.object({
   "fromDate": zod.string(),
   "toDate": zod.string(),
   "reason": zod.string().nullish(),
-  "createdAt": zod.string()
+  "createdAt": zod.string(),
+  "branchId": zod.number().int().nullish(),
+  "docTypes": zod.array(zod.string()).nullish(),
+  "maxAmount": zod.number().nullish(),
+  "revokedAt": zod.string().nullish(),
+  "revokedBy": zod.number().int().nullish()
 })
 export const ListDelegationsResponse = zod.array(ListDelegationsResponseItem)
+
+
+
+export const createDelegationBodyMaxAmountMin = 0;
+
 
 
 export const CreateDelegationBody = zod.object({
@@ -3464,7 +3474,10 @@ export const CreateDelegationBody = zod.object({
   "toUserId": zod.number().int(),
   "fromDate": zod.string(),
   "toDate": zod.string(),
-  "reason": zod.string().nullish()
+  "reason": zod.string().nullish(),
+  "branchId": zod.number().int().nullable(),
+  "docTypes": zod.array(zod.string()).min(1),
+  "maxAmount": zod.number().min(createDelegationBodyMaxAmountMin).nullable()
 })
 
 export const CreateDelegationResponse = zod.object({

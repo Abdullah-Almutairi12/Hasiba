@@ -486,6 +486,16 @@ export interface ApproverDelegation {
   /** @nullable */
   reason?: string | null;
   createdAt: string;
+  /** @nullable */
+  branchId?: number | null;
+  /** @nullable */
+  docTypes?: string[] | null;
+  /** @nullable */
+  maxAmount?: number | null;
+  /** @nullable */
+  revokedAt?: string | null;
+  /** @nullable */
+  revokedBy?: number | null;
 }
 
 export interface FinancialLimit {
@@ -3406,6 +3416,15 @@ export type CreateDelegationBody = {
   toDate: string;
   /** @nullable */
   reason?: string | null;
+  /** @nullable */
+  branchId: number | null;
+  /** @minItems 1 */
+  docTypes: string[];
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  maxAmount: number | null;
 };
 
 export type CreateDelegation201 = {

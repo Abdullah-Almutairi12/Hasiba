@@ -46,15 +46,16 @@ async function user(companyId: number, membershipRole: string, globalRole: strin
 const window = () => ({
   fromDate: new Date(Date.now() - 60_000).toISOString(),
   toDate: new Date(Date.now() + 3_600_000).toISOString(),
+  branchId: null, docTypes: ["pos_over_limit"], maxAmount: 2,
 });
-async function pending() {
+async function pending(amount = 1) {
   const [session] = await db.insert(posSessionsTable).values({
     branchId: branchA, sessionNumber: `${tag}-${sessionIds.length}`, cashierName: tag,
   }).returning();
   sessionIds.push(session.id);
   const result = await submitForApproval({
     companyId: a, branchId: branchA, docType: "pos_over_limit", recordId: session.id,
-    recordRef: tag, submittedByUserId: makerId, submittedByName: tag, amount: 10, forceRoles: ["manager"],
+    recordRef: `${tag} — pos.discount_pct`, submittedByUserId: makerId, submittedByName: tag, amount, forceRoles: ["manager"],
   });
   expect(result.required).toBe(true);
   requestIds.push(result.requestId!);
@@ -543,19 +544,59 @@ describe("approval company ownership", () => {
     expect(responses.map(r => r.status).sort()).toEqual([201, 409]);
     const delegationId = responses.find(r => r.status === 201)!.body.id;
     expect((await foreign.delete(`/api/workflow/delegations/${delegationId}`)).status).toBe(404);
-    expect(await resolveApprovers("manager", null, branchA, a)).toEqual([delegateId]);
-    const id = await pending();
+    expect(await resolveApprovers("manager", null, branchA, a)).toEqual([managerId]);
+    // Delegation cannot lend the manager's higher financial cap to a cashier.
+    const id = await pending(1);
     expect((await delegate.get(`/api/workflow/approval-requests/${id}`)).status).toBe(403);
     expect((await delegate.post(`/api/workflow/approval-requests/${id}/act`).send({ action: "approve" })).status).toBe(403);
     await db.update(usersTable).set({ branchId: branchA }).where(eq(usersTable.id, delegateId));
+    const [nativeReview] = await db.select().from(approvalRequestsTable).where(eq(approvalRequestsTable.id, id));
+    expect(await resolveApprovers("manager", null, branchA, a, db, nativeReview)).toEqual([delegateId]);
     expect((await delegate.get(`/api/workflow/approval-requests/${id}`)).status).toBe(200);
     expect((await delegate.post(`/api/workflow/approval-requests/${id}/act`).send({ action: "approve" })).status).toBe(200);
     await db.delete(userCompaniesTable).where(and(eq(userCompaniesTable.userId, delegateId), eq(userCompaniesTable.companyId, a)));
     expect(await resolveApprovers("manager", null, branchA, a)).toEqual([managerId]);
     await db.insert(userCompaniesTable).values({ userId: delegateId, companyId: a, role: "cashier", isDefault: true });
     expect((await owner.delete(`/api/workflow/delegations/${delegationId}`)).status).toBe(200);
+    const [preserved] = await db.select().from(approverDelegationsTable).where(eq(approverDelegationsTable.id, delegationId));
+    expect(preserved.revokedAt).not.toBeNull();
     await db.update(usersTable).set({ branchId: null }).where(eq(usersTable.id, delegateId));
     expect(await resolveApprovers("manager", null, branchA, a)).toEqual([managerId]);
+  });
+
+  it("bounds delegation by native document, branch, amount and both principals, and quarantines unscoped history", async () => {
+    const id = await pending();
+    const [review] = await db.select().from(approvalRequestsTable).where(eq(approvalRequestsTable.id, id));
+    await db.update(usersTable).set({ branchId: branchA }).where(eq(usersTable.id, delegateId));
+    const [delegation] = await db.insert(approverDelegationsTable).values({
+      companyId: a, fromUserId: managerId, toUserId: delegateId,
+      fromDate: new Date(Date.now() - 60_000), toDate: new Date(Date.now() + 60_000),
+      reason: tag, branchId: branchA, docTypes: ["pos_over_limit"], maxAmount: "1",
+    }).returning();
+    const resolve = () => resolveApprovers("manager", null, branchA, a, db, review);
+    try {
+      expect(await resolve()).toEqual([delegateId]);
+      expect(await resolveApprovers("manager", null, branchA, a, db, { ...review, amount: "1.0001" })).toEqual([managerId]);
+      await db.update(approverDelegationsTable).set({ docTypes: ["purchase_order"] }).where(eq(approverDelegationsTable.id, delegation.id));
+      expect(await resolve()).toEqual([managerId]);
+      await db.update(approverDelegationsTable).set({ docTypes: ["pos_over_limit"], branchId: branchA2 }).where(eq(approverDelegationsTable.id, delegation.id));
+      expect(await resolve()).toEqual([managerId]);
+      await db.update(approverDelegationsTable).set({ branchId: branchA, docTypes: null }).where(eq(approverDelegationsTable.id, delegation.id));
+      expect(await resolve()).toEqual([managerId]); // preserve legacy row, never treat NULL as all types
+      await db.update(approverDelegationsTable).set({ docTypes: ["pos_over_limit"] }).where(eq(approverDelegationsTable.id, delegation.id));
+      await db.update(usersTable).set({ branchId: branchA2 }).where(eq(usersTable.id, managerId));
+      expect(await resolve()).toEqual([]);
+      await db.update(usersTable).set({ branchId: null }).where(eq(usersTable.id, managerId));
+      expect((await manager.post("/api/workflow/delegations").send({
+        ...window(), fromUserId: ownerId, toUserId: delegateId,
+      })).status).toBe(403);
+      expect((await manager.post("/api/workflow/delegations").send({
+        fromUserId: managerId, toUserId: delegateId, fromDate: window().fromDate, toDate: window().toDate,
+      })).status).toBe(400);
+    } finally {
+      await db.update(approverDelegationsTable).set({ revokedAt: new Date(), revokedBy: ownerId }).where(eq(approverDelegationsTable.id, delegation.id));
+      await db.update(usersTable).set({ branchId: null }).where(inArray(usersTable.id, [delegateId, managerId]));
+    }
   });
 
   it("preserves referenced rule chains while allowing prospective deactivation", async () => {

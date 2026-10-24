@@ -1,6 +1,7 @@
 import { db, financialLimitsTable } from "@workspace/db";
 import { and, eq, isNull } from "drizzle-orm";
 import { isRole } from "../middlewares/require-role";
+import type { DbOrTx } from "./journal-posting";
 
 // Prospective built-in defaults, not copies of unknown tenants' old policies.
 export const FINANCIAL_DEFAULTS = [
@@ -14,11 +15,11 @@ export const FINANCIAL_DEFAULTS = [
 ] as const;
 export const FINANCIAL_ACTIONS = ["pos.discount_pct", "pos.refund_amount", "ap.payment_amount", "sales.credit_note_amount"] as const;
 
-export async function financialPolicy(companyId: number, role: string, actionKey: string) {
+export async function financialPolicy(companyId: number, role: string, actionKey: string, connection: DbOrTx = db) {
   if (!isRole(role) || !(FINANCIAL_ACTIONS as readonly string[]).includes(actionKey)) {
     return { max: 0, source: "unconfigured", blocked: true };
   }
-  const [owned] = await db.select().from(financialLimitsTable).where(and(
+  const [owned] = await connection.select().from(financialLimitsTable).where(and(
     eq(financialLimitsTable.companyId, companyId), eq(financialLimitsTable.role, role),
     eq(financialLimitsTable.actionKey, actionKey),
   ));
@@ -26,7 +27,7 @@ export async function financialPolicy(companyId: number, role: string, actionKey
   // Preserve the existing documented no-cap behavior for known roles/actions
   // without a built-in cap. Route/capability authorization remains mandatory.
   const baseline = FINANCIAL_DEFAULTS.find(x => x[0] === role && x[1] === actionKey)?.[2] ?? null;
-  const legacy = await db.select().from(financialLimitsTable).where(and(
+  const legacy = await connection.select().from(financialLimitsTable).where(and(
     isNull(financialLimitsTable.companyId), eq(financialLimitsTable.role, role),
     eq(financialLimitsTable.actionKey, actionKey),
   ));

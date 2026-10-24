@@ -41,7 +41,8 @@ import {
   usersTable,
   approvalRequestsTable,
 } from "@workspace/db";
-import { checkFinancialLimit, submitForApproval } from "../lib/workflow-engine";
+import { assertDeferredPosApproval, checkFinancialLimit, submitForApproval } from "../lib/workflow-engine";
+import { lockApprovalAuthority } from "../lib/approval-authority";
 import { approvalSourceFingerprint, approvalSourceMatches } from "../lib/approval-source";
 import { matchesPosApprovalNotes, posApprovalNotes } from "../lib/pos-approval-intent";
 import { recordAudit } from "../lib/audit";
@@ -532,6 +533,7 @@ router.post(
     // Replay lookup runs before one-use approval/manager validation.
     // New intents still validate and consume approval in this transaction.
     const result = await financialTransaction(req, async (tx) => {
+      await lockApprovalAuthority(tx);
       const issuer = await captureIssuer(tx, companyId);
       const vatEnabled = issuer.vatEnabled;
       const sellerNameForZatca = issuer.nameAr;
@@ -560,6 +562,7 @@ router.post(
       if (reqRow.reviewInvalidatedAt || !await approvalSourceMatches(reqRow, tx)) {
         throw new FinancialRequestError("المراجعة لا تطابق حقائق الوردية ونية البيع الحالية؛ يلزم اعتماد جديد", 409);
       }
+      await assertDeferredPosApproval(reqRow, tx);
       // Recover the original action key from recordRef which was written
       // as `POS session #<id> — <actionKey>`. Used to refuse mismatches
       // (a discount approval cannot be consumed by a refund attempt).
@@ -574,7 +577,6 @@ router.post(
         submittedByName: reqRow.submittedByName,
         notes: reqRow.notes,
       };
-      overrideRoleEffective = "manager";
       overrideUserName = reqRow.submittedByName ?? "approved-via-inbox";
       overrideUserId = null;
       overrideReason = reqRow.notes ?? "موافقة عبر الصندوق الوارد";
@@ -764,7 +766,7 @@ router.post(
           key === "pos.discount_pct" ? trustedDiscountPct : refundCash,
           "تغيرت تفاصيل السلة المحسوبة في الخادم؛ يلزم اعتماد جديد قبل الدفع");
       }
-      const dCheck = await checkFinancialLimit(companyId, overrideUserId ?? req.session.userId!, "pos.discount_pct", trustedDiscountPct, session.branchId, pendingApprovalRow?.id);
+      const dCheck = await checkFinancialLimit(companyId, overrideUserId ?? req.session.userId!, "pos.discount_pct", trustedDiscountPct, session.branchId, pendingApprovalRow?.id, tx);
       if (!dCheck.allowed) {
         throw new FinancialLimitError(
           "pos.discount_pct",
@@ -781,7 +783,7 @@ router.post(
         // financial_limits row. Manager/owner/sales roles can refund up
         // to their own cap directly.
         if (role !== "manager" && role !== "owner") {
-          const rCheck = await checkFinancialLimit(companyId, overrideUserId ?? req.session.userId!, "pos.refund_amount", refundCash, session.branchId, pendingApprovalRow?.id);
+          const rCheck = await checkFinancialLimit(companyId, overrideUserId ?? req.session.userId!, "pos.refund_amount", refundCash, session.branchId, pendingApprovalRow?.id, tx);
           if (role === "cashier" || !rCheck.allowed) {
             throw new FinancialLimitError(
               "pos.refund_amount",
@@ -1368,7 +1370,7 @@ router.post(
     // Now that the order is committed, record the override audit linked to
     // the actual order id/number so forensic queries can trace who approved
     // which transaction.
-    if (overrideRoleEffective && (overrideUserId || consumedApprovalRequestId)) {
+    if ((overrideRoleEffective && overrideUserId) || consumedApprovalRequestId) {
       const who = overrideUserId
         ? `${overrideUserName} (#${overrideUserId})`
         : `موافقة #${consumedApprovalRequestId} — ${overrideUserName ?? "—"}`;

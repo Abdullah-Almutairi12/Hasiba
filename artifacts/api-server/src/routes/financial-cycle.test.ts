@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import request from "supertest";
 import bcrypt from "bcryptjs";
 import {
@@ -6,6 +6,7 @@ import {
   productsTable, customersTable, suppliersTable, branchesTable, warehousesTable, posSessionsTable,
   fiscalYearsTable, fiscalPeriodsTable,
   approvalRulesTable, approvalStepsTable, approvalRequestsTable,
+  approverDelegationsTable,
 } from "@workspace/db";
 import app, { assertApplicationReady } from "../app";
 import { postJournalEntry } from "../lib/journal-posting";
@@ -88,6 +89,192 @@ beforeAll(async () => {
     ok(await agent.post("/api/auth/login").send({ email: accounts[i].email, password }), 200);
   }
 });
+
+function deferredPosAuthorityTests() {
+describe.sequential("deferred POS authority is live at financial execution", () => {
+  let reviewer: request.Agent, delegated: request.Agent;
+  let reviewerId: number, delegatedId: number, branchId: number;
+  const activeRuleIds: number[] = [];
+  let reviewSequence = 0;
+  beforeAll(async () => {
+    // Obtain real inventory through the existing GR/IR service, not a fake
+    // stock total. This describe runs after the financial-cycle acceptance.
+    const po = await createPo(20, "authority-inventory-po");
+    await confirm(po.id);
+    const [line] = await rows("SELECT id FROM purchase_order_lines WHERE po_id=$1", [po.id]);
+    ok(await sent(receiver, "/procurement/goods-receipts", {
+      poId: po.id, warehouseId, lines: [{ poLineId: line.id, quantity: 20 }],
+    }, "authority-inventory-gr"));
+    const [session] = await rows("SELECT branch_id FROM pos_sessions WHERE id=$1", [sessionId]);
+    branchId = Number(session.branch_id);
+    const password = "Synthetic-Authority-Only-123!";
+    const accounts = await db.insert(usersTable).values(["reviewer", "delegate"].map(name => ({
+      name: `${tag}-${name}`, email: `${tag}-${name}@example.invalid`,
+      passwordHash: bcrypt.hashSync(password, 4), role: "manager", branchId, isActive: true,
+    }))).returning();
+    [reviewerId, delegatedId] = accounts.map(a => a.id);
+    await db.insert(userCompaniesTable).values(accounts.map(a => ({ userId: a.id, companyId, role: "manager" })));
+    reviewer = request.agent(app); delegated = request.agent(app);
+    for (const [index, agent] of [reviewer, delegated].entries()) {
+      ok(await agent.post("/api/auth/login").send({ email: accounts[index].email, password }), 200);
+    }
+    await rows("UPDATE user_companies SET role='cashier' WHERE user_id=$1 AND company_id=$2", [makerId, companyId]);
+    await rows("UPDATE users SET branch_id=$1 WHERE id=$2", [branchId, makerId]);
+  });
+  afterAll(async () => {
+    await rows("UPDATE user_companies SET role='owner' WHERE user_id=$1 AND company_id=$2", [makerId, companyId]);
+    await rows("UPDATE users SET branch_id=NULL WHERE id=$1", [makerId]);
+  });
+  async function prepare(useDelegation = false) {
+    await rows("UPDATE users SET is_active=true,branch_id=$1 WHERE id IN ($2,$3)", [branchId, reviewerId, delegatedId]);
+    await rows("INSERT INTO user_companies(user_id,company_id,role,is_default) VALUES($1,$2,'manager',false) ON CONFLICT(user_id,company_id) DO UPDATE SET role='manager'",
+      [reviewerId, companyId]);
+    await rows("DELETE FROM return_access WHERE company_id=$1 AND user_id IN ($2,$3)", [companyId, reviewerId, delegatedId]);
+    await rows("DELETE FROM financial_limits WHERE company_id=$1 AND role='manager' AND action_key='pos.discount_pct'", [companyId]);
+    await rows("DELETE FROM approver_delegations WHERE company_id=$1 AND from_user_id=$2", [companyId, reviewerId]);
+    for (const id of activeRuleIds) await rows("UPDATE approval_rules SET is_active=false WHERE id=$1", [id]);
+    const [session] = await db.insert(posSessionsTable).values({
+      sessionNumber: `${tag}-authority-${++reviewSequence}`, cashierName: tag, branchId, status: "open", openingCash: "0",
+    }).returning();
+    const [rule] = await db.insert(approvalRulesTable).values({
+      companyId, name: `${tag}-authority-${reviewSequence}`, docType: "pos_over_limit", branchId,
+      minAmount: "0", mode: "sequential", isActive: true,
+    }).returning();
+    activeRuleIds.push(rule.id);
+    await db.insert(approvalStepsTable).values({ ruleId: rule.id, sequence: 1, approverRole: "manager", approverUserId: reviewerId });
+    let delegationId: number | undefined;
+    if (useDelegation) {
+      const [delegation] = await db.insert(approverDelegationsTable).values({
+        companyId, fromUserId: reviewerId, toUserId: delegatedId,
+        fromDate: new Date(Date.now() - 60_000), toDate: new Date(Date.now() + 3_600_000),
+        branchId, docTypes: ["pos_over_limit"], maxAmount: "20",
+      }).returning();
+      delegationId = delegation.id;
+    }
+    const intent = { sessionId: session.id, customerId, items: [{ productId, quantity: 1 }], paymentMethod: "cash", discount: 10 };
+    const blocked = await sent(maker, "/pos/orders", intent, `authority-request-${reviewSequence}`);
+    expect(blocked.status, JSON.stringify(blocked.body)).toBe(403);
+    const id = blocked.body.approvalRequestId as number;
+    expect(id).toBeTypeOf("number");
+    expect((await (useDelegation ? delegated : reviewer).post(`/api/workflow/approval-requests/${id}/act`).send({ action: "approve" })).status).toBe(200);
+    const [action] = await rows("SELECT authority_fingerprint FROM approval_actions WHERE request_id=$1 AND action='approve'", [id]);
+    expect(action.authority_fingerprint).toMatch(/^[a-f0-9]{64}$/);
+    return { id, sessionId: session.id, delegationId, intent, body: { ...intent, approvalRequestId: id }, key: `authority-execute-${reviewSequence}` };
+  }
+  it.each(["role", "membership", "account", "branch", "capability", "limit", "delegation_expiry", "delegation_revocation", "delegator_role", "delegate_capability"] as const)(
+    "prevents a new effect after %s revocation and preserves the original decision", async kind => {
+      const prepared = await prepare(kind.startsWith("delegat"));
+      const before = await totals();
+      if (kind === "role" || kind === "delegator_role") await rows("UPDATE user_companies SET role='sales' WHERE user_id=$1 AND company_id=$2", [reviewerId, companyId]);
+      if (kind === "membership") await rows("DELETE FROM user_companies WHERE user_id=$1 AND company_id=$2", [reviewerId, companyId]);
+      if (kind === "account") await rows("UPDATE users SET is_active=false WHERE id=$1", [reviewerId]);
+      if (kind === "branch" || kind === "capability" || kind === "delegate_capability") {
+        await rows("INSERT INTO return_access(company_id,user_id,template,capabilities,branches,updated_by) VALUES($1,$2,'branch_manager',$3::jsonb,$4::jsonb,$5)",
+          [companyId, kind === "delegate_capability" ? delegatedId : reviewerId,
+            JSON.stringify(kind === "branch" ? ["view"] : []), JSON.stringify(kind === "branch" ? [] : [branchId]), makerId]);
+      }
+      if (kind === "limit") await rows("INSERT INTO financial_limits(company_id,role,action_key,max_value) VALUES($1,'manager','pos.discount_pct',5)", [companyId]);
+      if (kind === "delegation_expiry") await rows("UPDATE approver_delegations SET to_date=now()-interval '1 second' WHERE id=$1", [prepared.delegationId]);
+      if (kind === "delegation_revocation") {
+        expect((await reviewer.delete(`/api/workflow/delegations/${prepared.delegationId}`)).status).toBe(200);
+        const [saved] = await rows("SELECT revoked_at,revoked_by FROM approver_delegations WHERE id=$1", [prepared.delegationId]);
+        expect(saved.revoked_at).not.toBeNull();
+        expect(saved.revoked_by).toBe(reviewerId);
+      }
+      const rejected = await sent(maker, "/pos/orders", prepared.body, prepared.key);
+      expect(rejected.status, JSON.stringify(rejected.body)).toBe(403);
+      expect(await totals()).toEqual(before);
+      // A fresh submission is distinct from executing the old approval. It
+      // recalculates the quote on the server and invalidates the old authority.
+      const resubmitted = await sent(maker, "/pos/orders", prepared.intent, `authority-resubmit-${reviewSequence}`);
+      expect(resubmitted.status, JSON.stringify(resubmitted.body)).toBe(403);
+      expect(resubmitted.body.approvalRequestId).toBeTypeOf("number");
+      expect(resubmitted.body.approvalRequestId).not.toBe(prepared.id);
+      expect(await totals()).toEqual(before);
+      const [historical] = await rows("SELECT status,decided_at,review_invalidated_at FROM approval_requests WHERE id=$1", [prepared.id]);
+      expect(historical.status).toBe("approved");
+      expect(historical.decided_at).not.toBeNull();
+      expect(historical.review_invalidated_at).not.toBeNull();
+      const [actions] = await rows("SELECT count(*)::int AS n FROM approval_actions WHERE request_id=$1 AND action='approve'", [prepared.id]);
+      expect(actions.n).toBe(1);
+    });
+  async function waiter(blockerPid: number): Promise<number> {
+    for (let attempt = 0; attempt < 150; attempt++) {
+      const found = await rows("SELECT pid FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid)) AND pid<>pg_backend_pid()", [blockerPid]);
+      if (found.length) return Number(found[0].pid);
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+    throw new Error("Expected a real PostgreSQL lock waiter, not a timing assumption");
+  }
+  it.each([false, true])("lets committed revocation win against waiting checkout (delegation=%s), with no effect", async delegatedReview => {
+    const prepared = await prepare(delegatedReview);
+    const before = await totals();
+    const writer = await pool.connect();
+    let checkout: Promise<request.Response> | undefined;
+    try {
+      await writer.query("BEGIN");
+      const { rows: [backend] } = await writer.query("SELECT pg_backend_pid() AS pid");
+      if (delegatedReview) await writer.query("UPDATE approver_delegations SET revoked_at=now(),revoked_by=$2 WHERE id=$1", [prepared.delegationId, reviewerId]);
+      else await writer.query("UPDATE user_companies SET role='sales' WHERE user_id=$1 AND company_id=$2", [reviewerId, companyId]);
+      checkout = sent(maker, "/pos/orders", prepared.body, prepared.key).then(r => r);
+      await waiter(Number(backend.pid));
+      await writer.query("COMMIT");
+      expect((await checkout).status).toBe(403);
+      expect(await totals()).toEqual(before);
+    } finally { await writer.query("ROLLBACK"); writer.release(); if (checkout) await checkout; }
+  });
+  it("executes a valid bounded delegation once without promoting the cashier's session", async () => {
+    const prepared = await prepare(true);
+    const before = await totals();
+    const response = await sent(maker, "/pos/orders", prepared.body, prepared.key);
+    const first = ok(response);
+    const after = await totals();
+    expect(after.orders).toBe(before.orders + 1);
+    expect(after.stock).toBe(before.stock - 1);
+    const me = await maker.get("/api/auth/me");
+    expect(me.status).toBe(200);
+    expect(me.body.role ?? me.body.user?.role).toBe("cashier");
+    const retry = await sent(maker, "/pos/orders", prepared.body, prepared.key);
+    expect(ok(retry).id).toBe(first.id);
+    expect(await totals()).toEqual(after);
+  });
+  it("serializes revocation behind an executing checkout and replays its receipt after revocation", async () => {
+    const prepared = await prepare();
+    const before = await totals();
+    const blocker = await pool.connect();
+    let checkout: Promise<request.Response> | undefined, revoke: Promise<unknown> | undefined;
+    try {
+      await blocker.query("BEGIN");
+      const { rows: [backend] } = await blocker.query("SELECT pg_backend_pid() AS pid");
+      await blocker.query("SELECT id FROM pos_sessions WHERE id=$1 FOR UPDATE", [prepared.sessionId]);
+      checkout = sent(maker, "/pos/orders", prepared.body, prepared.key).then(r => r);
+      const checkoutPid = await waiter(Number(backend.pid)); // checkout has the shared authority fence
+      revoke = rows("UPDATE user_companies SET role='sales' WHERE user_id=$1 AND company_id=$2", [reviewerId, companyId]);
+      await waiter(checkoutPid); // revocation is proven blocked by that very checkout
+      await blocker.query("COMMIT");
+      const first = ok(await checkout);
+      await revoke;
+      const after = await totals();
+      expect(after.orders).toBe(before.orders + 1);
+      expect(after.stock).toBe(before.stock - 1);
+      const replay = await sent(maker, "/pos/orders", prepared.body, prepared.key);
+      expect(ok(replay).id).toBe(first.id);
+      expect(replay.headers["idempotency-replayed"]).toBe("true");
+      expect(await totals()).toEqual(after);
+      const [member] = await rows("SELECT role FROM user_companies WHERE company_id=$1 AND user_id=$2", [companyId, reviewerId]);
+      expect(member.role).toBe("sales");
+      await rows("DELETE FROM user_companies WHERE user_id=$1 AND company_id=$2", [makerId, companyId]);
+      try {
+        expect((await sent(maker, "/pos/orders", prepared.body, prepared.key)).status).toBe(403);
+        expect(await totals()).toEqual(after);
+      } finally {
+        await rows("INSERT INTO user_companies(user_id,company_id,role,is_default) VALUES($1,$2,'cashier',true)", [makerId, companyId]);
+      }
+    } finally { await blocker.query("ROLLBACK"); blocker.release(); if (checkout) await checkout; if (revoke) await revoke; }
+  });
+});
+
+}
 
 describe.sequential("purchase → receipt → POS sale → return → balanced books", () => {
   it("creates one PO for concurrent retries of the same financial intent", async () => {
@@ -345,3 +532,5 @@ describe.sequential("purchase → receipt → POS sale → return → balanced b
     expect(await totals()).toEqual(before);
   });
 });
+
+deferredPosAuthorityTests();
