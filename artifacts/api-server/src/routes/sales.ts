@@ -305,7 +305,7 @@ registerOnApprove("credit_note_cancel", async (recordId, _requestId, context) =>
 // from the registerOnApprove("credit_note") handler when the admin has
 // configured a credit_note approval rule.
 // ---------------------------------------------------------------------------
-async function finalizeCreditNoteIssue(
+export async function finalizeCreditNoteIssue(
   noteId: number,
   sessionUserId: number | null,
   companyId: number,
@@ -317,6 +317,9 @@ async function finalizeCreditNoteIssue(
     const [note] = await tx.select().from(creditNotesTable).where(and(eq(creditNotesTable.id, noteId), eq(creditNotesTable.companyId, companyId))).for("update");
     if (!note) throw new Error("الإشعار الدائن غير موجود");
     if (note.status === "issued" || note.status === "applied") return note;
+    const receipt = await tx.execute(sql`SELECT receipt_required,received_by FROM return_controls
+      WHERE note_id=${note.id} AND company_id=${companyId}`);
+    if (receipt.rows[0]?.receipt_required && !receipt.rows[0].received_by) return note;
     if (note.status !== "draft" && note.status !== "pending_approval") {
       throw new Error(`لا يمكن ترحيل إشعار في حالة ${note.status}`);
     }
@@ -3198,6 +3201,7 @@ router.post("/sales/receipts", financeGuard, async (req, res) => {
 // ===================================================================
 const CreditNoteBody = z.object({
   operationalReturn: z.boolean().default(false),
+  goodsReceived: z.boolean().default(false),
   disposition: z.enum(["resale", "discard", "no_goods"]).optional(),
   settlementMethod: z.enum(["credit", "cash", "card", "transfer", "stc"]).default("credit"),
   proofRef: z.string().min(3).max(200).optional(),
@@ -3276,7 +3280,8 @@ export const createCreditNoteHandler: RequestHandler = async (req, res) => {
     const result = await financialTransaction(req, async (tx) => {
       await lockApprovalAuthority(tx);
       const scopedReturn = body.operationalReturn && body.invoiceId
-        ? await scopedReturnSource(tx, req.session.userId!, companyId, body.invoiceId, body.warehouseId, body.restock) : null;
+        ? await scopedReturnSource(tx, req.session.userId!, companyId, body.invoiceId, body.warehouseId, body.restock && body.goodsReceived) : null;
+      if (scopedReturn && body.restock && body.warehouseId == null) throw new FinancialRequestError("حدد مستودع استلام المرتجع صراحةً", 400);
       const [customer] = await tx
         .select()
         .from(customersTable)
@@ -3434,11 +3439,18 @@ export const createCreditNoteHandler: RequestHandler = async (req, res) => {
           VALUES(${note.id},${companyId},${operationalBranch!},${req.session.userId!},'',${body.disposition!},${body.settlementMethod},${body.proofRef!})`);
         const fingerprint = await returnFingerprint(tx, note.id);
         await tx.execute(sql`UPDATE return_controls SET fingerprint=${fingerprint} WHERE note_id=${note.id}`);
+        if (scopedReturn && body.restock) {
+          await tx.execute(sql`UPDATE return_controls SET receipt_required=true,
+            received_by=${body.goodsReceived ? req.session.userId! : null},
+            received_at=${body.goodsReceived ? sql`clock_timestamp()` : null},
+            receipt_reference=${body.goodsReceived ? body.proofRef! : null}
+            WHERE note_id=${note.id} AND company_id=${companyId}`);
+        }
       }
       if (scopedReturn) {
         const limit = await checkFinancialLimit(companyId, req.session.userId!, "sales.credit_note_amount", Number(note.total), operationalBranch, null, tx);
         if (!limit.allowed) throw new FinancialRequestError(limit.reason ?? "لم يهيأ حد المرتجع للمستخدم المقيد", 403);
-        if (await scopedDirectReturn(tx, req.session.userId!, companyId, operationalBranch!, note.total, note.id)) {
+        if ((!body.restock || body.goodsReceived) && await scopedDirectReturn(tx, req.session.userId!, companyId, operationalBranch!, note.total, note.id)) {
           return finalizeCreditNoteIssue(note.id, req.session.userId!, companyId, undefined, tx);
         }
       }

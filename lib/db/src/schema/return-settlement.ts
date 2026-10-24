@@ -32,6 +32,10 @@ export const returnControlsTable = pgTable("return_controls", {
   settlementMethod: text("settlement_method").notNull(),
   proofRef: text("proof_ref").notNull(),
   approvalId: integer("approval_id").references(() => approvalRequestsTable.id),
+  receiptRequired: boolean("receipt_required").notNull().default(false),
+  receivedBy: integer("received_by").references(() => usersTable.id),
+  receivedAt: timestamp("received_at", { withTimezone: true }),
+  receiptReference: text("receipt_reference"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, t => [check("return_controls_disposition_check", sql`${t.disposition} IN ('resale','discard','no_goods')`),
   check("return_controls_settlement_method_check", sql`${t.settlementMethod} IN ('credit','cash','card','transfer','stc')`)]);

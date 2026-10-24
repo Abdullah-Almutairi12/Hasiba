@@ -11,9 +11,12 @@ import { recordAudit } from "../lib/audit";
 import { actOnApproval } from "../lib/workflow-engine";
 import { createCreditNoteHandler, creditNoteLimit } from "./sales";
 import { returnRequestGuard } from "../lib/return-access";
-import { lockApprovalAuthority } from "../lib/approval-authority";
+import { lockApprovalAuthority, lockApprovalAuthorityWrite } from "../lib/approval-authority";
 import { managedProfile, selectedResponsibility } from "../lib/responsibility-context";
 import { scopedPayoutSource, scopedShiftDifference } from "../lib/scoped-pos-operations";
+import { scopedReturnGrants } from "../lib/scoped-return-review";
+import { finalizeCreditNoteIssue } from "./sales";
+import { assertDeferredReturnApproval } from "../lib/workflow-engine";
 
 const router = Router();
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -70,6 +73,8 @@ router.get("/pos/returns/workspace", async (req, res) => {
       ORDER BY i.id DESC LIMIT 100`, [companyId, allowed, warehouseIds])).rows;
     const notes = (await pool.query(`SELECT n.id,n.reference,n.status,n.total,n.invoice_id,n.reason,
       c.branch_id,b.name_ar AS branch_name,c.created_by,c.approval_id,c.proof_ref,c.disposition,c.settlement_method,
+      c.receipt_required,c.received_by,c.received_at,c.receipt_reference,
+      (SELECT status FROM approval_requests WHERE id=c.approval_id AND company_id=c.company_id) AS review_status,
       coalesce(p.refunded,0) AS refunded,coalesce(p.reserved,0) AS reserved,
       CASE WHEN n.status='issued' THEN greatest(n.total-coalesce(p.refunded,0),0) ELSE 0 END AS due,
       CASE WHEN n.status='issued' THEN greatest(n.total-coalesce(p.refunded,0)-coalesce(p.reserved,0),0) ELSE 0 END AS remaining,
@@ -137,6 +142,11 @@ async function payout(tx: Tx, companyId: number, userId: number, input: unknown)
     if (previous.fingerprint !== fingerprint) fail("استعمل مفتاح الطلب لبيانات مختلفة");
     return previous;
   }
+  // Inspect meaningful content only for a NEW intent. Do not normalize the
+  // stored/reference fingerprint or make old committed receipts unreadable.
+  if (b.method !== "cash" && b.reference.trim().length < 3) {
+    fail("مرجع الاسترداد غير النقدي يحتاج ثلاثة أحرف فعلية على الأقل", 400);
+  }
   await scopedPayoutSource(tx, userId, companyId, note.id, b.amount);
   if (note.status !== "issued") fail("يلزم مرتجع معتمد غير ملغى أو مسوّى");
   await assertReturnSnapshot(tx, note.id);
@@ -199,7 +209,7 @@ async function changePayout(tx: Tx, companyId: number, userId: number, input: un
     if ((!cancel && p.status === "external_confirmed") || (cancel && p.status === "cancelled")) return p;
     fail("لا يمكن تغيير سند صرف مؤكد");
   }
-  if (!cancel && !b.reference) fail("يلزم مرجع إثبات الرد الخارجي", 400);
+  if (!cancel && (!b.reference || b.reference.trim().length < 3)) fail("يلزم مرجع إثبات الرد الخارجي بمحتوى فعلي", 400);
   if (cancel && !b.reason) fail("يلزم سبب إلغاء طلب الرد", 400);
   // Recheck the actual reserved amount only for a new confirmation, not a committed replay.
   if (!cancel) await scopedPayoutSource(tx, userId, companyId, Number(lookup.note_id), String(p.amount), true);
@@ -292,7 +302,7 @@ async function cashExpense(tx: Tx, companyId: number, userId: number, input: unk
 
 router.post("/pos/returns/actions", async (req, res): Promise<void> => {
   try {
-    const b = z.object({ action: z.enum(["request", "approve", "payout", "confirm_external", "cancel_payout", "close", "approve_close", "expense", "export", "configure_access", "configure_policy"]),
+    const b = z.object({ action: z.enum(["request", "approve", "receive", "payout", "confirm_external", "cancel_payout", "close", "approve_close", "expense", "export", "configure_access", "configure_policy"]),
       payload: z.record(z.string(), z.unknown()) }).parse(req.body);
     const companyId = req.session.companyId!, userId = req.session.userId!;
     if (b.action === "export") {
@@ -337,10 +347,17 @@ router.post("/pos/returns/actions", async (req, res): Promise<void> => {
       const branches = await pool.query("SELECT id FROM branches WHERE company_id=$1 AND id=ANY($2::int[])", [companyId, [...new Set(data.branches)]]);
       if (!member.rowCount || branches.rowCount !== new Set(data.branches).size) fail("عضوية أو فروع غير متاحة", 403);
       if (member.rows[0].role === "owner") fail("صلاحيات المالك لا تخفّض بقالب فرع؛ استخدم إدارة الملكية", 403);
-      await pool.query(`INSERT INTO return_access(company_id,user_id,template,capabilities,branches,updated_by)
-        VALUES($1,$2,$3,$4::jsonb,$5::jsonb,$6) ON CONFLICT(company_id,user_id)
-        DO UPDATE SET template=EXCLUDED.template,capabilities=EXCLUDED.capabilities,branches=EXCLUDED.branches,updated_by=EXCLUDED.updated_by,updated_at=now()`,
-      [companyId, data.userId, data.template, JSON.stringify(data.capabilities), JSON.stringify(data.branches), userId]);
+      await db.transaction(async tx => {
+        await lockApprovalAuthorityWrite(tx);
+        await returnAuthorize(userId, companyId, "configure", undefined, tx);
+        const live = await query(tx, sql`SELECT role FROM user_companies WHERE company_id=${companyId} AND user_id=${data.userId}`);
+        if (!live.length || live[0].role === "owner") fail("عضوية الهدف غير متاحة لتعديل صلاحيات الفرع", 403);
+        for (const branch of data.branches ?? []) await returnAuthorize(userId, companyId, "configure", branch, tx);
+        await tx.execute(sql`INSERT INTO return_access(company_id,user_id,template,capabilities,branches,updated_by)
+          VALUES(${companyId},${data.userId},${data.template},${JSON.stringify(data.capabilities)}::jsonb,${JSON.stringify(data.branches)}::jsonb,${userId})
+          ON CONFLICT(company_id,user_id) DO UPDATE SET template=EXCLUDED.template,capabilities=EXCLUDED.capabilities,
+          branches=EXCLUDED.branches,updated_by=EXCLUDED.updated_by,updated_at=clock_timestamp()`);
+      });
       await recordAudit(req, { action: "update", entity: "return_access", details: JSON.stringify(data) });
       res.json({ ok: true }); return;
     }
@@ -349,14 +366,39 @@ router.post("/pos/returns/actions", async (req, res): Promise<void> => {
       const data = z.object({ branchId: z.number().int().min(0), approvalAbove: z.number().nonnegative().max(999999999)
         .refine(v => Math.round(v * 100) / 100 === v).nullable(), allowResale: z.boolean() }).parse(b.payload);
       if (data.branchId) await returnAuthorize(userId, companyId, "configure", data.branchId);
-      await pool.query(`INSERT INTO return_policies(company_id,branch_id,approval_above,allow_resale) VALUES($1,$2,$3,$4)
-        ON CONFLICT(company_id,branch_id) DO UPDATE SET approval_above=EXCLUDED.approval_above,allow_resale=EXCLUDED.allow_resale`,
-      [companyId, data.branchId, data.approvalAbove, data.allowResale]);
+      await db.transaction(async tx => {
+        await lockApprovalAuthorityWrite(tx);
+        await returnAuthorize(userId, companyId, "configure", data.branchId || undefined, tx);
+        await tx.execute(sql`INSERT INTO return_policies(company_id,branch_id,approval_above,allow_resale)
+          VALUES(${companyId},${data.branchId},${data.approvalAbove},${data.allowResale})
+          ON CONFLICT(company_id,branch_id) DO UPDATE SET approval_above=EXCLUDED.approval_above,allow_resale=EXCLUDED.allow_resale`);
+      });
       await recordAudit(req, { action: "update", entity: "return_policy", details: JSON.stringify(data) });
       res.json({ ok: true }); return;
     }
     const result = await db.transaction(async tx => {
       await lockApprovalAuthority(tx);
+      if (b.action === "receive") {
+        const input = z.object({ noteId: id, reference: z.string().min(3).max(200) })
+          .refine(v => v.reference.trim().length >= 3, { message: "يلزم دليل استلام بمحتوى فعلي" }).parse(b.payload);
+        const [note] = await tx.select().from(creditNotesTable).where(and(
+          eq(creditNotesTable.id, input.noteId), eq(creditNotesTable.companyId, companyId))).for("update");
+        if (!note) fail("المرتجع غير متاح", 404);
+        const grants = await scopedReturnGrants(tx, userId, companyId, note.id, "pos.return.receive");
+        if (grants && !grants.length) fail("لا تملك صلاحية استلام هذا المصدر والمستودع", 403);
+        const [control] = await query(tx, sql`SELECT * FROM return_controls WHERE note_id=${note.id} AND company_id=${companyId}`);
+        if (!control) fail("مصدر المرتجع غير متاح", 404);
+        if (!grants) await returnAuthorize(userId, companyId, "receive", Number(control.branch_id), tx);
+        if (!control?.receipt_required) fail("هذا المرتجع لا ينتظر استلامًا مستقلًا", 409);
+        if (control.received_by) {
+          if (Number(control.received_by) !== userId || control.receipt_reference !== input.reference) fail("أثبت الاستلام سابقًا بهوية أو دليل مختلف", 409);
+          return note;
+        }
+        await assertDeferredReturnApproval(note.id, companyId, tx);
+        await tx.execute(sql`UPDATE return_controls SET received_by=${userId},received_at=clock_timestamp(),
+          receipt_reference=${input.reference} WHERE note_id=${note.id} AND company_id=${companyId}`);
+        return finalizeCreditNoteIssue(note.id, userId, companyId, undefined, tx);
+      }
       if (b.action === "payout") return payout(tx, companyId, userId, b.payload);
       if (b.action === "expense") return cashExpense(tx, companyId, userId, b.payload);
       if (b.action === "confirm_external" || b.action === "cancel_payout") return changePayout(tx, companyId, userId, b.payload, b.action === "cancel_payout");

@@ -77,7 +77,7 @@ function RequestForm({ inv, policies, branchName, onDone }: { inv: Rec; policies
     const ok = await d.send(() => ({
       invoiceId: num(inv.id), customerId: num(inv.customer_id), warehouseId: num(inv.warehouse_id),
       lines: chosen.map(({ l, q }) => ({ invoiceLineId: num(l.id), productId: num(l.product_id), description: str(l.description), quantity: q, unitPrice: num(l.unit_price), taxRate: num(l.tax_rate) })),
-      reason: reason.trim(), disposition, restock: disposition === "resale", settlementMethod: settlement, proofRef: proofRef.trim(),
+      reason: reason.trim(), disposition, restock: disposition === "resale", goodsReceived: false, settlementMethod: settlement, proofRef: proofRef.trim(),
     }));
     if (ok) {
       toast({ title: "سُجّل طلب الإرجاع", description: "الحالة الفعلية (مسجّل أو بانتظار اعتماد) تظهر من الخادم." });
@@ -129,7 +129,7 @@ function RequestForm({ inv, policies, branchName, onDone }: { inv: Rec; policies
               <option value="discard">{DISPOSITIONS.discard}</option>
               <option value="resale" disabled={!resaleAllowed}>{DISPOSITIONS.resale}{resaleAllowed ? "" : " — غير مسموح بسياسة الفرع"}</option>
             </select>
-            <p className="mt-1 text-[11px] text-muted-foreground">{disposition === "resale" ? "ستُعاد الكميات للمخزون." : "لن تُعاد أي كمية للمخزون."}</p>
+            <p className="mt-1 text-[11px] text-muted-foreground">{disposition === "resale" ? "للمسؤولية المقيدة: الطلب لا يثبت الاستلام؛ تعاد الكميات بعد الاعتماد وإثبات الاستلام المخول." : "لن تُعاد أي كمية للمخزون."}</p>
           </div>
           <div><Label>طريقة التسوية</Label>
             <select className={field} value={settlement} onChange={(e) => setSettlement(e.target.value)}>

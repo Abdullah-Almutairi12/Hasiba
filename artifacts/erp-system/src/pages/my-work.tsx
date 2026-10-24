@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { actionLabel, posResponsibilitySummary } from "@/lib/pos-actions";
 import { Link, useLocation } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -154,7 +155,8 @@ export default function MyWorkPage() {
           <div className="flex-1">
             <p className="font-bold">نقطة بيع {branchName(selectedGrant.branchId)}</p>
             <p className="text-sm text-muted-foreground">
-              البيع نقدًا فقط ضمن هذا الفرع{selectedGrant.amountLimit ? `، بسقف ${selectedGrant.amountLimit} ر.س للعملية` : ""}. التكلفة مخفية، والخصومات اليدوية وطرق الدفع الأخرى مرفوضة.
+              {posResponsibilitySummary(selectedGrant.actions, access.deniedActions)}
+              {selectedGrant.amountLimit ? ` · سقف المسؤولية ${selectedGrant.amountLimit} ر.س للعملية` : ""}
             </p>
           </div>
           <Link href="/pos" className="inline-flex h-10 items-center rounded-md bg-primary px-5 text-sm font-medium text-primary-foreground" data-testid="link-open-pos">فتح نقطة البيع</Link>
@@ -181,7 +183,7 @@ function GrantTile({ grant, branch, selected, denied, onSelect }: { grant: TeamG
         </div>
       </div>
       <div className="mt-3 flex flex-wrap gap-1">
-        {actions.map((a) => <span key={a} className="rounded-md bg-muted px-2 py-0.5 text-[11px]">{a}</span>)}
+        {actions.map((a) => <span key={a} className="rounded-md bg-muted px-2 py-0.5 text-[11px]">{actionLabel(a)}</span>)}
       </div>
       {(grant.startsAt || grant.endsAt || !usable) && (
         <p className="mt-2 flex items-center gap-1 text-[11px] text-muted-foreground">

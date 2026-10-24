@@ -1,5 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { ACTION_LABEL, actionLabel, applyReturnMode, canReachReturns, returnMode, splitAllowed } from "./pos-actions";
+import { ACTION_LABEL, actionLabel, applyReturnMode, canReachReturns, returnMode, splitAllowed, posResponsibilitySummary } from "./pos-actions";
+
+describe("effective responsibility descriptions", () => {
+  it("describes the granted manual tender, discount and branch-wide closing in Arabic", () => {
+    const actions = ["pos.read","pos.sell","pos.payment.record","pos.discount","pos.shift.close"];
+    expect(posResponsibilitySummary(actions)).toContain("تحصيل غير نقدي");
+    expect(posResponsibilitySummary(actions)).toContain("الخصم متاح");
+    expect(posResponsibilitySummary(actions)).toContain("لا ورديتك وحدها");
+    expect(posResponsibilitySummary(actions, ["pos.discount","pos.payment.record"])).toContain("نقدي فقط");
+    expect(posResponsibilitySummary(actions, ["pos.discount"])).toContain("الخصم غير ممنوح");
+    expect(actionLabel("pos.shift.close")).toContain("ولو فتحها زميل");
+  });
+});
 
 describe("pos action labels", () => {
   it("labels every new POS key in Arabic, never raw", () => {

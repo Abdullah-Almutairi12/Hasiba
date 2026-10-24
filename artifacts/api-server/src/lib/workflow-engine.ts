@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction } from "express";
 import { managedProfile, selectedResponsibility } from "./responsibility-context";
+import { assertScopedReturnReview, scopedReturnGrants } from "./scoped-return-review";
 import {
   db,
   approvalRulesTable,
@@ -489,6 +490,51 @@ export async function assertDeferredPosApproval(
   }
 }
 
+async function returnDecisionAuthorities(request: typeof approvalRequestsTable.$inferSelect, userId: number,
+  connection: DbOrTx, delayed = false): Promise<string[]> {
+  const scoped = await scopedReturnGrants(connection, userId, request.companyId!, request.recordId, "pos.return.approve", delayed);
+  if (scoped) return scoped.map(g => g.fingerprint);
+  const actor = await approvalViewer(userId, request, connection);
+  if (!actor || !actor.capabilities.includes("approve")) return [];
+  const cap = await financialPolicy(request.companyId!, actor.role, "sales.credit_note_amount", connection);
+  if (cap.blocked || cap.max != null && Number(request.amount) > cap.max) return [];
+  const policy = await connection.execute(sql`SELECT * FROM return_policies WHERE company_id=${request.companyId!}
+    AND branch_id IN (0,${request.branchId ?? 0}) ORDER BY branch_id DESC LIMIT 1`);
+  return [authorityFingerprint({ version: 1, actor, cap, companyId: request.companyId, branchId: request.branchId,
+    recordId: request.recordId, returnPolicy: policy.rows[0] ?? null })];
+}
+
+/** Receipt execution is a new financial acceptance, not replay of the decision. */
+export async function assertDeferredReturnApproval(noteId: number, companyId: number, connection: DbOrTx) {
+  await lockApprovalAuthority(connection);
+  const controls = await connection.execute(sql`SELECT approval_id FROM return_controls
+    WHERE note_id=${noteId} AND company_id=${companyId}`);
+  const [request] = await connection.select().from(approvalRequestsTable).where(and(
+    eq(approvalRequestsTable.id, Number(controls.rows[0]?.approval_id ?? -1)),
+    eq(approvalRequestsTable.companyId, companyId))).for("update");
+  if (!request || request.docType !== "credit_note" || request.recordId !== noteId ||
+    request.status !== "approved" || request.reviewInvalidatedAt || !await approvalSourceMatches(request, connection)) {
+    throw new FinancialRequestError("يلزم اعتماد مرتجع صالح لم يتغير مصدره قبل الاستلام", 409);
+  }
+  await assertReturnSnapshot(connection, noteId);
+  const policy = frozenApprovalPolicy(request);
+  const actions = await connection.select().from(approvalActionsTable).where(and(
+    eq(approvalActionsTable.requestId, request.id), eq(approvalActionsTable.action, "approve")));
+  if (!policy?.steps.length || actions.length !== policy.steps.length) throw new FinancialRequestError("سلسلة اعتماد المرتجع غير مكتملة", 403);
+  for (const step of policy.steps) {
+    const matches = actions.filter(a => a.stepSequence === step.sequence);
+    const action = matches[0];
+    if (matches.length !== 1 || !action.approverUserId || !action.authorityFingerprint ||
+      !(await returnDecisionAuthorities(request, action.approverUserId, connection, true)).includes(action.authorityFingerprint)) {
+      throw new FinancialRequestError("سحبت أو تغيرت أهلية معتمد المرتجع؛ يلزم مراجعة جديدة قبل التنفيذ", 403);
+    }
+    if (request.ruleId != null && !(await resolveApprovers(step.approverRole, step.approverUserId,
+      request.branchId, companyId, connection, request)).includes(action.approverUserId)) {
+      throw new FinancialRequestError("المعتمد لم يعد مؤهلًا في تسلسل المراجعة", 403);
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Approver acts on a request.
 // ---------------------------------------------------------------------------
@@ -512,6 +558,7 @@ export async function actionableApprovalSteps(
     if (control) {
       try {
         await returnAuthorize(userId, request.companyId!, "approve", Number(control.branch_id), connection);
+        await assertScopedReturnReview(connection, userId, request.companyId!, request.recordId);
         await assertReturnSnapshot(connection, request.recordId);
         nativeReturnApprover = request.ruleId == null;
       } catch (error) {
@@ -619,6 +666,7 @@ async function actOnApprovalTransaction(
       if (Number(control.company_id) !== companyId) throw new FinancialRequestError("مصدر المرتجع لا يطابق شركة المراجعة", 403);
       if (!userId) throw new Error("يلزم معتمد مسجل");
       await returnAuthorize(userId, Number(control.company_id), "approve", Number(control.branch_id), db);
+      await assertScopedReturnReview(db, userId, companyId, request.recordId);
       await assertReturnSnapshot(db, request.recordId);
       returnApprover = true;
     }
@@ -736,9 +784,15 @@ async function actOnApprovalTransaction(
     : steps.every(s => approvedSeq.has(s.sequence) || s.sequence === actingStep)
       ? { status: "approved", finished: true } : { status: "pending", finished: false };
   const authority = action === "approve" && request.docType === "pos_over_limit" && userId != null
-    ? await posDecisionAuthority(request, steps.find(s => s.sequence === actingStep)!, userId, db) : null;
+    ? await posDecisionAuthority(request, steps.find(s => s.sequence === actingStep)!, userId, db)
+    : action === "approve" && request.docType === "credit_note" && userId != null
+      ? (await returnDecisionAuthorities(request, userId, db))[0] ?? null : null;
   if (action === "approve" && request.docType === "pos_over_limit" && !authority) {
     throw new FinancialRequestError("صلاحية المعتمد الحالية أو حده المالي لا يسمحان بهذه العملية", 403);
+  }
+  if (action === "approve" && request.docType === "credit_note" && !authority) {
+    const operational = await db.execute(sql`SELECT note_id FROM return_controls WHERE note_id=${request.recordId} AND company_id=${companyId}`);
+    if (operational.rows.length) throw new FinancialRequestError("صلاحية معتمد المرتجع أو حده المالي غير متاحين", 403);
   }
   await db.insert(approvalActionsTable).values({
     requestId,

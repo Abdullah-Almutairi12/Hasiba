@@ -43,3 +43,9 @@ Live expiry checks must use the actual validation time after waiting for authori
 **Why:** PostgreSQL transaction time stays frozen while a transaction waits. A grant or invitation can expire during that wait yet still look valid against the older timestamp.
 
 **How to apply:** Use the authoritative wall clock for execution-time grant/delegation/token validity. Keep that separate from historical document and decision timestamps, which must remain unchanged.
+
+Deferred execution by a different employee must validate the original reviewer's grant independently of the executor's selected responsibility. Match the historical decision fingerprint against that reviewer's currently valid source-bound candidates; do not union their grants or borrow the receiver's context.
+
+**Why:** Selection belongs to an authenticated request and actor. During independent goods receipt it is the receiver's selection, not proof of the approver's authority. Treating it as the approver's selection either rejects legitimate separation or silently grants the wrong scope.
+
+**How to apply:** Bind the decision to the exact grant, profile revision, financial policy and native source. Revalidate under the authority fence before a new financial effect, retaining old decision evidence on revocation or source changes.

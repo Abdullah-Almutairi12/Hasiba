@@ -6,12 +6,21 @@ import type { DbOrTx } from "./journal-posting";
 import { supplyScope } from "./supply-chain-scope";
 import { paymentRunsTable } from "@workspace/db";
 import { frozenApprovalPolicy } from "./approval-policy";
+import { scopedReturnGrants } from "./scoped-return-review";
 
 type ApprovalSourceScope = Pick<typeof approvalRequestsTable.$inferSelect, "companyId" | "branchId" | "recordId" | "docType">;
 export async function approvalViewer(userId: number, request: ApprovalSourceScope,
   connection: DbOrTx = db, existingActor?: Awaited<ReturnType<typeof returnActor>>) {
   if (request.companyId == null) return null;
-  const actor = existingActor ?? await returnActor(userId, request.companyId, connection);
+  let actor = existingActor ?? await returnActor(userId, request.companyId, connection);
+  if (request.docType === "credit_note") {
+    const grants = await scopedReturnGrants(connection, userId, request.companyId, request.recordId);
+    if (grants) {
+      if (!grants.length) return null;
+      actor = { ...actor, branches: [grants[0].grant.branchId],
+        capabilities: ["view", ...(grants.some(g => g.grant.actions.includes("pos.return.approve")) ? ["approve"] : [])] };
+    }
+  }
   if (request.branchId != null && actor.branches != null && !actor.branches.includes(request.branchId)) return null;
   if (!await approvalSourceAllowed(request.companyId, userId, request, actor, connection)) return null;
   if (["leave_request", "expense_claim"].includes(request.docType) &&
@@ -44,6 +53,9 @@ async function approvalSourceAllowed(companyId: number, userId: number, request:
         WHERE s.id=${request.recordId} AND s.company_id=${companyId}`);
   const row = result.rows[0]?.source as Record<string, unknown> | undefined;
   if (!row) return false;
+  if (actor.role === "scoped" && request.docType === "credit_note") {
+    return Boolean((await scopedReturnGrants(connection, userId, companyId, request.recordId))?.length);
+  }
   if (!["owner", "manager", "accountant", "auditor", ...(request.docType === "sales_order" || request.docType.startsWith("credit_note") ? ["sales"] : []),
     ...(request.docType === "expense_claim" ? ["hr"] : [])].includes(actor.role)) return false;
   if (actor.custom && !actor.capabilities.includes(request.docType === "expense_claim" ? "hr_view" : "view")) return false;

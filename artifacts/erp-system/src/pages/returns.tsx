@@ -155,10 +155,13 @@ function NoteCard({ note: n, payouts, sessions, invoices, can, branchName }: {
   const id = str(n.id);
   const durable = useDurableAction("payout", id);
   const [paying, setPaying] = useState(false);
+  const receiver = useAct();
+  const [receiptRef, setReceiptRef] = useState("");
+  const [receiptError, setReceiptError] = useState("");
   const st = str(n.status);
   const remaining = num(n.remaining) ?? 0;
   const notePayouts = payouts.filter((p) => str(p.note_id) === id);
-  const pending = st.toLowerCase().includes("pending");
+  const pending = st.toLowerCase().includes("pending") && n.review_status !== "approved";
   const showForm = paying || durable.frozen;
 
   return (
@@ -191,6 +194,26 @@ function NoteCard({ note: n, payouts, sessions, invoices, can, branchName }: {
           <Fig l="المتاح للصرف بعد الحجز" v={money(n.remaining)} />
         </div>
       </div>
+
+      {n.receipt_required === true && (
+        <section className="mt-3 rounded-xl border p-3 text-sm" aria-label="إثبات استلام المرتجع">
+          {n.received_by != null ? <p>أُثبت الاستلام بواسطة #{str(n.received_by)} · {str(n.receipt_reference)}</p> : <>
+            <p className="font-semibold">{n.review_status === "approved" ? "معتمد — ينتظر استلام البضاعة الفعلي قبل الترحيل والاسترداد" : "لم تثبت إعادة البضاعة؛ الطلب وحده لا يعيد المخزون"}</p>
+            {can("receive") && n.review_status === "approved" && <div className="mt-2 flex flex-wrap items-end gap-2">
+              <label className="flex-1">مرجع محضر الاستلام الفعلي
+                <input className="mt-1 w-full rounded border bg-background p-2" value={receiptRef} disabled={receiver.pending}
+                  onChange={e => setReceiptRef(e.target.value)} />
+              </label>
+              <Button disabled={receiver.pending || receiptRef.trim().length < 3} onClick={() => void (async () => {
+                setReceiptError("");
+                const result = await receiver.run("receive", { noteId: num(n.id), reference: receiptRef });
+                if (!result.ok) setReceiptError(result.err.message);
+              })()}>إثبات الاستلام وترحيل المرتجع</Button>
+            </div>}
+            {receiptError && <p role="alert" className="mt-2 text-destructive">{receiptError}</p>}
+          </>}
+        </section>
+      )}
 
       {notePayouts.length > 0 && (
         <ul className="mt-3 space-y-1 border-t border-border pt-3 text-xs">

@@ -97,7 +97,7 @@ export default function PosIconic({
   const vatUnknown = isScoped && scopedVat === null;
   const vatEnabled = isScoped ? scopedVat === true : ownerVat;
   const scopedCaps = scopedCheckoutCaps(isScoped ? selectedResp?.resource === "pos" ? selectedResp.actions : [] : null);
-  const discountAllowed = !isScoped || scopedCaps.discount;
+  const discountAllowed = !isScoped || scopedCaps.discount || selectedResp?.actions.includes("pos.discount.request");
   const scopedBranchId = isScoped ? (selectedResp?.resource === "pos" ? selectedResp.branchId : -1) : null;
   const queryClient = useQueryClient();
   const checkout = usePosCheckout(user?.companyId ? `${user.id}:${user.companyId}` : null);
@@ -212,7 +212,7 @@ export default function PosIconic({
   // Server-side over-limit review (pos_over_limit approval request).
   const [review, setReview] = useState<ReviewState | null>(null);
   const reviewQ = useGetApprovalRequest(review?.id ?? 0, {
-    query: { queryKey: getGetApprovalRequestQueryKey(review?.id ?? 0), enabled: !!review?.id && !isScoped, retry: false, refetchInterval: 15_000 },
+    query: { queryKey: getGetApprovalRequestQueryKey(review?.id ?? 0), enabled: !!review?.id, retry: false, refetchInterval: 15_000 },
   });
   const reviewStatus = reviewQ.data?.status ?? null;
   const net = Math.max(0, subtotal - discount);
@@ -379,12 +379,12 @@ export default function PosIconic({
       discount: isScoped ? scopedBodyDiscount(selectedResp?.actions, discount) : discount,
       paymentMethod,
       ...sellerFields,
-      ...(!isScoped && opts?.approvalRequestId ? { approvalRequestId: opts.approvalRequestId } : {}),
+      ...(opts?.approvalRequestId ? { approvalRequestId: opts.approvalRequestId } : {}),
     };
     const usedApproval = !checkout.attempt ? opts?.approvalRequestId ?? null : null;
     const created = await checkout.pay(body, cart, {
       onRejected: (status, data) => {
-        if (isScoped || status !== 403) return;
+        if (status !== 403) return;
         const d = (data ?? {}) as { requiresManagerApproval?: boolean; approvalRequestId?: number | null; error?: string; max?: number | null; attempted?: number };
         if (d.requiresManagerApproval) {
           // Server opened (or deduped) a pending pos_over_limit request.
@@ -1373,7 +1373,7 @@ function DiscountReviewPanel({ scoped = false, pct, setPct, valid, discount, net
       </label>
       <p id="discount-hint" className={valid ? "text-neutral-500" : "font-semibold text-red-700 dark:text-red-300"} data-testid="text-discount-hint">
         {valid ? scoped
-          ? `الخصم ${discount.toFixed(2)}. يُقبل فقط ضمن الحد المالي الذي ضبطه المالك لدور «مستخدم بصلاحيات محددة»؛ بلا حد مضبوط يُرفض أي خصم موجب. لا تجاوز مدير ولا طلب اعتماد من هنا.`
+          ? `الخصم ${discount.toFixed(2)}. التنفيذ ضمن المنحة وحد الشركة؛ إذن طلب الاستثناء لا يطبق الخصم حتى اعتماد مستقل لهذه العملية. لا دخول أو جلسة مدير للكاشير.`
           : `الخصم ${discount.toFixed(2)}. إن تجاوز حدك يفتح الخادم طلب اعتماد ولا يُعتمد تلقائيًا.` : "النسبة يجب أن تكون بين 0 و100."}
       </p>
       {review && (

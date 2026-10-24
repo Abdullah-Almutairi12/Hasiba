@@ -10,11 +10,13 @@ export const ACTION_LABEL: Record<string, string> = {
   "pos.read": "فتح نقطة البيع (عرض)",
   "pos.sell": "البيع وتحصيل النقد",
   "pos.shift.open": "فتح وردية",
-  "pos.shift.close": "إغلاق ورديته ومطابقة الدرج",
+  "pos.shift.close": "عد وإقفال ورديات الفرع المحدد، ولو فتحها زميل",
   "pos.shift.difference": "اعتماد فرق درج لوردية زميل",
   "pos.payment.record": "تسجيل دفع يدوي غير نقدي أو آجل (دون بوابة)",
   "pos.discount": "منح خصم ضمن السياسة المالية القائمة",
+  "pos.discount.request": "طلب استثناء خصم بموافقة مستقلة للعملية",
   "pos.return.request": "طلب إرجاع (يحتاج اعتمادًا)",
+  "pos.return.approve": "اعتماد مرتجع شخص آخر ضمن الفرع والمستودع وحد المبلغ",
   "pos.return.direct": "إرجاع مباشر إن سمحت سياسة الفرع",
   "pos.return.receive": "استلام المرتجع فعليًا وإعادته للمخزون",
   "pos.return.payout": "صرف رد نقدي أو طلب رد يدوي",
@@ -28,7 +30,18 @@ export function actionLabel(key: string, catalogLabel?: string | null): string {
   return `إجراء غير معروف (${key})`;
 }
 
-export const RETURN_ACTIONS = ["pos.return.request", "pos.return.direct", "pos.return.receive", "pos.return.payout", "pos.return.external"] as const;
+/** Describe the effective grant, not an obsolete fixed cashier template. */
+export function posResponsibilitySummary(actions: readonly string[], denied: readonly string[] = []): string {
+  const effective = actions.filter(a => !denied.includes(a));
+  const caps = scopedCheckoutCaps(effective);
+  return [
+    caps.sell ? (caps.recordTender ? "بيع نقدي وتسجيل تحصيل غير نقدي أو آجل يدويًا؛ دون اتصال بشبكة دفع" : "بيع وتحصيل نقدي فقط") : "لا تتضمن هذه المسؤولية تنفيذ بيع",
+    caps.discount ? "الخصم متاح ضمن سياسة الشركة وحدودها" : effective.includes("pos.discount.request") ? "طلب استثناء خصم فقط؛ لا ينفذ قبل اعتماد مستقل للعملية" : "الخصم غير ممنوح",
+    effective.includes("pos.shift.close") ? "الإقفال يشمل ورديات هذا الفرع المصرح، لا ورديتك وحدها؛ اعتماد الفرق إذن مستقل" : "إقفال الوردية غير ممنوح",
+  ].join(". ");
+}
+
+export const RETURN_ACTIONS = ["pos.return.request", "pos.return.approve", "pos.return.direct", "pos.return.receive", "pos.return.payout", "pos.return.external"] as const;
 
 export type ReturnMode = "deny" | "approval" | "direct" | "custom";
 
@@ -54,7 +67,7 @@ export function applyReturnMode(actions: string[], mode: Exclude<ReturnMode, "cu
 }
 
 export const RETURN_MODE_LABEL: Record<ReturnMode, string> = {
-  deny: "ممنوع من الإرجاع",
+  deny: "ممنوع من إنشاء طلب إرجاع؛ المراجعة والاستلام والصرف أذونات مستقلة",
   approval: "طلب إرجاع بانتظار اعتماد",
   direct: "إرجاع مباشر إن سمحت السياسة (وإلا يتحول لطلب)",
   custom: "تركيبة مخصصة",
@@ -96,5 +109,5 @@ export function scopedCheckoutCaps(actions: readonly string[] | null | undefined
 
 /** Body discount for a managed checkout: zero unless pos.discount is held. */
 export function scopedBodyDiscount(actions: readonly string[] | null | undefined, discount: number): number {
-  return scopedCheckoutCaps(actions).discount ? discount : 0;
+  return scopedCheckoutCaps(actions).discount || actions?.includes("pos.discount.request") ? discount : 0;
 }

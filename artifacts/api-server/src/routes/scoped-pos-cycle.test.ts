@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import request from "supertest";
 import bcrypt from "bcryptjs";
-import { randomUUID } from "node:crypto";
+import { randomUUID, createHash } from "node:crypto";
 import { db, pool, companiesTable, usersTable, userCompaniesTable, branchesTable, warehousesTable,
   categoriesTable, productsTable, employeesTable, fiscalYearsTable, fiscalPeriodsTable } from "@workspace/db";
 import app, { assertApplicationReady } from "../app";
@@ -69,12 +69,26 @@ async function fixture(legacy: boolean, extraActions: string[] = []) {
   return { owner, agent, get, post, action, company: c.id, branch: b.id, wh: w.id, product: p.id, person, employee, identityId, grant };
 }
 type Fixture = Awaited<ReturnType<typeof fixture>>;
+async function anotherActor(f: Fixture, actions: string[]) {
+  const person = { ...f.person, creationKey: randomUUID(), email: `${randomUUID()}@example.invalid`,
+    grants: [{ ...f.person.grants[0], actions }] };
+  let employee = ok(await f.owner.post("/api/team/people").send(person), 201);
+  const invite = ok(await f.owner.post(`/api/team/people/${employee.personId}/invite`).send({ expectedRevision: employee.revision }), 201);
+  ok(await request(app).post("/api/auth/team-activation/accept").send({ token: invite.activationToken, password }));
+  employee = ok(await f.owner.get("/api/team/people")).find((x: any) => x.personId === employee.personId);
+  const agent = actorAgent();
+  ok(await agent.post("/api/auth/login").send({ email: person.email, password }));
+  const grant = ok(await agent.get("/api/workspace/access")).grants[0];
+  return { employee, person, agent, grant, action: (action: string, payload: unknown) =>
+    agent.post("/api/pos/returns/actions").set("X-Workspace-Responsibility", String(grant.id)).send({ action, payload }) };
+}
 async function openAndSell(f: Fixture, method = "cash") {
   const session = ok(await f.post("/pos/sessions", { branchId: f.branch, openingCash: 20, cashierName: "اسم الطلب" }), 201);
   const sale = ok(await f.post("/pos/orders", { sessionId: session.id, paymentMethod: method,
     items: [{ productId: f.product, quantity: 1, unitPrice: 10 }] }), 201);
   const invoice = ok(await f.get("/pos/returns/workspace")).invoices[0];
   const noteBody = { customerId: invoice.customer_id, invoiceId: invoice.id, warehouseId: f.wh, restock: true,
+    goodsReceived: true,
     disposition: "resale", settlementMethod: method, proofRef: "دليل استحقاق معزول", reason: "مرتجع اختبار",
     lines: [{ invoiceLineId: invoice.lines[0].id, productId: f.product, description: "منتج", quantity: 1, unitPrice: 10, taxRate: 0 }],
     idempotencyKey: randomUUID() };
@@ -97,6 +111,115 @@ async function evidence(f: Fixture) {
 }
 
 describe("native POS lifecycle for new and converted scoped employees", () => {
+  it("requests an exact-operation discount exception without manager session or direct discount permission", async () => {
+    const f = await fixture(false);
+    await changeActions(f, ["pos.read","pos.sell","pos.shift.open","pos.discount.request"]);
+    const session = ok(await f.post("/pos/sessions",{branchId:f.branch,openingCash:20,cashierName:"طالب استثناء"}),201);
+    const body = {sessionId:session.id,paymentMethod:"cash",discount:1,items:[{productId:f.product,quantity:1}]};
+    const before = await evidence(f);
+    const pending = ok(await f.post("/pos/orders",body),403);
+    expect(pending.requiresManagerApproval).toBe(true);
+    expect(pending.approvalRequestId).toBeTypeOf("number");
+    expect(await evidence(f)).toEqual(before);
+    const [manager] = await db.insert(usersTable).values({name:"مراجع استثناء معزول",email:`${randomUUID()}@example.invalid`,
+      passwordHash:await bcrypt.hash(password,4),role:"manager",branchId:f.branch}).returning();
+    await db.insert(userCompaniesTable).values({userId:manager.id,companyId:f.company,role:"manager",isDefault:true});
+    const reviewer = actorAgent();
+    ok(await reviewer.post("/api/auth/login").send({email:manager.email,password}));
+    for (let round=0; round<3; round++) {
+      for (const authority of [reviewer, f.owner]) {
+        const detail = ok(await authority.get(`/api/workflow/approval-requests/${pending.approvalRequestId}`));
+        if (detail.status === "approved") break;
+        const step = detail.actionableSteps[0];
+        if (step) ok(await authority.post(`/api/workflow/approval-requests/${pending.approvalRequestId}/act`).send({
+          action:"approve",comment:"اعتماد عملية لا ترقية جلسة",stepToken:step.stepToken,decisionId:randomUUID(),
+        }));
+      }
+      if (ok(await f.get(`/workflow/approval-requests/${pending.approvalRequestId}`)).status === "approved") break;
+    }
+    expect(ok(await f.get(`/workflow/approval-requests/${pending.approvalRequestId}`)).status).toBe("approved");
+    const key = randomUUID(), approved = {...body,approvalRequestId:pending.approvalRequestId};
+    const sale = ok(await f.post("/pos/orders",approved,key),201);
+    expect(Number(sale.total)).toBe(9);
+    expect(ok(await f.post("/pos/orders",approved,key),201).id).toBe(sale.id);
+    expect((await f.get("/workspace/access")).body.grants[0].actions).not.toContain("pos.discount");
+    ok(await f.post("/pos/orders",{...body,managerOverride:{email:manager.email,password}}),403);
+  });
+  it.each(["amount","warehouse","branch"] as const)("rejects scoped return approval outside its %s", async kind => {
+    const f = await fixture(false), sale = await openAndSell(f);
+    await changeActions(f, ["pos.read","pos.return.request"]);
+    const reviewer = await anotherActor(f, ["pos.read","pos.return.approve"]);
+    const note = ok(await f.action("request",{...sale.noteBody,goodsReceived:false}),202);
+    let branch = f.branch;
+    if (kind === "branch") branch = (await db.insert(branchesTable).values({companyId:f.company,name:randomUUID(),nameAr:"فرع آخر مصطنع",city:"الرياض"}).returning())[0].id;
+    const warehouse = kind === "amount" ? f.wh : (await db.insert(warehousesTable)
+      .values({companyId:f.company,branchId:branch,name:randomUUID(),nameAr:"مستودع آخر مصطنع"}).returning())[0].id;
+    const changed = ok(await f.owner.put(`/api/team/people/${reviewer.employee.personId}/access`).send({
+      expectedRevision:reviewer.employee.revision,person:{...reviewer.person,grants:[{
+        ...reviewer.person.grants[0],branchId:branch,warehouseIds:[warehouse],amountLimit:kind==="amount"?"5":"100",
+      }]},suspended:false }));
+    // Editing replaces the grant. The new header is explicit, not the revoked old selection.
+    const grants = ok(await reviewer.agent.get("/api/workspace/access")).grants;
+    const before = await evidence(f);
+    const denied = await reviewer.agent.post("/api/pos/returns/actions").set("X-Workspace-Responsibility", String(grants[0].id))
+      .send({action:"approve",payload:{noteId:note.id,comment:"يجب رفض خارج النطاق"}});
+    expect(denied.status).toBe(403);
+    expect(await evidence(f)).toEqual(before);
+    expect(changed.revision).toBeGreaterThan(reviewer.employee.revision);
+  });
+  it("separates requester, source-bound reviewer, physical receiver and payer, with one financial effect", async () => {
+    const f = await fixture(false), sale = await openAndSell(f);
+    await changeActions(f, ["pos.read","pos.return.request"]);
+    const reviewer = await anotherActor(f, ["pos.read","pos.return.approve"]);
+    const receiver = await anotherActor(f, ["pos.read","pos.return.receive"]);
+    const payer = await anotherActor(f, ["pos.read","pos.return.payout","pos.shift.close"]);
+    const note = ok(await f.action("request", {...sale.noteBody,goodsReceived:false}),202);
+    expect((await evidence(f)).stock[0].quantity).toBe("19.0000");
+    ok(await f.action("approve",{noteId:note.id,comment:"غير مخول"}),403);
+    ok(await f.action("receive",{noteId:note.id,reference:"غير مخول"}),403);
+    ok(await reviewer.action("receive",{noteId:note.id,reference:"غير مخول"}),403);
+    ok(await receiver.action("receive",{noteId:note.id,reference:"قبل الاعتماد"}),409);
+    ok(await reviewer.action("approve",{noteId:note.id,comment:"راجعت المصدر والمبلغ والمستودع"}));
+    expect((await evidence(f)).stock[0].quantity).toBe("19.0000");
+    expect((await rows("SELECT journal_entry_id FROM credit_notes WHERE id=$1",[note.id]))[0].journal_entry_id).toBeNull();
+    const receive = {noteId:note.id,reference:"استلام فعلي بموظف مستقل"};
+    const receipts = await Promise.all([receiver.action("receive",receive),receiver.action("receive",receive)]);
+    receipts.forEach(r => expect(ok(r).status).toBe("issued"));
+    const payout = {noteId:note.id,receiptId:sale.invoice.receipts[0].id,sessionId:sale.session.id,
+      amount:10,method:"cash",reference:"",delivered:true,idempotencyKey:randomUUID()};
+    ok(await f.action("payout",payout),403);
+    const paid = await Promise.all([payer.action("payout",payout),payer.action("payout",payout)]);
+    expect(ok(paid[0]).id).toBe(ok(paid[1]).id);
+    // Branch-closing permission deliberately includes a colleague's shift.
+    expect(ok(await payer.action("close",{sessionId:sale.session.id,counted:20,unresolvedSalesCleared:true})).difference).toBe("0.00");
+    const final = await evidence(f);
+    expect(final.stock[0].quantity).toBe("20.0000");
+    expect(final.payouts).toHaveLength(1);
+    expect((await rows(`SELECT count(*)::int AS n FROM
+      (SELECT j.id FROM journal_entries j JOIN journal_entry_lines l ON l.entry_id=j.id
+       WHERE j.company_id=$1 GROUP BY j.id HAVING sum(l.base_debit)<>sum(l.base_credit)) x`,[f.company]))[0].n).toBe(0);
+  });
+  it.each(["revoke","source","policy"] as const)("rejects delayed receipt after %s changes, preserving approved history and stock", async kind => {
+    const f = await fixture(true), sale = await openAndSell(f);
+    await changeActions(f, ["pos.read","pos.return.request"]);
+    const reviewer = await anotherActor(f, ["pos.read","pos.return.approve"]);
+    const receiver = await anotherActor(f, ["pos.read","pos.return.receive"]);
+    const note = ok(await f.action("request",{...sale.noteBody,goodsReceived:false}),202);
+    ok(await reviewer.action("approve",{noteId:note.id,comment:"اعتماد مصطنع"}));
+    const before = await evidence(f);
+    if (kind === "revoke") {
+      ok(await f.owner.put(`/api/team/people/${reviewer.employee.personId}/access`).send({
+        expectedRevision:reviewer.employee.revision,person:{...reviewer.person,
+          grants:[{...reviewer.person.grants[0],actions:["pos.read"]}]},suspended:false }));
+    } else if (kind === "source") await pool.query("UPDATE credit_notes SET reason='تعديل جوهري بعد الاعتماد' WHERE id=$1",[note.id]);
+    else ok(await f.owner.post("/api/pos/returns/actions").send({action:"configure_policy",
+      payload:{branchId:f.branch,approvalAbove:0,allowResale:false}}));
+    const rejected = await receiver.action("receive",{noteId:note.id,reference:"لن يرحل بعد التغيير"});
+    expect([403,409]).toContain(rejected.status);
+    expect(await evidence(f)).toEqual(before);
+    expect((await rows("SELECT a.status,c.received_by FROM return_controls c JOIN approval_requests a ON a.id=c.approval_id WHERE c.note_id=$1",[note.id]))[0])
+      .toEqual({status:"approved",received_by:null});
+  });
   it("bounds external confirmation by current amount authority but retains committed receipt recovery", async () => {
     const f=await fixture(false,["pos.return.external"]), sale=await openAndSell(f,"card");
     const note=ok(await f.action("request",sale.noteBody),201);
@@ -165,6 +288,7 @@ describe("native POS lifecycle for new and converted scoped employees", () => {
     const line = invoice.lines[0], receipt = invoice.receipts[0];
     for (let n=0; n<2; n++) {
       const req = { customerId: invoice.customer_id, invoiceId: invoice.id, warehouseId: f.wh, restock: true,
+        goodsReceived: true,
         disposition: "resale", settlementMethod: "cash", proofRef: `استلام فعلي تجريبي${n}`, reason: "مرتجع تجريبي",
         lines: [{ invoiceLineId: line.id, productId: f.product, description: "منتج الدورة", quantity: 1, unitPrice: 10, taxRate: 0 }],
         idempotencyKey: randomUUID() };
@@ -189,7 +313,7 @@ describe("native POS lifecycle for new and converted scoped employees", () => {
     expect((await rows("SELECT count(*)::int AS n FROM return_payouts WHERE company_id=$1",[f.company]))[0].n).toBe(2);
     expect((await rows("SELECT count(*)::int AS n FROM credit_notes WHERE company_id=$1",[f.company]))[0].n).toBe(2);
     expect((await rows("SELECT count(*)::int AS n FROM pos_orders WHERE company_id=$1",[f.company]))[0].n).toBe(2);
-  });
+  }, 60_000);
   it.each([false,true])("blocks positive discounts without owned scoped policy; never inherits legacy cashier cap (legacy=%s)", async legacy => {
     const f = await fixture(legacy);
     await rows("DELETE FROM financial_limits WHERE company_id=$1 AND role='scoped' AND action_key='pos.discount_pct'",[f.company]);
@@ -244,12 +368,26 @@ describe("native POS lifecycle for new and converted scoped employees", () => {
   it("records external refunds as pending until independent evidence, without claiming card network execution",async()=>{
     const f=await fixture(false,["pos.return.external"]),sale=await openAndSell(f,"card");
     const note=ok(await f.action("request",{...sale.noteBody,restock:false,disposition:"no_goods"}),201);
-    const refund=ok(await f.action("payout",{noteId:note.id,receiptId:sale.invoice.receipts[0].id,sessionId:sale.session.id,
-      amount:10,method:"card",reference:"طلب رد يدوي",idempotencyKey:randomUUID()}));
+    const intent={noteId:note.id,receiptId:sale.invoice.receipts[0].id,sessionId:sale.session.id,
+      amount:10,method:"card",reference:"طلب رد يدوي",idempotencyKey:randomUUID()};
+    const before = await evidence(f);
+    ok(await f.action("payout",{...intent,reference:"     "}),400);
+    expect(await evidence(f)).toEqual(before);
+    const refund=ok(await f.action("payout",intent));
     expect(refund.status).toBe("requested");
     ok(await f.action("close",{sessionId:sale.session.id,counted:20,unresolvedSalesCleared:true}),409);
     const proof={payoutId:refund.id,reference:"دليل مزود تجريبي بلا شبكة"};
+    ok(await f.action("confirm_external",{...proof,reference:"    "}),400);
     expect(ok(await f.action("confirm_external",proof)).status).toBe("external_confirmed");
+    // Reconstruct a pre-fix confirmed receipt in this disposable fixture.
+    // The old bytes/fingerprint must replay; content validation is not a rewrite.
+    const oldIntent = {...intent,reference:"     ",delivered:false};
+    const oldFingerprint=createHash("sha256").update(JSON.stringify({
+      noteId:note.id,receiptId:sale.invoice.receipts[0].id,sessionId:sale.session.id,amount:10,method:"card",
+      reference:oldIntent.reference,delivered:false,idempotencyKey:intent.idempotencyKey,userId:f.identityId,
+    })).digest("hex");
+    await pool.query("UPDATE return_payouts SET fingerprint=$1 WHERE id=$2",[oldFingerprint,refund.id]);
+    expect(ok(await f.action("payout",oldIntent)).id).toBe(refund.id);
     expect(ok(await f.action("confirm_external",proof)).status).toBe("external_confirmed");
     expect(ok(await f.action("close",{sessionId:sale.session.id,counted:20,unresolvedSalesCleared:true})).status).toBe("approved");
     expect((await evidence(f)).stock[0].quantity).toBe("19.0000");

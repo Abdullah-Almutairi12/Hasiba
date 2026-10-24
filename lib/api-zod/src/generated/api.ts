@@ -738,8 +738,8 @@ export const GetReturnWorkspaceResponse = zod.object({
 
 
 export const ReturnActionBody = zod.object({
-  "action": zod.enum(['request', 'approve', 'payout', 'confirm_external', 'cancel_payout', 'close', 'approve_close', 'expense', 'export', 'configure_access', 'configure_policy']),
-  "payload": zod.record(zod.string(), zod.unknown()).describe('Validated per action. Request uses invoiceId/customerId/warehouseId/lines/reason/disposition/settlementMethod/proofRef; payout uses noteId/receiptId/sessionId/amount/method/reference/delivered/idempotencyKey; close uses sessionId/counted/reason/unresolvedSalesCleared; configure_access uses userId/template/capabilities/branches; configure_policy uses branchId/approvalAbove/allowResale.')
+  "action": zod.enum(['request', 'approve', 'receive', 'payout', 'confirm_external', 'cancel_payout', 'close', 'approve_close', 'expense', 'export', 'configure_access', 'configure_policy']),
+  "payload": zod.record(zod.string(), zod.unknown()).describe('Validated per action. Request uses invoiceId/customerId/warehouseId/lines/reason/disposition/settlementMethod/proofRef and explicit goodsReceived (false waits for independent receipt for scoped stock returns). Receive uses noteId/reference and requires a valid unchanged approval plus a live source-bound receiving grant. Payout uses noteId/receiptId/sessionId/amount/method/reference/delivered/idempotencyKey; close uses sessionId/counted/reason/unresolvedSalesCleared and covers authorized branch shifts, not only the opener\'s shift; configure_access uses userId/template/capabilities/branches; configure_policy uses branchId/approvalAbove/allowResale.')
 })
 
 export const ReturnActionResponse = zod.record(zod.string(), zod.unknown())

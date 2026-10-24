@@ -2840,6 +2840,7 @@ export type ReturnActionBodyAction = typeof ReturnActionBodyAction[keyof typeof 
 export const ReturnActionBodyAction = {
   request: 'request',
   approve: 'approve',
+  receive: 'receive',
   payout: 'payout',
   confirm_external: 'confirm_external',
   cancel_payout: 'cancel_payout',
@@ -2852,13 +2853,13 @@ export const ReturnActionBodyAction = {
 } as const;
 
 /**
- * Validated per action. Request uses invoiceId/customerId/warehouseId/lines/reason/disposition/settlementMethod/proofRef; payout uses noteId/receiptId/sessionId/amount/method/reference/delivered/idempotencyKey; close uses sessionId/counted/reason/unresolvedSalesCleared; configure_access uses userId/template/capabilities/branches; configure_policy uses branchId/approvalAbove/allowResale.
+ * Validated per action. Request uses invoiceId/customerId/warehouseId/lines/reason/disposition/settlementMethod/proofRef and explicit goodsReceived (false waits for independent receipt for scoped stock returns). Receive uses noteId/reference and requires a valid unchanged approval plus a live source-bound receiving grant. Payout uses noteId/receiptId/sessionId/amount/method/reference/delivered/idempotencyKey; close uses sessionId/counted/reason/unresolvedSalesCleared and covers authorized branch shifts, not only the opener's shift; configure_access uses userId/template/capabilities/branches; configure_policy uses branchId/approvalAbove/allowResale.
  */
 export type ReturnActionBodyPayload = { [key: string]: unknown };
 
 export type ReturnActionBody = {
   action: ReturnActionBodyAction;
-  /** Validated per action. Request uses invoiceId/customerId/warehouseId/lines/reason/disposition/settlementMethod/proofRef; payout uses noteId/receiptId/sessionId/amount/method/reference/delivered/idempotencyKey; close uses sessionId/counted/reason/unresolvedSalesCleared; configure_access uses userId/template/capabilities/branches; configure_policy uses branchId/approvalAbove/allowResale. */
+  /** Validated per action. Request uses invoiceId/customerId/warehouseId/lines/reason/disposition/settlementMethod/proofRef and explicit goodsReceived (false waits for independent receipt for scoped stock returns). Receive uses noteId/reference and requires a valid unchanged approval plus a live source-bound receiving grant. Payout uses noteId/receiptId/sessionId/amount/method/reference/delivered/idempotencyKey; close uses sessionId/counted/reason/unresolvedSalesCleared and covers authorized branch shifts, not only the opener's shift; configure_access uses userId/template/capabilities/branches; configure_policy uses branchId/approvalAbove/allowResale. */
   payload: ReturnActionBodyPayload;
 };
 

@@ -518,6 +518,7 @@ router.post(
     const body = parsed.data;
 
     const discount = body.discount ?? 0;
+    let requestOnlyDiscount = false;
     const orderNumber = `ORD-${Date.now()}-${randomUUID().slice(0, 8)}`;
     const paymentIntentId = (body as { paymentIntentId?: number | null })
       .paymentIntentId ?? null;
@@ -695,7 +696,8 @@ router.post(
           grant.branchId !== session.branchId || !issueWarehouseId || !grant.warehouseIds.includes(issueWarehouseId)) {
           throw new FinancialRequestError("المسؤولية لا تجيز مستودع الصرف أو فرع العملية", 403);
         }
-        if (discount > 0 && !grant.actions.includes("pos.discount") ||
+        requestOnlyDiscount = !grant.actions.includes("pos.discount") && grant.actions.includes("pos.discount.request");
+        if (discount > 0 && !grant.actions.includes("pos.discount") && !requestOnlyDiscount ||
           !grant.actions.includes("pos.payment.record") && (
             body.paymentMethod !== "cash" || body.payments?.some(p => p.method !== "cash"))) {
           throw new FinancialRequestError("سحبت صلاحية الخصم أو التحصيل قبل تنفيذ البيع", 403);
@@ -804,6 +806,9 @@ router.post(
         throw new FinancialLimitError(key, pendingApprovalRow.approvedAmount,
           key === "pos.discount_pct" ? trustedDiscountPct : refundCash,
           "تغيرت تفاصيل السلة المحسوبة في الخادم؛ يلزم اعتماد جديد قبل الدفع");
+      }
+      if (requestOnlyDiscount && trustedDiscountPct > 0 && !pendingApprovalRow) {
+        throw new FinancialLimitError("pos.discount_pct", 0, trustedDiscountPct, "هذه المسؤولية تطلب استثناء خصم ولا تنفذه قبل اعتماد مستقل للعملية");
       }
       const dCheck = await checkFinancialLimit(companyId, overrideUserId ?? req.session.userId!, "pos.discount_pct", trustedDiscountPct, session.branchId, pendingApprovalRow?.id, tx);
       if (!dCheck.allowed) {

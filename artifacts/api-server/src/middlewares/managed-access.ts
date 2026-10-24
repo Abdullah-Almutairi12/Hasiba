@@ -27,6 +27,7 @@ export const SCOPED_ROUTES = [
   ["GET", "/pos/orders", "pos.read"],
   ["GET", "/pos/orders/:id", "pos.read"],
   ["GET", "/pos/returns/workspace", "pos.read"],
+  ["GET", "/workflow/approval-requests/:id", "pos.read"],
   ["POST", "/pos/returns/actions", "pos.operation"],
 ] as const;
 export function scopedRouteAction(method: string, path: string) {
@@ -43,7 +44,7 @@ export async function managedAccessGate(req: Request, res: Response, next: NextF
     let action: string | undefined = scopedRouteAction(req.method, req.path);
     if (action === "pos.operation") {
       action = ({
-        request: "pos.return.request", payout: "pos.return.payout",
+        request: "pos.return.request", approve: "pos.return.approve", receive: "pos.return.receive", payout: "pos.return.payout",
         cancel_payout: "pos.return.payout", confirm_external: "pos.return.external",
         close: "pos.shift.close", approve_close: "pos.shift.difference",
       } as Record<string, string>)[String(req.body?.action)];
@@ -103,15 +104,28 @@ export async function managedAccessGate(req: Request, res: Response, next: NextF
       }
       return;
     }
+    if (req.path.startsWith("/workflow/approval-requests/")) {
+      const requestId = Number(req.path.split("/").at(-1));
+      const allowed = await db.execute(sql`SELECT r.id FROM approval_requests r
+        JOIN pos_sessions s ON s.id=r.record_id AND s.branch_id=r.branch_id
+        JOIN branches b ON b.id=s.branch_id AND b.company_id=r.company_id
+        WHERE r.id=${requestId} AND r.company_id=${companyId} AND r.doc_type='pos_over_limit'
+          AND r.submitted_by_user_id=${userId} AND r.branch_id=${grant.branchId}
+          AND EXISTS(SELECT 1 FROM warehouses w WHERE w.company_id=${companyId}
+            AND w.branch_id=${grant.branchId} AND w.id IN
+              (SELECT jsonb_array_elements_text(${JSON.stringify(grant.warehouseIds)}::jsonb)::int))`);
+      if (!allowed.rows.length) return void res.status(403).json({ error: "طلب الاستثناء خارج المصدر أو نطاق مسؤوليتك" });
+    }
     if (action === "pos.sell") {
       const body = req.body ?? {};
-      if (Number(body.discount ?? 0) !== 0 && !grant.actions.includes("pos.discount") ||
-        body.paymentIntentId != null || body.approvalId != null || body.approvalRequestId != null ||
+      if (Number(body.discount ?? 0) !== 0 && !grant.actions.some(a => a === "pos.discount" || a === "pos.discount.request") ||
+        body.paymentIntentId != null || body.approvalId != null ||
+        body.approvalRequestId != null && !grant.actions.some(a => a === "pos.discount" || a === "pos.discount.request") ||
         Array.isArray(body.items) && body.items.some((i: { quantity: number }) => Number(i?.quantity) <= 0) ||
         body.managerPassword || body.managerOverride ||
         !grant.actions.includes("pos.payment.record") && (Array.isArray(body.payments) && body.payments.some((p: { method: string }) => p.method !== "cash") ||
         body.paymentMethod && body.paymentMethod !== "cash")) {
-        return void res.status(403).json({ error: "لم تمنح صلاحية الخصم أو تسجيل التحصيل المطلوب؛ الموافقة الاستثنائية والدفع الشبكي غير مفعلين لهذا المسار" });
+        return void res.status(403).json({ error: "لم تمنح صلاحية الخصم أو طلب استثنائه أو تسجيل التحصيل المطلوب؛ دخول المدير والدفع الشبكي غير مفعلين لهذا المسار" });
       }
     }
     if (req.path === "/sales/sellers/workspace" && req.query.branchId != null &&
