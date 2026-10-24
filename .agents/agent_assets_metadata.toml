@@ -266,3 +266,17 @@ mtime_ms = 1792831699837
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/7f2d47bb-9b5a-42db-8925-b86413d7e8d1/5cb7eb3c-cae4-40d3-b1b9-461b44b469eb"
 storage_version_token = "1792831770461686"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "_8x7yMLVRD55x3pMqC3Cg"
+uri = "file://generated-artifacts/team-scoped/hasiba-team-pos-evidence-20261024.zip"
+type = "unspecified"
+title = "حاسبة — تقرير وأدلة إعداد الفريق وموافقات POS"
+description = "التقرير العربي ومصفوفة القبول ونتائج التحقق وصور الاختبار وأثر البيع وإثبات مزامنة GitHub. الدفعة الأولى ما زالت جزئية."
+logical_id = "93d46cc8-33d4-4cd7-89ab-ffbce96924c5"
+content_hash = "sha256:b50a47e403cf44282c52794706d1b34f1c40f32c52dfe65231a2e1cfaec4fce1"
+size = 886231
+mtime_ms = 1792840041009
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/93d46cc8-33d4-4cd7-89ab-ffbce96924c5/3de163b1-8350-48f8-83de-5f86fa9b6bce"
+storage_version_token = "1792840048249021"
+content_type = "application/octet-stream"
