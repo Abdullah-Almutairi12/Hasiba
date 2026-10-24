@@ -224,3 +224,17 @@ mtime_ms = 1792805815110
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/6083a32c-135f-443f-9e1c-b5b0dfb54eea/8c6f6a27-39ea-4b57-95cd-6c3b1e2cd4cf"
 storage_version_token = "1792805827236289"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "yxnT-6SuXNB-by77Myfk-"
+uri = "file://generated-artifacts/approval-continuation/verification-evidence.zip"
+type = "unspecified"
+title = "تقرير الاستكمال وأدلة التحقق — الدفعة الأولى"
+description = "نتائج نسخة واحدة: 15 بوابة، 595 اختبار API و79 اختبار واجهة، ودليل المتصفح والمزامنة. يتضمن المتبقي ونقطة الاستئناف؛ الدفعة الأولى غير مغلقة."
+logical_id = "b04b1112-31bc-4019-8511-eab290523c81"
+content_hash = "sha256:b9d0877e0d686a4617b1dbe557ef67293c30606fc97cc80bdb3fc4c07719e3fb"
+size = 470335
+mtime_ms = 1792825801018
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/b04b1112-31bc-4019-8511-eab290523c81/b056b422-d368-42ee-b7a8-360eacc4d9b8"
+storage_version_token = "1792825819206674"
+content_type = "application/octet-stream"
