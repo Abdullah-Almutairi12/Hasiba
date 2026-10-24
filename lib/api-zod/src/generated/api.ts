@@ -1095,6 +1095,7 @@ export const createPosOrderBodyItemsItemQuantityExclusiveMin = 0;
 
 
 
+
 export const CreatePosOrderBody = zod.object({
   "sellerEmployeeId": zod.number().int().nullish().describe('Employee seller, never implicitly the cashier.'),
   "lineSellers": zod.array(zod.object({
@@ -1115,7 +1116,8 @@ export const CreatePosOrderBody = zod.object({
 })).optional().describe('Split-bill payments. When provided, must sum to the order total and overrides `paymentMethod`.'),
   "discount": zod.number().optional(),
   "customerId": zod.number().int().nullish(),
-  "paymentIntentId": zod.number().int().nullish().describe('Optional gateway payment_intent.id whose captured funds back this sale. The intent is linked back to the resulting pos_order on success.')
+  "paymentIntentId": zod.number().int().nullish().describe('Optional gateway payment_intent.id whose captured funds back this sale. The intent is linked back to the resulting pos_order on success.'),
+  "approvalRequestId": zod.number().int().min(1).optional().describe('Existing independent POS review. The server revalidates its live authority and financial facts before a new sale; this never grants a manager role.')
 })
 
 export const CreatePosOrderResponse = zod.object({

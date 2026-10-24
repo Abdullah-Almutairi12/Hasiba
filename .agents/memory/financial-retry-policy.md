@@ -18,7 +18,7 @@ After an uncertain result, a later authorization or validation denial does not p
 
 **Why:** Membership can be revoked or a shift can close after the first transaction committed but before its response reached the client. A later 403 or409 may occur before receipt lookup.
 
-**How to apply:** Preserve the original body/key and reconciliation state after such a denial. Only a confirmed outcome or explicit reconciliation can justify starting a new intent; do not automatically replace the key.
+**How to apply:** Preserve the original body/key, authorization selector and reconciliation state after such a denial. A workspace/responsibility change may clear UI caches, but must not retry an uncertain write under a different branch's selector or erase its evidence. Only a confirmed outcome or explicit reconciliation can justify starting a new intent; do not automatically replace the key.
 
 Treat confirmed server success followed by browser-key cleanup failure as a saved operation awaiting local confirmation, not as an unknown or failed financial write.
 

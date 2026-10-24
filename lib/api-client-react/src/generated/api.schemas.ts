@@ -1163,6 +1163,11 @@ export interface CreatePosOrderBody {
      * @nullable
      */
   paymentIntentId?: number | null;
+  /**
+     * Existing independent POS review. The server revalidates its live authority and financial facts before a new sale; this never grants a manager role.
+     * @minimum 1
+     */
+  approvalRequestId?: number;
 }
 
 export interface PosSummary {

@@ -60,6 +60,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useApiQuery, apiPost } from "@/hooks/use-api";
 import { useVatEnabled } from "@/hooks/use-vat-status";
+import { readPosRejection } from "@/lib/pos-rejection";
 
 interface PosShippingCarrier {
   id: number;
@@ -361,47 +362,28 @@ export default function POS() {
           setPinSubmitting(false);
         },
         onError: (err) => {
-          const e = err as {
-            response?: {
-              status?: number;
-              data?: {
-                error?: string;
-                requiresManagerApproval?: boolean;
-                actionKey?: string;
-                max?: number | null;
-                attempted?: number;
-              };
-            };
-            message?: string;
-          };
+          // Real ApiError: JSON body on `.data`; `.response` is a fetch Response.
+          const r = readPosRejection(err);
           setPinSubmitting(false);
           // Server signals dual-auth requirement → pop the manager PIN
           // dialog and stash the original args so we can retry with the
-          // same payload + manager creds.
-          if (
-            e?.response?.status === 403 &&
-            e?.response?.data?.requiresManagerApproval &&
-            !managerOverride &&
-            !approvalRequestId
-          ) {
+          // same payload + manager creds (or the pending request id).
+          if (r.status === 403 && r.requiresManagerApproval && !managerOverride && !approvalRequestId) {
             setPinDialog({
-              actionKey: e.response.data.actionKey ?? "pos.limit",
-              max: e.response.data.max ?? null,
-              attempted: e.response.data.attempted ?? 0,
-              error: e.response.data.error ?? "تجاوزت حدك المسموح",
+              actionKey: r.actionKey ?? "pos.limit",
+              max: r.max ?? null,
+              attempted: r.attempted ?? 0,
+              error: r.error ?? "تجاوزت حدك المسموح",
               payments,
               successMethodLabel,
               paymentIntentId: paymentIntentId ?? null,
-              approvalRequestId:
-                (e.response.data as { approvalRequestId?: number | null })
-                  ?.approvalRequestId ?? null,
+              approvalRequestId: r.approvalRequestId ?? null,
             });
             return;
           }
           toast({
             title: "تعذر إتمام الدفع",
-            description:
-              e?.response?.data?.error ?? e?.message ?? "حدث خطأ غير متوقع",
+            description: r.error || (err instanceof Error ? err.message : "") || "حدث خطأ غير متوقع",
             variant: "destructive",
           });
         },

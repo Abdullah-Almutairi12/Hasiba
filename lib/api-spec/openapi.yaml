@@ -5085,6 +5085,10 @@ components:
           type: integer
           nullable: true
           description: Optional gateway payment_intent.id whose captured funds back this sale. The intent is linked back to the resulting pos_order on success.
+        approvalRequestId:
+          type: integer
+          minimum: 1
+          description: Existing independent POS review. The server revalidates its live authority and financial facts before a new sale; this never grants a manager role.
       required: [sessionId, items]
 
     PosSummary:

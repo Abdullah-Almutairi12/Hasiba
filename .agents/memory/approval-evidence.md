@@ -37,3 +37,9 @@ Authority changes and delayed financial acceptance must serialize across the fin
 **Why:** Locks on existing membership rows cannot prevent a concurrent insert of a missing custom denial or limit. Checking a snapshot before entering the financial transaction also leaves a revocation race. Reading a document is not proof that its reviewer may approve it.
 
 **How to apply:** Bring new authority sources into the same synchronization boundary before enabling them. Acquire the authority boundary before source/entity row locks. Per-company optimization requires the same absent-row, revocation-race and receipt-replay evidence; do not claim scalability from the conservative bridge or rewrite historical decisions to repair lost authority.
+
+Live expiry checks must use the actual validation time after waiting for authorization locks, not the transaction's start time.
+
+**Why:** PostgreSQL transaction time stays frozen while a transaction waits. A grant or invitation can expire during that wait yet still look valid against the older timestamp.
+
+**How to apply:** Use the authoritative wall clock for execution-time grant/delegation/token validity. Keep that separate from historical document and decision timestamps, which must remain unchanged.

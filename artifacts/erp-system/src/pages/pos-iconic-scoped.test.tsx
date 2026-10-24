@@ -67,6 +67,10 @@ describe("PosIconic for scoped members", () => {
     expect(screen.queryByTestId("button-pay-card")).toBeNull();
     expect(screen.queryByTestId("button-pos-returns")).toBeNull();
     expect(screen.getByTestId("dock-parking-unavailable")).toBeTruthy();
+    // Scoped profiles stay basic cash-only: no discount/override/review UI.
+    expect((screen.getByTestId("dock-more") as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByTestId("panel-discount")).toBeNull();
+    expect(screen.queryByTestId("input-discount-pct")).toBeNull();
     await userEvent.click(screen.getByText("تمر"));
     expect(pay().disabled).toBe(false);
     expect(pay().textContent).toContain("23.00");

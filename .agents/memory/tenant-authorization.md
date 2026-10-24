@@ -68,3 +68,9 @@ Supply-chain and sales records with mixed-company references must be quarantined
 **Why:** Earlier procurement, inventory, manufacturing, and sales credit-note writes accepted foreign references. A foreign product and foreign warehouse can agree with each other while both disagree with the document's company. Trusting only a header stamp or silently omitting foreign children can both expose data and change the meaning of financial or stock operations. Historical routing/BoM links are not evidence of who authored a shared production resource.
 
 **How to apply:** Require agreement across tenant-bearing relationships before reading or acting on a graph, including deferred issuance and cancellation. Compare inventory resources to the authorized document's company, not merely to each other. Apply the same quarantine rule to aggregates, replenishment decisions, allocation, and cached balances as to detail rows; hiding a row in one list is not sufficient. Keep unowned production resources inaccessible until explicitly assigned a verified owner; do not backfill from linked BoMs, operations, or the first active company.
+
+During incremental authorization migration, newly managed staff must default-deny business routes until their resource is covered. Match actions and scope from one bound responsibility per request; never multiply permissions from one job by branches from another.
+
+**Why:** A single company role cannot safely represent different duties in different branches. Assigning a broad legacy role to make a new page work would silently unlock unrelated modules. Preserving old roles is a compatibility bridge, not a security sign-off for every legacy handler.
+
+**How to apply:** Add server policy, row/field scope, usable UI and direct API evidence before enabling another resource. A job title, optional starting template or full subscription is not an independent grant of authority.

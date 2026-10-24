@@ -22,7 +22,7 @@ import {
   useGetPrintProfile,
   useGetSellerWorkspace,
 } from "@workspace/api-client-react";
-import { useCreatePosSession, type CreatePosOrderBody } from "@workspace/api-client-react";
+import { useCreatePosSession, useGetApprovalRequest, getGetApprovalRequestQueryKey, type CreatePosOrderBody } from "@workspace/api-client-react";
 import { usePermissions } from "@/hooks/use-permissions";
 import { useLiveScopedAccess } from "@/lib/scoped-access";
 import { useQueryClient } from "@tanstack/react-query";
@@ -199,11 +199,24 @@ export default function PosIconic({
       cart.reduce((acc, ci) => acc + Number(ci.product.price) * ci.quantity, 0),
     [cart],
   );
-  const tax = vatEnabled ? subtotal * 0.15 : 0;
-  const total = subtotal + tax;
+  // Legacy cashier discount (percent of basket). Scoped profiles: always 0.
+  const [discountPct, setDiscountPct] = useState("");
+  const [discountOpen, setDiscountOpen] = useState(false);
+  const pctNum = discountPct.trim() === "" ? 0 : Number(discountPct);
+  const pctValid = Number.isFinite(pctNum) && pctNum >= 0 && pctNum <= 100;
+  const discount = isScoped || !pctValid ? 0 : Math.round(subtotal * pctNum) / 100;
+  // Server-side over-limit review (pos_over_limit approval request).
+  const [review, setReview] = useState<ReviewState | null>(null);
+  const reviewQ = useGetApprovalRequest(review?.id ?? 0, {
+    query: { queryKey: getGetApprovalRequestQueryKey(review?.id ?? 0), enabled: !!review?.id && !isScoped, retry: false, refetchInterval: 15_000 },
+  });
+  const reviewStatus = reviewQ.data?.status ?? null;
+  const net = Math.max(0, subtotal - discount);
+  const tax = vatEnabled ? net * 0.15 : 0;
+  const total = net + tax;
 
   const addToCart = (p: Product) => {
-    if (checkoutLocked) return;
+    if (checkoutLocked || review) return;
     setCart((prev) => {
       const ex = prev.find((c) => c.product.id === p.id);
       if (ex) {
@@ -217,14 +230,14 @@ export default function PosIconic({
 
   const bump = (id: number, delta: number) =>
     setCart((prev) =>
-      checkoutLocked ? prev : prev.flatMap((c) => {
+      checkoutLocked || review ? prev : prev.flatMap((c) => {
         if (c.product.id !== id) return [c];
         const q = c.quantity + delta;
         return q <= 0 ? [] : [{ ...c, quantity: q }];
       }),
     );
 
-  const clearCart = () => { if (!checkoutLocked) setCart([]); };
+  const clearCart = () => { if (!checkoutLocked && !review) setCart([]); };
 
   const handlePark = async (labelOverride?: string) => {
     if (isScoped || checkoutLocked || !activeSession || cart.length === 0) return;
@@ -316,7 +329,13 @@ export default function PosIconic({
     }
   };
 
-  const handlePay = async () => {
+  const handlePay = async (opts?: { approvalRequestId?: number; freshReview?: boolean }) => {
+    if (!isScoped && !pctValid) { toast({ title: "نسبة الخصم يجب أن تكون بين 0 و100", variant: "destructive" }); return; }
+    // An open review binds the basket; only its explicit resume/fresh path may pay.
+    if (review && !opts?.approvalRequestId && !opts?.freshReview && !checkout.attempt) {
+      toast({ title: `طلب الاعتماد #${review.id ?? "—"} مفتوح. استأنف بعد الاعتماد أو اطلب مراجعة جديدة.` });
+      return;
+    }
     if (payBlock) { toast({ title: payBlock, variant: "destructive" }); return; }
     // Scoped members are cash-only; the server rejects anything else too.
     if (isScoped && paymentMethod !== "cash" && !checkout.attempt) {
@@ -353,11 +372,26 @@ export default function PosIconic({
         productId: c.product.id,
         quantity: c.quantity,
       })),
-      discount: 0,
+      discount: isScoped ? 0 : discount,
       paymentMethod,
       ...sellerFields,
+      ...(!isScoped && opts?.approvalRequestId ? { approvalRequestId: opts.approvalRequestId } : {}),
     };
-    const created = await checkout.pay(body, cart);
+    const usedApproval = !checkout.attempt ? opts?.approvalRequestId ?? null : null;
+    const created = await checkout.pay(body, cart, {
+      onRejected: (status, data) => {
+        if (isScoped || status !== 403) return;
+        const d = (data ?? {}) as { requiresManagerApproval?: boolean; approvalRequestId?: number | null; error?: string; max?: number | null; attempted?: number };
+        if (d.requiresManagerApproval) {
+          // Server opened (or deduped) a pending pos_over_limit request.
+          setReview((old) => ({ id: d.approvalRequestId ?? null, attempted: d.attempted ?? null, max: d.max ?? null,
+            message: d.error ?? "تجاوزت حدك المسموح", stale: false, previous: old?.id && old.id !== d.approvalRequestId ? [...(old.previous ?? []), old.id] : old?.previous ?? [] }));
+        } else if (usedApproval) {
+          // Known rejection of an approved review (e.g. approver authority revoked).
+          setReview((old) => old ? { ...old, stale: true, message: d.error ?? "رُفض استخدام الاعتماد السابق." } : old);
+        }
+      },
+    });
     if (!created) {
       // Another till/manager may have closed the shift since the last read.
       // Recovery stays available through its saved intent, even without an
@@ -371,6 +405,8 @@ export default function PosIconic({
     setSellerWhole(null);
     setSellerLines({});
     setCart([]);
+    setDiscountPct("");
+    setReview(null);
     void queryClient.invalidateQueries();
     setTimeout(() => setSuccess(null), 2200);
   };
@@ -498,6 +534,15 @@ export default function PosIconic({
           method={paymentMethod}
           setMethod={setPaymentMethod}
           cashOnly={isScoped}
+          discount={discount}
+          discountSlot={!isScoped && (discountOpen || discountPct !== "" || review) ? (
+            <DiscountReviewPanel pct={discountPct} setPct={setDiscountPct} valid={pctValid} discount={discount} net={net}
+              locked={checkoutLocked || !!review} review={review} reviewStatus={reviewStatus} reviewLoading={reviewQ.isFetching}
+              onRefresh={() => void reviewQ.refetch()}
+              onResume={() => review?.id && void handlePay({ approvalRequestId: review.id })}
+              onFresh={() => void handlePay({ freshReview: true })}
+              onDiscard={() => setReview(null)} busy={checkout.isPending} />
+          ) : null}
           vatUnknown={vatUnknown}
           payBlock={payBlock}
           onRetryVat={live.isError ? () => void live.refetch() : undefined}
@@ -562,7 +607,9 @@ export default function PosIconic({
         isParkingActive={isParkingActive}
         onPark={() => handlePark()}
         onOpenParked={() => setParkedOpen(true)}
-        onOpenPay={handlePay}
+        onOpenPay={() => void handlePay()}
+        onMore={isScoped ? undefined : () => setDiscountOpen((v) => !v)}
+        moreExpanded={discountOpen}
         payDisabled={!!payBlock || !checkout.ready || checkout.isPending || cart.length === 0}
         parkingUnavailable={isScoped}
       />
@@ -763,11 +810,15 @@ function LiveCartRail({
   sellerSlot,
   lineSeller,
   cashOnly = false,
+  discount = 0,
+  discountSlot,
   vatUnknown = false,
   payBlock = null,
   onRetryVat,
 }: {
   cashOnly?: boolean;
+  discount?: number;
+  discountSlot?: React.ReactNode;
   vatUnknown?: boolean;
   payBlock?: string | null;
   onRetryVat?: () => void;
@@ -867,6 +918,7 @@ function LiveCartRail({
 
       <div className="space-y-1 rounded-2xl bg-neutral-50 p-3 text-xs dark:bg-neutral-800/60">
         <Row label={t("pos_iconic.subtotal")} value={subtotal} />
+        {discount > 0 && <div data-testid="row-discount"><Row label="الخصم" value={-discount} /></div>}
         {vatEnabled && <Row label={t("pos_iconic.tax")} value={tax} />}
         {vatUnknown && <p className="text-[11px] text-amber-700 dark:text-amber-300" data-testid="text-scoped-vat-unknown">الضريبة غير محددة بعد — لا يظهر إجمالي حتى نتحقق من تسجيل المنشأة.</p>}
         <div className="my-1.5 border-t border-dashed border-neutral-200 dark:border-neutral-700" />
@@ -884,6 +936,7 @@ function LiveCartRail({
       </div>
 
       {sellerSlot}
+      {discountSlot}
       <fieldset disabled={locked} className="grid grid-cols-2 gap-2" aria-label={t("pos_iconic.choose_payment")}>
         <legend className="mb-2 text-xs font-semibold">{t("pos_iconic.choose_payment")}</legend>
         {([
@@ -940,9 +993,13 @@ function FloatingDock({
   onOpenParked,
   onOpenPay,
   payDisabled,
+  onMore,
+  moreExpanded = false,
   parkingUnavailable = false,
 }: {
   parkingUnavailable?: boolean;
+  onMore?: () => void;
+  moreExpanded?: boolean;
   parkedCount: number;
   cartCount: number;
   isParkingActive: boolean;
@@ -1015,7 +1072,7 @@ function FloatingDock({
         >
           <CreditCard className="size-5" />
         </DockBtn>
-        <DockBtn label={t("pos_iconic.more")} testId="dock-more">
+        <DockBtn label={onMore ? "خصم ومراجعة" : "الخصم غير متاح لمسؤوليتك"} testId="dock-more" onClick={onMore} disabled={!onMore} aria-expanded={onMore ? moreExpanded : undefined}>
           <MoreHorizontal className="size-5" />
         </DockBtn>
       </motion.nav>
@@ -1221,5 +1278,50 @@ function ScopedPosNotice({ branchId, hasSession, canOpenShift, cashierName, onOp
       )}
       <p className="mt-1 text-[11px] opacity-80">غير متاح لمسؤوليتك: قراءة الباركود (البحث المخزني غير مقيّد بالفرع بعد)، الخصم وتعديل السعر، الاسترجاع، الإيقاف المؤقت، إغلاق الوردية.</p>
     </div>
+  );
+}
+
+type ReviewState = { id: number | null; attempted: number | null; max: number | null; message: string; stale: boolean; previous: number[] };
+
+/**
+ * Legacy cashier discount + server over-limit review. The client never
+ * authorizes: a limit of 0 or any cap is decided by POST /pos/orders, which
+ * opens a pos_over_limit approval request we then track and resume.
+ */
+function DiscountReviewPanel({ pct, setPct, valid, discount, net, locked, review, reviewStatus, reviewLoading, onRefresh, onResume, onFresh, onDiscard, busy }: {
+  pct: string; setPct: (v: string) => void; valid: boolean; discount: number; net: number; locked: boolean;
+  review: ReviewState | null; reviewStatus: string | null; reviewLoading: boolean;
+  onRefresh: () => void; onResume: () => void; onFresh: () => void; onDiscard: () => void; busy: boolean;
+}) {
+  const statusLabel: Record<string, string> = { pending: "بانتظار الاعتماد", approved: "معتمد", rejected: "مرفوض", consumed: "مستخدم", cancelled: "ملغى" };
+  return (
+    <section aria-label="الخصم والمراجعة" data-testid="panel-discount" className="space-y-2 rounded-2xl border border-neutral-200 p-3 text-xs dark:border-neutral-700">
+      <label className="flex items-center gap-2">
+        <span className="font-semibold">نسبة الخصم %</span>
+        <Input type="number" inputMode="decimal" min={0} max={100} step="0.01" dir="ltr" value={pct} disabled={locked}
+          onChange={(e) => setPct(e.target.value)} aria-invalid={!valid} aria-describedby="discount-hint"
+          className="h-9 w-24" data-testid="input-discount-pct" />
+        <span className="ms-auto font-mono" data-testid="text-discount-net">{`بعد الخصم ${net.toFixed(2)}`}</span>
+      </label>
+      <p id="discount-hint" className={valid ? "text-neutral-500" : "font-semibold text-red-700 dark:text-red-300"} data-testid="text-discount-hint">
+        {valid ? `الخصم ${discount.toFixed(2)}. إن تجاوز حدك يفتح الخادم طلب اعتماد ولا يُعتمد تلقائيًا.` : "النسبة يجب أن تكون بين 0 و100."}
+      </p>
+      {review && (
+        <div role="status" className="space-y-2 rounded-xl bg-amber-50 p-2 text-amber-900 dark:bg-amber-950 dark:text-amber-100" data-testid="panel-review">
+          <p>{review.message}{review.attempted != null ? ` — المحاولة ${review.attempted.toFixed(2)}، الحد ${review.max ?? "—"}` : ""}</p>
+          <p data-testid="text-review-id">
+            {review.id ? `طلب الاعتماد #${review.id}: ${reviewStatus ? statusLabel[reviewStatus] ?? reviewStatus : reviewLoading ? "جارٍ التحقق…" : "غير معروف"}` : "لم يُنشأ طلب اعتماد. أعد المحاولة أو تواصل مع المدير."}
+          </p>
+          {review.previous.length > 0 && <p className="opacity-80" data-testid="text-review-previous">{`قرارات سابقة محفوظة: ${review.previous.map((i) => `#${i}`).join("، ")}`}</p>}
+          {review.stale && <p className="font-semibold" data-testid="text-review-stale">الاعتماد السابق لم يعد صالحًا (قد تكون صلاحية المعتمِد أُلغيت). السلة محفوظة؛ اطلب مراجعة جديدة.</p>}
+          <div className="flex flex-wrap gap-2">
+            {review.id && <Button size="sm" variant="outline" onClick={onRefresh} disabled={busy} data-testid="button-review-refresh">تحديث الحالة</Button>}
+            {review.id && !review.stale && reviewStatus === "approved" && <Button size="sm" onClick={onResume} disabled={busy} data-testid="button-review-resume">استئناف البيع المعتمد</Button>}
+            {(review.stale || !review.id || reviewStatus === "rejected") && <Button size="sm" onClick={onFresh} disabled={busy} data-testid="button-review-fresh">طلب مراجعة جديدة</Button>}
+            <Button size="sm" variant="ghost" onClick={onDiscard} disabled={busy} data-testid="button-review-discard">تعديل السلة</Button>
+          </div>
+        </div>
+      )}
+    </section>
   );
 }

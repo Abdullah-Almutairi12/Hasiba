@@ -90,7 +90,12 @@ export function usePosCheckout(scope: string | null) {
   }, [storageKey]);
 
   const isCurrent = state.scope === storageKey;
-  async function pay(body: CreatePosOrderBody, cart: PosCartItem[]) {
+  /**
+   * `onRejected` fires ONLY for a confirmed, fresh 4xx rejection (the saved
+   * intent was cleared). It never fires for ambiguous results or for a
+   * recovery replay, so callers can never replace unknown evidence.
+   */
+  async function pay(body: CreatePosOrderBody, cart: PosCartItem[], opts?: { onRejected?: (status: number, data: unknown) => void }) {
     if (!storageKey || !isCurrent || !state.ready || inFlight.current) return null;
     // Never replay an unknown intent under a different responsibility: a 403
     // there proves nothing about whether the original committed.
@@ -130,6 +135,7 @@ export function usePosCheckout(scope: string | null) {
           try {
             sessionStorage.removeItem(storageKey);
             update({ attempt: null, error: error instanceof Error ? error.message : "رفض الخادم البيع." });
+            opts?.onRejected?.(status!, (error as { data?: unknown }).data ?? null);
           } catch {
             update({ error: "رفض الخادم البيع، لكن تعذر تنظيف المحاولة. استعد تخزين الجلسة ثم أعد الطلب نفسه." });
           }
