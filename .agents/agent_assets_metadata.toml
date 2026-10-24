@@ -336,3 +336,17 @@ mtime_ms = 1792881309547
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/4cfab8ca-227c-4257-afa0-b7d4f91db803/7fd716ee-ebdb-4ba1-b355-728bec60a57f"
 storage_version_token = "1792881342130643"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "03vDNG4DPVbPxXeAOIUA5"
+uri = "file://generated-artifacts/first-phase-continuation/hasiba-inventory-receipt-evidence-3d32-912260c.zip"
+type = "unspecified"
+title = "حاسبة — تقرير وأدلة استلام التحويل"
+description = "التقارير ونتائج البوابات واختبار المتصفح وإثبات المخزون والصور، مع فصل النسخة الأساسية عن تصحيح التسمية وحدود ما اختُبر."
+logical_id = "a49b2fee-c59b-4834-b49e-0c9ee28cb62f"
+content_hash = "sha256:a11af9c723eb25dbbfa98cd8607948741f19bac4396501a242523081b966d968"
+size = 297350
+mtime_ms = 1792883937115
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/a49b2fee-c59b-4834-b49e-0c9ee28cb62f/971115b3-05a8-48c6-8066-d66dab0628b6"
+storage_version_token = "1792883949231669"
+content_type = "application/octet-stream"
