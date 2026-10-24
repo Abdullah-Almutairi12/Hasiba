@@ -31,3 +31,9 @@ POS review scope and prices come from the persisted till and recalculated server
 **Why:** An omitted branch can choose the wrong review matrix, and identical browser input can produce different financial facts after server prices or costing change. Treating a shift's creator as every sale's creator incorrectly excludes legitimate reviewers.
 
 **How to apply:** Derive review branch from the owned session. Bind the basket and server-calculated prices/cost/tax context together, excluding generated IDs of rolled-back movements. Retain the cashier submitter as POS creator evidence; do not substitute the session opener.
+
+Authority changes and delayed financial acceptance must serialize across the financial commit, including when a custom permission row does not yet exist. A conservative shared decision fence versus exclusive authority-writer fence was chosen while authorization spans legacy sources; it deliberately serializes authority edits across companies.
+
+**Why:** Locks on existing membership rows cannot prevent a concurrent insert of a missing custom denial or limit. Checking a snapshot before entering the financial transaction also leaves a revocation race. Reading a document is not proof that its reviewer may approve it.
+
+**How to apply:** Bring new authority sources into the same synchronization boundary before enabling them. Acquire the authority boundary before source/entity row locks. Per-company optimization requires the same absent-row, revocation-race and receipt-replay evidence; do not claim scalability from the conservative bridge or rewrite historical decisions to repair lost authority.

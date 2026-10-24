@@ -4,6 +4,12 @@ description: User-stated product scope and the distinct retail and food-service 
 ---
 The product is intended to combine cashier operations, branch connectivity and flexible ERP functions for employees and administration. Scope includes HR, finance, procurement, CRM and reporting rather than a cashier-only product.
 
+Employee setup must separate a person/HR record, login identity, company membership and scoped responsibility. A salary is not required for access. Purchased modules do not automatically grant every employee their powers; a job title is descriptive, not authority. Inventory responsibility in one branch plus cashier responsibility in another must not grant their Cartesian product.
+
+**Why:** The user explicitly added resumable subscriber onboarding, adding people, customizing permissions and later editing them to first-batch acceptance on 2026-10-24.
+
+**How to apply:** Reuse existing identity and HR services and provide central later edits. Pair every responsibility with its scope. Do not invent email addresses for cashiers; device-bound activation and cloud-account activation require different secure evidence. Keep these requirements open until their UI, server, concurrency and denial journeys pass.
+
 The administration/accounting client is web/PWA; the Windows cashier target is Electron with the shared application UI. Hardware, synchronization and offline support require separate acceptance evidence rather than being inferred from a desktop wrapper.
 
 **Why:** The user explicitly selected these client targets in the commercial execution instructions on 2026-10-23.
