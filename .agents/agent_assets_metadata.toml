@@ -210,3 +210,17 @@ mtime_ms = 1792770567762
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/27713ad4-0ac1-4952-9b53-d7d2a1c18900/fc8bbac4-227a-49a9-a5a7-8861495f1c86"
 storage_version_token = "1792770578357761"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "AvJTEN2s1i3TU47qcXULY"
+uri = "file://generated-artifacts/workflow-controls/Hasiba-approval-security-evidence-20261024.zip"
+type = "unspecified"
+title = "حاسبة — تقرير وأدلة استكمال الدفعة الأولى"
+description = "حزمة تضم التقرير العربي، نتائج 15 بوابة، سجلات اختبارات الواجهة والترقية، صور تجربة الموافقات، والمحاولات السابقة وحدود التحقق وإثبات المزامنة مع GitHub. الدفعة الأولى ما زالت جزئية، ولا نشر إنتاجي."
+logical_id = "6083a32c-135f-443f-9e1c-b5b0dfb54eea"
+content_hash = "sha256:e2c905d51d14473db32fb7b3d56eb3eedf480435ef97156fe4d702e30e002752"
+size = 648567
+mtime_ms = 1792805815110
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/6083a32c-135f-443f-9e1c-b5b0dfb54eea/8c6f6a27-39ea-4b57-95cd-6c3b1e2cd4cf"
+storage_version_token = "1792805827236289"
+content_type = "application/octet-stream"
