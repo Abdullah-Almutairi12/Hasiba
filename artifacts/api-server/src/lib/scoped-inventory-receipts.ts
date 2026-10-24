@@ -6,6 +6,7 @@ import { FinancialRequestError } from "./financial-transaction";
 import { getCompanyId } from "./scoped-db";
 import { managedProfile, requireResponsibility, responsibilityContext, type Responsibility } from "./responsibility-context";
 import { teamRows } from "./team-store";
+import { inventoryActor } from "./scoped-inventory-actor";
 
 type Connection = Pick<typeof db, "execute">;
 type Transfer = { id:number; state:string; destinationId:number; branchId:number; quantity:string };
@@ -28,17 +29,8 @@ export async function inventoryTransferReadGuard(req:Request,res:Response,next:N
 
 /** Fresh writes call this after the shared authority fence, before any stock locks. */
 export async function transferAuthority(connection:Connection,req:Request,id:number,execute=false):Promise<Authority> {
-  const companyId=getCompanyId(req),userId=req.session.userId!;
-  const [actor]=await teamRows<{name:string;role:string}>(connection,sql`
-    SELECT u.name,uc.role FROM users u JOIN user_companies uc ON uc.user_id=u.id AND uc.company_id=${companyId}
-    JOIN companies c ON c.id=uc.company_id AND c.is_active
-    WHERE u.id=${userId} AND u.is_active
-    ${execute?sql`FOR SHARE OF u,uc,c`:sql``}`);
-  if(!actor) throw denied();
-  const profile=await managedProfile(userId,companyId,connection);
-  const grant=profile?await requireResponsibility(execute?"inventory.transfer.receive":"inventory.read",connection):null;
-  if(grant && grant.resource!=="inventory") throw denied();
-  if(execute && !grant && !["owner","manager","inventory"].includes(actor.role)) throw denied();
+  const actor=await inventoryActor(connection,req,execute?"inventory.transfer.receive":null);
+  const {companyId,grant}=actor;
   const [transfer]=await teamRows<Transfer>(connection,sql`
     SELECT m.id,m.state,m.to_warehouse_id AS "destinationId",t.branch_id AS "branchId",m.quantity::text
     FROM stock_moves m
@@ -50,7 +42,7 @@ export async function transferAuthority(connection:Connection,req:Request,id:num
     ${execute?sql`FOR UPDATE OF m FOR SHARE OF f,t,b`:sql``}`);
   if(!transfer || grant && (transfer.branchId!==grant.branchId || !grant.warehouseIds.includes(transfer.destinationId))) throw denied();
   if(execute && transfer.state!=="in_transit") throw new FinancialRequestError("التحويل ليس بانتظار الاستلام؛ راجع نتيجته ولا تنشئ استلامًا ثانيًا",grant?409:400);
-  return {userId,companyId,name:actor.name,role:actor.role,grant,transfer};
+  return {...actor,transfer};
 }
 
 export function transferReceiptReference(req:Request,authority:Authority):string|null {

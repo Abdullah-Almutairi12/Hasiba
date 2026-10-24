@@ -32,6 +32,7 @@ import { financialTransaction, FinancialRequestError } from "../lib/financial-tr
 import { supplyScope, supplyParam, supplyReferencesGuard } from "../lib/supply-chain-scope";
 import { lockApprovalAuthority } from "../lib/approval-authority";
 import { inventoryTransferReadGuard, transferAuthority, transferReceiptReference, auditTransferReceipt } from "../lib/scoped-inventory-receipts";
+import { lockStocktakeForCount, auditCountObservation } from "../lib/stocktake-count";
 
 const router = Router();
 router.use("/inventory", supplyReferencesGuard);
@@ -642,37 +643,29 @@ router.patch("/inventory/stock-takes/:id/lines/:lineId", inventoryGuard, async (
     const takeId = Number(req.params.id);
     const lineId = Number(req.params.lineId);
     const body = z.object({ countedQty: z.coerce.number().nonnegative() }).parse(req.body);
-    // Reject the update if the line does not belong to this stock-take, or if
-    // the take is no longer in_progress. This preserves the audit trail —
-    // completed takes are immutable, and a line can never be reattributed
-    // to a different take by URL manipulation.
-    const [take] = await db
-      .select({ status: stockTakesTable.status })
-      .from(stockTakesTable)
-      .where(eq(stockTakesTable.id, takeId))
-      .limit(1);
-    if (!take) return res.status(404).json({ error: "الجرد غير موجود" });
-    if (take.status !== "in_progress") {
-      return res.status(409).json({ error: "لا يمكن تعديل جرد مغلق" });
-    }
-    const result = await db
-      .update(stockTakeLinesTable)
-      .set({ countedQty: String(body.countedQty) })
-      .where(and(eq(stockTakeLinesTable.id, lineId), eq(stockTakeLinesTable.stockTakeId, takeId)))
-      .returning({ id: stockTakeLinesTable.id });
-    if (result.length === 0) {
-      return res.status(404).json({ error: "السطر غير موجود في هذه الجلسة" });
-    }
-    return res.json({ ok: true });
+    const result=await financialTransaction(req,async tx=>{
+      await lockApprovalAuthority(tx);
+      const {actor}=await lockStocktakeForCount(tx,req,takeId);
+      const [line]=await tx.select({id:stockTakeLinesTable.id,countedQty:stockTakeLinesTable.countedQty})
+        .from(stockTakeLinesTable).innerJoin(productsTable,eq(productsTable.id,stockTakeLinesTable.productId))
+        .where(and(eq(stockTakeLinesTable.id,lineId),eq(stockTakeLinesTable.stockTakeId,takeId),eq(productsTable.companyId,actor.companyId)));
+      if(!line)throw new FinancialRequestError("السطر غير موجود في هذه الجلسة",404);
+      const [updated]=await tx.update(stockTakeLinesTable).set({countedQty:String(body.countedQty)}).where(eq(stockTakeLinesTable.id,lineId))
+        .returning({countedQty:stockTakeLinesTable.countedQty});
+      await auditCountObservation(tx,actor,takeId,lineId,line.countedQty,updated.countedQty!,"set");
+      return {ok:true};
+    });
+    return res.json(result);
   } catch (err) {
+    if(err instanceof FinancialRequestError)return res.status(err.status).json({error:err.message});
     return res.status(400).json({ error: err instanceof Error ? err.message : "Bad request" });
   }
 });
 
 // Add a new line for an unexpected item (e.g. scanned during count but the
-// initial snapshot did not include it because on-hand was zero). Idempotent
-// per (stockTakeId, productId, lotId) — re-posting just bumps countedQty so
-// repeat scans of the same barcode keep counting up.
+// initial snapshot did not include it because on-hand was zero).
+// A fixed Idempotency-Key replays one scan; an unkeyed legacy POST is a new scan,
+// not an idempotent retry. Parent locking serializes scans with /complete.
 router.post("/inventory/stock-takes/:id/lines", inventoryGuard, async (req, res) => {
   try {
     const takeId = Number(req.params.id);
@@ -685,14 +678,9 @@ router.post("/inventory/stock-takes/:id/lines", inventoryGuard, async (req, res)
       const [lot] = await db.select().from(stockLotsTable).where(and(eq(stockLotsTable.id, body.lotId), eq(stockLotsTable.productId, body.productId)));
       if (!lot) { res.status(400).json({ error: "Invalid lot for product" }); return; }
     }
-    const result = await db.transaction(async (tx) => {
-      const [take] = await tx
-        .select()
-        .from(stockTakesTable)
-        .where(eq(stockTakesTable.id, takeId))
-        .limit(1);
-      if (!take) throw new Error("الجرد غير موجود");
-      if (take.status !== "in_progress") throw new Error("لا يمكن تعديل جرد مغلق");
+    const result = await financialTransaction(req,async (tx) => {
+      await lockApprovalAuthority(tx);
+      const {actor,take}=await lockStocktakeForCount(tx,req,takeId,400);
 
       // Find any existing line for this (take, product, lot) — including the
       // snapshot rows — and bump it. Otherwise, create a new line with the
@@ -708,12 +696,12 @@ router.post("/inventory/stock-takes/:id/lines", inventoryGuard, async (req, res)
         .limit(1);
 
       if (existing[0]) {
-        const next = Number(existing[0].countedQty ?? 0) + body.countedQty;
-        await tx
+        const [updated]=await tx
           .update(stockTakeLinesTable)
-          .set({ countedQty: String(next) })
-          .where(eq(stockTakeLinesTable.id, existing[0].id));
-        return { lineId: existing[0].id, countedQty: next };
+          .set({ countedQty: sql`COALESCE(${stockTakeLinesTable.countedQty},0)+${body.countedQty}::numeric` })
+          .where(eq(stockTakeLinesTable.id, existing[0].id)).returning({countedQty:stockTakeLinesTable.countedQty});
+        await auditCountObservation(tx,actor,takeId,existing[0].id,existing[0].countedQty,updated.countedQty!,"scan");
+        return { lineId: existing[0].id, countedQty: Number(updated.countedQty) };
       }
 
       // Compute expected qty / unit cost from current quants in this warehouse.
@@ -741,11 +729,13 @@ router.post("/inventory/stock-takes/:id/lines", inventoryGuard, async (req, res)
           countedQty: String(body.countedQty),
           unitCost: String(unitCost),
         })
-        .returning({ id: stockTakeLinesTable.id });
-      return { lineId: created.id, countedQty: body.countedQty };
+        .returning({ id: stockTakeLinesTable.id,countedQty:stockTakeLinesTable.countedQty });
+      await auditCountObservation(tx,actor,takeId,created.id,null,created.countedQty!,"scan");
+      return { lineId: created.id, countedQty: Number(created.countedQty) };
     });
     res.status(201).json(result);
   } catch (err) {
+    if(err instanceof FinancialRequestError){res.status(err.status).json({error:err.message});return;}
     const msg = err instanceof Error ? err.message : "تعذر إضافة سطر للجرد";
     res.status(400).json({ error: msg });
   }
