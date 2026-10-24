@@ -172,9 +172,10 @@ describe("native POS lifecycle for new and converted scoped employees", () => {
       expect(note.status).toBe("issued");
       expect(ok(await f.action("request", req), 201).id).toBe(note.id);
       const refund = { noteId: note.id, receiptId: receipt.id, sessionId: session.id, amount: 10, method: "cash",
-        reference: legacy ? "" : "تم تسليم النقد تجريبيًا", delivered: true, idempotencyKey: randomUUID() };
+        reference: legacy ? "" : " تم تسليم النقد تجريبيًا ", delivered: true, idempotencyKey: randomUUID() };
       const payouts = await Promise.all([f.action("payout", refund),f.action("payout", refund)]);
       expect(ok(payouts[0]).id).toBe(ok(payouts[1]).id);
+      if (!legacy) expect(ok(payouts[0]).reference.endsWith(refund.reference)).toBe(true);
     }
     const closing = { sessionId: session.id, counted: 20, unresolvedSalesCleared: true };
     const closed = await Promise.all([f.action("close", closing),f.action("close", closing)]);

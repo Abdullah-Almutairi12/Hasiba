@@ -121,7 +121,7 @@ router.get("/pos/returns/workspace", async (req, res) => {
 
 async function payout(tx: Tx, companyId: number, userId: number, input: unknown) {
   const b = z.object({ noteId: id, receiptId: id, sessionId: id, amount, method: z.enum(["cash", "card", "transfer", "stc"]),
-    reference: z.string().trim().max(200).default(""), delivered: z.boolean().default(false), idempotencyKey: z.string().min(8).max(200) })
+    reference: z.string().max(200).default(""), delivered: z.boolean().default(false), idempotencyKey: z.string().min(8).max(200) })
     .refine(v => v.reference.length >= 3 || (v.method === "cash" && v.reference.length === 0),
       { path: ["reference"], message: "المرجع الداخلي النقدي اختياري؛ مرجع الطلب غير النقدي لا يقل عن ثلاثة أحرف" }).parse(input);
   const [note] = await tx.select().from(creditNotesTable)
