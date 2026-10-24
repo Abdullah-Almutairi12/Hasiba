@@ -185,6 +185,7 @@ describe("original POS invoice: independent linked return lifecycle", () => {
       "0036_scoped_approval_delegation.sql",
       "0037_team_scoped_access.sql",
       "0038_legacy_team_conversion.sql",
+      "0039_pos_independent_return_receipt.sql",
     ]);
     expect(first.skipped).toHaveLength(26);
     expect(await snapshots()).toEqual(before);
@@ -194,6 +195,12 @@ describe("original POS invoice: independent linked return lifecycle", () => {
     expect(await rows("SELECT count(*)::int AS n FROM invoice_seller_lines WHERE company_id=$1", [f.companyId])).toEqual([{ n: 0 }]);
     // Installing the bridge must not silently convert old memberships.
     expect(await rows("SELECT count(*)::int AS n FROM legacy_team_conversions")).toEqual([{ n: 0 }]);
+    expect(await rows(`SELECT column_default FROM information_schema.columns
+      WHERE table_schema='public' AND table_name='return_controls' AND column_name='receipt_required'`))
+      .toEqual([{ column_default: "false" }]);
+    expect(await rows(`SELECT count(*)::int AS n FROM return_controls
+      WHERE receipt_required OR received_by IS NOT NULL OR received_at IS NOT NULL OR receipt_reference IS NOT NULL`))
+      .toEqual([{ n: 0 }]);
     const second = await runMigrations(process.env.TEST_DATABASE_URL!, () => {});
     expect(second.applied).toHaveLength(0);
     expect(await snapshots()).toEqual(before);
