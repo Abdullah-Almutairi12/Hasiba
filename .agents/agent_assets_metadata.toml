@@ -322,3 +322,17 @@ mtime_ms = 1792868319439
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/f0a404c3-73b8-41fb-98ec-8d87cd0c5c03/85daa160-7af9-488d-926f-b8c9d1edc84a"
 storage_version_token = "1792868339392956"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "CAVjOh2CHcLycl9nvfRTR"
+uri = "file://generated-artifacts/first-phase-continuation/hasiba-return-owner-cash-evidence-1fec412.zip"
+type = "unspecified"
+title = "حاسبة — تقرير الشريحة وأدلة التحقق"
+description = "التقرير العربي ومصفوفة22 وسجل73 ونتائج المصدر1fec412 ومصالحات البيانات المصطنعة ولقطات السماح والرفض والإصلاح. لا أسرار أو بيانات عملاء؛ حالة Push تُؤكد منفصلة."
+logical_id = "4cfab8ca-227c-4257-afa0-b7d4f91db803"
+content_hash = "sha256:172c954f72baa2d1cbaca735f5e08ed7bd2bd370067ee4d86b70a9f7ffa9540c"
+size = 1406943
+mtime_ms = 1792881309547
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/4cfab8ca-227c-4257-afa0-b7d4f91db803/7fd716ee-ebdb-4ba1-b355-728bec60a57f"
+storage_version_token = "1792881342130643"
+content_type = "application/octet-stream"
