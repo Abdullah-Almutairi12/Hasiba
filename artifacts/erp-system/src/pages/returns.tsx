@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useGetReturnWorkspace } from "@workspace/api-client-react";
 import { Undo2, RefreshCw, Download, Wallet, Settings2, FileText, Clock, Banknote } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -162,6 +162,11 @@ function NoteCard({ note: n, payouts, sessions, invoices, can, branchName }: {
   const receiver = useAct();
   const [receiptRef, setReceiptRef] = useState("");
   const [receiptError, setReceiptError] = useState("");
+  // An earlier denial belongs to its review context, not to a replacement
+  // decision. Keep the receipt reference and durable payout intent intact.
+  useEffect(() => {
+    setReceiptError("");
+  }, [id, n.approval_id, n.review_status, n.received_at]);
   const state = returnNoteState(n);
   const st = state.status;
   const remaining = num(n.remaining) ?? 0;
