@@ -2,7 +2,6 @@ import { Router, type RequestHandler } from "express";
 import { returnRequestGuard, returnInvoiceBranch, returnAuthorize, returnPolicy, returnFingerprint, assertReturnSnapshot } from "../lib/return-access";
 import { lockApprovalAuthority } from "../lib/approval-authority";
 import { scopedReturnSource, scopedDirectReturn } from "../lib/scoped-pos-operations";
-import { checkFinancialLimit } from "../lib/workflow-engine";
 import { z } from "zod";
 import {
   db,
@@ -52,6 +51,8 @@ import {
 import { postJournalEntry, reverseJournalEntry, ClosedPeriodError } from "../lib/journal-posting";
 import { getCompanyId } from "../lib/scoped-db";
 import { financialTransaction, FinancialRequestError } from "../lib/financial-transaction";
+import { invoiceReturnBudgets, operationalReturnTotals, returnCents, returnMoney } from "../lib/sales-return-value";
+import { assertSavedReturnValue } from "../lib/sales-return-value-guard";
 import { buildZatcaQrBase64 } from "../lib/zatca-qr";
 import { captureIssuer, saveIssuer, documentIssuer } from "../lib/document-identity";
 import { recordSaleSellers, recordReturnSellers, cancelSellerInvoice,savedSellerLines,sellerLineDescription } from "../lib/seller-ledger";
@@ -85,6 +86,7 @@ import {
   registerOnApprove,
   registerOnReject,
   requireFinancialLimit,
+  checkFinancialLimit,
   triggerEvent,
 } from "../lib/workflow-engine";
 import type { ApprovalExecutionContext } from "../lib/approval-context";
@@ -340,6 +342,7 @@ export async function finalizeCreditNoteIssue(
       .select()
       .from(creditNoteLinesTable)
       .where(eq(creditNoteLinesTable.noteId, noteId));
+    await assertSavedReturnValue(tx, note, cnLines);
     await validateCreditNoteInventory(tx, note.companyId, note.warehouseId, cnLines);
     if (note.restock && !note.warehouseId && cnLines.some((line) => line.productId != null)) {
       throw new FinancialRequestError("يلزم مستودع لإعادة المخزون المرتجع", 409);
@@ -3240,7 +3243,7 @@ router.get("/sales/credit-notes", customerReadGuard, async (req, res) => {
   }
 });
 
-export const creditNoteLimit = requireFinancialLimit("sales.credit_note_amount", (req) => {
+const nominalCreditNoteLimit = requireFinancialLimit("sales.credit_note_amount", (req) => {
     // Apply the same defaults and rounding as the issued document. In
     // particular, omitting taxRate must not reduce the authorization amount.
     const body = CreditNoteBody.parse(req.body);
@@ -3248,6 +3251,13 @@ export const creditNoteLimit = requireFinancialLimit("sales.credit_note_amount",
       ...line, productId: line.productId ?? null, discountPct: 0,
     })), 0).total;
   });
+export const creditNoteLimit: RequestHandler = (req, res, next) => {
+  // Operational returns are priced from the locked original invoice below.
+  // Checking the client's nominal line price here would reject a net9 return
+  // under a9 cap merely because the original undiscounted price was10.
+  if (req.body?.operationalReturn === true) { next(); return; }
+  return nominalCreditNoteLimit(req, res, next);
+};
 export const createCreditNoteHandler: RequestHandler = async (req, res) => {
   try {
     const body = CreditNoteBody.parse(req.body);
@@ -3299,6 +3309,7 @@ export const createCreditNoteHandler: RequestHandler = async (req, res) => {
       // Without these checks a finance user could over-credit AR or restock
       // inventory for goods that were never sold — a critical accounting +
       // stock-integrity hole flagged by the prior code review.
+      let sourceTotals: ReturnType<typeof computeTotals> | null = null;
       if (body.invoiceId != null) {
         const [srcInv] = await tx
           .select()
@@ -3335,29 +3346,34 @@ export const createCreditNoteHandler: RequestHandler = async (req, res) => {
         const priorByLine = new Map(
           priorCredits
             .filter((p) => p.invoiceLineId != null)
-            .map((p) => [p.invoiceLineId as number, { qty: Number(p.qty), amt: Number(p.amt) }]),
+            .map((p) => [p.invoiceLineId as number, { qty: Number(p.qty), amt: String(p.amt) }]),
         );
+        const budgets = invoiceReturnBudgets(srcInv, invLines);
+        if (body.operationalReturn) {
+          sourceTotals = operationalReturnTotals(body.lines.map(l => ({ ...l, productId: l.productId ?? null })),
+            budgets, new Map(priorCredits.filter(p => p.invoiceLineId != null).map(p => [p.invoiceLineId!, String(p.qty)])));
+        }
 
-        for (const ln of body.lines) {
+        for (const [index, ln] of body.lines.entries()) {
           if (ln.invoiceLineId == null) continue;
           const il = invLineById.get(ln.invoiceLineId);
           if (!il) throw new FinancialRequestError("البند لا يخص الفاتورة المصدر", 400);
           if ((ln.productId ?? null) !== il.productId) throw new FinancialRequestError("منتج المرتجع لا يطابق بند الفاتورة", 400);
-          const prior = priorByLine.get(ln.invoiceLineId) ?? { qty: 0, amt: 0 };
+          const prior = priorByLine.get(ln.invoiceLineId) ?? { qty: 0, amt: "0" };
           const remainingQty = Number(il.quantity) - prior.qty;
           if (ln.quantity > remainingQty + 1e-6)
             throw new FinancialRequestError(
               `الكمية المرتجعة (${ln.quantity}) تتجاوز المتبقي القابل للإرجاع (${remainingQty}) للبند "${il.description}"`,
               409,
             );
-          const remainingAmt = Number(il.lineTotal) - prior.amt;
-          const lineAmt = ln.quantity * ln.unitPrice * (1 + (ln.taxRate ?? 0) / 100);
-          if (lineAmt > remainingAmt + 0.01)
+          const remainingAmt = budgets.get(il.id)!.total - returnCents(prior.amt);
+          const lineAmt = returnCents(sourceTotals?.lines[index].lineTotal ?? computeTotals([{ ...ln, productId: ln.productId ?? null }], 0).total);
+          if (lineAmt > remainingAmt)
             throw new FinancialRequestError(
-              `قيمة الإرجاع للبند "${il.description}" تتجاوز المتبقي (${remainingAmt.toFixed(2)})`,
+              `قيمة الإرجاع للبند "${il.description}" تتجاوز صافي المتبقي (${returnMoney(remainingAmt)})`,
               409,
             );
-          priorByLine.set(ln.invoiceLineId, { qty: prior.qty + ln.quantity, amt: prior.amt + lineAmt });
+          priorByLine.set(ln.invoiceLineId, { qty: prior.qty + ln.quantity, amt: returnMoney(returnCents(prior.amt) + lineAmt) });
         }
       } else {
         // Free-form credit note (no source invoice): forbid invoiceLineId
@@ -3375,7 +3391,12 @@ export const createCreditNoteHandler: RequestHandler = async (req, res) => {
         discountPct: 0,
         taxRate: ln.taxRate,
       }));
-      const totals = computeTotals(totalsLines, 0);
+      const totals = sourceTotals ?? computeTotals(totalsLines, 0);
+      if (body.operationalReturn) {
+        const authority = await checkFinancialLimit(companyId, req.session.userId!, "sales.credit_note_amount",
+          totals.total, operationalBranch, null, tx);
+        if (!authority.allowed) throw new FinancialRequestError(authority.reason ?? "قيمة المرتجع تتجاوز الحد المالي الحالي", 403);
+      }
       const reference = await nextRef(tx, "CN");
       const noteDate = body.noteDate ?? new Date().toISOString().slice(0, 10);
 
@@ -3434,6 +3455,10 @@ export const createCreditNoteHandler: RequestHandler = async (req, res) => {
           lineTotal: String(ln.lineTotal),
         });
       }
+      if (note.invoiceId) {
+        const savedLines = await tx.select().from(creditNoteLinesTable).where(eq(creditNoteLinesTable.noteId, note.id));
+        await assertSavedReturnValue(tx, note, savedLines);
+      }
       if (body.operationalReturn) {
         await tx.execute(sql`INSERT INTO return_controls(note_id,company_id,branch_id,created_by,fingerprint,disposition,settlement_method,proof_ref)
           VALUES(${note.id},${companyId},${operationalBranch!},${req.session.userId!},'',${body.disposition!},${body.settlementMethod},${body.proofRef!})`);
@@ -3448,8 +3473,6 @@ export const createCreditNoteHandler: RequestHandler = async (req, res) => {
         }
       }
       if (scopedReturn) {
-        const limit = await checkFinancialLimit(companyId, req.session.userId!, "sales.credit_note_amount", Number(note.total), operationalBranch, null, tx);
-        if (!limit.allowed) throw new FinancialRequestError(limit.reason ?? "لم يهيأ حد المرتجع للمستخدم المقيد", 403);
         if (await scopedDirectReturn(tx, req.session.userId!, companyId, operationalBranch!, note.total, note.id)) {
           if (body.restock && !body.goodsReceived) {
             const [waiting] = await tx.update(creditNotesTable).set({ status: "pending_approval" })

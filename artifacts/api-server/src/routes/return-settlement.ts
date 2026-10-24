@@ -19,6 +19,7 @@ import { scopedPayoutSource, scopedShiftDifference, scopedReturnSource } from ".
 import { scopedReturnGrants } from "../lib/scoped-return-review";
 import { finalizeCreditNoteIssue } from "./sales";
 import { assertDeferredReturnApproval } from "../lib/workflow-engine";
+import { invoiceReturnBudgets, returnMoney } from "../lib/sales-return-value";
 
 const router = Router();
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -70,13 +71,27 @@ router.get("/pos/returns/workspace", async (req, res) => {
     const branchRows = (await pool.query("SELECT id,name_ar FROM branches WHERE company_id=$1 ORDER BY id", [companyId])).rows
       .filter(b => !scoped || scoped.includes(b.id));
     const allowed = branchRows.map(b => b.id);
-    const invoices = (await pool.query(`SELECT i.id,i.reference,i.customer_id,i.total,so.warehouse_id,s.branch_id,
+    const invoices = (await pool.query(`SELECT i.id,i.reference,i.customer_id,i.total,i.vat,so.warehouse_id,s.branch_id,
       (SELECT jsonb_agg(to_jsonb(l) ORDER BY l.id) FROM customer_invoice_lines l WHERE l.invoice_id=i.id) AS lines,
       (SELECT jsonb_agg(jsonb_build_object('id',r.id,'amount',a.amount,'payment_method',r.payment_method,'reference',r.reference))
        FROM customer_receipt_allocations a JOIN customer_receipts r ON r.id=a.receipt_id WHERE a.invoice_id=i.id) AS receipts
       ${sourceJoins} WHERE i.company_id=$1 AND s.branch_id=ANY($2::int[])
       AND ($3::int[] IS NULL OR so.warehouse_id=ANY($3::int[]))
       ORDER BY i.id DESC LIMIT 100`, [companyId, allowed, warehouseIds])).rows;
+    for (const invoice of invoices) {
+      try {
+        const lines = invoice.lines ?? [];
+        const budgets = invoiceReturnBudgets(invoice, lines.map((line: Row) => ({
+          id: Number(line.id), quantity: String(line.quantity), unitPrice: String(line.unit_price),
+          discountPct: String(line.discount_pct), taxRate: String(line.tax_rate),
+        })));
+        invoice.lines = lines.map((line: Row) => ({
+          ...line, return_total: returnMoney(budgets.get(Number(line.id))!.total),
+        }));
+      } catch {
+        invoice.return_value_error = "تعذر إثبات صافي بنود هذه الفاتورة؛ يلزم مراجعة المصدر قبل إنشاء المرتجع.";
+      }
+    }
     const notes = (await pool.query(`SELECT n.id,n.reference,n.status,n.total,n.invoice_id,n.reason,
       c.branch_id,b.name_ar AS branch_name,c.created_by,c.approval_id,c.proof_ref,c.disposition,c.settlement_method,
       c.receipt_required,c.received_by,c.received_at,c.receipt_reference,

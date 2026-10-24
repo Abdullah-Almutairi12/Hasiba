@@ -7,6 +7,8 @@ import { db, pool, companiesTable, usersTable, userCompaniesTable, branchesTable
 import app, { assertApplicationReady } from "../app";
 import { recordStockMove } from "../lib/stock-engine";
 import type { TeamPerson } from "../lib/team-catalog";
+import { finalizeCreditNoteIssue } from "./sales";
+import { returnFingerprint } from "../lib/return-access";
 
 const rows = async (s: string, p: unknown[] = []) => (await pool.query(s, p)).rows;
 const ok = (r: request.Response, status = 200) => { expect(r.status, JSON.stringify(r.body)).toBe(status); return r.body; };
@@ -220,6 +222,59 @@ describe("native POS lifecycle for new and converted scoped employees", () => {
     expect((await rows("SELECT a.status,c.received_by FROM return_controls c JOIN approval_requests a ON a.id=c.approval_id WHERE c.note_id=$1",[note.id]))[0])
       .toEqual({status:"approved",received_by:null});
   });
+  it("credits only the original discounted invoice net and pays it once after deferred receipt", async () => {
+    const f = await fixture(false);
+    const session = ok(await f.post("/pos/sessions", { branchId:f.branch, openingCash:20,cashierName:"اختبار الخصم" }),201);
+    ok(await f.post("/pos/orders", {sessionId:session.id,paymentMethod:"cash",discount:1,
+      items:[{productId:f.product,quantity:1,unitPrice:10}]}),201);
+    const invoice = ok(await f.get("/pos/returns/workspace")).invoices[0];
+    expect(Number(invoice.total)).toBe(9);
+    expect(invoice.lines[0].return_total).toBe("9.00");
+    const noteBody = {invoiceId:invoice.id,customerId:invoice.customer_id,warehouseId:f.wh,
+      restock:true,goodsReceived:false,disposition:"resale",settlementMethod:"cash",proofRef:"أصل بيع مخفض",
+      reason:"رد صافي الأصل",idempotencyKey:randomUUID(),lines:[{invoiceLineId:invoice.lines[0].id,
+        productId:f.product,description:"بند الأصل",quantity:1,unitPrice:10,taxRate:0}]};
+    ok(await f.owner.post("/api/workflow/financial-limits").send({role:"scoped",actionKey:"sales.credit_note_amount",maxValue:8}));
+    ok(await f.action("request",noteBody),403);
+    expect(await rows("SELECT id FROM credit_notes WHERE company_id=$1",[f.company])).toHaveLength(0);
+    ok(await f.owner.post("/api/workflow/financial-limits").send({role:"scoped",actionKey:"sales.credit_note_amount",maxValue:9}));
+    const note=ok(await f.action("request",noteBody),201);
+    expect(Number(note.total)).toBe(9);
+    ok(await f.action("receive",{noteId:note.id,reference:"استلام الأصل المخفض"}));
+    const payload={noteId:note.id,receiptId:invoice.receipts[0].id,sessionId:session.id,amount:9,method:"cash",
+      delivered:true,reference:"",idempotencyKey:randomUUID()};
+    const paid=await Promise.all([f.action("payout",payload),f.action("payout",payload)]);
+    expect(ok(paid[0]).id).toBe(ok(paid[1]).id);
+    expect(await rows("SELECT amount FROM return_payouts WHERE company_id=$1 AND note_id=$2",[f.company,note.id]))
+      .toEqual([{amount:"9.00"}]);
+    expect((await evidence(f)).stock.map(q=>[Number(q.quantity),Number(q.avg_cost)])).toEqual([[20,3]]);
+    expect(await rows("SELECT sum(quantity*avg_cost)::numeric(18,2)::text AS carrying_value FROM stock_quants WHERE product_id=$1",[f.product]))
+      .toEqual([{carrying_value:"60.00"}]);
+  },60000);
+  it("blocks an old unissued over-credit before stock or ledger effects without rewriting issued history", async () => {
+    const f=await fixture(false);
+    const session=ok(await f.post("/pos/sessions",{branchId:f.branch,openingCash:20,cashierName:"اختبار المسودة السابقة"}),201);
+    ok(await f.post("/pos/orders",{sessionId:session.id,paymentMethod:"cash",discount:1,
+      items:[{productId:f.product,quantity:1,unitPrice:10}]}),201);
+    const invoice=ok(await f.get("/pos/returns/workspace")).invoices[0];
+    const note=ok(await f.action("request",{invoiceId:invoice.id,customerId:invoice.customer_id,warehouseId:f.wh,
+      restock:true,goodsReceived:false,disposition:"resale",settlementMethod:"cash",proofRef:"مسودة سابقة مصطنعة",
+      reason:"اختبار حماية إصدار",idempotencyKey:randomUUID(),lines:[{invoiceLineId:invoice.lines[0].id,
+        productId:f.product,description:"الأصل",quantity:1,unitPrice:10,taxRate:0}]}),201);
+    // Reproduce the previously observed unissued shape; no customer data or issued document is modified.
+    await rows("UPDATE credit_notes SET subtotal=10,total=10 WHERE id=$1",[note.id]);
+    await rows("UPDATE credit_note_lines SET unit_price=10,line_total=10 WHERE note_id=$1",[note.id]);
+    await rows("UPDATE return_controls SET received_by=$1,received_at=now(),receipt_reference='synthetic legacy receipt' WHERE note_id=$2",
+      [f.identityId,note.id]);
+    await rows("UPDATE return_controls SET fingerprint=$1 WHERE note_id=$2",[await returnFingerprint(db,note.id),note.id]);
+    const before=await evidence(f);
+    await expect(finalizeCreditNoteIssue(note.id,f.identityId,f.company)).rejects.toThrow(/صافي المصدر/);
+    const after=await evidence(f);
+    expect(after.stock).toEqual(before.stock);expect(after.journals).toEqual(before.journals);
+    expect(after.payouts).toEqual(before.payouts);
+    expect((await rows("SELECT status,journal_entry_id,total FROM credit_notes WHERE id=$1",[note.id]))[0])
+      .toEqual({status:"pending_approval",journal_entry_id:null,total:"10.00"});
+  },60000);
   it("permits direct authorization without implicit receipt or independent review, with server-side PDF gating", async () => {
     const f=await fixture(false), sale=await openAndSell(f);
     const before=await evidence(f);

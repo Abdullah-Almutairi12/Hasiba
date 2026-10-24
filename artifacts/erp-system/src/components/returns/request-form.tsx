@@ -66,11 +66,10 @@ function RequestForm({ inv, policies, branchName, onDone }: { inv: Rec; policies
   const lines = arr(inv.lines);
   const chosen = lines.map((l) => ({ l, q: num(qty[str(l.id)]) ?? 0 })).filter((x) => x.q > 0);
   const overQty = chosen.some((x) => x.q > (num(x.l.quantity) ?? 0));
-  const estimate = chosen.reduce((s, x) => {
-    const tr = num(x.l.tax_rate) ?? 0;
-    return s + x.q * (num(x.l.unit_price) ?? 0) * (1 + (tr > 1 ? tr / 100 : tr));
-  }, 0);
-  const valid = chosen.length > 0 && !overQty && reason.trim().length > 0 && proofRef.trim().length > 0 && (disposition !== "resale" || resaleAllowed);
+  const sourceValueError = str(inv.return_value_error)
+    || (chosen.some(x => x.l.return_total == null) ? "تعذر إثبات صافي المصدر؛ حدّث الصفحة أو راجع الفاتورة." : "");
+  const estimate = chosen.reduce((s, x) => s + (num(x.l.return_total) ?? 0) * x.q / (num(x.l.quantity) || 1), 0);
+  const valid = !sourceValueError && chosen.length > 0 && !overQty && reason.trim().length > 0 && proofRef.trim().length > 0 && (disposition !== "resale" || resaleAllowed);
   const frozen = !!fb;
 
   const submit = async () => {
@@ -145,8 +144,9 @@ function RequestForm({ inv, policies, branchName, onDone }: { inv: Rec; policies
         </div>
       </fieldset>
 
+      {sourceValueError && <p role="alert" className="text-sm text-destructive">{sourceValueError}</p>}
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-muted/50 p-3">
-        <div className="text-sm">تقدير من الأسعار الأصلية: <b className="tabular-nums">{money(estimate)}</b><span className="ms-1 text-xs text-muted-foreground">(القيمة النهائية يحددها الخادم)</span></div>
+        <div className="text-sm">تقدير من صافي الفاتورة الأصلية بعد الخصم: <b className="tabular-nums">{money(estimate)}</b><span className="ms-1 text-xs text-muted-foreground">(القيمة النهائية وتقريب الأجزاء يحددهما الخادم)</span></div>
         <Button disabled={!d.ready || d.pending || (!frozen && !valid)} onClick={() => void submit()}>
           {d.pending ? "جارٍ التسجيل..." : frozen ? "إعادة إرسال نفس الطلب" : "تسجيل طلب الإرجاع"}
         </Button>

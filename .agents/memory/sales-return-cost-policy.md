@@ -37,3 +37,9 @@ Cancellation must accept an explicitly evidenced cumulative cent allocation, not
 **Why:** The second of two equal partial returns can legitimately receive one cent less than the first. Rejecting it by a half-cent physical-value comparison blocks a valid cancellation; rounding the removed slice alone can also move that cent away from remaining inventory.
 
 **How to apply:** Check cancellation of both the first and second fractional slices, then re-return the released quantity through full restitution in SAR and foreign currency. Keep strict evidence checks for legacy notes without a recorded allocation; do not backfill them.
+
+Commercial refund entitlement must respect the original invoice's net discount and recorded VAT, not only its persisted nominal line price or gross line total.
+
+**Why:** A browser journey combining a discounted POS sale and a return exposed a10 return on a9 invoice: invoice-header discounts were not included in the saved nominal line total. Separate passing sale and return tests did not reveal the integration defect.
+
+**How to apply:** Check invoice-level and source-line monetary ceilings at reservation and before first issuance, under the original invoice lock; include other active reservations and issued credits. Keep historical invoices/issued notes unchanged, fail explicitly for inconsistent evidence, and test discounted sale→partial/full return→refund against stock, VAT and cash together. Authority limits must measure the server-derived commercial amount, not the caller's undiscounted quote.
