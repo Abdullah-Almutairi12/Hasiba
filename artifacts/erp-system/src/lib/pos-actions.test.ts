@@ -14,6 +14,12 @@ describe("effective responsibility descriptions", () => {
 });
 
 describe("pos action labels", () => {
+  it("names destination custody receipt without describing it as cost access or an independent approval",()=>{
+    expect(actionLabel("inventory.transfer.receive")).toBe("استلام كامل حركة تحويل إلى مستودع الوجهة");
+    expect(actionLabel("inventory.transfer.receive")).not.toContain("غير معروف");
+    expect(actionLabel("inventory.transfer.receive")).not.toContain("اعتماد");
+    expect(actionLabel("inventory.cost.read")).toBe("عرض تكلفة الأصناف");
+  });
   it("labels every new POS key in Arabic, never raw", () => {
     for (const k of ["pos.payment.record", "pos.discount", "pos.shift.close", "pos.shift.difference", "pos.return.request", "pos.return.direct", "pos.return.receive", "pos.return.payout", "pos.return.external"]) {
       expect(ACTION_LABEL[k]).toBeTruthy();
