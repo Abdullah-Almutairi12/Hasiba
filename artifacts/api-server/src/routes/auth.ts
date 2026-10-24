@@ -366,13 +366,14 @@ router.post("/auth/switch-company", async (req, res) => {
 
     req.session.companyId = companyId;
     req.session.role = membership.role;
+    const effectiveRole = await managedProfile(req.session.userId!, companyId) ? "scoped" : membership.role;
     req.session.save((saveErr) => {
       if (saveErr) {
         req.log.error({ err: saveErr }, "Session save failed in switch-company");
         res.status(500).json({ error: "حدث خطأ في الخادم" });
         return;
       }
-      res.json({ companyId, role: await managedProfile(req.session.userId!, companyId) ? "scoped" : membership.role });
+      res.json({ companyId, role: effectiveRole });
     });
     return;
   } catch (err) {

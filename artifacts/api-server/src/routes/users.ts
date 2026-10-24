@@ -16,6 +16,7 @@ import { requireCompanyContext } from "../middlewares/require-company-context";
 import { assertCompanyBranch } from "../lib/company-access";
 import { isPublishedBootstrapPassword } from "../lib/bootstrap-password";
 import { assertAnotherActiveOwner } from "../lib/company-ownership";
+import { managedProfile } from "../lib/responsibility-context";
 
 const router = Router();
 router.use(["/users", "/admin/team-consents"], requireCompanyContext);
