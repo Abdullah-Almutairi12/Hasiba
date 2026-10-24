@@ -681,9 +681,8 @@ export function requireFinancialLimit(actionKey: string, getValue: (req: Request
 }
 
 // ---------------------------------------------------------------------------
-// In-app notification helper. Also emits an email if the user has one and
-// SMTP is configured. WhatsApp/SMS dispatch routes through the real
-// outbound messaging adapter (records spend, audit log, retry).
+// Company-owned, source-checked in-app notifications. External channels are
+// rejected here; they are not simulated as successful provider dispatches.
 // ---------------------------------------------------------------------------
 export { notify } from "./workflow-notifications";
 export type { NotifyInput } from "./workflow-notifications";

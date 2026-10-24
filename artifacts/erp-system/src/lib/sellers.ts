@@ -1,6 +1,14 @@
 /** Seller attribution: safe parsing of the seller workspace/report and body building. */
 export type SellerMode = "hidden" | "optional" | "required";
 export type SellerGranularity = "invoice" | "line";
+export function fmtSellerPolicyDate(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "تاريخ غير صحيح";
+  return new Intl.DateTimeFormat("ar-SA-u-ca-gregory", {
+    timeZone: "Asia/Riyadh", year: "numeric", month: "long", day: "numeric",
+    hour: "2-digit", minute: "2-digit",
+  }).format(date);
+}
 export type SellerPolicy = {
   version: number | null; branchId: number | null; inherited: boolean; mode: SellerMode;
   granularity: SellerGranularity; commissionEnabled: boolean; planId: number | null;

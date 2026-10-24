@@ -89,6 +89,7 @@ it("checks credit-note limits against normalized tax defaults before any financi
     lines: [{ description: f.tag, quantity: 1, unitPrice: 100 }],
   });
   expect(response.status, JSON.stringify(response.body)).toBe(403);
+  expect(response.body.actionKey).toBe("sales.credit_note_amount");
   expect(await rows(`SELECT
     (SELECT count(*) FROM credit_notes WHERE company_id=$1) AS notes,
     (SELECT count(*) FROM journal_entries WHERE company_id=$1) AS entries`, [f.companyId])).toEqual(before);

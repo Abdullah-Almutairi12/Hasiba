@@ -19,15 +19,17 @@ import { apiGet } from "@/hooks/use-api";
 import { useCurrentCompany } from "@/hooks/use-current-company";
 import { fmtDate } from "@/lib/print-docs";
 import {
-  COMMISSION_STATUS, GRAN_AR, MODE_AR, fmtMoney, n, parseReport, parseWorkspace, s, totalsByCurrency,
+  COMMISSION_STATUS, GRAN_AR, MODE_AR, fmtMoney, fmtSellerPolicyDate, n, parseReport, parseWorkspace, s, totalsByCurrency,
   type Commission, type Employee, type SellerGranularity, type SellerMode, type Workspace,
   parseInvoiceAttribution, type InvoiceAttribution,
 } from "@/lib/sellers";
 import { SellerSelect } from "./seller-picker";
 
 const errText = (e: unknown) => (e instanceof Error ? e.message : "تعذر تنفيذ العملية");
-const today = () => new Date().toISOString().slice(0, 10);
-const monthStart = () => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().slice(0, 10); };
+const today = () => new Intl.DateTimeFormat("en-CA", {
+  timeZone: "Asia/Riyadh", year: "numeric", month: "2-digit", day: "2-digit",
+}).format(new Date());
+const monthStart = () => `${today().slice(0, 7)}-01`;
 
 export function SellerCommissionsPanel() {
   const { activeCompanyId } = useCurrentCompany();
@@ -109,7 +111,7 @@ function PolicyCard({ ws, branchId, setBranchId }: { ws: Workspace; branchId: nu
         <CardTitle className="flex items-center gap-2"><Settings2 className="size-4" /> سياسة البائعين والعمولات</CardTitle>
         <CardDescription>
           السياسة الحالية: {MODE_AR[p.mode]} · {GRAN_AR[p.granularity]} · العمولة {p.commissionEnabled ? (p.ratePercent != null ? `${p.ratePercent}%` : p.planId ? `خطة #${p.planId}` : "مفعلة") : "متوقفة"}
-          {p.version != null && ` · إصدار ${p.version}`}{p.inherited && " · موروثة من إعداد الشركة"}{p.effectiveFrom && ` · سارية من ${fmtDate(p.effectiveFrom)}`}
+          {p.version != null && ` · إصدار ${p.version}`}{p.inherited && " · موروثة من إعداد الشركة"}{p.effectiveFrom && ` · سارية من ${fmtSellerPolicyDate(p.effectiveFrom)} بتوقيت الرياض`}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">

@@ -7,7 +7,7 @@ import { join } from "node:path";
 
 // Exercise the actual pnpm -> runner boundary, but never launch PostgreSQL,
 // migrations, bootstrap, or Vitest. The preload intercepts every child command.
-function run(args, failVitest = false) {
+function run(args, failVitest = false, corruptLegacy = false) {
   const root = mkdtempSync(join(tmpdir(), "hasba-runner-regression-"));
   try {
     mkdirSync(join(root, "scripts"));
@@ -20,7 +20,8 @@ function run(args, failVitest = false) {
     writeFileSync(join(root, "stub.mjs"), `
       import childProcess from "node:child_process";
       import { syncBuiltinESMExports } from "node:module";
-      import { appendFileSync } from "node:fs";
+      import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
+      import { join, dirname } from "node:path";
       childProcess.spawnSync = (command, args, options = {}) => {
         appendFileSync("calls.jsonl", JSON.stringify({
           command, args, cwd: options.cwd,
@@ -29,10 +30,22 @@ function run(args, failVitest = false) {
           mode: options.env?.NODE_ENV,
           smtpDisabled: options.env?.SMTP_HOST === "",
           aiDisabled: options.env?.OPENAI_API_KEY === "",
+          legacyBootstrap: options.env?.HASBA_LEGACY_TEST_BOOTSTRAP,
         }) + "\\n");
+        if (command === "tar") {
+          const destination = args[args.indexOf("-C") + 1];
+          for (const name of ["app.ts", "test/bootstrap.ts", "lib/workflow-init.ts"]) {
+            const path = join(destination, "artifacts/api-server/src", name);
+            mkdirSync(dirname(path), { recursive: true });
+            writeFileSync(path, "pinned fixture source");
+          }
+        }
+        let stdout = "";
+        if (command === "git" && args[0] === "rev-parse") stdout = "a".repeat(40);
+        if (command === "git" && args[0] === "hash-object") stdout = (${corruptLegacy} ? "b" : "a").repeat(40);
         return {
           status: ${failVitest ? 1 : 0} && args.includes("vitest") ? 1 : 0,
-          stdout: "", stderr: "",
+          stdout, stderr: "",
         };
       };
       syncBuiltinESMExports();
@@ -46,8 +59,14 @@ function run(args, failVitest = false) {
     assert.ifError(result.error);
     const calls = readFileSync(join(root, "calls.jsonl"), "utf8").trim().split("\n").map(JSON.parse);
     const stages = calls.filter((call) => call.command === "pnpm");
-    assert.equal(stages.length, args.includes("--legacy-upgrade") ? 4 : 3, "migration-only install, bootstrap, then Vitest; push only in explicit legacy fixture");
+    assert.equal(stages.length, corruptLegacy ? 0 : args.includes("--legacy-upgrade") ? 4 : 3, "migration-only install, bootstrap, then Vitest; push only in explicit legacy fixture");
     if (!args.includes("--legacy-upgrade")) assert.equal(stages.some((stage) => stage.args.includes("push")), false);
+    if (args.includes("--legacy-upgrade") && !corruptLegacy) {
+      assert.ok(calls.filter((call) => call.command === "git" && call.args[0] === "hash-object").length >= 3);
+      assert.match(stages[2].legacyBootstrap, /\/legacy\/artifacts\/api-server\/src\/test\/bootstrap\.ts$/);
+      assert.equal(stages[2].args.at(-1), stages[2].legacyBootstrap, "bootstrap the archived application, not today's initializer");
+      assert.equal(calls.some((call) => call.command === "git" && call.args[0] === "diff"), false);
+    }
     for (const stage of stages) {
       assert.match(stage.database, /^postgresql:\/\/hasba_test@127\.0\.0\.1:\d+\/hasba_test_verify$/);
       assert.equal(stage.database, stage.testDatabase);
@@ -62,8 +81,9 @@ function run(args, failVitest = false) {
     assert.equal(existsSync(join(data, "..")), false, "temporary cluster directory must be removed");
     assert.deepEqual(calls.at(-1).args, ["-D", data, "-m", "immediate", "-w", "stop"]);
     assert.equal(calls.at(-1).command, "/stub-postgres/pg_ctl");
-    assert.equal(result.status, failVitest ? 1 : 0, result.stdout + result.stderr);
-    return stages.at(-1).args;
+    assert.equal(result.status, failVitest || corruptLegacy ? 1 : 0, result.stdout + result.stderr);
+    if (corruptLegacy) assert.match(result.stderr, /Archived legacy initializer does not match/);
+    return stages.at(-1)?.args ?? [];
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -88,6 +108,10 @@ test("keeps a no-filter invocation as the full suite", () => {
 test("does not forward installer-only flags to Vitest", () => {
   assert.deepEqual(run(["--migrations-only", ...filters]).slice(5, -3), filters);
   assert.deepEqual(run(["--legacy-upgrade", ...filters]).slice(5, -3), filters);
+});
+
+test("rejects a corrupted pinned initializer before migrations and still cleans the cluster", () => {
+  assert.deepEqual(run(["--legacy-upgrade", ...filters], false, true), []);
 });
 
 test("preserves option values and non-leading separators", () => {
