@@ -280,3 +280,17 @@ mtime_ms = 1792840041009
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/93d46cc8-33d4-4cd7-89ab-ffbce96924c5/3de163b1-8350-48f8-83de-5f86fa9b6bce"
 storage_version_token = "1792840048249021"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "1XIi7FF7sd-DzYCouub1q"
+uri = "file://generated-artifacts/legacy-conversion/hasiba-legacy-conversion-evidence-20261024.zip"
+type = "unspecified"
+title = "حاسبة — تقرير تحويل المستخدمين القدامى وأدلة التحقق"
+description = "التقرير العربي، مصفوفة القبول22، نتائج15بوابة، صور المتصفح، إثبات ثبات الهوية والموظف، وإثبات مزامنة GitHub. لا يتضمن بيانات الدخول أو قاعدة الاختبار."
+logical_id = "847666d3-3399-4f53-aee3-40d4b4705e25"
+content_hash = "sha256:9c5a918b8ca06088e8a3c3d9182bb9dfa8779e06fa12a734d021b5a628b314c7"
+size = 874363
+mtime_ms = 1792857190146
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/847666d3-3399-4f53-aee3-40d4b4705e25/94b0d408-4741-44b3-b211-c6310d48a9c3"
+storage_version_token = "1792857198469629"
+content_type = "application/octet-stream"
