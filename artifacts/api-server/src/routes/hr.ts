@@ -49,9 +49,11 @@ import {
   registerOnReject,
   triggerEvent,
 } from "../lib/workflow-engine";
+import type { ApprovalExecutionContext } from "../lib/approval-context";
 import { sendMessage } from "../lib/integrations/messaging";
 
 const router = Router();
+const approvalDatabase = db;
 
 /**
  * Module hook: notify each employee that their payslip is ready
@@ -130,8 +132,22 @@ async function applyLeaveDecision(
   recordId: number,
   decision: "approved" | "rejected",
   approverUserId: number | null,
+  context?: ApprovalExecutionContext,
 ): Promise<void> {
-  const [lr] = await db.select().from(leaveRequestsTable).where(eq(leaveRequestsTable.id, recordId));
+  const result = await (context?.connection ?? approvalDatabase).transaction((connection) =>
+    applyLeaveDecisionTransaction(recordId, decision, approverUserId, connection, context));
+  if (result) {
+    const event = () => triggerEvent(result.companyId, "state_changed", "leave_request", { id: recordId, days: result.days }, "approved");
+    if (context) context.afterCommit(event); else void event();
+  }
+}
+
+async function applyLeaveDecisionTransaction(
+  recordId: number, decision: "approved" | "rejected", approverUserId: number | null,
+  db: ApprovalExecutionContext["connection"], context?: ApprovalExecutionContext,
+): Promise<{ companyId: number; days: number } | undefined> {
+  const [lr] = await db.select().from(leaveRequestsTable).where(eq(leaveRequestsTable.id, recordId)).for("update");
+  if (lr && context && lr.companyId !== context.companyId) throw new Error("طلب الإجازة خارج شركة المراجعة");
   if (!lr || lr.status !== "pending") return;
   // Legacy requests may have been stamped with a company unrelated to their
   // employee. Never let those rows mutate another company's balance.
@@ -140,7 +156,7 @@ async function applyLeaveDecision(
   )).limit(1);
   if (!employee) throw new Error("Leave request employee does not belong to its company");
   const year = new Date(lr.startDate).getFullYear();
-  const balance = await ensureLeaveBalance(lr.employeeId, lr.leaveTypeId, year);
+  const balance = await ensureLeaveBalance(lr.employeeId, lr.leaveTypeId, year, db);
   const days = num(lr.days);
   if (decision === "approved") {
     await db
@@ -155,7 +171,7 @@ async function applyLeaveDecision(
       .update(leaveRequestsTable)
       .set({ status: "approved", approvedBy: approverUserId, approvedAt: new Date() })
       .where(eq(leaveRequestsTable.id, recordId));
-    void triggerEvent(lr.companyId, "state_changed", "leave_request", { id: recordId, days }, "approved");
+    return { companyId: lr.companyId, days };
   } else {
     await db
       .update(leaveBalancesTable)
@@ -165,15 +181,16 @@ async function applyLeaveDecision(
       .update(leaveRequestsTable)
       .set({ status: "rejected", approvedBy: approverUserId, approvedAt: new Date() })
       .where(eq(leaveRequestsTable.id, recordId));
+    return undefined;
   }
 }
-registerOnApprove("leave_request", async (recordId) => {
+registerOnApprove("leave_request", async (recordId, _requestId, context) => {
   // Errors propagate so actOnApproval can roll the request back to
   // pending if the leave-balance update or status flip fails.
-  await applyLeaveDecision(recordId, "approved", null);
+  await applyLeaveDecision(recordId, "approved", context.userId, context);
 });
-registerOnReject("leave_request", async (recordId) => {
-  await applyLeaveDecision(recordId, "rejected", null);
+registerOnReject("leave_request", async (recordId, _requestId, _reason, context) => {
+  await applyLeaveDecision(recordId, "rejected", context.userId, context);
 });
 
 // ---------------------------------------------------------------------------
@@ -184,25 +201,28 @@ registerOnReject("leave_request", async (recordId) => {
 //     of scope — Task #7 marks JE as optional for expense claims).
 //   * onReject flips status to rejected.
 // ---------------------------------------------------------------------------
-registerOnApprove("expense_claim", async (recordId) => {
+registerOnApprove("expense_claim", async (recordId, _requestId, context) => {
   // Rethrow on failure: actOnApproval rolls the request back to pending
   // and surfaces the error so workflow + document state stay consistent.
   try {
-    const result = await db.execute(
+    const result = await context.connection.execute(
       sql`UPDATE expense_claims c SET status = 'approved', approved_at = now()
         FROM employees e WHERE c.id = ${recordId} AND e.id=c.employee_id
-        AND c.status IN ('pending','pending_approval') RETURNING e.company_id`,
+        AND e.company_id=${context.companyId} AND c.status IN ('pending','pending_approval') RETURNING e.company_id`,
     );
-    if (result.rows[0]?.company_id) void triggerEvent(Number(result.rows[0].company_id), "state_changed", "expense_claim", { id: recordId }, "approved");
+    if (result.rows[0]?.company_id) context.afterCommit(() =>
+      triggerEvent(context.companyId, "state_changed", "expense_claim", { id: recordId }, "approved"));
   } catch (err) {
     logger.error({ err, recordId }, "expense_claim onApprove failed");
     throw err;
   }
 });
-registerOnReject("expense_claim", async (recordId) => {
+registerOnReject("expense_claim", async (recordId, _requestId, _reason, context) => {
   try {
-    await db.execute(
-      sql`UPDATE expense_claims SET status = 'rejected', approved_at = now() WHERE id = ${recordId} AND status IN ('pending','pending_approval')`,
+    await context.connection.execute(
+      sql`UPDATE expense_claims c SET status = 'rejected', approved_at = now()
+        FROM employees e WHERE c.id=${recordId} AND e.id=c.employee_id AND e.company_id=${context.companyId}
+        AND c.status IN ('pending','pending_approval')`,
     );
   } catch (err) {
     logger.error({ err, recordId }, "expense_claim onReject failed");
@@ -671,7 +691,8 @@ router.get("/hr/leave-balances", hrReadGuard, async (req, res) => {
   );
 });
 
-async function ensureLeaveBalance(employeeId: number, leaveTypeId: number, year: number) {
+async function ensureLeaveBalance(employeeId: number, leaveTypeId: number, year: number,
+  db: ApprovalExecutionContext["connection"] = approvalDatabase) {
   const [existing] = await db
     .select()
     .from(leaveBalancesTable)
@@ -682,7 +703,7 @@ async function ensureLeaveBalance(employeeId: number, leaveTypeId: number, year:
         eq(leaveBalancesTable.year, year),
       ),
     )
-    .limit(1);
+    .limit(1).for("update");
   if (existing) return existing;
   const [type] = await db.select().from(leaveTypesTable).where(eq(leaveTypesTable.id, leaveTypeId)).limit(1);
   let entitlement: number = type?.defaultDaysPerYear ?? 0;

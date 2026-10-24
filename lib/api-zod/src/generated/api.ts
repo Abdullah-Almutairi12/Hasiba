@@ -3360,6 +3360,10 @@ export const ListApprovalRequestsResponseItem = zod.object({
   "submittedByName": zod.string().nullish(),
   "status": zod.string(),
   "currentStep": zod.number().int(),
+  "policyRevision": zod.string().nullish(),
+  "policyReviewRequired": zod.boolean().optional(),
+  "reviewInvalidatedAt": zod.string().nullish(),
+  "policySnapshot": zod.record(zod.string(), zod.unknown()).nullish(),
   "notes": zod.string().nullish(),
   "createdAt": zod.string(),
   "decidedAt": zod.string().nullish()
@@ -3384,6 +3388,10 @@ export const GetApprovalRequestResponse = zod.object({
   "submittedByName": zod.string().nullish(),
   "status": zod.string(),
   "currentStep": zod.number().int(),
+  "policyRevision": zod.string().nullish(),
+  "policyReviewRequired": zod.boolean().optional(),
+  "reviewInvalidatedAt": zod.string().nullish(),
+  "policySnapshot": zod.record(zod.string(), zod.unknown()).nullish(),
   "notes": zod.string().nullish(),
   "createdAt": zod.string(),
   "decidedAt": zod.string().nullish()

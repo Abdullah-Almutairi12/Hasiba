@@ -20,6 +20,8 @@ import {
 import { and, asc, desc, eq, sql, or, isNull, inArray, lt, gt } from "drizzle-orm";
 import { adminGuard } from "../middlewares/require-role";
 import { actOnApproval, checkFinancialLimit, resolveApprovers } from "../lib/workflow-engine";
+import { frozenApprovalPolicy } from "../lib/approval-policy";
+import { approvalViewer } from "../lib/workflow-notifications";
 import { recordAudit } from "../lib/audit";
 import { isPublishedBootstrapPassword } from "../lib/bootstrap-password";
 import { assertCompanyBranch, branchScope } from "../lib/company-access";
@@ -236,19 +238,15 @@ router.delete("/workflow/approval-rules/:id", adminGuard, async (req, res) => {
 // --------------------------------------------------------------------------
 async function userCanSeeRequest(
   userId: number | null,
-  userRole: string | undefined,
-  request: {
-    companyId: number | null;
-    submittedByUserId: number | null;
-    ruleId: number | null;
-    forcedSteps: unknown;
-    branchId: number | null;
-  },
+  _userRole: string | undefined,
+  request: typeof approvalRequestsTable.$inferSelect,
   companyId: number,
 ): Promise<boolean> {
   if (request.companyId !== companyId) return false;
-  if (userRole === "owner" || userRole === "manager") return true;
   if (userId == null) return false;
+  const viewer = await approvalViewer(userId, request);
+  if (!viewer) return false;
+  if (viewer.role === "owner" || viewer.role === "manager") return true;
   if (request.submittedByUserId === userId) return true;
   // Materialize the step list. For rule-based requests we read
   // approval_steps; for forced/ad-hoc requests (ruleId = null, used by
@@ -257,7 +255,7 @@ async function userCanSeeRequest(
   // to the actual approvers (and their delegates), otherwise approvers
   // get notified into /inbox?request=N but receive 403 on detail.
   const steps: Array<{ approverUserId: number | null; approverRole: string | null }> =
-    request.ruleId != null
+    frozenApprovalPolicy(request)?.steps ?? (request.ruleId != null
       ? await db
           .select({
             approverUserId: approvalStepsTable.approverUserId,
@@ -271,7 +269,7 @@ async function userCanSeeRequest(
         }> | null) ?? []).map((s) => ({
           approverUserId: s.approverUserId,
           approverRole: s.approverRole,
-        })));
+        }))));
   if (steps.length === 0) return false;
   for (const s of steps) {
     const recipients = await resolveApprovers(s.approverRole ?? "", s.approverUserId, request.branchId, companyId);
@@ -308,6 +306,8 @@ router.get("/workflow/approval-requests", async (req, res) => {
     visible.map((r) => ({
       ...r,
       amount: Number(r.amount),
+      policyRevision: frozenApprovalPolicy(r)?.revision ?? null,
+      policyReviewRequired: r.policySnapshot == null || r.reviewInvalidatedAt != null,
       createdAt: r.createdAt.toISOString(),
       decidedAt: r.decidedAt?.toISOString() ?? null,
     })),
@@ -337,7 +337,8 @@ router.get("/workflow/approval-requests/:id", async (req, res) => {
   // on approval_requests.forced_steps; surface that here so the inbox
   // detail view can render the full approval chain and history for
   // ad-hoc approvals (e.g. SO credit-limit forced routing).
-  const steps = request.ruleId
+  const policy = frozenApprovalPolicy(request);
+  const steps = policy?.steps ?? (request.ruleId
     ? await db
         .select()
         .from(approvalStepsTable)
@@ -354,7 +355,7 @@ router.get("/workflow/approval-requests/:id", async (req, res) => {
         approverRole: s.approverRole,
         approverUserId: s.approverUserId,
         minAmount: "0",
-      })));
+      }))));
   const actions = await db
     .select()
     .from(approvalActionsTable)
@@ -363,6 +364,8 @@ router.get("/workflow/approval-requests/:id", async (req, res) => {
   return res.json({
     ...request,
     amount: Number(request.amount),
+    policyRevision: policy?.revision ?? null,
+    policyReviewRequired: !policy || request.reviewInvalidatedAt != null,
     createdAt: request.createdAt.toISOString(),
     decidedAt: request.decidedAt?.toISOString() ?? null,
     steps: steps.map((s) => ({ ...s, minAmount: Number(s.minAmount) })),
@@ -389,7 +392,7 @@ router.post("/workflow/approval-requests/:id/act", async (req, res) => {
     });
     res.json(out);
   } catch (err) {
-    res.status(400).json({ error: err instanceof Error ? err.message : "خطأ" });
+    handleRouteError(err, res);
   }
 });
 

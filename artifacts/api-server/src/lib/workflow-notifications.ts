@@ -5,6 +5,19 @@ import { returnActor } from "./return-access";
 import type { DbOrTx } from "./journal-posting";
 import { supplyScope } from "./supply-chain-scope";
 import { paymentRunsTable } from "@workspace/db";
+import { frozenApprovalPolicy } from "./approval-policy";
+
+export async function approvalViewer(userId: number, request: typeof approvalRequestsTable.$inferSelect,
+  connection: DbOrTx = db, existingActor?: Awaited<ReturnType<typeof returnActor>>) {
+  if (request.companyId == null) return null;
+  const actor = existingActor ?? await returnActor(userId, request.companyId, connection);
+  if (request.branchId != null && actor.branches != null && !actor.branches.includes(request.branchId)) return null;
+  if (!await approvalSourceAllowed(request.companyId, userId, request, actor, connection)) return null;
+  if (["leave_request", "expense_claim"].includes(request.docType) &&
+    (!["owner", "manager", "hr", "accountant", "auditor"].includes(actor.role) ||
+      (actor.custom && !actor.capabilities.includes("hr_view")))) return null;
+  return actor;
+}
 
 async function approvalSourceAllowed(companyId: number, userId: number, request: typeof approvalRequestsTable.$inferSelect,
   actor: Awaited<ReturnType<typeof returnActor>>, connection: DbOrTx) {
@@ -83,14 +96,11 @@ export async function canReadNotification(userId: number, row: {
     const [request] = await connection.select().from(approvalRequestsTable).where(and(
       eq(approvalRequestsTable.id, requestId), eq(approvalRequestsTable.companyId, row.companyId),
     ));
-    if (!request || (request.branchId != null && actor.branches != null && !actor.branches.includes(request.branchId))) return false;
-    if (!await approvalSourceAllowed(row.companyId, userId, request, actor, connection)) return false;
-    if (["leave_request", "expense_claim"].includes(request.docType) &&
-      (!["owner", "manager", "hr", "accountant", "auditor"].includes(actor.role) ||
-        (actor.custom && !actor.capabilities.includes("hr_view")))) return false;
+    if (!request || !await approvalViewer(userId, request, connection, actor)) return false;
     if (request.submittedByUserId === userId) return true;
-    let steps = request.forcedSteps as Array<{ sequence: number; approverRole: string; approverUserId: number | null }> | null;
-    if (request.ruleId != null) {
+    const policy = frozenApprovalPolicy(request);
+    let steps = policy?.steps ?? request.forcedSteps as Array<{ sequence: number; approverRole: string; approverUserId: number | null }> | null;
+    if (!policy && request.ruleId != null) {
       const [rule] = await connection.select().from(approvalRulesTable).where(and(
         eq(approvalRulesTable.id, request.ruleId), eq(approvalRulesTable.companyId, row.companyId),
       ));
@@ -99,7 +109,7 @@ export async function canReadNotification(userId: number, row: {
     }
     const { resolveApprovers } = await import("./workflow-engine");
     for (const step of steps ?? []) {
-      if ((await resolveApprovers(step.approverRole, step.approverUserId, request.branchId, row.companyId)).includes(userId)) return true;
+      if ((await resolveApprovers(step.approverRole, step.approverUserId, request.branchId, row.companyId, connection)).includes(userId)) return true;
     }
     return false;
   }

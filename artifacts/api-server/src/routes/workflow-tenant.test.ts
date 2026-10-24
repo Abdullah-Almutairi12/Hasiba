@@ -4,8 +4,8 @@ import bcrypt from "bcryptjs";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import {
   db, companiesTable, usersTable, userCompaniesTable, branchesTable, auditLogsTable,
-  approvalRulesTable, approvalRequestsTable, approverDelegationsTable, notificationInboxTable,
-  warehousesTable,
+  approvalRulesTable, approvalStepsTable, approvalRequestsTable, approvalActionsTable, approverDelegationsTable, notificationInboxTable,
+  warehousesTable, posSessionsTable,
   financialLimitsTable,
   automationRulesTable, automationRunsTable, purchaseOrdersTable, suppliersTable,
 } from "@workspace/db";
@@ -21,6 +21,8 @@ type Agent = ReturnType<typeof request.agent>;
 const ids: number[] = [];
 const ruleIds: number[] = [];
 const requestIds: number[] = [];
+const sessionIds: number[] = [];
+const extraPoIds: number[] = [];
 const legacyLimitIds: number[] = [];
 let a: number, b: number, branchA: number, branchB: number, branchA2: number;
 let maker: Agent, owner: Agent, manager: Agent, foreign: Agent, delegate: Agent;
@@ -44,8 +46,12 @@ const window = () => ({
   toDate: new Date(Date.now() + 3_600_000).toISOString(),
 });
 async function pending() {
+  const [session] = await db.insert(posSessionsTable).values({
+    branchId: branchA, sessionNumber: `${tag}-${sessionIds.length}`, cashierName: tag,
+  }).returning();
+  sessionIds.push(session.id);
   const result = await submitForApproval({
-    companyId: a, branchId: branchA, docType: "pos_over_limit", recordId: 900_000 + requestIds.length,
+    companyId: a, branchId: branchA, docType: "pos_over_limit", recordId: session.id,
     recordRef: tag, submittedByUserId: makerId, submittedByName: tag, amount: 10, forceRoles: ["manager"],
   });
   expect(result.required).toBe(true);
@@ -56,6 +62,24 @@ const ruleBody = (extra = {}) => ({
   name: tag, docType: "purchase_order", minAmount: 0, mode: "sequential",
   steps: [{ sequence: 1, approverRole: "manager", minAmount: 0 }], ...extra,
 });
+async function approvalOrder(amount: string) {
+  const [original] = await db.select().from(purchaseOrdersTable).where(eq(purchaseOrdersTable.id, poA));
+  const [po] = await db.insert(purchaseOrdersTable).values({
+    companyId: a, warehouseId: original.warehouseId, supplierId: original.supplierId, supplierName: tag,
+    reference: `${tag}-approval-${extraPoIds.length}`, orderDate: "2026-10-23",
+    status: "pending_approval", total: amount,
+  }).returning();
+  extraPoIds.push(po.id);
+  return po;
+}
+async function orderReview(recordId: number, amount: number) {
+  const result = await submitForApproval({
+    companyId: a, branchId: branchA, docType: "purchase_order", recordId,
+    amount, submittedByUserId: makerId, submittedByName: tag, forceRoles: ["manager"],
+  });
+  if (result.requestId && !requestIds.includes(result.requestId)) requestIds.push(result.requestId);
+  return result;
+}
 
 beforeAll(async () => {
   const [ca, cb] = await db.insert(companiesTable).values([
@@ -90,12 +114,13 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await db.delete(automationRulesTable).where(sql`${automationRulesTable.companyId} IN (${a},${b}) OR ${automationRulesTable.name} = ${tag}`);
-  await db.delete(purchaseOrdersTable).where(inArray(purchaseOrdersTable.id, [poA, poB, poA2]));
+  await db.delete(purchaseOrdersTable).where(inArray(purchaseOrdersTable.id, [poA, poB, poA2, ...extraPoIds]));
   await db.delete(suppliersTable).where(inArray(suppliersTable.id, supplierIds));
   await db.delete(financialLimitsTable).where(sql`${financialLimitsTable.companyId} IN (${a},${b}) OR ${financialLimitsTable.id} IN (${legacyLimitIds.length ? sql.join(legacyLimitIds.map(x => sql`${x}`), sql`,`) : sql`-1`})`);
   await db.delete(notificationInboxTable).where(inArray(notificationInboxTable.userId, ids));
   await db.delete(approverDelegationsTable).where(orOwnedDelegations());
   await db.delete(approvalRequestsTable).where(inArray(approvalRequestsTable.id, requestIds));
+  await db.delete(posSessionsTable).where(inArray(posSessionsTable.id, sessionIds));
   await db.delete(approvalRulesTable).where(inArray(approvalRulesTable.id, ruleIds));
   await db.delete(auditLogsTable).where(inArray(auditLogsTable.companyId, [a, b]));
   await db.delete(userCompaniesTable).where(inArray(userCompaniesTable.companyId, [a, b]));
@@ -107,6 +132,99 @@ afterAll(async () => {
 });
 function orOwnedDelegations() {
   return sql`${approverDelegationsTable.companyId} IN (${a},${b}) OR ${approverDelegationsTable.reason} = ${tag}`;
+}
+
+function registerApprovalSnapshotCases() {
+describe("approval snapshot and atomic execution", () => {
+  it("starts a new review for a changed POS intent without rewriting the original approved decision", async () => {
+    const firstId = await pending();
+    expect((await manager.post(`/api/workflow/approval-requests/${firstId}/act`).send({ action: "approve" })).status).toBe(200);
+    const [original] = await db.select().from(approvalRequestsTable).where(eq(approvalRequestsTable.id, firstId));
+    const next = await submitForApproval({
+      companyId: a, branchId: branchA, docType: "pos_over_limit", recordId: original.recordId,
+      amount: Number(original.amount), notes: "different synthetic intent", submittedByUserId: makerId, forceRoles: ["manager"],
+    });
+    requestIds.push(next.requestId!);
+    expect(next).toMatchObject({ required: true, status: "pending" });
+    expect(next.requestId).not.toBe(firstId);
+    const [historical] = await db.select().from(approvalRequestsTable).where(eq(approvalRequestsTable.id, firstId));
+    expect(historical.status).toBe("approved");
+    expect(historical.decidedAt).toEqual(original.decidedAt);
+    expect(historical.policySnapshot).toEqual(original.policySnapshot);
+    expect(historical.reviewInvalidatedAt).toBeInstanceOf(Date);
+    await expect(checkFinancialLimit(a, makerId, "pos.discount_pct", 10, branchA, firstId)).rejects.toThrow("اعتماد الحد غير متاح");
+    expect((await manager.post(`/api/workflow/approval-requests/${firstId}/act`).send({ action: "approve" })).status).toBe(409);
+  });
+
+  it("supersedes a changed pending amount while retaining its policy and audit comment", async () => {
+    const firstId = await pending();
+    const [original] = await db.select().from(approvalRequestsTable).where(eq(approvalRequestsTable.id, firstId));
+    const next = await submitForApproval({
+      companyId: a, branchId: branchA, docType: "pos_over_limit", recordId: original.recordId,
+      amount: 11, submittedByUserId: makerId, forceRoles: ["manager"],
+    });
+    requestIds.push(next.requestId!);
+    expect(next.requestId).not.toBe(firstId);
+    const [old] = await db.select().from(approvalRequestsTable).where(eq(approvalRequestsTable.id, firstId));
+    expect(old.status).toBe("changes_requested");
+    expect(old.policySnapshot).toEqual(original.policySnapshot);
+    expect(await db.select().from(approvalActionsTable).where(eq(approvalActionsTable.requestId, firstId))).toHaveLength(1);
+  });
+
+  it("keeps the reviewed steps after policy edits/deactivation and commits one real PO confirmation for concurrent decisions", async () => {
+    const created = await owner.post("/api/workflow/approval-rules").send(ruleBody({
+      minAmount: 1000, maxAmount: 1001, branchId: branchA,
+    }));
+    expect(created.status).toBe(201);
+    ruleIds.push(created.body.id);
+    const po = await approvalOrder("1000");
+    const submitted = await orderReview(po.id, 1000);
+    expect(submitted.required).toBe(true);
+    const original = await manager.get(`/api/workflow/approval-requests/${submitted.requestId}`);
+    expect(original.status).toBe(200);
+    expect(original.body.policyRevision).toMatch(/^[a-f0-9]{64}$/);
+    await db.update(approvalStepsTable).set({ approverRole: "cashier", approverUserId: delegateId })
+      .where(eq(approvalStepsTable.ruleId, created.body.id));
+    await db.update(approvalRulesTable).set({ isActive: false }).where(eq(approvalRulesTable.id, created.body.id));
+    expect(await orderReview(po.id, 1000)).toMatchObject({ required: true, requestId: submitted.requestId });
+    const detail = await manager.get(`/api/workflow/approval-requests/${submitted.requestId}`);
+    expect(detail.body.steps[0].approverRole).toBe("manager");
+    expect(detail.body.policyRevision).toBe(original.body.policyRevision);
+    const decisions = await Promise.all([0, 1].map(() => manager.post(
+      `/api/workflow/approval-requests/${submitted.requestId}/act`).send({ action: "approve" })));
+    expect(decisions.map(r => r.status)).toEqual([200, 200]);
+    const [confirmed] = await db.select().from(purchaseOrdersTable).where(eq(purchaseOrdersTable.id, po.id));
+    expect(confirmed).toMatchObject({ status: "confirmed", approvedBy: managerId });
+    expect(await db.select().from(approvalActionsTable).where(and(
+      eq(approvalActionsTable.requestId, submitted.requestId!), eq(approvalActionsTable.action, "approve"),
+    ))).toHaveLength(1);
+  });
+
+  it("rolls back the decision, action, business update and notification if the real confirmation fails, then permits a clean retry", async () => {
+    const po = await approvalOrder("1002");
+    const submitted = await orderReview(po.id, 1002);
+    const trigger = `approval_fault_${po.id}`;
+    await db.execute(sql.raw(`CREATE FUNCTION ${trigger}() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN IF NEW.id=${po.id} AND NEW.status='confirmed' THEN
+      RAISE EXCEPTION 'synthetic confirmation failure'; END IF; RETURN NEW; END $$;
+      CREATE TRIGGER ${trigger} BEFORE UPDATE ON purchase_orders FOR EACH ROW EXECUTE FUNCTION ${trigger}();`));
+    try {
+      const before = await db.select().from(notificationInboxTable).where(eq(notificationInboxTable.userId, makerId));
+      const failed = await manager.post(`/api/workflow/approval-requests/${submitted.requestId}/act`).send({ action: "approve" });
+      expect(failed.status).not.toBe(200);
+      const [review] = await db.select().from(approvalRequestsTable).where(eq(approvalRequestsTable.id, submitted.requestId!));
+      expect(review).toMatchObject({ status: "pending", decidedAt: null });
+      const [unchanged] = await db.select().from(purchaseOrdersTable).where(eq(purchaseOrdersTable.id, po.id));
+      expect(unchanged.status).toBe("pending_approval");
+      expect(await db.select().from(approvalActionsTable).where(eq(approvalActionsTable.requestId, submitted.requestId!))).toHaveLength(0);
+      expect(await db.select().from(notificationInboxTable).where(eq(notificationInboxTable.userId, makerId))).toHaveLength(before.length);
+    } finally {
+      await db.execute(sql.raw(`DROP TRIGGER IF EXISTS ${trigger} ON purchase_orders; DROP FUNCTION IF EXISTS ${trigger}();`));
+    }
+    expect((await manager.post(`/api/workflow/approval-requests/${submitted.requestId}/act`).send({ action: "approve" })).status).toBe(200);
+  });
+});
+
 }
 
 describe("approval company ownership", () => {
@@ -211,7 +329,7 @@ describe("approval company ownership", () => {
     expect((await foreign.get(`/api/workflow/approval-requests/${id}`)).status).toBe(404);
     expect((await foreign.post(`/api/workflow/approval-requests/${id}/act`).send({ action: "approve" })).status).toBe(404);
     await expect(actOnApproval(id, foreignId, tag, "approve", b)).rejects.toThrow("غير موجود");
-    expect((await maker.post(`/api/workflow/approval-requests/${id}/act`).send({ action: "approve" })).status).toBe(400);
+    expect((await maker.post(`/api/workflow/approval-requests/${id}/act`).send({ action: "approve" })).status).toBe(403);
     expect((await manager.get(`/api/workflow/approval-requests/${id}`)).status).toBe(200);
     expect((await manager.post(`/api/workflow/approval-requests/${id}/act`).send({ action: "approve" })).status).toBe(200);
     expect((await db.select().from(approvalRequestsTable).where(eq(approvalRequestsTable.id, id)))[0].status).toBe("approved");
@@ -237,20 +355,24 @@ describe("approval company ownership", () => {
     expect((await foreign.delete(`/api/workflow/delegations/${delegationId}`)).status).toBe(404);
     expect(await resolveApprovers("manager", null, branchA, a)).toEqual([delegateId]);
     const id = await pending();
+    expect((await delegate.get(`/api/workflow/approval-requests/${id}`)).status).toBe(403);
+    expect((await delegate.post(`/api/workflow/approval-requests/${id}/act`).send({ action: "approve" })).status).toBe(403);
+    await db.update(usersTable).set({ branchId: branchA }).where(eq(usersTable.id, delegateId));
     expect((await delegate.get(`/api/workflow/approval-requests/${id}`)).status).toBe(200);
     expect((await delegate.post(`/api/workflow/approval-requests/${id}/act`).send({ action: "approve" })).status).toBe(200);
     await db.delete(userCompaniesTable).where(and(eq(userCompaniesTable.userId, delegateId), eq(userCompaniesTable.companyId, a)));
     expect(await resolveApprovers("manager", null, branchA, a)).toEqual([managerId]);
     await db.insert(userCompaniesTable).values({ userId: delegateId, companyId: a, role: "cashier", isDefault: true });
     expect((await owner.delete(`/api/workflow/delegations/${delegationId}`)).status).toBe(200);
+    await db.update(usersTable).set({ branchId: null }).where(eq(usersTable.id, delegateId));
     expect(await resolveApprovers("manager", null, branchA, a)).toEqual([managerId]);
   });
 
   it("preserves referenced rule chains while allowing prospective deactivation", async () => {
-    const response = await owner.post("/api/workflow/approval-rules").send(ruleBody({ docType: "expense_claim", minAmount: 1 }));
+    const response = await owner.post("/api/workflow/approval-rules").send(ruleBody({ docType: "purchase_order", minAmount: 1 }));
     expect(response.status).toBe(201); const ruleId = response.body.id; ruleIds.push(ruleId);
     const submission = await submitForApproval({
-      companyId: a, docType: "expense_claim", recordId: 800_004, amount: 5, submittedByUserId: makerId,
+      companyId: a, docType: "purchase_order", recordId: poA, amount: 10, submittedByUserId: makerId,
     });
     expect(submission.required).toBe(true); requestIds.push(submission.requestId!);
     expect((await owner.patch(`/api/workflow/approval-rules/${ruleId}`).send({
@@ -414,3 +536,5 @@ describe("company automation and inbox", () => {
     await db.update(userCompaniesTable).set({ role: "manager" }).where(and(eq(userCompaniesTable.userId, managerId), eq(userCompaniesTable.companyId, a)));
   });
 });
+
+registerApprovalSnapshotCases();

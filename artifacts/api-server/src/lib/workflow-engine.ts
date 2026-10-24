@@ -18,7 +18,10 @@ import { assertCompanyBranch } from "./company-access";
 import { assertWorkflowMember, workflowMember } from "./workflow-access";
 import { financialPolicy } from "./financial-policy";
 import { FinancialRequestError } from "./financial-transaction";
-import { notify } from "./workflow-notifications";
+import { notify, approvalViewer } from "./workflow-notifications";
+import type { DbOrTx } from "./journal-posting";
+import type { ApprovalExecutionContext, ApprovalEffect } from "./approval-context";
+import { freezeApprovalPolicy, frozenApprovalPolicy } from "./approval-policy";
 
 // ---------------------------------------------------------------------------
 // Document types known to the engine. Each module that wants to trigger an
@@ -36,8 +39,8 @@ export type DocType =
   | "payment_run"
   | "pos_over_limit";
 
-type OnApproveHandler = (recordId: number, requestId: number) => Promise<void> | void;
-type OnRejectHandler = (recordId: number, requestId: number, reason: "rejected" | "changes_requested") => Promise<void> | void;
+type OnApproveHandler = (recordId: number, requestId: number, context: ApprovalExecutionContext) => Promise<void> | void;
+type OnRejectHandler = (recordId: number, requestId: number, reason: "rejected" | "changes_requested", context: ApprovalExecutionContext) => Promise<void> | void;
 const handlers = new Map<DocType, OnApproveHandler>();
 const rejectHandlers = new Map<DocType, OnRejectHandler>();
 
@@ -83,12 +86,48 @@ export interface SubmitResult {
   status?: string;
 }
 
-export async function submitForApproval(input: SubmitInput): Promise<SubmitResult> {
+export async function submitForApproval(input: SubmitInput, connection: DbOrTx = db): Promise<SubmitResult> {
+  return connection.transaction((tx) => submitForApprovalTransaction(input, tx));
+}
+
+async function submitForApprovalTransaction(input: SubmitInput, db: DbOrTx): Promise<SubmitResult> {
   if (!Number.isSafeInteger(input.companyId) || input.companyId <= 0) throw new Error("يلزم نطاق شركة للاعتماد");
   if (input.branchId != null) await assertCompanyBranch(input.branchId, input.companyId);
-  if (input.submittedByUserId != null) await assertWorkflowMember(input.companyId, input.submittedByUserId);
+  if (input.submittedByUserId != null) await assertWorkflowMember(input.companyId, input.submittedByUserId, db);
   const amount = Number(input.amount ?? 0);
   if (!Number.isFinite(amount) || amount < 0) throw new Error("قيمة اعتماد غير صحيحة");
+  await db.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(
+    ${`approval-submit:${input.companyId}:${input.docType}:${input.recordId}`}, 0))`);
+  // An existing review does not disappear merely because its administrator
+  // deactivates the prospective rule. Reuse only the bound amount/scope.
+  const [prior] = await db.select().from(approvalRequestsTable).where(and(
+    eq(approvalRequestsTable.companyId, input.companyId), eq(approvalRequestsTable.docType, input.docType),
+    eq(approvalRequestsTable.recordId, input.recordId),
+  )).orderBy(desc(approvalRequestsTable.id)).limit(1);
+  let replacesReview = false;
+  if (prior && ["pending", "approved"].includes(prior.status)) {
+    const same = await db.execute(sql`SELECT ${String(amount)}::numeric(18,2) = ${prior.amount}::numeric AS same`);
+    if (!prior.reviewInvalidatedAt && frozenApprovalPolicy(prior) &&
+      same.rows[0]?.same === true && (prior.branchId ?? null) === (input.branchId ?? null) &&
+      (prior.notes ?? null) === (input.notes ?? null) &&
+      (input.docType !== "pos_over_limit" || prior.submittedByUserId === (input.submittedByUserId ?? null))) {
+      if (prior.status === "pending") return { required: true, requestId: prior.id, status: "pending" };
+      return { required: false };
+    }
+    replacesReview = true;
+    // Invalidation is subsequent evidence, not a rewrite of a historical
+    // approval. Only pending requests change their undecided status.
+    await db.update(approvalRequestsTable).set({
+      status: prior.status === "pending" ? "changes_requested" : prior.status,
+      decidedAt: prior.status === "pending" ? new Date() : prior.decidedAt,
+      reviewInvalidatedAt: new Date(),
+    })
+      .where(eq(approvalRequestsTable.id, prior.id));
+    await db.insert(approvalActionsTable).values({
+      requestId: prior.id, stepSequence: prior.currentStep, action: "comment", approverName: "system",
+      comment: "أبطلت إعادة التقديم صلاحية المراجعة السابقة لتغير المبلغ/النطاق/بصمة الطلب أو غياب نسخة السياسة؛ القرار التاريخي محفوظ ويلزم طلب جديد.",
+    });
+  }
   // Find the most-specific active rule: same branch beats null branch,
   // tighter amount window beats wider. Take the highest min_amount that
   // still matches our amount, then highest specificity.
@@ -132,35 +171,10 @@ export async function submitForApproval(input: SubmitInput): Promise<SubmitResul
     // an ad-hoc approval request without a ruleId, routed to the
     // requested roles.
     if (input.forceRoles && input.forceRoles.length > 0) {
-      return await createForcedApproval(input, input.forceRoles);
+      return await createForcedApproval(input, input.forceRoles, db);
     }
+    if (replacesReview) throw new FinancialRequestError("يلزم إعداد سياسة مراجعة صريحة قبل إعادة تقديم هذا الطلب؛ لا تُلغى المراجعة السابقة بصمت", 409);
     return { required: false };
-  }
-
-  // Existing pending or approved request for this record? Idempotent.
-  // - pending: caller is told the request is still in progress (HTTP 202).
-  // - approved: chain has already completed; caller may proceed (the
-  //   onApprove handler has run, but routes that finalize work by
-  //   replaying themselves need a second call to actually do the work —
-  //   this lets that second call pass through cleanly).
-  const existing = await db
-    .select()
-    .from(approvalRequestsTable)
-    .where(
-      and(
-        eq(approvalRequestsTable.companyId, input.companyId),
-        eq(approvalRequestsTable.docType, input.docType),
-        eq(approvalRequestsTable.recordId, input.recordId),
-      ),
-    )
-    .orderBy(desc(approvalRequestsTable.id))
-    .limit(1);
-  if (existing[0]) {
-    if (existing[0].status === "approved") return { required: false };
-    if (existing[0].status === "pending") {
-      return { required: true, requestId: existing[0].id, status: existing[0].status };
-    }
-    // rejected/changes_requested: allow a fresh submission below.
   }
 
   const allSteps = await db
@@ -193,6 +207,7 @@ export async function submitForApproval(input: SubmitInput): Promise<SubmitResul
       notes: input.notes ?? null,
       status: "pending",
       currentStep: steps[0].sequence,
+      policySnapshot: freezeApprovalPolicy(input.companyId, matched, steps),
     })
     .returning();
 
@@ -203,7 +218,7 @@ export async function submitForApproval(input: SubmitInput): Promise<SubmitResul
     recordRef: input.recordRef ?? `#${input.recordId}`,
     amount,
     branchId: input.branchId ?? null,
-  });
+  }, db);
 
   return { required: true, requestId: request.id, status: "pending" };
 }
@@ -214,29 +229,12 @@ export async function submitForApproval(input: SubmitInput): Promise<SubmitResul
 async function createForcedApproval(
   input: SubmitInput,
   roles: string[],
+  db: DbOrTx,
 ): Promise<SubmitResult> {
   const amount = Number(input.amount ?? 0);
 
-  // Idempotency: don't create a duplicate forced request if one is
-  // already pending or already approved for this record.
-  const existing = await db
-    .select()
-    .from(approvalRequestsTable)
-    .where(
-      and(
-        eq(approvalRequestsTable.companyId, input.companyId),
-        eq(approvalRequestsTable.docType, input.docType),
-        eq(approvalRequestsTable.recordId, input.recordId),
-      ),
-    )
-    .orderBy(desc(approvalRequestsTable.id))
-    .limit(1);
-  if (existing[0]) {
-    if (existing[0].status === "approved") return { required: false };
-    if (existing[0].status === "pending") {
-      return { required: true, requestId: existing[0].id, status: existing[0].status };
-    }
-  }
+  // The caller holds the document lock and has already checked reuse and
+  // invalidation. Rechecking an old approved row here would bypass re-review.
 
   // Persist the synthesized step chain on the request itself so
   // actOnApproval can read it back and advance multi-role forced
@@ -260,6 +258,9 @@ async function createForcedApproval(
       submittedByName: input.submittedByName ?? null,
       notes: input.forceReason ?? input.notes ?? null,
       forcedSteps: synthSteps,
+      policySnapshot: freezeApprovalPolicy(input.companyId, null, synthSteps.map((step) => ({
+        ...step, id: -step.sequence, ruleId: -1, minAmount: "0",
+      })), input.forceReason ?? undefined),
       status: "pending",
       currentStep: 1,
     })
@@ -270,7 +271,7 @@ async function createForcedApproval(
     recordRef: input.recordRef ?? `#${input.recordId}`,
     amount,
     branchId: input.branchId ?? null,
-  });
+  }, db);
 
   return { required: true, requestId: request.id, status: "pending" };
 }
@@ -281,12 +282,13 @@ async function notifyStepApprovers(
   mode: string,
   currentStep: number,
   ctx: { companyId: number; docType: string; recordRef: string; amount: number; branchId: number | null },
+  connection: DbOrTx = db,
 ): Promise<void> {
   const targets = mode === "parallel"
     ? steps
     : steps.filter((s) => s.sequence === currentStep);
   for (const s of targets) {
-    const recipients = await resolveApprovers(s.approverRole, s.approverUserId, ctx.branchId, ctx.companyId);
+    const recipients = await resolveApprovers(s.approverRole, s.approverUserId, ctx.branchId, ctx.companyId, connection);
     for (const userId of recipients) {
       await notify(userId, {
         companyId: ctx.companyId,
@@ -295,7 +297,7 @@ async function notifyStepApprovers(
         message: `بانتظار اعتمادك. القيمة: ${ctx.amount.toLocaleString("ar-SA")}`,
         link: `/inbox?request=${requestId}`,
         payload: { requestId, stepSequence: s.sequence },
-      });
+      }, connection);
     }
   }
 }
@@ -314,10 +316,11 @@ export async function resolveApprovers(
   fixedUserId: number | null,
   requestBranchId: number | null,
   companyId: number,
+  connection: DbOrTx = db,
 ): Promise<number[]> {
   let baseIds: number[] = [];
   if (fixedUserId) {
-    baseIds = await workflowMember(companyId, fixedUserId) ? [fixedUserId] : [];
+    baseIds = await workflowMember(companyId, fixedUserId, connection) ? [fixedUserId] : [];
   } else {
     const conds = [eq(userCompaniesTable.role, role), eq(usersTable.isActive, true),
       eq(userCompaniesTable.companyId, companyId), eq(companiesTable.isActive, true)];
@@ -329,7 +332,7 @@ export async function resolveApprovers(
         )!,
       );
     }
-    const rows = await db
+    const rows = await connection
       .select({ id: usersTable.id })
       .from(usersTable)
       .innerJoin(userCompaniesTable, eq(userCompaniesTable.userId, usersTable.id))
@@ -340,7 +343,7 @@ export async function resolveApprovers(
   const out = new Set<number>();
   const now = new Date();
   for (const id of baseIds) {
-    const dels = await db
+    const dels = await connection
       .select()
       .from(approverDelegationsTable)
       .where(
@@ -353,7 +356,7 @@ export async function resolveApprovers(
       );
     const delegates = [];
     for (const delegation of dels) {
-      if (await workflowMember(companyId, delegation.toUserId)) delegates.push(delegation.toUserId);
+      if (await workflowMember(companyId, delegation.toUserId, connection)) delegates.push(delegation.toUserId);
     }
     // Ambiguous overlapping legacy delegations must not select an arbitrary
     // recipient. The original approver remains available if no valid delegate.
@@ -381,33 +384,67 @@ export async function actOnApproval(
   companyId: number,
   comment?: string,
 ): Promise<ActResult> {
-  if (!Number.isSafeInteger(companyId) || companyId <= 0) throw new Error("يلزم نطاق شركة للاعتماد");
+  const effects: ApprovalEffect[] = [];
+  const result = await db.transaction((tx) =>
+    actOnApprovalTransaction(requestId, userId, userName, action, companyId, comment, tx, effects));
+  // A notification failure after commit must never turn a confirmed financial
+  // decision into a failed transaction response or re-run its business effect.
+  for (const effect of effects) {
+    try { await effect(); }
+    catch (err) { logger.error({ err, requestId, companyId }, "approval post-commit effect failed"); }
+  }
+  return result;
+}
+
+async function actOnApprovalTransaction(
+  requestId: number, userId: number | null, userName: string | null, action: ActionKind,
+  companyId: number, comment: string | undefined, db: DbOrTx, effects: ApprovalEffect[],
+): Promise<ActResult> {
+  if (!Number.isSafeInteger(companyId) || companyId <= 0) throw new FinancialRequestError("يلزم نطاق شركة للاعتماد", 400);
   const [request] = await db
     .select()
     .from(approvalRequestsTable)
-    .where(and(eq(approvalRequestsTable.id, requestId), eq(approvalRequestsTable.companyId, companyId)));
-  if (!request) throw new Error("طلب الاعتماد غير موجود");
-  if (!companyId || !userId) throw new Error("يلزم عضو وشركة للاعتماد");
-  await assertWorkflowMember(companyId, userId);
+    .where(and(eq(approvalRequestsTable.id, requestId), eq(approvalRequestsTable.companyId, companyId))).for("update");
+  if (!request) throw new FinancialRequestError("طلب الاعتماد غير موجود", 404);
+  if (!companyId || !userId) throw new FinancialRequestError("يلزم عضو وشركة للاعتماد", 401);
+  await db.execute(sql`SELECT u.id FROM users u
+    JOIN user_companies m ON m.user_id=u.id
+    WHERE u.id=${userId} AND m.company_id=${companyId}
+    FOR SHARE OF u,m`);
+  await assertWorkflowMember(companyId, userId, db);
+  if (!await approvalViewer(userId, request, db)) throw new FinancialRequestError("المستند خارج صلاحية المستخدم الحالية", 403);
+  if (request.reviewInvalidatedAt) throw new FinancialRequestError("انتهت صلاحية هذه المراجعة؛ افتح الطلب الجديد", 409);
+  const execution: ApprovalExecutionContext = {
+    connection: db, companyId, userId, afterCommit: (effect) => { effects.push(effect); },
+  };
   if (request.branchId != null) await assertCompanyBranch(request.branchId, companyId);
-  if (request.status !== "pending") throw new Error("هذا الطلب لم يعد مفتوحاً");
+  if (request.status !== "pending") {
+    if (action === "approve" && request.status === "approved" && frozenApprovalPolicy(request)) {
+      const [decision] = await db.select({ id: approvalActionsTable.id }).from(approvalActionsTable)
+        .where(and(eq(approvalActionsTable.requestId, requestId), eq(approvalActionsTable.action, "approve"),
+          eq(approvalActionsTable.approverUserId, userId))).limit(1);
+      if (decision) return { status: "approved", finished: true };
+    }
+    throw new FinancialRequestError("هذا الطلب لم يعد مفتوحاً", 409);
+  }
   let returnApprover = false;
   if (request.docType === "credit_note" && action !== "comment") {
     const controls = await db.execute(sql`SELECT company_id,branch_id FROM return_controls WHERE note_id=${request.recordId}`);
     const control = controls.rows[0];
     if (control) {
       if (!userId) throw new Error("يلزم معتمد مسجل");
-      await returnAuthorize(userId, Number(control.company_id), "approve", Number(control.branch_id));
+      await returnAuthorize(userId, Number(control.company_id), "approve", Number(control.branch_id), db);
       await assertReturnSnapshot(db, request.recordId);
       returnApprover = true;
     }
   }
 
-  const rule = request.ruleId
+  const policy = frozenApprovalPolicy(request);
+  const rule = policy ?? (request.ruleId
     ? (await db.select().from(approvalRulesTable).where(and(eq(approvalRulesTable.id, request.ruleId),
       eq(approvalRulesTable.companyId, companyId))))[0]
-    : undefined;
-  if (request.ruleId && !rule) throw new Error("قاعدة اعتماد غير متاحة في الشركة");
+    : undefined);
+  if (request.ruleId && !rule) throw new FinancialRequestError("قاعدة اعتماد غير متاحة في الشركة", 409);
   // Forced approvals (ruleId === null) persist their synthesized step
   // chain on the request itself (forcedSteps jsonb). We materialize that
   // chain so the rest of the act flow works uniformly with rule-based
@@ -417,7 +454,7 @@ export async function actOnApproval(
     approverRole: string;
     approverUserId: number | null;
   }> | null) ?? null;
-  const allSteps = request.ruleId
+  const allSteps = policy?.steps ?? (request.ruleId
     ? await db
         .select()
         .from(approvalStepsTable)
@@ -425,7 +462,7 @@ export async function actOnApproval(
         .orderBy(asc(approvalStepsTable.sequence))
     : (forcedSteps && forcedSteps.length > 0
         ? forcedSteps.map((s) => ({ id: -s.sequence, ruleId: -1, sequence: s.sequence, approverRole: s.approverRole, approverUserId: s.approverUserId, minAmount: "0" }))
-        : ([{ id: -1, ruleId: -1, sequence: 1, approverRole: "manager", approverUserId: null, minAmount: "0" }] as Array<typeof approvalStepsTable.$inferSelect>));
+        : ([{ id: -1, ruleId: -1, sequence: 1, approverRole: "manager", approverUserId: null, minAmount: "0" }] as Array<typeof approvalStepsTable.$inferSelect>)));
   // Same step-threshold filter used at submission time, so the chain
   // resolution stays consistent (no advancing to a step that wasn't
   // notified because the request amount was below its threshold).
@@ -453,7 +490,7 @@ export async function actOnApproval(
   if (returnApprover && request.ruleId == null) actingStep = actionableSteps[0]?.sequence ?? null;
   if (userId != null) {
     for (const s of actionableSteps) {
-      const resolved = await resolveApprovers(s.approverRole, s.approverUserId, request.branchId ?? null, companyId);
+      const resolved = await resolveApprovers(s.approverRole, s.approverUserId, request.branchId ?? null, companyId, db);
       if (resolved.includes(userId)) {
         actingStep = s.sequence;
         break;
@@ -467,12 +504,12 @@ export async function actOnApproval(
     // the submitter). Anything else would let unrelated users pollute the
     // trail.
     if (actingStep == null && !isSubmitter) {
-      throw new Error("ليست لديك صلاحية إضافة تعليق على هذا الطلب");
+      throw new FinancialRequestError("ليست لديك صلاحية إضافة تعليق على هذا الطلب", 403);
     }
     actingStep = actingStep ?? request.currentStep;
   } else {
     if (actingStep == null) {
-      throw new Error("ليست لديك صلاحية اتخاذ إجراء على هذا الطلب");
+      throw new FinancialRequestError("ليست لديك صلاحية اتخاذ إجراء على هذا الطلب", 403);
     }
     // Segregation of Duties: the user who submitted the request can never
     // approve / reject / request changes on their own request — even if they
@@ -480,10 +517,13 @@ export async function actOnApproval(
     // the four-eyes (دعم المراقبة الثنائية) principle. Commenting is still
     // allowed above so the submitter can clarify.
     if (isSubmitter) {
-      throw new Error("لا يمكنك اعتماد طلب قمت بإنشائه (مبدأ فصل المهام)");
+      throw new FinancialRequestError("لا يمكنك اعتماد طلب قمت بإنشائه (مبدأ فصل المهام)", 403);
     }
   }
 
+  if (action === "approve" && !policy) {
+    throw new FinancialRequestError("الطلب القديم بلا نسخة سياسة مثبتة؛ اطلب إعادة تقديمه من المستند للمراجعة", 409);
+  }
   await db.insert(approvalActionsTable).values({
     requestId,
     stepSequence: actingStep,
@@ -506,9 +546,10 @@ export async function actOnApproval(
     const rejectHandler = rejectHandlers.get(request.docType as DocType);
     if (rejectHandler) {
       try {
-        await rejectHandler(request.recordId, requestId, finalStatus as "rejected" | "changes_requested");
+        await rejectHandler(request.recordId, requestId, finalStatus as "rejected" | "changes_requested", execution);
       } catch (err) {
         logger.error({ err, requestId, docType: request.docType }, "approval reject handler failed");
+        throw err;
       }
     }
     if (request.submittedByUserId) {
@@ -521,7 +562,7 @@ export async function actOnApproval(
         message: comment ?? "",
         link: `/inbox?request=${requestId}`,
         payload: { requestId, action },
-      });
+      }, db);
     }
     return { status: finalStatus, finished: true };
   }
@@ -542,30 +583,16 @@ export async function actOnApproval(
         message: comment ?? "",
         link: `/inbox?request=${requestId}`,
         payload: { requestId },
-      });
+      }, db);
     }
     const handler = handlers.get(request.docType as DocType);
     if (handler) {
       try {
-        await handler(request.recordId, requestId);
+        await handler(request.recordId, requestId, execution);
       } catch (err) {
-        // Finalization failed: roll the request back to pending so workflow
-        // and document state stay consistent. The record can be re-acted on
-        // once the underlying problem (e.g. blanket-agreement overrun) is
-        // fixed. The error is also surfaced to the caller.
-        logger.error({ err, requestId, docType: request.docType }, "approval finalize handler failed — reverting to pending");
-        await db
-          .update(approvalRequestsTable)
-          .set({ status: "pending", decidedAt: null })
-          .where(eq(approvalRequestsTable.id, requestId));
-        await db.insert(approvalActionsTable).values({
-          requestId,
-          stepSequence: actingStep,
-          action: "comment",
-          approverUserId: null,
-          approverName: "system",
-          comment: `فشل تنفيذ الاعتماد: ${err instanceof Error ? err.message : String(err)}`,
-        });
+        // The surrounding transaction rolls back the decision, action,
+        // notification and module writes together.
+        logger.error({ err, requestId, docType: request.docType }, "approval finalize handler failed — transaction rolled back");
         throw err;
       }
     }
@@ -586,7 +613,7 @@ export async function actOnApproval(
         recordRef: request.recordRef ?? `#${request.recordId}`,
         amount: Number(request.amount),
         branchId: request.branchId ?? null,
-      });
+      }, db);
     }
   }
   return { status: "pending", finished: false };
@@ -620,7 +647,7 @@ export async function checkFinancialLimit(
       eq(approvalRequestsTable.submittedByUserId, userId), eq(approvalRequestsTable.status, "approved"),
       eq(approvalRequestsTable.docType, "pos_over_limit"),
     ));
-    if (!approval || !actionKey.startsWith("pos.") || approval.branchId !== branchId) {
+    if (!approval || approval.reviewInvalidatedAt || !actionKey.startsWith("pos.") || approval.branchId !== branchId) {
       throw new FinancialRequestError("اعتماد الحد غير متاح", 403);
     }
     role = "manager";

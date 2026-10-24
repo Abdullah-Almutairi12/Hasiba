@@ -35,10 +35,12 @@ import {
   registerOnApprove,
   registerOnReject,
 } from "../lib/workflow-engine";
+import type { ApprovalExecutionContext } from "../lib/approval-context";
 import { logger } from "../lib/logger";
 import { fiscalPeriodScope } from "../lib/finance-scope";
 
 const router = Router();
+const approvalDatabase = db;
 
 // ---------------------------------------------------------------------------
 // Workflow-engine integration: Journal Entry posting.
@@ -56,13 +58,25 @@ const router = Router();
 async function finalizeJournalEntryPost(
   id: number,
   userId: number | null,
+  context?: ApprovalExecutionContext,
+): Promise<{ id: number; status: string }> {
+  return (context?.connection ?? approvalDatabase).transaction((connection) =>
+    finalizeJournalEntryPostTransaction(id, userId, connection, context));
+}
+
+async function finalizeJournalEntryPostTransaction(
+  id: number,
+  userId: number | null,
+  db: ApprovalExecutionContext["connection"],
+  context?: ApprovalExecutionContext,
 ): Promise<{ id: number; status: string }> {
   const [entry] = await db
     .select()
     .from(journalEntriesTable)
     .where(eq(journalEntriesTable.id, id))
-    .limit(1);
+    .limit(1).for("update");
   if (!entry) throw new Error("القيد غير موجود");
+  if (context && entry.companyId !== context.companyId) throw new Error("القيد خارج نطاق شركة الطلب");
   if (entry.status !== "draft" && entry.status !== "pending_approval") {
     throw new Error(`لا يمكن ترحيل قيد في حالة ${entry.status}`);
   }
@@ -71,7 +85,7 @@ async function finalizeJournalEntryPost(
       .select({ status: fiscalPeriodsTable.status })
       .from(fiscalPeriodsTable)
       .where(and(eq(fiscalPeriodsTable.id, entry.periodId), fiscalPeriodScope(entry.companyId)))
-      .limit(1);
+      .limit(1).for("share");
     if (!period || period.status === "closed" || period.status === "locked") {
       // Use the shared ClosedPeriodError so /post + the approval-engine
       // path both surface a 403 with the exact required Arabic message.
@@ -96,31 +110,33 @@ async function finalizeJournalEntryPost(
   return { id: updated.id, status: updated.status };
 }
 
-registerOnApprove("journal_entry", async (recordId) => {
+registerOnApprove("journal_entry", async (recordId, _requestId, context) => {
   try {
-    await finalizeJournalEntryPost(recordId, null);
+    await finalizeJournalEntryPost(recordId, context.userId, context);
   } catch (err) {
     logger.error({ err, recordId }, "journal_entry onApprove finalize failed");
     throw err;
   }
 });
 
-registerOnReject("journal_entry", async (recordId) => {
+registerOnReject("journal_entry", async (recordId, _requestId, _reason, context) => {
   try {
     // Constrain the revert to rows actually waiting on approval — guards
     // against state drift if the row was somehow advanced between the
     // engine call and this handler.
-    await db
+    await context.connection
       .update(journalEntriesTable)
       .set({ status: "draft" })
       .where(
         and(
           eq(journalEntriesTable.id, recordId),
+          eq(journalEntriesTable.companyId, context.companyId),
           eq(journalEntriesTable.status, "pending_approval"),
         ),
       );
   } catch (err) {
     logger.error({ err, recordId }, "journal_entry onReject revert failed");
+    throw err;
   }
 });
 

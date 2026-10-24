@@ -389,6 +389,11 @@ export interface ApprovalRulePatch {
   steps?: ApprovalRulePatchStepsItem[];
 }
 
+/**
+ * @nullable
+ */
+export type ApprovalRequestPolicySnapshot = { [key: string]: unknown } | null;
+
 export interface ApprovalRequest {
   id: number;
   /** @nullable */
@@ -408,6 +413,13 @@ export interface ApprovalRequest {
   submittedByName?: string | null;
   status: string;
   currentStep: number;
+  /** @nullable */
+  readonly policyRevision?: string | null;
+  readonly policyReviewRequired?: boolean;
+  /** @nullable */
+  readonly reviewInvalidatedAt?: string | null;
+  /** @nullable */
+  readonly policySnapshot?: ApprovalRequestPolicySnapshot;
   /** @nullable */
   notes?: string | null;
   createdAt: string;

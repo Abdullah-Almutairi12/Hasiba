@@ -308,6 +308,13 @@ export default function InboxPage() {
           <DialogHeader><DialogTitle>طلب اعتماد {detail?.recordRef ?? ""}</DialogTitle></DialogHeader>
           {detail && (
             <div className="space-y-3 text-sm">
+              {detail.policyReviewRequired ? (
+                <p role="status" className="rounded border border-amber-500 p-2">
+                  لا توجد نسخة مثبتة من سياسة هذا الطلب أو انتهت صلاحية مراجعته. أعد تقديمه من المستند؛ وللطلب المعلق يمكن طلب تعديلات أولًا. لا يمكن اعتماده مباشرة.
+                </p>
+              ) : detail.policyRevision && (
+                <p className="text-xs text-muted-foreground">نسخة السياسة المحفوظة: <code dir="ltr">{detail.policyRevision.slice(0, 12)}</code> · تبقى الصلاحيات الحالية مطلوبة.</p>
+              )}
               <div className="grid grid-cols-2 gap-2">
                 <div><span className="text-muted-foreground">المستند: </span>{DOC_LABELS[detail.docType] ?? detail.docType}</div>
                 <div><span className="text-muted-foreground">المبلغ: </span>{detail.amount.toLocaleString("ar-SA")}</div>
@@ -341,7 +348,7 @@ export default function InboxPage() {
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => onActionClick("request_changes")}>طلب تعديلات</Button>
             <Button variant="destructive" onClick={() => onActionClick("reject")}>رفض</Button>
-            <Button onClick={() => onActionClick("approve")}>اعتماد</Button>
+            <Button disabled={!detail || detail.policyReviewRequired} onClick={() => onActionClick("approve")}>اعتماد</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

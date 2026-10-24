@@ -42,6 +42,7 @@ import {
   triggerEvent,
   requireFinancialLimit,
 } from "../lib/workflow-engine";
+import type { ApprovalExecutionContext } from "../lib/approval-context";
 import { logger } from "../lib/logger";
 import { sendMessage } from "../lib/integrations/messaging";
 import {
@@ -54,6 +55,7 @@ import { getPrintCompany as getCompanyInfo } from "../lib/pdf/print-company";
 import { supplyScope, supplyParam, supplyReferencesGuard, requireSupplyReference } from "../lib/supply-chain-scope";
 
 const router = Router();
+const approvalDatabase = db;
 router.param("id", supplyParam((path) =>
   path.includes("/requisitions/") ? "requisition" :
   path.includes("/rfqs/") ? "rfq" :
@@ -946,11 +948,14 @@ router.get("/procurement/purchase-orders/:id", async (req, res) => {
 async function finalizePurchaseOrderConfirm(
   id: number,
   actor: { userId: number | null; reference?: string; companyId: number },
+  context?: ApprovalExecutionContext,
 ): Promise<void> {
-  const [po] = await db.select().from(purchaseOrdersTable).where(and(eq(purchaseOrdersTable.id, id), supplyScope("purchaseOrder", purchaseOrdersTable.id, actor.companyId)));
-  if (!po) throw httpErr(404, "not found");
-  if (po.status !== "draft" && po.status !== "pending_approval") return; // idempotent
-  await db.transaction(async (tx) => {
+  const db = context?.connection ?? approvalDatabase;
+  const po = await db.transaction(async (tx) => {
+    const [po] = await tx.select().from(purchaseOrdersTable).where(and(
+      eq(purchaseOrdersTable.id, id), supplyScope("purchaseOrder", purchaseOrdersTable.id, actor.companyId))).for("update");
+    if (!po) throw httpErr(404, "not found");
+    if (po.status !== "draft" && po.status !== "pending_approval") return;
     await tx
       .update(purchaseOrdersTable)
       .set({
@@ -963,7 +968,7 @@ async function finalizePurchaseOrderConfirm(
       const [ag] = await tx
         .select()
         .from(blanketAgreementsTable)
-        .where(eq(blanketAgreementsTable.id, po.agreementId));
+        .where(eq(blanketAgreementsTable.id, po.agreementId)).for("update");
       if (ag && ag.status === "active") {
         const committed = Number(ag.totalCommittedValue);
         const released = Number(ag.releasedValue);
@@ -995,12 +1000,16 @@ async function finalizePurchaseOrderConfirm(
         }
       }
     }
+    return po;
   });
-  void triggerEvent(po.companyId!, "state_changed", "purchase_order", { id, total: Number(po.total) }, "confirmed");
+  if (!po) return;
+  const event = () => triggerEvent(po.companyId!, "state_changed", "purchase_order", { id, total: Number(po.total) }, "confirmed");
+  if (context) context.afterCommit(event); else void event();
   // Module hook: WhatsApp/SMS supplier confirmation. Runs after the
   // commit so the supplier never gets a notification for a PO that
   // failed to persist.
-  void notifySupplierPoConfirmed(id);
+  const supplierNotice = () => notifySupplierPoConfirmed(id);
+  if (context) context.afterCommit(supplierNotice); else void supplierNotice();
 }
 
 // Workflow-engine handler: when an approval chain completes, finalize the
@@ -1008,23 +1017,22 @@ async function finalizePurchaseOrderConfirm(
 // without requiring the submitter to re-confirm. Failures propagate so the
 // engine can roll the request back to pending and keep workflow + record
 // state consistent.
-registerOnApprove("purchase_order", async (recordId) => {
-  const [po] = await db.select({ companyId: purchaseOrdersTable.companyId }).from(purchaseOrdersTable).where(eq(purchaseOrdersTable.id, recordId));
-  if (!po) throw httpErr(404, "not found");
-  await finalizePurchaseOrderConfirm(recordId, { userId: null, companyId: po.companyId });
+registerOnApprove("purchase_order", async (recordId, _requestId, context) => {
+  await finalizePurchaseOrderConfirm(recordId, { userId: context.userId, companyId: context.companyId }, context);
 });
 
 // On reject / changes-requested, unlock the PO so the submitter can edit
 // and resubmit. Without this the document would stay stuck in
 // "pending_approval" forever.
-registerOnReject("purchase_order", async (recordId) => {
+registerOnReject("purchase_order", async (recordId, _requestId, _reason, context) => {
   try {
-    await db
+    await context.connection
       .update(purchaseOrdersTable)
       .set({ status: "draft" })
-      .where(eq(purchaseOrdersTable.id, recordId));
+      .where(and(eq(purchaseOrdersTable.id, recordId), supplyScope("purchaseOrder", purchaseOrdersTable.id, context.companyId)));
   } catch (err) {
     logger.error({ err, recordId }, "PO onReject revert failed");
+    throw err;
   }
 });
 
@@ -1042,9 +1050,11 @@ async function finalizePaymentRunExecute(
   id: number,
   sessionUserId: number | null,
   companyId: number,
+  context?: ApprovalExecutionContext,
 ): Promise<{ journalEntryId: number; total: number }> {
+  const db = context?.connection ?? approvalDatabase;
   return await db.transaction(async (tx) => {
-    const [run] = await tx.select().from(paymentRunsTable).where(and(eq(paymentRunsTable.id, id), supplyScope("paymentRun", paymentRunsTable.id, companyId)));
+    const [run] = await tx.select().from(paymentRunsTable).where(and(eq(paymentRunsTable.id, id), supplyScope("paymentRun", paymentRunsTable.id, companyId))).for("update");
     if (!run) throw httpErr(404, "not found");
     if (run.status !== "draft" && run.status !== "pending_approval")
       throw httpErr(409, "الدفع تم تنفيذه مسبقاً.");
@@ -1118,36 +1128,29 @@ async function finalizePaymentRunExecute(
     return { journalEntryId: je.id, total };
   });
 }
-registerOnApprove("payment_run", async (recordId) => {
+registerOnApprove("payment_run", async (recordId, _requestId, context) => {
   // Rethrow on failure: actOnApproval rolls the request back to pending
   // and surfaces the error so workflow + document state stay consistent.
   // Logging is kept for observability.
   try {
     // Background callbacks derive scope from the owned header, never a
     // supplier link that a legacy request could have attached across tenants.
-    const [supplierRow] = await db
-      .select({ companyId: paymentRunsTable.companyId })
-      .from(paymentRunsTable)
-      .where(eq(paymentRunsTable.id, recordId))
-      .limit(1);
-    if (!supplierRow?.companyId) {
-      throw new Error(`payment_run ${recordId}: cannot resolve companyId from supplier`);
-    }
-    await finalizePaymentRunExecute(recordId, null, supplierRow.companyId);
-    void triggerEvent(supplierRow.companyId, "state_changed", "payment_run", { id: recordId }, "executed");
+    await finalizePaymentRunExecute(recordId, context.userId, context.companyId, context);
+    context.afterCommit(() => triggerEvent(context.companyId, "state_changed", "payment_run", { id: recordId }, "executed"));
   } catch (err) {
     logger.error({ err, recordId }, "payment_run onApprove finalize failed");
     throw err;
   }
 });
-registerOnReject("payment_run", async (recordId) => {
+registerOnReject("payment_run", async (recordId, _requestId, _reason, context) => {
   try {
-    await db
+    await context.connection
       .update(paymentRunsTable)
       .set({ status: "draft" })
-      .where(eq(paymentRunsTable.id, recordId));
+      .where(and(eq(paymentRunsTable.id, recordId), supplyScope("paymentRun", paymentRunsTable.id, context.companyId)));
   } catch (err) {
     logger.error({ err, recordId }, "payment_run onReject revert failed");
+    throw err;
   }
 });
 

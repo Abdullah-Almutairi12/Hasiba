@@ -35,7 +35,7 @@ export function ApprovalActions({ docType, recordId, compact }: ApprovalActionsP
   const [comment, setComment] = useState("");
 
   if (isLoading) return null;
-  const list = (data ?? []) as Array<{ id: number; recordId: number; currentStep: number }>;
+  const list = data ?? [];
   const req = list.find((r) => r.recordId === recordId);
   if (!req) return null;
 
@@ -66,7 +66,8 @@ export function ApprovalActions({ docType, recordId, compact }: ApprovalActionsP
   return (
     <div className={compact ? "inline-flex items-center gap-1" : "flex items-center gap-2"}>
       <Badge variant="outline" className="text-xs">بانتظار اعتماد · خطوة {req.currentStep}</Badge>
-      <Button size="sm" variant="default" onClick={() => setOpen({ action: "approve", id: req.id })}>
+      {req.policyReviewRequired && <Badge variant="outline">يحتاج إعادة تقديم للمراجعة</Badge>}
+      <Button size="sm" variant="default" disabled={req.policyReviewRequired} onClick={() => setOpen({ action: "approve", id: req.id })}>
         <Check className="size-3" /> اعتماد
       </Button>
       <Button size="sm" variant="destructive" onClick={() => setOpen({ action: "reject", id: req.id })}>

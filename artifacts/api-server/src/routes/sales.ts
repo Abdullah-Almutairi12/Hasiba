@@ -84,9 +84,11 @@ import {
   requireFinancialLimit,
   triggerEvent,
 } from "../lib/workflow-engine";
+import type { ApprovalExecutionContext } from "../lib/approval-context";
 import { logger } from "../lib/logger";
 
 const router = Router();
+const approvalDatabase = db;
 
 async function validateCreditNoteInventory(
   tx: DbOrTx,
@@ -108,24 +110,27 @@ async function validateCreditNoteInventory(
 //     both draft and pending_approval as input).
 //   * On reject we revert to draft so the submitter can edit and resubmit.
 // ---------------------------------------------------------------------------
-async function finalizeSalesOrderConfirm(id: number): Promise<void> {
-  const [so] = await db.select().from(salesOrdersTable).where(eq(salesOrdersTable.id, id));
-  if (!so) return;
+async function finalizeSalesOrderConfirm(id: number, context?: ApprovalExecutionContext): Promise<void> {
+  const db = context?.connection ?? approvalDatabase;
+  const [so] = await db.select().from(salesOrdersTable).where(eq(salesOrdersTable.id, id)).for("update");
+  if (!so || (context && so.companyId !== context.companyId)) throw new FinancialRequestError("أمر البيع خارج نطاق الشركة", 404);
   if (so.status !== "draft" && so.status !== "pending_approval") return;
   await db.update(salesOrdersTable).set({ status: "confirmed" }).where(eq(salesOrdersTable.id, id));
-  void triggerEvent(so.companyId!, "state_changed", "sales_order", { id, total: Number(so.total) }, "confirmed");
+  const event = () => triggerEvent(so.companyId!, "state_changed", "sales_order", { id, total: Number(so.total) }, "confirmed");
+  if (context) context.afterCommit(event); else void event();
 }
-registerOnApprove("sales_order", async (recordId) => {
-  await finalizeSalesOrderConfirm(recordId);
+registerOnApprove("sales_order", async (recordId, _requestId, context) => {
+  await finalizeSalesOrderConfirm(recordId, context);
 });
-registerOnReject("sales_order", async (recordId) => {
+registerOnReject("sales_order", async (recordId, _requestId, _reason, context) => {
   try {
-    await db
+    await context.connection
       .update(salesOrdersTable)
       .set({ status: "draft" })
-      .where(eq(salesOrdersTable.id, recordId));
+      .where(and(eq(salesOrdersTable.id, recordId), eq(salesOrdersTable.companyId, context.companyId)));
   } catch (err) {
     logger.error({ err, recordId }, "SO onReject revert failed");
+    throw err;
   }
 });
 
@@ -147,8 +152,10 @@ async function finalizeCreditNoteCancellation(
   id: number,
   sessionUserId: number | null,
   companyId: number,
+  context?: ApprovalExecutionContext,
 ): Promise<typeof creditNotesTable.$inferSelect> {
-  return await db.transaction(async (tx) => {
+  const db = context?.connection ?? approvalDatabase;
+  const result = await db.transaction(async (tx) => {
     const [note] = await tx.select().from(creditNotesTable).where(and(eq(creditNotesTable.id, id), eq(creditNotesTable.companyId, companyId))).for("update");
     if (!note) throw Object.assign(new Error("Not found"), { status: 404 });
     const control = await tx.execute(sql`SELECT branch_id FROM return_controls WHERE note_id=${id} AND company_id=${companyId}`);
@@ -270,26 +277,19 @@ async function finalizeCreditNoteCancellation(
         }
       }
     }
-    void triggerEvent(updated.companyId!, "state_changed", "credit_note", { id, total: Number(updated.total) }, "cancelled");
     return updated;
   });
+  const event = () => triggerEvent(result.companyId!, "state_changed", "credit_note", { id, total: Number(result.total) }, "cancelled");
+  if (context) context.afterCommit(event); else void event();
+  return result;
 }
-registerOnApprove("credit_note_cancel", async (recordId) => {
+registerOnApprove("credit_note_cancel", async (recordId, _requestId, context) => {
   // Rethrow on failure: actOnApproval rolls the request back to pending
   // and surfaces the error so workflow + document state stay consistent.
   try {
     // No HTTP session: use the note's saved company and require its
     // customer to agree before finalizing.
-    const [row] = await db
-      .select({ companyId: creditNotesTable.companyId })
-      .from(creditNotesTable)
-      .innerJoin(customersTable, and(eq(customersTable.id, creditNotesTable.customerId), eq(customersTable.companyId, creditNotesTable.companyId)))
-      .where(eq(creditNotesTable.id, recordId))
-      .limit(1);
-    if (!row?.companyId) {
-      throw new Error(`credit_note_cancel ${recordId}: cannot resolve companyId from customer`);
-    }
-    await finalizeCreditNoteCancellation(recordId, null, row.companyId);
+    await finalizeCreditNoteCancellation(recordId, context.userId, context.companyId, context);
   } catch (err) {
     logger.error({ err, recordId }, "credit_note_cancel onApprove finalize failed");
     throw err;
@@ -306,8 +306,10 @@ async function finalizeCreditNoteIssue(
   noteId: number,
   sessionUserId: number | null,
   companyId: number,
+  context?: ApprovalExecutionContext,
 ): Promise<typeof creditNotesTable.$inferSelect> {
-  return await db.transaction(async (tx) => {
+  const db = context?.connection ?? approvalDatabase;
+  const result = await db.transaction(async (tx) => {
     const [note] = await tx.select().from(creditNotesTable).where(and(eq(creditNotesTable.id, noteId), eq(creditNotesTable.companyId, companyId))).for("update");
     if (!note) throw new Error("الإشعار الدائن غير موجود");
     if (note.status === "issued" || note.status === "applied") return note;
@@ -472,40 +474,34 @@ async function finalizeCreditNoteIssue(
       .select()
       .from(creditNotesTable)
       .where(eq(creditNotesTable.id, noteId));
-    void triggerEvent(updated.companyId!, "state_changed", "credit_note", { id: noteId, total: Number(updated.total) }, "issued");
     return updated;
   });
+  const event = () => triggerEvent(result.companyId!, "state_changed", "credit_note", { id: noteId, total: Number(result.total) }, "issued");
+  if (context) context.afterCommit(event); else void event();
+  return result;
 }
-registerOnApprove("credit_note", async (recordId) => {
+registerOnApprove("credit_note", async (recordId, _requestId, context) => {
   try {
     // No HTTP session: use the note's saved company and require its
     // customer to agree before finalizing.
-    const [row] = await db
-      .select({ companyId: creditNotesTable.companyId })
-      .from(creditNotesTable)
-      .innerJoin(customersTable, and(eq(customersTable.id, creditNotesTable.customerId), eq(customersTable.companyId, creditNotesTable.companyId)))
-      .where(eq(creditNotesTable.id, recordId))
-      .limit(1);
-    if (!row?.companyId) {
-      throw new Error(`credit_note ${recordId}: cannot resolve companyId from customer`);
-    }
-    await finalizeCreditNoteIssue(recordId, null, row.companyId);
+    await finalizeCreditNoteIssue(recordId, context.userId, context.companyId, context);
   } catch (err) {
     logger.error({ err, recordId }, "credit_note onApprove finalize failed");
     throw err;
   }
 });
-registerOnReject("credit_note", async (recordId) => {
+registerOnReject("credit_note", async (recordId, _requestId, _reason, context) => {
   // Rejected posting → leave the row as a permanent draft so users can
   // see why it was filed but it has no AR/inventory side effects. Mark
   // explicitly cancelled so it doesn't appear in "draft" lists forever.
   try {
-    await db
+    await context.connection
       .update(creditNotesTable)
       .set({ status: "cancelled" })
-      .where(eq(creditNotesTable.id, recordId));
+      .where(and(eq(creditNotesTable.id, recordId), eq(creditNotesTable.companyId, context.companyId)));
   } catch (err) {
     logger.error({ err, recordId }, "credit_note onReject finalize failed");
+    throw err;
   }
 });
 

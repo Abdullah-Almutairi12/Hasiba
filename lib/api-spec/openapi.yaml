@@ -4145,6 +4145,10 @@ components:
         submittedByName: { type: string, nullable: true }
         status: { type: string }
         currentStep: { type: integer }
+        policyRevision: { type: string, nullable: true, readOnly: true }
+        policyReviewRequired: { type: boolean, readOnly: true }
+        reviewInvalidatedAt: { type: string, nullable: true, readOnly: true }
+        policySnapshot: { type: object, additionalProperties: true, nullable: true, readOnly: true }
         notes: { type: string, nullable: true }
         createdAt: { type: string }
         decidedAt: { type: string, nullable: true }

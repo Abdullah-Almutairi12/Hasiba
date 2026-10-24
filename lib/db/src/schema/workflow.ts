@@ -84,6 +84,8 @@ export const approvalRequestsTable = pgTable(
     // approvals correctly instead of collapsing to a single virtual step.
     // Shape: Array<{ sequence: number; approverRole: string; approverUserId: number | null }>
     forcedSteps: jsonb("forced_steps"),
+    policySnapshot: jsonb("policy_snapshot"),
+    reviewInvalidatedAt: timestamp("review_invalidated_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     decidedAt: timestamp("decided_at", { withTimezone: true }),
   },
