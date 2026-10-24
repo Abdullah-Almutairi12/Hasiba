@@ -3450,7 +3450,12 @@ export const createCreditNoteHandler: RequestHandler = async (req, res) => {
       if (scopedReturn) {
         const limit = await checkFinancialLimit(companyId, req.session.userId!, "sales.credit_note_amount", Number(note.total), operationalBranch, null, tx);
         if (!limit.allowed) throw new FinancialRequestError(limit.reason ?? "لم يهيأ حد المرتجع للمستخدم المقيد", 403);
-        if ((!body.restock || body.goodsReceived) && await scopedDirectReturn(tx, req.session.userId!, companyId, operationalBranch!, note.total, note.id)) {
+        if (await scopedDirectReturn(tx, req.session.userId!, companyId, operationalBranch!, note.total, note.id)) {
+          if (body.restock && !body.goodsReceived) {
+            const [waiting] = await tx.update(creditNotesTable).set({ status: "pending_approval" })
+              .where(eq(creditNotesTable.id, note.id)).returning();
+            return { ...waiting, directAuthorized: true, pendingReceipt: true };
+          }
           return finalizeCreditNoteIssue(note.id, req.session.userId!, companyId, undefined, tx);
         }
       }
@@ -3465,6 +3470,9 @@ export const createCreditNoteHandler: RequestHandler = async (req, res) => {
       res.status(201).json(serializeMoneyDoc(persistedNote)); return;
     }
     if (persistedNote.status === "cancelled") throw new FinancialRequestError("الإشعار ملغى", 409);
+    if ("directAuthorized" in result && result.directAuthorized === true) {
+      res.status(201).json({ ...serializeMoneyDoc(persistedNote), directAuthorized: true, pendingReceipt: true }); return;
+    }
     // Workflow-engine gate: posting approval. If a credit_note rule
     // matches, lock the row to pending_approval and return 202 — the
     // registered onApprove handler will run finalizeCreditNoteIssue.

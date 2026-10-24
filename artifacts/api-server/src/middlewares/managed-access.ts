@@ -44,9 +44,9 @@ export async function managedAccessGate(req: Request, res: Response, next: NextF
     let action: string | undefined = scopedRouteAction(req.method, req.path);
     if (action === "pos.operation") {
       action = ({
-        request: "pos.return.request", approve: "pos.return.approve", receive: "pos.return.receive", payout: "pos.return.payout",
+        request: "pos.return.request", re_review: "pos.return.request", approve: "pos.return.approve", receive: "pos.return.receive", payout: "pos.return.payout",
         cancel_payout: "pos.return.payout", confirm_external: "pos.return.external",
-        close: "pos.shift.close", approve_close: "pos.shift.difference",
+        close: "pos.shift.close", approve_close: "pos.shift.difference", responsibility: "pos.shift.responsibility",
       } as Record<string, string>)[String(req.body?.action)];
     }
     if (!action) return void res.status(403).json({ error: "هذا المسار غير ممنوح للوصول المحدد؛ لا تكفي الباقة أو المسمى الوظيفي" });

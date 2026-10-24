@@ -7,13 +7,14 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { useAct, useDurableAction } from "@/hooks/use-returns-actions";
 import { cn } from "@/lib/utils";
-import { arr, DISPOSITIONS, label, METHODS, money, num, readErr, rec, returnNoteState, statusTone, str, strArr, type Rec } from "@/lib/returns/shared";
+import { arr, closingStateLabel, DISPOSITIONS, label, METHODS, money, num, readErr, rec, returnNoteState, statusTone, str, strArr, type Rec } from "@/lib/returns/shared";
 import { Empty, ErrorBox, Fig, Pill, Stat } from "@/components/returns/ui";
 import { PayoutForm } from "@/components/returns/payout-form";
 import { ExpenseForm } from "@/components/returns/expense-form";
 import { RequestTab } from "@/components/returns/request-form";
 import { ApproveButton, ApproveClose, CloseForm, PayoutsTab } from "@/components/returns/actions";
 import { ConfigTab } from "@/components/returns/config-tab";
+import { ResponsibilityForm } from "@/components/returns/responsibility-form";
 import { RecoveryPanel } from "@/components/returns/recovery-panel";
 import { docUrls, fmtDate, PrintDocButton } from "@/lib/print-docs";
 
@@ -142,9 +143,9 @@ export default function ReturnsPage() {
           {tab === "payouts" && <PayoutsTab payouts={payouts} notes={notes} can={can} />}
           {tab === "sessions" && (sessions.length === 0
             ? <Empty title="لا توجد ورديات ظاهرة" hint="ورديات الفروع المخولة لك تظهر هنا مع حركة الدرج." />
-            : <div className="grid gap-3 xl:grid-cols-2">{sessions.map((s) => <SessionCard key={str(s.id)} s={s} can={can} branchName={branchName} meId={meId} accounts={accounts} />)}</div>)}
+            : <div className="grid gap-3 xl:grid-cols-2">{sessions.map((s) => <SessionCard key={str(s.id)} s={s} can={can} branchName={branchName} meId={meId} accounts={accounts} employees={arr(d.responsibility_employees)} />)}</div>)}
           {tab === "config" && can("configure") && (
-            <ConfigTab members={members} access={access} templates={templates} branches={branches} policies={policies} branchName={branchName} meId={meId} />
+            <ConfigTab members={members} access={access} templates={templates} branches={branches} policies={policies} branchName={branchName} meId={meId} ownerPolicy={rec(d.owner_policy)} />
           )}
         </>
       )}
@@ -202,8 +203,13 @@ function NoteCard({ note: n, payouts, sessions, invoices, can, branchName }: {
       {n.receipt_required === true && (
         <section className="mt-3 rounded-xl border p-3 text-sm" aria-label="إثبات استلام المرتجع">
           {n.received_by != null ? <p>أُثبت الاستلام بواسطة #{str(n.received_by)} · {str(n.receipt_reference)}</p> : <>
-            <p className="font-semibold">{n.review_status === "approved" ? "معتمد — ينتظر استلام البضاعة الفعلي قبل الترحيل والاسترداد" : "لم تثبت إعادة البضاعة؛ الطلب وحده لا يعيد المخزون"}</p>
-            {can("receive") && n.review_status === "approved" && <div className="mt-2 flex flex-wrap items-end gap-2">
+            {can("request") && state.financialPending && <Button variant="outline" size="sm" disabled={receiver.pending}
+              onClick={() => void (async () => {
+                const result = await receiver.run("re_review", { noteId:num(n.id) });
+                setReceiptError(result.ok ? "" : result.err.message);
+              })()}>إعادة فحص المراجعة واستئناف الطلب نفسه</Button>}
+            <p className="font-semibold">{n.review_status === "direct_authorized" ? "مسموح مباشرة — ينتظر الاستلام الفعلي؛ ليس اعتمادًا من شخص مستقل" : n.review_status === "approved" ? "معتمد — ينتظر استلام البضاعة الفعلي قبل الترحيل والاسترداد" : "لم تثبت إعادة البضاعة؛ الطلب وحده لا يعيد المخزون"}</p>
+            {can("receive") && ["approved","direct_authorized"].includes(str(n.review_status)) && <div className="mt-2 flex flex-wrap items-end gap-2">
               <label className="flex-1">مرجع محضر الاستلام الفعلي
                 <input className="mt-1 w-full rounded border bg-background p-2" value={receiptRef} disabled={receiver.pending}
                   onChange={e => setReceiptRef(e.target.value)} />
@@ -255,8 +261,8 @@ function NoteCard({ note: n, payouts, sessions, invoices, can, branchName }: {
   );
 }
 
-function SessionCard({ s, can, branchName, meId, accounts }: {
-  s: Rec; can: (c: string) => boolean; branchName: (id: unknown) => string; meId: number | null; accounts: Rec[];
+function SessionCard({ s, can, branchName, meId, accounts, employees }: {
+  s: Rec; can: (c: string) => boolean; branchName: (id: unknown) => string; meId: number | null; accounts: Rec[]; employees:Rec[];
 }) {
   const st = str(s.status).toLowerCase();
   const cs = str(s.closing_status).toLowerCase();
@@ -273,7 +279,7 @@ function SessionCard({ s, can, branchName, meId, accounts }: {
       <div className="flex flex-wrap items-center gap-2">
         <h3 className="font-bold" dir="ltr">{str(s.session_number, `#${str(s.id)}`)}</h3>
         <Pill status={str(s.status)} />
-        {cs && <span className="text-xs text-muted-foreground">الإغلاق: {statusTone(cs).text}</span>}
+        {cs && <span className="text-xs text-muted-foreground">الإغلاق: {closingStateLabel(cs,s.closing_owner_exception===true)}</span>}
         <span className="ms-auto text-xs text-muted-foreground">{branchName(s.branch_id)}</span>
       </div>
       <dl className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
@@ -294,16 +300,18 @@ function SessionCard({ s, can, branchName, meId, accounts }: {
       {cs && (can("close") || can("reports") || can("difference")) && (
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <PrintDocButton id={num(s.id)} url={docUrls.closing} filename={`shift-closing-${str(s.id)}.pdf`} label={closingPrintLabel(cs)} testId={`button-print-closing-${str(s.id)}`} />
-          <span className="text-[11px] text-muted-foreground" data-testid={`closing-state-${str(s.id)}`}>حالة الإغلاق الحالية: {statusTone(cs).text}</span>
+          <span className="text-[11px] text-muted-foreground" data-testid={`closing-state-${str(s.id)}`}>حالة الإغلاق الحالية: {closingStateLabel(cs,s.closing_owner_exception===true)}</span>
         </div>
       )}
       {pendingClose && (
         <div className="mt-3 rounded-xl bg-amber-50 p-3 text-xs text-amber-900 dark:bg-amber-950/40 dark:text-amber-100">
           إغلاق بفرق بانتظار اعتماد مستخدم مخول آخر.
-          {can("difference") && !mine && <div className="mt-2"><ApproveClose sessionId={str(s.id)} /></div>}
-          {mine && <div className="mt-1">لا يمكنك اعتماد إغلاق أنشأته بنفسك.</div>}
+          {can("difference") && (!mine || can("configure")) && <div className="mt-2"><ApproveClose sessionId={str(s.id)} selfOwner={mine} /></div>}
+          {mine && !can("configure") && <div className="mt-1">لا يمكنك اعتماد إغلاق أنشأته بنفسك.</div>}
         </div>
       )}
+      {cs==="approved" && diff!==null && diff!==0 && can("responsibility") && (!mine||can("configure")) &&
+        <ResponsibilityForm session={s} employees={employees} selfOwner={mine&&can("configure")}/>}
     </article>
   );
 }

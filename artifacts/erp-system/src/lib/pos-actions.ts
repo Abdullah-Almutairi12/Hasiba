@@ -12,6 +12,7 @@ export const ACTION_LABEL: Record<string, string> = {
   "pos.shift.open": "فتح وردية",
   "pos.shift.close": "عد وإقفال ورديات الفرع المحدد، ولو فتحها زميل",
   "pos.shift.difference": "اعتماد فرق درج لوردية زميل",
+  "pos.shift.responsibility": "قرار مسؤولية فرق درج دون خصم تلقائي",
   "pos.payment.record": "تسجيل دفع يدوي غير نقدي أو آجل (دون بوابة)",
   "pos.discount": "منح خصم ضمن السياسة المالية القائمة",
   "pos.discount.request": "طلب استثناء خصم بموافقة مستقلة للعملية",
@@ -76,7 +77,7 @@ export const RETURN_MODE_LABEL: Record<ReturnMode, string> = {
 /** Is the return center reachable from this live responsibility? Server still enforces. */
 export function canReachReturns(sel: { resource: string; actions: string[] } | null | undefined): boolean {
   if (!sel || sel.resource !== "pos" || !sel.actions.includes("pos.read")) return false;
-  return sel.actions.some((a) => (RETURN_ACTIONS as readonly string[]).includes(a) || a === "pos.shift.close" || a === "pos.shift.difference");
+  return sel.actions.some((a) => (RETURN_ACTIONS as readonly string[]).includes(a) || a === "pos.shift.close" || a === "pos.shift.difference" || a === "pos.shift.responsibility");
 }
 
 /** Split a preview into allowed vs blocked work against the offered ceiling. */

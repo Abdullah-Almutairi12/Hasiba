@@ -12,7 +12,7 @@ export const returnTemplates: Record<string, string[]> = {
   finance_manager: ["view", "request", "approve", "payout", "external", "close", "difference", "reports", "export", "expense", "seller_edit", "commission_approve", "commission_paid"],
   auditor: ["view", "reports", "export"],
 };
-export const returnCapabilities = [...new Set([...Object.values(returnTemplates).flat(), "receive", "hr_view", "hr_write"])];
+export const returnCapabilities = [...new Set([...Object.values(returnTemplates).flat(), "receive", "responsibility", "hr_view", "hr_write"])];
 export async function returnActor(userId: number, companyId: number, connection?: Pick<typeof db, "execute">) {
   const text = `
     SELECT uc.role, u.branch_id, a.capabilities, a.branches
@@ -39,6 +39,7 @@ export async function returnActor(userId: number, companyId: number, connection?
           "pos.return.approve": "approve", "pos.return.receive": "receive",
           "pos.return.external": "external", "pos.shift.close": "close",
           "pos.shift.difference": "difference",
+          "pos.shift.responsibility": "responsibility",
         }).filter(([action]) => grant.actions.includes(action)).map(([, capability]) => capability),
       ] : [],
       branches: grant ? [grant.branchId] : [],

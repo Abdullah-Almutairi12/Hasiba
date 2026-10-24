@@ -49,3 +49,9 @@ Deferred execution by a different employee must validate the original reviewer's
 **Why:** Selection belongs to an authenticated request and actor. During independent goods receipt it is the receiver's selection, not proof of the approver's authority. Treating it as the approver's selection either rejects legitimate separation or silently grants the wrong scope.
 
 **How to apply:** Bind the decision to the exact grant, profile revision, financial policy and native source. Revalidate under the authority fence before a new financial effect, retaining old decision evidence on revocation or source changes.
+
+An explicitly configured sole-owner exception is not an independent approval. Identity confirmation must stay bound to its particular operation, purpose, source facts and current policy, never become reusable manager authority or extend to employees.
+
+**Why:** The product's owner-operated workflow needs a transparent exception without falsely claiming separation of duties or weakening mandatory independent review elsewhere.
+
+**How to apply:** Expose only actually supported exception operations and limits; keep their evidence visible after reload and in print. Preserve standard independent approval by default and reject unused confirmations after the policy, ownership or source changes.

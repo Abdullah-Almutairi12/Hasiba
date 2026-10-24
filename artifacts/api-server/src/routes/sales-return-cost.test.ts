@@ -186,6 +186,7 @@ describe("original POS invoice: independent linked return lifecycle", () => {
       "0037_team_scoped_access.sql",
       "0038_legacy_team_conversion.sql",
       "0039_pos_independent_return_receipt.sql",
+      "0040_owner_cash_responsibility.sql",
     ]);
     expect(first.skipped).toHaveLength(26);
     expect(await snapshots()).toEqual(before);

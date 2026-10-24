@@ -6,11 +6,12 @@ import { useToast } from "@/hooks/use-toast";
 import { useAct } from "@/hooks/use-returns-actions";
 import { Empty, ErrorBox } from "@/components/returns/ui";
 import { cn } from "@/lib/utils";
+import { OwnerPolicyEditor } from "./owner-exception";
 import { CAPS, field, label, money, num, numArr, str, strArr, type ErrInfo, type Rec } from "@/lib/returns/shared";
 
 /* ---------------- Config ---------------- */
-export function ConfigTab({ members, access, templates, branches, policies, branchName, meId }: {
-  members: Rec[]; access: Rec[]; templates: Rec; branches: Rec[]; policies: Rec[]; branchName: (id: unknown) => string; meId: number | null;
+export function ConfigTab({ members, access, templates, branches, policies, branchName, meId, ownerPolicy }: {
+  members: Rec[]; access: Rec[]; templates: Rec; branches: Rec[]; policies: Rec[]; branchName: (id: unknown) => string; meId: number | null; ownerPolicy:Rec;
 }) {
   const [editing, setEditing] = useState<string | null>(null);
   return (
@@ -38,7 +39,7 @@ export function ConfigTab({ members, access, templates, branches, policies, bran
           );
         })}
       </section>
-      <PolicyEditor policies={policies} branches={branches} branchName={branchName} />
+      <div className="space-y-4"><PolicyEditor policies={policies} branches={branches} branchName={branchName} /><OwnerPolicyEditor policy={ownerPolicy}/></div>
     </div>
   );
 }

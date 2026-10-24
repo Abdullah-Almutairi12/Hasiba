@@ -1,7 +1,24 @@
 import { describe, expect, it } from "vitest";
-import { returnNoteState, statusTone } from "./shared";
+import { closingStateLabel, returnNoteState, statusTone } from "./shared";
 
 describe("independent review, physical receipt and financial issue presentation", () => {
+  it("never labels an approved closing as a payout entitlement",()=>{
+    expect(closingStateLabel("approved")).toBe("إقفال مكتمل ومعتمد");
+    expect(closingStateLabel("approved")).not.toContain("مستحق الصرف");
+  });
+  it("keeps pending closing review separate from completed closure",()=>{
+    expect(closingStateLabel("pending")).toBe("بانتظار مراجعة الفرق");
+  });
+  it("keeps a sole-owner exception explicit after reload rather than calling it independent review",()=>{
+    expect(closingStateLabel("approved",true)).toContain("ليس اعتمادًا مستقلًا");
+  });
+  it("distinguishes direct permission from independent approval and still waits for receipt", () => {
+    const state = returnNoteState({status:"pending_approval",review_status:"direct_authorized",receipt_required:true});
+    expect(state.awaitingApproval).toBe(false);
+    expect(state.awaitingReceipt).toBe(true);
+    expect(state.financialPending).toBe(true);
+    expect(statusTone(state.status).text).toBe("مسموح مباشرة — بانتظار الاستلام");
+  });
   it("counts a submitted unapproved note as awaiting review only", () => {
     expect(returnNoteState({ status: "pending", review_status: "pending", receipt_required: true })).toEqual({
       financialPending: true, awaitingApproval: true, awaitingReceipt: false, status: "pending",

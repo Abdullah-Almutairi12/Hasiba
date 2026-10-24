@@ -11,3 +11,4 @@
 - [Repository synchronization](repository-sync.md) — GitHub handoff is required; verify remote equality and disclose ignored outputs rather than calling a local checkpoint synchronized.
 - [Issued document evidence](issued-document-evidence.md) — issuer, seller and commission history need original evidence; retries must survive employee and policy changes.
 - [Approval evidence](approval-evidence.md) — invalidate authority without rewriting a decision; reviewer assignment or delegation does not grant source access.
+- [Cash accountability](cash-accountability.md) — recording, reviewing and assigning responsibility are separate; a decision never automatically creates employee debt or a payroll deduction.

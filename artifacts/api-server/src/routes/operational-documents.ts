@@ -67,6 +67,9 @@ router.get("/sales/credit-notes/:id/pdf",async(req,res)=>{
     const n=rows[0];if(!n)missing();
     await checkDocumentPrint(req,"invoice",Number(n.invoice_id));
     await returnAuthorize(req.session.userId!,companyId,"view",n.control_branch??n.branch_id??undefined);
+    if (!["issued","applied"].includes(n.status) && !(n.status==="cancelled"&&n.journal_entry_id!=null)) {
+      throw new FinancialRequestError("المستند لم يصدر ماليًا بعد؛ لا تتوفر طباعة نهائية قبل اكتمال الاعتماد والاستلام والترحيل",409);
+    }
     const lines=(await pool.query("SELECT description,quantity,unit_price,tax_rate,line_total,invoice_line_id FROM credit_note_lines WHERE note_id=$1 ORDER BY id",[id])).rows;
     const sellers=new Map((await savedSellerLines(companyId,Number(n.invoice_id))).map(l=>[l.invoice_line_id,l]));
     await sendPrintPdf(res,`credit-${n.reference}`,await print(req,"credit",id,{title:"إشعار دائن",
@@ -106,9 +109,11 @@ router.get("/pos/sessions/:id/closing.pdf",async(req,res)=>{
       FROM pos_cash_closings c JOIN pos_sessions s ON s.id=c.session_id
       LEFT JOIN users u ON u.id=c.approved_by WHERE c.session_id=$1 AND c.company_id=$2`,[id,companyId]);
     const c=rows[0];if(!c)missing();
+    const ownerException=(summary as Record<string,unknown>).closing_owner_exception===true;
     const refunds=(await pool.query("SELECT coalesce(sum(amount),0) AS amount FROM return_payouts WHERE company_id=$1 AND session_id=$2 AND method='cash' AND status='confirmed'",[companyId,id])).rows[0]!;
     await sendPrintPdf(res,`closing-${c.session_number}`,await print(req,"closing",id,{title:"محضر إقفال وردية",
-      metadata:[["الوردية",c.session_number],["المحصل",c.cashier_name],["التاريخ",date(c.created_at)],["الحالة",states[c.status]??c.status],["المعتمد",c.approver??"لم يعتمد"],["تاريخ الاعتماد",date(c.approved_at)]],
+      metadata:[["الوردية",c.session_number],["المحصل",c.cashier_name],["التاريخ",date(c.created_at)],["الحالة",states[c.status]??c.status],["المراجع",c.approver??"لم يعتمد"],["تاريخ المراجعة",date(c.approved_at)],
+        ["مسار المراجعة",ownerException?"استثناء مالك موثق — ليس اعتماد شخص مستقل":"المسار المعتاد"]],
       headers:["البيان","المبلغ"],rows:[["رصيد الافتتاح",money(summary.opening)],["النقد المحصل",money(summary.cash_in)],
         ["الاستردادات النقدية المؤكدة",money(refunds.amount)],["المصروف النقدي",money(Number(summary.cash_out)-Number(refunds.amount))],
         ["المتوقع عند الإقفال",money(c.expected)],["المعدود",money(c.counted)],["الفرق",money(c.difference)]],notes:[c.reason??"","المتوقع والمعدود والفرق من سجل الإقفال المحفوظ؛ الطباعة للقراءة فقط."]}));

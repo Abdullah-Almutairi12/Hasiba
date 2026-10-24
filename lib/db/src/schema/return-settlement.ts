@@ -1,6 +1,7 @@
-import { pgTable, integer, serial, text, jsonb, numeric, boolean, timestamp, primaryKey, uniqueIndex, check } from "drizzle-orm/pg-core";
+import { pgTable, integer, serial, text, jsonb, numeric, boolean, timestamp, primaryKey, uniqueIndex, check, uuid } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { companiesTable } from "./companies";
+import { employeesTable } from "./hr";
 import { usersTable } from "./users";
 import { branchesTable } from "./branches";
 import { creditNotesTable, customerInvoicesTable, customerReceiptsTable } from "./sales";
@@ -82,3 +83,33 @@ export const posCashExpensesTable = pgTable("pos_cash_expenses", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, t => [uniqueIndex("pos_cash_expenses_company_id_idempotency_key_key").on(t.companyId, t.idempotencyKey),
   check("pos_cash_expenses_amount_check", sql`${t.amount}>0`)]);
+
+export const posOwnerExceptionPoliciesTable = pgTable("pos_owner_exception_policies", {
+  companyId:integer("company_id").primaryKey().references(()=>companiesTable.id),
+  enabled:boolean("enabled").notNull().default(false),
+  operations:jsonb("operations").$type<string[]>().notNull().default([]),
+  amountLimit:numeric("amount_limit",{precision:18,scale:2}).notNull().default("0"),
+  revision:integer("revision").notNull().default(1),reason:text("reason").notNull(),
+  updatedBy:integer("updated_by").notNull().references(()=>usersTable.id),
+  updatedAt:timestamp("updated_at",{withTimezone:true}).notNull().default(sql`clock_timestamp()`),
+}, t=>[check("pos_owner_exception_policies_amount_limit_check",sql`${t.amountLimit}>=0`)]);
+export const posOwnerOperationProofsTable = pgTable("pos_owner_operation_proofs", {
+  tokenHash:text("token_hash").primaryKey(),companyId:integer("company_id").notNull().references(()=>companiesTable.id),
+  userId:integer("user_id").notNull().references(()=>usersTable.id),purpose:text("purpose").notNull(),
+  sessionId:integer("session_id").notNull().references(()=>posSessionsTable.id),sourceFingerprint:text("source_fingerprint").notNull(),
+  policyRevision:integer("policy_revision").notNull(),expiresAt:timestamp("expires_at",{withTimezone:true}).notNull(),
+  consumedAt:timestamp("consumed_at",{withTimezone:true}),createdAt:timestamp("created_at",{withTimezone:true}).notNull().default(sql`clock_timestamp()`),
+});
+export const posCashResponsibilityDecisionsTable = pgTable("pos_cash_responsibility_decisions", {
+  id:serial("id").primaryKey(),companyId:integer("company_id").notNull().references(()=>companiesTable.id),
+  sessionId:integer("session_id").notNull().references(()=>posSessionsTable.id),decision:text("decision").notNull(),
+  employeeId:integer("employee_id").references(()=>employeesTable.id),reason:text("reason").notNull(),evidence:text("evidence").notNull(),
+  decidedBy:integer("decided_by").notNull().references(()=>usersTable.id),decidedAt:timestamp("decided_at",{withTimezone:true}).notNull().default(sql`clock_timestamp()`),
+  idempotencyKey:uuid("idempotency_key").notNull(),fingerprint:text("fingerprint").notNull(),
+  ownerException:boolean("owner_exception").notNull().default(false),
+  differenceAmount:numeric("difference_amount",{precision:18,scale:2}).notNull(),
+  closingSnapshot:jsonb("closing_snapshot").notNull(),
+},t=>[uniqueIndex("pos_cash_responsibility_decisions_company_id_session_id_key").on(t.companyId,t.sessionId),
+  uniqueIndex("pos_cash_responsibility_decisions_company_id_idempotency_key_key").on(t.companyId,t.idempotencyKey),
+  check("pos_cash_responsibility_decisions_decision_check",sql`${t.decision} IN ('company_bears','employee_responsible')`),
+  check("pos_cash_responsibility_decisions_check",sql`(${t.decision}='employee_responsible')=(${t.employeeId} IS NOT NULL)`)]);

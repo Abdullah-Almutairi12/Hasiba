@@ -143,6 +143,17 @@ async function submitForApprovalTransaction(input: SubmitInput, db: DbOrTx): Pro
         currentAuthority = false;
       }
     }
+    if (prior.status === "approved" && prior.docType === "credit_note") {
+      const control = await db.execute(sql`SELECT note_id FROM return_controls
+        WHERE note_id=${prior.recordId} AND company_id=${input.companyId} AND approval_id=${prior.id}`);
+      if (control.rows.length) {
+        try { await assertDeferredReturnApproval(prior.recordId, input.companyId, db); }
+        catch (error) {
+          if (!(error instanceof FinancialRequestError) || ![403,409].includes(error.status)) throw error;
+          currentAuthority = false;
+        }
+      }
+    }
     const same = await db.execute(sql`SELECT ${String(amount)}::numeric(18,2) = ${prior.amount}::numeric AS same`);
     if (currentAuthority && !prior.reviewInvalidatedAt && frozenApprovalPolicy(prior) &&
       prior.sourceFingerprintVersion === 1 && prior.sourceFingerprint === sourceFingerprint &&
@@ -159,6 +170,7 @@ async function submitForApprovalTransaction(input: SubmitInput, db: DbOrTx): Pro
       status: prior.status === "pending" ? "changes_requested" : prior.status,
       decidedAt: prior.status === "pending" ? new Date() : prior.decidedAt,
       reviewInvalidatedAt: new Date(),
+      reviewInvalidatedReason: !currentAuthority ? "سحبت أو تغيرت أهلية القرار السابق؛ أعيدت المراجعة دون تغيير القرار التاريخي" : "تغيرت حقائق الطلب أو سياسة المراجعة",
     })
       .where(eq(approvalRequestsTable.id, prior.id));
     await db.insert(approvalActionsTable).values({
@@ -509,6 +521,26 @@ export async function assertDeferredReturnApproval(noteId: number, companyId: nu
   await lockApprovalAuthority(connection);
   const controls = await connection.execute(sql`SELECT approval_id FROM return_controls
     WHERE note_id=${noteId} AND company_id=${companyId}`);
+  if (controls.rows.length && controls.rows[0].approval_id == null) {
+    // A direct decision is NOT an independent approval. It can wait for a
+    // different receiver, but its original authority must still be usable.
+    const direct = await connection.execute(sql`SELECT user_id,details::jsonb AS facts FROM audit_logs
+      WHERE company_id=${companyId} AND action='pos.return.direct.used' AND entity='credit_note'
+      AND details::jsonb->>'noteId'=${String(noteId)} ORDER BY id DESC LIMIT 1`);
+    const saved = direct.rows[0];
+    if (saved) {
+      const facts = saved.facts as { authorityFingerprint?: string };
+      const candidates = await scopedReturnGrants(connection, Number(saved.user_id), companyId, noteId, "pos.return.direct", true);
+      const mandatory = await connection.execute(sql`SELECT EXISTS(SELECT 1 FROM approval_rules
+        WHERE (company_id=${companyId} OR company_id IS NULL) AND doc_type='credit_note' AND is_active) AS required`);
+      if (mandatory.rows[0]?.required || !facts.authorityFingerprint ||
+        !candidates?.some(c => c.fingerprint === facts.authorityFingerprint)) {
+        throw new FinancialRequestError("تغيرت أهلية قرار المرتجع المباشر؛ يلزم قرار جديد صالح قبل الاستلام", 403);
+      }
+      await assertReturnSnapshot(connection, noteId);
+      return;
+    }
+  }
   const [request] = await connection.select().from(approvalRequestsTable).where(and(
     eq(approvalRequestsTable.id, Number(controls.rows[0]?.approval_id ?? -1)),
     eq(approvalRequestsTable.companyId, companyId))).for("update");

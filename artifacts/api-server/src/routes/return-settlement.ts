@@ -2,18 +2,20 @@ import { randomUUID, createHash } from "node:crypto";
 import { Router } from "express";
 import { captureIssuer, saveIssuer } from "../lib/document-identity";
 import { z } from "zod/v4";
+import { rateLimit } from "express-rate-limit";
+import { configureOwnerPolicy, issueOwnerProof, consumeOwnerProof, decideCashResponsibility } from "../lib/cash-responsibility";
 import { db, pool, posSessionsTable, creditNotesTable } from "@workspace/db";
 import { sql, eq, and } from "drizzle-orm";
 import { returnActor, returnAuthorize, returnTemplates, returnCapabilities, authorizeReturnApproval, assertReturnSnapshot } from "../lib/return-access";
 import { FinancialRequestError } from "../lib/financial-transaction";
 import { postJournalEntry, ClosedPeriodError } from "../lib/journal-posting";
 import { recordAudit } from "../lib/audit";
-import { actOnApproval } from "../lib/workflow-engine";
+import { actOnApproval, submitForApproval } from "../lib/workflow-engine";
 import { createCreditNoteHandler, creditNoteLimit } from "./sales";
 import { returnRequestGuard } from "../lib/return-access";
 import { lockApprovalAuthority, lockApprovalAuthorityWrite } from "../lib/approval-authority";
 import { managedProfile, selectedResponsibility } from "../lib/responsibility-context";
-import { scopedPayoutSource, scopedShiftDifference } from "../lib/scoped-pos-operations";
+import { scopedPayoutSource, scopedShiftDifference, scopedReturnSource } from "../lib/scoped-pos-operations";
 import { scopedReturnGrants } from "../lib/scoped-return-review";
 import { finalizeCreditNoteIssue } from "./sales";
 import { assertDeferredReturnApproval } from "../lib/workflow-engine";
@@ -42,7 +44,11 @@ export async function sessionCash(tx: Tx, sessionId: number, companyId: number) 
     coalesce((SELECT sum(r.amount) FROM return_payouts r WHERE r.session_id=s.id AND r.company_id=${companyId}
       AND r.method='cash' AND r.status='confirmed'),0) AS cash_refunds,
     coalesce((SELECT sum(e.amount) FROM pos_cash_expenses e WHERE e.session_id=s.id AND e.company_id=${companyId}),0) AS cash_expenses,
-    c.counted,c.difference,c.status AS closing_status,c.created_by AS closing_created_by
+    c.counted,c.difference,c.status AS closing_status,c.created_by AS closing_created_by,
+    EXISTS(SELECT 1 FROM audit_logs a WHERE a.company_id=${companyId} AND a.action='exception_used'
+      AND a.entity='pos_owner_exception' AND a.details::jsonb->>'purpose'='cash_difference_review'
+      AND a.details::jsonb->>'sessionId'=s.id::text) AS closing_owner_exception,
+    (SELECT row_to_json(d) FROM pos_cash_responsibility_decisions d WHERE d.session_id=s.id AND d.company_id=${companyId}) AS responsibility_decision
     FROM pos_sessions s JOIN branches b ON b.id=s.branch_id
     LEFT JOIN pos_cash_closings c ON c.session_id=s.id AND c.company_id=${companyId}
     WHERE s.id=${sessionId} AND b.company_id=${companyId}`);
@@ -74,7 +80,10 @@ router.get("/pos/returns/workspace", async (req, res) => {
     const notes = (await pool.query(`SELECT n.id,n.reference,n.status,n.total,n.invoice_id,n.reason,
       c.branch_id,b.name_ar AS branch_name,c.created_by,c.approval_id,c.proof_ref,c.disposition,c.settlement_method,
       c.receipt_required,c.received_by,c.received_at,c.receipt_reference,
-      (SELECT status FROM approval_requests WHERE id=c.approval_id AND company_id=c.company_id) AS review_status,
+      coalesce((SELECT status FROM approval_requests WHERE id=c.approval_id AND company_id=c.company_id),
+        CASE WHEN EXISTS(SELECT 1 FROM audit_logs al WHERE al.company_id=c.company_id
+          AND al.action='pos.return.direct.used' AND al.entity='credit_note'
+          AND al.details::jsonb->>'noteId'=c.note_id::text) THEN 'direct_authorized' END) AS review_status,
       coalesce(p.refunded,0) AS refunded,coalesce(p.reserved,0) AS reserved,
       CASE WHEN n.status='issued' THEN greatest(n.total-coalesce(p.refunded,0),0) ELSE 0 END AS due,
       CASE WHEN n.status='issued' THEN greatest(n.total-coalesce(p.refunded,0)-coalesce(p.reserved,0),0) ELSE 0 END AS remaining,
@@ -119,7 +128,14 @@ router.get("/pos/returns/workspace", async (req, res) => {
     const policies = (await pool.query("SELECT * FROM return_policies WHERE company_id=$1", [companyId])).rows
       .filter(p => p.branch_id === 0 || allowed.includes(p.branch_id));
     const accounts = actor.capabilities.includes("expense") ? (await pool.query("SELECT id,name_ar FROM accounts WHERE type='expense' AND NOT is_group AND is_active")).rows : [];
-    res.json({ notes, invoices, sessions, payouts, accounts, reports, branches: branchRows, capabilities: actor.capabilities,
+    const ownerPolicy = configure ? (await pool.query("SELECT * FROM pos_owner_exception_policies WHERE company_id=$1",[companyId])).rows[0] ?? null : null;
+    const responsibilityEmployees=actor.capabilities.includes("responsibility") ? (await pool.query(
+      "SELECT id,name_ar,employee_no,branch_id FROM employees WHERE company_id=$1 AND branch_id=ANY($2::int[]) ORDER BY name_ar",
+      [companyId,allowed])).rows : [];
+    if(!actor.capabilities.some(c=>["responsibility","difference","reports"].includes(c))) {
+      for(const session of sessions) delete (session as Row).responsibility_decision;
+    }
+    res.json({ notes, invoices, sessions, payouts, accounts, reports, owner_policy:ownerPolicy, responsibility_employees:responsibilityEmployees, branches: branchRows, capabilities: actor.capabilities,
       templates: configure ? returnTemplates : {}, members, policies, access });
   } catch (error) { sendError(req, res, error); }
 });
@@ -245,7 +261,9 @@ async function closeShift(tx: Tx, companyId: number, userId: number, input: unkn
   const summary = await sessionCash(tx, session.id, companyId);
   if (approve) {
     if (!old || old.status !== "pending" || session.status !== "closing") fail("لا يوجد فرق ينتظر الاعتماد");
-    if (Number(old.created_by) === userId) fail("اعتماد فرق الصندوق يجب أن يكون من شخص آخر", 403);
+    if (Number(old.created_by) === userId) {
+      await consumeOwnerProof(tx,userId,companyId,"cash_difference_review",session.id,(input as Row).ownerProof);
+    }
     if (cents(old.expected) !== cents(summary.expected)) fail("تغيرت حركة الصندوق؛ يلزم إعادة التسوية");
     const difference = cents(old.difference);
     await scopedShiftDifference(tx, userId, companyId, session.branchId, money(difference));
@@ -300,11 +318,20 @@ async function cashExpense(tx: Tx, companyId: number, userId: number, input: unk
   return created;
 }
 
-router.post("/pos/returns/actions", async (req, res): Promise<void> => {
+const ownerProofLimit=rateLimit({windowMs:60000,limit:6,keyGenerator:req=>`${req.session.companyId}:${req.session.userId}`,
+  skip:req=>req.body?.action!=="owner_proof",message:{error:"محاولات تأكيد كثيرة؛ انتظر دقيقة قبل المحاولة"}});
+router.post("/pos/returns/actions", ownerProofLimit, async (req, res): Promise<void> => {
   try {
-    const b = z.object({ action: z.enum(["request", "approve", "receive", "payout", "confirm_external", "cancel_payout", "close", "approve_close", "expense", "export", "configure_access", "configure_policy"]),
+    const b = z.object({ action: z.enum(["request", "approve", "re_review", "receive", "payout", "confirm_external", "cancel_payout", "close", "approve_close", "expense", "responsibility", "owner_proof", "configure_owner_policy", "export", "configure_access", "configure_policy"]),
       payload: z.record(z.string(), z.unknown()) }).parse(req.body);
     const companyId = req.session.companyId!, userId = req.session.userId!;
+    if(b.action==="configure_owner_policy") {
+      const result=await db.transaction(async tx=>{
+        await lockApprovalAuthorityWrite(tx);
+        return configureOwnerPolicy(tx,userId,companyId,b.payload);
+      });
+      res.json(result);return;
+    }
     if (b.action === "export") {
       const actor = await returnAuthorize(userId, companyId, "export");
       const records = (await pool.query(`SELECT n.reference,n.status,c.branch_id,n.total,c.disposition,c.settlement_method
@@ -378,6 +405,35 @@ router.post("/pos/returns/actions", async (req, res): Promise<void> => {
     }
     const result = await db.transaction(async tx => {
       await lockApprovalAuthority(tx);
+      if(b.action==="owner_proof") return issueOwnerProof(tx,userId,companyId,b.payload);
+      if(b.action==="responsibility") return decideCashResponsibility(tx,userId,companyId,b.payload);
+      if (b.action === "re_review") {
+        const input = z.object({ noteId: id }).parse(b.payload);
+        const [note] = await tx.select().from(creditNotesTable).where(and(
+          eq(creditNotesTable.id, input.noteId), eq(creditNotesTable.companyId, companyId))).for("update");
+        if (!note || note.createdBy !== userId || !note.invoiceId) fail("إعادة المراجعة متاحة لطالب المرتجع الأصلي فقط",403);
+        const [control] = await query(tx, sql`SELECT * FROM return_controls
+          WHERE note_id=${note.id} AND company_id=${companyId} FOR UPDATE`);
+        if (!control || !["draft","pending_approval"].includes(note.status) || control.received_by) fail("لا يمكن إعادة مراجعة مستند صدر أو استُلم");
+        await returnAuthorize(userId, companyId, "request", Number(control.branch_id), tx);
+        await scopedReturnSource(tx, userId, companyId, note.invoiceId!, note.warehouseId);
+        await assertReturnSnapshot(tx, note.id);
+        let usable = true;
+        try { await assertDeferredReturnApproval(note.id, companyId, tx); }
+        catch (error) {
+          if (!(error instanceof FinancialRequestError) || ![403,409].includes(error.status)) throw error;
+          usable = false;
+        }
+        if (usable) fail("القرار الحالي صالح بالفعل؛ أكمل الاستلام دون اعتماد إضافي");
+        const review = await submitForApproval({ companyId, docType:"credit_note", recordId:note.id,
+          recordRef:note.reference, amount:Number(note.total), submittedByUserId:userId,
+          branchId:Number(control.branch_id), forceRoles:["manager"], scopedBranchOnly:true }, tx);
+        if (!review.required || !review.requestId) fail("يلزم طلب مراجعة صريح لاستئناف المستند");
+        await tx.execute(sql`UPDATE return_controls SET approval_id=${review.requestId}
+          WHERE note_id=${note.id} AND company_id=${companyId}`);
+        await tx.update(creditNotesTable).set({status:"pending_approval"}).where(eq(creditNotesTable.id,note.id));
+        return { noteId:note.id, approvalRequestId:review.requestId, status:"pending" };
+      }
       if (b.action === "receive") {
         const input = z.object({ noteId: id, reference: z.string().min(3).max(200) })
           .refine(v => v.reference.trim().length >= 3, { message: "يلزم دليل استلام بمحتوى فعلي" }).parse(b.payload);

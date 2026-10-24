@@ -17,6 +17,7 @@ export const strArr = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x)
 export const numArr = (v: unknown): number[] => (Array.isArray(v) ? v.map(num).filter((x): x is number => x !== null) : []);
 
 export const CAPS: Record<string, string> = {
+  responsibility: "قرار مسؤولية فرق الصندوق دون مديونية أو خصم تلقائي",
   view: "عرض", request: "طلب إرجاع", approve: "اعتماد", payout: "صرف", external: "توثيق رد خارجي",
   close: "إغلاق وردية", difference: "اعتماد فروقات", reports: "تقارير", export: "تصدير", sell: "بيع",
   configure: "إعداد الصلاحيات", expense: "مصروف نقدي",
@@ -35,13 +36,14 @@ export const label = (map: Record<string, string>, k: string) => map[k] ?? (k ||
 export function returnNoteState(n: Rec) {
   const status = str(n.status);
   const financialPending = status.toLowerCase().includes("pending");
-  const approved = n.review_status === "approved";
+  const direct = n.review_status === "direct_authorized";
+  const approved = direct || n.review_status === "approved";
   const awaitingReceipt = financialPending && approved && n.receipt_required === true && n.received_by == null;
   return {
     financialPending,
     awaitingApproval: financialPending && !approved,
     awaitingReceipt,
-    status: awaitingReceipt ? "pending_receipt" : financialPending && approved ? "pending_issue" : status,
+    status: awaitingReceipt ? direct ? "direct_receipt" : "pending_receipt" : financialPending && approved ? "pending_issue" : status,
   };
 }
 
@@ -53,6 +55,7 @@ const VIOLET = "bg-violet-100 text-violet-900 dark:bg-violet-950 dark:text-viole
 const SLATE = "bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-200";
 
 const EXACT: Record<string, { text: string; cls: string }> = {
+  direct_receipt: { text: "مسموح مباشرة — بانتظار الاستلام", cls: AMBER },
   pending_receipt: { text: "معتمد — بانتظار الاستلام", cls: AMBER },
   pending_issue: { text: "معتمد — بانتظار الترحيل", cls: AMBER },
   partially_paid: { text: "مدفوع جزئيًا", cls: AMBER },
@@ -97,3 +100,11 @@ export function csvCell(v: unknown): string {
 
 export const field =
   "h-10 w-full rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-60";
+
+export function closingStateLabel(status: string,ownerException=false): string {
+  const k=status.toLowerCase();
+  if(k.includes("pending")||k.includes("await")) return "بانتظار مراجعة الفرق";
+  if(k.includes("approv")) return ownerException
+    ? "إقفال مكتمل باستثناء مالك موثق — ليس اعتمادًا مستقلًا" : "إقفال مكتمل ومعتمد";
+  return statusTone(k).text;
+}

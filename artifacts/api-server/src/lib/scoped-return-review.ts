@@ -30,7 +30,8 @@ export async function scopedReturnGrants(tx: Connection, userId: number, company
     WHERE company_id=${companyId} AND branch_id IN (0,${Number(source.branch_id)})
     ORDER BY branch_id DESC LIMIT 1`);
   const context = responsibilityContext.getStore();
-  const policy = action === "pos.return.approve" ? await financialPolicy(companyId, "scoped", "sales.credit_note_amount", tx) : null;
+  const spendsAmount = action === "pos.return.approve" || action === "pos.return.direct";
+  const policy = spendsAmount ? await financialPolicy(companyId, "scoped", "sales.credit_note_amount", tx) : null;
   const candidates = (await currentResponsibilities(userId, companyId, tx)).filter(g =>
     g.resource === "pos" && g.actions.includes(action) && g.branchId === Number(source.branch_id) &&
     g.warehouseIds.includes(Number(source.source_warehouse)) &&
@@ -38,7 +39,7 @@ export async function scopedReturnGrants(tx: Connection, userId: number, company
     (delayed || (context?.userId === userId && context.companyId === companyId ? context.grantId === g.id : action === "pos.read")));
   const result = [];
   for (const grant of candidates) {
-    if (action === "pos.return.approve") {
+    if (spendsAmount) {
       const { rows: limits } = await tx.execute(sql`SELECT
         (${String(source.total)}::numeric > coalesce(${grant.amountLimit}::numeric,0)) OR
         (${policy?.max == null ? false : sql`${String(source.total)}::numeric > ${String(policy.max)}::numeric`}) AS exceeds`);

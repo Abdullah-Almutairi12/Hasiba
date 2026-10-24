@@ -220,6 +220,129 @@ describe("native POS lifecycle for new and converted scoped employees", () => {
     expect((await rows("SELECT a.status,c.received_by FROM return_controls c JOIN approval_requests a ON a.id=c.approval_id WHERE c.note_id=$1",[note.id]))[0])
       .toEqual({status:"approved",received_by:null});
   });
+  it("permits direct authorization without implicit receipt or independent review, with server-side PDF gating", async () => {
+    const f=await fixture(false), sale=await openAndSell(f);
+    const before=await evidence(f);
+    const note=ok(await f.action("request",{...sale.noteBody,goodsReceived:false}),201);
+    expect(note).toMatchObject({directAuthorized:true,pendingReceipt:true});
+    const waiting=await evidence(f);
+    expect(waiting.stock).toEqual(before.stock);expect(waiting.journals).toEqual(before.journals);expect(waiting.payouts).toEqual(before.payouts);
+    expect(await rows("SELECT id FROM approval_requests WHERE company_id=$1 AND doc_type='credit_note' AND record_id=$2",[f.company,note.id])).toHaveLength(0);
+    ok(await f.get(`/sales/credit-notes/${note.id}/pdf`),409);
+    const receiver=await anotherActor(f,["pos.read","pos.return.receive"]);
+    const received=ok(await receiver.action("receive",{noteId:note.id,reference:"استلام منفصل بعد سماح مباشر"}));
+    expect(received.status).toBe("issued");
+    ok(await receiver.action("receive",{noteId:note.id,reference:"استلام منفصل بعد سماح مباشر"}));
+    expect((await evidence(f)).stock).toEqual([{quantity:"20.0000",avg_cost:"3.0000000000000000"}]);
+    ok(await f.get(`/sales/credit-notes/${note.id}/pdf`));
+    expect((await rows("SELECT journal_entry_id FROM credit_notes WHERE id=$1",[note.id]))[0].journal_entry_id).not.toBeNull();
+  },60000);
+  it("rejects delayed direct receipt after original authority revocation without borrowing receiver powers", async () => {
+    const f=await fixture(false), sale=await openAndSell(f);
+    const note=ok(await f.action("request",{...sale.noteBody,goodsReceived:false}),201);
+    const receiver=await anotherActor(f,["pos.read","pos.return.receive"]);
+    const before=await evidence(f);
+    await changeActions(f,f.person.grants[0].actions.filter(a=>a!=="pos.return.direct"));
+    ok(await receiver.action("receive",{noteId:note.id,reference:"إثبات بعد سحب السماح"}),403);
+    expect(await evidence(f)).toEqual(before);
+  });
+  it("re-reviews the same return after reviewer revocation, retaining the old decision and one financial effect", async () => {
+    const f=await fixture(false), sale=await openAndSell(f);
+    ok(await f.owner.post("/api/pos/returns/actions").send({action:"configure_policy",payload:{branchId:f.branch,approvalAbove:0,allowResale:true}}));
+    const reviewer=await anotherActor(f,["pos.read","pos.return.approve"]);
+    const receiver=await anotherActor(f,["pos.read","pos.return.receive"]);
+    const note=ok(await f.action("request",{...sale.noteBody,goodsReceived:false}),202);
+    ok(await f.get(`/sales/credit-notes/${note.id}/pdf`),409);
+    ok(await reviewer.action("approve",{noteId:note.id,comment:"مراجعة أصلية مستقلة"}));
+    ok(await f.get(`/sales/credit-notes/${note.id}/pdf`),409);
+    const p=ok(await f.owner.get("/api/team/people")).find((x:any)=>x.personId===reviewer.employee.personId);
+    ok(await f.owner.put(`/api/team/people/${p.personId}/access`).send({expectedRevision:p.revision,person:{
+      ...reviewer.person,grants:[{...reviewer.person.grants[0],actions:["pos.read"]}]},suspended:false}));
+    const before=await evidence(f);
+    ok(await receiver.action("receive",{noteId:note.id,reference:"محاولة بعد سحب أهلية المعتمد"}),403);
+    expect(await evidence(f)).toEqual(before);
+    const renewed=await Promise.all([f.action("re_review",{noteId:note.id}),f.action("re_review",{noteId:note.id})]);
+    const first=ok(renewed[0]),second=ok(renewed[1]);expect(first.approvalRequestId).toBe(second.approvalRequestId);
+    expect(first.approvalRequestId).not.toBe(note.approvalRequestId);
+    const history=await rows("SELECT status,review_invalidated_at FROM approval_requests WHERE company_id=$1 AND doc_type='credit_note' AND record_id=$2 ORDER BY id",[f.company,note.id]);
+    expect(history).toHaveLength(2);expect(history[0].status).toBe("approved");expect(history[0].review_invalidated_at).not.toBeNull();
+    const replacement=await anotherActor(f,["pos.read","pos.return.approve"]);
+    ok(await replacement.action("approve",{noteId:note.id,comment:"مراجعة بديلة مستقلة بعد السحب"}));
+    ok(await receiver.action("receive",{noteId:note.id,reference:"استلام بعد مراجعة جديدة"}));
+    const payout={noteId:note.id,receiptId:sale.invoice.receipts[0].id,sessionId:sale.session.id,amount:10,
+      method:"cash",reference:"صرف بعد المراجعة الجديدة",delivered:true,idempotencyKey:randomUUID()};
+    ok(await f.action("payout",payout));ok(await f.action("payout",payout));
+    expect((await rows("SELECT count(*)::int n,sum(amount)::text paid FROM return_payouts WHERE note_id=$1",[note.id]))[0]).toEqual({n:1,paid:"10.00"});
+    expect(await rows("SELECT id FROM credit_notes WHERE company_id=$1",[f.company])).toHaveLength(1);
+  });
+  it("limits explicit sole-owner exceptions to one operation, then records responsibility without extra money or payroll", async () => {
+    const f=await fixture(false), act=(action:string,payload:unknown)=>f.owner.post("/api/pos/returns/actions").send({action,payload});
+    const session=ok(await f.owner.post("/api/pos/sessions").send({branchId:f.branch,openingCash:20,cashierName:"المالك"}),201);
+    ok(await act("close",{sessionId:session.id,counted:19,reason:"فرق مصطنع للمالك",unresolvedSalesCleared:true}));
+    ok(await act("approve_close",{sessionId:session.id}),403);
+    ok(await act("owner_proof",{sessionId:session.id,purpose:"cash_difference_review",password}),403);
+    ok(await act("configure_owner_policy",{enabled:true,operations:["cash_difference_review","cash_difference_responsibility"],amountLimit:1,reason:"سياسة شركة اختبار للمالك المنفرد"}));
+    ok(await act("owner_proof",{sessionId:session.id,purpose:"cash_difference_review",password:"غير صحيح"}),401);
+    ok(await f.action("owner_proof",{sessionId:session.id,purpose:"cash_difference_review",password}),403);
+    const identity=ok(await act("owner_proof",{sessionId:session.id,purpose:"cash_difference_review",password}));
+    expect(identity.independentApproval).toBe(false);
+    ok(await act("approve_close",{sessionId:session.id,ownerProof:identity.proof}));
+    const afterClose=await evidence(f),hrBefore=await rows("SELECT to_jsonb(e) AS data FROM employees e WHERE company_id=$1 ORDER BY id",[f.company]);
+    ok(await act("approve_close",{sessionId:session.id,ownerProof:identity.proof}));
+    expect(await evidence(f)).toEqual(afterClose);
+    const decision={sessionId:session.id,decision:"company_bears",reason:"تتحمل المنشأة الفرق التجريبي",evidence:"محضر مصطنع 001",idempotencyKey:randomUUID()};
+    ok(await act("responsibility",{...decision,ownerProof:identity.proof}),403); // Wrong purpose, no reusable override.
+    const confirmation=ok(await act("owner_proof",{sessionId:session.id,purpose:"cash_difference_responsibility",password,decision}));
+    ok(await act("responsibility",{...decision,reason:"تغيير الغرض بعد تأكيده",ownerProof:confirmation.proof}),403);
+    const outcomes=await Promise.all([act("responsibility",{...decision,ownerProof:confirmation.proof}),act("responsibility",{...decision,ownerProof:confirmation.proof})]);
+    expect(ok(outcomes[0]).id).toBe(ok(outcomes[1]).id);
+    expect(ok(outcomes[0]).owner_exception).toBe(true);
+    expect(await evidence(f)).toEqual(afterClose);
+    expect(await rows("SELECT to_jsonb(e) AS data FROM employees e WHERE company_id=$1 ORDER BY id",[f.company])).toEqual(hrBefore);
+    expect(await rows("SELECT id FROM pos_cash_responsibility_decisions WHERE company_id=$1",[f.company])).toHaveLength(1);
+    expect(await rows("SELECT token_hash FROM pos_owner_operation_proofs WHERE company_id=$1 AND consumed_at IS NOT NULL",[f.company])).toHaveLength(2);
+    ok(await act("responsibility",{...decision,evidence:"دليل مختلف",ownerProof:confirmation.proof}),409);
+  });
+  it.each(["expired","policy","amount","second_owner","source"] as const)("rejects a sole-owner proof after %s changes without posting the difference",async kind=>{
+    const f=await fixture(false),act=(action:string,payload:unknown)=>f.owner.post("/api/pos/returns/actions").send({action,payload});
+    const session=ok(await f.owner.post("/api/pos/sessions").send({branchId:f.branch,openingCash:20,cashierName:"المالك"}),201);
+    ok(await act("close",{sessionId:session.id,counted:19,reason:"فرق مصطنع",unresolvedSalesCleared:true}));
+    const p={enabled:true,operations:["cash_difference_review"],amountLimit:1,reason:"سياسة مصطنعة مؤرخة"};
+    ok(await act("configure_owner_policy",p));
+    const proof=ok(await act("owner_proof",{sessionId:session.id,purpose:"cash_difference_review",password}));
+    const before=await evidence(f);
+    if(kind==="expired") await rows("UPDATE pos_owner_operation_proofs SET expires_at=clock_timestamp()-interval '1 second' WHERE company_id=$1",[f.company]);
+    if(kind==="policy") ok(await act("configure_owner_policy",{...p,enabled:false}));
+    if(kind==="amount") ok(await act("configure_owner_policy",{...p,amountLimit:0.5}));
+    if(kind==="second_owner") await rows("UPDATE user_companies SET role='owner' WHERE company_id=$1 AND user_id=$2",[f.company,f.identityId]);
+    if(kind==="source") await rows("UPDATE pos_cash_closings SET reason='تغير مصدر القرار' WHERE session_id=$1",[session.id]);
+    ok(await act("approve_close",{sessionId:session.id,ownerProof:proof.proof}),403);
+    expect(await evidence(f)).toEqual(before);
+  });
+  it("keeps cash-difference responsibility separate from review and bounds it to a granted branch and amount",async()=>{
+    const f=await fixture(false),sale=await openAndSell(f);
+    const closer=await anotherActor(f,["pos.read","pos.shift.close"]);
+    ok(await closer.action("close",{sessionId:sale.session.id,counted:29,reason:"فرق مستقل",unresolvedSalesCleared:true}));
+    const reviewer=await anotherActor(f,["pos.read","pos.shift.difference"]);
+    const decision={sessionId:sale.session.id,decision:"company_bears",reason:"قرار مسؤولية مستقل",evidence:"دليل مصطنع",idempotencyKey:randomUUID()};
+    ok(await f.action("responsibility",decision),403);
+    const responsible=await anotherActor(f,["pos.read","pos.shift.responsibility"]);
+    ok(await responsible.action("responsibility",decision),409);
+    ok(await reviewer.action("approve_close",{sessionId:sale.session.id}));
+    ok(await reviewer.action("responsibility",decision),403);
+    const before=await evidence(f);
+    const current=ok(await f.owner.get("/api/team/people")).find((x:any)=>x.personId===responsible.employee.personId);
+    ok(await f.owner.put(`/api/team/people/${current.personId}/access`).send({expectedRevision:current.revision,
+      person:{...responsible.person,grants:[{...responsible.person.grants[0],amountLimit:"0.50"}]},suspended:false}));
+    ok(await responsible.action("responsibility",decision),403);
+    const limited=ok(await f.owner.get("/api/team/people")).find((x:any)=>x.personId===responsible.employee.personId);
+    ok(await f.owner.put(`/api/team/people/${limited.personId}/access`).send({expectedRevision:limited.revision,person:responsible.person,suspended:false}));
+    ok(await responsible.action("responsibility",{...decision,decision:"employee_responsible",employeeId:999999999}),403);
+    const r=ok(await responsible.action("responsibility",decision));
+    expect(r).toMatchObject({decision:"company_bears",owner_exception:false,difference_amount:"-1.00"});
+    ok(await responsible.action("responsibility",decision));
+    expect(await evidence(f)).toEqual(before);
+  });
   it("bounds external confirmation by current amount authority but retains committed receipt recovery", async () => {
     const f=await fixture(false,["pos.return.external"]), sale=await openAndSell(f,"card");
     const note=ok(await f.action("request",sale.noteBody),201);

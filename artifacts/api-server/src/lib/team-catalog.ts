@@ -11,6 +11,7 @@ export const TEAM_ACTIONS = [
   { key: "pos.discount.request", label: "طلب استثناء خصم باعتماد مستقل للعملية، دون دخول مدير", resource: "pos", available: true },
   { key: "pos.shift.close", label: "عد الصندوق وطلب إقفال ورديات الفرع المحدد، ولو فتحها موظف آخر", resource: "pos", available: true },
   { key: "pos.shift.difference", label: "اعتماد فرق صندوق قدمه شخص آخر", resource: "pos", available: true },
+  { key: "pos.shift.responsibility", label: "قرار مسؤولية فرق صندوق — دون مديونية أو خصم راتب", resource: "pos", available: true },
   { key: "pos.return.request", label: "طلب مرتجع يتطلب مراجعة مستقلة", resource: "pos", available: true },
   { key: "pos.return.approve", label: "مراجعة واعتماد مرتجع شخص آخر ضمن المصدر والفرع والمستودع والمبلغ", resource: "pos", available: true },
   { key: "pos.return.direct", label: "مرتجع مباشر ما لم تلزم سياسة الشركة الموافقة", resource: "pos", available: true },

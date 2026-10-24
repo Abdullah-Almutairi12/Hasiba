@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import { db } from "@workspace/db";
 import { FinancialRequestError } from "./financial-transaction";
 import { managedProfile, requireResponsibility } from "./responsibility-context";
+import { scopedReturnGrants } from "./scoped-return-review";
 
 type Connection = Pick<typeof db, "execute">;
 /** Approval spends only the current grant's amount authority; committed replays do not spend it again. */
@@ -60,9 +61,13 @@ export async function scopedDirectReturn(tx: Connection, userId: number, company
     (${total}::numeric > ${grant.amountLimit}::numeric) AS exceeds`);
   const policy = rows[0];
   if (policy.matrix || policy.exceeds || policy.needs_approval) return false;
+  const authorities = await scopedReturnGrants(tx as Parameters<typeof scopedReturnGrants>[0], userId, companyId, noteId, "pos.return.direct");
+  const authority = authorities?.find(a => a.grant.id === grant.id);
+  if (!authority) return false;
   await tx.execute(sql`INSERT INTO audit_logs(user_id,user_name,company_id,action,entity,details)
     SELECT u.id,u.name,${companyId},'pos.return.direct.used','credit_note',
       jsonb_build_object('noteId',${noteId}::integer,'amount',${total}::numeric,'branchId',${branchId}::integer,
+        'authorityFingerprint',${authority.fingerprint}::text,
         'responsibility',to_jsonb(g),'profileRevision',a.revision,'deniedActions',a.denied_actions,
         'policy',(SELECT to_jsonb(p) FROM return_policies p WHERE p.company_id=${companyId}
           AND p.branch_id IN (0,${branchId}) ORDER BY p.branch_id DESC LIMIT 1))::text

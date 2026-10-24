@@ -8,6 +8,7 @@ import { useToast } from "@/hooks/use-toast";
 import { listScopedIntents, useAct, useActorScope } from "@/hooks/use-returns-actions";
 import { Empty, ErrorBox, Pill } from "@/components/returns/ui";
 import { docUrls, PrintDocButton } from "@/lib/print-docs";
+import { OwnerProof } from "./owner-exception";
 import { label, METHODS, money, num, str, type ErrInfo, type Rec } from "@/lib/returns/shared";
 
 export function ApproveButton({ noteId }: { noteId: string }) {
@@ -162,7 +163,7 @@ export function CloseForm({ sessionId, expected }: { sessionId: string; expected
           setErr(null);
           if (hasUnconfirmed()) { setBlocked(true); return; }
           const r = await run("close", { sessionId: Number(sessionId), counted: c, reason: reason.trim(), unresolvedSalesCleared: true });
-          if (r.ok) { toast({ title: "أُرسل الإغلاق — راجع حالته" }); setOpen(false); } else setErr(r.err);
+          if (r.ok) { toast({ title: r.res.status === "approved" ? "اكتمل إقفال الوردية واعتماده" : "سُجل الإغلاق بانتظار مراجعة الفرق" }); setOpen(false); } else setErr(r.err);
         }}>{pending ? "جارٍ الإرسال..." : "تأكيد الإغلاق"}</Button>
         <Button size="sm" variant="ghost" onClick={() => setOpen(false)}>إلغاء</Button>
       </div>
@@ -170,16 +171,18 @@ export function CloseForm({ sessionId, expected }: { sessionId: string; expected
   );
 }
 
-export function ApproveClose({ sessionId }: { sessionId: string }) {
+export function ApproveClose({ sessionId, selfOwner=false }: { sessionId: string; selfOwner?:boolean }) {
+  const [proof,setProof]=useState("");
   const { run, pending } = useAct();
   const { toast } = useToast();
   const [err, setErr] = useState<ErrInfo | null>(null);
   return (
     <div className="space-y-2">
-      <Button size="sm" disabled={pending} onClick={async () => {
+      {selfOwner&&<OwnerProof sessionId={sessionId} purpose="cash_difference_review" onProof={setProof}/>}
+      <Button size="sm" disabled={pending||(selfOwner&&!proof)} onClick={async () => {
         setErr(null);
-        const r = await run("approve_close", { sessionId: Number(sessionId) });
-        if (r.ok) toast({ title: "أُرسل اعتماد الإغلاق" }); else setErr(r.err);
+        const r = await run("approve_close", { sessionId: Number(sessionId),...(proof?{ownerProof:proof}:{}) });
+        if (r.ok) {toast({ title: selfOwner?"اكتمل الإقفال باستثناء المالك الموثق — ليس اعتمادًا مستقلًا":"اكتمل اعتماد الإقفال" });setProof("");} else setErr(r.err);
       }}>اعتماد الإغلاق بالفرق</Button>
       {err && <ErrorBox err={err} onClose={() => setErr(null)} />}
     </div>
