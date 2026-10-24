@@ -103,3 +103,14 @@ The clocks are independent; response matching still proves causality.
 **How to apply:** Preserve raw timestamps. Order browser form/JSON/cleanup
 observations using browser time and proxy event/database snapshots using proxy
 time. Match key, body and document identity across the two evidence sources.
+
+Wait for the current disposable runner's explicit fixture-readiness event,
+not merely the existence of its credential-state file.
+
+**Why:** An interrupted runner can leave the previous cluster's state file
+behind. Reading it while the next runner initializes connected the browser
+fixture helper to a stopped PostgreSQL port rather than the new clone.
+
+**How to apply:** Match readiness to the current run before loading its private
+state, keep those credentials out of reports, and verify the normal API is
+restored after every disposable server is shut down.

@@ -1,6 +1,7 @@
 import { canReachReturns, scopedBodyDiscount, scopedCheckoutCaps, type PosTender } from "@/lib/pos-actions";
 import { clearSessionIntent, isConfirmedRejection, readSessionIntent, saveSessionIntent, type SessionIntent } from "@/lib/pos-session-intent";
 import { useState, useMemo, useEffect } from "react";
+import { PosSessionContext } from "@/components/pos-session-context";
 import { useLocation } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -453,6 +454,7 @@ export default function PosIconic({
         </button>
       </div>
 
+      <PosSessionContext session={activeSession} />
       <div className="grid min-h-[calc(100vh-2.25rem)] grid-cols-1 gap-3 px-3 pb-4 lg:h-[calc(100vh-2.25rem)] lg:grid-cols-[minmax(0,1fr)_360px] lg:pb-28">
         {isScoped && (
           <ScopedPosNotice
