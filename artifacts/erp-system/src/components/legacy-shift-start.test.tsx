@@ -4,7 +4,7 @@ import { LegacyShiftStart } from "./legacy-shift-start";
 
 const mocks = vi.hoisted(() => ({
   mutate: vi.fn(),
-  branches: { data: [{ id: 7, name: "فرع الاختبار" }], isLoading: false, isError: false, refetch: vi.fn() },
+  branches: { data: [{ id: 7, name: "opaque-branch-key", nameAr: "فرع الاختبار" }], isLoading: false, isError: false, refetch: vi.fn() },
 }));
 vi.mock("@workspace/api-client-react", () => ({
   useListBranches: () => mocks.branches,
@@ -19,6 +19,7 @@ describe("legacy shift start requires actual authorized branch and opening cash"
     const onOpened = vi.fn();
     render(<LegacyShiftStart onOpened={onOpened} onBack={vi.fn()} />);
     const submit = screen.getByTestId("button-legacy-open-shift") as HTMLButtonElement;
+    expect(screen.getByRole("option", { name: "فرع الاختبار" })).toBeTruthy();
     expect(submit.disabled).toBe(true);
     fireEvent.change(screen.getByLabelText("الفرع"), { target: { value: "7" } });
     fireEvent.change(screen.getByLabelText("رصيد النقد الافتتاحي"), { target: { value: "20" } });

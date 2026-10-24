@@ -678,10 +678,10 @@ export default function POS() {
             </div>
             <div className="min-w-0 flex-1 text-right">
               <p className="truncate text-sm font-bold text-neutral-900">
-                أحمد المدير
+                {activeSession?.cashierName || "تعذر تحديد صاحب الوردية"}
               </p>
               <p className="truncate text-[10px] text-neutral-500">
-                وردية صباحية #{activeSession?.id ?? "—"}
+                وردية {activeSession?.sessionNumber || `#${activeSession?.id ?? "—"}`}
               </p>
             </div>
             <ChevronLeft className="size-3 text-neutral-400" />
@@ -696,7 +696,7 @@ export default function POS() {
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2 text-sm text-neutral-500">
               <Store className="size-4" />
-              <span className="font-bold text-neutral-700">فرع الرياض جاليري</span>
+              <span className="font-bold text-neutral-700">{activeSession?.branchName || "تعذر تحديد الفرع"}</span>
               <span className="text-neutral-300">|</span>
               <span className="font-mono">{clock}</span>
             </div>

@@ -53,7 +53,7 @@ export function LegacyShiftStart({ onOpened, onBack }: {
               onChange={e => setBranchId(e.target.value)}
               className="h-10 w-full rounded-md border bg-background px-3">
               <option value="">اختر الفرع صراحةً</option>
-              {allowed.map(b => <option key={b.id} value={String(b.id)}>{b.name}</option>)}
+              {allowed.map(b => <option key={b.id} value={String(b.id)}>{b.nameAr || b.name}</option>)}
             </select>
           </div>
           <div className="space-y-1">
