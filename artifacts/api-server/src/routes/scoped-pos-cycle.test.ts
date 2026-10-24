@@ -11,6 +11,10 @@ import type { TeamPerson } from "../lib/team-catalog";
 const rows = async (s: string, p: unknown[] = []) => (await pool.query(s, p)).rows;
 const ok = (r: request.Response, status = 200) => { expect(r.status, JSON.stringify(r.body)).toBe(status); return r.body; };
 const password = "Isolated POS cycle phrase 2026!";
+// Independent synthetic tenants must not exhaust one shared loopback login bucket.
+// Keep the actual production limiter active, with a separate test address per actor.
+let testAddress = 1;
+const actorAgent = () => request.agent(app).set("X-Forwarded-For", `198.18.0.${testAddress++}`);
 beforeAll(async () => { await assertApplicationReady(); });
 async function fixture(legacy: boolean, extraActions: string[] = []) {
   const tag = randomUUID();
@@ -18,7 +22,7 @@ async function fixture(legacy: boolean, extraActions: string[] = []) {
   const hash = await bcrypt.hash(password, 4);
   const [u] = await db.insert(usersTable).values({ name: "مالك اختبار", email: `${tag}-o@example.invalid`, passwordHash: hash, role: "owner" }).returning();
   await db.insert(userCompaniesTable).values({ userId: u.id, companyId: c.id, role: "owner", isDefault: true });
-  const owner = request.agent(app);
+  const owner = actorAgent();
   ok(await owner.post("/api/auth/login").send({ email: u.email, password }));
   const [b] = await db.insert(branchesTable).values({ companyId: c.id, name: tag, nameAr: "فرع الدورة", city: "الرياض" }).returning();
   const [w] = await db.insert(warehousesTable).values({ companyId: c.id, branchId: b.id, name: tag, nameAr: "مستودع الدورة", isDefault: true }).returning();
@@ -56,7 +60,7 @@ async function fixture(legacy: boolean, extraActions: string[] = []) {
   for (const [actionKey, maxValue] of [["pos.discount_pct", 15],["sales.credit_note_amount",100]] as const) {
     ok(await owner.post("/api/workflow/financial-limits").send({ role: "scoped", actionKey, maxValue }));
   }
-  const agent = request.agent(app);
+  const agent = actorAgent();
   ok(await agent.post("/api/auth/login").send({ email: person.email, password }));
   const grant = ok(await agent.get("/api/workspace/access")).grants[0];
   const get = (path: string) => agent.get(`/api${path}`).set("X-Workspace-Responsibility", String(grant.id));
@@ -93,6 +97,55 @@ async function evidence(f: Fixture) {
 }
 
 describe("native POS lifecycle for new and converted scoped employees", () => {
+  it("bounds external confirmation by current amount authority but retains committed receipt recovery", async () => {
+    const f=await fixture(false,["pos.return.external"]), sale=await openAndSell(f,"card");
+    const note=ok(await f.action("request",sale.noteBody),201);
+    const payout=ok(await f.action("payout",{noteId:note.id,receiptId:sale.invoice.receipts[0].id,
+      sessionId:sale.session.id,amount:10,method:"card",reference:"حجز رد تجريبي",delivered:true,idempotencyKey:randomUUID()}));
+    f.person.grants[0].amountLimit="5";
+    await changeActions(f,f.person.grants[0].actions);
+    const before=await evidence(f), confirm={payoutId:payout.id,reference:"دليل مزود مصطنع فقط"};
+    ok(await f.action("confirm_external",confirm),403);
+    expect(await evidence(f)).toEqual(before);
+    f.person.grants[0].amountLimit="10";
+    await changeActions(f,f.person.grants[0].actions);
+    expect(ok(await f.action("confirm_external",confirm)).status).toBe("external_confirmed");
+    f.person.grants[0].amountLimit="5";
+    await changeActions(f,f.person.grants[0].actions);
+    const committed=await evidence(f);
+    expect(ok(await f.action("confirm_external",confirm)).status).toBe("external_confirmed");
+    expect(await evidence(f)).toEqual(committed);
+  });
+  it("bounds an independent scoped difference reviewer and does not re-spend authority on replay", async () => {
+    const f=await fixture(false),sale=await openAndSell(f);
+    const closing=ok(await f.action("close",{sessionId:sale.session.id,counted:20,reason:"عجز مصطنع عشرة",unresolvedSalesCleared:true}));
+    expect(closing.status).toBe("pending");
+    const person:TeamPerson={...f.person,creationKey:randomUUID(),name:"مراجع فرق مستقل",
+      email:`review-${randomUUID()}@example.invalid`,grants:[{...f.person.grants[0],actions:["pos.read","pos.shift.difference"],amountLimit:"5"}]};
+    let employee=ok(await f.owner.post("/api/team/people").send(person),201);
+    const invite=ok(await f.owner.post(`/api/team/people/${employee.personId}/invite`).send({expectedRevision:employee.revision}),201);
+    ok(await request(app).post("/api/auth/team-activation/accept").send({token:invite.activationToken,password}));
+    const agent=actorAgent();ok(await agent.post("/api/auth/login").send({email:person.email,password}));
+    let grant=ok(await agent.get("/api/workspace/access")).grants[0];
+    const approve=()=>agent.post("/api/pos/returns/actions").set("X-Workspace-Responsibility",String(grant.id))
+      .send({action:"approve_close",payload:{sessionId:sale.session.id}});
+    const setLimit=async(limit:string)=>{
+      employee=ok(await f.owner.get("/api/team/people")).find((x:any)=>x.personId===employee.personId);
+      person.grants[0].amountLimit=limit;
+      ok(await f.owner.put(`/api/team/people/${employee.personId}/access`).send({expectedRevision:employee.revision,person,suspended:false}));
+      grant=ok(await agent.get("/api/workspace/access")).grants[0];
+    };
+    const before=await evidence(f);
+    ok(await approve(),403);expect(await evidence(f)).toEqual(before);
+    await setLimit("10");
+    expect(ok(await approve()).status).toBe("approved");
+    await setLimit("5");
+    const committed=await evidence(f);
+    expect(ok(await approve()).status).toBe("approved");
+    expect(await evidence(f)).toEqual(committed);
+    expect((await rows("SELECT count(*)::int AS n FROM journal_entries WHERE company_id=$1 AND reference=$2",
+      [f.company,`SHIFT-VAR-${sale.session.id}`]))[0].n).toBe(1);
+  });
   it.each([false,true])("reconciles sale, recorded tender, partial/full refund, and one closing (legacy=%s)", async legacy => {
     const f = await fixture(legacy);
     const open = { branchId: f.branch, cashierName: "اسم غير موثوق", openingCash: 20 }, openKey = randomUUID();

@@ -4,6 +4,15 @@ import { FinancialRequestError } from "./financial-transaction";
 import { managedProfile, requireResponsibility } from "./responsibility-context";
 
 type Connection = Pick<typeof db, "execute">;
+/** Approval spends only the current grant's amount authority; committed replays do not spend it again. */
+export async function scopedShiftDifference(tx: Connection, userId: number, companyId: number, branchId: number, difference: string) {
+  if (!await managedProfile(userId, companyId, tx)) return;
+  const grant = await requireResponsibility("pos.shift.difference", tx);
+  const { rows } = await tx.execute(sql`SELECT abs(${difference}::numeric) > ${grant.amountLimit}::numeric AS exceeds`);
+  if (grant.branchId !== branchId || rows[0].exceeds) {
+    throw new FinancialRequestError("فرق الصندوق يتجاوز نطاق المسؤولية أو حد مبلغ الاعتماد", 403);
+  }
+}
 export async function scopedPosOrderVisible(tx: Connection, userId: number, companyId: number, orderId: number) {
   if (!await managedProfile(userId, companyId, tx)) return;
   const grant=await requireResponsibility("pos.read",tx);
@@ -63,7 +72,7 @@ export async function scopedDirectReturn(tx: Connection, userId: number, company
   return true;
 }
 
-export async function scopedPayoutSource(tx: Connection, userId: number, companyId: number, noteId: number, amount?: number, external = false) {
+export async function scopedPayoutSource(tx: Connection, userId: number, companyId: number, noteId: number, amount?: number | string, external = false) {
   if (!await managedProfile(userId, companyId, tx)) return;
   const grant = await requireResponsibility(external ? "pos.return.external" : "pos.return.payout", tx);
   const { rows } = await tx.execute(sql`SELECT so.warehouse_id FROM credit_notes n

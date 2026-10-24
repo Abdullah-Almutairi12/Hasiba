@@ -13,7 +13,7 @@ import { createCreditNoteHandler, creditNoteLimit } from "./sales";
 import { returnRequestGuard } from "../lib/return-access";
 import { lockApprovalAuthority } from "../lib/approval-authority";
 import { managedProfile, selectedResponsibility } from "../lib/responsibility-context";
-import { scopedPayoutSource } from "../lib/scoped-pos-operations";
+import { scopedPayoutSource, scopedShiftDifference } from "../lib/scoped-pos-operations";
 
 const router = Router();
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -199,6 +199,8 @@ async function changePayout(tx: Tx, companyId: number, userId: number, input: un
   }
   if (!cancel && !b.reference) fail("يلزم مرجع إثبات الرد الخارجي", 400);
   if (cancel && !b.reason) fail("يلزم سبب إلغاء طلب الرد", 400);
+  // Recheck the actual reserved amount only for a new confirmation, not a committed replay.
+  if (!cancel) await scopedPayoutSource(tx, userId, companyId, Number(lookup.note_id), String(p.amount), true);
   await tx.select().from(posSessionsTable).where(eq(posSessionsTable.id, Number(p.session_id))).for("update");
   let journalId: number | null = null;
   if (!cancel) {
@@ -234,6 +236,7 @@ async function closeShift(tx: Tx, companyId: number, userId: number, input: unkn
     if (Number(old.created_by) === userId) fail("اعتماد فرق الصندوق يجب أن يكون من شخص آخر", 403);
     if (cents(old.expected) !== cents(summary.expected)) fail("تغيرت حركة الصندوق؛ يلزم إعادة التسوية");
     const difference = cents(old.difference);
+    await scopedShiftDifference(tx, userId, companyId, session.branchId, money(difference));
     const key = difference < 0 ? "cash_shortage" : "cash_surplus";
     await query(tx, sql`INSERT INTO accounts(code,name,name_ar,type,currency_code,system_key)
       VALUES(${`SYS-${key}`},${key},${difference < 0 ? "عجز الصندوق المعتمد" : "زيادة الصندوق المعتمدة"},

@@ -8,6 +8,12 @@ Do not add age-based expiry or routine cleanup of financial retry receipts witho
 
 **How to apply:** Review retention, user/company deletion, restore/import, and cleanup proposals for loss of replay protection. Keep company/user authorization separate from receipt lookup, and preserve the distinction between retrying an uncertain outcome and starting another legitimate intent.
 
+Current monetary authority must cover a pending confirmation or approval, but a lower limit alone must not hide a result that already committed.
+
+**Why:** A reserved refund or pending till difference can outlive the grant that originally allowed its creation. Conversely, treating a committed result as a new spend breaks recovery after policy changes.
+
+**How to apply:** Under the authority and document locks, authorize access to the source, return an existing terminal result without new effects, then enforce the current amount limit before any new posting. Test both an excessive pending amount and replay after the limit is lowered.
+
 Committed replays must not re-run one-use business authorizations or regress an issued document when approval policy changes. Current identity, tenant membership and endpoint permissions still run before any replay.
 
 **Why:** An approval is normally consumed by successful checkout. Checking it before receipt lookup rejects a legitimate lost-response retry; resubmitting an issued credit note under new rules can reopen its state and risk a second posting.
