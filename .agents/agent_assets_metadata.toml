@@ -308,3 +308,17 @@ mtime_ms = 1792862201002
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/5137dda7-04ad-4827-9e7c-9a5e28f8a37f/1fa6c22e-87c7-477e-84f1-2c8d296d76e6"
 storage_version_token = "1792862223746124"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "0q4tN_I0qpyNv0NKcu04x"
+uri = "file://generated-artifacts/independent-return-review/Hasiba-Independent-Return-Evidence-83111d0.zip"
+type = "unspecified"
+title = "حاسبة — تقرير الإصلاح وأدلة التحقق"
+description = "التقرير العربي، نتائج 15 بوابة و680 اختبار API و133 اختبار واجهة، ولقطات رحلة المرتجع بأربع هويات والمصالحة. يتضمن المحاولات المتعثرة والمتبقي؛ الدفعة الأولى لم تغلق بعد."
+logical_id = "f0a404c3-73b8-41fb-98ec-8d87cd0c5c03"
+content_hash = "sha256:c3dd8b68de130f43ef729cb114bf17fa1575eb1d98eb3fb736f247167f12a8d4"
+size = 725478
+mtime_ms = 1792868319439
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/f0a404c3-73b8-41fb-98ec-8d87cd0c5c03/85daa160-7af9-488d-926f-b8c9d1edc84a"
+storage_version_token = "1792868339392956"
+content_type = "application/octet-stream"
