@@ -1,6 +1,6 @@
 import { lockApprovalAuthorityWrite } from "../lib/approval-authority";
-import { Router } from "express";
-import { db, usersTable, branchesTable, userCompaniesTable, companiesTable } from "@workspace/db";
+import { Router, type RequestHandler } from "express";
+import { db, usersTable, branchesTable, userCompaniesTable, companiesTable, employeeAccessTable } from "@workspace/db";
 import { desc, eq, and, ne, inArray } from "drizzle-orm";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
@@ -19,6 +19,16 @@ import { assertAnotherActiveOwner } from "../lib/company-ownership";
 
 const router = Router();
 router.use(["/users", "/admin/team-consents"], requireCompanyContext);
+const legacyAccessEditor: RequestHandler = async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) return next();
+    const [managed] = await db.select({ id: employeeAccessTable.employeeId }).from(employeeAccessTable)
+      .where(and(eq(employeeAccessTable.userId,id),eq(employeeAccessTable.companyId,req.session.companyId!))).limit(1);
+    if (managed) return void res.status(409).json({ error: "وصول هذا الشخص يدار من إعداد الفريق؛ عدله أو علقه هناك مع الحفاظ على السجل، ولا تحوله إلى دور عام من محرر المستخدمين القديم" });
+    next();
+  } catch (err) { next(err); }
+};
 
 // Explicit safe column projection — NEVER include passwordHash in responses.
 const safeUserColumns = {
@@ -249,7 +259,7 @@ const UpdateUserBody = z.object({
   ).optional(),
 });
 
-router.patch("/users/:id", adminGuard, async (req, res) => {
+router.patch("/users/:id", adminGuard, legacyAccessEditor, async (req, res) => {
   try {
     const id = Number(req.params.id);
     if (!Number.isFinite(id)) return res.status(400).json({ error: "معرّف غير صحيح" });
@@ -319,7 +329,7 @@ router.patch("/users/:id", adminGuard, async (req, res) => {
   }
 });
 
-router.delete("/users/:id", ownerOnly, async (req, res) => {
+router.delete("/users/:id", ownerOnly, legacyAccessEditor, async (req, res) => {
   try {
     const id = Number(req.params.id);
     if (!Number.isFinite(id)) return res.status(400).json({ error: "معرّف غير صحيح" });

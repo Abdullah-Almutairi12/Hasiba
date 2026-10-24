@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { createPosOrder, type CreatePosOrderBody } from "@workspace/api-client-react";
+import { createPosOrder, getWorkspaceResponsibility, type CreatePosOrderBody } from "@workspace/api-client-react";
 
 export type PosProduct = {
   id: number;
@@ -15,7 +15,28 @@ type Attempt = {
   key: string;
   body: CreatePosOrderBody;
   cart: PosCartItem[];
+  /**
+   * Responsibility header the intent was first sent under (null = none,
+   * e.g. owners). Older saved attempts lack it and are treated as null.
+   * Recovery is only ever re-sent under this exact header.
+   */
+  responsibility?: string | null;
 };
+
+const scopeMismatchText = "لديك عملية بيع غير مؤكدة سُجلت تحت مسؤولية أخرى. لن يُعاد إرسالها تحت المسؤولية الحالية. ارجع إلى «عملي» واختر المسؤولية الأصلية ثم افتح نقطة البيع لاسترجاع النتيجة. لا تعاود التحصيل.";
+
+/**
+ * Read-only peek at the saved unresolved checkout for a scope, using the
+ * same storage key and validator as the hook. Never modifies storage.
+ * Returns "unreadable" when evidence exists but cannot be parsed.
+ */
+export function readPendingPosAttempt(scope: string | null): { responsibility: string | null } | "unreadable" | null {
+  if (!scope) return null;
+  let raw: string | null;
+  try { raw = sessionStorage.getItem(`hasba:pos-checkout:${scope}`); } catch { return "unreadable"; }
+  if (!raw) return null;
+  try { return { responsibility: readAttempt(raw).responsibility ?? null }; } catch { return "unreadable"; }
+}
 const uncertain = "تعذر تأكيد نتيجة البيع؛ قد تكون العملية حُفظت بالفعل. لا تعاود تحصيل المبلغ. اضغط «استرجاع نتيجة البيع» لإعادة الطلب نفسه دون إنشاء فاتورة مكررة.";
 const storageFailure = "تعذر حفظ محاولة البيع بأمان. لم يُرسل طلب جديد؛ فعّل تخزين الجلسة وأعد المحاولة.";
 const cleanupFailure = "تم تسجيل البيع بالفعل، لكن تعذر تنظيف محاولة البيع من تخزين الجلسة. فعّل التخزين ثم اضغط «استرجاع نتيجة البيع» لتأكيدها، ولا تعاود تحصيل المبلغ.";
@@ -71,6 +92,12 @@ export function usePosCheckout(scope: string | null) {
   const isCurrent = state.scope === storageKey;
   async function pay(body: CreatePosOrderBody, cart: PosCartItem[]) {
     if (!storageKey || !isCurrent || !state.ready || inFlight.current) return null;
+    // Never replay an unknown intent under a different responsibility: a 403
+    // there proves nothing about whether the original committed.
+    if (state.attempt && (state.attempt.responsibility ?? null) !== getWorkspaceResponsibility()) {
+      setState((old) => ({ ...old, error: scopeMismatchText }));
+      return null;
+    }
     inFlight.current = true;
     const wasRecovery = !!state.attempt;
     let attempt = state.attempt;
@@ -80,7 +107,7 @@ export function usePosCheckout(scope: string | null) {
     try {
       if (!attempt) {
         try {
-          attempt = { key: crypto.randomUUID(), body, cart };
+          attempt = { key: crypto.randomUUID(), body, cart, responsibility: getWorkspaceResponsibility() };
           sessionStorage.setItem(storageKey, JSON.stringify(attempt));
         } catch {
           update({ error: storageFailure });
@@ -131,8 +158,11 @@ export function usePosCheckout(scope: string | null) {
     }
   }
 
+  const attemptNow = isCurrent ? state.attempt : null;
   return {
     pay,
+    /** True when a saved unknown attempt belongs to another responsibility. */
+    scopeMismatch: !!attemptNow && (attemptNow.responsibility ?? null) !== getWorkspaceResponsibility(),
     attempt: isCurrent ? state.attempt : null,
     error: isCurrent ? state.error : "",
     ready: isCurrent && state.ready,

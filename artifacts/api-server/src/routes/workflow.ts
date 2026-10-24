@@ -1,3 +1,4 @@
+import { verifyAccountPassword } from "../lib/account-password";
 import { lockApprovalAuthorityWrite } from "../lib/approval-authority";
 import { Router } from "express";
 import { parsePatchBody } from "../lib/patch-body";
@@ -915,7 +916,7 @@ router.post("/approvals/verify-pin", verifyPinLimiter, async (req, res) => {
     res.status(403).json({ error: "لا يمكنك اعتماد تجاوز لنفسك (مبدأ فصل المهام)" });
     return;
   }
-  const ok = await bcrypt.compare(password, user.passwordHash);
+  const ok = await verifyAccountPassword(password, user.passwordHash);
   if (!ok) {
     res.status(401).json({ error: "بيانات المدير غير صحيحة" });
     return;

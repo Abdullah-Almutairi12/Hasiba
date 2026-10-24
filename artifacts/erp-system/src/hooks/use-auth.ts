@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { setActiveCompanyKey } from "@/lib/query-client";
+import { syncWorkspaceIdentity } from "@/lib/workspace-responsibility";
 
 export type AuthCompany = {
   id: number;
@@ -87,6 +88,15 @@ export function useAuth() {
   useEffect(() => {
     setActiveCompanyKey(meQuery.data?.companyId ?? null);
   }, [meQuery.data?.companyId]);
+
+  // Identity / company / membership-role change resets the scoped
+  // responsibility header and drops non-auth query cache.
+  const identityKey = meQuery.data
+    ? `${meQuery.data.id}:${meQuery.data.companyId ?? "none"}:${meQuery.data.role}`
+    : meQuery.isLoading ? null : "anon";
+  useEffect(() => {
+    if (identityKey !== null) syncWorkspaceIdentity(qc, identityKey);
+  }, [identityKey, qc]);
 
   return {
     user: meQuery.data ?? null,

@@ -30,6 +30,208 @@ tags:
   - name: auth
     description: Authentication & session management
 paths:
+  /team/catalog:
+    get:
+      operationId: getTeamCatalog
+      tags: [Team]
+      responses:
+        "200":
+          description: Existing resource/action inventory; unavailable actions cannot be granted.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TeamCatalog" }
+  /team/setup:
+    get:
+      operationId: getTeamSetup
+      tags: [Team]
+      responses:
+        "200":
+          description: Resumable company setup
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TeamSetup" }
+    put:
+      operationId: saveTeamSetup
+      tags: [Team]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TeamSetupInput" }
+      responses:
+        "200":
+          description: Saved revision
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TeamSetup" }
+  /team/policy:
+    put:
+      operationId: saveTeamPolicy
+      tags: [Team]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TeamPolicyInput" }
+      responses:
+        "200":
+          description: Development entitlements; not live subscription billing
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TeamPolicy" }
+  /team/people:
+    get:
+      operationId: listTeamPeople
+      tags: [Team]
+      responses:
+        "200":
+          description: Company HR person records and their independent access
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/TeamPerson" } }
+    post:
+      operationId: createTeamPerson
+      tags: [Team]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TeamPersonInput" }
+      responses:
+        "201":
+          description: Person created once; no salary, bank details or login implied.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TeamPerson" }
+  /team/people/preview:
+    post:
+      operationId: previewTeamPerson
+      tags: [Team]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TeamPersonInput" }
+      responses:
+        "200":
+          description: Effective paired scope; no writes
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TeamPreview" }
+  /team/people/{id}/access:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: integer } }
+    put:
+      operationId: updateTeamAccess
+      tags: [Team]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TeamAccessInput" }
+      responses:
+        "200":
+          description: Revision changed, old grants/invitations retained but revoked
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TeamPerson" }
+  /team/people/{id}/invite:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: integer } }
+    post:
+      operationId: inviteTeamPerson
+      tags: [Team]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TeamRevisionInput" }
+      responses:
+        "201":
+          description: One-time token shown once; manual development handoff, no email sent
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [activationToken, expiresAt, deliveryMode]
+                properties:
+                  activationToken: { type: string }
+                  expiresAt: { type: string }
+                  deliveryMode: { type: string }
+    delete:
+      operationId: revokeTeamInvitation
+      tags: [Team]
+      responses:
+        "200":
+          description: Invitation history retained
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TeamOk" }
+  /auth/team-activation/inspect:
+    post:
+      operationId: inspectTeamActivation
+      tags: [Team]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TeamTokenInput" }
+      responses:
+        "200":
+          description: Valid invitation recipient
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [name, companyName, email]
+                properties:
+                  name: { type: string }
+                  companyName: { type: string }
+                  email: { type: string }
+  /auth/team-activation/accept:
+    post:
+      operationId: acceptTeamActivation
+      tags: [Team]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TeamActivationInput" }
+      responses:
+        "200":
+          description: Identity joined once; normal login required
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, email]
+                properties:
+                  ok: { type: boolean }
+                  email: { type: string }
+  /workspace/access:
+    get:
+      operationId: getWorkspaceAccess
+      tags: [Team]
+      responses:
+        "200":
+          description: Current user's current company responsibilities, never role/scope Cartesian product
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WorkspaceAccess" }
+  /workspace/inventory:
+    get:
+      operationId: getWorkspaceInventory
+      tags: [Team]
+      parameters:
+        - { name: X-Workspace-Responsibility, in: header, required: true, schema: { type: integer } }
+      responses:
+        "200":
+          description: Existing quants for one authorized inventory responsibility
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/WorkspaceStock" }
   /sales/sellers/workspace:
     $ref: "./seller-paths.yaml#/workspace"
   /sales/sellers/configure:
@@ -3845,6 +4047,164 @@ paths:
 
 components:
   schemas:
+    TeamOk:
+      type: object
+      required: [ok]
+      properties:
+        ok: { type: boolean }
+    TeamTokenInput:
+      type: object
+      required: [token]
+      properties:
+        token: { type: string }
+    TeamActivationInput:
+      type: object
+      required: [token, password]
+      properties:
+        token: { type: string }
+        password: { type: string }
+    TeamGrantInput:
+      type: object
+      required: [resource, branchId, warehouseIds, actions, amountLimit, startsAt, endsAt]
+      properties:
+        resource: { type: string, enum: [inventory, pos] }
+        branchId: { type: integer }
+        warehouseIds: { type: array, items: { type: integer } }
+        actions: { type: array, items: { type: string } }
+        amountLimit: { type: [string, "null"] }
+        startsAt: { type: [string, "null"] }
+        endsAt: { type: [string, "null"] }
+    TeamGrant:
+      allOf:
+        - $ref: "#/components/schemas/TeamGrantInput"
+        - type: object
+          required: [id]
+          properties:
+            id: { type: integer }
+    TeamPersonInput:
+      type: object
+      required: [creationKey, name, email, loginKinds, grants, deniedActions]
+      properties:
+        creationKey: { type: string }
+        name: { type: string }
+        email: { type: [string, "null"] }
+        loginKinds: { type: array, items: { type: string, enum: [platform, pos] } }
+        grants: { type: array, items: { $ref: "#/components/schemas/TeamGrantInput" } }
+        deniedActions: { type: array, items: { type: string } }
+    TeamPerson:
+      allOf:
+        - $ref: "#/components/schemas/TeamPersonInput"
+        - type: object
+          required: [personId, userId, status, revision]
+          properties:
+            personId: { type: integer }
+            userId: { type: [integer, "null"] }
+            status: { type: string }
+            revision: { type: integer }
+            grants: { type: array, items: { $ref: "#/components/schemas/TeamGrant" } }
+    TeamRevisionInput:
+      type: object
+      required: [expectedRevision]
+      properties:
+        expectedRevision: { type: integer }
+    TeamAccessInput:
+      type: object
+      required: [expectedRevision, person, suspended]
+      properties:
+        expectedRevision: { type: integer }
+        person: { $ref: "#/components/schemas/TeamPersonInput" }
+        suspended: { type: boolean }
+    TeamPolicyInput:
+      type: object
+      required: [enabledModules, seatLimit]
+      properties:
+        enabledModules: { type: array, items: { type: string } }
+        seatLimit: { type: [integer, "null"] }
+    TeamPolicy:
+      allOf:
+        - $ref: "#/components/schemas/TeamPolicyInput"
+        - type: object
+          required: [source, activeLoginSeats, reservedAccessSlots]
+          properties:
+            source: { type: string }
+            activeLoginSeats: { type: integer }
+            reservedAccessSlots: { type: integer }
+    TeamSetupInput:
+      type: object
+      required: [expectedRevision, mode, step, draft]
+      properties:
+        expectedRevision: { type: integer }
+        mode: { type: string, enum: [solo, team] }
+        step: { type: string, enum: [people, access, review, done] }
+        draft: { type: object, additionalProperties: true }
+    TeamSetup:
+      type: object
+      required: [revision, mode, step, draft, policy]
+      properties:
+        revision: { type: integer }
+        mode: { type: string, enum: [solo, team] }
+        step: { type: string, enum: [people, access, review, done] }
+        draft: { type: object, additionalProperties: true }
+        policy: { $ref: "#/components/schemas/TeamPolicy" }
+    TeamPreview:
+      type: object
+      required: [grants, warnings, reservesAccessSlot]
+      properties:
+        grants: { type: array, items: { $ref: "#/components/schemas/TeamGrantInput" } }
+        warnings: { type: array, items: { type: string } }
+        reservesAccessSlot: { type: boolean }
+    TeamAction:
+      type: object
+      required: [key, label, resource, available]
+      properties:
+        key: { type: string }
+        label: { type: string }
+        resource: { type: string }
+        available: { type: boolean }
+    TeamCatalog:
+      type: object
+      required: [actions, templates, routes]
+      properties:
+        actions: { type: array, items: { $ref: "#/components/schemas/TeamAction" } }
+        templates:
+          type: array
+          items:
+            type: object
+            required: [key, label, resource, actions]
+            properties:
+              key: { type: string }
+              label: { type: string }
+              resource: { type: string }
+              actions: { type: array, items: { type: string } }
+        routes:
+          type: array
+          items:
+            type: object
+            required: [method, path, enforcement]
+            properties:
+              method: { type: string }
+              path: { type: string }
+              enforcement: { type: string }
+    WorkspaceAccess:
+      type: object
+      required: [managed, grants, status, deniedActions]
+      properties:
+        managed: { type: boolean }
+        status: { type: string }
+        grants: { type: array, items: { $ref: "#/components/schemas/TeamGrant" } }
+        deniedActions: { type: array, items: { type: string } }
+        revision: { type: integer }
+        vatRegistered: { type: boolean }
+    WorkspaceStock:
+      type: object
+      required: [productId, productName, warehouseId, warehouseName, quantity]
+      properties:
+        productId: { type: integer }
+        productName: { type: string }
+        warehouseId: { type: integer }
+        warehouseName: { type: string }
+        quantity: { type: string }
+        cost: { type: [string, "null"] }
     InventoryRevaluationInput:
       type: object
       required: [quantId, varianceAccountId, reason]
@@ -4474,7 +4834,7 @@ components:
           enum: [average, fifo, standard]
         createdAt:
           type: string
-      required: [id, name, nameAr, sku, categoryId, categoryName, price, costPrice, stock, minStock, unit, isActive, trackingMode, costingMethod, createdAt]
+      required: [id, name, nameAr, sku, categoryId, categoryName, price, stock, minStock, unit, isActive, trackingMode, costingMethod, createdAt]
 
     CreateProductBody:
       type: object

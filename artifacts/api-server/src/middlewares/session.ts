@@ -50,6 +50,7 @@ declare module "express-session" {
   interface SessionData {
     userId?: number;
     role?:
+      | "scoped"
       | "owner"
       | "production"
       | "manager"

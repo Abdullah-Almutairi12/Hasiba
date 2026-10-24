@@ -19,6 +19,25 @@ const DEFAULT_JSON_ACCEPT = "application/json, application/problem+json";
 
 let _baseUrl: string | null = null;
 let _authTokenGetter: AuthTokenGetter | null = null;
+let _workspaceResponsibility: string | null = null;
+
+export const WORKSPACE_RESPONSIBILITY_HEADER = "X-Workspace-Responsibility";
+
+/**
+ * Select the scoped-workspace responsibility (grant id) sent with every
+ * request as `X-Workspace-Responsibility`. This is a selector, not
+ * authority: the server re-verifies identity, company and assignment.
+ * Only positive integer ids are accepted; anything else clears it.
+ * Kept in memory only — never persisted.
+ */
+export function setWorkspaceResponsibility(id: number | string | null): void {
+  const text = id == null ? "" : String(id).trim();
+  _workspaceResponsibility = /^[1-9][0-9]{0,15}$/.test(text) ? text : null;
+}
+
+export function getWorkspaceResponsibility(): string | null {
+  return _workspaceResponsibility;
+}
 
 /**
  * Set a base URL that is prepended to every relative request URL
@@ -358,6 +377,10 @@ export async function customFetch<T = unknown>(
     if (token) {
       headers.set("authorization", `Bearer ${token}`);
     }
+  }
+
+  if (_workspaceResponsibility && !headers.has(WORKSPACE_RESPONSIBILITY_HEADER)) {
+    headers.set(WORKSPACE_RESPONSIBILITY_HEADER, _workspaceResponsibility);
   }
 
   const requestInfo = { method, url: resolveUrl(input) };

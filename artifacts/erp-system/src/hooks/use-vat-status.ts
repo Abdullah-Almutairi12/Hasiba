@@ -22,13 +22,13 @@ export interface VatStatus {
  * `undefined` while loading; consumers should default to "enabled" to
  * keep behaviour stable for existing tenants until the API resolves.
  */
-export function useVatStatus(): {
+export function useVatStatus(opts: { enabled?: boolean } = {}): {
   data: VatStatus | undefined;
   isLoading: boolean;
   enabled: boolean;
 } {
   const q = useGetVatStatus({
-    query: { queryKey: getGetVatStatusQueryKey(), staleTime: 60_000 },
+    query: { queryKey: getGetVatStatusQueryKey(), staleTime: 60_000, enabled: opts.enabled ?? true },
   });
   const data = q.data as VatStatus | undefined;
   const status = data?.status;
@@ -39,6 +39,6 @@ export function useVatStatus(): {
 }
 
 /** Cheap boolean shortcut for components that only care about gating. */
-export function useVatEnabled(): boolean {
-  return useVatStatus().enabled;
+export function useVatEnabled(opts: { enabled?: boolean } = {}): boolean {
+  return useVatStatus(opts).enabled;
 }

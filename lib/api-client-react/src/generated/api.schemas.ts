@@ -5,6 +5,199 @@
  * حاسبة.AI - ERP System API
  * OpenAPI spec version: 0.1.0
  */
+export interface TeamOk {
+  ok: boolean;
+}
+
+export interface TeamTokenInput {
+  token: string;
+}
+
+export interface TeamActivationInput {
+  token: string;
+  password: string;
+}
+
+export type TeamGrantInputResource = typeof TeamGrantInputResource[keyof typeof TeamGrantInputResource];
+
+
+export const TeamGrantInputResource = {
+  inventory: 'inventory',
+  pos: 'pos',
+} as const;
+
+export interface TeamGrantInput {
+  resource: TeamGrantInputResource;
+  branchId: number;
+  warehouseIds: number[];
+  actions: string[];
+  /** @nullable */
+  amountLimit: string | null;
+  /** @nullable */
+  startsAt: string | null;
+  /** @nullable */
+  endsAt: string | null;
+}
+
+export type TeamGrant = TeamGrantInput & {
+  id: number;
+};
+
+export type TeamPersonInputLoginKindsItem = typeof TeamPersonInputLoginKindsItem[keyof typeof TeamPersonInputLoginKindsItem];
+
+
+export const TeamPersonInputLoginKindsItem = {
+  platform: 'platform',
+  pos: 'pos',
+} as const;
+
+export interface TeamPersonInput {
+  creationKey: string;
+  name: string;
+  /** @nullable */
+  email: string | null;
+  loginKinds: TeamPersonInputLoginKindsItem[];
+  grants: TeamGrantInput[];
+  deniedActions: string[];
+}
+
+export type TeamPerson = TeamPersonInput & ({
+  personId: number;
+  /** @nullable */
+  userId: number | null;
+  status: string;
+  revision: number;
+  grants?: TeamGrant[];
+});
+
+export interface TeamRevisionInput {
+  expectedRevision: number;
+}
+
+export interface TeamAccessInput {
+  expectedRevision: number;
+  person: TeamPersonInput;
+  suspended: boolean;
+}
+
+export interface TeamPolicyInput {
+  enabledModules: string[];
+  /** @nullable */
+  seatLimit: number | null;
+}
+
+export type TeamPolicy = TeamPolicyInput & {
+  source: string;
+  activeLoginSeats: number;
+  reservedAccessSlots: number;
+};
+
+export type TeamSetupInputMode = typeof TeamSetupInputMode[keyof typeof TeamSetupInputMode];
+
+
+export const TeamSetupInputMode = {
+  solo: 'solo',
+  team: 'team',
+} as const;
+
+export type TeamSetupInputStep = typeof TeamSetupInputStep[keyof typeof TeamSetupInputStep];
+
+
+export const TeamSetupInputStep = {
+  people: 'people',
+  access: 'access',
+  review: 'review',
+  done: 'done',
+} as const;
+
+export type TeamSetupInputDraft = { [key: string]: unknown };
+
+export interface TeamSetupInput {
+  expectedRevision: number;
+  mode: TeamSetupInputMode;
+  step: TeamSetupInputStep;
+  draft: TeamSetupInputDraft;
+}
+
+export type TeamSetupMode = typeof TeamSetupMode[keyof typeof TeamSetupMode];
+
+
+export const TeamSetupMode = {
+  solo: 'solo',
+  team: 'team',
+} as const;
+
+export type TeamSetupStep = typeof TeamSetupStep[keyof typeof TeamSetupStep];
+
+
+export const TeamSetupStep = {
+  people: 'people',
+  access: 'access',
+  review: 'review',
+  done: 'done',
+} as const;
+
+export type TeamSetupDraft = { [key: string]: unknown };
+
+export interface TeamSetup {
+  revision: number;
+  mode: TeamSetupMode;
+  step: TeamSetupStep;
+  draft: TeamSetupDraft;
+  policy: TeamPolicy;
+}
+
+export interface TeamPreview {
+  grants: TeamGrantInput[];
+  warnings: string[];
+  reservesAccessSlot: boolean;
+}
+
+export interface TeamAction {
+  key: string;
+  label: string;
+  resource: string;
+  available: boolean;
+}
+
+export type TeamCatalogTemplatesItem = {
+  key: string;
+  label: string;
+  resource: string;
+  actions: string[];
+};
+
+export type TeamCatalogRoutesItem = {
+  method: string;
+  path: string;
+  enforcement: string;
+};
+
+export interface TeamCatalog {
+  actions: TeamAction[];
+  templates: TeamCatalogTemplatesItem[];
+  routes: TeamCatalogRoutesItem[];
+}
+
+export interface WorkspaceAccess {
+  managed: boolean;
+  status: string;
+  grants: TeamGrant[];
+  deniedActions: string[];
+  revision?: number;
+  vatRegistered?: boolean;
+}
+
+export interface WorkspaceStock {
+  productId: number;
+  productName: string;
+  warehouseId: number;
+  warehouseName: string;
+  quantity: string;
+  /** @nullable */
+  cost?: string | null;
+}
+
 export interface InventoryRevaluationInput {
   /** @minimum 1 */
   quantId: number;
@@ -740,7 +933,7 @@ export interface Product {
   categoryId: number;
   categoryName: string;
   price: number;
-  costPrice: number;
+  costPrice?: number;
   stock: number;
   minStock: number;
   unit: string;
@@ -2338,6 +2531,23 @@ export interface CreateSupplierBody {
   /** @nullable */
   notes?: string | null;
 }
+
+export type InviteTeamPerson201 = {
+  activationToken: string;
+  expiresAt: string;
+  deliveryMode: string;
+};
+
+export type InspectTeamActivation200 = {
+  name: string;
+  companyName: string;
+  email: string;
+};
+
+export type AcceptTeamActivation200 = {
+  ok: boolean;
+  email: string;
+};
 
 export type GetSellerWorkspaceParams = {
 /**

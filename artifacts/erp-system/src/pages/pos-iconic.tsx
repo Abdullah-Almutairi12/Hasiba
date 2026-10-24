@@ -22,7 +22,9 @@ import {
   useGetPrintProfile,
   useGetSellerWorkspace,
 } from "@workspace/api-client-react";
-import type { CreatePosOrderBody } from "@workspace/api-client-react";
+import { useCreatePosSession, type CreatePosOrderBody } from "@workspace/api-client-react";
+import { usePermissions } from "@/hooks/use-permissions";
+import { useLiveScopedAccess } from "@/lib/scoped-access";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
 import { usePosCheckout, type PosProduct as Product, type PosCartItem as CartItem } from "@/hooks/use-pos-checkout";
@@ -82,8 +84,17 @@ export default function PosIconic({
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const { t, language } = useLanguage();
-  const vatEnabled = useVatEnabled();
+  const { isScoped, canUsePos, canOpenPosShift } = usePermissions();
+  // Owners keep /vat/status. Scoped members use vatRegistered from
+  // /workspace/access (same condition as checkout); never a guess.
+  const ownerVat = useVatEnabled({ enabled: !isScoped });
   const { user } = useAuth();
+  const live = useLiveScopedAccess(isScoped);
+  const selectedResp = live.selected;
+  const scopedVat = selectedResp?.vatRegistered ?? null;
+  const vatUnknown = isScoped && scopedVat === null;
+  const vatEnabled = isScoped ? scopedVat === true : ownerVat;
+  const scopedBranchId = isScoped ? (selectedResp?.resource === "pos" ? selectedResp.branchId : -1) : null;
   const queryClient = useQueryClient();
   const checkout = usePosCheckout(user?.companyId ? `${user.id}:${user.companyId}` : null);
 
@@ -93,7 +104,7 @@ export default function PosIconic({
   const [parkedOpen, setParkedOpen] = useState(false);
   const [parkLabel, setParkLabel] = useState("");
   const [paymentMethod, setPaymentMethod] =
-    useState<"cash" | "card" | "stc" | "transfer">("card");
+    useState<"cash" | "card" | "stc" | "transfer">(isScoped ? "cash" : "card");
   const [success, setSuccess] = useState<{
     orderNumber: string;
     total: number;
@@ -128,8 +139,17 @@ export default function PosIconic({
   const { data: sessions, refetch: refetchSessions } = useListPosSessions({
     query: { refetchInterval: 15_000, staleTime: 0, refetchOnWindowFocus: true },
   });
-  const activeSession = sessions?.find((s) => s.status === "open");
+  const activeSession = sessions?.find((s) => s.status === "open" && (scopedBranchId === null || s.branchId === scopedBranchId));
   const checkoutLocked = !!checkout.attempt || checkout.isPending || !checkout.ready;
+  // Why paying is blocked for a scoped member (null = allowed). Recovery of an
+  // existing attempt re-sends its frozen body, so VAT/sell checks apply only
+  // to new sales; a responsibility mismatch blocks recovery as well.
+  const payBlock: string | null = !isScoped ? null
+    : checkout.scopeMismatch ? "عملية البيع المعلقة تخص مسؤولية أخرى. ارجع إلى «عملي» واختر المسؤولية الأصلية لاسترجاعها."
+    : checkout.attempt ? null
+    : !canUsePos ? "مسؤوليتك للعرض فقط: البيع غير مسموح لك في هذا الفرع."
+    : vatUnknown ? (live.isError ? "تعذر التحقق من حالة تسجيل الضريبة. أعد المحاولة قبل البيع." : "جارٍ التحقق من حالة تسجيل الضريبة…")
+    : null;
   const sellerBranchId = activeSession?.branchId;
   const sellerWs = useGetSellerWorkspace(sellerBranchId ? { branchId: sellerBranchId } : undefined, {
     query: { enabled: !!activeSession, retry: false, staleTime: 30_000 },
@@ -154,7 +174,8 @@ export default function PosIconic({
   // Live tally of parked orders for the Dock badge
   const refreshParked = useMemo(
     () => async () => {
-      if (!activeSession) return;
+      // Parking is not part of the scoped POS contract: no request at all.
+      if (!activeSession || isScoped) return;
       const base = import.meta.env.BASE_URL;
       try {
         const r = await fetch(
@@ -166,7 +187,7 @@ export default function PosIconic({
         // best-effort
       }
     },
-    [activeSession],
+    [activeSession, isScoped],
   );
 
   useEffect(() => {
@@ -206,7 +227,7 @@ export default function PosIconic({
   const clearCart = () => { if (!checkoutLocked) setCart([]); };
 
   const handlePark = async (labelOverride?: string) => {
-    if (checkoutLocked || !activeSession || cart.length === 0) return;
+    if (isScoped || checkoutLocked || !activeSession || cart.length === 0) return;
     const base = import.meta.env.BASE_URL;
     const label = (labelOverride ?? parkLabel).trim();
     const res = await fetch(`${base}api/pos/orders/park`, {
@@ -241,7 +262,7 @@ export default function PosIconic({
   };
 
   const handleResume = async (id: number) => {
-    if (checkoutLocked) return;
+    if (isScoped || checkoutLocked) return;
     if (!activeSession) {
       toast({ title: t("pos_iconic.no_session"), variant: "destructive" });
       return;
@@ -281,7 +302,7 @@ export default function PosIconic({
 
   const handleCancelParked = async (id: number) => {
     // Cancel == resume + discard (the resume endpoint deletes the row).
-    if (checkoutLocked || !activeSession) return;
+    if (isScoped || checkoutLocked || !activeSession) return;
     const base = import.meta.env.BASE_URL;
     const res = await fetch(`${base}api/pos/orders/${id}/resume`, {
       method: "POST",
@@ -296,6 +317,12 @@ export default function PosIconic({
   };
 
   const handlePay = async () => {
+    if (payBlock) { toast({ title: payBlock, variant: "destructive" }); return; }
+    // Scoped members are cash-only; the server rejects anything else too.
+    if (isScoped && paymentMethod !== "cash" && !checkout.attempt) {
+      setPaymentMethod("cash");
+      return;
+    }
     if (!checkout.attempt && !activeSession) {
       toast({
         title: t("pos_iconic.no_session"),
@@ -370,15 +397,15 @@ export default function PosIconic({
             ? t("pos_iconic.mode_fb")
             : t("pos_iconic.mode_retail")}
         </span>
-        <button
+        {!isScoped && <button
           onClick={() => setLocation("/returns")}
           className="ms-auto rounded-md px-2 py-1 hover:bg-neutral-200/60 dark:hover:bg-neutral-800/60"
           data-testid="button-pos-returns"
         >
           {language === "ar" ? "المرتجعات" : "Returns"}
-        </button>
+        </button>}
         <button
-          onClick={() => setLocation("/")}
+          onClick={() => setLocation(isScoped ? "/my-work" : "/")}
           className=" rounded-md px-2 py-1 hover:bg-neutral-200/60 dark:hover:bg-neutral-800/60"
           data-testid="button-pos-exit"
         >
@@ -387,6 +414,15 @@ export default function PosIconic({
       </div>
 
       <div className="grid min-h-[calc(100vh-2.25rem)] grid-cols-1 gap-3 px-3 pb-4 lg:h-[calc(100vh-2.25rem)] lg:grid-cols-[minmax(0,1fr)_360px] lg:pb-28">
+        {isScoped && (
+          <ScopedPosNotice
+            branchId={scopedBranchId}
+            hasSession={!!activeSession}
+            canOpenShift={canOpenPosShift}
+            cashierName={user?.name ?? ""}
+            onOpened={() => void refetchSessions()}
+          />
+        )}
         {/* LEFT: search + categories + product grid */}
         <div className="flex min-h-0 min-w-0 flex-col gap-3">
           <div className="flex items-center gap-2">
@@ -461,6 +497,10 @@ export default function PosIconic({
           onPay={handlePay}
           method={paymentMethod}
           setMethod={setPaymentMethod}
+          cashOnly={isScoped}
+          vatUnknown={vatUnknown}
+          payBlock={payBlock}
+          onRetryVat={live.isError ? () => void live.refetch() : undefined}
           locked={checkoutLocked}
           recovery={!!checkout.attempt}
           busy={checkout.isPending}
@@ -523,7 +563,8 @@ export default function PosIconic({
         onPark={() => handlePark()}
         onOpenParked={() => setParkedOpen(true)}
         onOpenPay={handlePay}
-        payDisabled={!checkout.ready || checkout.isPending || cart.length === 0}
+        payDisabled={!!payBlock || !checkout.ready || checkout.isPending || cart.length === 0}
+        parkingUnavailable={isScoped}
       />
 
       {/* Parked overlay */}
@@ -721,7 +762,15 @@ function LiveCartRail({
   receiptSlot,
   sellerSlot,
   lineSeller,
+  cashOnly = false,
+  vatUnknown = false,
+  payBlock = null,
+  onRetryVat,
 }: {
+  cashOnly?: boolean;
+  vatUnknown?: boolean;
+  payBlock?: string | null;
+  onRetryVat?: () => void;
   cart: CartItem[];
   subtotal: number;
   tax: number;
@@ -819,6 +868,7 @@ function LiveCartRail({
       <div className="space-y-1 rounded-2xl bg-neutral-50 p-3 text-xs dark:bg-neutral-800/60">
         <Row label={t("pos_iconic.subtotal")} value={subtotal} />
         {vatEnabled && <Row label={t("pos_iconic.tax")} value={tax} />}
+        {vatUnknown && <p className="text-[11px] text-amber-700 dark:text-amber-300" data-testid="text-scoped-vat-unknown">الضريبة غير محددة بعد — لا يظهر إجمالي حتى نتحقق من تسجيل المنشأة.</p>}
         <div className="my-1.5 border-t border-dashed border-neutral-200 dark:border-neutral-700" />
         <div className="flex items-center justify-between">
           <span className="text-sm font-bold">{t("pos_iconic.total")}</span>
@@ -828,7 +878,7 @@ function LiveCartRail({
             animate={{ scale: 1, color: "inherit" }}
             className="font-mono text-base font-bold"
           >
-            {total.toFixed(2)}
+            {vatUnknown ? "—" : total.toFixed(2)}
           </motion.span>
         </div>
       </div>
@@ -841,7 +891,7 @@ function LiveCartRail({
           ["card", t("pos_iconic.card")],
           ["stc", "STC Pay"],
           ["transfer", t("pos_iconic.transfer")],
-        ] as const).map(([key, label]) => (
+        ] as const).filter(([key]) => !cashOnly || key === "cash").map(([key, label]) => (
           <button key={key} type="button" aria-pressed={method === key}
             data-testid={`button-pay-${key}`} onClick={() => setMethod(key)}
             className={cn("min-h-11 rounded-xl border px-2 text-sm disabled:opacity-60",
@@ -850,18 +900,24 @@ function LiveCartRail({
           </button>
         ))}
       </fieldset>
-      <p className="text-[11px] text-neutral-500">{t("pos_iconic.manual_tender_notice")}</p>
+      <p className="text-[11px] text-neutral-500">{cashOnly ? "مسؤوليتك تسمح بالبيع النقدي فقط دون خصم أو تعديل سعر. الاسترجاع والإيقاف المؤقت وإغلاق الوردية غير متاحة لك." : t("pos_iconic.manual_tender_notice")}</p>
       {receiptSlot}
+      {payBlock && (
+        <div role="status" className="rounded-xl bg-amber-50 p-3 text-xs text-amber-900 dark:bg-amber-950 dark:text-amber-100" data-testid="text-pay-blocked">
+          {payBlock}
+          {onRetryVat && <button type="button" onClick={onRetryVat} className="ms-2 font-semibold underline" data-testid="button-retry-vat">إعادة المحاولة</button>}
+        </div>
+      )}
       {checkoutError && <p role="alert" className="rounded-xl bg-red-50 p-3 text-xs text-red-800 dark:bg-red-950 dark:text-red-200">{checkoutError}</p>}
       <button
         onClick={onPay}
-        disabled={cart.length === 0 || busy || !ready}
+        disabled={cart.length === 0 || busy || !ready || !!payBlock}
         data-testid="button-pay-rail"
         className="grid h-14 w-full place-items-center rounded-2xl bg-gradient-to-br from-emerald-500 to-emerald-600 text-base font-bold text-white shadow-lg shadow-emerald-500/30 transition disabled:from-neutral-300 disabled:to-neutral-300 disabled:shadow-none"
       >
         <span className="inline-flex items-center gap-2">
           <CreditCard className="size-5" />
-          {busy ? t("pos_iconic.processing") : recovery ? t("pos_iconic.recover_sale") : t("pos_iconic.pay")} {cart.length > 0 && total.toFixed(2)}
+          {busy ? t("pos_iconic.processing") : recovery ? t("pos_iconic.recover_sale") : t("pos_iconic.pay")} {cart.length > 0 && !vatUnknown && total.toFixed(2)}
         </span>
       </button>
     </aside>
@@ -884,7 +940,9 @@ function FloatingDock({
   onOpenParked,
   onOpenPay,
   payDisabled,
+  parkingUnavailable = false,
 }: {
+  parkingUnavailable?: boolean;
   parkedCount: number;
   cartCount: number;
   isParkingActive: boolean;
@@ -920,7 +978,11 @@ function FloatingDock({
         animate={{ y: 0, opacity: 1 }}
         className="pointer-events-auto inline-flex items-center gap-1 rounded-full border border-white/40 bg-white/80 px-2 py-1.5 shadow-2xl shadow-black/20 backdrop-blur-xl dark:border-white/10 dark:bg-neutral-900/80"
       >
-        <DockBtn
+        {parkingUnavailable ? (
+          <DockBtn label="الإيقاف المؤقت غير متاح لمسؤوليتك" disabled testId="dock-parking-unavailable">
+            <Pause className="size-5" />
+          </DockBtn>
+        ) : <DockBtn
           label={t("pos_iconic.parking")}
           onPointerDown={startPress}
           onPointerUp={() => endPress(false)}
@@ -930,7 +992,7 @@ function FloatingDock({
           testId="dock-parking"
         >
           <Pause className="size-5" />
-        </DockBtn>
+        </DockBtn>}
         <DockBtn
           label={t("pos_iconic.cart")}
           onClick={() => {
@@ -1112,5 +1174,52 @@ function ParkedOverlay({
         )}
       </motion.div>
     </motion.div>
+  );
+}
+
+/**
+ * Scoped POS header: branch-bound shift opening (POST /pos/sessions) and an
+ * honest list of what this responsibility cannot do. No closing, refunds,
+ * parking, discounts, barcode lookup or non-cash tenders.
+ */
+function ScopedPosNotice({ branchId, hasSession, canOpenShift, cashierName, onOpened }: {
+  branchId: number | null; hasSession: boolean; canOpenShift: boolean; cashierName: string; onOpened: () => void;
+}) {
+  const { toast } = useToast();
+  const create = useCreatePosSession();
+  const [cash, setCash] = useState("");
+  const usable = branchId !== null && branchId > 0;
+  const open = async () => {
+    const n = Number(cash || "0");
+    if (!usable || !Number.isFinite(n) || n < 0) return;
+    try {
+      // cashierName is required by the body type but the server replaces it
+      // with the canonical company person name; branch must match the grant.
+      await create.mutateAsync({ data: { branchId: branchId!, cashierName, openingCash: n } });
+      toast({ title: "فُتحت الوردية" });
+      onOpened();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "";
+      toast({ title: "تعذر فتح الوردية", description: msg, variant: "destructive" });
+    }
+  };
+  return (
+    <div className="col-span-full rounded-2xl border border-amber-200 bg-amber-50/80 p-3 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100" data-testid="panel-scoped-pos">
+      {!usable ? (
+        <p data-testid="text-scoped-pos-no-selection">اختر مسؤولية نقطة بيع من صفحة «عملي» أولًا.</p>
+      ) : !hasSession && !canOpenShift ? (
+        <p data-testid="text-scoped-no-shift-permission">لا توجد وردية مفتوحة في فرعك، وفتح الوردية غير مسموح لمسؤوليتك. اطلب من المسؤول فتحها.</p>
+      ) : !hasSession ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="font-semibold">لا توجد وردية مفتوحة في فرعك.</span>
+          <Input dir="ltr" inputMode="decimal" placeholder="النقد الافتتاحي" value={cash} onChange={(e) => setCash(e.target.value)}
+            className="h-9 w-36 bg-white dark:bg-neutral-900" data-testid="input-scoped-opening-cash" />
+          <Button size="sm" onClick={() => void open()} disabled={create.isPending} data-testid="button-scoped-open-shift">فتح وردية</Button>
+        </div>
+      ) : (
+        <p data-testid="text-scoped-pos-ready">وردية فرعك مفتوحة. نقدًا فقط.</p>
+      )}
+      <p className="mt-1 text-[11px] opacity-80">غير متاح لمسؤوليتك: قراءة الباركود (البحث المخزني غير مقيّد بالفرع بعد)، الخصم وتعديل السعر، الاسترجاع، الإيقاف المؤقت، إغلاق الوردية.</p>
+    </div>
   );
 }

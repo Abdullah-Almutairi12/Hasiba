@@ -19,6 +19,8 @@ import Login from "@/pages/login";
 import Welcome from "@/pages/welcome";
 import NotFound from "@/pages/not-found";
 import { useAuth } from "@/hooks/use-auth";
+import { useSelectedResponsibility } from "@/lib/workspace-responsibility";
+
 
 const LegacyPOS = lazy(() => import("@/pages/pos"));
 const PosIconic = lazy(() => import("@/pages/pos-iconic"));
@@ -32,6 +34,8 @@ const PosIconic = lazy(() => import("@/pages/pos-iconic"));
  */
 function POS() {
   const { user } = useAuth();
+  // Scoped members always get the iconic retail till (cash-only baseline).
+  if (user?.role === "scoped") return <PosIconic variant="retail" />;
   const bt = user?.businessType;
   if (bt === "retail") return <PosIconic variant="retail" />;
   if (bt === "fb") return <PosIconic variant="fb" />;
@@ -78,6 +82,32 @@ const IntercompanyEmailActionPage = lazy(
 );
 const ReturnsPage = lazy(() => import("@/pages/returns"));
 const HelpPage = lazy(() => import("@/pages/help"));
+const TeamSetupPage = lazy(() => import("@/pages/team-setup"));
+const TeamActivatePage = lazy(() => import("@/pages/team-activate"));
+const MyWorkPage = lazy(() => import("@/pages/my-work"));
+
+/** Paths a scoped (responsibility-bound) member may open. */
+const SCOPED_PATHS = new Set(["/my-work"]);
+
+/**
+ * Scoped members never see the global dashboard or legacy pages: any
+ * other protected path sends them to /my-work. POS is only reachable
+ * while a POS responsibility is selected. The server still enforces
+ * every request; this only keeps the UI honest.
+ */
+function ScopedGate({ children, pos = false }: { children: React.ReactNode; pos?: boolean }) {
+  const { user } = useAuth();
+  const [location, setLocation] = useLocation();
+  const selected = useSelectedResponsibility();
+  const scoped = user?.role === "scoped";
+  const posView = selected?.resource === "pos" && selected.actions.includes("pos.read");
+  const allowed = !scoped || (pos ? posView : SCOPED_PATHS.has(location));
+  useEffect(() => {
+    if (!allowed) setLocation("/my-work", { replace: true });
+  }, [allowed, setLocation]);
+  if (!allowed) return null;
+  return <>{children}</>;
+}
 
 const queryClient = createAppQueryClient();
 
@@ -96,7 +126,9 @@ function RouteFallback() {
 function Protected({ children }: { children: React.ReactNode }) {
   return (
     <ProtectedRoute>
-      <Layout>{children}</Layout>
+      <ScopedGate>
+        <Layout>{children}</Layout>
+      </ScopedGate>
     </ProtectedRoute>
   );
 }
@@ -119,14 +151,15 @@ function Router() {
     <Suspense fallback={<RouteFallback />}>
       <Switch>
         <Route path="/pos">
-          <ProtectedRoute><POS /></ProtectedRoute>
+          <ProtectedRoute><ScopedGate pos><POS /></ScopedGate></ProtectedRoute>
         </Route>
 
         <Route path="/welcome" component={Welcome} />
+        <Route path="/team-activate" component={TeamActivatePage} />
         <Route path="/track/:awb" component={TrackShipmentPage} />
 
         <Route path="/invoices/:id/print">
-          <ProtectedRoute><InvoicePrint /></ProtectedRoute>
+          <ProtectedRoute><ScopedGate><InvoicePrint /></ScopedGate></ProtectedRoute>
         </Route>
 
         <Route path="/login" component={Login} />
@@ -240,6 +273,12 @@ function Router() {
         </Route>
         <Route path="/settings">
           <Protected><Settings /></Protected>
+        </Route>
+        <Route path="/team-setup">
+          <Protected><TeamSetupPage /></Protected>
+        </Route>
+        <Route path="/my-work">
+          <Protected><MyWorkPage /></Protected>
         </Route>
         <Route path="/help">
           <Protected><HelpPage /></Protected>

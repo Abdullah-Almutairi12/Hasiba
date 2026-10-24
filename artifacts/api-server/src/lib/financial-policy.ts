@@ -16,6 +16,8 @@ export const FINANCIAL_DEFAULTS = [
 export const FINANCIAL_ACTIONS = ["pos.discount_pct", "pos.refund_amount", "ap.payment_amount", "sales.credit_note_amount"] as const;
 
 export async function financialPolicy(companyId: number, role: string, actionKey: string, connection: DbOrTx = db) {
+  // Managed responsibilities never inherit a legacy role's override limit.
+  if (role === "scoped") return { max: 0, source: "scoped_no_override", blocked: !(FINANCIAL_ACTIONS as readonly string[]).includes(actionKey) };
   if (!isRole(role) || !(FINANCIAL_ACTIONS as readonly string[]).includes(actionKey)) {
     return { max: 0, source: "unconfigured", blocked: true };
   }

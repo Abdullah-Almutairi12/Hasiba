@@ -1,5 +1,6 @@
 import { Router } from "express";
 import bcrypt from "bcryptjs";
+import { verifyAccountPassword } from "../lib/account-password";
 import rateLimit from "express-rate-limit";
 import { db, usersTable, userCompaniesTable, companiesTable } from "@workspace/db";
 import { and, eq, desc } from "drizzle-orm";
@@ -74,7 +75,7 @@ router.post("/auth/login", loginLimiter, async (req, res) => {
       return res.status(403).json({ error: "هذا الحساب غير مفعل" });
     }
 
-    const ok = await bcrypt.compare(password, user.passwordHash);
+    const ok = await verifyAccountPassword(password, user.passwordHash);
     if (!ok) {
       return res.status(401).json({ error: "البريد الإلكتروني أو كلمة المرور غير صحيحة" });
     }

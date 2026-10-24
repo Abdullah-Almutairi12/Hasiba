@@ -1,3 +1,4 @@
+import { managedProfile, selectedResponsibility } from "./responsibility-context";
 import { createHash } from "node:crypto";
 import type { Request, RequestHandler } from "express";
 import { db, pool } from "@workspace/db";
@@ -26,6 +27,17 @@ export async function returnActor(userId: number, companyId: number, connection?
     : await pool.query(text, [userId, companyId]);
   const row = rows[0];
   if (!row) throw new FinancialRequestError("ليس لديك وصول إلى الشركة", 403);
+  if (await managedProfile(userId, companyId, connection)) {
+    const grant = await selectedResponsibility(userId, companyId, connection);
+    return {
+      userId, companyId, role: "scoped", custom: true,
+      capabilities: grant?.resource === "pos" ? [
+        ...(grant.actions.includes("pos.read") ? ["view"] : []),
+        ...(grant.actions.includes("pos.sell") ? ["sell"] : []),
+      ] : [],
+      branches: grant ? [grant.branchId] : [],
+    };
+  }
   const template = ({ owner: "branch_manager", manager: "branch_manager", accountant: "branch_accountant", cashier: "cashier", sales: "cashier", auditor: "auditor" } as Record<string, string>)[String(row.role)];
   return {
     userId, companyId, role: String(row.role),

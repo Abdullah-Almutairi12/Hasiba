@@ -497,15 +497,15 @@ function Delegations() {
         </div>
         {isLoading && <p role="status">جارٍ تحميل التفويضات…</p>}
         {error && <p role="alert" className="text-destructive">تعذر تحميل التفويضات. بيانات الإدخال محفوظة؛ أعد تحميل القائمة.</p>}
-        <Table>
+        <Table className="min-w-[680px] text-sm leading-relaxed" data-testid="table-delegation-history">
           <TableHeader><TableRow><TableHead>من</TableHead><TableHead>إلى</TableHead><TableHead>الفترة</TableHead><TableHead>السبب</TableHead><TableHead></TableHead></TableRow></TableHeader>
           <TableBody>
             {(dels ?? []).map((d) => (
               <TableRow key={d.id}>
                 <TableCell>{userName(d.fromUserId)}</TableCell>
                 <TableCell>{userName(d.toUserId)}</TableCell>
-                <TableCell className="text-xs">{new Date(d.fromDate).toLocaleString("ar-SA")} → {new Date(d.toDate).toLocaleString("ar-SA")}</TableCell>
-                <TableCell className="text-xs text-muted-foreground">
+                <TableCell className="text-xs"><span className="block whitespace-nowrap">من {new Date(d.fromDate).toLocaleString("ar-SA")}</span><span className="block whitespace-nowrap">إلى {new Date(d.toDate).toLocaleString("ar-SA")}</span></TableCell>
+                <TableCell className="min-w-[220px] whitespace-normal break-words text-xs text-muted-foreground [&>div]:py-0.5">
                   <div>{d.docTypes?.map(t => DOC_TYPES.find(v => v.v === t)?.label ?? t).join("، ") || "قديم — يتطلب مراجعة نطاقه"}</div>
                   <div>{d.branchId ? branches?.find(b => b.id === d.branchId)?.nameAr || `فرع #${d.branchId}` : "نطاق المنشأة المسموح"} · الحد {d.maxAmount ?? "دون حد إضافي"}</div>
                   <div>{d.reason ?? "—"} · {d.revokedAt ? "ملغى — السجل محفوظ" : new Date(d.toDate) <= new Date() ? "منتهي" : "ضمن الفترة المحددة"}</div>

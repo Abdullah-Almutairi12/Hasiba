@@ -1,3 +1,4 @@
+export * from "./team-access";
 export * from "./return-settlement";
 export * from "./companies";
 export * from "./branches";

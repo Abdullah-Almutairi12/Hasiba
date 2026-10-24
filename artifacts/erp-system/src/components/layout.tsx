@@ -33,6 +33,8 @@ import {
   Truck,
   HelpCircle,
   Undo2,
+  Briefcase,
+  UsersRound,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useTheme, type ThemeMode } from "@/hooks/use-theme";
@@ -40,6 +42,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useLanguage } from "@/hooks/use-language";
 import { useInsightMode } from "@/hooks/use-insight-mode";
 import { usePermissions } from "@/hooks/use-permissions";
+import { useSelectedResponsibility } from "@/lib/workspace-responsibility";
 import {
   Tooltip,
   TooltipContent,
@@ -69,6 +72,10 @@ import {
   SidebarProvider,
   SidebarTrigger,
 } from "@/components/ui/sidebar";
+
+const scopedNavItems = [
+  { key: "my_work", url: "/my-work", icon: Briefcase },
+] as const;
 
 const mainNavItems = [
   { key: "dashboard", url: "/", icon: LayoutDashboard },
@@ -109,6 +116,7 @@ const adminNavItems = [
   { key: "hr", url: "/hr", icon: UserCog },
   { key: "documents", url: "/documents", icon: FileText },
   { key: "users", url: "/users", icon: Users },
+  { key: "team_setup", url: "/team-setup", icon: UsersRound },
   { key: "approvals", url: "/approvals", icon: CheckSquare },
   { key: "admin", url: "/admin", icon: ShieldCheck },
   { key: "integrations_marketplaces", url: "/integrations/marketplaces", icon: ShieldCheck },
@@ -120,13 +128,15 @@ const adminNavItems = [
 export function AppSidebar() {
   const [location] = useLocation();
   const { t, isRTL } = useLanguage();
-  const { canSee } = usePermissions();
+  const { canSee, isScoped } = usePermissions();
+  const selected = useSelectedResponsibility();
 
   const renderGroup = (
     label: string,
     items: ReadonlyArray<{ key: string; url: string; icon: React.ComponentType<{ className?: string }> }>,
+    prefiltered = false,
   ) => {
-    const visible = items.filter((i) => canSee(i.key));
+    const visible = prefiltered ? items : items.filter((i) => canSee(i.key));
     if (visible.length === 0) return null;
     return (
       <SidebarGroup>
@@ -134,7 +144,7 @@ export function AppSidebar() {
         <SidebarGroupContent>
           <SidebarMenu>
             {visible.map((item) => {
-              const title = t(`nav.${item.key}`);
+              const title = t(`nav.${item.key}`, { defaultValue: item.key });
               return (
                 <SidebarMenuItem key={item.key}>
                   <SidebarMenuButton
@@ -169,10 +179,20 @@ export function AppSidebar() {
         </Link>
       </SidebarHeader>
       <SidebarContent>
-        {renderGroup(t("navGroups.main"), mainNavItems)}
-        {renderGroup(t("navGroups.finance"), financeNavItems)}
-        {renderGroup(t("navGroups.operations"), operationsNavItems)}
-        {renderGroup(t("navGroups.admin"), adminNavItems)}
+        {isScoped ? (
+          renderGroup(t("navGroups.main"), [
+            ...scopedNavItems,
+            // POS appears only while a POS responsibility is selected.
+            ...(selected?.resource === "pos" ? [{ key: "pos", url: "/pos", icon: ShoppingCart }] : []),
+          ], true)
+        ) : (
+          <>
+            {renderGroup(t("navGroups.main"), mainNavItems)}
+            {renderGroup(t("navGroups.finance"), financeNavItems)}
+            {renderGroup(t("navGroups.operations"), operationsNavItems)}
+            {renderGroup(t("navGroups.admin"), adminNavItems)}
+          </>
+        )}
       </SidebarContent>
     </Sidebar>
   );
@@ -335,6 +355,7 @@ function UserMenu() {
 }
 
 export default function Layout({ children }: { children: React.ReactNode }) {
+  const { isScoped } = usePermissions();
   return (
     <SidebarProvider defaultOpen>
       <div className="flex min-h-screen w-full bg-background text-foreground selection:bg-primary/30">
@@ -344,14 +365,14 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             <SidebarTrigger />
             <CompanySwitcher />
             <div className="flex flex-1 items-center justify-end gap-1 sm:gap-2">
-              <WorkflowInboxBell />
+              {!isScoped && <WorkflowInboxBell />}
               <InsightModeToggle />
               <LanguageToggle />
               <ThemeToggle />
               <UserMenu />
             </div>
           </header>
-          <ManagerKpiBar />
+          {!isScoped && <ManagerKpiBar />}
           <div className="flex-1 overflow-auto p-3 sm:p-4 md:p-6">{children}</div>
         </main>
       </div>

@@ -25,6 +25,7 @@ import type {
 } from '@tanstack/react-query';
 
 import type {
+  AcceptTeamActivation200,
   Account,
   AccountingSummary,
   ActOnApprovalRequest200,
@@ -155,8 +156,10 @@ import type {
   ImportBankStatementBody,
   InboxItem,
   InspectInvoiceIdentity200,
+  InspectTeamActivation200,
   InventoryRevaluation,
   InventoryRevaluationInput,
+  InviteTeamPerson201,
   Invoice,
   InvoiceSendFailure,
   InvoiceStats,
@@ -226,7 +229,20 @@ import type {
   SwitchCompany200,
   SwitchCompanyRequest,
   SystemSettings,
+  TeamAccessInput,
+  TeamActivationInput,
+  TeamCatalog,
   TeamConsentRow,
+  TeamOk,
+  TeamPerson,
+  TeamPersonInput,
+  TeamPolicy,
+  TeamPolicyInput,
+  TeamPreview,
+  TeamRevisionInput,
+  TeamSetup,
+  TeamSetupInput,
+  TeamTokenInput,
   TopProduct,
   TrainAiModel200,
   TrainAllAiModels200,
@@ -269,6 +285,8 @@ import type {
   VatSimulationResult,
   VatStatusResponse,
   Warehouse,
+  WorkspaceAccess,
+  WorkspaceStock,
   ZatcaStatus
 } from './api.schemas';
 
@@ -298,6 +316,1207 @@ const withQueryKey = <T extends object, K>(query: T, queryKey: K): T & { queryKe
   }
   return result;
 };
+
+export const getGetTeamCatalogUrl = () => {
+
+
+
+
+  return `/api/team/catalog`
+}
+
+export const getTeamCatalog = async ( options?: Parameters<typeof customFetch>[1]): Promise<TeamCatalog> => {
+
+  return customFetch<TeamCatalog>(getGetTeamCatalogUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetTeamCatalogQueryKey = () => {
+    return [
+    `/api/team/catalog`
+    ] as const;
+    }
+
+
+export const getGetTeamCatalogQueryOptions = <TData = Awaited<ReturnType<typeof getTeamCatalog>>, TError = ErrorType<unknown>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getTeamCatalog>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetTeamCatalogQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getTeamCatalog>>> = ({ signal }) => getTeamCatalog({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getTeamCatalog>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetTeamCatalogQueryResult = NonNullable<Awaited<ReturnType<typeof getTeamCatalog>>>
+export type GetTeamCatalogQueryError = ErrorType<unknown>
+
+
+export function useGetTeamCatalog<TData = Awaited<ReturnType<typeof getTeamCatalog>>, TError = ErrorType<unknown>>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getTeamCatalog>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getTeamCatalog>>,
+          TError,
+          Awaited<ReturnType<typeof getTeamCatalog>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetTeamCatalog<TData = Awaited<ReturnType<typeof getTeamCatalog>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getTeamCatalog>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getTeamCatalog>>,
+          TError,
+          Awaited<ReturnType<typeof getTeamCatalog>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetTeamCatalog<TData = Awaited<ReturnType<typeof getTeamCatalog>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getTeamCatalog>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useGetTeamCatalog<TData = Awaited<ReturnType<typeof getTeamCatalog>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getTeamCatalog>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetTeamCatalogQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetTeamSetupUrl = () => {
+
+
+
+
+  return `/api/team/setup`
+}
+
+export const getTeamSetup = async ( options?: Parameters<typeof customFetch>[1]): Promise<TeamSetup> => {
+
+  return customFetch<TeamSetup>(getGetTeamSetupUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetTeamSetupQueryKey = () => {
+    return [
+    `/api/team/setup`
+    ] as const;
+    }
+
+
+export const getGetTeamSetupQueryOptions = <TData = Awaited<ReturnType<typeof getTeamSetup>>, TError = ErrorType<unknown>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getTeamSetup>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetTeamSetupQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getTeamSetup>>> = ({ signal }) => getTeamSetup({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getTeamSetup>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetTeamSetupQueryResult = NonNullable<Awaited<ReturnType<typeof getTeamSetup>>>
+export type GetTeamSetupQueryError = ErrorType<unknown>
+
+
+export function useGetTeamSetup<TData = Awaited<ReturnType<typeof getTeamSetup>>, TError = ErrorType<unknown>>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getTeamSetup>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getTeamSetup>>,
+          TError,
+          Awaited<ReturnType<typeof getTeamSetup>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetTeamSetup<TData = Awaited<ReturnType<typeof getTeamSetup>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getTeamSetup>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getTeamSetup>>,
+          TError,
+          Awaited<ReturnType<typeof getTeamSetup>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetTeamSetup<TData = Awaited<ReturnType<typeof getTeamSetup>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getTeamSetup>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useGetTeamSetup<TData = Awaited<ReturnType<typeof getTeamSetup>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getTeamSetup>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetTeamSetupQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getSaveTeamSetupUrl = () => {
+
+
+
+
+  return `/api/team/setup`
+}
+
+export const saveTeamSetup = async (teamSetupInput: TeamSetupInput, options?: Parameters<typeof customFetch>[1]): Promise<TeamSetup> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<TeamSetup>(getSaveTeamSetupUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(teamSetupInput)
+  }
+);}
+
+
+
+
+
+export const getSaveTeamSetupMutationKey = () => ['saveTeamSetup'] as const;
+
+export const getSaveTeamSetupMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof saveTeamSetup>>, TError,SaveTeamSetupMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof saveTeamSetup>>, TError,SaveTeamSetupMutationVariables, TContext> => {
+
+const mutationKey = getSaveTeamSetupMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof saveTeamSetup>>, SaveTeamSetupMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  saveTeamSetup(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SaveTeamSetupMutationResult = NonNullable<Awaited<ReturnType<typeof saveTeamSetup>>>
+    export type SaveTeamSetupMutationBody = BodyType<TeamSetupInput>
+    export type SaveTeamSetupMutationError = ErrorType<unknown>
+    export type SaveTeamSetupMutationVariables = {data: BodyType<TeamSetupInput>}
+
+    export const useSaveTeamSetup = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof saveTeamSetup>>, TError,SaveTeamSetupMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof saveTeamSetup>>,
+        TError,
+        SaveTeamSetupMutationVariables,
+        TContext
+      > => {
+      return useMutation(getSaveTeamSetupMutationOptions(options), queryClient);
+    }
+
+export const getSaveTeamPolicyUrl = () => {
+
+
+
+
+  return `/api/team/policy`
+}
+
+export const saveTeamPolicy = async (teamPolicyInput: TeamPolicyInput, options?: Parameters<typeof customFetch>[1]): Promise<TeamPolicy> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<TeamPolicy>(getSaveTeamPolicyUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(teamPolicyInput)
+  }
+);}
+
+
+
+
+
+export const getSaveTeamPolicyMutationKey = () => ['saveTeamPolicy'] as const;
+
+export const getSaveTeamPolicyMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof saveTeamPolicy>>, TError,SaveTeamPolicyMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof saveTeamPolicy>>, TError,SaveTeamPolicyMutationVariables, TContext> => {
+
+const mutationKey = getSaveTeamPolicyMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof saveTeamPolicy>>, SaveTeamPolicyMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  saveTeamPolicy(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SaveTeamPolicyMutationResult = NonNullable<Awaited<ReturnType<typeof saveTeamPolicy>>>
+    export type SaveTeamPolicyMutationBody = BodyType<TeamPolicyInput>
+    export type SaveTeamPolicyMutationError = ErrorType<unknown>
+    export type SaveTeamPolicyMutationVariables = {data: BodyType<TeamPolicyInput>}
+
+    export const useSaveTeamPolicy = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof saveTeamPolicy>>, TError,SaveTeamPolicyMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof saveTeamPolicy>>,
+        TError,
+        SaveTeamPolicyMutationVariables,
+        TContext
+      > => {
+      return useMutation(getSaveTeamPolicyMutationOptions(options), queryClient);
+    }
+
+export const getListTeamPeopleUrl = () => {
+
+
+
+
+  return `/api/team/people`
+}
+
+export const listTeamPeople = async ( options?: Parameters<typeof customFetch>[1]): Promise<TeamPerson[]> => {
+
+  return customFetch<TeamPerson[]>(getListTeamPeopleUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListTeamPeopleQueryKey = () => {
+    return [
+    `/api/team/people`
+    ] as const;
+    }
+
+
+export const getListTeamPeopleQueryOptions = <TData = Awaited<ReturnType<typeof listTeamPeople>>, TError = ErrorType<unknown>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listTeamPeople>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListTeamPeopleQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listTeamPeople>>> = ({ signal }) => listTeamPeople({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listTeamPeople>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type ListTeamPeopleQueryResult = NonNullable<Awaited<ReturnType<typeof listTeamPeople>>>
+export type ListTeamPeopleQueryError = ErrorType<unknown>
+
+
+export function useListTeamPeople<TData = Awaited<ReturnType<typeof listTeamPeople>>, TError = ErrorType<unknown>>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listTeamPeople>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listTeamPeople>>,
+          TError,
+          Awaited<ReturnType<typeof listTeamPeople>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useListTeamPeople<TData = Awaited<ReturnType<typeof listTeamPeople>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listTeamPeople>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listTeamPeople>>,
+          TError,
+          Awaited<ReturnType<typeof listTeamPeople>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useListTeamPeople<TData = Awaited<ReturnType<typeof listTeamPeople>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listTeamPeople>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useListTeamPeople<TData = Awaited<ReturnType<typeof listTeamPeople>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listTeamPeople>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getListTeamPeopleQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCreateTeamPersonUrl = () => {
+
+
+
+
+  return `/api/team/people`
+}
+
+export const createTeamPerson = async (teamPersonInput: TeamPersonInput, options?: Parameters<typeof customFetch>[1]): Promise<TeamPerson> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<TeamPerson>(getCreateTeamPersonUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(teamPersonInput)
+  }
+);}
+
+
+
+
+
+export const getCreateTeamPersonMutationKey = () => ['createTeamPerson'] as const;
+
+export const getCreateTeamPersonMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createTeamPerson>>, TError,CreateTeamPersonMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createTeamPerson>>, TError,CreateTeamPersonMutationVariables, TContext> => {
+
+const mutationKey = getCreateTeamPersonMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createTeamPerson>>, CreateTeamPersonMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  createTeamPerson(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateTeamPersonMutationResult = NonNullable<Awaited<ReturnType<typeof createTeamPerson>>>
+    export type CreateTeamPersonMutationBody = BodyType<TeamPersonInput>
+    export type CreateTeamPersonMutationError = ErrorType<unknown>
+    export type CreateTeamPersonMutationVariables = {data: BodyType<TeamPersonInput>}
+
+    export const useCreateTeamPerson = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createTeamPerson>>, TError,CreateTeamPersonMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof createTeamPerson>>,
+        TError,
+        CreateTeamPersonMutationVariables,
+        TContext
+      > => {
+      return useMutation(getCreateTeamPersonMutationOptions(options), queryClient);
+    }
+
+export const getPreviewTeamPersonUrl = () => {
+
+
+
+
+  return `/api/team/people/preview`
+}
+
+export const previewTeamPerson = async (teamPersonInput: TeamPersonInput, options?: Parameters<typeof customFetch>[1]): Promise<TeamPreview> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<TeamPreview>(getPreviewTeamPersonUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(teamPersonInput)
+  }
+);}
+
+
+
+
+
+export const getPreviewTeamPersonMutationKey = () => ['previewTeamPerson'] as const;
+
+export const getPreviewTeamPersonMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof previewTeamPerson>>, TError,PreviewTeamPersonMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof previewTeamPerson>>, TError,PreviewTeamPersonMutationVariables, TContext> => {
+
+const mutationKey = getPreviewTeamPersonMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof previewTeamPerson>>, PreviewTeamPersonMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  previewTeamPerson(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PreviewTeamPersonMutationResult = NonNullable<Awaited<ReturnType<typeof previewTeamPerson>>>
+    export type PreviewTeamPersonMutationBody = BodyType<TeamPersonInput>
+    export type PreviewTeamPersonMutationError = ErrorType<unknown>
+    export type PreviewTeamPersonMutationVariables = {data: BodyType<TeamPersonInput>}
+
+    export const usePreviewTeamPerson = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof previewTeamPerson>>, TError,PreviewTeamPersonMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof previewTeamPerson>>,
+        TError,
+        PreviewTeamPersonMutationVariables,
+        TContext
+      > => {
+      return useMutation(getPreviewTeamPersonMutationOptions(options), queryClient);
+    }
+
+export const getUpdateTeamAccessUrl = (id: number,) => {
+
+
+
+
+  return `/api/team/people/${id}/access`
+}
+
+export const updateTeamAccess = async (id: number,
+    teamAccessInput: TeamAccessInput, options?: Parameters<typeof customFetch>[1]): Promise<TeamPerson> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<TeamPerson>(getUpdateTeamAccessUrl(id),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(teamAccessInput)
+  }
+);}
+
+
+
+
+
+export const getUpdateTeamAccessMutationKey = () => ['updateTeamAccess'] as const;
+
+export const getUpdateTeamAccessMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateTeamAccess>>, TError,UpdateTeamAccessMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateTeamAccess>>, TError,UpdateTeamAccessMutationVariables, TContext> => {
+
+const mutationKey = getUpdateTeamAccessMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateTeamAccess>>, UpdateTeamAccessMutationVariables> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  updateTeamAccess(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateTeamAccessMutationResult = NonNullable<Awaited<ReturnType<typeof updateTeamAccess>>>
+    export type UpdateTeamAccessMutationBody = BodyType<TeamAccessInput>
+    export type UpdateTeamAccessMutationError = ErrorType<unknown>
+    export type UpdateTeamAccessMutationVariables = {id: number;data: BodyType<TeamAccessInput>}
+
+    export const useUpdateTeamAccess = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateTeamAccess>>, TError,UpdateTeamAccessMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof updateTeamAccess>>,
+        TError,
+        UpdateTeamAccessMutationVariables,
+        TContext
+      > => {
+      return useMutation(getUpdateTeamAccessMutationOptions(options), queryClient);
+    }
+
+export const getInviteTeamPersonUrl = (id: number,) => {
+
+
+
+
+  return `/api/team/people/${id}/invite`
+}
+
+export const inviteTeamPerson = async (id: number,
+    teamRevisionInput: TeamRevisionInput, options?: Parameters<typeof customFetch>[1]): Promise<InviteTeamPerson201> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<InviteTeamPerson201>(getInviteTeamPersonUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(teamRevisionInput)
+  }
+);}
+
+
+
+
+
+export const getInviteTeamPersonMutationKey = () => ['inviteTeamPerson'] as const;
+
+export const getInviteTeamPersonMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof inviteTeamPerson>>, TError,InviteTeamPersonMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof inviteTeamPerson>>, TError,InviteTeamPersonMutationVariables, TContext> => {
+
+const mutationKey = getInviteTeamPersonMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof inviteTeamPerson>>, InviteTeamPersonMutationVariables> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  inviteTeamPerson(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type InviteTeamPersonMutationResult = NonNullable<Awaited<ReturnType<typeof inviteTeamPerson>>>
+    export type InviteTeamPersonMutationBody = BodyType<TeamRevisionInput>
+    export type InviteTeamPersonMutationError = ErrorType<unknown>
+    export type InviteTeamPersonMutationVariables = {id: number;data: BodyType<TeamRevisionInput>}
+
+    export const useInviteTeamPerson = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof inviteTeamPerson>>, TError,InviteTeamPersonMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof inviteTeamPerson>>,
+        TError,
+        InviteTeamPersonMutationVariables,
+        TContext
+      > => {
+      return useMutation(getInviteTeamPersonMutationOptions(options), queryClient);
+    }
+
+export const getRevokeTeamInvitationUrl = (id: number,) => {
+
+
+
+
+  return `/api/team/people/${id}/invite`
+}
+
+export const revokeTeamInvitation = async (id: number, options?: Parameters<typeof customFetch>[1]): Promise<TeamOk> => {
+
+  return customFetch<TeamOk>(getRevokeTeamInvitationUrl(id),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+
+export const getRevokeTeamInvitationMutationKey = () => ['revokeTeamInvitation'] as const;
+
+export const getRevokeTeamInvitationMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof revokeTeamInvitation>>, TError,RevokeTeamInvitationMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof revokeTeamInvitation>>, TError,RevokeTeamInvitationMutationVariables, TContext> => {
+
+const mutationKey = getRevokeTeamInvitationMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof revokeTeamInvitation>>, RevokeTeamInvitationMutationVariables> = (props) => {
+          const {id} = props ?? {};
+
+          return  revokeTeamInvitation(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RevokeTeamInvitationMutationResult = NonNullable<Awaited<ReturnType<typeof revokeTeamInvitation>>>
+
+    export type RevokeTeamInvitationMutationError = ErrorType<unknown>
+    export type RevokeTeamInvitationMutationVariables = {id: number}
+
+    export const useRevokeTeamInvitation = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof revokeTeamInvitation>>, TError,RevokeTeamInvitationMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof revokeTeamInvitation>>,
+        TError,
+        RevokeTeamInvitationMutationVariables,
+        TContext
+      > => {
+      return useMutation(getRevokeTeamInvitationMutationOptions(options), queryClient);
+    }
+
+export const getInspectTeamActivationUrl = () => {
+
+
+
+
+  return `/api/auth/team-activation/inspect`
+}
+
+export const inspectTeamActivation = async (teamTokenInput: TeamTokenInput, options?: Parameters<typeof customFetch>[1]): Promise<InspectTeamActivation200> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<InspectTeamActivation200>(getInspectTeamActivationUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(teamTokenInput)
+  }
+);}
+
+
+
+
+
+export const getInspectTeamActivationMutationKey = () => ['inspectTeamActivation'] as const;
+
+export const getInspectTeamActivationMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof inspectTeamActivation>>, TError,InspectTeamActivationMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof inspectTeamActivation>>, TError,InspectTeamActivationMutationVariables, TContext> => {
+
+const mutationKey = getInspectTeamActivationMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof inspectTeamActivation>>, InspectTeamActivationMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  inspectTeamActivation(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type InspectTeamActivationMutationResult = NonNullable<Awaited<ReturnType<typeof inspectTeamActivation>>>
+    export type InspectTeamActivationMutationBody = BodyType<TeamTokenInput>
+    export type InspectTeamActivationMutationError = ErrorType<unknown>
+    export type InspectTeamActivationMutationVariables = {data: BodyType<TeamTokenInput>}
+
+    export const useInspectTeamActivation = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof inspectTeamActivation>>, TError,InspectTeamActivationMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof inspectTeamActivation>>,
+        TError,
+        InspectTeamActivationMutationVariables,
+        TContext
+      > => {
+      return useMutation(getInspectTeamActivationMutationOptions(options), queryClient);
+    }
+
+export const getAcceptTeamActivationUrl = () => {
+
+
+
+
+  return `/api/auth/team-activation/accept`
+}
+
+export const acceptTeamActivation = async (teamActivationInput: TeamActivationInput, options?: Parameters<typeof customFetch>[1]): Promise<AcceptTeamActivation200> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<AcceptTeamActivation200>(getAcceptTeamActivationUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(teamActivationInput)
+  }
+);}
+
+
+
+
+
+export const getAcceptTeamActivationMutationKey = () => ['acceptTeamActivation'] as const;
+
+export const getAcceptTeamActivationMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof acceptTeamActivation>>, TError,AcceptTeamActivationMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof acceptTeamActivation>>, TError,AcceptTeamActivationMutationVariables, TContext> => {
+
+const mutationKey = getAcceptTeamActivationMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof acceptTeamActivation>>, AcceptTeamActivationMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  acceptTeamActivation(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AcceptTeamActivationMutationResult = NonNullable<Awaited<ReturnType<typeof acceptTeamActivation>>>
+    export type AcceptTeamActivationMutationBody = BodyType<TeamActivationInput>
+    export type AcceptTeamActivationMutationError = ErrorType<unknown>
+    export type AcceptTeamActivationMutationVariables = {data: BodyType<TeamActivationInput>}
+
+    export const useAcceptTeamActivation = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof acceptTeamActivation>>, TError,AcceptTeamActivationMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof acceptTeamActivation>>,
+        TError,
+        AcceptTeamActivationMutationVariables,
+        TContext
+      > => {
+      return useMutation(getAcceptTeamActivationMutationOptions(options), queryClient);
+    }
+
+export const getGetWorkspaceAccessUrl = () => {
+
+
+
+
+  return `/api/workspace/access`
+}
+
+export const getWorkspaceAccess = async ( options?: Parameters<typeof customFetch>[1]): Promise<WorkspaceAccess> => {
+
+  return customFetch<WorkspaceAccess>(getGetWorkspaceAccessUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetWorkspaceAccessQueryKey = () => {
+    return [
+    `/api/workspace/access`
+    ] as const;
+    }
+
+
+export const getGetWorkspaceAccessQueryOptions = <TData = Awaited<ReturnType<typeof getWorkspaceAccess>>, TError = ErrorType<unknown>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getWorkspaceAccess>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetWorkspaceAccessQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getWorkspaceAccess>>> = ({ signal }) => getWorkspaceAccess({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getWorkspaceAccess>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetWorkspaceAccessQueryResult = NonNullable<Awaited<ReturnType<typeof getWorkspaceAccess>>>
+export type GetWorkspaceAccessQueryError = ErrorType<unknown>
+
+
+export function useGetWorkspaceAccess<TData = Awaited<ReturnType<typeof getWorkspaceAccess>>, TError = ErrorType<unknown>>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getWorkspaceAccess>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getWorkspaceAccess>>,
+          TError,
+          Awaited<ReturnType<typeof getWorkspaceAccess>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetWorkspaceAccess<TData = Awaited<ReturnType<typeof getWorkspaceAccess>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getWorkspaceAccess>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getWorkspaceAccess>>,
+          TError,
+          Awaited<ReturnType<typeof getWorkspaceAccess>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetWorkspaceAccess<TData = Awaited<ReturnType<typeof getWorkspaceAccess>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getWorkspaceAccess>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useGetWorkspaceAccess<TData = Awaited<ReturnType<typeof getWorkspaceAccess>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getWorkspaceAccess>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetWorkspaceAccessQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetWorkspaceInventoryUrl = () => {
+
+
+
+
+  return `/api/workspace/inventory`
+}
+
+export const getWorkspaceInventory = async ( options?: Parameters<typeof customFetch>[1]): Promise<WorkspaceStock[]> => {
+
+  return customFetch<WorkspaceStock[]>(getGetWorkspaceInventoryUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetWorkspaceInventoryQueryKey = () => {
+    return [
+    `/api/workspace/inventory`
+    ] as const;
+    }
+
+
+export const getGetWorkspaceInventoryQueryOptions = <TData = Awaited<ReturnType<typeof getWorkspaceInventory>>, TError = ErrorType<unknown>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getWorkspaceInventory>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetWorkspaceInventoryQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getWorkspaceInventory>>> = ({ signal }) => getWorkspaceInventory({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getWorkspaceInventory>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetWorkspaceInventoryQueryResult = NonNullable<Awaited<ReturnType<typeof getWorkspaceInventory>>>
+export type GetWorkspaceInventoryQueryError = ErrorType<unknown>
+
+
+export function useGetWorkspaceInventory<TData = Awaited<ReturnType<typeof getWorkspaceInventory>>, TError = ErrorType<unknown>>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getWorkspaceInventory>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getWorkspaceInventory>>,
+          TError,
+          Awaited<ReturnType<typeof getWorkspaceInventory>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetWorkspaceInventory<TData = Awaited<ReturnType<typeof getWorkspaceInventory>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getWorkspaceInventory>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getWorkspaceInventory>>,
+          TError,
+          Awaited<ReturnType<typeof getWorkspaceInventory>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetWorkspaceInventory<TData = Awaited<ReturnType<typeof getWorkspaceInventory>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getWorkspaceInventory>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useGetWorkspaceInventory<TData = Awaited<ReturnType<typeof getWorkspaceInventory>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getWorkspaceInventory>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetWorkspaceInventoryQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
 export const getGetSellerWorkspaceUrl = (params?: GetSellerWorkspaceParams,) => {
   const normalizedParams = new URLSearchParams();

@@ -146,7 +146,7 @@ interface ProductFormState {
   sku: string;
   categoryId: number;
   price: number;
-  costPrice: number;
+  costPrice?: number;
   stock: number;
   minStock: number;
   unit: string;
@@ -446,7 +446,7 @@ export default function Products() {
                               sku: product.sku,
                               categoryId: product.categoryId ?? 0,
                               price: product.price,
-                              costPrice: product.costPrice ?? 0,
+                              costPrice: product.costPrice ?? undefined,
                               stock: product.stock,
                               minStock: product.minStock ?? 0,
                               unit: product.unit ?? "قطعة",

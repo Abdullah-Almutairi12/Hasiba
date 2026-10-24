@@ -170,7 +170,9 @@
     "documents": "إدارة الوثائق",
     "settings": "الأمان والإعدادات",
     "liquidity": "السيولة والتدفق النقدي",
-    "compliance": "الامتثال والتدقيق"
+    "compliance": "الامتثال والتدقيق",
+    "team_setup": "إعداد الفريق",
+    "my_work": "عملي"
   },
   "navGroups": {
     "main": "القائمة الرئيسية",
@@ -198,7 +200,8 @@
     "marketing": "اختصاصي تسويق",
     "auditor": "مراقب / مدقق",
     "hr": "موظف موارد بشرية",
-    "production": "موظف إنتاج"
+    "production": "موظف إنتاج",
+    "scoped": "مسؤوليات محددة"
   },
   "login": {
     "tagline": "ERP & Accounting Suite",

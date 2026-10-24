@@ -43,6 +43,8 @@ import {
 } from "@workspace/db";
 import { assertDeferredPosApproval, checkFinancialLimit, submitForApproval } from "../lib/workflow-engine";
 import { lockApprovalAuthority } from "../lib/approval-authority";
+import { managedProfile, selectedResponsibility, recordPosResponsibility } from "../lib/responsibility-context";
+import { verifyAccountPassword } from "../lib/account-password";
 import { approvalSourceFingerprint, approvalSourceMatches } from "../lib/approval-source";
 import { matchesPosApprovalNotes, posApprovalNotes } from "../lib/pos-approval-intent";
 import { recordAudit } from "../lib/audit";
@@ -327,33 +329,46 @@ router.get("/pos/sessions", posReadGuard, async (req, res) => {
 router.post("/pos/sessions", posGuard, async (req, res) => {
   try {
     const body = CreatePosSessionBody.parse(req.body);
-    const sessionNumber = `WRD-${Date.now()}`;
+    const sessionNumber = `WRD-${Date.now()}-${randomUUID().slice(0,8)}`;
     // Tenant ownership: refuse to open a POS session on a branch
     // that belongs to a different company. Returns 404 to hide
     // existence of foreign branches.
     const companyId = getCompanyId(req);
-    await returnAuthorize(req.session.userId!, companyId, "sell", body.branchId);
-    const [branchRow] = await db
+    const { session, branch } = await db.transaction(async tx => {
+    await lockApprovalAuthority(tx);
+    let cashierName = body.cashierName;
+    if (await managedProfile(req.session.userId!, companyId, tx)) {
+      const grant = await selectedResponsibility(req.session.userId!, companyId, tx);
+      if (!grant || grant.resource !== "pos" || !grant.actions.includes("pos.shift.open") || grant.branchId !== body.branchId) {
+        throw new FinancialRequestError("فتح الوردية خارج المسؤولية الحالية", 403);
+      }
+      const names = await tx.execute(sql`SELECT e.name_ar FROM employees e
+        JOIN employee_access a ON a.employee_id=e.id AND a.company_id=e.company_id
+        WHERE a.user_id=${req.session.userId!} AND a.company_id=${companyId}`);
+      cashierName = String(names.rows[0]?.name_ar ?? "");
+      if (!cashierName) throw new FinancialRequestError("تعذر إثبات هوية فاتح الوردية", 403);
+    } else await returnAuthorize(req.session.userId!, companyId, "sell", body.branchId, tx);
+    const [branchRow] = await tx
       .select()
       .from(branchesTable)
       .where(and(eq(branchesTable.id, body.branchId), eq(branchesTable.companyId, companyId)))
       .limit(1);
     if (!branchRow) {
-      res.status(404).json({ error: "الفرع غير موجود" });
-      return;
+      throw new FinancialRequestError("الفرع غير موجود", 404);
     }
 
-    const [session] = await db
+    const [session] = await tx
       .insert(posSessionsTable)
       .values({
         sessionNumber,
         branchId: body.branchId,
-        cashierName: body.cashierName,
+        cashierName,
         openingCash: String(body.openingCash),
       })
       .returning();
 
-    const branch = [branchRow];
+    return { session, branch: [branchRow] };
+    });
 
     res.status(201).json({
       ...session,
@@ -602,7 +617,7 @@ router.post(
       if (mgr.id === req.session?.userId) {
         throw new FinancialRequestError("لا يمكنك اعتماد تجاوز لنفسك (مبدأ فصل المهام)", 403);
       }
-      const ok = await bcrypt.compare(password, mgr.passwordHash);
+      const ok = await verifyAccountPassword(password, mgr.passwordHash);
       if (!ok) {
         // Audit the failed attempt so brute-force shows up in the log.
         void recordAudit(req, {
@@ -662,6 +677,13 @@ router.post(
         .orderBy(desc(warehousesTable.isDefault))
         .limit(1);
       const issueWarehouseId = branchWh?.id;
+      if (await managedProfile(req.session.userId!, companyId, tx)) {
+        const grant = await selectedResponsibility(req.session.userId!, companyId, tx);
+        if (!grant || grant.resource !== "pos" || !grant.actions.includes("pos.sell") ||
+          grant.branchId !== session.branchId || !issueWarehouseId || !grant.warehouseIds.includes(issueWarehouseId)) {
+          throw new FinancialRequestError("المسؤولية لا تجيز مستودع الصرف أو فرع العملية", 403);
+        }
+      }
       if (!issueWarehouseId) {
         throw new FinancialRequestError("لم يتم تعريف مستودع صالح لهذا الفرع. راجع إعدادات المستودعات قبل الدفع.", 409);
       }
@@ -848,6 +870,14 @@ router.post(
 
       const tax = vatEnabled ? (subtotal - discount) * 0.15 : 0;
       const total = subtotal - discount + tax;
+      if (await managedProfile(req.session.userId!, companyId, tx)) {
+        const grant = await selectedResponsibility(req.session.userId!, companyId, tx);
+        if (!grant) throw new FinancialRequestError("سحب الوصول قبل تنفيذ العملية", 403);
+        if (grant.amountLimit != null) {
+          const check = await tx.execute(sql`SELECT ${total.toFixed(2)}::numeric > ${grant.amountLimit}::numeric AS exceeded`);
+          if (check.rows[0]?.exceeded) throw new FinancialRequestError("المبلغ يتجاوز الحد المباشر لهذه المسؤولية؛ لم ينفذ البيع", 403);
+        }
+      }
       const EPS = 0.01;
 
       // ===== Gateway intent validation (inside the txn) =====
@@ -1314,6 +1344,7 @@ router.post(
 
       const attribution=await recordSaleSellers(tx,companyId,posInvoice.id,req.session.userId!,req.body);
       const sellerAttribution=attribution.map(l=>({invoiceLineId:l.invoice_line_id,employeeId:l.employee_id,sellerName:l.seller_name,revision:l.revision}));
+      await recordPosResponsibility(tx, req.session.userId!, companyId, created.id);
       return {
         order: {...created,sellerAttribution},
         sellerAttribution,

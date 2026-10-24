@@ -8,6 +8,339 @@
 import * as zod from 'zod';
 
 
+export const GetTeamCatalogResponse = zod.object({
+  "actions": zod.array(zod.object({
+  "key": zod.string(),
+  "label": zod.string(),
+  "resource": zod.string(),
+  "available": zod.boolean()
+})),
+  "templates": zod.array(zod.object({
+  "key": zod.string(),
+  "label": zod.string(),
+  "resource": zod.string(),
+  "actions": zod.array(zod.string())
+})),
+  "routes": zod.array(zod.object({
+  "method": zod.string(),
+  "path": zod.string(),
+  "enforcement": zod.string()
+}))
+})
+
+
+export const GetTeamSetupResponse = zod.object({
+  "revision": zod.number().int(),
+  "mode": zod.enum(['solo', 'team']),
+  "step": zod.enum(['people', 'access', 'review', 'done']),
+  "draft": zod.record(zod.string(), zod.unknown()),
+  "policy": zod.object({
+  "enabledModules": zod.array(zod.string()),
+  "seatLimit": zod.number().int().nullable()
+}).and(zod.object({
+  "source": zod.string(),
+  "activeLoginSeats": zod.number().int(),
+  "reservedAccessSlots": zod.number().int()
+}))
+})
+
+
+export const SaveTeamSetupBody = zod.object({
+  "expectedRevision": zod.number().int(),
+  "mode": zod.enum(['solo', 'team']),
+  "step": zod.enum(['people', 'access', 'review', 'done']),
+  "draft": zod.record(zod.string(), zod.unknown())
+})
+
+export const SaveTeamSetupResponse = zod.object({
+  "revision": zod.number().int(),
+  "mode": zod.enum(['solo', 'team']),
+  "step": zod.enum(['people', 'access', 'review', 'done']),
+  "draft": zod.record(zod.string(), zod.unknown()),
+  "policy": zod.object({
+  "enabledModules": zod.array(zod.string()),
+  "seatLimit": zod.number().int().nullable()
+}).and(zod.object({
+  "source": zod.string(),
+  "activeLoginSeats": zod.number().int(),
+  "reservedAccessSlots": zod.number().int()
+}))
+})
+
+
+export const SaveTeamPolicyBody = zod.object({
+  "enabledModules": zod.array(zod.string()),
+  "seatLimit": zod.number().int().nullable()
+})
+
+export const SaveTeamPolicyResponse = zod.object({
+  "enabledModules": zod.array(zod.string()),
+  "seatLimit": zod.number().int().nullable()
+}).and(zod.object({
+  "source": zod.string(),
+  "activeLoginSeats": zod.number().int(),
+  "reservedAccessSlots": zod.number().int()
+}))
+
+
+export const ListTeamPeopleResponseItem = zod.object({
+  "creationKey": zod.string(),
+  "name": zod.string(),
+  "email": zod.string().nullable(),
+  "loginKinds": zod.array(zod.enum(['platform', 'pos'])),
+  "grants": zod.array(zod.object({
+  "resource": zod.enum(['inventory', 'pos']),
+  "branchId": zod.number().int(),
+  "warehouseIds": zod.array(zod.number().int()),
+  "actions": zod.array(zod.string()),
+  "amountLimit": zod.string().nullable(),
+  "startsAt": zod.string().nullable(),
+  "endsAt": zod.string().nullable()
+})),
+  "deniedActions": zod.array(zod.string())
+}).and(zod.object({
+  "personId": zod.number().int(),
+  "userId": zod.number().int().nullable(),
+  "status": zod.string(),
+  "revision": zod.number().int(),
+  "grants": zod.array(zod.object({
+  "resource": zod.enum(['inventory', 'pos']),
+  "branchId": zod.number().int(),
+  "warehouseIds": zod.array(zod.number().int()),
+  "actions": zod.array(zod.string()),
+  "amountLimit": zod.string().nullable(),
+  "startsAt": zod.string().nullable(),
+  "endsAt": zod.string().nullable()
+}).and(zod.object({
+  "id": zod.number().int()
+})))
+}))
+export const ListTeamPeopleResponse = zod.array(ListTeamPeopleResponseItem)
+
+
+export const CreateTeamPersonBody = zod.object({
+  "creationKey": zod.string(),
+  "name": zod.string(),
+  "email": zod.string().nullable(),
+  "loginKinds": zod.array(zod.enum(['platform', 'pos'])),
+  "grants": zod.array(zod.object({
+  "resource": zod.enum(['inventory', 'pos']),
+  "branchId": zod.number().int(),
+  "warehouseIds": zod.array(zod.number().int()),
+  "actions": zod.array(zod.string()),
+  "amountLimit": zod.string().nullable(),
+  "startsAt": zod.string().nullable(),
+  "endsAt": zod.string().nullable()
+})),
+  "deniedActions": zod.array(zod.string())
+})
+
+export const CreateTeamPersonResponse = zod.object({
+  "creationKey": zod.string(),
+  "name": zod.string(),
+  "email": zod.string().nullable(),
+  "loginKinds": zod.array(zod.enum(['platform', 'pos'])),
+  "grants": zod.array(zod.object({
+  "resource": zod.enum(['inventory', 'pos']),
+  "branchId": zod.number().int(),
+  "warehouseIds": zod.array(zod.number().int()),
+  "actions": zod.array(zod.string()),
+  "amountLimit": zod.string().nullable(),
+  "startsAt": zod.string().nullable(),
+  "endsAt": zod.string().nullable()
+})),
+  "deniedActions": zod.array(zod.string())
+}).and(zod.object({
+  "personId": zod.number().int(),
+  "userId": zod.number().int().nullable(),
+  "status": zod.string(),
+  "revision": zod.number().int(),
+  "grants": zod.array(zod.object({
+  "resource": zod.enum(['inventory', 'pos']),
+  "branchId": zod.number().int(),
+  "warehouseIds": zod.array(zod.number().int()),
+  "actions": zod.array(zod.string()),
+  "amountLimit": zod.string().nullable(),
+  "startsAt": zod.string().nullable(),
+  "endsAt": zod.string().nullable()
+}).and(zod.object({
+  "id": zod.number().int()
+})))
+}))
+
+
+export const PreviewTeamPersonBody = zod.object({
+  "creationKey": zod.string(),
+  "name": zod.string(),
+  "email": zod.string().nullable(),
+  "loginKinds": zod.array(zod.enum(['platform', 'pos'])),
+  "grants": zod.array(zod.object({
+  "resource": zod.enum(['inventory', 'pos']),
+  "branchId": zod.number().int(),
+  "warehouseIds": zod.array(zod.number().int()),
+  "actions": zod.array(zod.string()),
+  "amountLimit": zod.string().nullable(),
+  "startsAt": zod.string().nullable(),
+  "endsAt": zod.string().nullable()
+})),
+  "deniedActions": zod.array(zod.string())
+})
+
+export const PreviewTeamPersonResponse = zod.object({
+  "grants": zod.array(zod.object({
+  "resource": zod.enum(['inventory', 'pos']),
+  "branchId": zod.number().int(),
+  "warehouseIds": zod.array(zod.number().int()),
+  "actions": zod.array(zod.string()),
+  "amountLimit": zod.string().nullable(),
+  "startsAt": zod.string().nullable(),
+  "endsAt": zod.string().nullable()
+})),
+  "warnings": zod.array(zod.string()),
+  "reservesAccessSlot": zod.boolean()
+})
+
+
+export const UpdateTeamAccessParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const UpdateTeamAccessBody = zod.object({
+  "expectedRevision": zod.number().int(),
+  "person": zod.object({
+  "creationKey": zod.string(),
+  "name": zod.string(),
+  "email": zod.string().nullable(),
+  "loginKinds": zod.array(zod.enum(['platform', 'pos'])),
+  "grants": zod.array(zod.object({
+  "resource": zod.enum(['inventory', 'pos']),
+  "branchId": zod.number().int(),
+  "warehouseIds": zod.array(zod.number().int()),
+  "actions": zod.array(zod.string()),
+  "amountLimit": zod.string().nullable(),
+  "startsAt": zod.string().nullable(),
+  "endsAt": zod.string().nullable()
+})),
+  "deniedActions": zod.array(zod.string())
+}),
+  "suspended": zod.boolean()
+})
+
+export const UpdateTeamAccessResponse = zod.object({
+  "creationKey": zod.string(),
+  "name": zod.string(),
+  "email": zod.string().nullable(),
+  "loginKinds": zod.array(zod.enum(['platform', 'pos'])),
+  "grants": zod.array(zod.object({
+  "resource": zod.enum(['inventory', 'pos']),
+  "branchId": zod.number().int(),
+  "warehouseIds": zod.array(zod.number().int()),
+  "actions": zod.array(zod.string()),
+  "amountLimit": zod.string().nullable(),
+  "startsAt": zod.string().nullable(),
+  "endsAt": zod.string().nullable()
+})),
+  "deniedActions": zod.array(zod.string())
+}).and(zod.object({
+  "personId": zod.number().int(),
+  "userId": zod.number().int().nullable(),
+  "status": zod.string(),
+  "revision": zod.number().int(),
+  "grants": zod.array(zod.object({
+  "resource": zod.enum(['inventory', 'pos']),
+  "branchId": zod.number().int(),
+  "warehouseIds": zod.array(zod.number().int()),
+  "actions": zod.array(zod.string()),
+  "amountLimit": zod.string().nullable(),
+  "startsAt": zod.string().nullable(),
+  "endsAt": zod.string().nullable()
+}).and(zod.object({
+  "id": zod.number().int()
+})))
+}))
+
+
+export const InviteTeamPersonParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const InviteTeamPersonBody = zod.object({
+  "expectedRevision": zod.number().int()
+})
+
+export const InviteTeamPersonResponse = zod.object({
+  "activationToken": zod.string(),
+  "expiresAt": zod.string(),
+  "deliveryMode": zod.string()
+})
+
+
+export const RevokeTeamInvitationParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const RevokeTeamInvitationResponse = zod.object({
+  "ok": zod.boolean()
+})
+
+
+export const InspectTeamActivationBody = zod.object({
+  "token": zod.string()
+})
+
+export const InspectTeamActivationResponse = zod.object({
+  "name": zod.string(),
+  "companyName": zod.string(),
+  "email": zod.string()
+})
+
+
+export const AcceptTeamActivationBody = zod.object({
+  "token": zod.string(),
+  "password": zod.string()
+})
+
+export const AcceptTeamActivationResponse = zod.object({
+  "ok": zod.boolean(),
+  "email": zod.string()
+})
+
+
+export const GetWorkspaceAccessResponse = zod.object({
+  "managed": zod.boolean(),
+  "status": zod.string(),
+  "grants": zod.array(zod.object({
+  "resource": zod.enum(['inventory', 'pos']),
+  "branchId": zod.number().int(),
+  "warehouseIds": zod.array(zod.number().int()),
+  "actions": zod.array(zod.string()),
+  "amountLimit": zod.string().nullable(),
+  "startsAt": zod.string().nullable(),
+  "endsAt": zod.string().nullable()
+}).and(zod.object({
+  "id": zod.number().int()
+}))),
+  "deniedActions": zod.array(zod.string()),
+  "revision": zod.number().int().optional(),
+  "vatRegistered": zod.boolean().optional()
+})
+
+
+export const GetWorkspaceInventoryHeader = zod.object({
+  "X-Workspace-Responsibility": zod.number().int()
+})
+
+export const GetWorkspaceInventoryResponseItem = zod.object({
+  "productId": zod.number().int(),
+  "productName": zod.string(),
+  "warehouseId": zod.number().int(),
+  "warehouseName": zod.string(),
+  "quantity": zod.string(),
+  "cost": zod.string().nullish()
+})
+export const GetWorkspaceInventoryResponse = zod.array(GetWorkspaceInventoryResponseItem)
+
+
 
 
 
@@ -523,7 +856,7 @@ export const ListProductsResponseItem = zod.object({
   "categoryId": zod.number().int(),
   "categoryName": zod.string(),
   "price": zod.number(),
-  "costPrice": zod.number(),
+  "costPrice": zod.number().optional(),
   "stock": zod.number().int(),
   "minStock": zod.number().int(),
   "unit": zod.string(),
@@ -564,7 +897,7 @@ export const CreateProductResponse = zod.object({
   "categoryId": zod.number().int(),
   "categoryName": zod.string(),
   "price": zod.number(),
-  "costPrice": zod.number(),
+  "costPrice": zod.number().optional(),
   "stock": zod.number().int(),
   "minStock": zod.number().int(),
   "unit": zod.string(),
@@ -589,7 +922,7 @@ export const GetProductResponse = zod.object({
   "categoryId": zod.number().int(),
   "categoryName": zod.string(),
   "price": zod.number(),
-  "costPrice": zod.number(),
+  "costPrice": zod.number().optional(),
   "stock": zod.number().int(),
   "minStock": zod.number().int(),
   "unit": zod.string(),
@@ -627,7 +960,7 @@ export const UpdateProductResponse = zod.object({
   "categoryId": zod.number().int(),
   "categoryName": zod.string(),
   "price": zod.number(),
-  "costPrice": zod.number(),
+  "costPrice": zod.number().optional(),
   "stock": zod.number().int(),
   "minStock": zod.number().int(),
   "unit": zod.string(),

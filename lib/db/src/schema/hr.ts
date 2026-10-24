@@ -81,7 +81,8 @@ export const employeesTable = pgTable(
     bankName: text("bank_name"),
     bankIban: text("bank_iban"),
     bankAccountNo: text("bank_account_no"),
-    hireDate: date("hire_date").notNull(),
+    hireDate: date("hire_date"),
+    recordKind: text("record_kind").notNull().default("employee"),
     terminationDate: date("termination_date"),
     // active | on_leave | suspended | terminated
     status: text("status").notNull().default("active"),

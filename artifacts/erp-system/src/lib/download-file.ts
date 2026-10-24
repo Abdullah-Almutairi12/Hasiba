@@ -1,3 +1,5 @@
+import { getWorkspaceResponsibility, WORKSPACE_RESPONSIBILITY_HEADER } from "@workspace/api-client-react";
+const workspaceHeader=():Record<string,string>=>{const v=getWorkspaceResponsibility();return v?{[WORKSPACE_RESPONSIBILITY_HEADER]:v}:{}};
 export class DownloadError extends Error {
   constructor(message:string,public diagnosticRef:string){super(message);}
 }
@@ -18,7 +20,7 @@ export async function fetchPdf(url:string,filename:string):Promise<{blob:Blob;fi
   pending.add(url);
   const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),45000);
   try {
-    const r=await fetch(url,{credentials:"include",headers:{Accept:"application/pdf"},signal:controller.signal});
+    const r=await fetch(url,{credentials:"include",headers:{Accept:"application/pdf",...workspaceHeader()},signal:controller.signal});
     if(!r.ok||!r.headers.get("content-type")?.toLowerCase().includes("application/pdf")){
       let error="تعذر إنشاء الملف",ref=r.headers.get("x-diagnostic-ref")??r.headers.get("x-request-id")??"";
       try{const b=await r.json();if(typeof b.error==="string")error=b.error.slice(0,250);if(typeof b.diagnosticRef==="string")ref=b.diagnosticRef;}catch{}

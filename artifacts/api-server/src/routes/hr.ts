@@ -1603,6 +1603,8 @@ router.post("/hr/payroll-runs", hrGuard, async (req, res) => {
     let linesInserted = 0;
 
     for (const emp of employees) {
+      // A person record is not evidence of employment or payroll eligibility.
+      if (emp.recordKind === "person" || !emp.hireDate) continue;
       // Skip employees hired after period end.
       if (emp.hireDate > periodEnd) continue;
       // Skip employees terminated before period start.
@@ -2270,6 +2272,7 @@ router.get("/hr/employees/:id/eos", hrReadGuard, async (req, res) => {
     if (!contract) return res.status(400).json({ error: "لا يوجد عقد" });
 
     const today = new Date();
+    if (!emp.hireDate || emp.recordKind === "person") return res.status(422).json({ error: "سجل الشخص لا يثبت توظيفًا؛ أكمل بيانات التوظيف أولًا" });
     const start = new Date(emp.hireDate);
     const end = emp.terminationDate ? new Date(emp.terminationDate) : today;
     const yearsExact = (end.getTime() - start.getTime()) / (365.25 * 86_400_000);
@@ -3231,6 +3234,7 @@ router.get("/hr/employees/:id/eos-estimate", hrReadGuard, async (req, res) => {
     if (!contract) return res.status(400).json({ error: "لا يوجد عقد نشط" });
 
     const asOf = Q.asOf ? new Date(Q.asOf) : new Date();
+    if (!emp.hireDate || emp.recordKind === "person") return res.status(422).json({ error: "سجل الشخص لا يثبت توظيفًا؛ أكمل بيانات التوظيف أولًا" });
     const hire = new Date(emp.hireDate);
     const ms = asOf.getTime() - hire.getTime();
     const years = ms / (365.25 * 24 * 3600 * 1000);

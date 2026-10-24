@@ -31,7 +31,8 @@ interface ProductFormDialogProps {
     sku: string;
     categoryId: number;
     price: number;
-    costPrice: number;
+    /** Omitted when the caller cannot read cost; never treated as 0. */
+    costPrice?: number;
     stock: number;
     minStock: number;
     unit: string;
@@ -74,7 +75,7 @@ export function ProductFormDialog({ open, onOpenChange, initialData }: ProductFo
         sku: initialData.sku,
         categoryId: String(initialData.categoryId),
         price: String(initialData.price),
-        costPrice: String(initialData.costPrice),
+        costPrice: initialData.costPrice == null ? "" : String(initialData.costPrice),
         stock: String(initialData.stock),
         minStock: String(initialData.minStock),
         unit: initialData.unit,
@@ -94,13 +95,15 @@ export function ProductFormDialog({ open, onOpenChange, initialData }: ProductFo
       toast({ title: "حقول مطلوبة ناقصة", description: "تأكد من تعبئة الاسم، رمز SKU، واختيار فئة صحيحة", variant: "destructive" });
       return;
     }
+    // Missing cost on edit stays unsent rather than overwritten with 0.
+    const costUnknown = isEdit && initialData?.costPrice == null && form.costPrice.trim() === "";
     const payload = {
       name: form.name,
       nameAr: form.nameAr,
       sku: form.sku,
       categoryId: categoryIdNum,
       price: Number(form.price) || 0,
-      costPrice: Number(form.costPrice) || 0,
+      ...(costUnknown ? {} : { costPrice: Number(form.costPrice) || 0 }),
       stock: Number(form.stock) || 0,
       minStock: Number(form.minStock) || 0,
       unit: form.unit,
@@ -113,7 +116,7 @@ export function ProductFormDialog({ open, onOpenChange, initialData }: ProductFo
         await updateMutation.mutateAsync({ id: initialData.id, data: payload });
         toast({ title: "تم تحديث المنتج" });
       } else {
-        await createMutation.mutateAsync({ data: payload });
+        await createMutation.mutateAsync({ data: { ...payload, costPrice: Number(form.costPrice) || 0 } });
         toast({ title: "تمت إضافة المنتج" });
       }
       await queryClient.invalidateQueries({ queryKey: ["/api/products"] });
@@ -203,6 +206,8 @@ export function ProductFormDialog({ open, onOpenChange, initialData }: ProductFo
                 step="0.01"
                 value={form.costPrice}
                 onChange={(e) => setForm({ ...form, costPrice: e.target.value })}
+                placeholder={isEdit && initialData?.costPrice == null ? "التكلفة غير متاحة لك — تبقى كما هي" : undefined}
+                data-testid="input-product-cost"
               />
             </div>
             {!isEdit && (

@@ -2,6 +2,7 @@ import type { Request, Response, NextFunction } from "express";
 import { db, usersTable, userCompaniesTable, companiesTable } from "@workspace/db";
 import { and, eq } from "drizzle-orm";
 import { returnActor } from "../lib/return-access";
+import { managedProfile, selectedResponsibility } from "../lib/responsibility-context";
 
 export const ALL_ROLES = [
   "owner",
@@ -14,6 +15,7 @@ export const ALL_ROLES = [
   "auditor",
   "hr",
   "production",
+  "scoped",
 ] as const;
 
 export type Role = (typeof ALL_ROLES)[number];
@@ -39,13 +41,19 @@ export function requireRole(...roles: Role[]) {
         eq(usersTable.isActive, true),
         eq(companiesTable.isActive, true),
       )).limit(1);
-    const userRole = membership?.role;
+    let userRole = membership?.role;
     if (!isRole(userRole)) {
       res.status(403).json({ error: "ليس لديك وصول إلى هذه الشركة" });
       return;
     }
     req.session.role = userRole;
-    if (!roles.includes(userRole)) {
+    let effectiveRole: Role = userRole;
+    if (await managedProfile(req.session.userId, req.session.companyId ?? -1)) {
+      const grant = await selectedResponsibility(req.session.userId, req.session.companyId ?? -1);
+      // One request has one verified responsibility, never a union of roles.
+      effectiveRole = grant?.resource === "pos" ? "cashier" : "scoped";
+    }
+    if (!roles.includes(effectiveRole)) {
       res.status(403).json({ error: "ليس لديك صلاحية للوصول إلى هذه البيانات" });
       return;
     }

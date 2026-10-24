@@ -183,6 +183,7 @@ describe("original POS invoice: independent linked return lifecycle", () => {
       "0034_approval_decision_identity.sql",
       "0035_approval_live_authority.sql",
       "0036_scoped_approval_delegation.sql",
+      "0037_team_scoped_access.sql",
     ]);
     expect(first.skipped).toHaveLength(26);
     expect(await snapshots()).toEqual(before);

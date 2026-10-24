@@ -47,6 +47,8 @@ import vatRouter from "./vat";
 import documentsRouter, { signPublicRouter } from "./documents";
 import docsRouter from "./docs";
 import { requireAuth } from "../middlewares/require-auth";
+import { managedAccessGate } from "../middlewares/managed-access";
+import { teamPublicRouter, makeTeamRouter } from "./team";
 import { requireCompanyContext } from "../middlewares/require-company-context";
 import printProfileRouter from "./print-profile";
 import operationalDocumentsRouter from "./operational-documents";
@@ -65,6 +67,7 @@ router.use((req,res,next)=>{
 // Public routes (no auth required)
 router.use(healthRouter);
 router.use(authRouter);
+router.use(teamPublicRouter);
 
 // Public user-manual endpoints (PDF export + JSON manifest). Mounted
 // BEFORE requireAuth so the docs site and external links work without
@@ -94,6 +97,7 @@ router.use(requireAuth);
 // every authenticated route. Webhooks and token-authenticated public
 // routes above bypass this. See middlewares/require-same-origin.ts.
 router.use(requireSameOrigin);
+router.use(managedAccessGate);
 
 // Cross-tenant routes — auth only, no company scope:
 //   /companies (Phase 3), /app-settings, /admin/*, /storage
@@ -111,6 +115,7 @@ router.use(storageRouter);
 
 // Everything past this point operates inside a single tenant.
 router.use(requireCompanyContext);
+router.use(makeTeamRouter(() => router.stack));
 router.use(printProfileRouter);
 router.use(operationalDocumentsRouter);
 router.use(sellersRouter);

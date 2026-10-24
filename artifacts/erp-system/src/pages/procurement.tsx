@@ -99,7 +99,7 @@ interface AgingRow {
 }
 
 interface Supplier { id: number; name: string }
-interface Product { id: number; nameAr: string; sku: string; costPrice: number }
+interface Product { id: number; nameAr: string; sku: string; costPrice?: number | null }
 
 const fmt = (n: number) =>
   new Intl.NumberFormat("ar-SA", { style: "currency", currency: "SAR", maximumFractionDigits: 2 }).format(n);
@@ -346,7 +346,7 @@ function POsTab({ onSelectPO }: { onSelectPO: (po: PO) => void }) {
                       const c = [...lines];
                       const p = products.find((p) => p.id === Number(v));
                       c[i] = { ...c[i], productId: v, description: p?.nameAr ?? c[i].description,
-                              unitPrice: p ? Number(p.costPrice) : c[i].unitPrice };
+                              unitPrice: p && p.costPrice != null ? Number(p.costPrice) : c[i].unitPrice };
                       setLines(c);
                     }}>
                       <SelectTrigger className="col-span-4"><SelectValue placeholder="منتج" /></SelectTrigger>

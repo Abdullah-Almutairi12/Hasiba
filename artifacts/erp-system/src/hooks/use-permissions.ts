@@ -1,4 +1,5 @@
 import { useAuth } from "@/hooks/use-auth";
+import { useSelectedResponsibility } from "@/lib/workspace-responsibility";
 import {
   useListPermissionMatrix,
   getListPermissionMatrixQueryKey,
@@ -14,7 +15,10 @@ export type Role =
   | "marketing"
   | "auditor"
   | "hr"
-  | "production";
+  | "production"
+  // Scoped membership: access comes only from branch-bound
+  // responsibilities (team grants); never a broad role.
+  | "scoped";
 
 export const ALL_ROLES: Role[] = [
   "owner",
@@ -124,6 +128,8 @@ export const NAV_PERMISSIONS: Record<string, readonly Role[]> = {
   // Read-side matches reportReadGuard; write-side (resolve, upload
   // agreement, manual zakat run) is gated by financeGuard on the server.
   compliance: GROUPS.reportRead,
+  team_setup: GROUPS.ownerOnly,
+  my_work: ["scoped"],
 };
 
 export function useCurrentRole(): Role | null {
@@ -143,17 +149,31 @@ export function usePermissions() {
       staleTime: 60_000,
       retry: false,
       refetchOnWindowFocus: false,
-      enabled: !!role,
+      enabled: !!role && role !== "scoped",
     },
   });
 
+  const isScoped = role === "scoped";
+  // Narrow, selection-based POS flags for scoped members. Never a role
+  // substitution; the server re-checks the actual assignment.
+  const selected = useSelectedResponsibility();
+  const scopedPos = isScoped && selected?.resource === "pos";
+  const scopedActs = scopedPos ? selected!.actions : [];
+  // Conservative: every POS ability requires explicit pos.read too.
+  const scopedRead = scopedActs.includes("pos.read");
+  const scopedSell = scopedRead && scopedActs.includes("pos.sell");
+  const scopedShiftOpen = scopedRead && scopedActs.includes("pos.shift.open");
+
   function has(group: PermissionKey): boolean {
-    if (!role) return false;
+    if (!role || isScoped) return false;
     return (GROUPS[group] as readonly Role[]).includes(role);
   }
 
   function canSee(navKey: string): boolean {
     if (!role) return false;
+    // Scoped users see only their workspace; POS visibility depends on the
+    // selected responsibility and is decided by the layout, not here.
+    if (isScoped) return navKey === "my_work" || (navKey === "pos" && scopedRead);
     // Honour the admin-defined override matrix when available. The matrix
     // is the union of static defaults + per-cell overrides; an explicit
     // `false` override removes nav access for that role × module pair, and
@@ -172,10 +192,13 @@ export function usePermissions() {
   return {
     role,
     isOwner: role === "owner",
+    isScoped,
     isAdmin: has("admin"),
     canManageFinance: has("finance"),
     canWriteSales: has("salesWrite"),
-    canUsePos: has("pos"),
+    canUsePos: isScoped ? scopedSell : has("pos"),
+    canReadPos: isScoped ? scopedRead : has("posRead"),
+    canOpenPosShift: isScoped ? scopedShiftOpen : has("pos"),
     canManageInventory: has("inventory"),
     canManageMarketing: has("marketing"),
     canReadReports: has("reportRead"),

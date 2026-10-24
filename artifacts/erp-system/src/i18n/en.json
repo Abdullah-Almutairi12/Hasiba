@@ -170,7 +170,9 @@
     "documents": "Document Management",
     "settings": "Security & Settings",
     "liquidity": "Liquidity & Cash Flow",
-    "compliance": "Compliance & Audit"
+    "compliance": "Compliance & Audit",
+    "team_setup": "Team setup",
+    "my_work": "My work"
   },
   "navGroups": {
     "main": "Main Menu",
@@ -198,7 +200,8 @@
     "marketing": "Marketing",
     "auditor": "Auditor",
     "hr": "HR Specialist",
-    "production": "Production Worker"
+    "production": "Production Worker",
+    "scoped": "Scoped responsibilities"
   },
   "login": {
     "tagline": "ERP & Accounting Suite",
