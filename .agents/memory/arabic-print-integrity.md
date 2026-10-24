@@ -20,3 +20,9 @@ Do not wait for a style-tag load event in a Chromium page with JavaScript disabl
 **Why:** Playwright's style injection waited until the PDF deadline even for inline page sizing in that configuration.
 
 **How to apply:** Prepare the stylesheet before rendering or synchronously insert the page-size rule after measurement. Retain the existing single native Arabic text pipeline.
+
+Distinguish cold Chromium startup failures from Arabic shaping, PDF generation and financial transaction failures.
+
+**Why:** Under the full verification load, the first receipt launch exceeded its startup budget although later receipts and financial assertions succeeded. Raising only a test's deadline could not fix the real HTTP 500.
+
+**How to apply:** Diagnose the failing stage from the native renderer log. Keep a bounded startup allowance separate from content/output deadlines, preserve concurrency and network restrictions, and retain real PDF assertions rather than skipping printing.

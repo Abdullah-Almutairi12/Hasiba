@@ -77,7 +77,9 @@ export async function buildPrintPdf(input: PrintDocument): Promise<Buffer> {
   let browser:Browser|undefined;
   try {
     const executablePath=execFileSync("which",["chromium"],{encoding:"utf8"}).trim();
-    browser=await chromium.launch({executablePath,headless:true,args:["--no-sandbox","--disable-dev-shm-usage","--disable-background-networking"],timeout:20000});
+    // Cold Chromium startup can exceed 20s under the full verification load.
+    // Bound startup separately; keep concurrency, content/PDF deadlines and isolation intact.
+    browser=await chromium.launch({executablePath,headless:true,args:["--no-sandbox","--disable-dev-shm-usage","--disable-background-networking"],timeout:45000});
     const context=await browser.newContext({javaScriptEnabled:false,locale:input.language==="en"?"en-US":"ar-SA",timezoneId:"Asia/Riyadh",serviceWorkers:"block"});
     await context.route("**/*",r=>r.abort()); // No HTTP/file requests from untrusted fields.
     const page=await context.newPage();
