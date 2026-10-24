@@ -121,7 +121,9 @@ router.get("/pos/returns/workspace", async (req, res) => {
 
 async function payout(tx: Tx, companyId: number, userId: number, input: unknown) {
   const b = z.object({ noteId: id, receiptId: id, sessionId: id, amount, method: z.enum(["cash", "card", "transfer", "stc"]),
-    reference: z.string().min(3).max(200), delivered: z.boolean().default(false), idempotencyKey: z.string().min(8).max(200) }).parse(input);
+    reference: z.string().trim().max(200).default(""), delivered: z.boolean().default(false), idempotencyKey: z.string().min(8).max(200) })
+    .refine(v => v.reference.length >= 3 || (v.method === "cash" && v.reference.length === 0),
+      { path: ["reference"], message: "المرجع الداخلي النقدي اختياري؛ مرجع الطلب غير النقدي لا يقل عن ثلاثة أحرف" }).parse(input);
   const [note] = await tx.select().from(creditNotesTable)
     .where(and(eq(creditNotesTable.id, b.noteId), eq(creditNotesTable.companyId, companyId))).for("update");
   if (!note) fail("المرتجع غير متاح", 404);
@@ -174,7 +176,7 @@ async function payout(tx: Tx, companyId: number, userId: number, input: unknown)
   const [created] = await query(tx, sql`INSERT INTO return_payouts(company_id,note_id,invoice_id,receipt_id,session_id,amount,method,status,
     reference,idempotency_key,fingerprint,created_by,confirmed_by,journal_id,confirmed_at)
     VALUES(${companyId},${note.id},${note.invoiceId!},${b.receiptId},${b.sessionId},${String(b.amount)},${b.method},
-      ${b.method === "cash" ? "confirmed" : "requested"},${reference + " / " + b.reference},${b.idempotencyKey},${fingerprint},${userId},
+       ${b.method === "cash" ? "confirmed" : "requested"},${reference + (b.reference ? " / " + b.reference : "")},${b.idempotencyKey},${fingerprint},${userId},
       ${b.method === "cash" ? userId : null},${journalId},${b.method === "cash" ? new Date() : null}) RETURNING *`);
   await saveIssuer(tx,"refund",Number(created.id),await captureIssuer(tx,companyId));
   return created;
