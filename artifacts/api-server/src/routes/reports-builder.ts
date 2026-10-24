@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { parsePatchBody } from "../lib/patch-body";
 import {
   db,
   reportDefinitionsTable,
@@ -154,7 +155,7 @@ router.patch("/reports/definitions/:id", async (req, res) => {
   try {
     const id = Number(req.params.id);
     const userId = req.session.userId!;
-    const body = CreateDefBody.partial().parse(req.body);
+    const body = parsePatchBody(CreateDefBody.partial(), req.body);
     const [existing] = await db.select().from(reportDefinitionsTable).where(and(eq(reportDefinitionsTable.id, id), eq(reportDefinitionsTable.companyId, getCompanyId(req))));
     if (!existing) return res.status(404).json({ error: "غير موجود" });
     if (existing.ownerUserId !== userId) return res.status(403).json({ error: "لا يمكن تعديل تقرير ليس ملكك" });

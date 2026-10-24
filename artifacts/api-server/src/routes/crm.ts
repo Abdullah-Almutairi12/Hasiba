@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { parsePatchBody } from "../lib/patch-body";
 import { z } from "zod";
 import {
   db,
@@ -173,7 +174,7 @@ router.patch("/crm/opportunities/:id", salesWriteGuard, async (req, res) => {
     const Body = OppBody.partial().extend({
       winLossReason: z.string().nullable().optional(),
     });
-    const b = Body.parse(req.body);
+    const b = parsePatchBody(Body, req.body);
     if (b.customerId != null) {
       const [customer] = await db.select({ id: customersTable.id }).from(customersTable)
         .where(and(eq(customersTable.id, b.customerId), eq(customersTable.companyId, getCompanyId(req))));

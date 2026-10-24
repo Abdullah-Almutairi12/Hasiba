@@ -1,4 +1,5 @@
 import { Router, type IRouter } from "express";
+import { parsePatchBody } from "../lib/patch-body";
 import {
   db,
   employeesTable,
@@ -331,7 +332,7 @@ router.post("/hr/departments", hrGuard, async (req, res) => {
 router.put("/hr/departments/:id", hrGuard, async (req, res) => {
   try {
     const { id } = IdParam.parse(req.params);
-    const body = DeptBody.partial().parse(req.body);
+    const body = parsePatchBody(DeptBody.partial(), req.body);
     await validateHrReferences(req, body);
     const [row] = await db
       .update(departmentsTable)
@@ -534,7 +535,7 @@ router.post("/hr/employees", hrGuard, async (req, res) => {
 router.patch("/hr/employees/:id", hrGuard, async (req, res) => {
   try {
     const { id } = IdParam.parse(req.params);
-    const body = EmployeeBody.partial().parse(req.body);
+    const body = parsePatchBody(EmployeeBody.partial(), req.body);
     await validateHrReferences(req, body);
     const update: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(body)) {
@@ -2965,7 +2966,7 @@ router.post("/hr/shifts", hrGuard, async (req, res) => {
 router.patch("/hr/shifts/:id", hrGuard, async (req, res) => {
   try {
     const id = Number(req.params.id);
-    const body = ShiftBody.partial().parse(req.body);
+    const body = parsePatchBody(ShiftBody.partial(), req.body);
     const [row] = await db.update(shiftsTable).set(body).where(and(eq(shiftsTable.id, id), eq(shiftsTable.companyId, getCompanyId(req)))).returning();
     if (!row) return res.status(404).json({ error: "الوردية غير موجودة" });
     return res.json(row);
@@ -3078,7 +3079,7 @@ router.post("/hr/salary-components", hrGuard, async (req, res) => {
 router.patch("/hr/salary-components/:id", hrGuard, async (req, res) => {
   try {
     const id = Number(req.params.id);
-    const body = ComponentBody.partial().parse(req.body);
+    const body = parsePatchBody(ComponentBody.partial(), req.body);
     if (body.contractId !== undefined) await requireCompanyContract(req, body.contractId);
     const update: Record<string, unknown> = { ...body };
     if (body.amount !== undefined) update.amount = String(body.amount);

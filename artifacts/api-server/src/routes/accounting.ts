@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { parsePatchBody } from "../lib/patch-body";
 import {
   db,
   accountsTable,
@@ -267,7 +268,7 @@ router.post("/accounting/accounts", financeGuard, async (req, res) => {
 router.patch("/accounting/accounts/:id", financeGuard, async (req, res) => {
   try {
     const id = Number(req.params.id);
-    const body = createAccountBody.partial().parse(req.body);
+    const body = parsePatchBody(createAccountBody.partial(), req.body);
     const updates: Partial<typeof accountsTable.$inferInsert> = {};
     if (body.code !== undefined) updates.code = body.code;
     if (body.name !== undefined) updates.name = body.name;

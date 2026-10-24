@@ -37,3 +37,9 @@ Refresh emitted shared-library declarations after changing the schema-library ge
 **Why:** Incremental output retained references to the old Zod internals after a catalog upgrade and made a generated body's safe-parse result appear untyped. Rebuilding shared declarations restored the actual types without weakening consumer code.
 
 **How to apply:** Force the shared TypeScript build when a dependency-generation change produces inexplicable `any` inference; then assess genuine input/output differences such as form coercion separately.
+
+Do not let creation defaults change omitted PATCH fields.
+
+**Why:** Zod 4 applies defaults inside optional fields differently from Zod 3. After the generation change, a harmless description/deactivation patch could reset limits, active flags or workflow actions and invalidate an otherwise valid configuration.
+
+**How to apply:** Validate partial updates, then keep only top-level fields explicitly supplied by the caller. Preserve false/zero/null and validation/defaults inside explicitly replaced nested structures. Test omission independently of normal creation validation when changing schema libraries.

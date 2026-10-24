@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { parsePatchBody } from "../lib/patch-body";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
 import rateLimit, { ipKeyGenerator } from "express-rate-limit";
@@ -178,7 +179,7 @@ router.post("/workflow/approval-rules", adminGuard, async (req, res) => {
 router.patch("/workflow/approval-rules/:id", adminGuard, async (req, res) => {
   try {
     const id = Number(req.params.id);
-    const body = RuleBody.partial().parse(req.body);
+    const body = parsePatchBody(RuleBody.partial(), req.body);
     await validateRuleMembers(req.session.companyId!, body);
     const updates: Record<string, unknown> = {};
     if (body.name !== undefined) updates.name = body.name;
@@ -635,7 +636,7 @@ router.post("/workflow/automation-rules", adminGuard, async (req, res) => {
 router.patch("/workflow/automation-rules/:id", adminGuard, async (req, res) => {
   try {
     const id = Number(req.params.id);
-    const body = AutomationBody.partial().parse(req.body);
+    const body = parsePatchBody(AutomationBody.partial(), req.body);
     const updates: Record<string, unknown> = {};
     if (body.name !== undefined) updates.name = body.name;
     if (body.description !== undefined) updates.description = body.description;

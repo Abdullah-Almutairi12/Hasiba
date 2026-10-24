@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { parsePatchBody } from "../lib/patch-body";
 import {
   db,
   dashboardsTable,
@@ -134,7 +135,7 @@ router.patch("/dashboards/:id", async (req, res) => {
   try {
     const id = Number(req.params.id);
     const userId = req.session.userId!;
-    const body = CreateDashboardBody.partial().parse(req.body);
+    const body = parsePatchBody(CreateDashboardBody.partial(), req.body);
     const [existing] = await db.select().from(dashboardsTable).where(eq(dashboardsTable.id, id));
     if (!existing || existing.ownerUserId !== userId) return res.status(404).json({ error: "غير موجود" });
     if (body.isHome) {
@@ -247,7 +248,7 @@ router.patch("/dashboards/:id/widgets/:wid", async (req, res) => {
     const userId = req.session.userId!;
     const [d] = await db.select().from(dashboardsTable).where(eq(dashboardsTable.id, id));
     if (!d || d.ownerUserId !== userId) return res.status(404).json({ error: "غير موجود" });
-    const body = WidgetBody.partial().parse(req.body);
+    const body = parsePatchBody(WidgetBody.partial(), req.body);
     const [updated] = await db
       .update(dashboardWidgetsTable)
       .set({
