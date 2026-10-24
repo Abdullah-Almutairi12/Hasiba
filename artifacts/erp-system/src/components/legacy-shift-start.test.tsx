@@ -25,8 +25,14 @@ describe("legacy shift start requires actual authorized branch and opening cash"
     fireEvent.click(submit);
     expect(mocks.mutate.mock.calls[0][0]).toEqual({ data: { branchId: 7, cashierName: "المالك", openingCash: 20 } });
     expect(onOpened).not.toHaveBeenCalled();
-    mocks.mutate.mock.calls[0][1].onSuccess({ id: 12 });
+    act(() => mocks.mutate.mock.calls[0][1].onSuccess({ id: 12 }));
     expect(onOpened).toHaveBeenCalledTimes(1);
+    expect(submit.disabled).toBe(true);
+    fireEvent.click(submit);
+    expect(mocks.mutate).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByText("تحديث الوردية المؤكدة"));
+    expect(onOpened).toHaveBeenCalledTimes(2);
+    expect(mocks.mutate).toHaveBeenCalledTimes(1);
   });
   it("rejects negative or sub-cent cash, and does not open when branch loading failed", () => {
     render(<LegacyShiftStart onOpened={vi.fn()} onBack={vi.fn()} />);

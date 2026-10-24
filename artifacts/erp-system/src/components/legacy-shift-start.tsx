@@ -18,6 +18,7 @@ export function LegacyShiftStart({ onOpened, onBack }: {
   const [branchId, setBranchId] = useState("");
   const [openingCash, setOpeningCash] = useState("0");
   const [error, setError] = useState("");
+  const [confirmedId, setConfirmedId] = useState<number | null>(null);
   const allowed = branches.data ?? [];
   const branch = allowed.find(b => String(b.id) === branchId);
   const cashValid = /^\d+(?:\.\d{1,2})?$/.test(openingCash) && Number(openingCash) <= 99_999_999.99;
@@ -36,19 +37,19 @@ export function LegacyShiftStart({ onOpened, onBack }: {
           && <p role="status">لا توجد فروع متاحة لك؛ راجع مسؤول المنشأة.</p>}
         <form className="space-y-4" onSubmit={e => {
           e.preventDefault();
-          if (!valid || create.isPending) return;
+          if (!valid || create.isPending || confirmedId != null) return;
           setError("");
           create.mutate({ data: {
             branchId: branch!.id, cashierName: user!.name, openingCash: Number(openingCash),
           } }, {
-            onSuccess: () => onOpened(),
+            onSuccess: session => { setConfirmedId(session.id); onOpened(); },
             onError: e => setError(readErr(e).message),
           });
         }}>
           <div className="space-y-1">
             <Label htmlFor="legacy-shift-branch">الفرع</Label>
             <select id="legacy-shift-branch" value={branchId}
-              disabled={create.isPending || branches.isLoading || branches.isError}
+              disabled={create.isPending || confirmedId != null || branches.isLoading || branches.isError}
               onChange={e => setBranchId(e.target.value)}
               className="h-10 w-full rounded-md border bg-background px-3">
               <option value="">اختر الفرع صراحةً</option>
@@ -58,15 +59,19 @@ export function LegacyShiftStart({ onOpened, onBack }: {
           <div className="space-y-1">
             <Label htmlFor="legacy-shift-cash">رصيد النقد الافتتاحي</Label>
             <Input id="legacy-shift-cash" inputMode="decimal" value={openingCash}
-              onChange={e => setOpeningCash(e.target.value)} disabled={create.isPending} dir="ltr" />
+              onChange={e => setOpeningCash(e.target.value)} disabled={create.isPending || confirmedId != null} dir="ltr" />
             {!cashValid && <p role="alert" className="text-sm text-destructive">أدخل مبلغًا غير سالب بمنزلتين عشريتين كحد أقصى.</p>}
           </div>
           {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
-          <Button type="submit" className="w-full" disabled={!valid || create.isPending}
+          <Button type="submit" className="w-full" disabled={!valid || create.isPending || confirmedId != null}
             data-testid="button-legacy-open-shift">
-            {create.isPending ? "جارٍ فتح الوردية…" : "فتح جلسة جديدة"}
+            {confirmedId != null ? "أُكد فتح الوردية" : create.isPending ? "جارٍ فتح الوردية…" : "فتح جلسة جديدة"}
           </Button>
         </form>
+        {confirmedId != null && <div role="status" className="space-y-2 text-sm">
+          <p>أُكد فتح الوردية #{confirmedId}. إذا تأخر العرض، حدّث الوردية المؤكدة ولا تنشئ وردية أخرى.</p>
+          <Button variant="outline" onClick={onOpened}>تحديث الوردية المؤكدة</Button>
+        </div>}
         <Button variant="ghost" className="w-full" onClick={onBack} disabled={create.isPending}>العودة للوحة القيادة</Button>
       </Card>
     </div>
