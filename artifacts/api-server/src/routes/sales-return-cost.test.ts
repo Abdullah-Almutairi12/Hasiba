@@ -184,6 +184,7 @@ describe("original POS invoice: independent linked return lifecycle", () => {
       "0035_approval_live_authority.sql",
       "0036_scoped_approval_delegation.sql",
       "0037_team_scoped_access.sql",
+      "0038_legacy_team_conversion.sql",
     ]);
     expect(first.skipped).toHaveLength(26);
     expect(await snapshots()).toEqual(before);
@@ -191,6 +192,8 @@ describe("original POS invoice: independent linked return lifecycle", () => {
     expect(await rows("SELECT count(*)::int AS n FROM financial_limits WHERE company_id IS NOT NULL")).toEqual([{ n: 0 }]);
     expect(await rows("SELECT count(*)::int AS n FROM document_issuer_snapshots WHERE company_id=$1", [f.companyId])).toEqual([{ n: 0 }]);
     expect(await rows("SELECT count(*)::int AS n FROM invoice_seller_lines WHERE company_id=$1", [f.companyId])).toEqual([{ n: 0 }]);
+    // Installing the bridge must not silently convert old memberships.
+    expect(await rows("SELECT count(*)::int AS n FROM legacy_team_conversions")).toEqual([{ n: 0 }]);
     const second = await runMigrations(process.env.TEST_DATABASE_URL!, () => {});
     expect(second.applied).toHaveLength(0);
     expect(await snapshots()).toEqual(before);

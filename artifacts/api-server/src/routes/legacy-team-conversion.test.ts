@@ -138,6 +138,7 @@ describe("explicit conservative legacy adoption", () => {
   });
   it("requires fresh rollback review and reason; retains revoked history instead of deleting it", async () => {
     const f = await fixture(), p = await preview(f.body);
+    const seatsBefore = ok(await owner.get("/api/team/setup")).policy.activeLoginSeats;
     ok(await apply(f.body, p.digest));
     const r = await rollbackPreview(f.user.id);
     expect(r.warnings[0]).toContain("أوسع");
@@ -152,8 +153,9 @@ describe("explicit conservative legacy adoption", () => {
     expect((await rows("SELECT revoked_at FROM responsibility_grants WHERE employee_id=$1", [f.employee.id]))[0].revoked_at).toBeTruthy();
     expect(await rows("SELECT id FROM audit_logs WHERE company_id=$1 AND action IN ('team.legacy.convert','team.legacy.rollback') AND details::jsonb->>'userId'=$2",
       [companyId, String(f.user.id)])).toHaveLength(2);
-    const current = ok(await owner.get("/api/team/people")).find((x: any) => x.personId === f.employee.id);
-    ok(await owner.put(`/api/team/people/${f.employee.id}/access`).send({ expectedRevision: current.revision, person: f.person, suspended: false }), 409);
+    expect(ok(await owner.get("/api/team/people")).some((x: any) => x.personId === f.employee.id)).toBe(false);
+    expect(ok(await owner.get("/api/team/setup")).policy.activeLoginSeats).toBe(seatsBefore);
+    ok(await owner.put(`/api/team/people/${f.employee.id}/access`).send({ expectedRevision: access.revision, person: f.person, suspended: false }), 409);
     ok(await owner.post("/api/team/legacy/preview").send(f.body), 409);
   });
   it("cannot use stale rollback to erase explicit deny or suspension", async () => {
