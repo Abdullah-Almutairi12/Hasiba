@@ -1373,7 +1373,7 @@ function DiscountReviewPanel({ scoped = false, pct, setPct, valid, discount, net
       </label>
       <p id="discount-hint" className={valid ? "text-neutral-500" : "font-semibold text-red-700 dark:text-red-300"} data-testid="text-discount-hint">
         {valid ? scoped
-          ? `الخصم ${discount.toFixed(2)}. التنفيذ ضمن المنحة وحد الشركة؛ إذن طلب الاستثناء لا يطبق الخصم حتى اعتماد مستقل لهذه العملية. لا دخول أو جلسة مدير للكاشير.`
+          ? `الخصم ${discount.toFixed(2)}. التنفيذ لدور «مستخدم بصلاحيات محددة» ضمن المنحة وحد الشركة؛ إذن طلب الاستثناء لا يطبق الخصم حتى اعتماد مستقل لهذه العملية. لا دخول أو جلسة مدير للكاشير.`
           : `الخصم ${discount.toFixed(2)}. إن تجاوز حدك يفتح الخادم طلب اعتماد ولا يُعتمد تلقائيًا.` : "النسبة يجب أن تكون بين 0 و100."}
       </p>
       {review && (

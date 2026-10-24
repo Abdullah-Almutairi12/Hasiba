@@ -24,7 +24,12 @@ describe("pos action labels", () => {
     expect(actionLabel("x.y")).toContain("غير معروف");
     expect(actionLabel("x.y", "تجربة")).toBe("تجربة");
   });
-  it("no approve key is labelled", () => expect(ACTION_LABEL["pos.return.approve"]).toBeUndefined());
+  it("labels the explicit independent approval action with warehouse and amount bounds, not identity confirmation", () => {
+    expect(ACTION_LABEL["pos.return.approve"]).toContain("شخص آخر");
+    expect(ACTION_LABEL["pos.return.approve"]).toContain("المستودع");
+    expect(ACTION_LABEL["pos.return.approve"]).toContain("المبلغ");
+    expect(ACTION_LABEL["pos.return.approve"]).not.toContain("تأكيد الهوية");
+  });
 });
 
 describe("return mode projection", () => {

@@ -53,7 +53,7 @@ async function fixture(legacy: boolean, extraActions: string[] = []) {
   } else {
     employee = ok(await owner.post("/api/team/people").send(person), 201);
     const invite = ok(await owner.post(`/api/team/people/${employee.personId}/invite`).send({ expectedRevision: employee.revision }), 201);
-    ok(await request(app).post("/api/auth/team-activation/accept").send({ token: invite.activationToken, password }));
+    ok(await actorAgent().post("/api/auth/team-activation/accept").send({ token: invite.activationToken, password }));
     employee = ok(await owner.get("/api/team/people")).find((x: any) => x.personId === employee.personId);
     identityId = employee.userId;
   }
@@ -74,7 +74,7 @@ async function anotherActor(f: Fixture, actions: string[]) {
     grants: [{ ...f.person.grants[0], actions }] };
   let employee = ok(await f.owner.post("/api/team/people").send(person), 201);
   const invite = ok(await f.owner.post(`/api/team/people/${employee.personId}/invite`).send({ expectedRevision: employee.revision }), 201);
-  ok(await request(app).post("/api/auth/team-activation/accept").send({ token: invite.activationToken, password }));
+  ok(await actorAgent().post("/api/auth/team-activation/accept").send({ token: invite.activationToken, password }));
   employee = ok(await f.owner.get("/api/team/people")).find((x: any) => x.personId === employee.personId);
   const agent = actorAgent();
   ok(await agent.post("/api/auth/login").send({ email: person.email, password }));
@@ -247,7 +247,7 @@ describe("native POS lifecycle for new and converted scoped employees", () => {
       email:`review-${randomUUID()}@example.invalid`,grants:[{...f.person.grants[0],actions:["pos.read","pos.shift.difference"],amountLimit:"5"}]};
     let employee=ok(await f.owner.post("/api/team/people").send(person),201);
     const invite=ok(await f.owner.post(`/api/team/people/${employee.personId}/invite`).send({expectedRevision:employee.revision}),201);
-    ok(await request(app).post("/api/auth/team-activation/accept").send({token:invite.activationToken,password}));
+    ok(await actorAgent().post("/api/auth/team-activation/accept").send({token:invite.activationToken,password}));
     const agent=actorAgent();ok(await agent.post("/api/auth/login").send({email:person.email,password}));
     let grant=ok(await agent.get("/api/workspace/access")).grants[0];
     const approve=()=>agent.post("/api/pos/returns/actions").set("X-Workspace-Responsibility",String(grant.id))
