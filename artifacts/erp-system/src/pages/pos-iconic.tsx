@@ -1369,7 +1369,7 @@ function DiscountReviewPanel({ scoped = false, pct, setPct, valid, discount, net
         <Input type="number" inputMode="decimal" min={0} max={100} step="0.01" dir="ltr" value={pct} disabled={locked}
           onChange={(e) => setPct(e.target.value)} aria-invalid={!valid} aria-describedby="discount-hint"
           className="h-9 w-24" data-testid="input-discount-pct" />
-        <span className="ms-auto font-mono" data-testid="text-discount-net">{`بعد الخصم ${net.toFixed(2)}`}</span>
+        <span className="ms-auto font-mono" data-testid="text-discount-net">{`معاينة بعد الخصم ${net.toFixed(2)}`}</span>
       </label>
       <p id="discount-hint" className={valid ? "text-neutral-500" : "font-semibold text-red-700 dark:text-red-300"} data-testid="text-discount-hint">
         {valid ? scoped
@@ -1378,6 +1378,7 @@ function DiscountReviewPanel({ scoped = false, pct, setPct, valid, discount, net
       </p>
       {review && (
         <div role="status" className="space-y-2 rounded-xl bg-amber-50 p-2 text-amber-900 dark:bg-amber-950 dark:text-amber-100" data-testid="panel-review">
+          <p>المبلغ المعروض معاينة للطلب، وليس تحصيلًا أو خصمًا معتمدًا. لا ينفذ البيع قبل اعتماد هذه العملية.</p>
           <p>{review.message}{review.attempted != null ? ` — المحاولة ${review.attempted.toFixed(2)}، الحد ${review.max ?? "—"}` : ""}</p>
           <p data-testid="text-review-id">
             {review.id ? `طلب الاعتماد #${review.id}: ${reviewStatus ? statusLabel[reviewStatus] ?? reviewStatus : reviewLoading ? "جارٍ التحقق…" : "غير معروف"}` : "لم يُنشأ طلب اعتماد. أعد المحاولة أو تواصل مع المدير."}

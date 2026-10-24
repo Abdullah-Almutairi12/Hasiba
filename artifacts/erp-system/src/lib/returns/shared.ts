@@ -30,6 +30,21 @@ export const DISPOSITIONS: Record<string, string> = {
 };
 export const label = (map: Record<string, string>, k: string) => map[k] ?? (k || "غير معروف");
 
+/** Review and physical receipt are not financial issuance. Never offer payout
+ * or an issued-document print merely because the review was approved. */
+export function returnNoteState(n: Rec) {
+  const status = str(n.status);
+  const financialPending = status.toLowerCase().includes("pending");
+  const approved = n.review_status === "approved";
+  const awaitingReceipt = financialPending && approved && n.receipt_required === true && n.received_by == null;
+  return {
+    financialPending,
+    awaitingApproval: financialPending && !approved,
+    awaitingReceipt,
+    status: awaitingReceipt ? "pending_receipt" : financialPending && approved ? "pending_issue" : status,
+  };
+}
+
 const AMBER = "bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200";
 const ROSE = "bg-rose-100 text-rose-900 dark:bg-rose-950 dark:text-rose-200";
 const GREEN = "bg-emerald-100 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-200";
@@ -38,6 +53,8 @@ const VIOLET = "bg-violet-100 text-violet-900 dark:bg-violet-950 dark:text-viole
 const SLATE = "bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-200";
 
 const EXACT: Record<string, { text: string; cls: string }> = {
+  pending_receipt: { text: "معتمد — بانتظار الاستلام", cls: AMBER },
+  pending_issue: { text: "معتمد — بانتظار الترحيل", cls: AMBER },
   partially_paid: { text: "مدفوع جزئيًا", cls: AMBER },
   partially_refunded: { text: "مسترد جزئيًا", cls: AMBER },
   requested: { text: "مطلوب — لم يُرسل لأي مزود", cls: VIOLET },

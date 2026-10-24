@@ -7,7 +7,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { useAct, useDurableAction } from "@/hooks/use-returns-actions";
 import { cn } from "@/lib/utils";
-import { arr, DISPOSITIONS, label, METHODS, money, num, readErr, rec, statusTone, str, strArr, type Rec } from "@/lib/returns/shared";
+import { arr, DISPOSITIONS, label, METHODS, money, num, readErr, rec, returnNoteState, statusTone, str, strArr, type Rec } from "@/lib/returns/shared";
 import { Empty, ErrorBox, Fig, Pill, Stat } from "@/components/returns/ui";
 import { PayoutForm } from "@/components/returns/payout-form";
 import { ExpenseForm } from "@/components/returns/expense-form";
@@ -36,12 +36,14 @@ export default function ReturnsPage() {
   const meId = user?.id ?? null;
 
   const totals = useMemo(() => {
-    let due = 0, pendingCount = 0;
+    let due = 0, pendingCount = 0, awaitingReceiptCount = 0;
     for (const n of notes) {
       due += num(n.due) ?? 0;
-      if (str(n.status).toLowerCase().includes("pending")) pendingCount++;
+      const state = returnNoteState(n);
+      if (state.awaitingApproval) pendingCount++;
+      if (state.awaitingReceipt) awaitingReceiptCount++;
     }
-    return { due, pendingCount };
+    return { due, pendingCount, awaitingReceiptCount };
   }, [notes]);
 
   const exportCsv = async () => {
@@ -104,9 +106,10 @@ export default function ReturnsPage() {
         </div>
       ) : (
         <>
-          <section className="grid gap-3 sm:grid-cols-3">
+          <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <Stat icon={FileText} label="إشعارات مسجلة" value={String(notes.length)} />
             <Stat icon={Clock} label="بانتظار الاعتماد" value={String(totals.pendingCount)} tone="amber" />
+            <Stat icon={Clock} label="معتمد وبانتظار الاستلام" value={String(totals.awaitingReceiptCount)} tone="amber" />
             <Stat icon={Wallet} label="المستحق للصرف (غير مصروف)" value={money(totals.due)} tone="sky" />
           </section>
 
@@ -158,10 +161,11 @@ function NoteCard({ note: n, payouts, sessions, invoices, can, branchName }: {
   const receiver = useAct();
   const [receiptRef, setReceiptRef] = useState("");
   const [receiptError, setReceiptError] = useState("");
-  const st = str(n.status);
+  const state = returnNoteState(n);
+  const st = state.status;
   const remaining = num(n.remaining) ?? 0;
   const notePayouts = payouts.filter((p) => str(p.note_id) === id);
-  const pending = st.toLowerCase().includes("pending") && n.review_status !== "approved";
+  const pending = state.awaitingApproval;
   const showForm = paying || durable.frozen;
 
   return (
@@ -241,8 +245,8 @@ function NoteCard({ note: n, payouts, sessions, invoices, can, branchName }: {
 
       <div className="mt-3 flex flex-wrap gap-2">
         {can("approve") && pending && <ApproveButton noteId={id} />}
-        {!pending && <PrintDocButton id={num(n.id)} url={docUrls.creditNote} filename={`credit-note-${id}.pdf`} label="طباعة الإشعار الدائن" testId={`button-print-credit-${id}`} />}
-        {can("payout") && !pending && remaining > 0 && !showForm && (
+        {!state.financialPending && <PrintDocButton id={num(n.id)} url={docUrls.creditNote} filename={`credit-note-${id}.pdf`} label="طباعة الإشعار الدائن" testId={`button-print-credit-${id}`} />}
+        {can("payout") && !state.financialPending && remaining > 0 && !showForm && (
           <Button size="sm" onClick={() => setPaying(true)}><Wallet className="me-1 size-4" /> تسجيل صرف</Button>
         )}
       </div>
