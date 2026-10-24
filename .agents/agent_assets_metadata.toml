@@ -350,3 +350,17 @@ mtime_ms = 1792883937115
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/a49b2fee-c59b-4834-b49e-0c9ee28cb62f/971115b3-05a8-48c6-8066-d66dab0628b6"
 storage_version_token = "1792883949231669"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "nfZI5-cngj2V3sbSKHyFG"
+uri = "file://generated-artifacts/first-phase-continuation/hasiba-inventory-count-evidence-4ea059a.zip"
+type = "unspecified"
+title = "حاسبة — أحدث تقرير وأدلة المخزون والجرد"
+description = "36 ملفًا: نتيجة15بوابة على مصدر4ea059a، و711اختبارAPIناجحًا و147واجهة، والتقارير والمتبقي وحدود دليل المتصفح. الحزمة مولدة ومستثناة منGit."
+logical_id = "8b5b59e6-74c6-4da7-89e0-3e6c9b254055"
+content_hash = "sha256:f2c33c6c7065df570858b4d9747ff8cf4bf27b14f819542a820778cf924fab21"
+size = 373474
+mtime_ms = 1792885150147
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/8b5b59e6-74c6-4da7-89e0-3e6c9b254055/f526bacd-f9f5-4919-9a7a-a330aa6a5658"
+storage_version_token = "1792885159135345"
+content_type = "application/octet-stream"
