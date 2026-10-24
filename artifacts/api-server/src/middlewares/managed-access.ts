@@ -7,6 +7,9 @@ import { teamRows } from "../lib/team-store";
 export const SCOPED_ROUTES = [
   ["GET", "/workspace/access", "self"],
   ["GET", "/workspace/inventory", "inventory.read"],
+  ["GET", "/workspace/inventory/transfers", "inventory.read"],
+  // Execution is rechecked inside the fresh stock transaction; committed replays require destination read.
+  ["POST", "/inventory/transfers/:id/receive", "inventory.read"],
   ["GET", "/users/permissions", "self"],
   ["GET", "/companies", "self"],
   ["GET", "/branches", "metadata"],

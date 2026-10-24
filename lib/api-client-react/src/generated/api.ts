@@ -153,6 +153,7 @@ import type {
   GetSupplier200,
   GetTrialBalanceParams,
   GetVatReturnParams,
+  GetWorkspaceInventoryTransfers200,
   HealthStatus,
   ImportBankStatementBody,
   InboxItem,
@@ -200,6 +201,8 @@ import type {
   Product,
   ProductStats,
   ProfitLoss,
+  ReceiveInventoryTransfer200,
+  ReceiveInventoryTransferBody,
   ReportInsights,
   RequestTeamConsentReconfirm200,
   ResendCleanupReport200,
@@ -1960,6 +1963,187 @@ export function useGetWorkspaceInventory<TData = Awaited<ReturnType<typeof getWo
 
 
 
+
+export const getGetWorkspaceInventoryTransfersUrl = () => {
+
+
+
+
+  return `/api/workspace/inventory/transfers`
+}
+
+export const getWorkspaceInventoryTransfers = async ( options?: Parameters<typeof customFetch>[1]): Promise<GetWorkspaceInventoryTransfers200> => {
+
+  return customFetch<GetWorkspaceInventoryTransfers200>(getGetWorkspaceInventoryTransfersUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetWorkspaceInventoryTransfersQueryKey = () => {
+    return [
+    `/api/workspace/inventory/transfers`
+    ] as const;
+    }
+
+
+export const getGetWorkspaceInventoryTransfersQueryOptions = <TData = Awaited<ReturnType<typeof getWorkspaceInventoryTransfers>>, TError = ErrorType<unknown>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getWorkspaceInventoryTransfers>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetWorkspaceInventoryTransfersQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getWorkspaceInventoryTransfers>>> = ({ signal }) => getWorkspaceInventoryTransfers({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getWorkspaceInventoryTransfers>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetWorkspaceInventoryTransfersQueryResult = NonNullable<Awaited<ReturnType<typeof getWorkspaceInventoryTransfers>>>
+export type GetWorkspaceInventoryTransfersQueryError = ErrorType<unknown>
+
+
+export function useGetWorkspaceInventoryTransfers<TData = Awaited<ReturnType<typeof getWorkspaceInventoryTransfers>>, TError = ErrorType<unknown>>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getWorkspaceInventoryTransfers>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getWorkspaceInventoryTransfers>>,
+          TError,
+          Awaited<ReturnType<typeof getWorkspaceInventoryTransfers>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetWorkspaceInventoryTransfers<TData = Awaited<ReturnType<typeof getWorkspaceInventoryTransfers>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getWorkspaceInventoryTransfers>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getWorkspaceInventoryTransfers>>,
+          TError,
+          Awaited<ReturnType<typeof getWorkspaceInventoryTransfers>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetWorkspaceInventoryTransfers<TData = Awaited<ReturnType<typeof getWorkspaceInventoryTransfers>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getWorkspaceInventoryTransfers>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useGetWorkspaceInventoryTransfers<TData = Awaited<ReturnType<typeof getWorkspaceInventoryTransfers>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getWorkspaceInventoryTransfers>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetWorkspaceInventoryTransfersQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getReceiveInventoryTransferUrl = (id: number,) => {
+
+
+
+
+  return `/api/inventory/transfers/${id}/receive`
+}
+
+/**
+ * Full original transfer only. Scoped operators require a destination receive grant, a receipt reference and an Idempotency-Key. A committed retry requires current destination read access.
+ */
+export const receiveInventoryTransfer = async (id: number,
+    receiveInventoryTransferBody?: ReceiveInventoryTransferBody, options?: Parameters<typeof customFetch>[1]): Promise<ReceiveInventoryTransfer200> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<ReceiveInventoryTransfer200>(getReceiveInventoryTransferUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(receiveInventoryTransferBody)
+  }
+);}
+
+
+
+
+
+export const getReceiveInventoryTransferMutationKey = () => ['receiveInventoryTransfer'] as const;
+
+export const getReceiveInventoryTransferMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof receiveInventoryTransfer>>, TError,ReceiveInventoryTransferMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof receiveInventoryTransfer>>, TError,ReceiveInventoryTransferMutationVariables, TContext> => {
+
+const mutationKey = getReceiveInventoryTransferMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof receiveInventoryTransfer>>, ReceiveInventoryTransferMutationVariables> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  receiveInventoryTransfer(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ReceiveInventoryTransferMutationResult = NonNullable<Awaited<ReturnType<typeof receiveInventoryTransfer>>>
+    export type ReceiveInventoryTransferMutationBody = BodyType<ReceiveInventoryTransferBody> | undefined
+    export type ReceiveInventoryTransferMutationError = ErrorType<void>
+    export type ReceiveInventoryTransferMutationVariables = {id: number;data?: BodyType<ReceiveInventoryTransferBody>}
+
+    export const useReceiveInventoryTransfer = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof receiveInventoryTransfer>>, TError,ReceiveInventoryTransferMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof receiveInventoryTransfer>>,
+        TError,
+        ReceiveInventoryTransferMutationVariables,
+        TContext
+      > => {
+      return useMutation(getReceiveInventoryTransferMutationOptions(options), queryClient);
+    }
 
 export const getGetSellerWorkspaceUrl = (params?: GetSellerWorkspaceParams,) => {
   const normalizedParams = new URLSearchParams();

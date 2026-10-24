@@ -497,6 +497,60 @@ export const GetWorkspaceInventoryResponseItem = zod.object({
 export const GetWorkspaceInventoryResponse = zod.array(GetWorkspaceInventoryResponseItem)
 
 
+export const GetWorkspaceInventoryTransfersHeader = zod.object({
+  "X-Workspace-Responsibility": zod.number().int()
+})
+
+export const GetWorkspaceInventoryTransfersResponse = zod.object({
+  "canReceive": zod.boolean(),
+  "transfers": zod.array(zod.object({
+  "id": zod.number().int(),
+  "reference": zod.string().nullable(),
+  "quantity": zod.string(),
+  "state": zod.enum(['in_transit', 'done']),
+  "createdAt": zod.coerce.date(),
+  "productName": zod.string(),
+  "sourceWarehouse": zod.string(),
+  "destinationWarehouse": zod.string()
+}))
+})
+
+
+/**
+ * Full original transfer only. Scoped operators require a destination receive grant, a receipt reference and an Idempotency-Key. A committed retry requires current destination read access.
+ */
+
+
+
+export const ReceiveInventoryTransferParams = zod.object({
+  "id": zod.coerce.number().int().min(1)
+})
+
+export const receiveInventoryTransferHeaderIdempotencyKeyMin = 8;
+export const receiveInventoryTransferHeaderIdempotencyKeyMax = 128;
+
+
+
+export const ReceiveInventoryTransferHeader = zod.object({
+  "Idempotency-Key": zod.string().min(receiveInventoryTransferHeaderIdempotencyKeyMin).max(receiveInventoryTransferHeaderIdempotencyKeyMax).optional(),
+  "X-Workspace-Responsibility": zod.number().int().optional()
+})
+
+export const receiveInventoryTransferBodyReceiptReferenceMin = 3;
+export const receiveInventoryTransferBodyReceiptReferenceMax = 200;
+
+
+
+export const ReceiveInventoryTransferBody = zod.object({
+  "receiptReference": zod.string().min(receiveInventoryTransferBodyReceiptReferenceMin).max(receiveInventoryTransferBodyReceiptReferenceMax).optional()
+})
+
+export const ReceiveInventoryTransferResponse = zod.object({
+  "ok": zod.boolean(),
+  "id": zod.number().int()
+})
+
+
 
 
 

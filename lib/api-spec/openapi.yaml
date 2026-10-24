@@ -324,6 +324,67 @@ paths:
               schema:
                 type: array
                 items: { $ref: "#/components/schemas/WorkspaceStock" }
+  /workspace/inventory/transfers:
+    get:
+      operationId: getWorkspaceInventoryTransfers
+      tags: [Team]
+      parameters:
+        - { name: X-Workspace-Responsibility, in: header, required: true, schema: { type: integer } }
+      responses:
+        "200":
+          description: Destination-scoped incoming transfers, without cost or unrelated source balances
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [canReceive, transfers]
+                properties:
+                  canReceive: { type: boolean }
+                  transfers:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, reference, quantity, state, createdAt, productName, sourceWarehouse, destinationWarehouse]
+                      properties:
+                        id: { type: integer }
+                        reference: { type: [string, "null"] }
+                        quantity: { type: string }
+                        state: { type: string, enum: [in_transit, done] }
+                        createdAt: { type: string, format: date-time }
+                        productName: { type: string }
+                        sourceWarehouse: { type: string }
+                        destinationWarehouse: { type: string }
+  /inventory/transfers/{id}/receive:
+    post:
+      operationId: receiveInventoryTransfer
+      tags: [Inventory]
+      description: Full original transfer only. Scoped operators require a destination receive grant, a receipt reference and an Idempotency-Key. A committed retry requires current destination read access.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, minimum: 1 } }
+        - { name: Idempotency-Key, in: header, required: false, schema: { type: string, minLength: 8, maxLength: 128 } }
+        - { name: X-Workspace-Responsibility, in: header, required: false, schema: { type: integer } }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                receiptReference: { type: string, minLength: 3, maxLength: 200 }
+      responses:
+        "200":
+          description: Received once or replayed committed result; no cost fields
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, id]
+                properties:
+                  ok: { type: boolean }
+                  id: { type: integer }
+        "403": { description: No current action or destination access }
+        "409": { description: Already received or same retry key with different data }
   /sales/sellers/workspace:
     $ref: "./seller-paths.yaml#/workspace"
   /sales/sellers/configure:

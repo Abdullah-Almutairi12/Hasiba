@@ -20,6 +20,7 @@ import { cn } from "@/lib/utils";
 import { RESOURCE_LABEL, errorText, grantWindowState, statusMeta } from "@/lib/team-access";
 import { refreshSelectedFromAccess, selectResponsibility, selectionFromAccess, useSelectedResponsibility } from "@/lib/workspace-responsibility";
 import { readPendingPosAttempt } from "@/hooks/use-pos-checkout";
+import { InventoryTransferReceipts } from "@/components/inventory-transfer-receipts";
 
 const fmtQty = (q: string) => {
   const n = Number(q);
@@ -212,7 +213,7 @@ function InventoryView({ grantId, branch }: { grantId: number; branch: string })
       <div className="flex flex-wrap items-center gap-3 border-b p-4">
         <div className="flex-1">
           <h2 className="font-bold">مخزون {branch}</h2>
-          <p className="text-xs text-muted-foreground">للاطلاع فقط ضمن مستودعات مسؤوليتك.</p>
+          <p className="text-xs text-muted-foreground">الرصيد ضمن مستودعات مسؤوليتك؛ التنفيذ يحتاج منحة مستقلة لكل فعل.</p>
         </div>
         <div className="relative w-full sm:w-64">
           <Search className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -252,6 +253,7 @@ function InventoryView({ grantId, branch }: { grantId: number; branch: string })
           </table>
         </div>
       )}
+      <InventoryTransferReceipts key={grantId} grantId={grantId}/>
     </section>
   );
 }

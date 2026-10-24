@@ -2595,6 +2595,44 @@ export type AcceptTeamActivation200 = {
   email: string;
 };
 
+export type GetWorkspaceInventoryTransfers200TransfersItemState = typeof GetWorkspaceInventoryTransfers200TransfersItemState[keyof typeof GetWorkspaceInventoryTransfers200TransfersItemState];
+
+
+export const GetWorkspaceInventoryTransfers200TransfersItemState = {
+  in_transit: 'in_transit',
+  done: 'done',
+} as const;
+
+export type GetWorkspaceInventoryTransfers200TransfersItem = {
+  id: number;
+  /** @nullable */
+  reference: string | null;
+  quantity: string;
+  state: GetWorkspaceInventoryTransfers200TransfersItemState;
+  createdAt: string;
+  productName: string;
+  sourceWarehouse: string;
+  destinationWarehouse: string;
+};
+
+export type GetWorkspaceInventoryTransfers200 = {
+  canReceive: boolean;
+  transfers: GetWorkspaceInventoryTransfers200TransfersItem[];
+};
+
+export type ReceiveInventoryTransferBody = {
+  /**
+     * @minLength 3
+     * @maxLength 200
+     */
+  receiptReference?: string;
+};
+
+export type ReceiveInventoryTransfer200 = {
+  ok: boolean;
+  id: number;
+};
+
 export type GetSellerWorkspaceParams = {
 /**
  * @minimum 1

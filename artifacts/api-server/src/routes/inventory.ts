@@ -30,6 +30,8 @@ import { evaluateAnomalies } from "../lib/anomaly-engine";
 import { getCompanyId } from "../lib/scoped-db";
 import { financialTransaction, FinancialRequestError } from "../lib/financial-transaction";
 import { supplyScope, supplyParam, supplyReferencesGuard } from "../lib/supply-chain-scope";
+import { lockApprovalAuthority } from "../lib/approval-authority";
+import { inventoryTransferReadGuard, transferAuthority, transferReceiptReference, auditTransferReceipt } from "../lib/scoped-inventory-receipts";
 
 const router = Router();
 router.use("/inventory", supplyReferencesGuard);
@@ -304,12 +306,21 @@ router.post("/inventory/transfers", inventoryGuard, async (req, res) => {
   }
 });
 
-router.post("/inventory/transfers/:id/receive", inventoryGuard, async (req, res) => {
+router.post("/inventory/transfers/:id/receive", inventoryTransferReadGuard, async (req, res) => {
   try {
     const id = Number(req.params.id);
-    await db.transaction((tx) => completeTransfer(tx, id, req.session?.userId ?? null, getCompanyId(req)));
-    return res.json({ ok: true, id });
+    await transferAuthority(db,req,id);
+    const result=await financialTransaction(req,async tx=>{
+      await lockApprovalAuthority(tx);
+      const authority=await transferAuthority(tx,req,id,true);
+      const reference=transferReceiptReference(req,authority);
+      await completeTransfer(tx,id,req.session.userId!,getCompanyId(req));
+      await auditTransferReceipt(tx,authority,reference);
+      return {ok:true,id};
+    });
+    return res.json(result);
   } catch (err) {
+    if(err instanceof FinancialRequestError) return res.status(err.status).json({error:err.message});
     const msg = err instanceof Error ? err.message : "تعذر استلام التحويل";
     req.log.error({ err }, "transfer receive failed");
     return res.status(400).json({ error: msg });

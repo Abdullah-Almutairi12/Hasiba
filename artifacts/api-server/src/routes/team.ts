@@ -11,6 +11,7 @@ import { scopedRouteAction } from "../middlewares/managed-access";
 import { requireSameOrigin } from "../middlewares/require-same-origin";
 import { FinancialRequestError } from "../lib/financial-transaction";
 import { getCompanyId } from "../lib/scoped-db";
+import { scopedIncomingTransfers } from "../lib/scoped-inventory-receipts";
 import { LegacyConversionInput, legacyTeamUsers, previewLegacyTeamConversion, applyLegacyTeamConversion,
   previewLegacyTeamRollback, rollbackLegacyTeamConversion } from "../lib/legacy-team-conversion";
 
@@ -175,6 +176,9 @@ export function makeTeamRouter(getStack: () => unknown[]) {
       JOIN products p ON p.id=q.product_id AND p.company_id=w.company_id
       WHERE w.branch_id=${grant.branchId} AND w.id=ANY(${sql.param(grant.warehouseIds)}::integer[])
       ORDER BY p.id,w.id LIMIT 1000`));
+  }));
+  router.get("/workspace/inventory/transfers",wrap(async (_req,res)=>{
+    res.json(await scopedIncomingTransfers());
   }));
   return router;
 }

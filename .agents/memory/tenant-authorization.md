@@ -80,3 +80,9 @@ During incremental authorization migration, newly managed staff must default-den
 **Why:** A single company role cannot safely represent different duties in different branches. Assigning a broad legacy role to make a new page work would silently unlock unrelated modules. Preserving old roles is a compatibility bridge, not a security sign-off for every legacy handler.
 
 **How to apply:** Add server policy, row/field scope, usable UI and direct API evidence before enabling another resource. A job title, optional starting template or full subscription is not an independent grant of authority.
+
+Receiving custody of an already-dispatched internal transfer is distinct from issuing stock, revaluing it, approving count differences, or viewing costs. Scope the receiver to the destination, not administrative control of the source branch.
+
+**Why:** Independent branch staff must be able to acknowledge goods without acquiring authority over the sending branch or choosing a new quantity or valuation. The issued movement supplies that evidence; physical receipt is not a new spending approval.
+
+**How to apply:** Keep receipt as an explicit action on an existing movement with fixed source values. Manual receipts, issues, adjustments and stocktake approval still need their own authorization and valuation policies; do not enable a generic inventory-write privilege as a shortcut.
