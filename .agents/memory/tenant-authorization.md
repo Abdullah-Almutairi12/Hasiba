@@ -33,6 +33,12 @@ Previously shared AI training state must not seed a company's learned parameters
 
 **How to apply:** Keep training state company-specific and start without legacy learned values. Preserve the public model keys when changing internal storage.
 
+Legacy access adoption must narrow into one live policy, never combine the old role's privileges with new responsibilities. Reversion to broader legacy access requires a fresh explicit review, and must not revive a suspended identity.
+
+**Why:** The approved continuation requires reversible conversion without widening access, losing ownership, or erasing intervening restrictions; a stored historical role is not current authorization.
+
+**How to apply:** Keep unsupported roles/custom legacy policies blocked from automatic conversion. End compatibility per resource only after its mapping, UI and scope/concurrency tests are complete; do not claim global unification from one pilot.
+
 Quarantining an unowned policy must not turn a previously required approval or financial restriction into automatic approval or unlimited authority.
 
 **Why:** The user explicitly required preserving legacy restrictions without guessing their company; merely excluding an unknown policy from a query can otherwise remove its protection.

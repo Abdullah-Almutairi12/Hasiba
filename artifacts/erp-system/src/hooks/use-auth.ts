@@ -60,6 +60,9 @@ export function useAuth() {
       }
     },
     staleTime: 30_000,
+    // Conversion/reversion in another owner's session must change navigation
+    // without signing the employee out or waiting for a window-focus event.
+    refetchInterval: 30_000,
     retry: false,
   });
 

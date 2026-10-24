@@ -42,6 +42,7 @@ import type {
   AnomalyStats,
   AppSettings,
   AppSettingsPatch,
+  ApplyLegacyTeamConversionBody,
   ApprovalDecisionInput,
   ApprovalRequest,
   ApprovalRequestDetail,
@@ -165,6 +166,9 @@ import type {
   InvoiceStats,
   JournalEntry,
   JournalEntryDetail,
+  LegacyTeamConversionInput,
+  LegacyTeamPreview,
+  LegacyTeamUser,
   ListAnomalyEventsParams,
   ListApprovalRequestsParams,
   ListApproverCandidates200Item,
@@ -212,6 +216,8 @@ import type {
   ReverseJournalEntry200,
   ReverseJournalEntryBody,
   Role,
+  RollbackLegacyTeamConversion200,
+  RollbackLegacyTeamConversionBody,
   RunAlertsCleanupNow200,
   RunVatThresholdCheck200,
   SalesChartPoint,
@@ -411,6 +417,443 @@ export function useGetTeamCatalog<TData = Awaited<ReturnType<typeof getTeamCatal
 
 
 
+
+export const getListLegacyTeamUsersUrl = () => {
+
+
+
+
+  return `/api/team/legacy/users`
+}
+
+export const listLegacyTeamUsers = async ( options?: Parameters<typeof customFetch>[1]): Promise<LegacyTeamUser[]> => {
+
+  return customFetch<LegacyTeamUser[]>(getListLegacyTeamUsersUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListLegacyTeamUsersQueryKey = () => {
+    return [
+    `/api/team/legacy/users`
+    ] as const;
+    }
+
+
+export const getListLegacyTeamUsersQueryOptions = <TData = Awaited<ReturnType<typeof listLegacyTeamUsers>>, TError = ErrorType<unknown>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listLegacyTeamUsers>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListLegacyTeamUsersQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listLegacyTeamUsers>>> = ({ signal }) => listLegacyTeamUsers({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listLegacyTeamUsers>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type ListLegacyTeamUsersQueryResult = NonNullable<Awaited<ReturnType<typeof listLegacyTeamUsers>>>
+export type ListLegacyTeamUsersQueryError = ErrorType<unknown>
+
+
+export function useListLegacyTeamUsers<TData = Awaited<ReturnType<typeof listLegacyTeamUsers>>, TError = ErrorType<unknown>>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listLegacyTeamUsers>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listLegacyTeamUsers>>,
+          TError,
+          Awaited<ReturnType<typeof listLegacyTeamUsers>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useListLegacyTeamUsers<TData = Awaited<ReturnType<typeof listLegacyTeamUsers>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listLegacyTeamUsers>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listLegacyTeamUsers>>,
+          TError,
+          Awaited<ReturnType<typeof listLegacyTeamUsers>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useListLegacyTeamUsers<TData = Awaited<ReturnType<typeof listLegacyTeamUsers>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listLegacyTeamUsers>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useListLegacyTeamUsers<TData = Awaited<ReturnType<typeof listLegacyTeamUsers>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listLegacyTeamUsers>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getListLegacyTeamUsersQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getPreviewLegacyTeamConversionUrl = () => {
+
+
+
+
+  return `/api/team/legacy/preview`
+}
+
+export const previewLegacyTeamConversion = async (legacyTeamConversionInput: LegacyTeamConversionInput, options?: Parameters<typeof customFetch>[1]): Promise<LegacyTeamPreview> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<LegacyTeamPreview>(getPreviewLegacyTeamConversionUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(legacyTeamConversionInput)
+  }
+);}
+
+
+
+
+
+export const getPreviewLegacyTeamConversionMutationKey = () => ['previewLegacyTeamConversion'] as const;
+
+export const getPreviewLegacyTeamConversionMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof previewLegacyTeamConversion>>, TError,PreviewLegacyTeamConversionMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof previewLegacyTeamConversion>>, TError,PreviewLegacyTeamConversionMutationVariables, TContext> => {
+
+const mutationKey = getPreviewLegacyTeamConversionMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof previewLegacyTeamConversion>>, PreviewLegacyTeamConversionMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  previewLegacyTeamConversion(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PreviewLegacyTeamConversionMutationResult = NonNullable<Awaited<ReturnType<typeof previewLegacyTeamConversion>>>
+    export type PreviewLegacyTeamConversionMutationBody = BodyType<LegacyTeamConversionInput>
+    export type PreviewLegacyTeamConversionMutationError = ErrorType<unknown>
+    export type PreviewLegacyTeamConversionMutationVariables = {data: BodyType<LegacyTeamConversionInput>}
+
+    export const usePreviewLegacyTeamConversion = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof previewLegacyTeamConversion>>, TError,PreviewLegacyTeamConversionMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof previewLegacyTeamConversion>>,
+        TError,
+        PreviewLegacyTeamConversionMutationVariables,
+        TContext
+      > => {
+      return useMutation(getPreviewLegacyTeamConversionMutationOptions(options), queryClient);
+    }
+
+export const getApplyLegacyTeamConversionUrl = () => {
+
+
+
+
+  return `/api/team/legacy/apply`
+}
+
+export const applyLegacyTeamConversion = async (applyLegacyTeamConversionBody: ApplyLegacyTeamConversionBody, options?: Parameters<typeof customFetch>[1]): Promise<TeamPerson> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<TeamPerson>(getApplyLegacyTeamConversionUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(applyLegacyTeamConversionBody)
+  }
+);}
+
+
+
+
+
+export const getApplyLegacyTeamConversionMutationKey = () => ['applyLegacyTeamConversion'] as const;
+
+export const getApplyLegacyTeamConversionMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof applyLegacyTeamConversion>>, TError,ApplyLegacyTeamConversionMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof applyLegacyTeamConversion>>, TError,ApplyLegacyTeamConversionMutationVariables, TContext> => {
+
+const mutationKey = getApplyLegacyTeamConversionMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof applyLegacyTeamConversion>>, ApplyLegacyTeamConversionMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  applyLegacyTeamConversion(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ApplyLegacyTeamConversionMutationResult = NonNullable<Awaited<ReturnType<typeof applyLegacyTeamConversion>>>
+    export type ApplyLegacyTeamConversionMutationBody = BodyType<ApplyLegacyTeamConversionBody>
+    export type ApplyLegacyTeamConversionMutationError = ErrorType<unknown>
+    export type ApplyLegacyTeamConversionMutationVariables = {data: BodyType<ApplyLegacyTeamConversionBody>}
+
+    export const useApplyLegacyTeamConversion = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof applyLegacyTeamConversion>>, TError,ApplyLegacyTeamConversionMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof applyLegacyTeamConversion>>,
+        TError,
+        ApplyLegacyTeamConversionMutationVariables,
+        TContext
+      > => {
+      return useMutation(getApplyLegacyTeamConversionMutationOptions(options), queryClient);
+    }
+
+export const getPreviewLegacyTeamRollbackUrl = (id: number,) => {
+
+
+
+
+  return `/api/team/legacy/${id}/rollback-preview`
+}
+
+export const previewLegacyTeamRollback = async (id: number, options?: Parameters<typeof customFetch>[1]): Promise<LegacyTeamPreview> => {
+
+  return customFetch<LegacyTeamPreview>(getPreviewLegacyTeamRollbackUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getPreviewLegacyTeamRollbackQueryKey = (id: number,) => {
+    return [
+    `/api/team/legacy/${id}/rollback-preview`
+    ] as const;
+    }
+
+
+export const getPreviewLegacyTeamRollbackQueryOptions = <TData = Awaited<ReturnType<typeof previewLegacyTeamRollback>>, TError = ErrorType<unknown>>(id: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof previewLegacyTeamRollback>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getPreviewLegacyTeamRollbackQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof previewLegacyTeamRollback>>> = ({ signal }) => previewLegacyTeamRollback(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: id !== null && id !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof previewLegacyTeamRollback>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type PreviewLegacyTeamRollbackQueryResult = NonNullable<Awaited<ReturnType<typeof previewLegacyTeamRollback>>>
+export type PreviewLegacyTeamRollbackQueryError = ErrorType<unknown>
+
+
+export function usePreviewLegacyTeamRollback<TData = Awaited<ReturnType<typeof previewLegacyTeamRollback>>, TError = ErrorType<unknown>>(
+ id: number, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof previewLegacyTeamRollback>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof previewLegacyTeamRollback>>,
+          TError,
+          Awaited<ReturnType<typeof previewLegacyTeamRollback>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function usePreviewLegacyTeamRollback<TData = Awaited<ReturnType<typeof previewLegacyTeamRollback>>, TError = ErrorType<unknown>>(
+ id: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof previewLegacyTeamRollback>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof previewLegacyTeamRollback>>,
+          TError,
+          Awaited<ReturnType<typeof previewLegacyTeamRollback>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function usePreviewLegacyTeamRollback<TData = Awaited<ReturnType<typeof previewLegacyTeamRollback>>, TError = ErrorType<unknown>>(
+ id: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof previewLegacyTeamRollback>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function usePreviewLegacyTeamRollback<TData = Awaited<ReturnType<typeof previewLegacyTeamRollback>>, TError = ErrorType<unknown>>(
+ id: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof previewLegacyTeamRollback>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getPreviewLegacyTeamRollbackQueryOptions(id,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getRollbackLegacyTeamConversionUrl = (id: number,) => {
+
+
+
+
+  return `/api/team/legacy/${id}/rollback`
+}
+
+export const rollbackLegacyTeamConversion = async (id: number,
+    rollbackLegacyTeamConversionBody: RollbackLegacyTeamConversionBody, options?: Parameters<typeof customFetch>[1]): Promise<RollbackLegacyTeamConversion200> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<RollbackLegacyTeamConversion200>(getRollbackLegacyTeamConversionUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(rollbackLegacyTeamConversionBody)
+  }
+);}
+
+
+
+
+
+export const getRollbackLegacyTeamConversionMutationKey = () => ['rollbackLegacyTeamConversion'] as const;
+
+export const getRollbackLegacyTeamConversionMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof rollbackLegacyTeamConversion>>, TError,RollbackLegacyTeamConversionMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof rollbackLegacyTeamConversion>>, TError,RollbackLegacyTeamConversionMutationVariables, TContext> => {
+
+const mutationKey = getRollbackLegacyTeamConversionMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof rollbackLegacyTeamConversion>>, RollbackLegacyTeamConversionMutationVariables> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  rollbackLegacyTeamConversion(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RollbackLegacyTeamConversionMutationResult = NonNullable<Awaited<ReturnType<typeof rollbackLegacyTeamConversion>>>
+    export type RollbackLegacyTeamConversionMutationBody = BodyType<RollbackLegacyTeamConversionBody>
+    export type RollbackLegacyTeamConversionMutationError = ErrorType<unknown>
+    export type RollbackLegacyTeamConversionMutationVariables = {id: number;data: BodyType<RollbackLegacyTeamConversionBody>}
+
+    export const useRollbackLegacyTeamConversion = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof rollbackLegacyTeamConversion>>, TError,RollbackLegacyTeamConversionMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof rollbackLegacyTeamConversion>>,
+        TError,
+        RollbackLegacyTeamConversionMutationVariables,
+        TContext
+      > => {
+      return useMutation(getRollbackLegacyTeamConversionMutationOptions(options), queryClient);
+    }
 
 export const getGetTeamSetupUrl = () => {
 

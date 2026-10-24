@@ -43,6 +43,21 @@ export type TeamGrant = TeamGrantInput & {
   id: number;
 };
 
+export interface LegacyTeamUser {
+  userId: number;
+  /** @nullable */
+  personId: number | null;
+  name: string;
+  /** @nullable */
+  email: string | null;
+  role: string;
+  /** @nullable */
+  branchId: number | null;
+  conversionState: string;
+  eligible: boolean;
+  reason?: string;
+}
+
 export type TeamPersonInputLoginKindsItem = typeof TeamPersonInputLoginKindsItem[keyof typeof TeamPersonInputLoginKindsItem];
 
 
@@ -59,6 +74,19 @@ export interface TeamPersonInput {
   loginKinds: TeamPersonInputLoginKindsItem[];
   grants: TeamGrantInput[];
   deniedActions: string[];
+}
+
+export interface LegacyTeamConversionInput {
+  userId: number;
+  person: TeamPersonInput;
+}
+
+export interface LegacyTeamPreview {
+  digest: string;
+  originalRole: string;
+  allowedActions: string[];
+  warnings: string[];
+  person?: TeamPersonInput;
 }
 
 export type TeamPerson = TeamPersonInput & ({
@@ -2536,6 +2564,19 @@ export interface CreateSupplierBody {
   /** @nullable */
   notes?: string | null;
 }
+
+export type ApplyLegacyTeamConversionBody = LegacyTeamConversionInput & {
+  expectedDigest: string;
+};
+
+export type RollbackLegacyTeamConversionBody = {
+  expectedDigest: string;
+  reason: string;
+};
+
+export type RollbackLegacyTeamConversion200 = {
+  restored: boolean;
+};
 
 export type InviteTeamPerson201 = {
   activationToken: string;

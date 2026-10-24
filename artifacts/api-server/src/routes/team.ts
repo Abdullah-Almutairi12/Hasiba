@@ -11,6 +11,8 @@ import { scopedRouteAction } from "../middlewares/managed-access";
 import { requireSameOrigin } from "../middlewares/require-same-origin";
 import { FinancialRequestError } from "../lib/financial-transaction";
 import { getCompanyId } from "../lib/scoped-db";
+import { LegacyConversionInput, legacyTeamUsers, previewLegacyTeamConversion, applyLegacyTeamConversion,
+  previewLegacyTeamRollback, rollbackLegacyTeamConversion } from "../lib/legacy-team-conversion";
 
 type AsyncHandler = (req: Request, res: Response) => Promise<unknown>;
 const wrap = (handler: AsyncHandler) => async (req: Request, res: Response, next: NextFunction) => {
@@ -43,6 +45,25 @@ function routeInventory(stack: unknown[]): Array<{ method: string; path: string;
 }
 export function makeTeamRouter(getStack: () => unknown[]) {
   const router = Router();
+  router.get("/team/legacy/users", wrap(async (req, res) => {
+    res.json(await legacyTeamUsers(getCompanyId(req), req.session.userId!));
+  }));
+  router.post("/team/legacy/preview", wrap(async (req, res) => {
+    res.json(await previewLegacyTeamConversion(getCompanyId(req), req.session.userId!, LegacyConversionInput.parse(req.body)));
+  }));
+  router.post("/team/legacy/apply", wrap(async (req, res) => {
+    const body = LegacyConversionInput.extend({ expectedDigest: z.string().regex(/^[a-f0-9]{64}$/) }).parse(req.body);
+    res.json(await applyLegacyTeamConversion(getCompanyId(req), req.session.userId!,
+      { userId: body.userId, person: body.person }, body.expectedDigest));
+  }));
+  router.get("/team/legacy/:id/rollback-preview", wrap(async (req, res) => {
+    res.json(await previewLegacyTeamRollback(getCompanyId(req), req.session.userId!, id(req)));
+  }));
+  router.post("/team/legacy/:id/rollback", wrap(async (req, res) => {
+    const body = z.object({ expectedDigest: z.string().regex(/^[a-f0-9]{64}$/),
+      reason: z.string().trim().min(10).max(1000) }).strict().parse(req.body);
+    res.json(await rollbackLegacyTeamConversion(getCompanyId(req), req.session.userId!, id(req), body.expectedDigest, body.reason));
+  }));
   router.get("/team/catalog", wrap(async (req, res) => {
     await teamOwner(getCompanyId(req), req.session.userId!);
     res.json({ actions: TEAM_ACTIONS, templates: TEAM_TEMPLATES, routes: routeInventory(getStack()) });

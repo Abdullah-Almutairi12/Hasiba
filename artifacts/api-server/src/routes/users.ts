@@ -693,7 +693,7 @@ router.post(
 
 // Lightweight permissions endpoint — frontend uses it to drive sidebar / page guards.
 router.get("/users/permissions", requireRole(...ALL_ROLES), async (req, res) => {
-  const role = req.session.role;
+  const role = await managedProfile(req.session.userId!, req.session.companyId!) ? "scoped" : req.session.role;
   res.json({
     role,
     permissions: ROLES.find((r) => r.key === role)?.permissions ?? [],

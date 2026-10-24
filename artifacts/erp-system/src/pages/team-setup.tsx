@@ -97,6 +97,7 @@ import {
   type GrantResource,
   type LoginKind,
 } from "@/lib/team-access";
+import { LegacyConversionPanel } from "@/components/legacy-conversion-panel";
 
 const TONE: Record<string, string> = {
   ok: "border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200",
@@ -363,6 +364,8 @@ function TeamSetupInner() {
           )}
         </div>
       )}
+
+      <LegacyConversionPanel branches={branches} warehouses={warehouses} />
 
       <PolicyPanel setup={setup} />
     </div>

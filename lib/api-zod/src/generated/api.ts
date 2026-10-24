@@ -29,6 +29,162 @@ export const GetTeamCatalogResponse = zod.object({
 })
 
 
+export const ListLegacyTeamUsersResponseItem = zod.object({
+  "userId": zod.number().int(),
+  "personId": zod.number().int().nullable(),
+  "name": zod.string(),
+  "email": zod.string().nullable(),
+  "role": zod.string(),
+  "branchId": zod.number().int().nullable(),
+  "conversionState": zod.string(),
+  "eligible": zod.boolean(),
+  "reason": zod.string().optional()
+})
+export const ListLegacyTeamUsersResponse = zod.array(ListLegacyTeamUsersResponseItem)
+
+
+export const PreviewLegacyTeamConversionBody = zod.object({
+  "userId": zod.number().int(),
+  "person": zod.object({
+  "creationKey": zod.string(),
+  "name": zod.string(),
+  "email": zod.string().nullable(),
+  "loginKinds": zod.array(zod.enum(['platform', 'pos'])),
+  "grants": zod.array(zod.object({
+  "resource": zod.enum(['inventory', 'pos']),
+  "branchId": zod.number().int(),
+  "warehouseIds": zod.array(zod.number().int()),
+  "actions": zod.array(zod.string()),
+  "amountLimit": zod.string().nullable(),
+  "startsAt": zod.string().nullable(),
+  "endsAt": zod.string().nullable()
+})),
+  "deniedActions": zod.array(zod.string())
+})
+})
+
+export const PreviewLegacyTeamConversionResponse = zod.object({
+  "digest": zod.string(),
+  "originalRole": zod.string(),
+  "allowedActions": zod.array(zod.string()),
+  "warnings": zod.array(zod.string()),
+  "person": zod.object({
+  "creationKey": zod.string(),
+  "name": zod.string(),
+  "email": zod.string().nullable(),
+  "loginKinds": zod.array(zod.enum(['platform', 'pos'])),
+  "grants": zod.array(zod.object({
+  "resource": zod.enum(['inventory', 'pos']),
+  "branchId": zod.number().int(),
+  "warehouseIds": zod.array(zod.number().int()),
+  "actions": zod.array(zod.string()),
+  "amountLimit": zod.string().nullable(),
+  "startsAt": zod.string().nullable(),
+  "endsAt": zod.string().nullable()
+})),
+  "deniedActions": zod.array(zod.string())
+}).optional()
+})
+
+
+export const ApplyLegacyTeamConversionBody = zod.object({
+  "userId": zod.number().int(),
+  "person": zod.object({
+  "creationKey": zod.string(),
+  "name": zod.string(),
+  "email": zod.string().nullable(),
+  "loginKinds": zod.array(zod.enum(['platform', 'pos'])),
+  "grants": zod.array(zod.object({
+  "resource": zod.enum(['inventory', 'pos']),
+  "branchId": zod.number().int(),
+  "warehouseIds": zod.array(zod.number().int()),
+  "actions": zod.array(zod.string()),
+  "amountLimit": zod.string().nullable(),
+  "startsAt": zod.string().nullable(),
+  "endsAt": zod.string().nullable()
+})),
+  "deniedActions": zod.array(zod.string())
+})
+}).and(zod.object({
+  "expectedDigest": zod.string()
+}))
+
+export const ApplyLegacyTeamConversionResponse = zod.object({
+  "creationKey": zod.string(),
+  "name": zod.string(),
+  "email": zod.string().nullable(),
+  "loginKinds": zod.array(zod.enum(['platform', 'pos'])),
+  "grants": zod.array(zod.object({
+  "resource": zod.enum(['inventory', 'pos']),
+  "branchId": zod.number().int(),
+  "warehouseIds": zod.array(zod.number().int()),
+  "actions": zod.array(zod.string()),
+  "amountLimit": zod.string().nullable(),
+  "startsAt": zod.string().nullable(),
+  "endsAt": zod.string().nullable()
+})),
+  "deniedActions": zod.array(zod.string())
+}).and(zod.object({
+  "personId": zod.number().int(),
+  "userId": zod.number().int().nullable(),
+  "status": zod.string(),
+  "revision": zod.number().int(),
+  "grants": zod.array(zod.object({
+  "resource": zod.enum(['inventory', 'pos']),
+  "branchId": zod.number().int(),
+  "warehouseIds": zod.array(zod.number().int()),
+  "actions": zod.array(zod.string()),
+  "amountLimit": zod.string().nullable(),
+  "startsAt": zod.string().nullable(),
+  "endsAt": zod.string().nullable()
+}).and(zod.object({
+  "id": zod.number().int()
+})))
+}))
+
+
+export const PreviewLegacyTeamRollbackParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const PreviewLegacyTeamRollbackResponse = zod.object({
+  "digest": zod.string(),
+  "originalRole": zod.string(),
+  "allowedActions": zod.array(zod.string()),
+  "warnings": zod.array(zod.string()),
+  "person": zod.object({
+  "creationKey": zod.string(),
+  "name": zod.string(),
+  "email": zod.string().nullable(),
+  "loginKinds": zod.array(zod.enum(['platform', 'pos'])),
+  "grants": zod.array(zod.object({
+  "resource": zod.enum(['inventory', 'pos']),
+  "branchId": zod.number().int(),
+  "warehouseIds": zod.array(zod.number().int()),
+  "actions": zod.array(zod.string()),
+  "amountLimit": zod.string().nullable(),
+  "startsAt": zod.string().nullable(),
+  "endsAt": zod.string().nullable()
+})),
+  "deniedActions": zod.array(zod.string())
+}).optional()
+})
+
+
+export const RollbackLegacyTeamConversionParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const RollbackLegacyTeamConversionBody = zod.object({
+  "expectedDigest": zod.string(),
+  "reason": zod.string()
+})
+
+export const RollbackLegacyTeamConversionResponse = zod.object({
+  "restored": zod.boolean()
+})
+
+
 export const GetTeamSetupResponse = zod.object({
   "revision": zod.number().int(),
   "mode": zod.enum(['solo', 'team']),

@@ -19,6 +19,8 @@ export async function managedProfile(userId: number, companyId: number, connecti
     FROM users u JOIN companies c ON c.id=${companyId}
     LEFT JOIN user_companies uc ON uc.user_id=u.id AND uc.company_id=c.id
     LEFT JOIN employee_access a ON a.user_id=u.id AND a.company_id=c.id
+      AND NOT EXISTS(SELECT 1 FROM legacy_team_conversions lc WHERE lc.company_id=a.company_id
+        AND lc.user_id=a.user_id AND lc.employee_id=a.employee_id AND lc.state='reverted')
     LEFT JOIN employees e ON e.id=a.employee_id AND e.company_id=a.company_id
     WHERE u.id=${userId}`);
   return row?.managed ? row : null;

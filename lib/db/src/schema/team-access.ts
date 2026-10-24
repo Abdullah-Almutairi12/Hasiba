@@ -49,6 +49,25 @@ export const responsibilityGrantsTable = pgTable("responsibility_grants", {
   createdBy: integer("created_by").notNull().references(() => usersTable.id),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+export const legacyTeamConversionsTable = pgTable("legacy_team_conversions", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").notNull().references(() => companiesTable.id),
+  userId: integer("user_id").notNull().references(() => usersTable.id),
+  employeeId: integer("employee_id").notNull().references(() => employeeAccessTable.employeeId),
+  originalRole: text("original_role").notNull(),
+  originalBranchId: integer("original_branch_id"),
+  appliedDigest: text("applied_digest").notNull(),
+  state: text("state").notNull().default("active"),
+  createdBy: integer("created_by").notNull().references(() => usersTable.id),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  revertedBy: integer("reverted_by").references(() => usersTable.id),
+  revertedAt: timestamp("reverted_at", { withTimezone: true }),
+  reason: text("reason"),
+}, t => [
+  uniqueIndex("legacy_team_conversion_identity_uq").on(t.companyId, t.userId),
+  uniqueIndex("legacy_team_conversion_employee_uq").on(t.employeeId),
+]);
 export const teamInvitationsTable = pgTable("team_invitations", {
   id: serial("id").primaryKey(),
   companyId: integer("company_id").notNull().references(() => companiesTable.id),

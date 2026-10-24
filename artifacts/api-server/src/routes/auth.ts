@@ -7,6 +7,7 @@ import { and, eq, desc } from "drizzle-orm";
 import { z } from "zod";
 import { isRole } from "../middlewares/require-role";
 import { isPublishedBootstrapPassword } from "../lib/bootstrap-password";
+import { managedProfile } from "../lib/responsibility-context";
 
 /**
  * Look up the company the user should land in after login. Returns the
@@ -96,6 +97,7 @@ router.post("/auth/login", loginLimiter, async (req, res) => {
       return res.status(403).json({ error: "ليس لديك وصول إلى هذه الشركة" });
     }
 
+    const effectiveRole = await managedProfile(user.id, companyId) ? "scoped" : membership.role;
     await db.update(usersTable).set({ lastLoginAt: new Date() }).where(eq(usersTable.id, user.id));
 
     req.session.regenerate((regenErr) => {
@@ -117,7 +119,7 @@ router.post("/auth/login", loginLimiter, async (req, res) => {
           id: user.id,
           name: user.name,
           email: user.email,
-          role: membership.role,
+          role: effectiveRole,
           branchId: user.branchId,
           preferredBranchId: user.preferredBranchId,
           avatarUrl: user.avatarUrl,
@@ -288,19 +290,19 @@ router.get("/auth/me", async (req, res) => {
       id: user.id,
       name: user.name,
       email: user.email,
-      role: current.role,
+      role: await managedProfile(user.id, req.session.companyId!) ? "scoped" : current.role,
       branchId: user.branchId,
       preferredBranchId: user.preferredBranchId,
       avatarUrl: user.avatarUrl,
       companyId: req.session.companyId ?? null,
       businessType,
-      companies: memberships.map((m) => ({
+      companies: await Promise.all(memberships.map(async (m) => ({
         id: m.id,
         name: m.name,
-        role: m.role,
+        role: await managedProfile(user.id, m.id) ? "scoped" : m.role,
         isDefault: m.isDefault,
         isActive: m.isActive,
-      })),
+      }))),
     });
   } catch (err) {
     req.log.error({ err }, "Auth me failed");
@@ -370,7 +372,7 @@ router.post("/auth/switch-company", async (req, res) => {
         res.status(500).json({ error: "حدث خطأ في الخادم" });
         return;
       }
-      res.json({ companyId, role: membership.role });
+      res.json({ companyId, role: await managedProfile(req.session.userId!, companyId) ? "scoped" : membership.role });
     });
     return;
   } catch (err) {

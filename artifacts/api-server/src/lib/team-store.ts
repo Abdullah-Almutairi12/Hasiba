@@ -62,7 +62,7 @@ export async function teamPeople(companyId: number, connection: DbOrTx = db, per
     FROM employee_access a JOIN employees e ON e.id=a.employee_id AND e.company_id=a.company_id
     WHERE a.company_id=${companyId} ${personId ? sql`AND a.employee_id=${personId}` : sql``} ORDER BY a.employee_id`);
 }
-export async function previewTeamPerson(companyId: number, person: TeamPerson, connection: DbOrTx = db, replacing?: number) {
+export async function previewTeamPerson(companyId: number, person: TeamPerson, connection: DbOrTx = db, replacing?: number, existingLoginSeat = false) {
   const policy = await teamPolicy(companyId, connection);
   for (const grant of person.grants) {
     if (!policy.enabledModules.includes(grant.resource)) throw new FinancialRequestError("الوحدة غير متاحة في استحقاق المنشأة المهيأ", 403);
@@ -75,7 +75,7 @@ export async function previewTeamPerson(companyId: number, person: TeamPerson, c
   const [old] = replacing ? await teamPeople(companyId, connection, replacing) : [];
   const reserving = person.loginKinds.length > 0;
   const alreadyReserved = old && old.loginKinds.length > 0 && ["active","pending","device_setup_required"].includes(old.status);
-  if (reserving && !alreadyReserved && policy.seatLimit != null && policy.reservedAccessSlots >= policy.seatLimit) {
+  if (reserving && !alreadyReserved && !existingLoginSeat && policy.seatLimit != null && policy.reservedAccessSlots >= policy.seatLimit) {
     throw new FinancialRequestError("بلغت المنشأة حد أماكن الدخول المهيأ؛ يمكن إضافة سجل بلا دخول", 409);
   }
   if (person.email) {
@@ -94,7 +94,7 @@ export async function previewTeamPerson(companyId: number, person: TeamPerson, c
     ],
   };
 }
-async function storeGrants(tx: DbOrTx, companyId: number, employeeId: number, userId: number, person: TeamPerson) {
+export async function storeGrants(tx: DbOrTx, companyId: number, employeeId: number, userId: number, person: TeamPerson) {
   await tx.execute(sql`UPDATE responsibility_grants SET revoked_at=now() WHERE company_id=${companyId}
     AND employee_id=${employeeId} AND revoked_at IS NULL`);
   for (const g of person.grants) await tx.execute(sql`
@@ -134,6 +134,9 @@ export async function updateTeamPerson(companyId: number, userId: number, person
   return teamWrite(companyId, userId, async tx => {
     const [before] = await teamPeople(companyId, tx, personId);
     if (!before) throw new FinancialRequestError("الشخص غير متاح", 404);
+    const [reverted] = await teamRows(tx, sql`SELECT id FROM legacy_team_conversions WHERE company_id=${companyId}
+      AND employee_id=${personId} AND state='reverted'`);
+    if (reverted) throw new FinancialRequestError("أعيد هذا المستخدم إلى المسار القديم؛ لا تعاد منحته من محرر الفريق", 409);
     if (before.revision !== expectedRevision || person.creationKey !== before.creationKey) {
       throw new FinancialRequestError("تغير السجل؛ أعد تحميله قبل التعديل", 409);
     }

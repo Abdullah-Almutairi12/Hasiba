@@ -40,6 +40,98 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/TeamCatalog" }
+  /team/legacy/users:
+    get:
+      operationId: listLegacyTeamUsers
+      tags: [Team]
+      responses:
+        "200":
+          description: Owner-only existing memberships and explicit conversion state.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/LegacyTeamUser" }
+  /team/legacy/preview:
+    post:
+      operationId: previewLegacyTeamConversion
+      tags: [Team]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LegacyTeamConversionInput" }
+      responses:
+        "200":
+          description: Read-only conservative impact preview; digest binds current state and selected grants.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LegacyTeamPreview" }
+  /team/legacy/apply:
+    post:
+      operationId: applyLegacyTeamConversion
+      tags: [Team]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: "#/components/schemas/LegacyTeamConversionInput"
+                - type: object
+                  required: [expectedDigest]
+                  properties:
+                    expectedDigest: { type: string }
+      responses:
+        "200":
+          description: Audited adoption of an existing person and identity; credentials unchanged.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TeamPerson" }
+  /team/legacy/{id}/rollback-preview:
+    get:
+      operationId: previewLegacyTeamRollback
+      tags: [Team]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Explicit restoration impact preview; no mutation.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LegacyTeamPreview" }
+  /team/legacy/{id}/rollback:
+    post:
+      operationId: rollbackLegacyTeamConversion
+      tags: [Team]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [expectedDigest, reason]
+              properties:
+                expectedDigest: { type: string }
+                reason: { type: string }
+      responses:
+        "200":
+          description: Historical grants retained and revoked; only the original unchanged membership is restored.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [restored]
+                properties:
+                  restored: { type: boolean }
   /team/setup:
     get:
       operationId: getTeamSetup
@@ -4081,6 +4173,34 @@ components:
           required: [id]
           properties:
             id: { type: integer }
+    LegacyTeamUser:
+      type: object
+      required: [userId, personId, name, email, role, branchId, conversionState, eligible]
+      properties:
+        userId: { type: integer }
+        personId: { type: [integer, "null"] }
+        name: { type: string }
+        email: { type: [string, "null"] }
+        role: { type: string }
+        branchId: { type: [integer, "null"] }
+        conversionState: { type: string }
+        eligible: { type: boolean }
+        reason: { type: string }
+    LegacyTeamConversionInput:
+      type: object
+      required: [userId, person]
+      properties:
+        userId: { type: integer }
+        person: { $ref: "#/components/schemas/TeamPersonInput" }
+    LegacyTeamPreview:
+      type: object
+      required: [digest, originalRole, allowedActions, warnings]
+      properties:
+        digest: { type: string }
+        originalRole: { type: string }
+        allowedActions: { type: array, items: { type: string } }
+        warnings: { type: array, items: { type: string } }
+        person: { $ref: "#/components/schemas/TeamPersonInput" }
     TeamPersonInput:
       type: object
       required: [creationKey, name, email, loginKinds, grants, deniedActions]
