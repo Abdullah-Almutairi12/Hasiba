@@ -446,6 +446,11 @@ async function posDecisionAuthority(
       if (!member) return null;
       const viewer = await approvalViewer(principal, request, connection);
       if (!viewer) return null;
+      // A named reviewer still needs approval authority, not merely read access.
+      // A bounded delegation may grant that operation to a native reader, but
+      // never override the recipient's explicit custom denial.
+      if ((principal === path.fromUserId || viewer.custom) &&
+        !viewer.capabilities.includes("approve")) return null;
       const cap = await financialPolicy(request.companyId, member.role, key!, connection);
       if (cap.blocked || (cap.max != null && Number(request.amount) > cap.max)) return null;
       principals.push({ userId: principal, role: member.role, branch: member.branchId,

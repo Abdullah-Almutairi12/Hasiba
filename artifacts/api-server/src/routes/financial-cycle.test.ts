@@ -125,7 +125,7 @@ describe.sequential("deferred POS authority is live at financial execution", () 
     await rows("UPDATE user_companies SET role='owner' WHERE user_id=$1 AND company_id=$2", [makerId, companyId]);
     await rows("UPDATE users SET branch_id=NULL WHERE id=$1", [makerId]);
   });
-  async function prepare(useDelegation = false) {
+  async function prepare(useDelegation = false, approve = true) {
     await rows("UPDATE users SET is_active=true,branch_id=$1 WHERE id IN ($2,$3)", [branchId, reviewerId, delegatedId]);
     await rows("INSERT INTO user_companies(user_id,company_id,role,is_default) VALUES($1,$2,'manager',false) ON CONFLICT(user_id,company_id) DO UPDATE SET role='manager'",
       [reviewerId, companyId]);
@@ -156,22 +156,35 @@ describe.sequential("deferred POS authority is live at financial execution", () 
     expect(blocked.status, JSON.stringify(blocked.body)).toBe(403);
     const id = blocked.body.approvalRequestId as number;
     expect(id).toBeTypeOf("number");
-    expect((await (useDelegation ? delegated : reviewer).post(`/api/workflow/approval-requests/${id}/act`).send({ action: "approve" })).status).toBe(200);
-    const [action] = await rows("SELECT authority_fingerprint FROM approval_actions WHERE request_id=$1 AND action='approve'", [id]);
-    expect(action.authority_fingerprint).toMatch(/^[a-f0-9]{64}$/);
+    if (approve) {
+      expect((await (useDelegation ? delegated : reviewer).post(`/api/workflow/approval-requests/${id}/act`).send({ action: "approve" })).status).toBe(200);
+      const [action] = await rows("SELECT authority_fingerprint FROM approval_actions WHERE request_id=$1 AND action='approve'", [id]);
+      expect(action.authority_fingerprint).toMatch(/^[a-f0-9]{64}$/);
+    }
     return { id, sessionId: session.id, delegationId, intent, body: { ...intent, approvalRequestId: id }, key: `authority-execute-${reviewSequence}` };
   }
-  it.each(["role", "membership", "account", "branch", "capability", "limit", "delegation_expiry", "delegation_revocation", "delegator_role", "delegate_capability"] as const)(
+  it.each([false, true])("denies a new POS decision when approval is explicitly removed but read remains (delegate=%s)", async useDelegation => {
+    const prepared = await prepare(useDelegation, false);
+    const before = await totals();
+    await rows("INSERT INTO return_access(company_id,user_id,template,capabilities,branches,updated_by) VALUES($1,$2,'branch_manager','[\"view\"]'::jsonb,$3::jsonb,$4)",
+      [companyId, useDelegation ? delegatedId : reviewerId, JSON.stringify([branchId]), makerId]);
+    const response = await (useDelegation ? delegated : reviewer).post(`/api/workflow/approval-requests/${prepared.id}/act`).send({ action: "approve" });
+    expect(response.status).toBe(403);
+    expect(await rows("SELECT id FROM approval_actions WHERE request_id=$1 AND action='approve'", [prepared.id])).toHaveLength(0);
+    expect((await rows("SELECT status FROM approval_requests WHERE id=$1", [prepared.id]))[0].status).toBe("pending");
+    expect(await totals()).toEqual(before);
+  });
+  it.each(["role", "membership", "account", "branch", "capability", "limit", "delegation_expiry", "delegation_revocation", "delegator_role", "delegate_capability", "delegator_capability"] as const)(
     "prevents a new effect after %s revocation and preserves the original decision", async kind => {
       const prepared = await prepare(kind.startsWith("delegat"));
       const before = await totals();
       if (kind === "role" || kind === "delegator_role") await rows("UPDATE user_companies SET role='sales' WHERE user_id=$1 AND company_id=$2", [reviewerId, companyId]);
       if (kind === "membership") await rows("DELETE FROM user_companies WHERE user_id=$1 AND company_id=$2", [reviewerId, companyId]);
       if (kind === "account") await rows("UPDATE users SET is_active=false WHERE id=$1", [reviewerId]);
-      if (kind === "branch" || kind === "capability" || kind === "delegate_capability") {
+      if (kind === "branch" || kind === "capability" || kind === "delegate_capability" || kind === "delegator_capability") {
         await rows("INSERT INTO return_access(company_id,user_id,template,capabilities,branches,updated_by) VALUES($1,$2,'branch_manager',$3::jsonb,$4::jsonb,$5)",
           [companyId, kind === "delegate_capability" ? delegatedId : reviewerId,
-            JSON.stringify(kind === "branch" ? ["view"] : []), JSON.stringify(kind === "branch" ? [] : [branchId]), makerId]);
+            JSON.stringify(kind === "branch" ? ["view", "approve"] : ["view"]), JSON.stringify(kind === "branch" ? [] : [branchId]), makerId]);
       }
       if (kind === "limit") await rows("INSERT INTO financial_limits(company_id,role,action_key,max_value) VALUES($1,'manager','pos.discount_pct',5)", [companyId]);
       if (kind === "delegation_expiry") await rows("UPDATE approver_delegations SET to_date=now()-interval '1 second' WHERE id=$1", [prepared.delegationId]);
