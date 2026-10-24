@@ -238,3 +238,31 @@ mtime_ms = 1792825801018
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/b04b1112-31bc-4019-8511-eab290523c81/b056b422-d368-42ee-b7a8-360eacc4d9b8"
 storage_version_token = "1792825819206674"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "mc_icxGRyPqRN2Ta3Tlfd"
+uri = "file://generated-artifacts/pos-live-authority/report-ar.txt"
+type = "text"
+title = "تقرير التنفيذ والاختبارات — POS والتفويض"
+description = "ما أُصلح، والنسخة المختبرة، وحدود الأدلة، والمتبقي في الدفعة الأولى ونقطة الاستئناف."
+logical_id = "b86f54a2-e2ee-41ef-b89c-6ca8742b253d"
+content_hash = "sha256:d723442620f1b05049d95d41b16acce3d76ffd5eb5a260d3fac309d8bca1acc9"
+size = 18110
+mtime_ms = 1792831699754
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/b86f54a2-e2ee-41ef-b89c-6ca8742b253d/d9f158fe-1a20-4d87-9719-b6a3a8691970"
+storage_version_token = "1792831767825192"
+content_type = "text/plain"
+
+[[outputs]]
+id = "GFP4GnEemecxsMc1yGehw"
+uri = "file://generated-artifacts/pos-live-authority/verification-evidence.zip"
+type = "unspecified"
+title = "حزمة الأدلة الخام والتحقق"
+description = "42 ملفًا تشمل سجلي الواجهة والترقية، ونتائج API، ولقطات المتصفح، وبصمات الملفات وإثبات تطابق GitHub."
+logical_id = "7f2d47bb-9b5a-42db-8925-b86413d7e8d1"
+content_hash = "sha256:fdfb5c0f7bf406b5ef4dc66b3fd47d7e2c82cd626437e736fa8eb2a2b97827cf"
+size = 569202
+mtime_ms = 1792831699837
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/7f2d47bb-9b5a-42db-8925-b86413d7e8d1/5cb7eb3c-cae4-40d3-b1b9-461b44b469eb"
+storage_version_token = "1792831770461686"
+content_type = "application/octet-stream"
