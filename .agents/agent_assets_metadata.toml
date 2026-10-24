@@ -294,3 +294,17 @@ mtime_ms = 1792857190146
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/847666d3-3399-4f53-aee3-40d4b4705e25/94b0d408-4741-44b3-b211-c6310d48a9c3"
 storage_version_token = "1792857198469629"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "MsZFAFwv5B1KZ4E5jPoBo"
+uri = "file://generated-artifacts/scoped-pos-cycle/Hasiba-POS-Batch1-Evidence-74702f0.zip"
+type = "unspecified"
+title = "حاسبة — تقرير دورة POS وأدلة الدفعة الأولى"
+description = "التقرير العربي، نتائج التحقق، مصالحة المخزون والمقاعد، صور الاختبار وسجل المزامنة. دون ملف تهيئة الحسابات أو نسخ قواعد البيانات."
+logical_id = "5137dda7-04ad-4827-9e7c-9a5e28f8a37f"
+content_hash = "sha256:697e3eea55e5959957475d4c0175e74b539ae71a3837f27bc5a92618fd74befd"
+size = 897045
+mtime_ms = 1792862201002
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/5137dda7-04ad-4827-9e7c-9a5e28f8a37f/1fa6c22e-87c7-477e-84f1-2c8d296d76e6"
+storage_version_token = "1792862223746124"
+content_type = "application/octet-stream"
