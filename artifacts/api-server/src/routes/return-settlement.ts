@@ -11,6 +11,9 @@ import { recordAudit } from "../lib/audit";
 import { actOnApproval } from "../lib/workflow-engine";
 import { createCreditNoteHandler, creditNoteLimit } from "./sales";
 import { returnRequestGuard } from "../lib/return-access";
+import { lockApprovalAuthority } from "../lib/approval-authority";
+import { managedProfile, selectedResponsibility } from "../lib/responsibility-context";
+import { scopedPayoutSource } from "../lib/scoped-pos-operations";
 
 const router = Router();
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -51,6 +54,9 @@ router.get("/pos/returns/workspace", async (req, res) => {
   try {
     const companyId = req.session.companyId!, userId = req.session.userId!;
     const actor = await returnAuthorize(userId, companyId, "view");
+    const managed = await managedProfile(userId, companyId);
+    const responsibility = managed ? await selectedResponsibility(userId, companyId) : null;
+    const warehouseIds = responsibility?.warehouseIds ?? null;
     const scoped = actor.branches;
     const branchRows = (await pool.query("SELECT id,name_ar FROM branches WHERE company_id=$1 ORDER BY id", [companyId])).rows
       .filter(b => !scoped || scoped.includes(b.id));
@@ -59,7 +65,9 @@ router.get("/pos/returns/workspace", async (req, res) => {
       (SELECT jsonb_agg(to_jsonb(l) ORDER BY l.id) FROM customer_invoice_lines l WHERE l.invoice_id=i.id) AS lines,
       (SELECT jsonb_agg(jsonb_build_object('id',r.id,'amount',a.amount,'payment_method',r.payment_method,'reference',r.reference))
        FROM customer_receipt_allocations a JOIN customer_receipts r ON r.id=a.receipt_id WHERE a.invoice_id=i.id) AS receipts
-      ${sourceJoins} WHERE i.company_id=$1 AND s.branch_id=ANY($2::int[]) ORDER BY i.id DESC LIMIT 100`, [companyId, allowed])).rows;
+      ${sourceJoins} WHERE i.company_id=$1 AND s.branch_id=ANY($2::int[])
+      AND ($3::int[] IS NULL OR so.warehouse_id=ANY($3::int[]))
+      ORDER BY i.id DESC LIMIT 100`, [companyId, allowed, warehouseIds])).rows;
     const notes = (await pool.query(`SELECT n.id,n.reference,n.status,n.total,n.invoice_id,n.reason,
       c.branch_id,b.name_ar AS branch_name,c.created_by,c.approval_id,c.proof_ref,c.disposition,c.settlement_method,
       coalesce(p.refunded,0) AS refunded,coalesce(p.reserved,0) AS reserved,
@@ -71,7 +79,10 @@ router.get("/pos/returns/workspace", async (req, res) => {
       JOIN branches b ON b.id=c.branch_id AND b.company_id=c.company_id
       LEFT JOIN LATERAL (SELECT sum(amount) FILTER(WHERE status IN ('confirmed','external_confirmed')) AS refunded,
         sum(amount) FILTER(WHERE status='requested') AS reserved FROM return_payouts WHERE note_id=n.id AND company_id=$1) p ON true
-      WHERE c.company_id=$1 AND c.branch_id=ANY($2::int[]) ORDER BY n.id DESC LIMIT 200`, [companyId, allowed])).rows;
+      WHERE c.company_id=$1 AND c.branch_id=ANY($2::int[])
+      AND ($3::int[] IS NULL OR EXISTS(SELECT 1 FROM customer_invoices i JOIN sales_orders so ON so.id=i.so_id
+        AND so.company_id=i.company_id WHERE i.id=n.invoice_id AND i.company_id=n.company_id AND so.warehouse_id=ANY($3::int[])))
+      ORDER BY n.id DESC LIMIT 200`, [companyId, allowed, warehouseIds])).rows;
     const sessions = await db.transaction(async tx => {
       const ids = await query(tx, sql`SELECT s.id FROM pos_sessions s JOIN branches b ON b.id=s.branch_id
         WHERE b.company_id=${companyId} ORDER BY s.id DESC LIMIT 100`);
@@ -83,7 +94,10 @@ router.get("/pos/returns/workspace", async (req, res) => {
       return results;
     });
     const payouts = (await pool.query(`SELECT p.* FROM return_payouts p JOIN return_controls c ON c.note_id=p.note_id
-      AND c.company_id=p.company_id WHERE p.company_id=$1 AND c.branch_id=ANY($2::int[]) ORDER BY p.id DESC LIMIT 200`, [companyId, allowed])).rows;
+      AND c.company_id=p.company_id WHERE p.company_id=$1 AND c.branch_id=ANY($2::int[])
+      AND ($3::int[] IS NULL OR EXISTS(SELECT 1 FROM customer_invoices i JOIN sales_orders so ON so.id=i.so_id
+        AND so.company_id=i.company_id WHERE i.id=p.invoice_id AND i.company_id=p.company_id AND so.warehouse_id=ANY($3::int[])))
+      ORDER BY p.id DESC LIMIT 200`, [companyId, allowed, warehouseIds])).rows;
     const configure = actor.capabilities.includes("configure");
     const reports = actor.capabilities.includes("reports") ? (await pool.query(`SELECT c.branch_id,b.name_ar AS branch_name,
       count(*)::int AS notes_count,sum(n.total) FILTER(WHERE n.status='issued') AS total,
@@ -114,12 +128,14 @@ async function payout(tx: Tx, companyId: number, userId: number, input: unknown)
   const [control] = await query(tx, sql`SELECT * FROM return_controls WHERE note_id=${note.id} AND company_id=${companyId}`);
   if (!control) fail("يتطلب المستند توثيق مصدر الاستحقاق أولًا");
   await returnAuthorize(userId, companyId, "payout", Number(control.branch_id), tx);
+  await scopedPayoutSource(tx, userId, companyId, note.id);
   const fingerprint = createHash("sha256").update(JSON.stringify({ ...b, userId })).digest("hex");
   const [previous] = await query(tx, sql`SELECT * FROM return_payouts WHERE company_id=${companyId} AND idempotency_key=${b.idempotencyKey}`);
   if (previous) {
     if (previous.fingerprint !== fingerprint) fail("استعمل مفتاح الطلب لبيانات مختلفة");
     return previous;
   }
+  await scopedPayoutSource(tx, userId, companyId, note.id, b.amount);
   if (note.status !== "issued") fail("يلزم مرتجع معتمد غير ملغى أو مسوّى");
   await assertReturnSnapshot(tx, note.id);
   if (control.settlement_method !== b.method) fail("طريقة الصرف تختلف عن المعتمدة؛ يلزم طلب واعتماد جديد");
@@ -173,6 +189,7 @@ async function changePayout(tx: Tx, companyId: number, userId: number, input: un
   const [control] = await query(tx, sql`SELECT branch_id FROM return_controls WHERE note_id=${Number(lookup.note_id)} AND company_id=${companyId}`);
   if (!control) fail("المرتجع غير متاح", 404);
   await returnAuthorize(userId, companyId, cancel ? "payout" : "external", Number(control.branch_id), tx);
+  await scopedPayoutSource(tx, userId, companyId, Number(lookup.note_id), cancel ? 0 : undefined, !cancel);
   if (!note || note.status !== "issued") fail("المرتجع غير قابل للصرف");
   await assertReturnSnapshot(tx, note.id);
   const [p] = await query(tx, sql`SELECT * FROM return_payouts WHERE id=${b.payoutId} AND company_id=${companyId} FOR UPDATE`);
@@ -203,7 +220,12 @@ async function closeShift(tx: Tx, companyId: number, userId: number, input: unkn
   if (!session) fail("الوردية غير متاحة", 404);
   await returnAuthorize(userId, companyId, approve ? "difference" : "close", session.branchId, tx);
   const [old] = await query(tx, sql`SELECT * FROM pos_cash_closings WHERE session_id=${session.id} AND company_id=${companyId}`);
-  if (old?.status === "approved") return old;
+  if (old?.status === "approved") {
+    if (!approve && (b.counted == null || cents(b.counted) !== cents(old.counted) || (b.reason ?? null) !== (old.reason ?? null))) {
+      fail("الإقفال مؤكد ببيانات مختلفة؛ لا يعدل العد أو السبب بإعادة الطلب");
+    }
+    return old;
+  }
   const pending = await query(tx, sql`SELECT id FROM return_payouts WHERE session_id=${session.id} AND company_id=${companyId} AND status='requested' LIMIT 1`);
   if (pending.length) fail("يوجد طلب رد غير مكتمل؛ وثق نتيجته أو ألغ الطلب قبل الإقفال");
   const summary = await sessionCash(tx, session.id, companyId);
@@ -329,6 +351,7 @@ router.post("/pos/returns/actions", async (req, res): Promise<void> => {
       res.json({ ok: true }); return;
     }
     const result = await db.transaction(async tx => {
+      await lockApprovalAuthority(tx);
       if (b.action === "payout") return payout(tx, companyId, userId, b.payload);
       if (b.action === "expense") return cashExpense(tx, companyId, userId, b.payload);
       if (b.action === "confirm_external" || b.action === "cancel_payout") return changePayout(tx, companyId, userId, b.payload, b.action === "cancel_payout");

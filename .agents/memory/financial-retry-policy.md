@@ -25,3 +25,9 @@ Treat confirmed server success followed by browser-key cleanup failure as a save
 **Why:** Completing the dialog while its persisted key remains can make a later intentionally identical operation replay the old document. A generic storage exception also encourages users to repeat an already-committed write without understanding its state.
 
 **How to apply:** Retain the current form and key, explain that the save succeeded, and require same-data recovery after storage is restored. Permit a new identical intent only after confirmation and key cleanup complete.
+
+An open shift or a matching document in a branch does not confirm a particular saved financial intent.
+
+**Why:** Multiple cashiers and devices can legitimately create similar operations in the same branch. Treating a peer's open shift as confirmation can erase another request's unresolved evidence.
+
+**How to apply:** Resolve the exact saved key/body/authorization selector through its receipt or explicit reconciliation. Keep that recovery available even when another open shift appears.

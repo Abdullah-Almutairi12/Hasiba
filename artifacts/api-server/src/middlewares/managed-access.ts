@@ -20,11 +20,18 @@ export const SCOPED_ROUTES = [
   ["GET", "/pos/sessions/:id", "pos.read"],
   ["POST", "/pos/sessions", "pos.shift.open"],
   ["POST", "/pos/orders", "pos.sell"],
-  ["GET", "/pos/orders/:id/receipt", "pos.read"],
+  ["GET", "/pos/orders/:id/receipt.pdf", "pos.read"],
+  ["GET", "/sales/credit-notes/:id/pdf", "pos.read"],
+  ["GET", "/pos/refunds/:id/pdf", "pos.read"],
+  ["GET", "/pos/sessions/:id/closing.pdf", "pos.read"],
+  ["GET", "/pos/orders", "pos.read"],
+  ["GET", "/pos/orders/:id", "pos.read"],
+  ["GET", "/pos/returns/workspace", "pos.read"],
+  ["POST", "/pos/returns/actions", "pos.operation"],
 ] as const;
 export function scopedRouteAction(method: string, path: string) {
   return SCOPED_ROUTES.find(([m, p]) => m === method &&
-    new RegExp(`^${p.replace(/:id/g, "\\d+")}$`).test(path))?.[2];
+    new RegExp(`^${p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/:id/g, "\\d+")}$`).test(path))?.[2];
 }
 export async function managedAccessGate(req: Request, res: Response, next: NextFunction) {
   try {
@@ -33,7 +40,14 @@ export async function managedAccessGate(req: Request, res: Response, next: NextF
     if (!userId || !companyId) return next();
     const profile = await managedProfile(userId, companyId);
     if (!profile) return next();
-    const action = scopedRouteAction(req.method, req.path);
+    let action: string | undefined = scopedRouteAction(req.method, req.path);
+    if (action === "pos.operation") {
+      action = ({
+        request: "pos.return.request", payout: "pos.return.payout",
+        cancel_payout: "pos.return.payout", confirm_external: "pos.return.external",
+        close: "pos.shift.close", approve_close: "pos.shift.difference",
+      } as Record<string, string>)[String(req.body?.action)];
+    }
     if (!action) return void res.status(403).json({ error: "هذا المسار غير ممنوح للوصول المحدد؛ لا تكفي الباقة أو المسمى الوظيفي" });
     if (action === "self") return next();
     if (profile.status !== "active") return void res.status(403).json({ error: "الوصول معلق أو غير مفعل" });
@@ -91,11 +105,13 @@ export async function managedAccessGate(req: Request, res: Response, next: NextF
     }
     if (action === "pos.sell") {
       const body = req.body ?? {};
-      if (Number(body.discount ?? 0) !== 0 || body.paymentIntentId != null || body.approvalId != null || body.approvalRequestId != null ||
+      if (Number(body.discount ?? 0) !== 0 && !grant.actions.includes("pos.discount") ||
+        body.paymentIntentId != null || body.approvalId != null || body.approvalRequestId != null ||
         Array.isArray(body.items) && body.items.some((i: { quantity: number }) => Number(i?.quantity) <= 0) ||
-        body.managerPassword || body.managerOverride || Array.isArray(body.payments) && body.payments.some((p: { method: string }) => p.method !== "cash") ||
-        body.paymentMethod && body.paymentMethod !== "cash") {
-        return void res.status(403).json({ error: "هذه المسؤولية للبيع النقدي دون تجاوز أو خصم؛ لم تمنح صلاحية هذا الاستثناء" });
+        body.managerPassword || body.managerOverride ||
+        !grant.actions.includes("pos.payment.record") && (Array.isArray(body.payments) && body.payments.some((p: { method: string }) => p.method !== "cash") ||
+        body.paymentMethod && body.paymentMethod !== "cash")) {
+        return void res.status(403).json({ error: "لم تمنح صلاحية الخصم أو تسجيل التحصيل المطلوب؛ الموافقة الاستثنائية والدفع الشبكي غير مفعلين لهذا المسار" });
       }
     }
     if (req.path === "/sales/sellers/workspace" && req.query.branchId != null &&

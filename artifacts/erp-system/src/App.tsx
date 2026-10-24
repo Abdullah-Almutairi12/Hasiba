@@ -1,3 +1,4 @@
+import { canReachReturns } from "@/lib/pos-actions";
 import { lazy, Suspense, useEffect } from "react";
 import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
 import { useTheme } from "@/hooks/use-theme";
@@ -88,6 +89,7 @@ const MyWorkPage = lazy(() => import("@/pages/my-work"));
 
 /** Paths a scoped (responsibility-bound) member may open. */
 const SCOPED_PATHS = new Set(["/my-work"]);
+const SCOPED_RETURNS_PATH = "/returns";
 
 /**
  * Scoped members never see the global dashboard or legacy pages: any
@@ -95,13 +97,14 @@ const SCOPED_PATHS = new Set(["/my-work"]);
  * while a POS responsibility is selected. The server still enforces
  * every request; this only keeps the UI honest.
  */
+
 function ScopedGate({ children, pos = false }: { children: React.ReactNode; pos?: boolean }) {
   const { user } = useAuth();
   const [location, setLocation] = useLocation();
   const selected = useSelectedResponsibility();
   const scoped = user?.role === "scoped";
   const posView = selected?.resource === "pos" && selected.actions.includes("pos.read");
-  const allowed = !scoped || (pos ? posView : SCOPED_PATHS.has(location));
+  const allowed = !scoped || (pos ? posView : SCOPED_PATHS.has(location) || (location === SCOPED_RETURNS_PATH && canReachReturns(selected)));
   useEffect(() => {
     if (!allowed) setLocation("/my-work", { replace: true });
   }, [allowed, setLocation]);

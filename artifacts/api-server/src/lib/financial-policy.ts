@@ -17,7 +17,6 @@ export const FINANCIAL_ACTIONS = ["pos.discount_pct", "pos.refund_amount", "ap.p
 
 export async function financialPolicy(companyId: number, role: string, actionKey: string, connection: DbOrTx = db) {
   // Managed responsibilities never inherit a legacy role's override limit.
-  if (role === "scoped") return { max: 0, source: "scoped_no_override", blocked: !(FINANCIAL_ACTIONS as readonly string[]).includes(actionKey) };
   if (!isRole(role) || !(FINANCIAL_ACTIONS as readonly string[]).includes(actionKey)) {
     return { max: 0, source: "unconfigured", blocked: true };
   }
@@ -26,6 +25,7 @@ export async function financialPolicy(companyId: number, role: string, actionKey
     eq(financialLimitsTable.actionKey, actionKey),
   ));
   if (owned) return { max: owned.maxValue == null ? null : Number(owned.maxValue), source: "company", blocked: false };
+  if (role === "scoped") return { max: 0, source: "scoped_no_override", blocked: false };
   // Preserve the existing documented no-cap behavior for known roles/actions
   // without a built-in cap. Route/capability authorization remains mandatory.
   const baseline = FINANCIAL_DEFAULTS.find(x => x[0] === role && x[1] === actionKey)?.[2] ?? null;

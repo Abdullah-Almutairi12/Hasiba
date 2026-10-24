@@ -59,7 +59,7 @@ export function legacyIssues(u: LegacyTeamUser, p: TeamPersonInput): string[] {
   if (!g || p.grants.length !== 1) return ["يجب أن تبقى مسؤولية واحدة فقط."];
   const ceiling = LEGACY_CEILING[kind];
   if (g.actions.some((a) => !ceiling.includes(a))) out.push("إجراء خارج صلاحيات الدور القديم.");
-  if (!g.actions.includes(`${kind}.read`)) out.push(`صلاحية العرض الأساسية (${kind}.read) مطلوبة.`);
+  if (!g.actions.includes(`${kind}.read`)) out.push(kind === "pos" ? "صلاحية «فتح نقطة البيع (عرض)» مطلوبة." : "صلاحية «عرض المخزون» مطلوبة.");
   if (!g.branchId) out.push("اختر الفرع.");
   if (u.branchId && g.branchId !== u.branchId) out.push("الفرع يجب أن يطابق فرع المستخدم الحالي.");
   if (g.warehouseIds.length === 0) out.push("اختر مستودعًا واحدًا على الأقل.");

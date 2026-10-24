@@ -76,7 +76,10 @@ const ROLES = ["owner", "manager", "accountant", "sales", "cashier", "inventory"
 const ROLE_LABELS: Record<string, string> = {
   owner: "مالك المنشأة", manager: "مدير", accountant: "محاسب", sales: "مبيعات", cashier: "كاشير",
   inventory: "مستودع", marketing: "تسويق", auditor: "مدقق", hr: "موارد بشرية", production: "إنتاج",
+  scoped: "مستخدم بصلاحيات محددة",
 };
+/** Financial limits accept the managed role (server ALL_ROLES includes "scoped"). */
+const LIMIT_ROLES = [...ROLES, "scoped"];
 
 function useInvalidateWorkflow() {
   const qc = useQueryClient();
@@ -393,7 +396,7 @@ function FinancialLimits() {
           <div><Label>الدور</Label>
             <Select value={role} onValueChange={setRole}>
               <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>{ROLES.map((r) => <SelectItem key={r} value={r}>{ROLE_LABELS[r]}</SelectItem>)}</SelectContent>
+              <SelectContent>{LIMIT_ROLES.map((r) => <SelectItem key={r} value={r} data-testid={`option-limit-role-${r}`}>{ROLE_LABELS[r]}</SelectItem>)}</SelectContent>
             </Select>
           </div>
           <div><Label>المفتاح</Label><Input value={actionKey} onChange={(e) => setActionKey(e.target.value)} placeholder="pos.discount_pct" /></div>
@@ -401,6 +404,9 @@ function FinancialLimits() {
           <div><Label>الوصف</Label><Input value={description} onChange={(e) => setDescription(e.target.value)} /></div>
           <div className="flex items-end"><Button onClick={submit} className="w-full">حفظ</Button></div>
         </div>
+        <p className="rounded border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900 dark:bg-amber-950/40 dark:text-amber-100" data-testid="text-scoped-limit-hint">
+          «مستخدم بصلاحيات محددة» يشمل كل مستخدم جديد أو محوّل من إعداد الفريق، ولا يرث حد الكاشير القديم. الخصم الموجب أو طلب إشعار دائن لهؤلاء يتطلب حدًا مضبوطًا صراحة لهذا الدور والمفتاح هنا، وإلا يُعامل الحد كصفر. اعتماد المرتجعات غير متاح لهم بعد؛ يراجعه المالك أو مراجع مخوّل مستقل.
+        </p>
         {grouped.map(([key, rows]) => (
           <div key={key}>
             <div className="mb-1 text-sm font-bold">{key}</div>
@@ -409,7 +415,7 @@ function FinancialLimits() {
               <TableBody>
                 {(rows ?? []).map((l) => (
                   <TableRow key={l.id}>
-                    <TableCell><Badge variant="outline">{l.role}</Badge></TableCell>
+                    <TableCell><Badge variant="outline">{ROLE_LABELS[l.role] ?? l.role}</Badge></TableCell>
                     <TableCell>{l.maxValue == null ? "بلا حد" : l.maxValue}</TableCell>
                     <TableCell className="text-xs text-muted-foreground">{l.description ?? "—"}</TableCell>
                   </TableRow>

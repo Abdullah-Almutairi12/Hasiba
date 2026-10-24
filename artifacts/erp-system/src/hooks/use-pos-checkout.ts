@@ -47,7 +47,7 @@ function readAttempt(raw: string): Attempt {
     !Number.isInteger(value.body?.sessionId) || !Array.isArray(value.body?.items) ||
     !Array.isArray(value.cart) || value.cart.length === 0 ||
     value.cart.length !== value.body.items.length ||
-    !["cash", "card", "stc", "transfer"].includes(value.body.paymentMethod ?? "") ||
+    !["cash", "card", "stc", "transfer", "deferred"].includes(value.body.paymentMethod ?? "") ||
     value.cart.some((item, index) => !Number.isInteger(item?.product?.id) ||
       typeof item.product.name !== "string" || !Number.isFinite(Number(item.product.price)) ||
       !Number.isFinite(item.quantity) || item.quantity <= 0 ||

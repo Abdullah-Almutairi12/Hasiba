@@ -1,4 +1,5 @@
 import type { Request, Response, NextFunction } from "express";
+import { managedProfile, selectedResponsibility } from "./responsibility-context";
 import {
   db,
   approvalRulesTable,
@@ -854,14 +855,17 @@ export async function checkFinancialLimit(
   connection: DbOrTx = db,
 ): Promise<{ allowed: boolean; max: number | null; source: string; reason?: string }> {
   const member = await assertWorkflowMember(companyId, userId, connection);
+  const managed = await managedProfile(userId, companyId, connection);
   if (branchId != null) {
     await assertCompanyBranch(branchId, companyId);
-    if (member.role !== "owner" && member.branchId != null && member.branchId !== branchId) {
+    const responsibility = managed && await selectedResponsibility(userId, companyId, connection);
+    if (managed && (!responsibility || responsibility.branchId !== branchId) ||
+      !managed && member.role !== "owner" && member.branchId != null && member.branchId !== branchId) {
       throw new FinancialRequestError("الفرع خارج نطاق العضو", 403);
     }
   }
   if (!Number.isFinite(value) || value < 0) throw new FinancialRequestError("قيمة مالية غير صحيحة", 400);
-  const role = member.role;
+  const role = managed ? "scoped" : member.role;
   // This only selects the cap; POS still verifies the immutable transaction
   // fingerprint and consumes the approval atomically with the sale.
   if (approvalRequestId != null) {

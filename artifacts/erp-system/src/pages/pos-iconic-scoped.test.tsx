@@ -112,4 +112,24 @@ describe("PosIconic for scoped members", () => {
     expect(urls.some((u) => u.split("?")[0].endsWith("/api/pos/orders"))).toBe(false);
     expect(sessionStorage.getItem("hasba:pos-checkout:31:21")).toBe(JSON.stringify(saved));
   });
+  it("record + discount actions: manual tenders incl. deferred and discount panel, no review UI", async () => {
+    mount(["pos.read", "pos.sell", "pos.payment.record", "pos.discount"], true);
+    expect(await screen.findByTestId("text-scoped-pos-ready")).toBeTruthy();
+    expect(screen.getByTestId("button-pay-card")).toBeTruthy();
+    expect(screen.getByTestId("button-pay-deferred")).toBeTruthy();
+    expect((screen.getByTestId("dock-more") as HTMLButtonElement).disabled).toBe(false);
+    await userEvent.click(screen.getByTestId("dock-more"));
+    expect(screen.getByTestId("text-discount-hint").textContent).toContain("مستخدم بصلاحيات محددة");
+    expect(screen.queryByTestId("panel-review")).toBeNull();
+  });
+  it("unrelated open shift in the branch never clears an unknown opening intent", async () => {
+    const saved = JSON.stringify({ key: "open-intent-key-1", body: { branchId: 3, cashierName: "سلمان", openingCash: 40 }, responsibility: "77" });
+    sessionStorage.setItem("hasba:pos-session-open:31:21", saved);
+    mount(["pos.read", "pos.sell", "pos.shift.open"], true);
+    expect(await screen.findByTestId("panel-scoped-open-recovery")).toBeTruthy();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(sessionStorage.getItem("hasba:pos-session-open:31:21")).toBe(saved);
+    expect(screen.queryByTestId("text-scoped-pos-ready")).toBeNull();
+    sessionStorage.clear();
+  });
 });

@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { returnAuthorize } from "../lib/return-access";
+import { scopedPosOrderVisible } from "../lib/scoped-pos-operations";
 import { Router } from "express";
 import {
   db,
@@ -334,7 +335,7 @@ router.post("/pos/sessions", posGuard, async (req, res) => {
     // that belongs to a different company. Returns 404 to hide
     // existence of foreign branches.
     const companyId = getCompanyId(req);
-    const { session, branch } = await db.transaction(async tx => {
+    const { session, branch } = await financialTransaction(req, async tx => {
     await lockApprovalAuthority(tx);
     let cashierName = body.cashierName;
     if (await managedProfile(req.session.userId!, companyId, tx)) {
@@ -391,6 +392,11 @@ router.get("/pos/orders", posReadGuard, async (req, res) => {
     const companyId = getCompanyId(req);
     const { limit, offset } = parsePagination(req);
     const actor = await returnAuthorize(req.session.userId!, companyId, "view");
+    const responsibility=await managedProfile(req.session.userId!,companyId)
+      ? await selectedResponsibility(req.session.userId!,companyId) : null;
+    const warehouseFilter=responsibility ? sql`EXISTS(SELECT 1 FROM sales_orders so WHERE so.company_id=${companyId}
+      AND so.source='pos' AND so.notes='POS '||${posOrdersTable.orderNumber}
+      AND so.warehouse_id=ANY(${sql.param(responsibility.warehouseIds)}::integer[]))` : sql`true`;
     const branchFilter = actor.branches == null ? sql`true` : actor.branches.length
       ? inArray(posOrdersTable.sessionId, db.select({ id: posSessionsTable.id }).from(posSessionsTable).where(inArray(posSessionsTable.branchId, actor.branches)))
       : sql`false`;
@@ -399,7 +405,7 @@ router.get("/pos/orders", posReadGuard, async (req, res) => {
       .select()
       .from(posOrdersTable)
       .where(
-        sql`${posOrdersTable.companyId} = ${companyId} and ${branchFilter}
+        sql`${posOrdersTable.companyId} = ${companyId} and ${branchFilter} and ${warehouseFilter}
           ${sessionId ? sql`and ${posOrdersTable.sessionId} = ${Number(sessionId)}` : sql``}
           ${date ? sql`and date(${posOrdersTable.createdAt}) = ${date}` : sql``}`
       )
@@ -464,6 +470,11 @@ router.get("/pos/orders/:id", posReadGuard, async (req, res, next) => {
       res.status(404).json({ error: "الطلب غير موجود" });
       return;
     }
+    const [sourceSession]=await db.select({branchId:posSessionsTable.branchId}).from(posSessionsTable)
+      .where(eq(posSessionsTable.id,order.sessionId)).limit(1);
+    if(!sourceSession) throw new FinancialRequestError("الوردية غير متاحة",404);
+    await returnAuthorize(req.session.userId!,companyId,"view",sourceSession.branchId);
+    await scopedPosOrderVisible(db,req.session.userId!,companyId,id);
     const payRows = await db
       .select()
       .from(posOrderPaymentsTable)
@@ -484,6 +495,7 @@ router.get("/pos/orders/:id", posReadGuard, async (req, res, next) => {
     });
   } catch (err) {
     req.log.error({ err }, "Error fetching POS order");
+    if (err instanceof FinancialRequestError) { res.status(err.status).json({ error: err.message, diagnosticRef: String(req.id) }); return; }
     res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -682,6 +694,11 @@ router.post(
         if (!grant || grant.resource !== "pos" || !grant.actions.includes("pos.sell") ||
           grant.branchId !== session.branchId || !issueWarehouseId || !grant.warehouseIds.includes(issueWarehouseId)) {
           throw new FinancialRequestError("المسؤولية لا تجيز مستودع الصرف أو فرع العملية", 403);
+        }
+        if (discount > 0 && !grant.actions.includes("pos.discount") ||
+          !grant.actions.includes("pos.payment.record") && (
+            body.paymentMethod !== "cash" || body.payments?.some(p => p.method !== "cash"))) {
+          throw new FinancialRequestError("سحبت صلاحية الخصم أو التحصيل قبل تنفيذ البيع", 403);
         }
       }
       if (!issueWarehouseId) {

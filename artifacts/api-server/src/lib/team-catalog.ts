@@ -4,9 +4,18 @@ export const TEAM_ACTIONS = [
   { key: "inventory.read", label: "عرض مخزون المستودعات المحددة", resource: "inventory", available: true },
   { key: "inventory.cost.read", label: "عرض تكلفة المخزون", resource: "inventory", available: true },
   { key: "pos.read", label: "عرض نقطة البيع المحددة", resource: "pos", available: true },
-  { key: "pos.sell", label: "بيع نقدي بالأسعار المعتمدة", resource: "pos", available: true },
+  { key: "pos.sell", label: "تنفيذ بيع ضمن النطاق والحد المالي", resource: "pos", available: true },
   { key: "pos.shift.open", label: "فتح وردية", resource: "pos", available: true },
-  ...["inventory.write","inventory.approve","pos.discount","pos.refund","pos.close","finance.read",
+  { key: "pos.payment.record", label: "تسجيل تحصيل غير نقدي أو آجل — ليس تنفيذ دفع شبكي", resource: "pos", available: true },
+  { key: "pos.discount", label: "خصم يخضع لسياسة وحدود الشركة", resource: "pos", available: true },
+  { key: "pos.shift.close", label: "عد الصندوق وطلب إقفال الوردية", resource: "pos", available: true },
+  { key: "pos.shift.difference", label: "اعتماد فرق صندوق قدمه شخص آخر", resource: "pos", available: true },
+  { key: "pos.return.request", label: "طلب مرتجع يتطلب مراجعة مستقلة", resource: "pos", available: true },
+  { key: "pos.return.direct", label: "مرتجع مباشر ما لم تلزم سياسة الشركة الموافقة", resource: "pos", available: true },
+  { key: "pos.return.receive", label: "إثبات استلام البضاعة وإعادتها للمستودع المحدد", resource: "pos", available: true },
+  { key: "pos.return.payout", label: "رد النقد أو تسجيل طلب رد غير نقدي", resource: "pos", available: true },
+  { key: "pos.return.external", label: "توثيق دليل تنفيذ الرد الخارجي", resource: "pos", available: true },
+  ...["inventory.write","inventory.approve","pos.refund","pos.close","finance.read",
     "hr.read","payroll.read","crm.read","reports.export","ai.read","team.manage"].map(key => ({
       key, label: key, resource: key.split(".")[0], available: false,
     })),
@@ -15,7 +24,7 @@ export const GrantInput = z.object({
   resource: z.enum(["inventory", "pos"]),
   branchId: z.number().int().positive(),
   warehouseIds: z.array(z.number().int().positive()).min(1).max(100),
-  actions: z.array(z.string()).min(1).max(10),
+  actions: z.array(z.string()).min(1).max(20),
   amountLimit: z.string().regex(/^\d{1,14}(\.\d{1,4})?$/).nullable(),
   startsAt: z.string().datetime({ offset: true }).nullable(),
   endsAt: z.string().datetime({ offset: true }).nullable(),
@@ -25,6 +34,9 @@ export const GrantInput = z.object({
   }
   if (!g.actions.includes(`${g.resource}.read`)) {
     ctx.addIssue({ code: "custom", message: "عرض نطاق المسؤولية شرط للأفعال التابعة له؛ لا يضاف ضمنيًا" });
+  }
+  if (g.actions.includes("pos.return.direct") && !g.actions.includes("pos.return.request")) {
+    ctx.addIssue({ code: "custom", message: "المرتجع المباشر يحتاج صلاحية طلب المرتجع صراحةً؛ ولا يمنح استلام البضاعة أو صرف المال" });
   }
   if (g.actions.some(key => !TEAM_ACTIONS.some(a => a.key === key && a.available && a.resource === g.resource))) {
     ctx.addIssue({ code: "custom", message: "هذا الفعل غير مغطى بمسار صلاحيات محدد؛ لا يمكن منحه" });

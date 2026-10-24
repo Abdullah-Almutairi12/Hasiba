@@ -1,5 +1,8 @@
 import { Router, type RequestHandler } from "express";
 import { returnRequestGuard, returnInvoiceBranch, returnAuthorize, returnPolicy, returnFingerprint, assertReturnSnapshot } from "../lib/return-access";
+import { lockApprovalAuthority } from "../lib/approval-authority";
+import { scopedReturnSource, scopedDirectReturn } from "../lib/scoped-pos-operations";
+import { checkFinancialLimit } from "../lib/workflow-engine";
 import { z } from "zod";
 import {
   db,
@@ -307,8 +310,9 @@ async function finalizeCreditNoteIssue(
   sessionUserId: number | null,
   companyId: number,
   context?: ApprovalExecutionContext,
+  directConnection?: DbOrTx,
 ): Promise<typeof creditNotesTable.$inferSelect> {
-  const db = context?.connection ?? approvalDatabase;
+  const db = context?.connection ?? directConnection ?? approvalDatabase;
   const result = await db.transaction(async (tx) => {
     const [note] = await tx.select().from(creditNotesTable).where(and(eq(creditNotesTable.id, noteId), eq(creditNotesTable.companyId, companyId))).for("update");
     if (!note) throw new Error("الإشعار الدائن غير موجود");
@@ -3270,6 +3274,9 @@ export const createCreditNoteHandler: RequestHandler = async (req, res) => {
       }
     }
     const result = await financialTransaction(req, async (tx) => {
+      await lockApprovalAuthority(tx);
+      const scopedReturn = body.operationalReturn && body.invoiceId
+        ? await scopedReturnSource(tx, req.session.userId!, companyId, body.invoiceId, body.warehouseId, body.restock) : null;
       const [customer] = await tx
         .select()
         .from(customersTable)
@@ -3427,6 +3434,13 @@ export const createCreditNoteHandler: RequestHandler = async (req, res) => {
           VALUES(${note.id},${companyId},${operationalBranch!},${req.session.userId!},'',${body.disposition!},${body.settlementMethod},${body.proofRef!})`);
         const fingerprint = await returnFingerprint(tx, note.id);
         await tx.execute(sql`UPDATE return_controls SET fingerprint=${fingerprint} WHERE note_id=${note.id}`);
+      }
+      if (scopedReturn) {
+        const limit = await checkFinancialLimit(companyId, req.session.userId!, "sales.credit_note_amount", Number(note.total), operationalBranch, null, tx);
+        if (!limit.allowed) throw new FinancialRequestError(limit.reason ?? "لم يهيأ حد المرتجع للمستخدم المقيد", 403);
+        if (await scopedDirectReturn(tx, req.session.userId!, companyId, operationalBranch!, note.total, note.id)) {
+          return finalizeCreditNoteIssue(note.id, req.session.userId!, companyId, undefined, tx);
+        }
       }
       return note;
     });

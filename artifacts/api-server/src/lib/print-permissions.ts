@@ -2,6 +2,7 @@ import type { RequestHandler, Request } from "express";
 import { pool } from "@workspace/db";
 import { returnActor, returnAuthorize } from "./return-access";
 import { getCompanyId } from "./scoped-db";
+import { managedProfile, selectedResponsibility } from "./responsibility-context";
 /** Company aggregates cannot safely allocate branchless ledger rows. Fail closed. */
 export const aggregatePrintGuard:RequestHandler=async(req,res,next)=>{
   try {
@@ -22,7 +23,7 @@ export async function checkDocumentPrint(req:Request, kind:"invoice"|"supplier"|
   const a=await returnActor(req.session.userId!,companyId);
   if(a.custom) await returnAuthorize(a.userId,companyId,"view");
   const queries={
-    invoice:`SELECT coalesce(i.branch_id,b.id) AS branch_id FROM customer_invoices i
+    invoice:`SELECT coalesce(i.branch_id,b.id) AS branch_id,so.warehouse_id FROM customer_invoices i
       LEFT JOIN sales_orders so ON so.id=i.so_id AND so.company_id=i.company_id AND so.source='pos'
       LEFT JOIN pos_orders o ON so.notes='POS '||o.order_number AND o.company_id=i.company_id
       LEFT JOIN pos_sessions s ON s.id=o.session_id
@@ -30,10 +31,17 @@ export async function checkDocumentPrint(req:Request, kind:"invoice"|"supplier"|
       WHERE i.id=$1 AND i.company_id=$2`,
     supplier:"SELECT NULL::integer AS branch_id FROM invoices WHERE id=$1 AND company_id=$2",
     po:"SELECT NULL::integer AS branch_id FROM purchase_orders WHERE id=$1 AND company_id=$2",
-    pos:"SELECT s.branch_id FROM pos_orders o JOIN pos_sessions s ON s.id=o.session_id JOIN branches b ON b.id=s.branch_id AND b.company_id=o.company_id WHERE o.id=$1 AND o.company_id=$2",
+    pos:"SELECT s.branch_id,so.warehouse_id FROM pos_orders o JOIN pos_sessions s ON s.id=o.session_id JOIN branches b ON b.id=s.branch_id AND b.company_id=o.company_id JOIN sales_orders so ON so.notes='POS '||o.order_number AND so.company_id=o.company_id AND so.source='pos' WHERE o.id=$1 AND o.company_id=$2",
   };
   const {rows}=await pool.query(queries[kind],[id,companyId]);
   if(!rows.length)throw new FinancialRequestError("المستند غير موجود",404);
+  if(await managedProfile(a.userId,companyId)) {
+    const grant=await selectedResponsibility(a.userId,companyId);
+    if(!grant || grant.resource!=="pos" || !grant.actions.includes("pos.read") ||
+      !grant.warehouseIds.includes(Number(rows[0].warehouse_id))) {
+      throw new FinancialRequestError("المستند خارج مستودعات مسؤولية نقطة البيع",403);
+    }
+  }
   if(a.branches!==null && (rows[0].branch_id==null||!a.branches.includes(rows[0].branch_id))) {
     throw new FinancialRequestError("المستند خارج نطاق الفروع المسموح",403);
   }

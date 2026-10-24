@@ -16,7 +16,7 @@ import {
   type TeamPersonInput,
   type Warehouse,
 } from "@workspace/api-client-react";
-import { AlertTriangle, ArrowLeftRight, CheckCircle2, Loader2, RefreshCw, RotateCcw, ShieldCheck } from "lucide-react";
+import { AlertTriangle, ArrowLeftRight, Ban, CheckCircle2, Loader2, RefreshCw, RotateCcw, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -39,6 +39,7 @@ import {
   rollbackReasonOk,
   stateLabel,
 } from "@/lib/legacy-conversion";
+import { actionLabel, splitAllowed } from "@/lib/pos-actions";
 
 type Props = { branches: Branch[] | undefined; warehouses: Warehouse[] | undefined };
 
@@ -89,7 +90,7 @@ export function LegacyConversionPanel({ branches, warehouses }: Props) {
             {!selected ? (
               <p className="text-sm text-muted-foreground" data-testid="state-legacy-none">اختر مستخدمًا لمراجعة حالته.</p>
             ) : isReverted(selected.conversionState) ? (
-              <ReadOnlyNote user={selected} text="أُعيدت صلاحيات هذا المستخدم القديمة. السجل للقراءة فقط ولا يمكن تحويله مجددًا من هنا." />
+              <ReadOnlyNote user={selected} text="أُعيدت صلاحيات الدور القديم. إعادة التحويل غير مدعومة حتى تتوفر مطابقة تاريخية مُراجعة لسجل التحويل السابق. لا تنشئ هوية بديلة ولا تحذف المستخدم لتجاوز ذلك." />
             ) : isConverted(selected.conversionState) ? (
               <RollbackBox key={`rb-${selected.userId}`} user={selected} />
             ) : !selected.eligible || !legacyKind(selected.role) ? (
@@ -113,13 +114,35 @@ function ReadOnlyNote({ user, text }: { user: LegacyTeamUser; text: string }) {
   );
 }
 
-function PreviewView({ p }: { p: LegacyTeamPreview }) {
+function PreviewView({ p, ceiling, mode }: { p: LegacyTeamPreview; ceiling: string[]; mode: "convert" | "rollback" }) {
+  const { allowed, blocked } = splitAllowed(p.allowedActions, ceiling);
   return (
     <div className="space-y-2 rounded-xl border bg-muted/30 p-3 text-sm" data-testid="panel-legacy-preview">
       <p>الدور الأصلي: <b data-testid="text-preview-role">{roleLabel(p.originalRole)}</b></p>
-      <div className="flex flex-wrap gap-1" data-testid="list-preview-actions">
-        {p.allowedActions.length ? p.allowedActions.map((a) => <Badge key={a} variant="secondary" dir="ltr">{a}</Badge>) : <span className="text-muted-foreground">لا إجراءات</span>}
-      </div>
+      {mode === "rollback" ? (
+        <div data-testid="list-preview-restored">
+          <p className="font-semibold">بعد التراجع يعود إلى دور «{roleLabel(p.originalRole)}» القديم بنطاقه الأوسع:</p>
+          <p className="text-xs text-muted-foreground">لا تبقى قيود الفرع والمستودعات والإجراءات المحددة؛ تُطبّق صلاحيات الدور القديم كاملة.</p>
+          {allowed.length > 0 && (
+            <div className="mt-1 flex flex-wrap gap-1">{allowed.map((a) => <Badge key={a} variant="secondary" data-testid={`badge-restored-${a}`}>{actionLabel(a)}</Badge>)}</div>
+          )}
+        </div>
+      ) : (
+        <div className="grid gap-2 sm:grid-cols-2">
+          <div data-testid="list-preview-allowed">
+            <p className="mb-1 text-xs font-semibold text-emerald-700 dark:text-emerald-300">مسموح بعد التحويل</p>
+            {allowed.length ? (
+              <ul className="space-y-0.5">{allowed.map((a) => <li key={a} className="flex items-center gap-1.5" data-testid={`text-allowed-${a}`}><CheckCircle2 className="size-3.5 text-emerald-600" />{actionLabel(a)}</li>)}</ul>
+            ) : <p className="text-xs text-destructive">لن يتمكن من أي عمل — راجع الاختيارات.</p>}
+          </div>
+          <div data-testid="list-preview-blocked">
+            <p className="mb-1 text-xs font-semibold text-rose-700 dark:text-rose-300">محجوب (لن يتمكن منه)</p>
+            {blocked.length ? (
+              <ul className="space-y-0.5">{blocked.map((a) => <li key={a} className="flex items-center gap-1.5" data-testid={`text-blocked-${a}`}><Ban className="size-3.5 text-rose-600" />{actionLabel(a)}</li>)}</ul>
+            ) : <p className="text-xs text-muted-foreground">لا شيء محجوب من صلاحيات دوره السابق.</p>}
+          </div>
+        </div>
+      )}
       {p.warnings.map((w, i) => (
         <p key={i} className="flex gap-2 text-amber-800 dark:text-amber-200" data-testid={`text-preview-warning-${i}`}><AlertTriangle className="size-4 shrink-0" />{w}</p>
       ))}
@@ -219,10 +242,10 @@ function ConvertBox({ user, branches, warehouses }: { user: LegacyTeamUser } & P
         <legend className="mb-1 text-sm font-semibold">الإجراءات (يمكن التضييق فقط)</legend>
         <div className="flex flex-wrap gap-3">
           {LEGACY_CEILING[kind].map((a) => (
-            <label key={a} className="flex items-center gap-2 text-sm" dir="ltr">
+            <label key={a} className="flex items-center gap-2 text-sm">
               <Checkbox checked={g.actions.includes(a)} data-testid={`check-legacy-action-${a}`}
                 onCheckedChange={(c) => setGrant({ actions: c ? [...g.actions, a] : g.actions.filter((x) => x !== a) })} />
-              {a}
+              {actionLabel(a)}
             </label>
           ))}
         </div>
@@ -241,7 +264,7 @@ function ConvertBox({ user, branches, warehouses }: { user: LegacyTeamUser } & P
         <ul className="list-disc ps-5 text-xs text-destructive" data-testid="list-legacy-issues">{issues.map((i) => <li key={i}>{i}</li>)}</ul>
       )}
       {preview && !fresh && <p className="text-xs text-amber-700 dark:text-amber-300" data-testid="text-legacy-preview-stale">تغيّرت الإعدادات بعد المعاينة — أعد المعاينة قبل التطبيق.</p>}
-      {preview && fresh && <PreviewView p={preview.result} />}
+      {preview && fresh && <PreviewView p={preview.result} ceiling={LEGACY_CEILING[kind]} mode="convert" />}
       <div className="flex flex-wrap gap-2">
         <Button variant="outline" onClick={() => void runPreview()} disabled={issues.length > 0 || previewM.isPending} data-testid="button-legacy-preview">
           {previewM.isPending && <Loader2 className="me-2 size-4 animate-spin" />}معاينة
@@ -296,7 +319,7 @@ function RollbackBox({ user }: { user: LegacyTeamUser }) {
           <div className="flex gap-2 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-950/40 dark:text-amber-100" data-testid="notice-rollback-broader">
             <AlertTriangle className="size-4 shrink-0" /> التراجع يعيد صلاحيات الدور القديم الأوسع ويزيل القيود المحددة بالفرع والمستودع.
           </div>
-          <PreviewView p={previewQ.data} />
+          <PreviewView p={previewQ.data} ceiling={[]} mode="rollback" />
           <div>
             <Label htmlFor="rollback-reason">سبب التراجع (لا يقل عن {MIN_ROLLBACK_REASON} أحرف)</Label>
             <Input id="rollback-reason" value={reason} onChange={(e) => setReason(e.target.value)} data-testid="input-rollback-reason" />

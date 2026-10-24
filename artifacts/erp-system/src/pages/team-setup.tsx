@@ -97,6 +97,7 @@ import {
   type GrantResource,
   type LoginKind,
 } from "@/lib/team-access";
+import { RETURN_MODE_LABEL, actionLabel, applyReturnMode, returnMode, type ReturnMode } from "@/lib/pos-actions";
 import { LegacyConversionPanel } from "@/components/legacy-conversion-panel";
 
 const TONE: Record<string, string> = {
@@ -638,7 +639,7 @@ function PersonEditor({ editing, catalog, branches, warehouses, onChange, onClos
                 onCheckedChange={(v) => set({ deniedActions: v ? [...person.deniedActions, a.key] : person.deniedActions.filter((x) => x !== a.key) })}
                 data-testid={`checkbox-deny-${a.key}`}
               />
-              <span className="flex-1">{a.label}</span>
+              <span className="flex-1">{actionLabel(a.key, a.label)}</span>
               <span className="text-[10px] text-muted-foreground">{RESOURCE_LABEL[a.resource] ?? a.resource}</span>
             </label>
           ))}
@@ -718,7 +719,7 @@ function PersonEditor({ editing, catalog, branches, warehouses, onChange, onClos
                     </div>
                     <div className="mt-1 text-xs text-muted-foreground">المستودعات: {g.warehouseIds.map((w) => warehouseLabel(warehouses, w)).join("، ")}</div>
                     <div className="mt-2 flex flex-wrap gap-1">
-                      {g.actions.map((a) => <Badge key={a} variant="secondary">{catalog.actions.find((x) => x.key === a)?.label ?? a}</Badge>)}
+                      {g.actions.map((a) => <Badge key={a} variant="secondary">{actionLabel(a, catalog.actions.find((x) => x.key === a)?.label)}</Badge>)}
                     </div>
                     <div className="mt-2 text-xs text-muted-foreground">
                       {g.amountLimit ? `سقف البيع: ${g.amountLimit} ر.س` : "بلا سقف إضافي"}
@@ -729,7 +730,7 @@ function PersonEditor({ editing, catalog, branches, warehouses, onChange, onClos
                 ))
               )}
               {normalized.deniedActions.length > 0 && (
-                <p className="text-xs"><span className="font-semibold">ممنوع صراحة:</span> {normalized.deniedActions.map((a) => catalog.actions.find((x) => x.key === a)?.label ?? a).join("، ")}</p>
+                <p className="text-xs"><span className="font-semibold">ممنوع صراحة:</span> {normalized.deniedActions.map((a) => actionLabel(a, catalog.actions.find((x) => x.key === a)?.label)).join("، ")}</p>
               )}
               {previewData.result.warnings.length > 0 && (
                 <ul className="space-y-1 rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100" data-testid="list-preview-warnings">
@@ -851,11 +852,14 @@ function GrantCard({ index, grant, catalog, branches, warehouses, issues, onChan
                   onCheckedChange={(v) => onChange({ actions: v ? [...grant.actions, a.key] : grant.actions.filter((x) => x !== a.key) })}
                   data-testid={`checkbox-grant-${index}-action-${a.key}`}
                 />
-                <span className="flex-1">{a.label}</span>
+                <span className="flex-1">{actionLabel(a.key, a.label)}</span>
                 {!a.available && <span className="rounded border px-1.5 text-[10px] text-muted-foreground">غير مدعوم بعد</span>}
                 {a.available && isCostAction(a.key) && <span className="rounded border border-amber-300 px-1.5 text-[10px] text-amber-700 dark:text-amber-300">يكشف التكلفة</span>}
               </label>
             ))}
+            {grant.resource === "pos" && actions.some((a) => a.key === "pos.return.request" && a.available) && (
+              <ReturnModeSelect index={index} grant={grant} directAvailable={actions.some((a) => a.key === "pos.return.direct" && a.available)} onChange={onChange} />
+            )}
             {actions.length === 0 && <p className="text-xs text-muted-foreground">لا إجراءات معرّفة لهذا المورد.</p>}
             {actions.length > 0 && (
               <p className={cn("text-[11px]", grant.actions.length > 0 && !grant.actions.includes(baseReadAction(grant.resource)) ? "font-semibold text-destructive" : "text-muted-foreground")} data-testid={`text-grant-${index}-base-read`}>
@@ -883,6 +887,23 @@ function GrantCard({ index, grant, catalog, branches, warehouses, issues, onChan
         </div>
       </div>
       <FieldIssues list={issues} />
+    </div>
+  );
+}
+
+function ReturnModeSelect({ index, grant, directAvailable, onChange }: { index: number; grant: TeamGrantInput; directAvailable: boolean; onChange: (p: Partial<TeamGrantInput>) => void }) {
+  const mode = returnMode(grant.actions);
+  const options: ReturnMode[] = directAvailable ? ["deny", "approval", "direct"] : ["deny", "approval"];
+  return (
+    <div className="mt-2 rounded-lg border border-dashed p-2" data-testid={`panel-grant-${index}-return-mode`}>
+      <Label className="text-xs">الإرجاع (اختصار لخانتي الطلب والمباشر فقط)</Label>
+      <select className="mt-1 h-9 w-full rounded-md border bg-background px-2 text-sm" value={mode}
+        onChange={(e) => { const v = e.target.value as ReturnMode; if (v !== "custom") onChange({ actions: applyReturnMode(grant.actions, v) }); }}
+        data-testid={`select-grant-${index}-return-mode`}>
+        {options.map((m) => <option key={m} value={m}>{RETURN_MODE_LABEL[m]}</option>)}
+        {mode === "custom" && <option value="custom" disabled>{RETURN_MODE_LABEL.custom}</option>}
+      </select>
+      <p className="mt-1 text-[11px] text-muted-foreground">لا يمنح استلام المخزون ولا الصرف ولا إثبات الرد الخارجي؛ فعّلها صراحة من الخانات أعلاه. الاعتماد نفسه غير متاح بعد.</p>
     </div>
   );
 }

@@ -88,6 +88,7 @@ router.get("/pos/refunds/:id/pdf",async(req,res)=>{
       LEFT JOIN users u ON u.id=p.created_by LEFT JOIN users cu ON cu.id=p.confirmed_by
       WHERE p.id=$1 AND p.company_id=$2`,[id,companyId]);
     const p=rows[0];if(!p)missing();
+    await checkDocumentPrint(req,"invoice",Number(p.invoice_id));
     await returnAuthorize(req.session.userId!,companyId,"view",p.branch_id);
     await sendPrintPdf(res,`refund-${id}`,await print(req,"refund",id,{title:"سند استرداد",
       metadata:[["السند",String(id)],["الفاتورة الأصلية",p.invoice_reference],["الإشعار الدائن",p.note_reference],["مصدر التحصيل الأصلي",p.receipt_reference??"غير متاح"],

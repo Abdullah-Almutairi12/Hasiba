@@ -1,3 +1,5 @@
+import { canReachReturns, scopedBodyDiscount, scopedCheckoutCaps, type PosTender } from "@/lib/pos-actions";
+import { clearSessionIntent, isConfirmedRejection, readSessionIntent, saveSessionIntent, type SessionIntent } from "@/lib/pos-session-intent";
 import { useState, useMemo, useEffect } from "react";
 import { useLocation } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
@@ -22,7 +24,7 @@ import {
   useGetPrintProfile,
   useGetSellerWorkspace,
 } from "@workspace/api-client-react";
-import { useCreatePosSession, useGetApprovalRequest, getGetApprovalRequestQueryKey, type CreatePosOrderBody } from "@workspace/api-client-react";
+import { createPosSession, getWorkspaceResponsibility, useGetApprovalRequest, getGetApprovalRequestQueryKey, type CreatePosOrderBody } from "@workspace/api-client-react";
 import { usePermissions } from "@/hooks/use-permissions";
 import { useLiveScopedAccess } from "@/lib/scoped-access";
 import { useQueryClient } from "@tanstack/react-query";
@@ -94,6 +96,8 @@ export default function PosIconic({
   const scopedVat = selectedResp?.vatRegistered ?? null;
   const vatUnknown = isScoped && scopedVat === null;
   const vatEnabled = isScoped ? scopedVat === true : ownerVat;
+  const scopedCaps = scopedCheckoutCaps(isScoped ? selectedResp?.resource === "pos" ? selectedResp.actions : [] : null);
+  const discountAllowed = !isScoped || scopedCaps.discount;
   const scopedBranchId = isScoped ? (selectedResp?.resource === "pos" ? selectedResp.branchId : -1) : null;
   const queryClient = useQueryClient();
   const checkout = usePosCheckout(user?.companyId ? `${user.id}:${user.companyId}` : null);
@@ -104,7 +108,7 @@ export default function PosIconic({
   const [parkedOpen, setParkedOpen] = useState(false);
   const [parkLabel, setParkLabel] = useState("");
   const [paymentMethod, setPaymentMethod] =
-    useState<"cash" | "card" | "stc" | "transfer">(isScoped ? "cash" : "card");
+    useState<PosTender>(isScoped ? "cash" : "card");
   const [success, setSuccess] = useState<{
     orderNumber: string;
     total: number;
@@ -204,7 +208,7 @@ export default function PosIconic({
   const [discountOpen, setDiscountOpen] = useState(false);
   const pctNum = discountPct.trim() === "" ? 0 : Number(discountPct);
   const pctValid = Number.isFinite(pctNum) && pctNum >= 0 && pctNum <= 100;
-  const discount = isScoped || !pctValid ? 0 : Math.round(subtotal * pctNum) / 100;
+  const discount = !discountAllowed || !pctValid ? 0 : Math.round(subtotal * pctNum) / 100;
   // Server-side over-limit review (pos_over_limit approval request).
   const [review, setReview] = useState<ReviewState | null>(null);
   const reviewQ = useGetApprovalRequest(review?.id ?? 0, {
@@ -330,15 +334,15 @@ export default function PosIconic({
   };
 
   const handlePay = async (opts?: { approvalRequestId?: number; freshReview?: boolean }) => {
-    if (!isScoped && !pctValid) { toast({ title: "نسبة الخصم يجب أن تكون بين 0 و100", variant: "destructive" }); return; }
+    if (discountAllowed && !pctValid) { toast({ title: "نسبة الخصم يجب أن تكون بين 0 و100", variant: "destructive" }); return; }
     // An open review binds the basket; only its explicit resume/fresh path may pay.
     if (review && !opts?.approvalRequestId && !opts?.freshReview && !checkout.attempt) {
       toast({ title: `طلب الاعتماد #${review.id ?? "—"} مفتوح. استأنف بعد الاعتماد أو اطلب مراجعة جديدة.` });
       return;
     }
     if (payBlock) { toast({ title: payBlock, variant: "destructive" }); return; }
-    // Scoped members are cash-only; the server rejects anything else too.
-    if (isScoped && paymentMethod !== "cash" && !checkout.attempt) {
+    // Managed tenders follow the live action list; non-cash needs pos.payment.record.
+    if (isScoped && !scopedCaps.tenders.includes(paymentMethod) && !checkout.attempt) {
       setPaymentMethod("cash");
       return;
     }
@@ -372,7 +376,7 @@ export default function PosIconic({
         productId: c.product.id,
         quantity: c.quantity,
       })),
-      discount: isScoped ? 0 : discount,
+      discount: isScoped ? scopedBodyDiscount(selectedResp?.actions, discount) : discount,
       paymentMethod,
       ...sellerFields,
       ...(!isScoped && opts?.approvalRequestId ? { approvalRequestId: opts.approvalRequestId } : {}),
@@ -433,7 +437,7 @@ export default function PosIconic({
             ? t("pos_iconic.mode_fb")
             : t("pos_iconic.mode_retail")}
         </span>
-        {!isScoped && <button
+        {(!isScoped || canReachReturns(selectedResp)) && <button
           onClick={() => setLocation("/returns")}
           className="ms-auto rounded-md px-2 py-1 hover:bg-neutral-200/60 dark:hover:bg-neutral-800/60"
           data-testid="button-pos-returns"
@@ -456,6 +460,8 @@ export default function PosIconic({
             hasSession={!!activeSession}
             canOpenShift={canOpenPosShift}
             cashierName={user?.name ?? ""}
+            intentScope={user?.companyId ? `${user.id}:${user.companyId}` : null}
+            caps={scopedCaps}
             onOpened={() => void refetchSessions()}
           />
         )}
@@ -533,10 +539,12 @@ export default function PosIconic({
           onPay={handlePay}
           method={paymentMethod}
           setMethod={setPaymentMethod}
-          cashOnly={isScoped}
+          cashOnly={isScoped && !scopedCaps.recordTender}
+          tenders={isScoped ? scopedCaps.tenders : undefined}
+          scopedNotice={isScoped}
           discount={discount}
-          discountSlot={!isScoped && (discountOpen || discountPct !== "" || review) ? (
-            <DiscountReviewPanel pct={discountPct} setPct={setDiscountPct} valid={pctValid} discount={discount} net={net}
+          discountSlot={discountAllowed && (discountOpen || discountPct !== "" || review) ? (
+            <DiscountReviewPanel scoped={isScoped} pct={discountPct} setPct={setDiscountPct} valid={pctValid} discount={discount} net={net}
               locked={checkoutLocked || !!review} review={review} reviewStatus={reviewStatus} reviewLoading={reviewQ.isFetching}
               onRefresh={() => void reviewQ.refetch()}
               onResume={() => review?.id && void handlePay({ approvalRequestId: review.id })}
@@ -608,7 +616,7 @@ export default function PosIconic({
         onPark={() => handlePark()}
         onOpenParked={() => setParkedOpen(true)}
         onOpenPay={() => void handlePay()}
-        onMore={isScoped ? undefined : () => setDiscountOpen((v) => !v)}
+        onMore={!discountAllowed ? undefined : () => setDiscountOpen((v) => !v)}
         moreExpanded={discountOpen}
         payDisabled={!!payBlock || !checkout.ready || checkout.isPending || cart.length === 0}
         parkingUnavailable={isScoped}
@@ -810,6 +818,8 @@ function LiveCartRail({
   sellerSlot,
   lineSeller,
   cashOnly = false,
+  tenders,
+  scopedNotice = false,
   discount = 0,
   discountSlot,
   vatUnknown = false,
@@ -817,6 +827,8 @@ function LiveCartRail({
   onRetryVat,
 }: {
   cashOnly?: boolean;
+  tenders?: PosTender[];
+  scopedNotice?: boolean;
   discount?: number;
   discountSlot?: React.ReactNode;
   vatUnknown?: boolean;
@@ -830,8 +842,8 @@ function LiveCartRail({
   onBump: (id: number, delta: number) => void;
   onClear: () => void;
   onPay: () => void;
-  method: "cash" | "card" | "stc" | "transfer";
-  setMethod: (method: "cash" | "card" | "stc" | "transfer") => void;
+  method: PosTender;
+  setMethod: (method: PosTender) => void;
   locked: boolean;
   recovery: boolean;
   busy: boolean;
@@ -944,7 +956,8 @@ function LiveCartRail({
           ["card", t("pos_iconic.card")],
           ["stc", "STC Pay"],
           ["transfer", t("pos_iconic.transfer")],
-        ] as const).filter(([key]) => !cashOnly || key === "cash").map(([key, label]) => (
+          ["deferred", "آجل"],
+        ] as const).filter(([key]) => tenders ? tenders.includes(key) : key !== "deferred" && (!cashOnly || key === "cash")).map(([key, label]) => (
           <button key={key} type="button" aria-pressed={method === key}
             data-testid={`button-pay-${key}`} onClick={() => setMethod(key)}
             className={cn("min-h-11 rounded-xl border px-2 text-sm disabled:opacity-60",
@@ -953,7 +966,7 @@ function LiveCartRail({
           </button>
         ))}
       </fieldset>
-      <p className="text-[11px] text-neutral-500">{cashOnly ? "مسؤوليتك تسمح بالبيع النقدي فقط دون خصم أو تعديل سعر. الاسترجاع والإيقاف المؤقت وإغلاق الوردية غير متاحة لك." : t("pos_iconic.manual_tender_notice")}</p>
+      <p className="text-[11px] text-neutral-500">{cashOnly ? "مسؤوليتك تسمح بالبيع النقدي فقط. الدفع غير النقدي أو الآجل يتطلب صلاحية تسجيل الدفع اليدوي." : scopedNotice ? "تسجيل يدوي فقط: لا تُرسل أي عملية لبوابة دفع. تأكد من استلام المبلغ أو قيد الآجل قبل التسجيل." : t("pos_iconic.manual_tender_notice")}</p>
       {receiptSlot}
       {payBlock && (
         <div role="status" className="rounded-xl bg-amber-50 p-3 text-xs text-amber-900 dark:bg-amber-950 dark:text-amber-100" data-testid="text-pay-blocked">
@@ -1239,31 +1252,86 @@ function ParkedOverlay({
  * honest list of what this responsibility cannot do. No closing, refunds,
  * parking, discounts, barcode lookup or non-cash tenders.
  */
-function ScopedPosNotice({ branchId, hasSession, canOpenShift, cashierName, onOpened }: {
+function ScopedPosNotice({ branchId, hasSession, canOpenShift, cashierName, onOpened, intentScope, caps }: {
   branchId: number | null; hasSession: boolean; canOpenShift: boolean; cashierName: string; onOpened: () => void;
+  intentScope: string | null; caps: ReturnType<typeof scopedCheckoutCaps>;
 }) {
   const { toast } = useToast();
-  const create = useCreatePosSession();
   const [cash, setCash] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [cleanupPending, setCleanupPending] = useState(false);
+  const [pending, setPending] = useState<SessionIntent | null | "unreadable">(() => readSessionIntent(intentScope));
+  useEffect(() => { setPending(readSessionIntent(intentScope)); }, [intentScope]);
   const usable = branchId !== null && branchId > 0;
+  const mismatch = !!pending && pending !== "unreadable" && pending.responsibility !== getWorkspaceResponsibility();
   const open = async () => {
-    const n = Number(cash || "0");
-    if (!usable || !Number.isFinite(n) || n < 0) return;
+    if (!intentScope || busy || pending === "unreadable" || mismatch) return;
+    let intent = pending;
+    if (!intent) {
+      const n = Number(cash || "0");
+      if (!usable || !Number.isFinite(n) || n < 0) return;
+      // cashierName is replaced server-side with the canonical person name.
+      intent = { key: crypto.randomUUID(), body: { branchId: branchId!, cashierName, openingCash: n }, responsibility: getWorkspaceResponsibility() };
+      if (!saveSessionIntent(intentScope, intent)) { toast({ title: "تعذر حفظ طلب فتح الوردية بأمان. فعّل تخزين الجلسة ثم أعد المحاولة.", variant: "destructive" }); return; }
+      setPending(intent);
+    }
+    const wasRecovery = !!pending;
+    setBusy(true);
     try {
-      // cashierName is required by the body type but the server replaces it
-      // with the canonical company person name; branch must match the grant.
-      await create.mutateAsync({ data: { branchId: branchId!, cashierName, openingCash: n } });
-      toast({ title: "فُتحت الوردية" });
+      await createPosSession(intent.body, { headers: { "Idempotency-Key": intent.key } });
       onOpened();
+      if (!clearSessionIntent(intentScope)) {
+        // Confirmed by the server, but local evidence remains: never a new intent.
+        setCleanupPending(true);
+        toast({ title: "فُتحت الوردية، لكن تعذر تنظيف الطلب المحفوظ. فعّل تخزين الجلسة ثم اضغط الاسترجاع.", variant: "destructive" });
+        return;
+      }
+      setCleanupPending(false);
+      setPending(null);
+      toast({ title: "فُتحت الوردية" });
     } catch (err) {
       const msg = err instanceof Error ? err.message : "";
-      toast({ title: "تعذر فتح الوردية", description: msg, variant: "destructive" });
+      if (!wasRecovery && isConfirmedRejection(err) && clearSessionIntent(intentScope)) {
+        setPending(null);
+        toast({ title: "رفض الخادم فتح الوردية", description: msg, variant: "destructive" });
+      } else {
+        // Unknown outcome: keep the same key and exact body for a safe retry.
+        toast({ title: "تعذر تأكيد فتح الوردية", description: "أعد المحاولة بالطلب نفسه؛ لن تُفتح وردية مكررة.", variant: "destructive" });
+      }
+    } finally {
+      setBusy(false);
     }
   };
+  const unavailable = [
+    "قراءة الباركود",
+    !caps.discount && "الخصم",
+    !caps.recordTender && "الدفع غير النقدي والآجل",
+    "الإيقاف المؤقت",
+  ].filter(Boolean).join("، ");
+  // An open shift in the branch proves nothing about THIS intent (another
+  // cashier may have opened it). Only a replay of the same key/body clears it.
+  const recovery = pending ? (
+    <div className="flex flex-wrap items-center gap-2" data-testid="panel-scoped-open-recovery">
+      {pending === "unreadable" ? (
+        <span>تعذر قراءة طلب فتح وردية سابق. استعد تخزين الجلسة وأعد تحميل الصفحة قبل فتح وردية جديدة.</span>
+      ) : mismatch ? (
+        <span>طلب فتح الوردية المعلق يخص مسؤولية أخرى. اختر المسؤولية الأصلية من «عملي» لاسترجاعه.</span>
+      ) : (
+        <>
+          <span className="font-semibold" data-testid="text-scoped-open-pending">{cleanupPending
+            ? "أكد الخادم فتح الوردية، لكن الطلب المحفوظ لم يُنظف محليًا بعد."
+            : `طلب فتح وردية بنقد افتتاحي ${Number(pending.body.openingCash).toFixed(2)} لم تُؤكد نتيجته. وجود وردية مفتوحة في الفرع لا يؤكد هذا الطلب.`}</span>
+          <Button size="sm" onClick={() => void open()} disabled={busy} data-testid="button-scoped-open-retry">استرجاع نتيجة فتح الوردية</Button>
+        </>
+      )}
+    </div>
+  ) : null;
   return (
     <div className="col-span-full rounded-2xl border border-amber-200 bg-amber-50/80 p-3 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100" data-testid="panel-scoped-pos">
       {!usable ? (
         <p data-testid="text-scoped-pos-no-selection">اختر مسؤولية نقطة بيع من صفحة «عملي» أولًا.</p>
+      ) : recovery ? (
+        recovery
       ) : !hasSession && !canOpenShift ? (
         <p data-testid="text-scoped-no-shift-permission">لا توجد وردية مفتوحة في فرعك، وفتح الوردية غير مسموح لمسؤوليتك. اطلب من المسؤول فتحها.</p>
       ) : !hasSession ? (
@@ -1271,12 +1339,12 @@ function ScopedPosNotice({ branchId, hasSession, canOpenShift, cashierName, onOp
           <span className="font-semibold">لا توجد وردية مفتوحة في فرعك.</span>
           <Input dir="ltr" inputMode="decimal" placeholder="النقد الافتتاحي" value={cash} onChange={(e) => setCash(e.target.value)}
             className="h-9 w-36 bg-white dark:bg-neutral-900" data-testid="input-scoped-opening-cash" />
-          <Button size="sm" onClick={() => void open()} disabled={create.isPending} data-testid="button-scoped-open-shift">فتح وردية</Button>
+          <Button size="sm" onClick={() => void open()} disabled={busy || !intentScope} data-testid="button-scoped-open-shift">فتح وردية</Button>
         </div>
       ) : (
-        <p data-testid="text-scoped-pos-ready">وردية فرعك مفتوحة. نقدًا فقط.</p>
+        <p data-testid="text-scoped-pos-ready">{caps.recordTender ? "وردية فرعك مفتوحة. النقد والتسجيل اليدوي للدفع غير النقدي أو الآجل." : "وردية فرعك مفتوحة. نقدًا فقط."}</p>
       )}
-      <p className="mt-1 text-[11px] opacity-80">غير متاح لمسؤوليتك: قراءة الباركود (البحث المخزني غير مقيّد بالفرع بعد)، الخصم وتعديل السعر، الاسترجاع، الإيقاف المؤقت، إغلاق الوردية.</p>
+      <p className="mt-1 text-[11px] opacity-80" data-testid="text-scoped-unavailable">{`غير متاح لمسؤوليتك: ${unavailable}. تعديل السعر وتجاوز المدير غير متاحين.`}</p>
     </div>
   );
 }
@@ -1288,8 +1356,8 @@ type ReviewState = { id: number | null; attempted: number | null; max: number | 
  * authorizes: a limit of 0 or any cap is decided by POST /pos/orders, which
  * opens a pos_over_limit approval request we then track and resume.
  */
-function DiscountReviewPanel({ pct, setPct, valid, discount, net, locked, review, reviewStatus, reviewLoading, onRefresh, onResume, onFresh, onDiscard, busy }: {
-  pct: string; setPct: (v: string) => void; valid: boolean; discount: number; net: number; locked: boolean;
+function DiscountReviewPanel({ scoped = false, pct, setPct, valid, discount, net, locked, review, reviewStatus, reviewLoading, onRefresh, onResume, onFresh, onDiscard, busy }: {
+  scoped?: boolean; pct: string; setPct: (v: string) => void; valid: boolean; discount: number; net: number; locked: boolean;
   review: ReviewState | null; reviewStatus: string | null; reviewLoading: boolean;
   onRefresh: () => void; onResume: () => void; onFresh: () => void; onDiscard: () => void; busy: boolean;
 }) {
@@ -1304,7 +1372,9 @@ function DiscountReviewPanel({ pct, setPct, valid, discount, net, locked, review
         <span className="ms-auto font-mono" data-testid="text-discount-net">{`بعد الخصم ${net.toFixed(2)}`}</span>
       </label>
       <p id="discount-hint" className={valid ? "text-neutral-500" : "font-semibold text-red-700 dark:text-red-300"} data-testid="text-discount-hint">
-        {valid ? `الخصم ${discount.toFixed(2)}. إن تجاوز حدك يفتح الخادم طلب اعتماد ولا يُعتمد تلقائيًا.` : "النسبة يجب أن تكون بين 0 و100."}
+        {valid ? scoped
+          ? `الخصم ${discount.toFixed(2)}. يُقبل فقط ضمن الحد المالي الذي ضبطه المالك لدور «مستخدم بصلاحيات محددة»؛ بلا حد مضبوط يُرفض أي خصم موجب. لا تجاوز مدير ولا طلب اعتماد من هنا.`
+          : `الخصم ${discount.toFixed(2)}. إن تجاوز حدك يفتح الخادم طلب اعتماد ولا يُعتمد تلقائيًا.` : "النسبة يجب أن تكون بين 0 و100."}
       </p>
       {review && (
         <div role="status" className="space-y-2 rounded-xl bg-amber-50 p-2 text-amber-900 dark:bg-amber-950 dark:text-amber-100" data-testid="panel-review">

@@ -34,6 +34,11 @@ export async function returnActor(userId: number, companyId: number, connection?
       capabilities: grant?.resource === "pos" ? [
         ...(grant.actions.includes("pos.read") ? ["view"] : []),
         ...(grant.actions.includes("pos.sell") ? ["sell"] : []),
+        ...Object.entries({
+          "pos.return.request": "request", "pos.return.payout": "payout",
+          "pos.return.external": "external", "pos.shift.close": "close",
+          "pos.shift.difference": "difference",
+        }).filter(([action]) => grant.actions.includes(action)).map(([, capability]) => capability),
       ] : [],
       branches: grant ? [grant.branchId] : [],
     };
