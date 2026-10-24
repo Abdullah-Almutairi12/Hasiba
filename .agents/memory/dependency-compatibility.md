@@ -31,3 +31,9 @@ and application code are compatible.
 **How to apply:** Match the generator's schema and query modes to the installed
 workspace consumers before regenerating contracts; do not upgrade shared runtime
 libraries merely to accommodate incorrectly inferred generated code.
+
+Refresh emitted shared-library declarations after changing the schema-library generation, before fixing consumer inference errors.
+
+**Why:** Incremental output retained references to the old Zod internals after a catalog upgrade and made a generated body's safe-parse result appear untyped. Rebuilding shared declarations restored the actual types without weakening consumer code.
+
+**How to apply:** Force the shared TypeScript build when a dependency-generation change produces inexplicable `any` inference; then assess genuine input/output differences such as form coercion separately.

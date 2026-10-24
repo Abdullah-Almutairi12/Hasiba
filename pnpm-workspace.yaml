@@ -28,7 +28,7 @@ catalog:
   tsx: 4.21.0
   vite: ^7.3.7
   wouter: ^3.3.5
-  zod: 3.25.76
+  zod: 4.6.6
 
 minimumReleaseAge: 1440
 
@@ -97,7 +97,10 @@ overrides:
   esbuild>@esbuild/win32-arm64: '-'
   esbuild>@esbuild/win32-ia32: '-'
   esbuild>@esbuild/win32-x64: '-'
-  fast-uri@3: 3.1.8
+  # Patched compatible lines; keep the 24-hour release-age safety policy above.
+  body-parser@2: 2.4.0
+  undici@7: 7.30.1
+  fast-uri@3: 3.1.9
   fast-xml-builder@1: 1.3.0
   ip-address@10: 10.7.1
   lightningcss>lightningcss-android-arm64: '-'

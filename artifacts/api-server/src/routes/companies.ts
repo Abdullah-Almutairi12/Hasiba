@@ -36,7 +36,7 @@ const CreateCompanyBody = z.object({
   baseCurrency: z.string().trim().length(3).optional(),
   fiscalYearStartMonth: z.number().int().min(1).max(12).optional(),
   logoUrl: z.string().trim().url().optional().nullable(),
-  address: z.record(z.unknown()).optional(),
+  address: z.record(z.string(), z.unknown()).optional(),
 });
 
 const UpdateCompanyBody = z.object({
@@ -47,7 +47,7 @@ const UpdateCompanyBody = z.object({
   baseCurrency: z.string().trim().length(3).optional(),
   fiscalYearStartMonth: z.number().int().min(1).max(12).optional(),
   logoUrl: z.string().trim().url().nullable().optional(),
-  address: z.record(z.unknown()).optional(),
+  address: z.record(z.string(), z.unknown()).optional(),
 });
 
 const AssignUserBody = z.object({

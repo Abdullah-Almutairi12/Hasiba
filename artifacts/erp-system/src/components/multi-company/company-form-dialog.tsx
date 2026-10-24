@@ -42,7 +42,7 @@ import {
  * Zod schema mirroring the OpenAPI contract for company create/edit.
  * Field-level errors surface inline via react-hook-form + FormMessage.
  */
-const companyFormSchema = z.object({
+export const companyFormSchema = z.object({
   name: z
     .string()
     .trim()
@@ -61,8 +61,8 @@ const companyFormSchema = z.object({
     .trim()
     .length(3, "العملة 3 أحرف (مثل SAR)")
     .transform((v) => v.toUpperCase()),
-  fiscalYearStartMonth: z.coerce
-    .number()
+  fiscalYearStartMonth: z
+    .number({ error: "أدخل شهرًا بين 1 و12" })
     .int()
     .min(1, "الشهر بين 1 و 12")
     .max(12, "الشهر بين 1 و 12"),
@@ -304,6 +304,7 @@ export function CompanyFormDialog({
                           min={1}
                           max={12}
                           {...field}
+                          onChange={(event) => field.onChange(event.target.valueAsNumber)}
                           data-testid="company-form-fy-month"
                         />
                       </FormControl>
