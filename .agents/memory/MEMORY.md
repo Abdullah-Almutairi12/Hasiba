@@ -12,3 +12,4 @@
 - [Issued document evidence](issued-document-evidence.md) — issuer, seller and commission history need original evidence; retries must survive employee and policy changes.
 - [Approval evidence](approval-evidence.md) — invalidate authority without rewriting a decision; reviewer assignment or delegation does not grant source access.
 - [Cash accountability](cash-accountability.md) — recording, reviewing and assigning responsibility are separate; a decision never automatically creates employee debt or a payroll deduction.
+- [PostgreSQL array binding](sql-array-binding.md) — Drizzle SQL templates expand JS arrays into tuples; use typed ARRAY or a bound array literal for ANY.

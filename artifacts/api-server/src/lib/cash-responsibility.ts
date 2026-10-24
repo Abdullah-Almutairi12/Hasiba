@@ -6,6 +6,7 @@ import { FinancialRequestError } from "./financial-transaction";
 import { verifyAccountPassword } from "./account-password";
 import { managedProfile, requireResponsibility } from "./responsibility-context";
 import { returnAuthorize } from "./return-access";
+import { currentResponsibilities, managedProfile } from "./responsibility-context";
 
 const fail = (message: string, status=403): never => { throw new FinancialRequestError(message,status); };
 const hash = (data: unknown) => createHash("sha256").update(JSON.stringify(data)).digest("hex");
@@ -14,6 +15,29 @@ async function audit(tx:DbOrTx,userId:number,companyId:number,action:string,enti
     SELECT ${companyId},id,name,${action},${entity},${JSON.stringify(details)} FROM users WHERE id=${userId}`);
 }
 export const ownerPurposes = ["cash_difference_review","cash_difference_responsibility"] as const;
+
+/** A person's HR office is not the authority for their branch-connected POS work. */
+export async function cashResponsibilityEmployees(tx:DbOrTx,companyId:number,branches:number[],employeeId?:number) {
+  if(!branches.length) return [];
+  const branchArray=`{${branches.join(",")}}`;
+  const candidates=await tx.execute(sql`SELECT e.id,e.name_ar,e.employee_no,e.branch_id,e.user_id FROM employees e
+    WHERE e.company_id=${companyId} AND e.status IN('active','on_leave','probation','preboarding')
+      AND (${employeeId??null}::integer IS NULL OR e.id=${employeeId??null}::integer)
+      AND (e.branch_id=ANY(${branchArray}::integer[]) OR EXISTS(SELECT 1 FROM responsibility_grants g
+        WHERE g.company_id=e.company_id AND g.employee_id=e.id AND g.resource='pos'
+          AND g.branch_id=ANY(${branchArray}::integer[]) AND g.revoked_at IS NULL))
+    ORDER BY e.name_ar`);
+  const result:Array<{id:number;name_ar:unknown;employee_no:unknown;branch_id:number}>=[];
+  for(const e of candidates.rows) {
+    const profile=e.user_id?await managedProfile(Number(e.user_id),companyId,tx):null;
+    const scopes=profile?(await currentResponsibilities(Number(e.user_id),companyId,tx))
+      .filter(g=>g.resource==="pos"&&g.actions.includes("pos.read")).map(g=>g.branchId):[Number(e.branch_id)];
+    for(const branch of new Set(scopes.filter(b=>branches.includes(b)))) {
+      result.push({id:Number(e.id),name_ar:e.name_ar,employee_no:e.employee_no,branch_id:branch});
+    }
+  }
+  return result;
+}
 export const responsibilityInput = z.object({
   sessionId:z.number().int().positive(),
   decision:z.enum(["company_bears","employee_responsible"]),
@@ -119,9 +143,8 @@ export async function decideCashResponsibility(tx:DbOrTx,userId:number,companyId
     ownerException=true;
   }
   if(b.employeeId!==null) {
-    const employee=await tx.execute(sql`SELECT id FROM employees WHERE id=${b.employeeId}
-      AND company_id=${companyId} AND branch_id=${Number(s.branch_id)}`);
-    if(!employee.rows.length) fail("الموظف خارج شركة وفرع القرار");
+    if(!(await cashResponsibilityEmployees(tx,companyId,[Number(s.branch_id)],b.employeeId)).length)
+      fail("الموظف خارج شركة وفرع القرار أو لم تعد مسؤوليته فيه فعالة");
   }
   const created=await tx.execute(sql`INSERT INTO pos_cash_responsibility_decisions
     (company_id,session_id,decision,employee_id,reason,evidence,decided_by,idempotency_key,fingerprint,owner_exception,difference_amount,closing_snapshot)

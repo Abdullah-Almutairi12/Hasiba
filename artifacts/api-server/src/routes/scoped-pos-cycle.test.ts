@@ -324,9 +324,15 @@ describe("native POS lifecycle for new and converted scoped employees", () => {
     const closer=await anotherActor(f,["pos.read","pos.shift.close"]);
     ok(await closer.action("close",{sessionId:sale.session.id,counted:29,reason:"فرق مستقل",unresolvedSalesCleared:true}));
     const reviewer=await anotherActor(f,["pos.read","pos.shift.difference"]);
-    const decision={sessionId:sale.session.id,decision:"company_bears",reason:"قرار مسؤولية مستقل",evidence:"دليل مصطنع",idempotencyKey:randomUUID()};
+    const decision={sessionId:sale.session.id,decision:"employee_responsible",employeeId:f.employee.personId,
+      reason:"قرار مسؤولية مستقل دون دين",evidence:"دليل مصطنع",idempotencyKey:randomUUID()};
     ok(await f.action("responsibility",decision),403);
     const responsible=await anotherActor(f,["pos.read","pos.shift.responsibility"]);
+    const liveAction=async(payload:unknown)=>{
+      const grant=ok(await responsible.agent.get("/api/workspace/access")).grants.find((g:any)=>g.actions.includes("pos.shift.responsibility"));
+      return responsible.agent.post("/api/pos/returns/actions").set("X-Workspace-Responsibility",String(grant.id))
+        .send({action:"responsibility",payload});
+    };
     ok(await responsible.action("responsibility",decision),409);
     ok(await reviewer.action("approve_close",{sessionId:sale.session.id}));
     ok(await reviewer.action("responsibility",decision),403);
@@ -334,14 +340,21 @@ describe("native POS lifecycle for new and converted scoped employees", () => {
     const current=ok(await f.owner.get("/api/team/people")).find((x:any)=>x.personId===responsible.employee.personId);
     ok(await f.owner.put(`/api/team/people/${current.personId}/access`).send({expectedRevision:current.revision,
       person:{...responsible.person,grants:[{...responsible.person.grants[0],amountLimit:"0.50"}]},suspended:false}));
-    ok(await responsible.action("responsibility",decision),403);
+    ok(await liveAction(decision),403);
     const limited=ok(await f.owner.get("/api/team/people")).find((x:any)=>x.personId===responsible.employee.personId);
     ok(await f.owner.put(`/api/team/people/${limited.personId}/access`).send({expectedRevision:limited.revision,person:responsible.person,suspended:false}));
-    ok(await responsible.action("responsibility",{...decision,decision:"employee_responsible",employeeId:999999999}),403);
-    const r=ok(await responsible.action("responsibility",decision));
-    expect(r).toMatchObject({decision:"company_bears",owner_exception:false,difference_amount:"-1.00"});
-    ok(await responsible.action("responsibility",decision));
+    ok(await liveAction({...decision,employeeId:999999999}),403);
+    const [otherBranch]=await db.insert(branchesTable).values({companyId:f.company,name:randomUUID(),city:"جدة"}).returning();
+    const workspace=ok(await f.owner.get("/api/pos/returns/workspace"));
+    expect(workspace.responsibility_employees).toContainEqual(expect.objectContaining({id:f.employee.personId,branch_id:f.branch}));
+    expect(workspace.responsibility_employees.some((e:any)=>e.id===f.employee.personId&&e.branch_id===otherBranch.id)).toBe(false);
+    expect(workspace.responsibility_employees.every((e:any)=>Object.keys(e).sort().join(",")==="branch_id,employee_no,id,name_ar")).toBe(true);
+    const hrBefore=await rows("SELECT to_jsonb(e) AS data FROM employees e WHERE company_id=$1 ORDER BY id",[f.company]);
+    const r=ok(await liveAction(decision));
+    expect(r).toMatchObject({decision:"employee_responsible",employee_id:f.employee.personId,owner_exception:false,difference_amount:"-1.00"});
+    ok(await liveAction(decision));
     expect(await evidence(f)).toEqual(before);
+    expect(await rows("SELECT to_jsonb(e) AS data FROM employees e WHERE company_id=$1 ORDER BY id",[f.company])).toEqual(hrBefore);
   });
   it("bounds external confirmation by current amount authority but retains committed receipt recovery", async () => {
     const f=await fixture(false,["pos.return.external"]), sale=await openAndSell(f,"card");

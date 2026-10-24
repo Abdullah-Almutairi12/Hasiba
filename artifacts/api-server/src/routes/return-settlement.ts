@@ -3,7 +3,7 @@ import { Router } from "express";
 import { captureIssuer, saveIssuer } from "../lib/document-identity";
 import { z } from "zod/v4";
 import { rateLimit } from "express-rate-limit";
-import { configureOwnerPolicy, issueOwnerProof, consumeOwnerProof, decideCashResponsibility } from "../lib/cash-responsibility";
+import { cashResponsibilityEmployees, configureOwnerPolicy, issueOwnerProof, consumeOwnerProof, decideCashResponsibility } from "../lib/cash-responsibility";
 import { db, pool, posSessionsTable, creditNotesTable } from "@workspace/db";
 import { sql, eq, and } from "drizzle-orm";
 import { returnActor, returnAuthorize, returnTemplates, returnCapabilities, authorizeReturnApproval, assertReturnSnapshot } from "../lib/return-access";
@@ -129,9 +129,8 @@ router.get("/pos/returns/workspace", async (req, res) => {
       .filter(p => p.branch_id === 0 || allowed.includes(p.branch_id));
     const accounts = actor.capabilities.includes("expense") ? (await pool.query("SELECT id,name_ar FROM accounts WHERE type='expense' AND NOT is_group AND is_active")).rows : [];
     const ownerPolicy = configure ? (await pool.query("SELECT * FROM pos_owner_exception_policies WHERE company_id=$1",[companyId])).rows[0] ?? null : null;
-    const responsibilityEmployees=actor.capabilities.includes("responsibility") ? (await pool.query(
-      "SELECT id,name_ar,employee_no,branch_id FROM employees WHERE company_id=$1 AND branch_id=ANY($2::int[]) ORDER BY name_ar",
-      [companyId,allowed])).rows : [];
+    const responsibilityEmployees=actor.capabilities.includes("responsibility")
+      ? await cashResponsibilityEmployees(db,companyId,allowed) : [];
     if(!actor.capabilities.some(c=>["responsibility","difference","reports"].includes(c))) {
       for(const session of sessions) delete (session as Row).responsibility_decision;
     }
