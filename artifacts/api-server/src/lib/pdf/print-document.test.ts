@@ -65,12 +65,16 @@ describe("offline Arabic printing and download integrity",()=>{
     expect(html).not.toContain("fonts.googleapis");expect(html).toContain("font-feature-settings");
     const browser=printBrowserHtml(input);expect(browser).toContain("script-src 'sha256-");expect(browser.match(/<script>/g)).toHaveLength(1);
   });
-  function downloader(fetch:ReturnType<typeof vi.fn>){
+  function downloader(fetch:ReturnType<typeof vi.fn>, responsibility:string|null=null){
     const click=vi.fn(),a={href:"",download:"",target:"",rel:"",click,remove:vi.fn()};
     const exports:Record<string,any>={};
     const source=readFileSync(new URL("../../../../erp-system/src/lib/download-file.ts",import.meta.url),"utf8");
     const js=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
-    runInNewContext(js,{exports,fetch,Error,Set,AbortController,document:{body:{append:vi.fn()},createElement:()=>a},
+    const require=(name:string)=>{
+      if(name!=="@workspace/api-client-react")throw new Error(`Unexpected downloader dependency: ${name}`);
+      return {getWorkspaceResponsibility:()=>responsibility,WORKSPACE_RESPONSIBILITY_HEADER:"X-Workspace-Responsibility"};
+    };
+    runInNewContext(js,{exports,require,fetch,Error,Set,AbortController,document:{body:{append:vi.fn()},createElement:()=>a},
       URL:{createObjectURL:()=> "blob:synthetic",revokeObjectURL:vi.fn()},setTimeout:()=>0,clearTimeout:()=>{}});
     return {download:exports.downloadPdf as (url:string,name:string)=>Promise<void>,click,a};
   }
@@ -88,5 +92,14 @@ describe("offline Arabic printing and download integrity",()=>{
     const p=d.download("/synthetic","fallback.pdf"),second=d.download("/synthetic","fallback.pdf");
     resolve(new Response("%PDF-1.7 synthetic",{headers:{"content-type":"application/pdf","content-disposition":'inline; filename="VAT-2026-Q3.pdf"'}}));
     await Promise.all([p,second]);expect(f).toHaveBeenCalledTimes(1);expect(d.click).toHaveBeenCalledTimes(1);expect(d.a.download).toBe("VAT-2026-Q3.pdf");
+  });
+  it.each([null,"37"])("sends only the currently selected responsibility on PDF fetch: %s",async responsibility=>{
+    const f=vi.fn().mockResolvedValue(new Response("%PDF-1.7 synthetic",{headers:{"content-type":"application/pdf"}}));
+    const d=downloader(f,responsibility);
+    await d.download("/synthetic","proof.pdf");
+    expect(f.mock.calls[0][1].credentials).toBe("include");
+    expect(f.mock.calls[0][1].headers).toEqual({Accept:"application/pdf",
+      ...(responsibility?{"X-Workspace-Responsibility":responsibility}:{})});
+    expect(d.click).toHaveBeenCalledTimes(1);
   });
 });
