@@ -4,6 +4,20 @@ import { FinancialRequestError } from "./financial-transaction";
 import { inventoryActor, type InventoryActor, type InventoryConnection } from "./scoped-inventory-actor";
 import { teamRows } from "./team-store";
 
+export async function stocktakeReadAuthority(connection:InventoryConnection,req:Request,id:number) {
+  const actor=await inventoryActor(connection,req,null);
+  const [take]=await teamRows<{id:number;warehouseId:number;branchId:number}>(connection,sql`
+    SELECT t.id,w.id AS "warehouseId",w.branch_id AS "branchId" FROM stock_takes t
+    JOIN warehouses w ON w.id=t.warehouse_id AND w.company_id=${actor.companyId}
+    JOIN branches b ON b.id=w.branch_id AND b.company_id=w.company_id AND b.is_active
+    WHERE t.id=${id}`);
+  if(!take)throw new FinancialRequestError("الجرد غير موجود",404);
+  if(actor.grant&&(actor.grant.branchId!==take.branchId||!actor.grant.warehouseIds.includes(take.warehouseId))) {
+    throw new FinancialRequestError("الجرد خارج المستودع المسموح",403);
+  }
+  return {actor,take};
+}
+
 /** All count writers lock the same parent row that /complete updates. */
 export async function lockStocktakeForCount(connection:InventoryConnection,req:Request,id:number,closedStatus=409) {
   const actor=await inventoryActor(connection,req,"inventory.stocktake.count");

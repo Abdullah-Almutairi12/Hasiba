@@ -4,6 +4,7 @@ export const TEAM_ACTIONS = [
   { key: "inventory.read", label: "عرض مخزون المستودعات المحددة", resource: "inventory", available: true },
   { key: "inventory.cost.read", label: "عرض تكلفة المخزون", resource: "inventory", available: true },
   { key: "inventory.transfer.receive", label: "استلام تحويل قائم كاملًا في مستودع الوجهة المحدد — لا إرسال أو تسوية", resource: "inventory", available: true },
+  { key: "inventory.stocktake.count", label: "عدّ جرد قائم في المستودع المحدد — دون إنشاء أو إقفال أو تكلفة", resource: "inventory", available: true },
   { key: "pos.read", label: "عرض نقطة البيع المحددة", resource: "pos", available: true },
   { key: "pos.sell", label: "تنفيذ بيع ضمن النطاق والحد المالي", resource: "pos", available: true },
   { key: "pos.shift.open", label: "فتح وردية", resource: "pos", available: true },

@@ -30,6 +30,137 @@ tags:
   - name: auth
     description: Authentication & session management
 paths:
+  /inventory/stock-takes:
+    get:
+      operationId: listCountSessions
+      tags: [Inventory]
+      description: Existing sessions only, filtered by current company and selected branch/warehouses. No cost fields.
+      responses:
+        "200":
+          description: Authorized sessions
+          content:
+            application/json:
+              schema: {type: array, items: {type: object, additionalProperties: true}}
+        "403": {description: Current access denied}
+  /inventory/stock-takes/{id}:
+    parameters:
+      - {name: id, in: path, required: true, schema: {type: integer}}
+    get:
+      operationId: getCountSession
+      tags: [Inventory]
+      description: Cost-blind count lines with numeric-string countRevision, canCount and canComplete. Count permission never grants completion.
+      responses:
+        "200":
+          description: Cost-blind detail
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, reference, status, canCount, canComplete, lines]
+                properties:
+                  id: {type: integer}
+                  reference: {type: string}
+                  status: {type: string}
+                  canCount: {type: boolean}
+                  canComplete: {type: boolean}
+                  lines:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, productId, productName, expectedQty, countedQty, countRevision]
+                      properties:
+                        id: {type: integer}
+                        productId: {type: integer}
+                        productName: {type: [string, "null"]}
+                        sku: {type: [string, "null"]}
+                        lotId: {type: [integer, "null"]}
+                        expectedQty: {type: number}
+                        countedQty: {type: [number, "null"]}
+                        countRevision: {type: string, pattern: '^\d{1,30}$'}
+        "403": {description: Outside current branch/warehouse or current membership denied}
+        "404": {description: Not owned or missing}
+  /inventory/stock-takes/{id}/lookup:
+    parameters:
+      - {name: id, in: path, required: true, schema: {type: integer}}
+    get:
+      operationId: lookupCountProduct
+      tags: [Inventory]
+      parameters:
+        - {name: code, in: query, required: true, schema: {type: string}}
+      responses:
+        "200":
+          description: Base product identity only; no price or cost
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [productId]
+                properties: {productId: {type: integer}}
+        "403": {description: "Access denied, not an unknown barcode"}
+        "404": {description: Base barcode not found}
+  /inventory/stock-takes/{id}/lines:
+    parameters:
+      - {name: id, in: path, required: true, schema: {type: integer}}
+    post:
+      operationId: incrementCountObservation
+      tags: [Inventory]
+      description: Atomic increment, not an absolute replacement. Fixed Idempotency-Key is required for scoped access and safe retry. Variant/ambiguous lot scans are rejected.
+      parameters:
+        - {name: Idempotency-Key, in: header, schema: {type: string}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [productId]
+              properties:
+                productId: {type: integer}
+                lotId: {type: integer}
+                countedQty: {type: number, minimum: 0, default: 1}
+      responses:
+        "201":
+          description: Committed or same-identity replay; no inventory or journal effect
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [lineId, countedQty]
+                properties: {lineId: {type: integer}, countedQty: {type: number}}
+        "400": {description: Closed or unsupported scan or missing key}
+        "403": {description: Execution grant revoked or outside scope}
+        "409": {description: Same key with different request}
+  /inventory/stock-takes/{id}/lines/{lineId}:
+    parameters:
+      - {name: id, in: path, required: true, schema: {type: integer}}
+      - {name: lineId, in: path, required: true, schema: {type: integer}}
+    patch:
+      operationId: replaceCountObservation
+      tags: [Inventory]
+      description: Absolute count requires the previously observed revision; never use this for barcode increments.
+      parameters:
+        - {name: Idempotency-Key, in: header, schema: {type: string}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [countedQty, expectedRevision]
+              properties:
+                countedQty: {type: number, minimum: 0}
+                expectedRevision: {type: string, pattern: '^\d{1,30}$'}
+      responses:
+        "200":
+          description: Committed or same-identity replay
+          content:
+            application/json:
+              schema: {type: object, required: [ok], properties: {ok: {type: boolean}}}
+        "409": {description: Stale revision or closed session}
+        "428": {description: Legacy client must refresh and supply revision}
+        "403": {description: Execution denied or outside scope}
   /team/catalog:
     get:
       operationId: getTeamCatalog

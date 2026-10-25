@@ -173,7 +173,8 @@ export function usePermissions() {
     if (!role) return false;
     // Scoped users see only their workspace; POS visibility depends on the
     // selected responsibility and is decided by the layout, not here.
-    if (isScoped) return navKey === "my_work" || (navKey === "pos" && scopedRead);
+    if (isScoped) return navKey === "my_work" || (navKey === "pos" && scopedRead) ||
+      (navKey==="stocktake"&&selected?.resource==="inventory"&&selected.actions.includes("inventory.read"));
     // Honour the admin-defined override matrix when available. The matrix
     // is the union of static defaults + per-cell overrides; an explicit
     // `false` override removes nav access for that role × module pair, and

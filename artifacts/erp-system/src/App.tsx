@@ -104,7 +104,8 @@ function ScopedGate({ children, pos = false }: { children: React.ReactNode; pos?
   const selected = useSelectedResponsibility();
   const scoped = user?.role === "scoped";
   const posView = selected?.resource === "pos" && selected.actions.includes("pos.read");
-  const allowed = !scoped || (pos ? posView : SCOPED_PATHS.has(location) || (location === SCOPED_RETURNS_PATH && canReachReturns(selected)));
+  const inventoryCountView=location==="/inventory/stocktake"&&selected?.resource==="inventory"&&selected.actions.includes("inventory.read");
+  const allowed = !scoped || (pos ? posView : SCOPED_PATHS.has(location) || inventoryCountView || (location === SCOPED_RETURNS_PATH && canReachReturns(selected)));
   useEffect(() => {
     if (!allowed) setLocation("/my-work", { replace: true });
   }, [allowed, setLocation]);

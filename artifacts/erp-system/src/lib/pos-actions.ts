@@ -8,6 +8,7 @@ export const ACTION_LABEL: Record<string, string> = {
   "inventory.read": "عرض المخزون",
   "inventory.cost.read": "عرض تكلفة الأصناف",
   "inventory.transfer.receive": "استلام كامل حركة تحويل إلى مستودع الوجهة",
+  "inventory.stocktake.count": "عدّ جرد قائم في مستودع المسؤولية — دون اعتماد الفروق",
   "pos.read": "فتح نقطة البيع (عرض)",
   "pos.sell": "البيع وتحصيل النقد",
   "pos.shift.open": "فتح وردية",

@@ -219,6 +219,7 @@ export const stockTakeLinesTable = pgTable(
     lotId: integer("lot_id").references(() => stockLotsTable.id),
     expectedQty: numeric("expected_qty", { precision: 18, scale: 4 }).notNull().default("0"),
     countedQty: numeric("counted_qty", { precision: 18, scale: 4 }),
+    countRevision: numeric("count_revision", { precision: 30, scale: 0 }).notNull().default("0"),
     unitCost: numeric("unit_cost", { precision: 18, scale: 4 }).notNull().default("0"),
   },
   (t) => ({

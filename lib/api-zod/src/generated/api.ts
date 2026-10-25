@@ -8,6 +8,110 @@
 import * as zod from 'zod';
 
 
+/**
+ * Existing sessions only, filtered by current company and selected branch/warehouses. No cost fields.
+ */
+export const ListCountSessionsResponseItem = zod.record(zod.string(), zod.unknown())
+export const ListCountSessionsResponse = zod.array(ListCountSessionsResponseItem)
+
+
+/**
+ * Cost-blind count lines with numeric-string countRevision, canCount and canComplete. Count permission never grants completion.
+ */
+export const GetCountSessionParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const getCountSessionResponseLinesItemCountRevisionRegExp = new RegExp('^\\d{1,30}$');
+
+
+export const GetCountSessionResponse = zod.object({
+  "id": zod.number().int(),
+  "reference": zod.string(),
+  "status": zod.string(),
+  "canCount": zod.boolean(),
+  "canComplete": zod.boolean(),
+  "lines": zod.array(zod.object({
+  "id": zod.number().int(),
+  "productId": zod.number().int(),
+  "productName": zod.string().nullable(),
+  "sku": zod.string().nullish(),
+  "lotId": zod.number().int().nullish(),
+  "expectedQty": zod.number(),
+  "countedQty": zod.number().nullable(),
+  "countRevision": zod.string().regex(getCountSessionResponseLinesItemCountRevisionRegExp)
+}))
+})
+
+
+export const LookupCountProductParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const LookupCountProductQueryParams = zod.object({
+  "code": zod.coerce.string()
+})
+
+export const LookupCountProductResponse = zod.object({
+  "productId": zod.number().int()
+})
+
+
+/**
+ * Atomic increment, not an absolute replacement. Fixed Idempotency-Key is required for scoped access and safe retry. Variant/ambiguous lot scans are rejected.
+ */
+export const IncrementCountObservationParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const IncrementCountObservationHeader = zod.object({
+  "Idempotency-Key": zod.string().optional()
+})
+
+export const incrementCountObservationBodyCountedQtyDefault = 1;
+export const incrementCountObservationBodyCountedQtyMin = 0;
+
+
+
+export const IncrementCountObservationBody = zod.object({
+  "productId": zod.number().int(),
+  "lotId": zod.number().int().optional(),
+  "countedQty": zod.number().min(incrementCountObservationBodyCountedQtyMin).default(incrementCountObservationBodyCountedQtyDefault)
+})
+
+export const IncrementCountObservationResponse = zod.object({
+  "lineId": zod.number().int(),
+  "countedQty": zod.number()
+})
+
+
+/**
+ * Absolute count requires the previously observed revision; never use this for barcode increments.
+ */
+export const ReplaceCountObservationParams = zod.object({
+  "id": zod.coerce.number().int(),
+  "lineId": zod.coerce.number().int()
+})
+
+export const ReplaceCountObservationHeader = zod.object({
+  "Idempotency-Key": zod.string().optional()
+})
+
+export const replaceCountObservationBodyCountedQtyMin = 0;
+
+export const replaceCountObservationBodyExpectedRevisionRegExp = new RegExp('^\\d{1,30}$');
+
+
+export const ReplaceCountObservationBody = zod.object({
+  "countedQty": zod.number().min(replaceCountObservationBodyCountedQtyMin),
+  "expectedRevision": zod.string().regex(replaceCountObservationBodyExpectedRevisionRegExp)
+})
+
+export const ReplaceCountObservationResponse = zod.object({
+  "ok": zod.boolean()
+})
+
+
 export const GetTeamCatalogResponse = zod.object({
   "actions": zod.array(zod.object({
   "key": zod.string(),

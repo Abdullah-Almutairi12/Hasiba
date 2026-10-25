@@ -2565,6 +2565,64 @@ export interface CreateSupplierBody {
   notes?: string | null;
 }
 
+export type ListCountSessions200Item = { [key: string]: unknown };
+
+export type GetCountSession200LinesItem = {
+  id: number;
+  productId: number;
+  /** @nullable */
+  productName: string | null;
+  /** @nullable */
+  sku?: string | null;
+  /** @nullable */
+  lotId?: number | null;
+  expectedQty: number;
+  /** @nullable */
+  countedQty: number | null;
+  /** @pattern ^\d{1,30}$ */
+  countRevision: string;
+};
+
+export type GetCountSession200 = {
+  id: number;
+  reference: string;
+  status: string;
+  canCount: boolean;
+  canComplete: boolean;
+  lines: GetCountSession200LinesItem[];
+};
+
+export type LookupCountProductParams = {
+code: string;
+};
+
+export type LookupCountProduct200 = {
+  productId: number;
+};
+
+export type IncrementCountObservationBody = {
+  productId: number;
+  lotId?: number;
+  /** @minimum 0 */
+  countedQty?: number;
+};
+
+export type IncrementCountObservation201 = {
+  lineId: number;
+  countedQty: number;
+};
+
+export type ReplaceCountObservationBody = {
+  /** @minimum 0 */
+  countedQty: number;
+  /** @pattern ^\d{1,30}$ */
+  expectedRevision: string;
+};
+
+export type ReplaceCountObservation200 = {
+  ok: boolean;
+};
+
 export type ApplyLegacyTeamConversionBody = LegacyTeamConversionInput & {
   expectedDigest: string;
 };

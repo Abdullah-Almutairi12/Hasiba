@@ -6,18 +6,18 @@ import {db,pool,companiesTable,usersTable,userCompaniesTable,branchesTable,wareh
 import app,{assertApplicationReady} from "../app";
 
 const tag=`count-safety-${randomUUID()}`,password="Synthetic count safety phrase 2026!";
-let owner:request.Agent,company:number,ownerId:number,warehouse:number,product:number,unexpected:number;
+let owner:request.Agent,company:number,ownerId:number,warehouse:number,product:number,unexpected:number,branch:number;
 const ok=(r:request.Response,status=200)=>{expect(r.status,JSON.stringify(r.body)).toBe(status);return r.body;};
 const rows=async(text:string,values:unknown[]=[])=> (await pool.query(text,values)).rows;
 async function take() {
   const created=ok(await owner.post("/api/inventory/stock-takes").send({warehouseId:warehouse}),201);
   const detail=ok(await owner.get(`/api/inventory/stock-takes/${created.id}`));
-  return {id:created.id as number,lineId:detail.lines[0].id as number};
+  return {id:created.id as number,lineId:detail.lines[0].id as number,revision:detail.lines[0].countRevision as string};
 }
 const scan=(id:number,key:string,quantity=1,productId=product)=>owner.post(`/api/inventory/stock-takes/${id}/lines`)
   .set("Idempotency-Key",key).send({productId,countedQty:quantity});
-const set=(t:{id:number;lineId:number},key:string,countedQty=10)=>owner.patch(`/api/inventory/stock-takes/${t.id}/lines/${t.lineId}`)
-  .set("Idempotency-Key",key).send({countedQty});
+const set=(t:{id:number;lineId:number;revision?:string},key:string,countedQty=10)=>owner.patch(`/api/inventory/stock-takes/${t.id}/lines/${t.lineId}`)
+  .set("Idempotency-Key",key).send({countedQty,expectedRevision:t.revision??"0"});
 async function proof(id:number) {
   return {
     take:(await rows("SELECT status FROM stock_takes WHERE id=$1",[id]))[0],
@@ -34,6 +34,7 @@ beforeAll(async()=>{
     passwordHash:bcrypt.hashSync(password,4),role:"owner",isActive:true}).returning();ownerId=u.id;
   await db.insert(userCompaniesTable).values({userId:u.id,companyId:company,role:"owner",isDefault:true});
   const [b]=await db.insert(branchesTable).values({companyId:company,name:tag,nameAr:"فرع عد مصطنع",city:"الرياض"}).returning();
+  branch=b.id;
   const [w]=await db.insert(warehousesTable).values({companyId:company,branchId:b.id,name:tag,nameAr:"مستودع عد مصطنع"}).returning();warehouse=w.id;
   const [cat]=await db.insert(categoriesTable).values({name:tag,nameAr:tag}).returning();
   const ps=await db.insert(productsTable).values([0,1].map(i=>({companyId:company,name:`${tag}-${i}`,nameAr:"صنف عد مصطنع",
@@ -44,6 +45,69 @@ beforeAll(async()=>{
 });
 
 describe("legacy count safety before enabling scoped counting",()=>{
+  it("grants cost-blind counting of an existing scoped take, not creation, closure, cost or another warehouse; revoked counting can only replay confirmed evidence",async()=>{
+    const t=await take();
+    const input={creationKey:randomUUID(),name:"عداد مصطنع",email:`${randomUUID()}@example.invalid`,loginKinds:["platform"],
+      grants:[{resource:"inventory",branchId:branch,warehouseIds:[warehouse],actions:["inventory.read","inventory.stocktake.count"],
+        amountLimit:null,startsAt:null,endsAt:null}],deniedActions:[]};
+    const person=ok(await owner.post("/api/team/people").send(input),201);
+    const invite=ok(await owner.post(`/api/team/people/${person.personId}/invite`).send({expectedRevision:person.revision}),201);
+    ok(await request(app).post("/api/auth/team-activation/accept").send({token:invite.activationToken,password}));
+    const agent=request.agent(app);ok(await agent.post("/api/auth/login").send({email:input.email,password}));
+    const access=ok(await agent.get("/api/workspace/access")),grantId=access.grants[0].id;
+    const header={"X-Workspace-Responsibility":String(grantId)},key=randomUUID(),before=await proof(t.id);
+    const detail=ok(await agent.get(`/api/inventory/stock-takes/${t.id}`).set(header));
+    expect(detail.canCount).toBe(true);expect(detail.canComplete).toBe(false);
+    expect(JSON.stringify(detail)).not.toMatch(/unitCost|unit_cost|avgCost/);
+    const list=ok(await agent.get("/api/inventory/stock-takes").set(header));
+    expect(list.every((x:{warehouseId:number})=>x.warehouseId===warehouse)).toBe(true);
+    const [other]=await db.insert(warehousesTable).values({companyId:company,branchId:branch,name:randomUUID(),nameAr:"خارج النطاق"}).returning();
+    const foreign=ok(await owner.post("/api/inventory/stock-takes").send({warehouseId:other.id}),201);
+    ok(await agent.get(`/api/inventory/stock-takes/${foreign.id}`).set(header),403);
+    ok(await agent.post("/api/inventory/stock-takes").set(header).send({warehouseId:warehouse}),403);
+    ok(await agent.post(`/api/inventory/stock-takes/${t.id}/complete`).set(header).send({}),403);
+    const write=()=>agent.post(`/api/inventory/stock-takes/${t.id}/lines`).set(header).set("Idempotency-Key",key).send({productId:product,countedQty:1});
+    ok(await write(),201);
+    const after=await proof(t.id);
+    expect(after.quants).toEqual(before.quants);expect(after.journals).toBe(before.journals);expect(after.audits).toHaveLength(1);
+    const lock=await pool.connect();
+    let pending:Promise<request.Response>|undefined;
+    try {
+      await lock.query("BEGIN");await lock.query("SELECT pg_advisory_xact_lock(174223,35)");
+      const [{pid}]=(await lock.query("SELECT pg_backend_pid() AS pid")).rows;
+      pending=agent.post(`/api/inventory/stock-takes/${t.id}/lines`).set(header)
+        .set("Idempotency-Key",randomUUID()).send({productId:product,countedQty:1}).then(r=>r);
+      await vi.waitFor(async()=>{
+        const [{n}]=await rows("SELECT count(*)::int n FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid)) AND query LIKE '%pg_advisory_xact_lock_shared%'",[pid]);
+        expect(n).toBeGreaterThan(0);
+      },{timeout:5000,interval:25});
+      await lock.query("UPDATE responsibility_grants SET actions=ARRAY['inventory.read']::text[] WHERE id=$1",[grantId]);
+      await lock.query("COMMIT");
+      ok(await pending,403);
+    } finally {await lock.query("ROLLBACK").catch(()=>{});lock.release();if(pending)await pending;}
+    const replay=await write();ok(replay,201);expect(replay.headers["idempotency-replayed"]).toBe("true");
+    ok(await agent.post(`/api/inventory/stock-takes/${t.id}/lines`).set(header).set("Idempotency-Key",randomUUID()).send({productId:product,countedQty:1}),403);
+    expect(await proof(t.id)).toEqual(after);
+  });
+  it("rejects missing revisions, stale absolute updates and ABA even when quantity returns to the same value",async()=>{
+    const t=await take();
+    ok(await owner.patch(`/api/inventory/stock-takes/${t.id}/lines/${t.lineId}`).send({countedQty:0}),428);
+    ok(await set(t,randomUUID(),1));
+    ok(await set(t,randomUUID(),2),409);
+    ok(await set({...t,revision:"1"},randomUUID(),0));
+    ok(await set(t,randomUUID(),3),409);
+    const detail=ok(await owner.get(`/api/inventory/stock-takes/${t.id}`));
+    expect(detail.lines[0].countRevision).toBe("2");
+    expect(detail.lines[0]).not.toHaveProperty("unitCost");
+  });
+  it("allows only one concurrent absolute overwrite of the same observed revision",async()=>{
+    const t=await take(),before=await proof(t.id);
+    const results=await Promise.all([set(t,randomUUID(),5),set(t,randomUUID(),7)]);
+    expect(results.map(r=>r.status).sort()).toEqual([200,409]);
+    const after=await proof(t.id);
+    expect([5,7]).toContain(Number(after.lines[0].counted_qty));
+    expect(after.audits).toHaveLength(1);expect(after.quants).toEqual(before.quants);expect(after.journals).toBe(before.journals);
+  });
   it("replays one identified scan and serializes different scans without losing an increment",async()=>{
     const t=await take(),key=randomUUID(),before=await proof(t.id);
     const same=await Promise.all([scan(t.id,key),scan(t.id,key)]);

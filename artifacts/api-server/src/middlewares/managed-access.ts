@@ -10,6 +10,13 @@ export const SCOPED_ROUTES = [
   ["GET", "/workspace/inventory/transfers", "inventory.read"],
   // Execution is rechecked inside the fresh stock transaction; committed replays require destination read.
   ["POST", "/inventory/transfers/:id/receive", "inventory.read"],
+  // Count writes check live execution authority inside the transaction. A
+  // committed replay needs only current read access to the SAME stocktake.
+  ["GET", "/inventory/stock-takes", "inventory.read"],
+  ["GET", "/inventory/stock-takes/:id", "inventory.read"],
+  ["GET", "/inventory/stock-takes/:id/lookup", "inventory.read"],
+  ["POST", "/inventory/stock-takes/:id/lines", "inventory.read"],
+  ["PATCH", "/inventory/stock-takes/:id/lines/:lineId", "inventory.read"],
   ["GET", "/users/permissions", "self"],
   ["GET", "/companies", "self"],
   ["GET", "/branches", "metadata"],
@@ -35,7 +42,7 @@ export const SCOPED_ROUTES = [
 ] as const;
 export function scopedRouteAction(method: string, path: string) {
   return SCOPED_ROUTES.find(([m, p]) => m === method &&
-    new RegExp(`^${p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/:id/g, "\\d+")}$`).test(path))?.[2];
+    new RegExp(`^${p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/:lineId|:id/g, "\\d+")}$`).test(path))?.[2];
 }
 export async function managedAccessGate(req: Request, res: Response, next: NextFunction) {
   try {

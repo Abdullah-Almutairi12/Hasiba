@@ -134,6 +134,7 @@ import type {
   GetCleanupReportPreview200,
   GetCleanupReportPreviewParams,
   GetCleanupReportTestHistory200,
+  GetCountSession200,
   GetDashboardSalesChartParams,
   GetFraudAnomalies200,
   GetFraudAnomaliesParams,
@@ -157,6 +158,8 @@ import type {
   HealthStatus,
   ImportBankStatementBody,
   InboxItem,
+  IncrementCountObservation201,
+  IncrementCountObservationBody,
   InspectInvoiceIdentity200,
   InspectTeamActivation200,
   InventoryRevaluation,
@@ -180,6 +183,7 @@ import type {
   ListCleanupReportSuppressionExpiries400,
   ListCleanupReportSuppressionExpiriesParams,
   ListClosingEntriesParams,
+  ListCountSessions200Item,
   ListCustomersParams,
   ListInboxParams,
   ListInvoicesParams,
@@ -188,6 +192,8 @@ import type {
   ListProductsParams,
   ListSupportTicketsParams,
   ListWarehousesParams,
+  LookupCountProduct200,
+  LookupCountProductParams,
   ManagerKpiBar,
   MarkAllInboxRead200,
   MarkInboxRead200,
@@ -203,6 +209,8 @@ import type {
   ProfitLoss,
   ReceiveInventoryTransfer200,
   ReceiveInventoryTransferBody,
+  ReplaceCountObservation200,
+  ReplaceCountObservationBody,
   ReportInsights,
   RequestTeamConsentReconfirm200,
   ResendCleanupReport200,
@@ -325,6 +333,486 @@ const withQueryKey = <T extends object, K>(query: T, queryKey: K): T & { queryKe
   }
   return result;
 };
+
+export const getListCountSessionsUrl = () => {
+
+
+
+
+  return `/api/inventory/stock-takes`
+}
+
+/**
+ * Existing sessions only, filtered by current company and selected branch/warehouses. No cost fields.
+ */
+export const listCountSessions = async ( options?: Parameters<typeof customFetch>[1]): Promise<ListCountSessions200Item[]> => {
+
+  return customFetch<ListCountSessions200Item[]>(getListCountSessionsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListCountSessionsQueryKey = () => {
+    return [
+    `/api/inventory/stock-takes`
+    ] as const;
+    }
+
+
+export const getListCountSessionsQueryOptions = <TData = Awaited<ReturnType<typeof listCountSessions>>, TError = ErrorType<void>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listCountSessions>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListCountSessionsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listCountSessions>>> = ({ signal }) => listCountSessions({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listCountSessions>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type ListCountSessionsQueryResult = NonNullable<Awaited<ReturnType<typeof listCountSessions>>>
+export type ListCountSessionsQueryError = ErrorType<void>
+
+
+export function useListCountSessions<TData = Awaited<ReturnType<typeof listCountSessions>>, TError = ErrorType<void>>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listCountSessions>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listCountSessions>>,
+          TError,
+          Awaited<ReturnType<typeof listCountSessions>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useListCountSessions<TData = Awaited<ReturnType<typeof listCountSessions>>, TError = ErrorType<void>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listCountSessions>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listCountSessions>>,
+          TError,
+          Awaited<ReturnType<typeof listCountSessions>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useListCountSessions<TData = Awaited<ReturnType<typeof listCountSessions>>, TError = ErrorType<void>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listCountSessions>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useListCountSessions<TData = Awaited<ReturnType<typeof listCountSessions>>, TError = ErrorType<void>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listCountSessions>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getListCountSessionsQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetCountSessionUrl = (id: number,) => {
+
+
+
+
+  return `/api/inventory/stock-takes/${id}`
+}
+
+/**
+ * Cost-blind count lines with numeric-string countRevision, canCount and canComplete. Count permission never grants completion.
+ */
+export const getCountSession = async (id: number, options?: Parameters<typeof customFetch>[1]): Promise<GetCountSession200> => {
+
+  return customFetch<GetCountSession200>(getGetCountSessionUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetCountSessionQueryKey = (id: number,) => {
+    return [
+    `/api/inventory/stock-takes/${id}`
+    ] as const;
+    }
+
+
+export const getGetCountSessionQueryOptions = <TData = Awaited<ReturnType<typeof getCountSession>>, TError = ErrorType<void>>(id: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getCountSession>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetCountSessionQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getCountSession>>> = ({ signal }) => getCountSession(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: id !== null && id !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getCountSession>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetCountSessionQueryResult = NonNullable<Awaited<ReturnType<typeof getCountSession>>>
+export type GetCountSessionQueryError = ErrorType<void>
+
+
+export function useGetCountSession<TData = Awaited<ReturnType<typeof getCountSession>>, TError = ErrorType<void>>(
+ id: number, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getCountSession>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getCountSession>>,
+          TError,
+          Awaited<ReturnType<typeof getCountSession>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetCountSession<TData = Awaited<ReturnType<typeof getCountSession>>, TError = ErrorType<void>>(
+ id: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getCountSession>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getCountSession>>,
+          TError,
+          Awaited<ReturnType<typeof getCountSession>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetCountSession<TData = Awaited<ReturnType<typeof getCountSession>>, TError = ErrorType<void>>(
+ id: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getCountSession>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useGetCountSession<TData = Awaited<ReturnType<typeof getCountSession>>, TError = ErrorType<void>>(
+ id: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getCountSession>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetCountSessionQueryOptions(id,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getLookupCountProductUrl = (id: number,
+    params: LookupCountProductParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/inventory/stock-takes/${id}/lookup?${stringifiedParams}` : `/api/inventory/stock-takes/${id}/lookup`
+}
+
+export const lookupCountProduct = async (id: number,
+    params: LookupCountProductParams, options?: Parameters<typeof customFetch>[1]): Promise<LookupCountProduct200> => {
+
+  return customFetch<LookupCountProduct200>(getLookupCountProductUrl(id,params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getLookupCountProductQueryKey = (id: number,
+    params?: LookupCountProductParams,) => {
+    return [
+    `/api/inventory/stock-takes/${id}/lookup`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getLookupCountProductQueryOptions = <TData = Awaited<ReturnType<typeof lookupCountProduct>>, TError = ErrorType<void>>(id: number,
+    params: LookupCountProductParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof lookupCountProduct>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getLookupCountProductQueryKey(id,params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof lookupCountProduct>>> = ({ signal }) => lookupCountProduct(id,params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: id !== null && id !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof lookupCountProduct>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type LookupCountProductQueryResult = NonNullable<Awaited<ReturnType<typeof lookupCountProduct>>>
+export type LookupCountProductQueryError = ErrorType<void>
+
+
+export function useLookupCountProduct<TData = Awaited<ReturnType<typeof lookupCountProduct>>, TError = ErrorType<void>>(
+ id: number,
+    params: LookupCountProductParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof lookupCountProduct>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof lookupCountProduct>>,
+          TError,
+          Awaited<ReturnType<typeof lookupCountProduct>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useLookupCountProduct<TData = Awaited<ReturnType<typeof lookupCountProduct>>, TError = ErrorType<void>>(
+ id: number,
+    params: LookupCountProductParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof lookupCountProduct>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof lookupCountProduct>>,
+          TError,
+          Awaited<ReturnType<typeof lookupCountProduct>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useLookupCountProduct<TData = Awaited<ReturnType<typeof lookupCountProduct>>, TError = ErrorType<void>>(
+ id: number,
+    params: LookupCountProductParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof lookupCountProduct>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useLookupCountProduct<TData = Awaited<ReturnType<typeof lookupCountProduct>>, TError = ErrorType<void>>(
+ id: number,
+    params: LookupCountProductParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof lookupCountProduct>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getLookupCountProductQueryOptions(id,params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getIncrementCountObservationUrl = (id: number,) => {
+
+
+
+
+  return `/api/inventory/stock-takes/${id}/lines`
+}
+
+/**
+ * Atomic increment, not an absolute replacement. Fixed Idempotency-Key is required for scoped access and safe retry. Variant/ambiguous lot scans are rejected.
+ */
+export const incrementCountObservation = async (id: number,
+    incrementCountObservationBody: IncrementCountObservationBody, options?: Parameters<typeof customFetch>[1]): Promise<IncrementCountObservation201> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<IncrementCountObservation201>(getIncrementCountObservationUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(incrementCountObservationBody)
+  }
+);}
+
+
+
+
+
+export const getIncrementCountObservationMutationKey = () => ['incrementCountObservation'] as const;
+
+export const getIncrementCountObservationMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof incrementCountObservation>>, TError,IncrementCountObservationMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof incrementCountObservation>>, TError,IncrementCountObservationMutationVariables, TContext> => {
+
+const mutationKey = getIncrementCountObservationMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof incrementCountObservation>>, IncrementCountObservationMutationVariables> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  incrementCountObservation(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type IncrementCountObservationMutationResult = NonNullable<Awaited<ReturnType<typeof incrementCountObservation>>>
+    export type IncrementCountObservationMutationBody = BodyType<IncrementCountObservationBody>
+    export type IncrementCountObservationMutationError = ErrorType<void>
+    export type IncrementCountObservationMutationVariables = {id: number;data: BodyType<IncrementCountObservationBody>}
+
+    export const useIncrementCountObservation = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof incrementCountObservation>>, TError,IncrementCountObservationMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof incrementCountObservation>>,
+        TError,
+        IncrementCountObservationMutationVariables,
+        TContext
+      > => {
+      return useMutation(getIncrementCountObservationMutationOptions(options), queryClient);
+    }
+
+export const getReplaceCountObservationUrl = (id: number,
+    lineId: number,) => {
+
+
+
+
+  return `/api/inventory/stock-takes/${id}/lines/${lineId}`
+}
+
+/**
+ * Absolute count requires the previously observed revision; never use this for barcode increments.
+ */
+export const replaceCountObservation = async (id: number,
+    lineId: number,
+    replaceCountObservationBody: ReplaceCountObservationBody, options?: Parameters<typeof customFetch>[1]): Promise<ReplaceCountObservation200> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<ReplaceCountObservation200>(getReplaceCountObservationUrl(id,lineId),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(replaceCountObservationBody)
+  }
+);}
+
+
+
+
+
+export const getReplaceCountObservationMutationKey = () => ['replaceCountObservation'] as const;
+
+export const getReplaceCountObservationMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof replaceCountObservation>>, TError,ReplaceCountObservationMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof replaceCountObservation>>, TError,ReplaceCountObservationMutationVariables, TContext> => {
+
+const mutationKey = getReplaceCountObservationMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof replaceCountObservation>>, ReplaceCountObservationMutationVariables> = (props) => {
+          const {id,lineId,data} = props ?? {};
+
+          return  replaceCountObservation(id,lineId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ReplaceCountObservationMutationResult = NonNullable<Awaited<ReturnType<typeof replaceCountObservation>>>
+    export type ReplaceCountObservationMutationBody = BodyType<ReplaceCountObservationBody>
+    export type ReplaceCountObservationMutationError = ErrorType<void>
+    export type ReplaceCountObservationMutationVariables = {id: number;lineId: number;data: BodyType<ReplaceCountObservationBody>}
+
+    export const useReplaceCountObservation = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof replaceCountObservation>>, TError,ReplaceCountObservationMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof replaceCountObservation>>,
+        TError,
+        ReplaceCountObservationMutationVariables,
+        TContext
+      > => {
+      return useMutation(getReplaceCountObservationMutationOptions(options), queryClient);
+    }
 
 export const getGetTeamCatalogUrl = () => {
 

@@ -322,7 +322,7 @@ describe("supply-chain tenant boundaries", () => {
     await agents[0].post(`/api/manufacturing/work-orders/${a.wo}/consume`).send({}).expect(200);
     await agents[0].post(`/api/manufacturing/work-orders/${a.wo}/produce`).send({ quantity: 1 }).expect(200);
     await agents[0].post(`/api/manufacturing/work-orders/${a.wo}/complete`).send({}).expect(200);
-    await agents[0].patch(`/api/inventory/stock-takes/${a.take}/lines/${a.takeLine}`).send({ countedQty: 9 }).expect(200);
+    await agents[0].patch(`/api/inventory/stock-takes/${a.take}/lines/${a.takeLine}`).send({ countedQty: 9, expectedRevision:"0" }).expect(200);
     await agents[0].post(`/api/inventory/stock-takes/${a.take}/complete`).send({}).expect(200);
     await agents[0].post("/api/inventory/moves").send({ productId: a.product, warehouseId: a.warehouse, quantity: 1, kind: "receipt", unitCost: 0 }).expect(201);
     await agents[0].get(`/api/procurement/purchase-orders/${a.po}/pdf`).expect(200);

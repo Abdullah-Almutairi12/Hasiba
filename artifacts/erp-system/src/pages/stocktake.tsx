@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiGet, apiPost } from "@/hooks/use-api";
@@ -24,6 +24,10 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { ClipboardList, Plus, CheckCircle2 } from "lucide-react";
+import { StocktakeScanner } from "@/components/stocktake-scanner";
+import { countHeaders, countIntentKey } from "@/lib/stocktake-intent";
+import { useAuth } from "@/hooks/use-auth";
+import { useSelectedResponsibility } from "@/lib/workspace-responsibility";
 
 interface StockTake {
   id: number;
@@ -41,7 +45,7 @@ interface StockTakeLine {
   sku: string | null;
   expectedQty: number;
   countedQty: number | null;
-  unitCost: number;
+  countRevision: string;
 }
 
 interface Warehouse { id: number; nameAr: string }
@@ -51,14 +55,16 @@ export default function StockTakePage() {
   const { toast } = useToast();
   const [warehouseId, setWarehouseId] = useState<string>("");
   const [openId, setOpenId] = useState<number | null>(null);
+  const selected=useSelectedResponsibility();
 
   const { data: takes = [] } = useQuery<StockTake[]>({
     queryKey: ["/inventory/stock-takes"],
-    queryFn: () => apiGet("/inventory/stock-takes"),
+    queryFn: () => apiGet("/inventory/stock-takes",countHeaders()),
   });
   const { data: warehouses = [] } = useQuery<Warehouse[]>({
     queryKey: ["/warehouses"],
     queryFn: () => apiGet("/warehouses"),
+    enabled:!selected,
   });
 
   const start = useMutation({
@@ -83,7 +89,7 @@ export default function StockTakePage() {
         <Link href="/inventory-revaluations" className="text-sm text-primary hover:underline" data-testid="link-revaluations">إعادة تقييم المخزون</Link>
       </div>
 
-      <Card>
+      {!selected&&<Card>
         <CardHeader><CardTitle>بدء جلسة جرد جديدة</CardTitle></CardHeader>
         <CardContent>
           <div className="flex flex-wrap items-end gap-3">
@@ -101,7 +107,7 @@ export default function StockTakePage() {
             </Button>
           </div>
         </CardContent>
-      </Card>
+      </Card>}
 
       <Card>
         <CardHeader><CardTitle className="flex items-center gap-2"><ClipboardList className="size-5" /> جلسات الجرد</CardTitle></CardHeader>
@@ -149,50 +155,31 @@ export default function StockTakePage() {
 function StockTakeDetail({ id, onClose }: { id: number; onClose: () => void }) {
   const qc = useQueryClient();
   const { toast } = useToast();
-  const [barcode, setBarcode] = useState("");
-  const { data } = useQuery<{ id: number; reference: string; status: string; lines: StockTakeLine[] }>({
+  const { user } = useAuth();
+  const { data, error, isLoading } = useQuery<{ id: number; reference: string; status: string; canCount:boolean;canComplete:boolean;lines: StockTakeLine[] }>({
     queryKey: [`/inventory/stock-takes/${id}`],
-    queryFn: () => apiGet(`/inventory/stock-takes/${id}`),
+    queryFn: () => apiGet(`/inventory/stock-takes/${id}`,countHeaders()),
+    refetchInterval: 15_000,
   });
 
   const updateLine = useMutation({
-    mutationFn: ({ lineId, countedQty }: { lineId: number; countedQty: number }) =>
+    mutationFn: ({ lineId, countedQty, expectedRevision }: { lineId: number; countedQty: number; expectedRevision: string }) =>
       fetch(`${import.meta.env.BASE_URL.replace(/\/$/, "")}/api/inventory/stock-takes/${id}/lines/${lineId}`, {
         method: "PATCH",
         credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ countedQty }),
-      }).then((r) => { if (!r.ok) throw new Error("update failed"); return r.json(); }),
+        headers: { "Content-Type": "application/json", "Idempotency-Key": crypto.randomUUID(), ...countHeaders() },
+        body: JSON.stringify({ countedQty, expectedRevision }),
+      }).then(async r => {
+        const result=await r.json();
+        if (!r.ok) throw new Error(result.error??"تعذر تأكيد تعديل العدد؛ حدّث السطر قبل إعادة المحاولة");
+        return result;
+      }),
     onSuccess: () => qc.invalidateQueries({ queryKey: [`/inventory/stock-takes/${id}`] }),
+    onError: (e:Error) => {
+      toast({title:"لم يُؤكّد تعديل العدد",description:e.message,variant:"destructive"});
+      void qc.invalidateQueries({queryKey:[`/inventory/stock-takes/${id}`]});
+    },
   });
-
-  const scanBarcode = async () => {
-    const code = barcode.trim();
-    if (!code || !data) return;
-    try {
-      const lookup = await apiGet<{ productId: number; nameAr: string }>(
-        `/inventory/lookup?code=${encodeURIComponent(code)}`,
-      );
-      const line = data.lines.find((l) => l.productId === lookup.productId);
-      if (!line) {
-        // Unexpected item — server creates a fresh line (expected=0) so we
-        // can record overage without leaving the count as "not in session".
-        await apiPost(`/inventory/stock-takes/${id}/lines`, {
-          productId: lookup.productId,
-          countedQty: 1,
-        });
-        qc.invalidateQueries({ queryKey: [`/inventory/stock-takes/${id}`] });
-        toast({ title: "تم إضافة عنصر غير متوقع", description: lookup.nameAr });
-      } else {
-        const next = (line.countedQty ?? 0) + 1;
-        updateLine.mutate({ lineId: line.id, countedQty: next });
-        toast({ title: "تم العد", description: `${lookup.nameAr} → ${next}` });
-      }
-    } catch {
-      toast({ title: "باركود غير معروف", description: code, variant: "destructive" });
-    }
-    setBarcode("");
-  };
 
   const complete = useMutation({
     mutationFn: () => apiPost(`/inventory/stock-takes/${id}/complete`, {}),
@@ -205,14 +192,15 @@ function StockTakeDetail({ id, onClose }: { id: number; onClose: () => void }) {
     onError: (e: Error) => toast({ title: "خطأ", description: e.message, variant: "destructive" }),
   });
 
-  if (!data) return null;
+  if (isLoading) return <p role="status">جارٍ تحميل الجرد…</p>;
+  if (error || !data) return <p role="alert">تعذر تحميل جلسة الجرد؛ تحقق من الاتصال والصلاحية.</p>;
   return (
     <Card>
       <CardHeader>
         <div className="flex items-center justify-between">
           <CardTitle>جلسة الجرد {data.reference}</CardTitle>
           <div className="flex gap-2">
-            {data.status !== "done" && (
+            {data.status !== "done" && data.canComplete && (
               <Button onClick={() => complete.mutate()} disabled={complete.isPending}>
                 <CheckCircle2 className="ms-2 size-4" /> إقفال وتسجيل التعديلات
               </Button>
@@ -222,23 +210,9 @@ function StockTakeDetail({ id, onClose }: { id: number; onClose: () => void }) {
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
-        {data.status !== "done" && (
-          <div className="flex items-end gap-2">
-            <div className="grid flex-1 gap-2">
-              <Label htmlFor="scan">مسح الباركود (اضغط Enter لزيادة العدد)</Label>
-              <Input
-                id="scan"
-                value={barcode}
-                onChange={(e) => setBarcode(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); scanBarcode(); } }}
-                placeholder="امسح باركود المنتج…"
-                dir="ltr"
-                autoFocus
-              />
-            </div>
-            <Button type="button" variant="outline" onClick={scanBarcode}>عدّ</Button>
-          </div>
-        )}
+        {user?.companyId && <StocktakeScanner key={`${user.id}:${user.companyId}:${id}`} id={id}
+          scope={countIntentKey(user.id,user.companyId,id)} disabled={data.status!=="in_progress"||!data.canCount}
+          onConfirmed={()=>{void qc.invalidateQueries({queryKey:[`/inventory/stock-takes/${id}`]});}} />}
         <Table>
           <TableHeader>
             <TableRow>
@@ -258,16 +232,8 @@ function StockTakeDetail({ id, onClose }: { id: number; onClose: () => void }) {
                   <TableCell className="font-mono text-xs">{l.sku}</TableCell>
                   <TableCell>{l.expectedQty}</TableCell>
                   <TableCell>
-                    <Input
-                      type="number"
-                      defaultValue={l.countedQty ?? ""}
-                      className="w-24"
-                      disabled={data.status === "done"}
-                      onBlur={(e) => {
-                        const v = Number(e.target.value);
-                        if (!Number.isNaN(v)) updateLine.mutate({ lineId: l.id, countedQty: v });
-                      }}
-                    />
+                    <CountQuantityInput line={l} disabled={data.status!=="in_progress"||!data.canCount||updateLine.isPending}
+                      save={(countedQty,expectedRevision)=>updateLine.mutate({lineId:l.id,countedQty,expectedRevision})} />
                   </TableCell>
                   <TableCell className={variance == null ? "" : variance === 0 ? "text-muted-foreground" : variance > 0 ? "text-green-600" : "text-red-600"}>
                     {variance == null ? "—" : variance > 0 ? `+${variance}` : variance}
@@ -280,4 +246,20 @@ function StockTakeDetail({ id, onClose }: { id: number; onClose: () => void }) {
       </CardContent>
     </Card>
   );
+}
+
+function CountQuantityInput({line,disabled,save}:{line:StockTakeLine;disabled:boolean;save:(n:number,revision:string)=>void}) {
+  const [value,setValue]=useState(line.countedQty==null?"":String(line.countedQty));
+  const editing=useRef(false),revision=useRef(line.countRevision);
+  useEffect(()=>{
+    if(!editing.current){setValue(line.countedQty==null?"":String(line.countedQty));revision.current=line.countRevision;}
+  },[line.countedQty,line.countRevision]);
+  return <Input aria-label={`العدد المطلق — ${line.productName}`} type="number" min="0" step="any"
+    value={value} className="w-24" disabled={disabled}
+    onFocus={()=>{editing.current=true;revision.current=line.countRevision;}}
+    onChange={e=>setValue(e.target.value)} onBlur={()=>{
+      editing.current=false;
+      if(value.trim() && Number.isFinite(Number(value)) && Number(value)>=0 &&
+        (line.countedQty===null||Number(value)!==line.countedQty))save(Number(value),revision.current);
+    }} />;
 }

@@ -3,8 +3,8 @@ import { financialFetch } from "@workspace/api-client-react";
 
 const API_BASE = `${import.meta.env.BASE_URL.replace(/\/$/, "")}/api`;
 
-export async function apiGet<T>(path: string): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, { credentials: "include" });
+export async function apiGet<T>(path: string, headers?: HeadersInit): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, { credentials: "include", headers });
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
     throw new Error(data?.error ?? `HTTP ${res.status}`);

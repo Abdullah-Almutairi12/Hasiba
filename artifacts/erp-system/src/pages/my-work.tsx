@@ -213,6 +213,7 @@ function InventoryView({ grantId, branch }: { grantId: number; branch: string })
       <div className="flex flex-wrap items-center gap-3 border-b p-4">
         <div className="flex-1">
           <h2 className="font-bold">مخزون {branch}</h2>
+          <Link href="/inventory/stocktake" className="text-sm text-primary underline">عدّ جلسات الجرد القائمة</Link>
           <p className="text-xs text-muted-foreground">الرصيد ضمن مستودعات مسؤوليتك؛ التنفيذ يحتاج منحة مستقلة لكل فعل.</p>
         </div>
         <div className="relative w-full sm:w-64">
