@@ -14,6 +14,12 @@ Current monetary authority must cover a pending confirmation or approval, but a 
 
 **How to apply:** Under the authority and document locks, authorize access to the source, return an existing terminal result without new effects, then enforce the current amount limit before any new posting. Test both an excessive pending amount and replay after the limit is lowered.
 
+Revoking POS execution must not prevent an authorized reader from recovering that actor's already committed sale. Recovery authority belongs to the original invoice's company, branch and issue warehouse, not the branch's current default warehouse.
+
+**Why:** An execution-only route gate rejected an existing financial receipt after sell permission was withdrawn. Allowing any readable POS responsibility instead would disclose the receipt through an unrelated branch or warehouse.
+
+**How to apply:** Separate committed-response recovery from fresh checkout under the live authority fence. Require current source read access before returning the saved result; retain strict sell, tender, discount, amount and time checks for new effects. Template edits replace grant identities, so an obsolete selector is not itself continuing authority.
+
 Committed replays must not re-run one-use business authorizations or regress an issued document when approval policy changes. Current identity, tenant membership and endpoint permissions still run before any replay.
 
 **Why:** An approval is normally consumed by successful checkout. Checking it before receipt lookup rejects a legitimate lost-response retry; resubmitting an issued credit note under new rules can reopen its state and risk a second posting.
