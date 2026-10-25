@@ -2,7 +2,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import request from "supertest";
 import { randomUUID } from "node:crypto";
 import bcrypt from "bcryptjs";
-import { db, pool, companiesTable, usersTable, userCompaniesTable, branchesTable, warehousesTable } from "@workspace/db";
+import { db, pool, companiesTable, usersTable, userCompaniesTable, branchesTable, warehousesTable, categoriesTable, productsTable } from "@workspace/db";
 import app,{assertApplicationReady} from "../app";
 import { ADMIN_RESPONSIBILITIES } from "../lib/administration-authority";
 import { ensureAdministrativePerson } from "../lib/administration-enrollment";
@@ -43,6 +43,90 @@ async function appoint(f:Awaited<ReturnType<typeof fixture>>) {
   return ok(await f.sender.post("/api/administration/owner/appoint").send({acknowledge:true}));
 }
 describe("explicit primary system owner, independent manager lifecycle and identity-only recovery",()=>{
+  it.each(["none","single","multiple","scoped"])("receipt recovery never becomes an operational session: %s memberships, first request products",async kind=>{
+    const f=await fixture();
+    const actor=kind==="scoped"?f.users[1]:f.users[0];
+    if(kind==="none")await query("DELETE FROM user_companies WHERE user_id=$1",[actor.id]);
+    if(kind==="single")await query("DELETE FROM user_companies WHERE user_id=$1 AND company_id<>$2",[actor.id,f.company]);
+    const [category]=await db.insert(categoriesTable).values({name:randomUUID(),nameAr:"تصنيف معزول"}).returning();
+    await db.insert(productsTable).values({companyId:f.company,name:"Synthetic recovery product",nameAr:"منتج اختبار الاسترداد",
+      sku:randomUUID(),categoryId:category.id,price:"100",costPrice:"67.89"});
+    if(kind==="scoped"){
+      await db.transaction(tx=>ensureAdministrativePerson(tx,f.company,actor.id));
+      const [branch]=await db.insert(branchesTable).values({companyId:f.company,name:"نطاق بلا تكلفة",nameAr:"نطاق بلا تكلفة",city:"الرياض"}).returning();
+      const [wh]=await db.insert(warehousesTable).values({companyId:f.company,branchId:branch.id,name:"نطاق بلا تكلفة",nameAr:"نطاق بلا تكلفة"}).returning();
+      const [profile]=await query("SELECT employee_id FROM employee_access WHERE company_id=$1 AND user_id=$2",[f.company,actor.id]);
+      const [grant]=await query(`INSERT INTO responsibility_grants(company_id,employee_id,resource,branch_id,warehouse_ids,actions,created_by)
+        VALUES($1,$2,'inventory',$3,$4,ARRAY['inventory.read'],$5) RETURNING id`,
+        [f.company,profile.employee_id,branch.id,[wh.id],f.users[0].id]);
+      // A real legacy operational session missing its context must resolve it
+      // BEFORE the gate, not fall through to products' unredacted legacy handler.
+      await query(`UPDATE "session" SET sess=(sess::jsonb-'companyId'-'role')::json WHERE sess->>'userId'=$1`,[String(actor.id)]);
+      const normal=ok(await f.target.get("/api/products").set("X-Workspace-Responsibility",String(grant.id)));
+      expect(normal.length).toBe(1);expect(normal[0]).not.toHaveProperty("costPrice");
+    }
+    const recovery=agent();
+    ok(await recovery.post("/api/auth/administration/recover").send({email:actor.email,password}));
+    // No /me or other warm-up: the first request used to bypass managedAccessGate.
+    const products=await recovery.get("/api/products");
+    expect(products.status,JSON.stringify(products.body)).toBe(403);
+    for(const path of ["/api/auth/me","/api/users","/api/companies","/api/app-settings","/api/storage/objects","/api/team/setup","/api/accounting/journal-entries"])
+      expect((await recovery.get(path)).status,path).toBe(403);
+    expect((await recovery.post("/api/auth/switch-company").send({companyId:f.company})).status).toBe(403);
+  });
+  it("recovery may replay a committed result but cannot execute an accepted, unfinished handover",async()=>{
+    const f=await fixture(),h=await propose(f,"retain");await accept(f,h.id);
+    const recovery=agent();ok(await recovery.post("/api/auth/administration/recover").send({email:f.users[0].email,password}));
+    expect((await complete(recovery,h.id)).status).toBe(409);
+    expect((await query("SELECT state FROM administration_handovers WHERE id=$1",[h.id]))[0].state).toBe("accepted");
+    ok(await complete(f.sender,h.id));
+    expect(ok(await complete(recovery,h.id)).replayed).toBe(true);
+    expect(ok(await recovery.get(`/api/auth/administration/handovers/${h.id}/receipt`)).state).toBe("completed");
+  });
+  it.each(["suspend","terminate"])("restores a temporary suspension atomically but never revives a terminated membership: %s",async departure=>{
+    const f=await fixture();await appoint(f);
+    await db.transaction(tx=>ensureAdministrativePerson(tx,f.company,f.users[1].id));
+    const [branch]=await db.insert(branchesTable).values({companyId:f.company,name:"نطاق استعادة",nameAr:"نطاق استعادة",city:"الرياض"}).returning();
+    const [wh]=await db.insert(warehousesTable).values({companyId:f.company,branchId:branch.id,name:"مستودع استعادة",nameAr:"مستودع استعادة"}).returning();
+    let person=ok(await f.sender.get("/api/team/people")).find((p:any)=>p.userId===f.users[1].id);
+    const form={creationKey:person.creationKey,name:person.name,email:person.email,loginKinds:["platform"],
+      deniedActions:[],grants:[{resource:"inventory",branchId:branch.id,warehouseIds:[wh.id],actions:["inventory.read"],amountLimit:null,startsAt:null,endsAt:null}]};
+    person=ok(await f.sender.put(`/api/team/people/${person.personId}/access`).send({person:form,expectedRevision:person.revision,suspended:false}));
+    const beforeGrants=person.grants;
+    await db.insert(userCompaniesTable).values({companyId:f.otherCompany,userId:f.users[1].id,role:"manager"});
+    const other=agent();ok(await other.post("/api/auth/login").send({email:f.users[1].email,password}));
+    ok(await other.post("/api/auth/switch-company").send({companyId:f.otherCompany}));
+    ok(await f.sender.post(`/api/administration/members/${f.users[1].id}/access`).send({departure}));
+    expect((await f.target.get("/api/products")).status).toBe(401);
+    ok(await other.get("/api/auth/me"));
+    person=ok(await f.sender.get("/api/team/people")).find((p:any)=>p.userId===f.users[1].id);
+    expect(person.membershipDeparture).toBe(departure);
+    expect(person.grants.length).toBe(departure==="suspend"?beforeGrants.length:0);
+    const update=()=>f.sender.put(`/api/team/people/${person.personId}/access`).send({person:form,expectedRevision:person.revision,suspended:false});
+    if(departure==="terminate"){
+      expect((await update()).status).toBe(409);
+      expect((await query("SELECT * FROM user_companies WHERE company_id=$1 AND user_id=$2",[f.company,f.users[1].id])).length).toBe(0);
+      return;
+    }
+    // The owner already consumes one seat; a full plan must not report restoration success.
+    ok(await f.sender.put("/api/team/policy").send({enabledModules:["inventory"],seatLimit:1}));
+    expect((await update()).status).toBe(409);
+    expect((await query("SELECT * FROM user_companies WHERE company_id=$1 AND user_id=$2",[f.company,f.users[1].id])).length).toBe(0);
+    ok(await f.sender.put("/api/team/policy").send({enabledModules:["pos"],seatLimit:null}));
+    expect((await update()).status).toBe(403);
+    ok(await f.sender.put("/api/team/policy").send({enabledModules:["inventory","pos"],seatLimit:null}));
+    const responses=await Promise.all([update(),update()]);
+    expect(responses.map(r=>r.status).sort()).toEqual([200,409]);
+    const restored=responses.find(r=>r.status===200)!.body;
+    expect(restored.status).toBe("active");expect(restored.membershipDeparture).toBeNull();
+    const login=agent();ok(await login.post("/api/auth/login").send({email:f.users[1].email,password}));
+    const products=ok(await login.get("/api/products").set("X-Workspace-Responsibility",String(restored.grants[0].id)));
+    expect(products.every((p:any)=>!("costPrice" in p))).toBe(true);
+    expect((await login.get("/api/accounting/journal-entries")).status).toBe(403);
+    expect(ok(await login.get("/api/administration")).rights).toEqual([]);
+    expect((await query("SELECT role FROM user_companies WHERE company_id=$1 AND user_id=$2",[f.company,f.users[1].id]))[0].role).toBe("scoped");
+    expect((await query("SELECT role FROM user_companies WHERE company_id=$1 AND user_id=$2",[f.otherCompany,f.users[1].id]))[0].role).toBe("manager");
+  });
   it("does not mass-promote legacy owners or administrators; requires explicit authorized acknowledgement",async()=>{
     const f=await fixture();
     expect(ok(await f.sender.get("/api/administration")).primaryOwnerId).toBeNull();

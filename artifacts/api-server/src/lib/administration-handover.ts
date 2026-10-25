@@ -151,12 +151,13 @@ export async function acceptHandover(companyId:number,userId:number,id:string,re
     return after;
   });
 }
-export async function completeHandover(userId:number,id:string,revision:number) {
+export async function completeHandover(userId:number,id:string,revision:number,replayOnly=false) {
   const locator=await getHandover(db,id);
   if(locator.from_user_id!==userId)throw new FinancialRequestError("التسليم غير متاح",404);
   return locked(locator.company_id,async tx=>{
     const h=await getHandover(tx,id);
     if(h.state==="completed"&&h.revision===revision)return {ok:true,id:h.id,departure:h.departure,replayed:true};
+    if(replayOnly)throw new FinancialRequestError("جلسة الاسترداد تسترجع نتيجة مكتملة فقط؛ يلزم دخول تشغيلي لتنفيذ تسليم جديد",409);
     await requireAdministrative(h.company_id,userId,"administrators",tx);
     const target=await eligible(tx,h);
     const rights=await administrativeRights(h.company_id,userId,tx);
@@ -196,10 +197,12 @@ export async function completeHandover(userId:number,id:string,revision:number) 
       AND user_id=${userId} AND role='owner'`);
     if(h.departure==="stay")await ensureAdministrativePerson(tx,h.company_id,userId);
     if(h.departure!=="stay") {
+      await ensureAdministrativePerson(tx,h.company_id,userId);
       await tx.execute(sql`DELETE FROM user_companies WHERE company_id=${h.company_id} AND user_id=${userId}`);
-      await tx.execute(sql`UPDATE employee_access SET status='suspended',revision=revision+1,updated_at=now()
+      await tx.execute(sql`UPDATE employee_access SET status='suspended',membership_departure=${h.departure},
+        revision=revision+1,updated_at=now()
         WHERE company_id=${h.company_id} AND user_id=${userId}`);
-      await tx.execute(sql`UPDATE responsibility_grants SET revoked_at=now()
+      if(h.departure==="terminate")await tx.execute(sql`UPDATE responsibility_grants SET revoked_at=now()
         WHERE company_id=${h.company_id} AND employee_id IN
         (SELECT employee_id FROM employee_access WHERE company_id=${h.company_id} AND user_id=${userId}) AND revoked_at IS NULL`);
       await tx.execute(sql`UPDATE approver_delegations SET revoked_at=now(),revoked_by=${userId}
@@ -263,12 +266,13 @@ async function revokeMembershipInside(tx:DbOrTx,companyId:number,actor:number,ta
     await protectLastAdministrator(tx,companyId,target);
     const [membership]=await adminRows(tx,sql`SELECT role FROM user_companies WHERE company_id=${companyId} AND user_id=${target}`);
     if(!membership)throw new FinancialRequestError("العضوية غير متاحة في هذه المنشأة",404);
+    await ensureAdministrativePerson(tx,companyId,target);
     await tx.execute(sql`UPDATE company_administrators SET active=false,responsibilities='{}',
       revision=revision+1,updated_at=now() WHERE company_id=${companyId} AND user_id=${target}`);
     await tx.execute(sql`DELETE FROM user_companies WHERE company_id=${companyId} AND user_id=${target}`);
-    await tx.execute(sql`UPDATE employee_access SET status='suspended',revision=revision+1,updated_at=now()
+    await tx.execute(sql`UPDATE employee_access SET status='suspended',membership_departure=${departure},revision=revision+1,updated_at=now()
       WHERE company_id=${companyId} AND user_id=${target}`);
-    await tx.execute(sql`UPDATE responsibility_grants SET revoked_at=now() WHERE company_id=${companyId} AND revoked_at IS NULL
+    if(departure==="terminate")await tx.execute(sql`UPDATE responsibility_grants SET revoked_at=now() WHERE company_id=${companyId} AND revoked_at IS NULL
       AND employee_id IN(SELECT employee_id FROM employee_access WHERE company_id=${companyId} AND user_id=${target})`);
     await tx.execute(sql`UPDATE approver_delegations SET revoked_at=now(),revoked_by=${actor} WHERE company_id=${companyId}
       AND (from_user_id=${target} OR to_user_id=${target}) AND revoked_at IS NULL`);

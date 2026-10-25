@@ -49,7 +49,8 @@ export async function managedAccessGate(req: Request, res: Response, next: NextF
   try {
     const userId = req.session.userId;
     const companyId = req.session.companyId;
-    if (!userId || !companyId) return next();
+    if (!userId || !companyId || req.session.purpose === "administration_receipt")
+      return void res.status(403).json({ error: "يلزم سياق منشأة تشغيلي موثوق قبل فحص الصلاحيات" });
     // Administrative endpoints enforce their own live company-local rights.
     // Never bypass the financial/operational route gate for administrators.
     if (/^\/administration(?:\/|$)/.test(req.path)) return next();

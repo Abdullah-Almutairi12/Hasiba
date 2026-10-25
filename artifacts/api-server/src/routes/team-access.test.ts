@@ -200,8 +200,10 @@ describe("resumable people and paired responsibility access", () => {
     expect((await rows("SELECT id FROM audit_logs WHERE company_id=$1 AND action='team.access.update'", [companyId])).length).toBeGreaterThan(0);
     ok(await owner.put(`/api/team/people/${person.personId}/access`).send({ expectedRevision: person.revision-1, person: changed, suspended: false }), 409);
     person = ok(await owner.put(`/api/team/people/${person.personId}/access`).send({ expectedRevision: person.revision, person: changed, suspended: true }));
-    ok(await scoped("get", "/workspace/inventory", grants[0].id), 403);
-    expect(ok(await member.get("/api/workspace/access")).grants).toEqual([]);
+    // Suspension now invalidates the company session, rather than leaving a
+    // logged-in shell with an empty grant list.
+    ok(await scoped("get", "/workspace/inventory", grants[0].id), 401);
+    ok(await member.get("/api/workspace/access"),401);
   });
   it("keeps records allowed at full seat quota, but prevents concurrent pending-login over-allocation", async () => {
     const current = ok(await owner.get("/api/team/setup")).policy;
@@ -297,6 +299,7 @@ describe("resumable people and paired responsibility access", () => {
   it("rechecks a managed cashier after the authority writer wins; no invoice or stock effect", async () => {
     person = ok(await owner.put(`/api/team/people/${person.personId}/access`).send({
       expectedRevision: person.revision, person: input, suspended: false }));
+    ok(await member.post("/api/auth/login").send({email:input.email,password}));
     grants = ok(await member.get("/api/workspace/access")).grants;
     const before = await totals();
     const writer = await pool.connect();

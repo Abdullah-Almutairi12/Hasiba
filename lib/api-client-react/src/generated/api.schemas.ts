@@ -162,6 +162,62 @@ export interface TeamActivationInput {
   password: string;
 }
 
+export type PermissionTemplateInputResource = typeof PermissionTemplateInputResource[keyof typeof PermissionTemplateInputResource];
+
+
+export const PermissionTemplateInputResource = {
+  inventory: 'inventory',
+  pos: 'pos',
+} as const;
+
+export interface PermissionTemplateInput {
+  name: string;
+  resource: PermissionTemplateInputResource;
+  actions: string[];
+}
+
+export interface PermissionTemplateEdit {
+  expectedRevision: number;
+  name: string;
+  actions: string[];
+}
+
+export type PermissionTemplateApply = PermissionTemplateEdit & {
+  digest: string;
+};
+
+export type PermissionTemplate = PermissionTemplateInput & {
+  id: number;
+  revision: number;
+};
+
+export interface PermissionTemplateEffect {
+  personId: number;
+  name: string;
+  status: string;
+  grantId: number;
+  mode: string;
+  branchId: number;
+  warehouseIds: number[];
+  /** @nullable */
+  amountLimit?: string | null;
+  /** @nullable */
+  startsAt?: string | null;
+  /** @nullable */
+  endsAt?: string | null;
+  beforeActions: string[];
+  afterActions: string[];
+  effectiveBefore: string[];
+  effectiveAfter: string[];
+  deniedActions: string[];
+  blocked: boolean;
+}
+
+export interface PermissionTemplateImpact {
+  digest: string;
+  effects: PermissionTemplateEffect[];
+}
+
 export type TeamGrantInputResource = typeof TeamGrantInputResource[keyof typeof TeamGrantInputResource];
 
 
@@ -170,8 +226,25 @@ export const TeamGrantInputResource = {
   pos: 'pos',
 } as const;
 
+/**
+ * @nullable
+ */
+export type TeamGrantInputTemplateMode = typeof TeamGrantInputTemplateMode[keyof typeof TeamGrantInputTemplateMode] | null;
+
+
+export const TeamGrantInputTemplateMode = {
+  inherit: 'inherit',
+  override: 'override',
+} as const;
+
 export interface TeamGrantInput {
   resource: TeamGrantInputResource;
+  /** @nullable */
+  templateId?: number | null;
+  /** @nullable */
+  templateRevision?: number | null;
+  /** @nullable */
+  templateMode?: TeamGrantInputTemplateMode;
   branchId: number;
   warehouseIds: number[];
   actions: string[];
@@ -233,12 +306,25 @@ export interface LegacyTeamPreview {
   person?: TeamPersonInput;
 }
 
+/**
+ * @nullable
+ */
+export type TeamPersonMembershipDeparture = typeof TeamPersonMembershipDeparture[keyof typeof TeamPersonMembershipDeparture] | null;
+
+
+export const TeamPersonMembershipDeparture = {
+  suspend: 'suspend',
+  terminate: 'terminate',
+} as const;
+
 export type TeamPerson = TeamPersonInput & ({
   personId: number;
   /** @nullable */
   userId: number | null;
   status: string;
   revision: number;
+  /** @nullable */
+  membershipDeparture?: TeamPersonMembershipDeparture;
   grants?: TeamGrant[];
 });
 

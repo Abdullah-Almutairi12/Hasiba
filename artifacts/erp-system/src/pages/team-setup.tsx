@@ -19,6 +19,9 @@ import {
   useRevokeTeamInvitation,
   useListBranches,
   useListWarehouses,
+  useListPermissionTemplates,
+  getListPermissionTemplatesQueryKey,
+  type PermissionTemplate,
   type TeamCatalog,
   type TeamGrantInput,
   type TeamPerson,
@@ -101,6 +104,9 @@ import {
 } from "@/lib/team-access";
 import { RETURN_MODE_LABEL, actionLabel, applyReturnMode, returnMode, type ReturnMode } from "@/lib/pos-actions";
 import { LegacyConversionPanel } from "@/components/legacy-conversion-panel";
+import { PermissionTemplatesPanel } from "@/components/team/permission-templates-panel";
+import { GrantSourceSelector } from "@/components/team/grant-source-selector";
+import { grantSource, toManual } from "@/lib/team-access";
 
 const TONE: Record<string, string> = {
   ok: "border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200",
@@ -127,7 +133,7 @@ const warehouseLabel = (warehouses: Warehouse[] | undefined, id: number) => {
   return w ? w.nameAr || w.name : `مستودع #${id}`;
 };
 
-type Editing = { personId: number | null; person: TeamPersonInput; revision: number | null; status: string | null; userId?: number | null };
+type Editing = { personId: number | null; person: TeamPersonInput; revision: number | null; status: string | null; userId?: number | null; membershipDeparture?: "suspend"|"terminate"|null };
 
 export default function TeamSetupPage() {
   const adminQ = useGetAdministrationWorkspace({ query: { queryKey: getGetAdministrationWorkspaceQueryKey(), retry: false } });
@@ -193,7 +199,7 @@ function TeamSetupInner({ canSubscription,canSettings }: { canSubscription: bool
       if (p) {
         const base = personToInput(p);
         const person = d.person && d.person.creationKey === p.creationKey ? d.person : base;
-        setEditing({ personId: p.personId, person, revision: p.revision, status: p.status, userId: p.userId });
+        setEditing({ personId: p.personId, person, revision: p.revision, status: p.status, userId: p.userId, membershipDeparture:p.membershipDeparture });
         return;
       }
     }
@@ -351,7 +357,7 @@ function TeamSetupInner({ canSubscription,canSettings }: { canSubscription: bool
             creatingNew={!!editing && editing.personId === null}
             branches={branches}
             onNew={() => setEditing({ personId: null, person: emptyPerson(), revision: null, status: null })}
-            onSelect={(p) => setEditing({ personId: p.personId, person: personToInput(p), revision: p.revision, status: p.status, userId: p.userId })}
+            onSelect={(p) => setEditing({ personId: p.personId, person: personToInput(p), revision: p.revision, status: p.status, userId: p.userId, membershipDeparture:p.membershipDeparture })}
           />
           {editing ? (
             <PersonEditor
@@ -363,13 +369,13 @@ function TeamSetupInner({ canSubscription,canSettings }: { canSubscription: bool
               onChange={(person) => setEditing((e) => (e ? { ...e, person } : e))}
               onClose={() => setEditing(null)}
               onSaved={(p) => {
-                setEditing({ personId: p.personId, person: personToInput(p), revision: p.revision, status: p.status, userId: p.userId });
+                setEditing({ personId: p.personId, person: personToInput(p), revision: p.revision, status: p.status, userId: p.userId, membershipDeparture:p.membershipDeparture });
                 void persist("team", "review", toDraft(null, p.personId) as Record<string, unknown>);
               }}
               onReload={async () => {
                 const res = await peopleQ.refetch();
                 const fresh = res.data?.find((x) => x.personId === editing.personId);
-                if (fresh) setEditing({ personId: fresh.personId, person: personToInput(fresh), revision: fresh.revision, status: fresh.status, userId: fresh.userId });
+                if (fresh) setEditing({ personId: fresh.personId, person: personToInput(fresh), revision: fresh.revision, status: fresh.status, userId: fresh.userId, membershipDeparture:fresh.membershipDeparture });
               }}
             />
           ) : (
@@ -386,6 +392,8 @@ function TeamSetupInner({ canSubscription,canSettings }: { canSubscription: bool
           )}
         </div>
       )}
+
+      {setup.mode === "team" && <PermissionTemplatesPanel catalogActions={catalog.actions} branches={branches} warehouses={warehouses} />}
 
       <LegacyConversionPanel branches={branches} warehouses={warehouses} />
 
@@ -485,6 +493,7 @@ function PersonEditor({ editing, catalog, branches, warehouses, onChange, onClos
   const json = JSON.stringify(normalized);
   const previewFresh = previewData?.forJson === json;
   const avail = availableKeys(catalog.actions);
+  const templatesQ = useListPermissionTemplates({ query: { queryKey: getListPermissionTemplatesQueryKey() } });
   const suspended = editing.status === "suspended";
 
   const set = (patch: Partial<TeamPersonInput>) => onChange({ ...person, ...patch });
@@ -640,6 +649,8 @@ function PersonEditor({ editing, catalog, branches, warehouses, onChange, onClos
                 branches={branches}
                 warehouses={warehouses}
                 issues={issueFor(`grants.${i}`)}
+                templates={templatesQ.data ?? []}
+                available={avail}
                 onChange={(patch) => setGrant(i, patch)}
                 onRemove={() => set({ grants: person.grants.filter((_, j) => j !== i) })}
               />
@@ -704,7 +715,9 @@ function PersonEditor({ editing, catalog, branches, warehouses, onChange, onClos
                 <Ban className="me-2 size-4" /> إلغاء الدعوة
               </Button>
             )}
-            {suspended ? (
+            {suspended && editing.membershipDeparture==="terminate" ? (
+              <span className="text-sm text-muted-foreground">عضوية منتهية؛ إعادة الانضمام تحتاج إجراءً مستقلًا مخوّلًا، وليست استعادة تعليق.</span>
+            ) : suspended ? (
               <Button variant="outline" onClick={() => void commit(false)} disabled={saving} data-testid="button-restore-person">
                 <RotateCcw className="me-2 size-4" /> استعادة الوصول
               </Button>
@@ -810,10 +823,12 @@ function KindCard({ checked, onClick, icon: Icon, title, body, testId }: { check
   );
 }
 
-function GrantCard({ index, grant, catalog, branches, warehouses, issues, onChange, onRemove }: {
+function GrantCard({ index, grant, catalog, branches, warehouses, issues, onChange, onRemove, templates, available }: {
   index: number; grant: TeamGrantInput; catalog: TeamCatalog; branches: Branch[] | undefined; warehouses: Warehouse[] | undefined;
   issues: { message: string }[]; onChange: (p: Partial<TeamGrantInput>) => void; onRemove: () => void;
+  templates: PermissionTemplate[]; available: Set<string>;
 }) {
+  const inherited = grantSource(grant) === "inherit";
   const branchWarehouses = (warehouses ?? []).filter((w) => w.branchId === grant.branchId);
   const actions = actionsFor(catalog.actions, grant.resource);
   return (
@@ -822,7 +837,7 @@ function GrantCard({ index, grant, catalog, branches, warehouses, issues, onChan
         <span className="grid size-8 place-items-center rounded-lg bg-primary/10 text-primary">
           {grant.resource === "pos" ? <ShoppingCart className="size-4" /> : <Package className="size-4" />}
         </span>
-        <Select value={grant.resource} onValueChange={(v) => onChange({ resource: v as GrantResource, actions: [], amountLimit: null })}>
+        <Select value={grant.resource} onValueChange={(v) => onChange({ resource: v as GrantResource, actions: [], amountLimit: null, ...toManual() })}>
           <SelectTrigger className="w-36" data-testid={`select-grant-resource-${index}`}><SelectValue /></SelectTrigger>
           <SelectContent>
             <SelectItem value="inventory">المخزون</SelectItem>
@@ -839,6 +854,8 @@ function GrantCard({ index, grant, catalog, branches, warehouses, issues, onChan
           <Trash2 className="size-4 text-rose-600" />
         </Button>
       </div>
+
+      <GrantSourceSelector index={index} grant={grant} templates={templates} available={available} onChange={onChange} />
 
       <div className="mt-4 grid gap-4 md:grid-cols-2">
         <div>
@@ -868,7 +885,7 @@ function GrantCard({ index, grant, catalog, branches, warehouses, issues, onChan
             {actions.map((a) => (
               <label key={a.key} className={cn("flex items-center gap-2 text-sm", !a.available && "opacity-60")}>
                 <Checkbox
-                  disabled={!a.available}
+                  disabled={!a.available || inherited}
                   checked={grant.actions.includes(a.key)}
                   onCheckedChange={(v) => onChange({ actions: v ? [...grant.actions, a.key] : grant.actions.filter((x) => x !== a.key) })}
                   data-testid={`checkbox-grant-${index}-action-${a.key}`}
@@ -878,7 +895,7 @@ function GrantCard({ index, grant, catalog, branches, warehouses, issues, onChan
                 {a.available && isCostAction(a.key) && <span className="rounded border border-amber-300 px-1.5 text-[10px] text-amber-700 dark:text-amber-300">يكشف التكلفة</span>}
               </label>
             ))}
-            {grant.resource === "pos" && actions.some((a) => a.key === "pos.return.request" && a.available) && (
+            {grant.resource === "pos" && !inherited && actions.some((a) => a.key === "pos.return.request" && a.available) && (
               <ReturnModeSelect index={index} grant={grant} directAvailable={actions.some((a) => a.key === "pos.return.direct" && a.available)} onChange={onChange} />
             )}
             {actions.length === 0 && <p className="text-xs text-muted-foreground">لا إجراءات معرّفة لهذا المورد.</p>}

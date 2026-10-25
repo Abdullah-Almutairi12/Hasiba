@@ -459,6 +459,60 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/TeamPolicy" }
+  /team/templates:
+    get:
+      operationId: listPermissionTemplates
+      responses:
+        "200":
+          description: Company permission templates
+          content:
+            application/json:
+              schema: {type: array, items: {$ref: "#/components/schemas/PermissionTemplate"}}
+    post:
+      operationId: createPermissionTemplate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/PermissionTemplateInput"}
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/PermissionTemplate"}
+  /team/templates/{id}/preview:
+    parameters:
+      - {name: id, in: path, required: true, schema: {type: integer}}
+    post:
+      operationId: previewPermissionTemplate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/PermissionTemplateEdit"}
+      responses:
+        "200":
+          description: Fresh effect preview without changing permissions
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/PermissionTemplateImpact"}
+  /team/templates/{id}:
+    parameters:
+      - {name: id, in: path, required: true, schema: {type: integer}}
+    put:
+      operationId: applyPermissionTemplate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/PermissionTemplateApply"}
+      responses:
+        "200":
+          description: Applied to inherited responsibilities only
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/PermissionTemplate"}
   /team/people:
     get:
       operationId: listTeamPeople
@@ -4611,11 +4665,69 @@ components:
       properties:
         token: { type: string }
         password: { type: string }
+    PermissionTemplateInput:
+      type: object
+      required: [name, resource, actions]
+      properties:
+        name: {type: string}
+        resource: {type: string, enum: [inventory, pos]}
+        actions: {type: array, items: {type: string}}
+    PermissionTemplateEdit:
+      type: object
+      required: [expectedRevision, name, actions]
+      properties:
+        expectedRevision: {type: integer}
+        name: {type: string}
+        actions: {type: array, items: {type: string}}
+    PermissionTemplateApply:
+      allOf:
+        - {$ref: "#/components/schemas/PermissionTemplateEdit"}
+        - type: object
+          required: [digest]
+          properties:
+            digest: {type: string}
+    PermissionTemplate:
+      allOf:
+        - {$ref: "#/components/schemas/PermissionTemplateInput"}
+        - type: object
+          required: [id, revision]
+          properties:
+            id: {type: integer}
+            revision: {type: integer}
+    PermissionTemplateEffect:
+      type: object
+      required: [personId, name, status, grantId, mode, branchId, warehouseIds, beforeActions, afterActions, effectiveBefore, effectiveAfter, blocked, deniedActions]
+      properties:
+        personId: {type: integer}
+        name: {type: string}
+        status: {type: string}
+        grantId: {type: integer}
+        mode: {type: string}
+        branchId: {type: integer}
+        warehouseIds: {type: array, items: {type: integer}}
+        amountLimit: {type: [string, "null"]}
+        startsAt: {type: [string, "null"]}
+        endsAt: {type: [string, "null"]}
+        beforeActions: {type: array, items: {type: string}}
+        afterActions: {type: array, items: {type: string}}
+        effectiveBefore: {type: array, items: {type: string}}
+        effectiveAfter: {type: array, items: {type: string}}
+        deniedActions: {type: array, items: {type: string}}
+        blocked: {type: boolean}
+    PermissionTemplateImpact:
+      type: object
+      required: [digest, effects]
+      properties:
+        digest: {type: string}
+        effects: {type: array, items: {$ref: "#/components/schemas/PermissionTemplateEffect"}}
     TeamGrantInput:
       type: object
       required: [resource, branchId, warehouseIds, actions, amountLimit, startsAt, endsAt]
       properties:
         resource: { type: string, enum: [inventory, pos] }
+        templateId: {type: [integer, "null"]}
+        templateRevision: {type: [integer, "null"]}
+        templateMode: {type: [string, "null"], enum: [inherit, override, null]}
         branchId: { type: integer }
         warehouseIds: { type: array, items: { type: integer } }
         actions: { type: array, items: { type: string } }
@@ -4677,6 +4789,7 @@ components:
             userId: { type: [integer, "null"] }
             status: { type: string }
             revision: { type: integer }
+            membershipDeparture: { type: [string, "null"], enum: [suspend, terminate, null] }
             grants: { type: array, items: { $ref: "#/components/schemas/TeamGrant" } }
     TeamRevisionInput:
       type: object

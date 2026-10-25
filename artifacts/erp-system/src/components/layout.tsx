@@ -286,6 +286,8 @@ function InsightModeToggle() {
 
 function UserMenu() {
   const { user, logout, isLoggingOut } = useAuth();
+  // Scoped managers never get general settings; their admin entry is users/team.
+  const settingsHref = user?.role === "scoped" ? "/settings/users" : "/settings";
   const [, setLocation] = useLocation();
   const { t, isRTL } = useLanguage();
 
@@ -335,7 +337,7 @@ function UserMenu() {
           )}
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={() => setLocation("/settings")}>
+        <DropdownMenuItem onClick={() => setLocation(settingsHref)} data-testid="menu-settings">
           <Settings className="me-2 size-4" />
           {t("header.settings")}
         </DropdownMenuItem>

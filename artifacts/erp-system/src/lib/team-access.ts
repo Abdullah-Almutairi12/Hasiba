@@ -61,6 +61,7 @@ export function personToInput(p: TeamPerson): TeamPersonInput {
       amountLimit: g.amountLimit ?? null,
       startsAt: g.startsAt ?? null,
       endsAt: g.endsAt ?? null,
+      ...bindingOf(g),
     })),
     deniedActions: [...(p.deniedActions ?? [])],
   };
@@ -145,6 +146,7 @@ export function normalizePerson(p: TeamPersonInput): TeamPersonInput {
       warehouseIds: Array.from(new Set(g.warehouseIds)),
       actions: Array.from(new Set(g.actions)),
       amountLimit: g.amountLimit?.trim() ? g.amountLimit.trim() : null,
+      ...bindingOf(g),
     })),
     deniedActions: Array.from(new Set(p.deniedActions)),
   };
@@ -176,6 +178,7 @@ export function toDraft(person: TeamPersonInput | null, selectedPersonId: number
       grants: person.grants.map((g) => ({
         resource: g.resource, branchId: g.branchId, warehouseIds: [...g.warehouseIds], actions: [...g.actions],
         amountLimit: g.amountLimit ?? null, startsAt: g.startsAt ?? null, endsAt: g.endsAt ?? null,
+        ...bindingOf(g),
       })),
       deniedActions: [...person.deniedActions],
     };
@@ -202,6 +205,7 @@ export function fromDraft(raw: unknown): { person: TeamPersonInput | null; selec
         amountLimit: typeof g.amountLimit === "string" ? g.amountLimit : null,
         startsAt: typeof g.startsAt === "string" ? g.startsAt : null,
         endsAt: typeof g.endsAt === "string" ? g.endsAt : null,
+        ...bindingOf(g as Partial<TeamGrantInput>),
       }))
     : [];
   return {
@@ -300,4 +304,40 @@ export function grantWindowState(g: Pick<TeamGrantInput, "startsAt" | "endsAt">,
 /** Every granted resource requires its base read action explicitly. */
 export function baseReadAction(resource: string): string {
   return `${resource}.read`;
+}
+
+export type GrantBinding = Pick<TeamGrantInput, "templateId" | "templateRevision" | "templateMode">;
+
+/** Template binding metadata; manual grants carry explicit nulls. Invalid shapes collapse to manual. */
+export function bindingOf(g: Partial<TeamGrantInput> | Record<string, unknown>): GrantBinding {
+  const r = g as Record<string, unknown>;
+  const id = typeof r.templateId === "number" && r.templateId > 0 ? r.templateId : null;
+  const rev = typeof r.templateRevision === "number" && r.templateRevision > 0 ? r.templateRevision : null;
+  const mode = r.templateMode === "inherit" || r.templateMode === "override" ? r.templateMode : null;
+  if (id === null || rev === null || mode === null) return { templateId: null, templateRevision: null, templateMode: null };
+  return { templateId: id, templateRevision: rev, templateMode: mode };
+}
+
+export type GrantSource = "manual" | "inherit" | "override";
+export function grantSource(g: Partial<TeamGrantInput>): GrantSource {
+  const b = bindingOf(g);
+  return b.templateMode ?? "manual";
+}
+
+type TemplateLike = { id: number; revision: number; resource: string; actions: string[] };
+
+/** Bind to a company template in inherit mode, using its CURRENT revision and available actions only. */
+export function inheritFrom(t: TemplateLike, available: Set<string>): Partial<TeamGrantInput> {
+  return { templateId: t.id, templateRevision: t.revision, templateMode: "inherit", actions: t.actions.filter((a) => available.has(a)) };
+}
+
+/** Explicit individual exception: keeps the link and revision, actions become editable. */
+export function toOverride(g: TeamGrantInput, actions: string[] = g.actions): Partial<TeamGrantInput> {
+  const b = bindingOf(g);
+  if (!b.templateId) return { actions };
+  return { ...b, templateMode: "override", actions };
+}
+
+export function toManual(): Partial<TeamGrantInput> {
+  return { templateId: null, templateRevision: null, templateMode: null };
 }

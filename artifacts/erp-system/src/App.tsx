@@ -91,7 +91,7 @@ const AdministrationPage = lazy(() => import("@/pages/administration"));
 const AccountRecoveryPage = lazy(() => import("@/pages/account-recovery"));
 
 /** Paths a scoped (responsibility-bound) member may open. */
-const SCOPED_PATHS = new Set(["/my-work", "/administration", "/settings/users", "/account/membership"]);
+const SCOPED_PATHS = new Set(["/my-work", "/administration", "/settings/users", "/account/membership", "/team-setup"]);
 const SCOPED_RETURNS_PATH = "/returns";
 
 /**

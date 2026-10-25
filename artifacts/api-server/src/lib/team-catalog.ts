@@ -26,6 +26,9 @@ export const TEAM_ACTIONS = [
     })),
 ] as const;
 export const GrantInput = z.object({
+  templateId:z.number().int().positive().nullable().optional(),
+  templateRevision:z.number().int().positive().nullable().optional(),
+  templateMode:z.enum(["inherit","override"]).nullable().optional(),
   resource: z.enum(["inventory", "pos"]),
   branchId: z.number().int().positive(),
   warehouseIds: z.array(z.number().int().positive()).min(1).max(100),
@@ -34,6 +37,8 @@ export const GrantInput = z.object({
   startsAt: z.string().datetime({ offset: true }).nullable(),
   endsAt: z.string().datetime({ offset: true }).nullable(),
 }).strict().superRefine((g, ctx) => {
+  if(g.templateId ? !g.templateRevision || !g.templateMode : g.templateRevision || g.templateMode)
+    ctx.addIssue({code:"custom",message:"ربط القالب يحتاج المصدر والإصدار ونمط الوراثة معًا"});
   if (g.resource === "inventory" && g.amountLimit !== null) {
     ctx.addIssue({ code: "custom", message: "حد المبلغ المباشر يخص البيع فقط، ولا يطبق على عرض المخزون" });
   }

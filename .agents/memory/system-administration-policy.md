@@ -35,3 +35,27 @@ company's sessions, delegations and access methods, preserving history and other
 memberships. Treat single-user operation, legal ownership and system
 administration as three separate policies. Do not mass-replace `owner` labels
 and assume the authority model has been migrated.
+
+Receipt recovery is a separate credential purpose, never an operational login.
+Existing memberships must not silently upgrade it, and it may recover a committed
+result but must not initiate an uncommitted handover.
+
+**Why:** The user's 2026-10-25 isolated reproduction showed that “identity only”
+was not a security boundary when later middleware could infer a company. Checking
+only the departed/no-membership case missed both data disclosure and new execution.
+
+**How to apply:** Evaluate credential purpose before tenant selection, including
+routes outside the usual company middleware. Regression cases must include no,
+one and multiple memberships and the very first request without a warm-up.
+
+Temporary suspension and terminated membership are different lifecycle decisions.
+An authorized restoration may restore approved functional access after entitlement
+and seat validation, but must not silently restore management or a terminated
+membership.
+
+**Why:** The user requires reversible suspension while preserving identity,
+history and other memberships; treating a status toggle as restoration can either
+report false success or revive broader historical authority.
+
+**How to apply:** Require explicit departure evidence for restoring a missing
+membership; ambiguous legacy states require verification rather than inference.

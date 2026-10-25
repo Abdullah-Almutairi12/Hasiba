@@ -48,8 +48,10 @@ import documentsRouter, { signPublicRouter } from "./documents";
 import docsRouter from "./docs";
 import { requireAuth } from "../middlewares/require-auth";
 import { managedAccessGate } from "../middlewares/managed-access";
+import { recoverySessionGate } from "../middlewares/recovery-session";
 import { teamPublicRouter, makeTeamRouter } from "./team";
 import { administrationReceiptRouter, administrationRouter } from "./administration";
+import permissionTemplatesRouter from "./permission-templates";
 import { requireCompanyContext } from "../middlewares/require-company-context";
 import printProfileRouter from "./print-profile";
 import operationalDocumentsRouter from "./operational-documents";
@@ -59,6 +61,8 @@ import { aggregatePrintGuard,checkDocumentPrint } from "../lib/print-permissions
 import { FinancialRequestError } from "../lib/financial-transaction";
 
 const router: IRouter = Router();
+// Before auth, activation, cross-company and operational routers alike.
+router.use(recoverySessionGate);
 router.use((req,res,next)=>{
   res.setHeader("X-Request-ID",String(req.id));
   if(req.method==="GET"){res.setHeader("Cache-Control","private, no-store");res.setHeader("X-Content-Type-Options","nosniff");}
@@ -99,6 +103,8 @@ router.use(requireAuth);
 // every authenticated route. Webhooks and token-authenticated public
 // routes above bypass this. See middlewares/require-same-origin.ts.
 router.use(requireSameOrigin);
+// Resolve and validate membership before ANY managed permission decision.
+router.use(requireCompanyContext);
 router.use(managedAccessGate);
 
 // Cross-tenant routes — auth only, no company scope:
@@ -116,8 +122,8 @@ router.use(appSettingsRouter);
 router.use(storageRouter);
 
 // Everything past this point operates inside a single tenant.
-router.use(requireCompanyContext);
 router.use(administrationRouter);
+router.use(permissionTemplatesRouter);
 router.use(makeTeamRouter(() => router.stack));
 router.use(printProfileRouter);
 router.use(operationalDocumentsRouter);

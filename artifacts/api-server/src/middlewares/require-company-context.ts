@@ -23,6 +23,10 @@ export async function requireCompanyContext(
   res: Response,
   next: NextFunction,
 ): Promise<void> {
+  if (req.session?.purpose === "administration_receipt") {
+    res.status(403).json({ error: "جلسة الاسترداد لا تتيح اختيار منشأة أو تشغيلها" });
+    return;
+  }
   const userId = req.session?.userId;
   if (!userId) {
     res.status(401).json({ error: "غير مسجل دخول" });

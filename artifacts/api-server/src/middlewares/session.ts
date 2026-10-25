@@ -48,6 +48,7 @@ export const sessionMiddleware = session({
 
 declare module "express-session" {
   interface SessionData {
+    purpose?: "administration_receipt";
     userId?: number;
     role?:
       | "scoped"

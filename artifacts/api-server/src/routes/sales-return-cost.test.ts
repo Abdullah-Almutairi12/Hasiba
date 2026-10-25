@@ -198,6 +198,8 @@ describe("original POS invoice: independent linked return lifecycle", () => {
       "0041_stocktake_count_revision.sql",
       "0042_company_administration.sql",
       "0043_primary_system_owner.sql",
+      "0044_membership_departure.sql",
+      "0045_permission_templates.sql",
     ]);
     expect(first.skipped).toHaveLength(26);
     expect(await snapshots()).toEqual(before);

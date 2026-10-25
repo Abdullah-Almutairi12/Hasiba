@@ -211,6 +211,11 @@ import type {
   MatchBankStatementLineBody,
   MeResponse,
   PermissionMatrix,
+  PermissionTemplate,
+  PermissionTemplateApply,
+  PermissionTemplateEdit,
+  PermissionTemplateImpact,
+  PermissionTemplateInput,
   PosOrder,
   PosSession,
   PosSummary,
@@ -2465,6 +2470,349 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
         TContext
       > => {
       return useMutation(getSaveTeamPolicyMutationOptions(options), queryClient);
+    }
+
+export const getListPermissionTemplatesUrl = () => {
+
+
+
+
+  return `/api/team/templates`
+}
+
+export const listPermissionTemplates = async ( options?: Parameters<typeof customFetch>[1]): Promise<PermissionTemplate[]> => {
+
+  return customFetch<PermissionTemplate[]>(getListPermissionTemplatesUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListPermissionTemplatesQueryKey = () => {
+    return [
+    `/api/team/templates`
+    ] as const;
+    }
+
+
+export const getListPermissionTemplatesQueryOptions = <TData = Awaited<ReturnType<typeof listPermissionTemplates>>, TError = ErrorType<unknown>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listPermissionTemplates>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListPermissionTemplatesQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listPermissionTemplates>>> = ({ signal }) => listPermissionTemplates({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listPermissionTemplates>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type ListPermissionTemplatesQueryResult = NonNullable<Awaited<ReturnType<typeof listPermissionTemplates>>>
+export type ListPermissionTemplatesQueryError = ErrorType<unknown>
+
+
+export function useListPermissionTemplates<TData = Awaited<ReturnType<typeof listPermissionTemplates>>, TError = ErrorType<unknown>>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listPermissionTemplates>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listPermissionTemplates>>,
+          TError,
+          Awaited<ReturnType<typeof listPermissionTemplates>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useListPermissionTemplates<TData = Awaited<ReturnType<typeof listPermissionTemplates>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listPermissionTemplates>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listPermissionTemplates>>,
+          TError,
+          Awaited<ReturnType<typeof listPermissionTemplates>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useListPermissionTemplates<TData = Awaited<ReturnType<typeof listPermissionTemplates>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listPermissionTemplates>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useListPermissionTemplates<TData = Awaited<ReturnType<typeof listPermissionTemplates>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listPermissionTemplates>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getListPermissionTemplatesQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCreatePermissionTemplateUrl = () => {
+
+
+
+
+  return `/api/team/templates`
+}
+
+export const createPermissionTemplate = async (permissionTemplateInput: PermissionTemplateInput, options?: Parameters<typeof customFetch>[1]): Promise<PermissionTemplate> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<PermissionTemplate>(getCreatePermissionTemplateUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(permissionTemplateInput)
+  }
+);}
+
+
+
+
+
+export const getCreatePermissionTemplateMutationKey = () => ['createPermissionTemplate'] as const;
+
+export const getCreatePermissionTemplateMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createPermissionTemplate>>, TError,CreatePermissionTemplateMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createPermissionTemplate>>, TError,CreatePermissionTemplateMutationVariables, TContext> => {
+
+const mutationKey = getCreatePermissionTemplateMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createPermissionTemplate>>, CreatePermissionTemplateMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  createPermissionTemplate(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreatePermissionTemplateMutationResult = NonNullable<Awaited<ReturnType<typeof createPermissionTemplate>>>
+    export type CreatePermissionTemplateMutationBody = BodyType<PermissionTemplateInput>
+    export type CreatePermissionTemplateMutationError = ErrorType<unknown>
+    export type CreatePermissionTemplateMutationVariables = {data: BodyType<PermissionTemplateInput>}
+
+    export const useCreatePermissionTemplate = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createPermissionTemplate>>, TError,CreatePermissionTemplateMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof createPermissionTemplate>>,
+        TError,
+        CreatePermissionTemplateMutationVariables,
+        TContext
+      > => {
+      return useMutation(getCreatePermissionTemplateMutationOptions(options), queryClient);
+    }
+
+export const getPreviewPermissionTemplateUrl = (id: number,) => {
+
+
+
+
+  return `/api/team/templates/${id}/preview`
+}
+
+export const previewPermissionTemplate = async (id: number,
+    permissionTemplateEdit: PermissionTemplateEdit, options?: Parameters<typeof customFetch>[1]): Promise<PermissionTemplateImpact> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<PermissionTemplateImpact>(getPreviewPermissionTemplateUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(permissionTemplateEdit)
+  }
+);}
+
+
+
+
+
+export const getPreviewPermissionTemplateMutationKey = () => ['previewPermissionTemplate'] as const;
+
+export const getPreviewPermissionTemplateMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof previewPermissionTemplate>>, TError,PreviewPermissionTemplateMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof previewPermissionTemplate>>, TError,PreviewPermissionTemplateMutationVariables, TContext> => {
+
+const mutationKey = getPreviewPermissionTemplateMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof previewPermissionTemplate>>, PreviewPermissionTemplateMutationVariables> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  previewPermissionTemplate(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PreviewPermissionTemplateMutationResult = NonNullable<Awaited<ReturnType<typeof previewPermissionTemplate>>>
+    export type PreviewPermissionTemplateMutationBody = BodyType<PermissionTemplateEdit>
+    export type PreviewPermissionTemplateMutationError = ErrorType<unknown>
+    export type PreviewPermissionTemplateMutationVariables = {id: number;data: BodyType<PermissionTemplateEdit>}
+
+    export const usePreviewPermissionTemplate = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof previewPermissionTemplate>>, TError,PreviewPermissionTemplateMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof previewPermissionTemplate>>,
+        TError,
+        PreviewPermissionTemplateMutationVariables,
+        TContext
+      > => {
+      return useMutation(getPreviewPermissionTemplateMutationOptions(options), queryClient);
+    }
+
+export const getApplyPermissionTemplateUrl = (id: number,) => {
+
+
+
+
+  return `/api/team/templates/${id}`
+}
+
+export const applyPermissionTemplate = async (id: number,
+    permissionTemplateApply: PermissionTemplateApply, options?: Parameters<typeof customFetch>[1]): Promise<PermissionTemplate> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<PermissionTemplate>(getApplyPermissionTemplateUrl(id),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(permissionTemplateApply)
+  }
+);}
+
+
+
+
+
+export const getApplyPermissionTemplateMutationKey = () => ['applyPermissionTemplate'] as const;
+
+export const getApplyPermissionTemplateMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof applyPermissionTemplate>>, TError,ApplyPermissionTemplateMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof applyPermissionTemplate>>, TError,ApplyPermissionTemplateMutationVariables, TContext> => {
+
+const mutationKey = getApplyPermissionTemplateMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof applyPermissionTemplate>>, ApplyPermissionTemplateMutationVariables> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  applyPermissionTemplate(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ApplyPermissionTemplateMutationResult = NonNullable<Awaited<ReturnType<typeof applyPermissionTemplate>>>
+    export type ApplyPermissionTemplateMutationBody = BodyType<PermissionTemplateApply>
+    export type ApplyPermissionTemplateMutationError = ErrorType<unknown>
+    export type ApplyPermissionTemplateMutationVariables = {id: number;data: BodyType<PermissionTemplateApply>}
+
+    export const useApplyPermissionTemplate = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof applyPermissionTemplate>>, TError,ApplyPermissionTemplateMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof applyPermissionTemplate>>,
+        TError,
+        ApplyPermissionTemplateMutationVariables,
+        TContext
+      > => {
+      return useMutation(getApplyPermissionTemplateMutationOptions(options), queryClient);
     }
 
 export const getListTeamPeopleUrl = () => {

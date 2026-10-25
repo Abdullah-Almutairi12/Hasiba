@@ -5,6 +5,7 @@ import { lockApprovalAuthorityWrite } from "./approval-authority";
 import { FinancialRequestError } from "./financial-transaction";
 import type { DbOrTx } from "./journal-posting";
 import { TEAM_MODULES, type TeamPerson } from "./team-catalog";
+import { validateTemplateBinding } from "./team-template-binding";
 import { requireAdministrative, protectLastAdministrator, initializeLegacyAdministration, type AdminResponsibility } from "./administration-authority";
 
 export async function teamRows<T = Record<string, unknown>>(connection: Pick<typeof db, "execute">, statement: SQL): Promise<T[]> {
@@ -48,12 +49,13 @@ export async function teamPolicy(companyId: number, connection: DbOrTx = db) {
     activeLoginSeats: counts.seats, reservedAccessSlots: counts.reserved,
   };
 }
-export type TeamProfile = TeamPerson & { personId: number; userId: number | null; status: string; revision: number };
+export type TeamProfile = TeamPerson & { personId: number; userId: number | null; status: string; revision: number; membershipDeparture: "suspend"|"terminate"|null };
 export async function teamPeople(companyId: number, connection: DbOrTx = db, personId?: number): Promise<TeamProfile[]> {
   return teamRows<TeamProfile>(connection, sql`
-    SELECT a.employee_id AS "personId",a.user_id AS "userId",a.status,a.revision,a.creation_key AS "creationKey",
+    SELECT a.employee_id AS "personId",a.user_id AS "userId",a.status,a.revision,a.membership_departure AS "membershipDeparture",a.creation_key AS "creationKey",
       e.name_ar AS name,e.email,a.login_kinds AS "loginKinds",a.denied_actions AS "deniedActions",
       coalesce((SELECT jsonb_agg(jsonb_build_object('id',g.id,'resource',g.resource,'branchId',g.branch_id,
+        'templateId',g.template_id,'templateRevision',g.template_revision,'templateMode',g.template_mode,
         'warehouseIds',g.warehouse_ids,'actions',g.actions,'amountLimit',g.amount_limit::text,
         'startsAt',g.starts_at,'endsAt',g.ends_at) ORDER BY g.id)
         FROM responsibility_grants g WHERE g.employee_id=a.employee_id AND g.company_id=a.company_id AND g.revoked_at IS NULL),'[]'::jsonb) AS grants
@@ -66,6 +68,7 @@ export async function teamPeople(companyId: number, connection: DbOrTx = db, per
 export async function previewTeamPerson(companyId: number, person: TeamPerson, connection: DbOrTx = db, replacing?: number, existingLoginSeat = false) {
   const policy = await teamPolicy(companyId, connection);
   for (const grant of person.grants) {
+    await validateTemplateBinding(connection,companyId,grant);
     if (!policy.enabledModules.includes(grant.resource)) throw new FinancialRequestError("الوحدة غير متاحة في استحقاق المنشأة المهيأ", 403);
     const [branch] = await teamRows(connection, sql`SELECT id FROM branches WHERE id=${grant.branchId} AND company_id=${companyId} AND is_active`);
     if (!branch) throw new FinancialRequestError("الفرع غير متاح في الشركة", 403);
@@ -99,9 +102,11 @@ export async function storeGrants(tx: DbOrTx, companyId: number, employeeId: num
   await tx.execute(sql`UPDATE responsibility_grants SET revoked_at=now() WHERE company_id=${companyId}
     AND employee_id=${employeeId} AND revoked_at IS NULL`);
   for (const g of person.grants) await tx.execute(sql`
-    INSERT INTO responsibility_grants(company_id,employee_id,resource,branch_id,warehouse_ids,actions,amount_limit,starts_at,ends_at,created_by)
+    INSERT INTO responsibility_grants(company_id,employee_id,resource,branch_id,warehouse_ids,actions,amount_limit,starts_at,ends_at,created_by,
+      template_id,template_revision,template_mode)
     VALUES(${companyId},${employeeId},${g.resource},${g.branchId},${sql.param([...new Set(g.warehouseIds)])}::integer[],
-      ${sql.param([...new Set(g.actions)])}::text[],${g.amountLimit}::numeric,coalesce(${g.startsAt}::timestamptz,now()),${g.endsAt}::timestamptz,${userId})`);
+      ${sql.param([...new Set(g.actions)])}::text[],${g.amountLimit}::numeric,coalesce(${g.startsAt}::timestamptz,now()),${g.endsAt}::timestamptz,${userId},
+      ${g.templateId??null},${g.templateRevision??null},${g.templateMode??null})`);
 }
 function pendingStatus(p: TeamPerson) {
   return !p.loginKinds.length ? "record" : !p.email ? "device_setup_required" : "pending";
@@ -145,14 +150,34 @@ export async function updateTeamPerson(companyId: number, userId: number, person
     await previewTeamPerson(companyId, person, tx, personId);
     const status = suspended ? "suspended" : !person.loginKinds.length ? "record" :
       before.userId ? "active" : pendingStatus(person);
+    if(before.userId && status==="active") {
+      const [identity]=await teamRows(tx,sql`SELECT e.id FROM employees e JOIN users u ON u.id=e.user_id
+        WHERE e.id=${personId} AND e.company_id=${companyId} AND e.user_id=${before.userId} AND u.is_active
+        AND e.status IN ('active','on_leave','probation','preboarding')`);
+      if(!identity)throw new FinancialRequestError("لا يمكن استعادة هوية معطلة أو موظف غير مؤهل",409);
+      if(before.membershipDeparture==="terminate")
+        throw new FinancialRequestError("أُنهيت هذه العضوية وليست معلقة؛ يلزم إجراء إعادة انضمام مستقل مخوّل، لا زر الاستعادة",409);
+      const [membership]=await teamRows(tx,sql`SELECT role FROM user_companies WHERE company_id=${companyId} AND user_id=${before.userId}`);
+      if(!membership) {
+        if(before.membershipDeparture!=="suspend")
+          throw new FinancialRequestError("العضوية مفقودة بلا دليل تعليق مؤقت؛ يلزم التحقق قبل إعادة الانضمام",409);
+        // Seat/module/scope validation above is inside the same authority/company
+        // lock. Restore approved functional grants, never the removed admin role.
+        await tx.execute(sql`INSERT INTO user_companies(company_id,user_id,role,is_default)
+          VALUES(${companyId},${before.userId},'scoped',false)`);
+      }
+    }
     if (before.userId && status !== "active") await protectLastAdministrator(tx,companyId,before.userId);
     await tx.execute(sql`UPDATE employees SET name=${person.name},name_ar=${person.name},email=${person.email}
       WHERE id=${personId} AND company_id=${companyId}`);
     await tx.execute(sql`UPDATE employee_access SET login_kinds=${sql.param(person.loginKinds)}::text[],denied_actions=${sql.param(person.deniedActions)}::text[],
-      status=${status},revision=revision+1,updated_at=now() WHERE employee_id=${personId} AND company_id=${companyId}`);
+      status=${status},membership_departure=${status==="active"?null:before.membershipDeparture},
+      revision=revision+1,updated_at=now() WHERE employee_id=${personId} AND company_id=${companyId}`);
     await storeGrants(tx, companyId, personId, userId, person);
     await tx.execute(sql`UPDATE team_invitations SET revoked_at=now() WHERE company_id=${companyId}
       AND employee_id=${personId} AND used_at IS NULL AND revoked_at IS NULL`);
+    if(status!=="active" && before.userId)await tx.execute(sql`DELETE FROM "session"
+      WHERE sess->>'userId'=${String(before.userId)} AND sess->>'companyId'=${String(companyId)}`);
     const after = (await teamPeople(companyId, tx, personId))[0];
     await teamAudit(tx, companyId, userId, "team.access.update", { before, after });
     return after;

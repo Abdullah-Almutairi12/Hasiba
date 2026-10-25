@@ -35,6 +35,7 @@ administrationReceiptRouter.post("/auth/administration/recover",recoveryLimiter,
   await new Promise<void>((resolve,reject)=>req.session.regenerate(e=>e?reject(e):resolve()));
   // Identity only: no company, membership, functional grant or financial authority.
   req.session.userId=user.id;
+  req.session.purpose="administration_receipt";
   await new Promise<void>((resolve,reject)=>req.session.save(e=>e?reject(e):resolve()));
   res.json({userId:user.id});
 }));
@@ -48,7 +49,8 @@ administrationReceiptRouter.get("/auth/administration/handovers/:id/receipt",req
 }));
 administrationReceiptRouter.post("/auth/administration/handovers/:id/complete",requireAuth,requireSameOrigin,wrap(async(req,res)=>{
   await liveIdentity(req.session.userId!);
-  res.json(await completeHandover(req.session.userId!,id(req),revision.parse(req.body).expectedRevision));
+  res.json(await completeHandover(req.session.userId!,id(req),revision.parse(req.body).expectedRevision,
+    req.session.purpose==="administration_receipt"));
 }));
 export const administrationRouter=Router();
 administrationRouter.post("/administration/membership/leave",wrap(async(req,res)=>{
