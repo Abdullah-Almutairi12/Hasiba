@@ -294,6 +294,7 @@ router.get("/pos/sessions", posReadGuard, async (req, res) => {
         id: posSessionsTable.id,
         sessionNumber: posSessionsTable.sessionNumber,
         posStationId: posSessionsTable.posStationId,
+        cashierUserId: posSessionsTable.cashierUserId,
         branchId: posSessionsTable.branchId,
         branchName: branchesTable.nameAr,
         cashierName: posSessionsTable.cashierName,
@@ -315,7 +316,8 @@ router.get("/pos/sessions", posReadGuard, async (req, res) => {
       .limit(20);
 
     res.json(
-      sessions.filter(s => !posDeviceAuthority.getStore() || s.posStationId === posDeviceAuthority.getStore()!.stationId)
+      sessions.filter(s => !posDeviceAuthority.getStore() || (
+        s.posStationId === posDeviceAuthority.getStore()!.stationId && s.cashierUserId === posDeviceAuthority.getStore()!.userId))
       .filter(s => !actor.branches || actor.branches.includes(s.branchId)).map((s) => ({
         ...s,
         totalSales: Number(s.totalSales),
@@ -365,6 +367,7 @@ router.post("/pos/sessions", posGuard, async (req, res) => {
       .insert(posSessionsTable)
       .values({
         posStationId: posDeviceAuthority.getStore()?.stationId ?? null,
+        cashierUserId: req.session.userId!,
         sessionNumber,
         branchId: body.branchId,
         cashierName,
@@ -663,7 +666,8 @@ router.post(
       // Tenant ownership: cross-tenant sessionId is rejected via INNER JOIN
       // on branches.company_id (sessions inherit tenancy from branch).
       const [session] = await tx
-        .select({ branchId: posSessionsTable.branchId, status: posSessionsTable.status, posStationId: posSessionsTable.posStationId })
+        .select({ branchId: posSessionsTable.branchId, status: posSessionsTable.status,
+          posStationId: posSessionsTable.posStationId, cashierUserId: posSessionsTable.cashierUserId })
         .from(posSessionsTable)
         .innerJoin(
           branchesTable,
@@ -677,8 +681,8 @@ router.post(
         .for("update", { of: posSessionsTable });
       if (!session) throw new FinancialRequestError("جلسة نقطة البيع غير موجودة", 404);
       const deviceContext = posDeviceAuthority.getStore();
-      if (deviceContext && session.posStationId !== deviceContext.stationId) {
-        throw new FinancialRequestError("الوردية ليست لنقطة البيع المرتبطة بهذا الجهاز", 403);
+      if (deviceContext && (session.posStationId !== deviceContext.stationId || session.cashierUserId !== deviceContext.userId)) {
+        throw new FinancialRequestError("الوردية ليست للكاشير ونقطة البيع المرتبطين بهذا الجهاز", 403);
       }
       await returnAuthorize(req.session.userId!, companyId, "sell", session.branchId, tx);
       if (session.status !== "open") {

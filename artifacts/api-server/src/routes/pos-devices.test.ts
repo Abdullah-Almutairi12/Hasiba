@@ -124,6 +124,9 @@ describe.sequential("POS device software proof and cashier-only identity",()=>{
     const shift=ok(await call(cashier.agent,device,"post","/pos/sessions",{branchId:f.branches[0].id,openingCash:0,cashierName:"كاشير بلا بريد"}),201);
     const body={sessionId:shift.id,paymentMethod:"cash",discount:0,items:[{productId:f.products[0].id,quantity:1,unitPrice:0.01}]};
     committedBody=body;
+    const otherCashier=await unlock(device,other);ok(otherCashier.response);
+    expect(ok(await call(otherCashier.agent,device,"get","/pos/sessions",{},other.grants[0].id))).toEqual([]);
+    ok(await call(otherCashier.agent,device,"post","/pos/orders",body,other.grants[0].id,randomUUID()),403);
     const differentStation=await register(f.branches[0].id,"جهاز نقطة أخرى","نقطة مختلفة");
     await activate(differentStation);
     const wrongStation=await unlock(differentStation);ok(wrongStation.response);

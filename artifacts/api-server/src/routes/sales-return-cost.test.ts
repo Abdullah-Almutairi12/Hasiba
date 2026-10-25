@@ -55,9 +55,11 @@ async function fixture(method: "fifo" | "average" | "standard" = "fifo", layers 
     price: "100", costPrice: "10", stock: "0", costingMethod: method,
   }).returning();
   const [customer] = await db.insert(customersTable).values({ companyId, name: tag }).returning();
-  const [session] = await db.insert(posSessionsTable).values({
-    sessionNumber: tag, cashierName: tag, branchId: branch.id, openingCash: "0", status: "open",
-  }).returning();
+  // These are historical columns only. The upgrade fixture must not issue
+  // latest-ORM DEFAULT/RETURNING columns before their migrations exist.
+  const [session] = await rows(`INSERT INTO pos_sessions
+    (session_number,cashier_name,branch_id,opening_cash,status)
+    VALUES($1,$1,$2,'0','open') RETURNING id,session_number AS "sessionNumber"`,[tag,branch.id]);
   const legacyApp = process.env.HASBA_LEGACY_API_APP ? await import(process.env.HASBA_LEGACY_API_APP) : null;
   if (legacyApp) await legacyApp.assertApplicationReady();
   const agent = request.agent(legacyApp?.default ?? app);
@@ -202,6 +204,7 @@ describe("original POS invoice: independent linked return lifecycle", () => {
       "0045_permission_templates.sql",
       "0046_pos_device_identity.sql",
       "0047_pos_station_evidence.sql",
+      "0048_pos_cashier_evidence.sql",
     ]);
     expect(first.skipped).toHaveLength(26);
     expect(await snapshots()).toEqual(before);
