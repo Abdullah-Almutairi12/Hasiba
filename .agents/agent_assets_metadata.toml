@@ -392,3 +392,17 @@ mtime_ms = 1792900417419
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/d023437e-3b43-4f93-8f1a-320740ec41e9/24e24855-a7ce-4770-a21f-66b2c37b49ed"
 storage_version_token = "1792900427410087"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "dPEpEHgvUfFbHL_5vgvm6"
+uri = "file://generated-artifacts/first-phase-continuation/hasiba-primary-owner-evidence-201d1b9.zip"
+type = "unspecified"
+title = "حاسبة — تقرير وأدلة المالك والمديرين"
+description = "تقرير عربي، نتائج15بوابة و737APIو167UI، دليل الرحلتين وقراءة القاعدة المصطنعة والصور؛ دون بيانات الدخول أو متغيرات البيئة."
+logical_id = "5febaef5-411e-4d60-adc7-2a54106e5ff3"
+content_hash = "sha256:63b3fafa7594b0a2a1f6a32af18ac6f6743b461e4e046e2a4f2c91eb6d04c7c6"
+size = 626740
+mtime_ms = 1792905622915
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/5febaef5-411e-4d60-adc7-2a54106e5ff3/9acc1bc4-34ca-4d04-ab84-23ee6ea37a9f"
+storage_version_token = "1792905631533453"
+content_type = "application/octet-stream"
