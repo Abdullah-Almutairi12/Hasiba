@@ -170,6 +170,14 @@ describe("original POS invoice: independent linked return lifecycle", () => {
     await rows(`INSERT INTO financial_limits(role,action_key,max_value,description)
       VALUES('hr','sales.refund_amount',333,'Synthetic pre-upgrade policy evidence') ON CONFLICT DO NOTHING RETURNING id`);
     const oldLimits = await rows("SELECT id,role,action_key,max_value,description,updated_at FROM financial_limits ORDER BY id");
+    // Seed this observation through the actual previous installation's SQL
+    // shape, before the new revision column exists. Financial/quantity values
+    // must survive the additive migration, with a usable initial revision.
+    const [oldTake]=await rows("INSERT INTO stock_takes(reference,warehouse_id) VALUES($1,$2) RETURNING id",
+      [`${f.tag}-old-count`,f.warehouseId]);
+    const [oldCount]=await rows(`INSERT INTO stock_take_lines(stock_take_id,product_id,expected_qty,counted_qty,unit_cost)
+      VALUES($1,$2,9.5000,8.2500,10.0000) RETURNING id,expected_qty::text,counted_qty::text,unit_cost::text`,
+      [oldTake.id,f.productId]);
     const first = await runMigrations(process.env.TEST_DATABASE_URL!, () => {});
     expect(first.applied).toEqual([
       "0026_pos_return_settlement.sql",
@@ -187,9 +195,13 @@ describe("original POS invoice: independent linked return lifecycle", () => {
       "0038_legacy_team_conversion.sql",
       "0039_pos_independent_return_receipt.sql",
       "0040_owner_cash_responsibility.sql",
+      "0041_stocktake_count_revision.sql",
     ]);
     expect(first.skipped).toHaveLength(26);
     expect(await snapshots()).toEqual(before);
+    expect(await rows("SELECT id,expected_qty::text,counted_qty::text,unit_cost::text FROM stock_take_lines WHERE id=$1",[oldCount.id]))
+      .toEqual([oldCount]);
+    expect(await rows("SELECT count_revision::text FROM stock_take_lines WHERE id=$1",[oldCount.id])).toEqual([{count_revision:"0"}]);
     expect(await rows("SELECT id,role,action_key,max_value,description,updated_at FROM financial_limits ORDER BY id")).toEqual(oldLimits);
     expect(await rows("SELECT count(*)::int AS n FROM financial_limits WHERE company_id IS NOT NULL")).toEqual([{ n: 0 }]);
     expect(await rows("SELECT count(*)::int AS n FROM document_issuer_snapshots WHERE company_id=$1", [f.companyId])).toEqual([{ n: 0 }]);
