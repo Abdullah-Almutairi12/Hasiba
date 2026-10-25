@@ -546,3 +546,31 @@ mtime_ms = 1792933828417
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/3b7cc69e-a2c2-491e-a9ae-2cc4f55287e8/d827c3de-6450-4cf5-9c1b-06086df5bc01"
 storage_version_token = "1792933844905565"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "vOMB5MNPZoFZ28FulWd8B"
+uri = "file://generated-artifacts/account-qr-recovery/hasiba-qr-recovery-report-ar.html"
+type = "html"
+title = "حاسبة — تقرير QR والاستعادة والحالة 17"
+description = "التنفيذ المثبت، نتائج النسخة المختبرة، وقائمة الحالة17 ومعايير الإغلاق والإعداد والقبول التشغيلي المتبقي."
+logical_id = "419af179-5901-4fe4-98b4-4136b256d268"
+content_hash = "sha256:13ca70e178af3e3f1fc0464464aa94fe0506ed1322f4b979fc17ce761572904c"
+size = 55871
+mtime_ms = 1792953092692
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/419af179-5901-4fe4-98b4-4136b256d268/35b5f8ae-522e-4ba1-b4b7-6964a8e6bd5f"
+storage_version_token = "1792953124908094"
+content_type = "text/html"
+
+[[outputs]]
+id = "7YiyuZrbWMl3bBwTntfu6"
+uri = "file://generated-artifacts/account-qr-recovery/hasiba-qr-recovery-evidence.zip"
+type = "unspecified"
+title = "أدلة التحقق — QR وبريد الاستعادة"
+description = "17 ملفًا: نتائج البوابات والاختبارات المنقحة، دليل المتصفح وSMTP المعزول، بصمة المصدر وتطابق GitHub. دون أسرار أو رموز إعداد."
+logical_id = "5f8b3fd5-1d93-4dc3-83e5-a51cd001c346"
+content_hash = "sha256:6cc0d7a6524bc72daa5d7d13c0e0ddee77efe156dad937b47d60b7c6f7d6ede0"
+size = 95298
+mtime_ms = 1792953092748
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/5f8b3fd5-1d93-4dc3-83e5-a51cd001c346/e14ddf0e-7e10-41a5-8512-d3e5cb79115e"
+storage_version_token = "1792953126835158"
+content_type = "application/octet-stream"
