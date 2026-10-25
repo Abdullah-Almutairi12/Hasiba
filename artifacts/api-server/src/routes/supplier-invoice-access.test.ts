@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { describe, it, expect } from "vitest";
 import { pool } from "@workspace/db";
-import { posTemplateFixture, personInput, accepted as ok, fixtureRows as rows } from "../test/pos-template-fixture";
+import { posTemplateFixture, personInput, accepted as ok, fixtureRows as rows, testActor } from "../test/pos-template-fixture";
 
 const permissions = ["procurement.read", "procurement.invoices.read", "procurement.invoices.compare"];
 async function fixture() {
@@ -37,6 +37,17 @@ async function fixture() {
 }
 
 describe("supplier invoice read and advisory comparison boundaries", () => {
+  it("preserves the original unmanaged inventory read permission without granting it to scoped receivers", async () => {
+    const f = await fixture();
+    const email = `legacy-invoice-reader-${randomUUID()}@example.invalid`;
+    const [user] = await rows(`INSERT INTO users(name,email,password_hash,role,is_active)
+      VALUES('قارئ قديم',$1,$2,'inventory',true) RETURNING id`, [email, f.ownerUser.passwordHash]);
+    await pool.query(`INSERT INTO user_companies(user_id,company_id,role,is_default) VALUES($1,$2,'inventory',true)`,
+      [user.id, f.companies[0].id]);
+    const actor = testActor();
+    ok(await actor.post("/api/auth/login").send({ email, password: f.password }));
+    ok(await actor.get(`/api/invoices/${f.invoice.id}`));
+  });
   it("exposes only evidenced company/branch/warehouse sources and denies an unbound legacy invoice", async () => {
     const f = await fixture();
     expect(ok(await f.request("get", "/invoices")).some((i: any) => i.id === f.invoice.id)).toBe(true);

@@ -27,10 +27,10 @@ export function supplierInvoiceScope(actor: ProcurementActor): SQL {
 export async function supplierInvoiceActor(req: Request, action = "read", connection: DbOrTx = db) {
   const actor = await requestProcurementActor(req, `procurement.invoices.${action}`, connection);
   if (!actor.grant) {
-    // Procurement directory/receipt legacy rights are intentionally broader
-    // than the original invoice finance guard. Never widen that old boundary.
+    // Match the existing invoiceReadGuard exactly for unmanaged accounts;
+    // a new quantities-only responsibility still cannot use this legacy path.
     const legacy = await returnActor(actor.userId, actor.companyId, connection);
-    if (!["owner", "manager", "accountant", "auditor"].includes(legacy.role) ||
+    if (!["owner", "manager", "accountant", "inventory", "auditor"].includes(legacy.role) ||
       !["read", "compare", "print", "export"].includes(action)) {
       throw new FinancialRequestError("صلاحية قراءة فواتير الموردين غير متاحة", 403);
     }

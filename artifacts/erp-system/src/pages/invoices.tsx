@@ -109,6 +109,7 @@ export default function Invoices() {
   const selectedGrant = useSelectedResponsibility();
   const canPrintInvoice = selectedGrant?.resource !== "procurement" || selectedGrant.actions.includes("procurement.invoices.print");
   const canExportInvoice = selectedGrant?.resource !== "procurement" || selectedGrant.actions.includes("procurement.invoices.export");
+  const canScanInvoice = selectedGrant?.resource !== "procurement" || canManageFinance;
   const [detailsId, setDetailsId] = useState<number | null>(null);
   const vatEnabled = useVatEnabled();
   const [statusFilter, setStatusFilter] = useState<string>("all");
@@ -375,11 +376,11 @@ export default function Invoices() {
       <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">فواتير الموردين (AI)</h1>
-          <p className="text-muted-foreground">استخراج بيانات الفواتير تلقائياً وإضافتها للمخزون والمحاسبة</p>
+          <p className="text-muted-foreground">{canScanInvoice ? "استخراج بيانات الفواتير تلقائياً وإضافتها للمخزون والمحاسبة" : "عرض فواتير الموردين ومرفقاتها ضمن نطاق مسؤوليتك"}</p>
         </div>
-        <Button size="lg" onClick={openScanner} className="gap-2 shadow-md" data-testid="button-open-scanner">
+        {canScanInvoice && <Button size="lg" onClick={openScanner} className="gap-2 shadow-md" data-testid="button-open-scanner">
           <Sparkles className="size-4" /> تصوير فاتورة جديدة
-        </Button>
+        </Button>}
       </div>
 
       <div className="grid gap-4 md:grid-cols-4">
@@ -422,7 +423,7 @@ export default function Invoices() {
       </div>
 
       <div className="grid gap-6 md:grid-cols-3">
-        <Card
+        {canScanInvoice && <Card
           className="md:col-span-1 border-dashed border-2 bg-muted/30 hover:bg-muted/50 transition-colors cursor-pointer"
           onClick={openScanner}
           data-testid="card-upload-zone"
@@ -435,7 +436,7 @@ export default function Invoices() {
             <p className="text-sm text-muted-foreground mb-4">سيقوم الوكيل الذكي بقراءتها وإضافة بنودها للمخزون والمحاسبة</p>
             <Button className="gap-2"><Camera className="size-4" /> ابدأ الآن</Button>
           </CardContent>
-        </Card>
+        </Card>}
 
         <Card className="md:col-span-2">
           <CardHeader className="pb-3 border-b flex flex-row items-center justify-between">

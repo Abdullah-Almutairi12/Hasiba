@@ -1,5 +1,5 @@
 import { useGetInvoice } from "@workspace/api-client-react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { formatRiyal } from "@/components/riyal";
 
 export function SupplierInvoiceDetails({ id, onClose }: { id: number | null; onClose: () => void }) {
@@ -8,7 +8,8 @@ export function SupplierInvoiceDetails({ id, onClose }: { id: number | null; onC
   const privateFile = file && /^\/api\/storage\/objects\/invoices\//.test(file)
     ? `${import.meta.env.BASE_URL.replace(/\/$/, "")}${file}` : null;
   return <Dialog open={id != null} onOpenChange={open => { if (!open) onClose(); }}>
-    <DialogContent dir="rtl"><DialogHeader><DialogTitle>تفاصيل فاتورة المورد</DialogTitle></DialogHeader>
+    <DialogContent dir="rtl"><DialogHeader><DialogTitle>تفاصيل فاتورة المورد</DialogTitle>
+      <DialogDescription>البيانات والمرفق الأصلي ضمن صلاحية القراءة الحالية، دون تنفيذ عملية مالية.</DialogDescription></DialogHeader>
       {query.isLoading && <p>جارٍ تحميل التفاصيل…</p>}
       {query.isError && <p role="alert">تعذر عرض الفاتورة؛ قد تكون الصلاحية سحبت أو المستند خارج النطاق.</p>}
       {query.data && !query.isError && <dl className="space-y-3">
