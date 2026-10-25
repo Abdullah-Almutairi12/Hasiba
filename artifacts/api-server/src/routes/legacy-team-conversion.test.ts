@@ -35,7 +35,7 @@ beforeAll(async () => {
     companyId, branchId, name: tag, nameAr: "مستودع الاختبار",
   }).returning();
   warehouseId = warehouse.id;
-  owner = await login(user.email);
+  owner = await login(user.email!);
 });
 async function fixture(role: "inventory" | "cashier" = "inventory") {
   const name = `موظف تحويل ${randomUUID().slice(0,8)}`, email = `${randomUUID()}@example.test`;
@@ -115,7 +115,7 @@ describe("explicit conservative legacy adoption", () => {
     expect(me.companies.find((c: any) => c.id === companyId).role).toBe("scoped");
     expect(me.companies.find((c: any) => c.id === otherCompanyId).role).toBe("owner");
     expect(ok(await f.agent.get("/api/users/permissions"))).toEqual({ role: "scoped", permissions: [] });
-    expect(ok(await (await login(f.user.email)).get("/api/auth/me")).role).toBe("scoped");
+    expect(ok(await (await login(f.user.email!)).get("/api/auth/me")).role).toBe("scoped");
     const grant = access.grants[0];
     ok(await f.agent.get("/api/workspace/inventory").set("X-Workspace-Responsibility", String(grant.id)));
     ok(await f.agent.get("/api/workspace/inventory"), 403);

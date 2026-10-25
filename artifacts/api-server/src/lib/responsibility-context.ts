@@ -4,6 +4,7 @@ import { sql } from "drizzle-orm";
 import { teamRows } from "./team-store";
 import { FinancialRequestError } from "./financial-transaction";
 import { isPrimarySystemOwner } from "./primary-system-owner";
+import { posDeviceAuthority } from "./pos-device-authority";
 
 export const responsibilityContext = new AsyncLocalStorage<{ userId: number; companyId: number; grantId: number }>();
 export type Responsibility = {
@@ -43,7 +44,9 @@ export async function currentResponsibilities(userId: number, companyId: number,
       AND ((${process.env.NODE_ENV !== "production"} AND p.company_id IS NULL) OR g.resource=ANY(p.enabled_modules))
       AND NOT EXISTS(SELECT 1 FROM unnest(g.warehouse_ids) w(id) LEFT JOIN warehouses wh ON wh.id=w.id
         AND wh.company_id=g.company_id AND wh.branch_id=g.branch_id WHERE wh.id IS NULL)`);
-  return rows.map(g => ({ ...g, actions: !g.actions.includes(`${g.resource}.read`) || profile.deniedActions.includes(`${g.resource}.read`) ? [] :
+  const device = posDeviceAuthority.getStore();
+  return rows.filter(g => !device || (device.userId === userId && device.companyId === companyId &&
+    g.resource === "pos" && g.branchId === device.branchId)).map(g => ({ ...g, actions: !g.actions.includes(`${g.resource}.read`) || profile.deniedActions.includes(`${g.resource}.read`) ? [] :
     g.actions.filter(a => !profile.deniedActions.includes(a)) }));
 }
 export async function selectedResponsibility(userId: number, companyId: number, connection: Pick<typeof db, "execute"> = db) {

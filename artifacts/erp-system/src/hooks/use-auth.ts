@@ -14,7 +14,7 @@ export type AuthCompany = {
 export type AuthUser = {
   id: number;
   name: string;
-  email: string;
+  email: string | null;
   role: string;
   branchId: number | null;
   preferredBranchId: number | null;
@@ -28,6 +28,8 @@ export type AuthUser = {
    */
   businessType: string | null;
   companies: AuthCompany[];
+  /** True only for trusted-device POS cashier sessions. */
+  posDevice?: boolean;
 };
 
 const API_BASE = `${import.meta.env.BASE_URL.replace(/\/$/, "")}/api`;

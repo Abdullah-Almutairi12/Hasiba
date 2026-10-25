@@ -59,8 +59,17 @@ import sellersRouter from "./sellers";
 import { requireSameOrigin } from "../middlewares/require-same-origin";
 import { aggregatePrintGuard,checkDocumentPrint } from "../lib/print-permissions";
 import { FinancialRequestError } from "../lib/financial-transaction";
+import { posDeviceSessionGate } from "../middlewares/pos-device-session";
+import { posDevicePublicRouter, posDeviceAdminRouter } from "./pos-devices";
 
 const router: IRouter = Router();
+// The POS device cookie is deliberately not a platform session. The boundary
+// applies even to otherwise-public auth and invitation routes.
+router.use(posDeviceSessionGate);
+router.use((req,res,next)=>{
+  if(req.session.purpose==="pos_device" || req.path.startsWith("/pos-device/"))posDevicePublicRouter(req,res,next);
+  else next();
+});
 // Before auth, activation, cross-company and operational routers alike.
 router.use(recoverySessionGate);
 router.use((req,res,next)=>{
@@ -105,6 +114,7 @@ router.use(requireAuth);
 router.use(requireSameOrigin);
 // Resolve and validate membership before ANY managed permission decision.
 router.use(requireCompanyContext);
+router.use(posDeviceAdminRouter);
 router.use(managedAccessGate);
 
 // Cross-tenant routes — auth only, no company scope:

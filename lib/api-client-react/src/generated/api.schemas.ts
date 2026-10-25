@@ -5,6 +5,143 @@
  * حاسبة.AI - ERP System API
  * OpenAPI spec version: 0.1.0
  */
+export type PosDeviceStatus = typeof PosDeviceStatus[keyof typeof PosDeviceStatus];
+
+
+export const PosDeviceStatus = {
+  registered: 'registered',
+  active: 'active',
+  revoked: 'revoked',
+} as const;
+
+export interface PosDeviceAudit {
+  action: string;
+  actor: string;
+  createdAt: string;
+}
+
+export interface PosDevice {
+  id: string;
+  status: PosDeviceStatus;
+  name?: string;
+  branchId?: number;
+  stationId?: number;
+  stationName?: string;
+  generation?: number;
+  keyHash?: string;
+  /** @nullable */
+  activationExpiresAt?: string | null;
+  history?: PosDeviceAudit[];
+}
+
+export type PosPublicKeyKty = typeof PosPublicKeyKty[keyof typeof PosPublicKeyKty];
+
+
+export const PosPublicKeyKty = {
+  EC: 'EC',
+} as const;
+
+export type PosPublicKeyCrv = typeof PosPublicKeyCrv[keyof typeof PosPublicKeyCrv];
+
+
+export const PosPublicKeyCrv = {
+  'P-256': 'P-256',
+} as const;
+
+export interface PosPublicKey {
+  kty: PosPublicKeyKty;
+  crv: PosPublicKeyCrv;
+  /** @pattern ^[\w-]{43}$ */
+  x: string;
+  /** @pattern ^[\w-]{43}$ */
+  y: string;
+}
+
+export interface PosDeviceRegistration {
+  /**
+     * @minLength 1
+     * @maxLength 120
+     */
+  name: string;
+  /** @minimum 1 */
+  branchId: number;
+  /**
+     * @minLength 1
+     * @maxLength 120
+     */
+  stationName: string;
+  publicJwk: PosPublicKey;
+}
+
+export type PosDeviceChallengeInputPurpose = typeof PosDeviceChallengeInputPurpose[keyof typeof PosDeviceChallengeInputPurpose];
+
+
+export const PosDeviceChallengeInputPurpose = {
+  activate: 'activate',
+  unlock: 'unlock',
+  request: 'request',
+} as const;
+
+export interface PosDeviceChallengeInput {
+  deviceId: string;
+  purpose: PosDeviceChallengeInputPurpose;
+  /** @pattern ^[a-f0-9]{64}$ */
+  binding: string;
+}
+
+export interface PosDeviceChallenge {
+  id: string;
+  nonce: string;
+  payload: string;
+  expiresIn: number;
+}
+
+export interface PosDeviceProof {
+  id: string;
+  /**
+     * @minLength 20
+     * @maxLength 100
+     */
+  nonce: string;
+  /**
+     * @minLength 60
+     * @maxLength 200
+     */
+  signature: string;
+}
+
+export interface PosActivationInput {
+  deviceId: string;
+  proof: PosDeviceProof;
+  /**
+     * @minLength 30
+     * @maxLength 100
+     */
+  token: string;
+}
+
+export interface PosUnlockInput {
+  deviceId: string;
+  proof: PosDeviceProof;
+  /** @minimum 1 */
+  personId: number;
+  /** @pattern ^\d{6,10}$ */
+  pin: string;
+}
+
+export interface PosPinInput {
+  /** @pattern ^\d{6,10}$ */
+  pin: string;
+}
+
+export interface PosDeviceResult {
+  ok: boolean;
+  activationToken?: string;
+  expiresIn?: number;
+  status?: string;
+  personId?: number;
+}
+
 export interface AdministrationAcknowledgement {
   ok: boolean;
 }
@@ -697,7 +834,8 @@ export interface CompanyUser {
   id: number;
   userId: number;
   name: string;
-  email: string;
+  /** @nullable */
+  email: string | null;
   role: string;
   isDefault: boolean;
   isActive: boolean;
@@ -2069,7 +2207,8 @@ export interface CreateWarehouseBody {
 export interface User {
   id: number;
   name: string;
-  email: string;
+  /** @nullable */
+  email: string | null;
   /** @nullable */
   phone?: string | null;
   role: string;

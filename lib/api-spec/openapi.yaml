@@ -30,6 +30,107 @@ tags:
   - name: auth
     description: Authentication & session management
 paths:
+  /pos-devices:
+    get:
+      operationId: listPosDevices
+      responses:
+        "200":
+          description: Authorized current-company device roster
+          content:
+            application/json:
+              schema: {type: array, items: {$ref: "#/components/schemas/PosDevice"}}
+    post:
+      operationId: registerPosDevice
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/PosDeviceRegistration"}
+      responses:
+        "201":
+          description: Registered public key, not activated
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/PosDevice"}
+  /pos-devices/{id}/{action}:
+    post:
+      operationId: changePosDevice
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string, pattern: '^[a-fA-F0-9-]{36}$'}}
+        - {name: action, in: path, required: true, schema: {type: string, enum: [activation, revoke]}}
+      responses:
+        "200":
+          description: Activation token shown once to an authorized administrator or revocation acknowledgement
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/PosDeviceResult"}
+  /pos-devices/employees/{id}/pin:
+    post:
+      operationId: setPosEmployeePin
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: integer}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/PosPinInput"}
+      responses:
+        "200":
+          description: PIN changed, previous POS sessions invalidated, no platform password changed
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/PosDeviceResult"}
+  /pos-device/challenge:
+    post:
+      operationId: issuePosDeviceChallenge
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/PosDeviceChallengeInput"}
+      responses:
+        "200":
+          description: One-use signed proof challenge, expires in 60 seconds
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/PosDeviceChallenge"}
+  /pos-device/activate:
+    post:
+      operationId: activatePosDevice
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/PosActivationInput"}
+      responses:
+        "200":
+          description: Device activated only with its registered private key
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/PosDeviceResult"}
+  /pos-device/unlock:
+    post:
+      operationId: unlockPosDevice
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/PosUnlockInput"}
+      responses:
+        "200":
+          description: Rotated device-only cashier session, never a platform login
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/PosDeviceResult"}
+  /pos-device/lock:
+    post:
+      operationId: lockPosDevice
+      responses:
+        "200":
+          description: Destroy the POS cookie without erasing unresolved financial evidence
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/PosDeviceResult"}
   /administration/membership/leave:
     post:
       operationId: leaveCompanyMembership
@@ -4542,6 +4643,100 @@ paths:
 
 components:
   schemas:
+    PosDevice:
+      type: object
+      required: [id, status]
+      properties:
+        id: {type: string}
+        status: {type: string, enum: [registered, active, revoked]}
+        name: {type: string}
+        branchId: {type: integer}
+        stationId: {type: integer}
+        stationName: {type: string}
+        generation: {type: integer}
+        keyHash: {type: string}
+        activationExpiresAt: {type: [string, "null"]}
+        history:
+          type: array
+          items: {$ref: "#/components/schemas/PosDeviceAudit"}
+    PosDeviceAudit:
+      type: object
+      required: [action, actor, createdAt]
+      properties:
+        action: {type: string}
+        actor: {type: string}
+        createdAt: {type: string}
+    PosPublicKey:
+      type: object
+      additionalProperties: false
+      required: [kty, crv, x, y]
+      properties:
+        kty: {type: string, enum: [EC]}
+        crv: {type: string, enum: [P-256]}
+        x: {type: string, pattern: '^[\w-]{43}$'}
+        y: {type: string, pattern: '^[\w-]{43}$'}
+    PosDeviceRegistration:
+      type: object
+      additionalProperties: false
+      required: [name, branchId, stationName, publicJwk]
+      properties:
+        name: {type: string, minLength: 1, maxLength: 120}
+        branchId: {type: integer, minimum: 1}
+        stationName: {type: string, minLength: 1, maxLength: 120}
+        publicJwk: {$ref: "#/components/schemas/PosPublicKey"}
+    PosDeviceChallengeInput:
+      type: object
+      additionalProperties: false
+      required: [deviceId, purpose, binding]
+      properties:
+        deviceId: {type: string, format: uuid}
+        purpose: {type: string, enum: [activate, unlock, request]}
+        binding: {type: string, pattern: '^[a-f0-9]{64}$'}
+    PosDeviceChallenge:
+      type: object
+      required: [id, nonce, payload, expiresIn]
+      properties:
+        id: {type: string}
+        nonce: {type: string}
+        payload: {type: string}
+        expiresIn: {type: integer}
+    PosDeviceProof:
+      type: object
+      required: [id, nonce, signature]
+      properties:
+        id: {type: string, format: uuid}
+        nonce: {type: string, minLength: 20, maxLength: 100}
+        signature: {type: string, minLength: 60, maxLength: 200}
+    PosActivationInput:
+      type: object
+      required: [deviceId, proof, token]
+      properties:
+        deviceId: {type: string, format: uuid}
+        proof: {$ref: "#/components/schemas/PosDeviceProof"}
+        token: {type: string, minLength: 30, maxLength: 100}
+    PosUnlockInput:
+      type: object
+      required: [deviceId, proof, personId, pin]
+      properties:
+        deviceId: {type: string, format: uuid}
+        proof: {$ref: "#/components/schemas/PosDeviceProof"}
+        personId: {type: integer, minimum: 1}
+        pin: {type: string, pattern: '^\d{6,10}$'}
+    PosPinInput:
+      type: object
+      additionalProperties: false
+      required: [pin]
+      properties:
+        pin: {type: string, pattern: '^\d{6,10}$'}
+    PosDeviceResult:
+      type: object
+      required: [ok]
+      properties:
+        ok: {type: boolean}
+        activationToken: {type: string}
+        expiresIn: {type: integer}
+        status: {type: string}
+        personId: {type: integer}
     AdministrationAcknowledgement:
       type: object
       required: [ok]
@@ -5061,7 +5256,7 @@ components:
         id: { type: integer }
         userId: { type: integer }
         name: { type: string }
-        email: { type: string }
+        email: { type: [string, "null"] }
         role: { type: string }
         isDefault: { type: boolean }
         isActive: { type: boolean }
@@ -6510,7 +6705,7 @@ components:
         name:
           type: string
         email:
-          type: string
+          type: [string, "null"]
         phone:
           type: string
           nullable: true

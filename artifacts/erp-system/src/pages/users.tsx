@@ -301,7 +301,7 @@ export default function UsersPage() {
     const q = search.toLowerCase();
     return (
       u.name.toLowerCase().includes(q) ||
-      u.email.toLowerCase().includes(q) ||
+      (u.email ?? "").toLowerCase().includes(q) ||
       (u.phone ?? "").includes(search)
     );
   });

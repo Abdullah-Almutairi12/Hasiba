@@ -272,7 +272,7 @@ export async function lookupByUnsubscribeToken(
     .innerJoin(usersTable, eq(usersTable.id, intercompanyDigestUserPrefsTable.userId))
     .where(eq(intercompanyDigestUserPrefsTable.unsubscribeToken, token))
     .limit(1);
-  if (!row) return null;
+  if (!row || !row.email) return null;
   return {
     user: { id: row.userId, name: row.name, email: row.email },
     prefs: row.prefs,

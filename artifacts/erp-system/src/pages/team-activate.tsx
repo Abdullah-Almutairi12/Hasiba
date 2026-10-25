@@ -51,7 +51,7 @@ export default function TeamActivatePage() {
   const mismatch = !existing && pw2 !== pw;
   // Linking an existing account requires an ordinary login (incl. MFA) as
   // that SAME identity first; then the original link is reopened.
-  const sameIdentity = !!user && !!info && user.email.trim().toLowerCase() === info.email.trim().toLowerCase();
+  const sameIdentity = !!user && !!info && !!user.email && user.email.trim().toLowerCase() === info.email.trim().toLowerCase();
   const existingBlocked = existing && !sameIdentity;
 
   const submit = async (e: React.FormEvent) => {

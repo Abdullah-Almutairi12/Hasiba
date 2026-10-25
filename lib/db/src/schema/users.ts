@@ -5,7 +5,8 @@ import { z } from "zod/v4";
 export const usersTable = pgTable("users", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
-  email: text("email").notNull().unique(),
+  // POS-only staff identities have no invented platform email or password.
+  email: text("email").unique(),
   passwordHash: text("password_hash"),
   phone: text("phone"),
   role: text("role").notNull(),

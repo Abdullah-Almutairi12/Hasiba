@@ -216,9 +216,17 @@ import type {
   PermissionTemplateEdit,
   PermissionTemplateImpact,
   PermissionTemplateInput,
+  PosActivationInput,
+  PosDevice,
+  PosDeviceChallenge,
+  PosDeviceChallengeInput,
+  PosDeviceRegistration,
+  PosDeviceResult,
   PosOrder,
+  PosPinInput,
   PosSession,
   PosSummary,
+  PosUnlockInput,
   PostJournalEntry200,
   PrimaryOwnerAppointmentInput,
   Product,
@@ -350,6 +358,650 @@ const withQueryKey = <T extends object, K>(query: T, queryKey: K): T & { queryKe
   }
   return result;
 };
+
+export const getListPosDevicesUrl = () => {
+
+
+
+
+  return `/api/pos-devices`
+}
+
+export const listPosDevices = async ( options?: Parameters<typeof customFetch>[1]): Promise<PosDevice[]> => {
+
+  return customFetch<PosDevice[]>(getListPosDevicesUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListPosDevicesQueryKey = () => {
+    return [
+    `/api/pos-devices`
+    ] as const;
+    }
+
+
+export const getListPosDevicesQueryOptions = <TData = Awaited<ReturnType<typeof listPosDevices>>, TError = ErrorType<unknown>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listPosDevices>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListPosDevicesQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listPosDevices>>> = ({ signal }) => listPosDevices({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listPosDevices>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type ListPosDevicesQueryResult = NonNullable<Awaited<ReturnType<typeof listPosDevices>>>
+export type ListPosDevicesQueryError = ErrorType<unknown>
+
+
+export function useListPosDevices<TData = Awaited<ReturnType<typeof listPosDevices>>, TError = ErrorType<unknown>>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listPosDevices>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listPosDevices>>,
+          TError,
+          Awaited<ReturnType<typeof listPosDevices>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useListPosDevices<TData = Awaited<ReturnType<typeof listPosDevices>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listPosDevices>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listPosDevices>>,
+          TError,
+          Awaited<ReturnType<typeof listPosDevices>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useListPosDevices<TData = Awaited<ReturnType<typeof listPosDevices>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listPosDevices>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useListPosDevices<TData = Awaited<ReturnType<typeof listPosDevices>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listPosDevices>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getListPosDevicesQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getRegisterPosDeviceUrl = () => {
+
+
+
+
+  return `/api/pos-devices`
+}
+
+export const registerPosDevice = async (posDeviceRegistration: PosDeviceRegistration, options?: Parameters<typeof customFetch>[1]): Promise<PosDevice> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<PosDevice>(getRegisterPosDeviceUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(posDeviceRegistration)
+  }
+);}
+
+
+
+
+
+export const getRegisterPosDeviceMutationKey = () => ['registerPosDevice'] as const;
+
+export const getRegisterPosDeviceMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof registerPosDevice>>, TError,RegisterPosDeviceMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof registerPosDevice>>, TError,RegisterPosDeviceMutationVariables, TContext> => {
+
+const mutationKey = getRegisterPosDeviceMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof registerPosDevice>>, RegisterPosDeviceMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  registerPosDevice(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RegisterPosDeviceMutationResult = NonNullable<Awaited<ReturnType<typeof registerPosDevice>>>
+    export type RegisterPosDeviceMutationBody = BodyType<PosDeviceRegistration>
+    export type RegisterPosDeviceMutationError = ErrorType<unknown>
+    export type RegisterPosDeviceMutationVariables = {data: BodyType<PosDeviceRegistration>}
+
+    export const useRegisterPosDevice = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof registerPosDevice>>, TError,RegisterPosDeviceMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof registerPosDevice>>,
+        TError,
+        RegisterPosDeviceMutationVariables,
+        TContext
+      > => {
+      return useMutation(getRegisterPosDeviceMutationOptions(options), queryClient);
+    }
+
+export const getChangePosDeviceUrl = (id: string,
+    action: 'activation' | 'revoke',) => {
+
+
+
+
+  return `/api/pos-devices/${id}/${action}`
+}
+
+export const changePosDevice = async (id: string,
+    action: 'activation' | 'revoke', options?: Parameters<typeof customFetch>[1]): Promise<PosDeviceResult> => {
+
+  return customFetch<PosDeviceResult>(getChangePosDeviceUrl(id,action),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getChangePosDeviceMutationKey = () => ['changePosDevice'] as const;
+
+export const getChangePosDeviceMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof changePosDevice>>, TError,ChangePosDeviceMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof changePosDevice>>, TError,ChangePosDeviceMutationVariables, TContext> => {
+
+const mutationKey = getChangePosDeviceMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof changePosDevice>>, ChangePosDeviceMutationVariables> = (props) => {
+          const {id,action} = props ?? {};
+
+          return  changePosDevice(id,action,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ChangePosDeviceMutationResult = NonNullable<Awaited<ReturnType<typeof changePosDevice>>>
+
+    export type ChangePosDeviceMutationError = ErrorType<unknown>
+    export type ChangePosDeviceMutationVariables = {id: string;action: 'activation' | 'revoke'}
+
+    export const useChangePosDevice = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof changePosDevice>>, TError,ChangePosDeviceMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof changePosDevice>>,
+        TError,
+        ChangePosDeviceMutationVariables,
+        TContext
+      > => {
+      return useMutation(getChangePosDeviceMutationOptions(options), queryClient);
+    }
+
+export const getSetPosEmployeePinUrl = (id: number,) => {
+
+
+
+
+  return `/api/pos-devices/employees/${id}/pin`
+}
+
+export const setPosEmployeePin = async (id: number,
+    posPinInput: PosPinInput, options?: Parameters<typeof customFetch>[1]): Promise<PosDeviceResult> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<PosDeviceResult>(getSetPosEmployeePinUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(posPinInput)
+  }
+);}
+
+
+
+
+
+export const getSetPosEmployeePinMutationKey = () => ['setPosEmployeePin'] as const;
+
+export const getSetPosEmployeePinMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof setPosEmployeePin>>, TError,SetPosEmployeePinMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof setPosEmployeePin>>, TError,SetPosEmployeePinMutationVariables, TContext> => {
+
+const mutationKey = getSetPosEmployeePinMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof setPosEmployeePin>>, SetPosEmployeePinMutationVariables> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  setPosEmployeePin(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SetPosEmployeePinMutationResult = NonNullable<Awaited<ReturnType<typeof setPosEmployeePin>>>
+    export type SetPosEmployeePinMutationBody = BodyType<PosPinInput>
+    export type SetPosEmployeePinMutationError = ErrorType<unknown>
+    export type SetPosEmployeePinMutationVariables = {id: number;data: BodyType<PosPinInput>}
+
+    export const useSetPosEmployeePin = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof setPosEmployeePin>>, TError,SetPosEmployeePinMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof setPosEmployeePin>>,
+        TError,
+        SetPosEmployeePinMutationVariables,
+        TContext
+      > => {
+      return useMutation(getSetPosEmployeePinMutationOptions(options), queryClient);
+    }
+
+export const getIssuePosDeviceChallengeUrl = () => {
+
+
+
+
+  return `/api/pos-device/challenge`
+}
+
+export const issuePosDeviceChallenge = async (posDeviceChallengeInput: PosDeviceChallengeInput, options?: Parameters<typeof customFetch>[1]): Promise<PosDeviceChallenge> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<PosDeviceChallenge>(getIssuePosDeviceChallengeUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(posDeviceChallengeInput)
+  }
+);}
+
+
+
+
+
+export const getIssuePosDeviceChallengeMutationKey = () => ['issuePosDeviceChallenge'] as const;
+
+export const getIssuePosDeviceChallengeMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof issuePosDeviceChallenge>>, TError,IssuePosDeviceChallengeMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof issuePosDeviceChallenge>>, TError,IssuePosDeviceChallengeMutationVariables, TContext> => {
+
+const mutationKey = getIssuePosDeviceChallengeMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof issuePosDeviceChallenge>>, IssuePosDeviceChallengeMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  issuePosDeviceChallenge(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type IssuePosDeviceChallengeMutationResult = NonNullable<Awaited<ReturnType<typeof issuePosDeviceChallenge>>>
+    export type IssuePosDeviceChallengeMutationBody = BodyType<PosDeviceChallengeInput>
+    export type IssuePosDeviceChallengeMutationError = ErrorType<unknown>
+    export type IssuePosDeviceChallengeMutationVariables = {data: BodyType<PosDeviceChallengeInput>}
+
+    export const useIssuePosDeviceChallenge = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof issuePosDeviceChallenge>>, TError,IssuePosDeviceChallengeMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof issuePosDeviceChallenge>>,
+        TError,
+        IssuePosDeviceChallengeMutationVariables,
+        TContext
+      > => {
+      return useMutation(getIssuePosDeviceChallengeMutationOptions(options), queryClient);
+    }
+
+export const getActivatePosDeviceUrl = () => {
+
+
+
+
+  return `/api/pos-device/activate`
+}
+
+export const activatePosDevice = async (posActivationInput: PosActivationInput, options?: Parameters<typeof customFetch>[1]): Promise<PosDeviceResult> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<PosDeviceResult>(getActivatePosDeviceUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(posActivationInput)
+  }
+);}
+
+
+
+
+
+export const getActivatePosDeviceMutationKey = () => ['activatePosDevice'] as const;
+
+export const getActivatePosDeviceMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof activatePosDevice>>, TError,ActivatePosDeviceMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof activatePosDevice>>, TError,ActivatePosDeviceMutationVariables, TContext> => {
+
+const mutationKey = getActivatePosDeviceMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof activatePosDevice>>, ActivatePosDeviceMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  activatePosDevice(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ActivatePosDeviceMutationResult = NonNullable<Awaited<ReturnType<typeof activatePosDevice>>>
+    export type ActivatePosDeviceMutationBody = BodyType<PosActivationInput>
+    export type ActivatePosDeviceMutationError = ErrorType<unknown>
+    export type ActivatePosDeviceMutationVariables = {data: BodyType<PosActivationInput>}
+
+    export const useActivatePosDevice = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof activatePosDevice>>, TError,ActivatePosDeviceMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof activatePosDevice>>,
+        TError,
+        ActivatePosDeviceMutationVariables,
+        TContext
+      > => {
+      return useMutation(getActivatePosDeviceMutationOptions(options), queryClient);
+    }
+
+export const getUnlockPosDeviceUrl = () => {
+
+
+
+
+  return `/api/pos-device/unlock`
+}
+
+export const unlockPosDevice = async (posUnlockInput: PosUnlockInput, options?: Parameters<typeof customFetch>[1]): Promise<PosDeviceResult> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<PosDeviceResult>(getUnlockPosDeviceUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(posUnlockInput)
+  }
+);}
+
+
+
+
+
+export const getUnlockPosDeviceMutationKey = () => ['unlockPosDevice'] as const;
+
+export const getUnlockPosDeviceMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof unlockPosDevice>>, TError,UnlockPosDeviceMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof unlockPosDevice>>, TError,UnlockPosDeviceMutationVariables, TContext> => {
+
+const mutationKey = getUnlockPosDeviceMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof unlockPosDevice>>, UnlockPosDeviceMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  unlockPosDevice(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UnlockPosDeviceMutationResult = NonNullable<Awaited<ReturnType<typeof unlockPosDevice>>>
+    export type UnlockPosDeviceMutationBody = BodyType<PosUnlockInput>
+    export type UnlockPosDeviceMutationError = ErrorType<unknown>
+    export type UnlockPosDeviceMutationVariables = {data: BodyType<PosUnlockInput>}
+
+    export const useUnlockPosDevice = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof unlockPosDevice>>, TError,UnlockPosDeviceMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof unlockPosDevice>>,
+        TError,
+        UnlockPosDeviceMutationVariables,
+        TContext
+      > => {
+      return useMutation(getUnlockPosDeviceMutationOptions(options), queryClient);
+    }
+
+export const getLockPosDeviceUrl = () => {
+
+
+
+
+  return `/api/pos-device/lock`
+}
+
+export const lockPosDevice = async ( options?: Parameters<typeof customFetch>[1]): Promise<PosDeviceResult> => {
+
+  return customFetch<PosDeviceResult>(getLockPosDeviceUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getLockPosDeviceMutationKey = () => ['lockPosDevice'] as const;
+
+export const getLockPosDeviceMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof lockPosDevice>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof lockPosDevice>>, TError,void, TContext> => {
+
+const mutationKey = getLockPosDeviceMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof lockPosDevice>>, void> = () => {
+
+
+          return  lockPosDevice(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type LockPosDeviceMutationResult = NonNullable<Awaited<ReturnType<typeof lockPosDevice>>>
+
+    export type LockPosDeviceMutationError = ErrorType<unknown>
+
+
+    export const useLockPosDevice = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof lockPosDevice>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof lockPosDevice>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getLockPosDeviceMutationOptions(options), queryClient);
+    }
 
 export const getLeaveCompanyMembershipUrl = () => {
 

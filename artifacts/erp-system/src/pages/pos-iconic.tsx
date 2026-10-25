@@ -2,6 +2,7 @@ import { canReachReturns, scopedBodyDiscount, scopedCheckoutCaps, type PosTender
 import { clearSessionIntent, isConfirmedRejection, readSessionIntent, saveSessionIntent, type SessionIntent } from "@/lib/pos-session-intent";
 import { useState, useMemo, useEffect } from "react";
 import { PosSessionContext } from "@/components/pos-session-context";
+import { PosDeviceControls } from "@/components/pos-device-controls";
 import { useLocation } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -445,6 +446,7 @@ export default function PosIconic({
         >
           {language === "ar" ? "المرتجعات" : "Returns"}
         </button>}
+        {user?.posDevice && <PosDeviceControls hasCart={cart.length > 0} />}
         <button
           onClick={() => setLocation(isScoped ? "/my-work" : "/")}
           className=" rounded-md px-2 py-1 hover:bg-neutral-200/60 dark:hover:bg-neutral-800/60"

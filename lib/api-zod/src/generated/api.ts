@@ -8,6 +8,187 @@
 import * as zod from 'zod';
 
 
+export const ListPosDevicesResponseItem = zod.object({
+  "id": zod.string(),
+  "status": zod.enum(['registered', 'active', 'revoked']),
+  "name": zod.string().optional(),
+  "branchId": zod.number().int().optional(),
+  "stationId": zod.number().int().optional(),
+  "stationName": zod.string().optional(),
+  "generation": zod.number().int().optional(),
+  "keyHash": zod.string().optional(),
+  "activationExpiresAt": zod.string().nullish(),
+  "history": zod.array(zod.object({
+  "action": zod.string(),
+  "actor": zod.string(),
+  "createdAt": zod.string()
+})).optional()
+})
+export const ListPosDevicesResponse = zod.array(ListPosDevicesResponseItem)
+
+
+export const registerPosDeviceBodyNameMax = 120;
+
+
+export const registerPosDeviceBodyStationNameMax = 120;
+
+export const registerPosDeviceBodyPublicJwkXRegExp = new RegExp('^[\\w-]{43}$');
+export const registerPosDeviceBodyPublicJwkYRegExp = new RegExp('^[\\w-]{43}$');
+
+
+export const RegisterPosDeviceBody = zod.object({
+  "name": zod.string().min(1).max(registerPosDeviceBodyNameMax),
+  "branchId": zod.number().int().min(1),
+  "stationName": zod.string().min(1).max(registerPosDeviceBodyStationNameMax),
+  "publicJwk": zod.object({
+  "kty": zod.enum(['EC']),
+  "crv": zod.enum(['P-256']),
+  "x": zod.string().regex(registerPosDeviceBodyPublicJwkXRegExp),
+  "y": zod.string().regex(registerPosDeviceBodyPublicJwkYRegExp)
+})
+})
+
+export const RegisterPosDeviceResponse = zod.object({
+  "id": zod.string(),
+  "status": zod.enum(['registered', 'active', 'revoked']),
+  "name": zod.string().optional(),
+  "branchId": zod.number().int().optional(),
+  "stationId": zod.number().int().optional(),
+  "stationName": zod.string().optional(),
+  "generation": zod.number().int().optional(),
+  "keyHash": zod.string().optional(),
+  "activationExpiresAt": zod.string().nullish(),
+  "history": zod.array(zod.object({
+  "action": zod.string(),
+  "actor": zod.string(),
+  "createdAt": zod.string()
+})).optional()
+})
+
+
+export const changePosDevicePathIdRegExp = new RegExp('^[a-fA-F0-9-]{36}$');
+
+
+export const ChangePosDeviceParams = zod.object({
+  "id": zod.coerce.string().regex(changePosDevicePathIdRegExp),
+  "action": zod.enum(['activation', 'revoke'])
+})
+
+export const ChangePosDeviceResponse = zod.object({
+  "ok": zod.boolean(),
+  "activationToken": zod.string().optional(),
+  "expiresIn": zod.number().int().optional(),
+  "status": zod.string().optional(),
+  "personId": zod.number().int().optional()
+})
+
+
+export const SetPosEmployeePinParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const setPosEmployeePinBodyPinRegExp = new RegExp('^\\d{6,10}$');
+
+
+export const SetPosEmployeePinBody = zod.object({
+  "pin": zod.string().regex(setPosEmployeePinBodyPinRegExp)
+})
+
+export const SetPosEmployeePinResponse = zod.object({
+  "ok": zod.boolean(),
+  "activationToken": zod.string().optional(),
+  "expiresIn": zod.number().int().optional(),
+  "status": zod.string().optional(),
+  "personId": zod.number().int().optional()
+})
+
+
+export const issuePosDeviceChallengeBodyBindingRegExp = new RegExp('^[a-f0-9]{64}$');
+
+
+export const IssuePosDeviceChallengeBody = zod.object({
+  "deviceId": zod.string().uuid(),
+  "purpose": zod.enum(['activate', 'unlock', 'request']),
+  "binding": zod.string().regex(issuePosDeviceChallengeBodyBindingRegExp)
+})
+
+export const IssuePosDeviceChallengeResponse = zod.object({
+  "id": zod.string(),
+  "nonce": zod.string(),
+  "payload": zod.string(),
+  "expiresIn": zod.number().int()
+})
+
+
+export const activatePosDeviceBodyProofNonceMin = 20;
+export const activatePosDeviceBodyProofNonceMax = 100;
+
+export const activatePosDeviceBodyProofSignatureMin = 60;
+export const activatePosDeviceBodyProofSignatureMax = 200;
+
+export const activatePosDeviceBodyTokenMin = 30;
+export const activatePosDeviceBodyTokenMax = 100;
+
+
+
+export const ActivatePosDeviceBody = zod.object({
+  "deviceId": zod.string().uuid(),
+  "proof": zod.object({
+  "id": zod.string().uuid(),
+  "nonce": zod.string().min(activatePosDeviceBodyProofNonceMin).max(activatePosDeviceBodyProofNonceMax),
+  "signature": zod.string().min(activatePosDeviceBodyProofSignatureMin).max(activatePosDeviceBodyProofSignatureMax)
+}),
+  "token": zod.string().min(activatePosDeviceBodyTokenMin).max(activatePosDeviceBodyTokenMax)
+})
+
+export const ActivatePosDeviceResponse = zod.object({
+  "ok": zod.boolean(),
+  "activationToken": zod.string().optional(),
+  "expiresIn": zod.number().int().optional(),
+  "status": zod.string().optional(),
+  "personId": zod.number().int().optional()
+})
+
+
+export const unlockPosDeviceBodyProofNonceMin = 20;
+export const unlockPosDeviceBodyProofNonceMax = 100;
+
+export const unlockPosDeviceBodyProofSignatureMin = 60;
+export const unlockPosDeviceBodyProofSignatureMax = 200;
+
+
+export const unlockPosDeviceBodyPinRegExp = new RegExp('^\\d{6,10}$');
+
+
+export const UnlockPosDeviceBody = zod.object({
+  "deviceId": zod.string().uuid(),
+  "proof": zod.object({
+  "id": zod.string().uuid(),
+  "nonce": zod.string().min(unlockPosDeviceBodyProofNonceMin).max(unlockPosDeviceBodyProofNonceMax),
+  "signature": zod.string().min(unlockPosDeviceBodyProofSignatureMin).max(unlockPosDeviceBodyProofSignatureMax)
+}),
+  "personId": zod.number().int().min(1),
+  "pin": zod.string().regex(unlockPosDeviceBodyPinRegExp)
+})
+
+export const UnlockPosDeviceResponse = zod.object({
+  "ok": zod.boolean(),
+  "activationToken": zod.string().optional(),
+  "expiresIn": zod.number().int().optional(),
+  "status": zod.string().optional(),
+  "personId": zod.number().int().optional()
+})
+
+
+export const LockPosDeviceResponse = zod.object({
+  "ok": zod.boolean(),
+  "activationToken": zod.string().optional(),
+  "expiresIn": zod.number().int().optional(),
+  "status": zod.string().optional(),
+  "personId": zod.number().int().optional()
+})
+
+
 export const LeaveCompanyMembershipBody = zod.object({
   "acknowledge": zod.boolean(),
   "departure": zod.enum(['suspend', 'terminate'])
@@ -2859,7 +3040,7 @@ export const CreateWarehouseResponse = zod.object({
 export const ListUsersResponseItem = zod.object({
   "id": zod.number().int(),
   "name": zod.string(),
-  "email": zod.string(),
+  "email": zod.string().nullable(),
   "phone": zod.string().nullish(),
   "role": zod.string(),
   "branchId": zod.number().int().nullish(),
@@ -2887,7 +3068,7 @@ export const CreateUserBody = zod.object({
 export const CreateUserResponse = zod.object({
   "id": zod.number().int(),
   "name": zod.string(),
-  "email": zod.string(),
+  "email": zod.string().nullable(),
   "phone": zod.string().nullish(),
   "role": zod.string(),
   "branchId": zod.number().int().nullish(),
@@ -4753,7 +4934,7 @@ export const ListCompanyUsersResponseItem = zod.object({
   "id": zod.number().int(),
   "userId": zod.number().int(),
   "name": zod.string(),
-  "email": zod.string(),
+  "email": zod.string().nullable(),
   "role": zod.string(),
   "isDefault": zod.boolean(),
   "isActive": zod.boolean(),

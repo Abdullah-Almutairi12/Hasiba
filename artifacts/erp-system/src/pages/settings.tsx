@@ -280,6 +280,7 @@ function BranchesTab({ readOnly }: { readOnly: boolean }) {
         <CardContent className="flex flex-wrap gap-2">
           <Button variant="outline" onClick={() => navigate("/settings/users")} data-testid="btn-open-settings-users">فتح المستخدمين والصلاحيات <ChevronLeft className="ms-2 size-4" /></Button>
           <Button variant="ghost" onClick={() => navigate("/account/membership")} data-testid="btn-open-account-membership">عضويتي</Button>
+          <Button variant="outline" onClick={() => navigate("/settings/pos-devices")} data-testid="btn-open-pos-devices">أجهزة نقاط البيع الموثوقة</Button>
         </CardContent>
       </Card>
       <Card>

@@ -21,6 +21,7 @@ import Login from "@/pages/login";
 import Welcome from "@/pages/welcome";
 import NotFound from "@/pages/not-found";
 import { useAuth } from "@/hooks/use-auth";
+import { isPosMode, rememberActor, setPosMode } from "@/lib/pos-device-client";
 import { useSelectedResponsibility } from "@/lib/workspace-responsibility";
 
 
@@ -88,6 +89,8 @@ const TeamSetupPage = lazy(() => import("@/pages/team-setup"));
 const TeamActivatePage = lazy(() => import("@/pages/team-activate"));
 const MyWorkPage = lazy(() => import("@/pages/my-work"));
 const AdministrationPage = lazy(() => import("@/pages/administration"));
+const PosDevicePage = lazy(() => import("@/pages/pos-device"));
+const SettingsPosDevicesPage = lazy(() => import("@/pages/settings-pos-devices"));
 const AccountRecoveryPage = lazy(() => import("@/pages/account-recovery"));
 
 /** Paths a scoped (responsibility-bound) member may open. */
@@ -141,9 +144,15 @@ function Protected({ children }: { children: React.ReactNode }) {
 }
 
 function Router() {
-  const [location] = useLocation();
+  const [location, setLocation] = useLocation();
   const { theme } = useTheme();
   useEffect(()=>{if(location!=="/team-activate")clearActivationToken();},[location]);
+  const { user: me, isLoading: meLoading } = useAuth();
+  useEffect(() => { if (me?.posDevice) rememberActor({ userId: me.id, companyId: me.companyId }); }, [me?.posDevice, me?.id, me?.companyId]);
+  // A POS-device tab whose cashier session ended returns to the unlock screen, never the platform login.
+  useEffect(() => {
+    if (isPosMode() && !meLoading && !me && location !== "/pos-device") { setPosMode(false); setLocation("/pos-device", { replace: true }); }
+  }, [me, meLoading, location, setLocation]);
 
   useEffect(() => {
     let isDark: boolean;
@@ -162,6 +171,7 @@ function Router() {
           <ProtectedRoute><ScopedGate pos><POS /></ScopedGate></ProtectedRoute>
         </Route>
 
+        <Route path="/pos-device" component={PosDevicePage} />
         <Route path="/welcome" component={Welcome} />
         <Route path="/team-activate" component={TeamActivatePage} />
         <Route path="/track/:awb" component={TrackShipmentPage} />
@@ -285,6 +295,9 @@ function Router() {
         </Route>
         <Route path="/team-setup">
           <Protected><TeamSetupPage /></Protected>
+        </Route>
+        <Route path="/settings/pos-devices">
+          <Protected><SettingsPosDevicesPage /></Protected>
         </Route>
         <Route path="/settings/users">
           <Protected><AdministrationPage variant="users" /></Protected>
