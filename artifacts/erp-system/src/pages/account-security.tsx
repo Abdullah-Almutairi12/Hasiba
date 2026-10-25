@@ -363,7 +363,7 @@ function SecurityBody({ s }: { s: AccountSecurityState }) {
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2 text-base"><Building2 className="size-4 text-primary" /> سياسة المنشأة الحالية</CardTitle>
-            <CardDescription>تنطبق على المنشأة النشطة فقط ({user?.companies.find((c) => c.id === user.companyId)?.name ?? "—"})، لا على المنصة كلها. الأعضاء غير المسجلين يُحوَّلون للتسجيل قبل أي وصول.</CardDescription>
+            <CardDescription>تنطبق على المنشأة النشطة فقط ({(user?.companies ?? []).find((c) => c.id === user?.companyId)?.name ?? "—"})، لا على المنصة كلها. الأعضاء غير المسجلين يُحوَّلون للتسجيل قبل أي وصول.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
             <div className="flex items-center justify-between rounded-lg border p-3">

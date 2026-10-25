@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useLocation } from "wouter";
+import { useQueryClient } from "@tanstack/react-query";
+import { ME_KEY } from "@/hooks/use-auth";
 import { useRequestAccountPasswordReset, useResetAccountPassword } from "@workspace/api-client-react";
 import { CheckCircle2, Info, KeyRound, Loader2, LogIn, Mail } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -76,6 +78,7 @@ function ForgotForm() {
 
 function ResetForm({ token }: { token: string }) {
   const [, setLocation] = useLocation();
+  const qc = useQueryClient();
   const reset = useResetAccountPassword({ mutation: { gcTime: 0 } });
   const [pw, setPw] = useState("");
   const [pw2, setPw2] = useState("");
@@ -88,7 +91,10 @@ function ResetForm({ token }: { token: string }) {
   const submit = async (e: React.FormEvent) => {
     e.preventDefault(); setError(null);
     if (!valid || passwordProblem(pw, pw2)) return;
-    try { await reset.mutateAsync({ data: { token, newPassword: pw } }); reset.reset(); setPw(""); setPw2(""); setDone(true); }
+    try { await reset.mutateAsync({ data: { token, newPassword: pw } }); reset.reset(); setPw(""); setPw2("");
+      // Server revoked every session: drop any stale identity/private cache.
+      qc.clear(); qc.setQueryData(ME_KEY, null);
+      setDone(true); }
     catch (err) { setError(errorText(err) || "الرابط غير صالح أو منتهي."); }
   };
 

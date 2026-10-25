@@ -77,11 +77,22 @@ export function useAuth() {
   });
 
   const loginMutation = useMutation({
-    mutationFn: (vars: { email: string; password: string }) =>
-      apiFetch<LoginResult>("/auth/login", {
+    // The /auth/login payload is minimal; only the canonical /auth/me
+    // identity (companies, policy flags) may be cached as AuthUser.
+    mutationFn: async (vars: { email: string; password: string }): Promise<LoginResult> => {
+      const result = await apiFetch<LoginResult>("/auth/login", {
         method: "POST",
         body: JSON.stringify(vars),
-      }),
+      });
+      if (isMfaRequired(result)) return result;
+      qc.clear();
+      try {
+        return await apiFetch<AuthUser>("/auth/me");
+      } catch {
+        qc.setQueryData(ME_KEY, null);
+        throw new Error("تعذّر تحميل بيانات الحساب بعد تسجيل الدخول. أعد المحاولة.");
+      }
+    },
     // Credentials must not linger in the mutation cache.
     gcTime: 0,
     onSuccess: (result) => {
