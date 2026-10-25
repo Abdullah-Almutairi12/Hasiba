@@ -406,3 +406,17 @@ mtime_ms = 1792905622915
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/5febaef5-411e-4d60-adc7-2a54106e5ff3/9acc1bc4-34ca-4d04-ab84-23ee6ea37a9f"
 storage_version_token = "1792905631533453"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "aN9QGrbLGxqa_DCf8bo2_"
+uri = "file://generated-artifacts/first-phase-continuation/hasiba-access-recovery-templates-evidence.zip"
+type = "unspecified"
+title = "حاسبة — تقرير التصحيح وأدلة الاختبارات"
+description = "حزمة تنزيل فعلية: التقرير العربي، 15 بوابة و749 اختبار API و176 واجهة، أدلة المتصفح وقاعدة الاختبار، وإعادة إنتاج الخلل القديم وحدود التسليم ونقطة الاستئناف."
+logical_id = "c6a41141-8d8b-41db-87f1-a1d47af3be97"
+content_hash = "sha256:e37d4aa70b3fc0b0ab99ef952e7687f4f234f1630d4791ce6ad2b69fddfd7f51"
+size = 2059645
+mtime_ms = 1792909542637
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/c6a41141-8d8b-41db-87f1-a1d47af3be97/6e124cbb-75a2-486c-ab47-10dfb078f268"
+storage_version_token = "1792909558277463"
+content_type = "application/octet-stream"
