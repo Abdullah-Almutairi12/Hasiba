@@ -378,3 +378,17 @@ mtime_ms = 1792895646711
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/01a0ce13-adc5-4f4d-bc02-37f79aa9f294/6d1ac3a8-bd34-4114-bc35-82b2f3b29f66"
 storage_version_token = "1792895654901575"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "nOrpgaHinOzPOhLeiXTTs"
+uri = "file://generated-artifacts/first-phase-continuation/hasiba-administration-evidence-b354642.zip"
+type = "unspecified"
+title = "حاسبة — تقرير وأدلة إدارة النظام والتسليم"
+description = "تقرير عربي، نتائج15/15 و727اختبار خادم و162واجهة، ودليل الرحلتين واسترداد الإيصال وفحص قاعدة الاختبار. لا أسرار أو قواعد بيانات."
+logical_id = "d023437e-3b43-4f93-8f1a-320740ec41e9"
+content_hash = "sha256:53e97d564e2ce92563837a4458a71aad03b60204966fa0ca8d7dc66a56d18bfc"
+size = 743163
+mtime_ms = 1792900417419
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/d023437e-3b43-4f93-8f1a-320740ec41e9/24e24855-a7ce-4770-a21f-66b2c37b49ed"
+storage_version_token = "1792900427410087"
+content_type = "application/octet-stream"
