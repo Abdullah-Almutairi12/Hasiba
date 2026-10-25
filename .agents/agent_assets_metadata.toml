@@ -462,3 +462,31 @@ mtime_ms = 1792916304781
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/1ea4a61b-168d-4bed-87a0-bb9d1f26ef0d/20cb1ec7-6410-4f85-aebf-75d5d58effc6"
 storage_version_token = "1792916333179046"
 content_type = "text/html"
+
+[[outputs]]
+id = "_I9hHR1Ffwg46foLov-Xp"
+uri = "file://generated-artifacts/device-review/hasiba-device-corrections-evidence.zip"
+type = "unspecified"
+title = "حاسبة — حزمة أدلة تصحيحات الجهاز وPOS"
+description = "41 ملفًا: إخفاقات ما قبل الإصلاح، نتائج التحقق النهائية، تقريري المتصفح وصورهما، المصالحة المالية، الحالات22 والمتطلبات73، وحدود الحالة17 والملاحظات المفتوحة."
+logical_id = "6fa1a9e8-3d22-4eb4-adfd-83e7dccbe4f1"
+content_hash = "sha256:ec3215b2ebe0b9620b3a3ee3301bab0a5bc7e72564d1b196626f99de3a201c80"
+size = 831380
+mtime_ms = 1792921739341
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/6fa1a9e8-3d22-4eb4-adfd-83e7dccbe4f1/56819493-2c6d-46ec-8719-c8171136b276"
+storage_version_token = "1792921760129624"
+content_type = "application/octet-stream"
+
+[[outputs]]
+id = "yS75pgRmpfubzBHdvAffx"
+uri = "file://generated-artifacts/device-review/hasiba-device-corrections-ar.html"
+type = "html"
+title = "تقرير التصحيحات والمتبقي — بالعربية"
+description = "تقرير مباشر القراءة يميز نجاح بوابات المصدر عن حدود اختبار المتصفح ونقص تعليل اعتماد فرق الوردية."
+logical_id = "7d262c49-83fe-4539-8e6d-62c2d1043d56"
+content_hash = "sha256:617774dba82dc8333e65d0d7a14379f4e824b7ddbf13e9842d51272484f44ca2"
+size = 16027
+mtime_ms = 1792921739261
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/7d262c49-83fe-4539-8e6d-62c2d1043d56/3bc8b2c0-5a36-48af-b401-a703f5d8180d"
+storage_version_token = "1792921761368302"
+content_type = "text/html"
