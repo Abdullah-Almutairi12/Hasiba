@@ -169,7 +169,7 @@ describe("original POS invoice: independent linked return lifecycle", () => {
       return result;
     };
     const before = await snapshots();
-    const expectedAfter={...before,companies:before.companies.map(c=>({...c,account_mfa_required:false}))};
+    const expectedAfter={...before,companies:(before.companies as Record<string,unknown>[]).map(c=>({...c,account_mfa_required:false}))};
     await rows(`INSERT INTO financial_limits(role,action_key,max_value,description)
       VALUES('hr','sales.refund_amount',333,'Synthetic pre-upgrade policy evidence') ON CONFLICT DO NOTHING RETURNING id`);
     const oldLimits = await rows("SELECT id,role,action_key,max_value,description,updated_at FROM financial_limits ORDER BY id");

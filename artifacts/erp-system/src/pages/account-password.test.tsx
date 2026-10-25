@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import Page from "./account-password";
@@ -39,5 +39,21 @@ describe("password reset cache safety", () => {
     await waitFor(() => expect(screen.queryByTestId("state-reset-done")).toBeNull());
     expect(screen.getByTestId("input-reset-password")).toBeTruthy();
     expect(qc.getQueryData(["auth", "me"])).toEqual({ id: 9, companies: [] });
+  });
+});
+
+describe("same-document reset fragment", () => {
+  it("consumes a new #token= on hashchange and clears the fragment", () => {
+    window.history.replaceState(null, "", "/account/password");
+    render(<QueryClientProvider client={new QueryClient()}><Page /></QueryClientProvider>);
+    expect(screen.getByTestId("input-forgot-email")).toBeTruthy();
+    act(() => {
+      window.location.hash = "#token=" + "B".repeat(43);
+      window.dispatchEvent(new HashChangeEvent("hashchange"));
+    });
+    expect(screen.getByTestId("input-reset-password")).toBeTruthy();
+    expect(window.location.hash).toBe("");
+    act(() => { window.dispatchEvent(new HashChangeEvent("hashchange")); });
+    expect(screen.getByTestId("input-reset-password")).toBeTruthy();
   });
 });

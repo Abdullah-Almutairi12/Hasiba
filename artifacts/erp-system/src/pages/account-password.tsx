@@ -22,16 +22,31 @@ export function readFragmentToken(hash: string): string | null {
 export default function AccountPasswordPage() {
   // Captured in component state during render; the fragment is stripped in an
   // idempotent effect, so a StrictMode re-run cannot lose the captured token.
-  const [token] = useState<string | null>(() => readFragmentToken(window.location.hash));
+  const [token, setToken] = useState<string | null>(() => readFragmentToken(window.location.hash));
+  // Bumped per newly consumed fragment so a replacement token remounts the form.
+  const [generation, setGeneration] = useState(0);
   useEffect(() => {
-    if (window.location.hash) window.history.replaceState(window.history.state, "", window.location.pathname + window.location.search);
+    const strip = () => {
+      if (window.location.hash) window.history.replaceState(window.history.state, "", window.location.pathname + window.location.search);
+    };
+    strip();
+    // Same-document navigation to #token=… on an already-open page.
+    const onHash = () => {
+      const next = readFragmentToken(window.location.hash);
+      strip();
+      if (next === null) return; // empty fragment never clears a held token
+      setToken(next);
+      setGeneration((g) => g + 1);
+    };
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
   }, []);
 
   return (
     <div className="min-h-[100dvh] bg-muted/30 px-4 py-10" dir="rtl">
       <div className="mx-auto max-w-xl space-y-4">
         <div className="rounded-2xl border bg-card p-6">
-          {token === null ? <ForgotForm /> : <ResetForm token={token} />}
+          {token === null ? <ForgotForm /> : <ResetForm key={generation} token={token} />}
         </div>
         <div className="rounded-2xl border bg-card p-4 text-xs leading-relaxed text-muted-foreground" data-testid="text-factor-distinction">
           <p className="font-bold text-foreground">نسيت كلمة المرور أم فقدت تطبيق المصادقة؟</p>
