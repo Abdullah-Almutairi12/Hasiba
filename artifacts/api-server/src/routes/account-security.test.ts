@@ -163,7 +163,14 @@ describe("global account credentials, proven factor, single-use recovery and ten
     status(await f.a.post("/api/auth/security/sessions/revoke").send({currentPassword:password}),401);
     status(await f.a.post("/api/auth/security/sessions/revoke").send({currentPassword:password,recoveryCode:e.codes[1]}));
     status(await b.get("/api/auth/me"),401);status(await f.a.get("/api/auth/me"));
-    status(await f.a.post("/api/auth/security/policy").send({currentPassword:password,recoveryCode:e.codes[2],required:true}));
+    // Companies have the same authority writer trigger as users. A policy
+    // change must not upgrade a shared fence while login waits on this user.
+    const policyLogin=agent();
+    const [policyReply,loginReply]=await Promise.all([
+      f.a.post("/api/auth/security/policy").send({currentPassword:password,recoveryCode:e.codes[2],required:true}),
+      policyLogin.post("/api/auth/login").send({email:f.u.email,password}),
+    ]);
+    status(policyReply);expect(status(loginReply).mfaRequired).toBe(true);
     status(await f.a.post("/api/auth/security/totp/disable").send({currentPassword:password,recoveryCode:e.codes[3]}),409);
     const [c2]=await db.insert(companiesTable).values({name:"عضوية أخرى مصطنعة"}).returning();
     await db.insert(userCompaniesTable).values({userId:f.u.id,companyId:c2.id,role:"auditor",isDefault:false});

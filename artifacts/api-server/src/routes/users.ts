@@ -273,14 +273,14 @@ router.patch("/users/:id", adminGuard, legacyAccessEditor, async (req, res) => {
     const id = Number(req.params.id);
     if (!Number.isFinite(id)) return res.status(400).json({ error: "معرّف غير صحيح" });
     const body = UpdateUserBody.parse(req.body);
-    if(body.password!==undefined||body.has2fa!==undefined)
-      return res.status(403).json({error:"كلمة المرور وتسجيل المصادقة وسائل هوية عامة؛ يديرها صاحب الحساب من أمان الحساب فقط"});
     const actorRole = req.session.role;
 
     const companyId = req.session.companyId!;
     const [membership] = await db.select().from(userCompaniesTable)
       .where(and(eq(userCompaniesTable.userId, id), eq(userCompaniesTable.companyId, companyId)));
     if (!membership) return res.status(404).json({ error: "المستخدم غير موجود" });
+    if(body.password!==undefined||body.has2fa!==undefined)
+      return res.status(403).json({error:"كلمة المرور وتسجيل المصادقة وسائل هوية عامة؛ يديرها صاحب الحساب من أمان الحساب فقط"});
     const [target] = await db.select().from(usersTable).where(eq(usersTable.id, id)).limit(1);
     if (!target) return res.status(404).json({ error: "المستخدم غير موجود" });
 

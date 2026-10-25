@@ -12,11 +12,11 @@ export class AccountSecurityError extends Error {
   constructor(message:string,public status=400){super(message);}
 }
 export const accountRows=adminRows;
-export async function lockAccount(tx:DbOrTx,id:number,writesUser=false):Promise<Record<string,any>> {
-  // Existing database triggers on users take the WRITER authority fence.
+export async function lockAccount(tx:DbOrTx,id:number,writesAuthority=false):Promise<Record<string,any>> {
+  // Existing database triggers on users and companies take the WRITER fence.
   // A password writer must take that side BEFORE user locks, never upgrade
   // a shared fence while another login is waiting for the same user row.
-  await (writesUser?lockApprovalAuthorityWrite(tx):lockApprovalAuthority(tx));
+  await (writesAuthority?lockApprovalAuthorityWrite(tx):lockApprovalAuthority(tx));
   const [u]=await accountRows(tx,sql`SELECT * FROM users WHERE id=${id} FOR UPDATE`);
   if(!u?.is_active)throw new AccountSecurityError("تعذر التحقق من الحساب",401);
   await tx.execute(sql`INSERT INTO account_security(user_id) VALUES(${id}) ON CONFLICT DO NOTHING`);
@@ -91,9 +91,9 @@ export async function completeAccountChallenge(req:Request,input:{token?:string,
   return result;
 }
 export type AccountProof={currentPassword:string,token?:string,recoveryCode?:string};
-export async function withAccountProof<T>(req:Request,proof:AccountProof,work:(tx:DbOrTx,a:Record<string,any>)=>Promise<T>,writesUser=false) {
+export async function withAccountProof<T>(req:Request,proof:AccountProof,work:(tx:DbOrTx,a:Record<string,any>)=>Promise<T>,writesAuthority=false) {
   const result=await db.transaction(async tx=>{
-    const a=await lockAccount(tx,req.session.userId!,writesUser);
+    const a=await lockAccount(tx,req.session.userId!,writesAuthority);
     if((req.session.authEpoch??0)!==a.credential_epoch||
       (a.locked_until&&new Date(a.locked_until).getTime()>Date.now()))return {ok:false as const};
     if(!await verifyAccountPassword(proof.currentPassword,a.password_hash??"")||!await factor(tx,a,proof.token,proof.recoveryCode)){
@@ -212,5 +212,5 @@ export async function changeAccountPolicy(req:Request,input:AccountProof&{requir
     if(input.required&&!a.totp_secret)throw new AccountSecurityError("فعّل عامل حسابك قبل اشتراطه على المنشأة",409);
     await tx.execute(sql`UPDATE companies SET account_mfa_required=${input.required} WHERE id=${companyId}`);
     await audit(tx,a.id,"account.company_policy.changed",companyId);return {ok:true};
-  });
+  },true);
 }

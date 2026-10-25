@@ -414,11 +414,12 @@ describe("User administration", () => {
   });
 
   it("creates a membership atomically and rejects another company's branch", async () => {
+    const initialPassword="Synthetic local employee phrase 2026!";
     await manager.post("/api/users").send({
-      name: "Local employee", email: `new-${tag}@test.local`, password, role: "sales", branchId: branchB,
+      name: "Local employee", email: `new-${tag}@test.local`, password:initialPassword, role: "sales", branchId: branchB,
     }).expect(404);
     const created = await manager.post("/api/users").send({
-      name: "Local employee", email: `new-${tag}@test.local`, password, role: "sales", branchId: branchA,
+      name: "Local employee", email: `new-${tag}@test.local`, password:initialPassword, role: "sales", branchId: branchA,
     }).expect(201);
     userIds.push(created.body.id);
     const [membership] = await db.select().from(userCompaniesTable).where(eq(userCompaniesTable.userId, created.body.id));
