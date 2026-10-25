@@ -6,9 +6,10 @@ import Login from "./login";
 import Welcome from "./welcome";
 
 const loginMock = vi.hoisted(() => vi.fn());
+const navigateMock = vi.hoisted(() => vi.fn());
 const langMock = vi.hoisted(() => ({ language: "ar" as "ar" | "en" }));
 
-vi.mock("wouter", () => ({ useLocation: () => ["/login", vi.fn()] }));
+vi.mock("wouter", () => ({ useLocation: () => ["/login", navigateMock] }));
 vi.mock("@/hooks/use-auth", () => ({
   useAuth: () => ({ login: loginMock, isLoggingIn: false, isAuthenticated: false }),
 }));
@@ -35,7 +36,7 @@ function assertClean(text: string) {
   for (const re of FORBIDDEN) expect(text, `found ${re}`).not.toMatch(re);
 }
 
-afterEach(() => { loginMock.mockReset(); });
+afterEach(() => { loginMock.mockReset(); navigateMock.mockReset(); });
 
 describe("public pages honesty", () => {
   it.each(["ar", "en"] as const)("login (%s) has no credentials or unsupported claims", (lang) => {
@@ -48,10 +49,11 @@ describe("public pages honesty", () => {
       expect(b.textContent).toContain((lang === "ar" ? ar : en).login.socialUnavailable);
     }
     const forgot = screen.getByTestId("button-forgot-password") as HTMLButtonElement;
-    expect(forgot.disabled).toBe(true);
-    expect(forgot.textContent).toContain((lang === "ar" ? ar : en).login.recoveryUnavailable);
+    expect(forgot.disabled).toBe(false);
+    expect(forgot.textContent).toContain((lang === "ar" ? ar : en).login.forgotPassword);
     const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {});
     fireEvent.click(forgot);
+    expect(navigateMock).toHaveBeenCalledWith("/account/password");
     expect(alertSpy).not.toHaveBeenCalled();
     alertSpy.mockRestore();
     unmount();
