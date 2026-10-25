@@ -85,6 +85,11 @@ export function makeTeamRouter(getStack: () => unknown[]) {
     creationKey: z.string().uuid().optional(), name: z.string().max(200).optional(),
     email: z.string().max(320).nullable().optional(), loginKinds: z.array(z.enum(["platform","pos"])).max(2).optional(),
     grants: z.array(z.object({
+      // Drafts remain inert and may be incomplete. Applying a person still
+      // requires the full GrantInput and tenant/version binding validation.
+      templateId: z.number().int().positive().nullable().optional(),
+      templateRevision: z.number().int().positive().nullable().optional(),
+      templateMode: z.enum(["inherit","override"]).nullable().optional(),
       resource: z.enum(["inventory","pos"]), branchId: z.number().int().nonnegative().optional(),
       warehouseIds: z.array(z.number().int().positive()).max(100).optional(),
       actions: z.array(z.string().max(100)).max(30).optional(),

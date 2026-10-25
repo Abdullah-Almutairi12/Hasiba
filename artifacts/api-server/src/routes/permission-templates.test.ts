@@ -41,6 +41,20 @@ async function fixture(){
   return {a,other,company:companies[0].id,foreign:companies[1].id,t,people,branches,wh};
 }
 describe("shared permission templates preserve paired scopes, evidence and explicit exceptions",()=>{
+  it("saves and reopens template-bound drafts without dropping their source or granting incomplete draft access",async()=>{
+    const f=await fixture(),p=f.people[2],before=ok(await f.a.get("/api/team/setup"));
+    const draft={selectedPersonId:p.personId,person:personInput(p)};
+    const saved=ok(await f.a.put("/api/team/setup").send({expectedRevision:before.revision,mode:"team",step:"access",draft}));
+    expect(ok(await f.a.get("/api/team/setup")).draft).toEqual(draft);
+    expect(ok(await f.a.get("/api/team/people")).find((x:any)=>x.personId===p.personId).grants).toEqual(p.grants);
+    const incomplete={person:{name:"مسودة ناقصة",grants:[{resource:"inventory",templateId:f.t.id,templateMode:"inherit"}]}};
+    const next=ok(await f.a.put("/api/team/setup").send({expectedRevision:saved.revision,mode:"team",step:"access",draft:incomplete}));
+    expect(ok(await f.a.get("/api/team/setup")).draft).toEqual(incomplete);
+    expect((await f.a.post("/api/team/people/preview").send(incomplete.person)).status).toBe(400);
+    expect((await f.a.put("/api/team/setup").send({expectedRevision:next.revision,mode:"team",step:"access",
+      draft:{person:{grants:[{resource:"inventory",templateId:f.t.id,password:"never-store"}]}}})).status).toBe(400);
+    expect(ok(await f.a.get("/api/team/setup")).draft).toEqual(incomplete);
+  });
   it("two inherit, one overrides; preview shows denial and scopes, apply changes only inherited grants, then returns exception to inheritance",async()=>{
     const f=await fixture(),edit={expectedRevision:1,name:"قراءة وتكلفة اختيارية",actions:["inventory.read","inventory.cost.read"]};
     const preview=ok(await f.a.post(`/api/team/templates/${f.t.id}/preview`).send(edit));
