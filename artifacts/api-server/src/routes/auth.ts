@@ -1,7 +1,9 @@
 import { Router } from "express";
 import { enrollCompanyAdministrator } from "../lib/administration-enrollment";
-import bcrypt from "bcryptjs";
-import { verifyAccountPassword } from "../lib/account-password";
+import { verifyAccountPassword,hashAccountPassword,newAccountPasswordError } from "../lib/account-password";
+import {beginAccountChallenge,AccountSecurityError} from "../lib/account-security";
+import {accountRows} from "../lib/account-security";
+import {sql} from "drizzle-orm";
 import rateLimit from "express-rate-limit";
 import { db, usersTable, userCompaniesTable, companiesTable } from "@workspace/db";
 import { and, eq, desc } from "drizzle-orm";
@@ -16,7 +18,7 @@ import { managedProfile } from "../lib/responsibility-context";
  * created valid membership in an active company. Never choose a disabled
  * tenant or an unsupported membership role just because it is the default.
  */
-async function resolveLoginCompanyId(userId: number): Promise<number | null> {
+export async function resolveLoginCompanyId(userId: number): Promise<number | null> {
   const memberships = await db
     .select({ companyId: userCompaniesTable.companyId, role: userCompaniesTable.role })
     .from(userCompaniesTable)
@@ -46,7 +48,7 @@ const signupLimiter = rateLimit({
 
 const LoginBody = z.object({
   email: z.string().email(),
-  password: z.string().min(1),
+  password: z.string().min(1).max(1024),
 });
 
 router.post("/auth/login", loginLimiter, async (req, res) => {
@@ -99,6 +101,8 @@ router.post("/auth/login", loginLimiter, async (req, res) => {
     }
 
     const effectiveRole = await managedProfile(user.id, companyId) ? "scoped" : membership.role;
+    const challenge=await beginAccountChallenge(req,user.id,user.passwordHash,companyId,"login");
+    if(challenge.needed)return res.json({mfaRequired:true});
     await db.update(usersTable).set({ lastLoginAt: new Date() }).where(eq(usersTable.id, user.id));
 
     req.session.regenerate((regenErr) => {
@@ -108,6 +112,7 @@ router.post("/auth/login", loginLimiter, async (req, res) => {
         return;
       }
       req.session.userId = user.id;
+      req.session.authEpoch = challenge.epoch;
       req.session.role = membership.role as typeof req.session.role;
       req.session.companyId = companyId;
       req.session.save((saveErr) => {
@@ -130,6 +135,7 @@ router.post("/auth/login", loginLimiter, async (req, res) => {
     });
     return;
   } catch (err) {
+    if(err instanceof AccountSecurityError)return res.status(err.status).json({error:err.message});
     req.log.error({ err }, "Login failed");
     return res.status(500).json({ error: "حدث خطأ في الخادم" });
   }
@@ -150,7 +156,7 @@ router.post("/auth/logout", (req, res) => {
 const SignupBody = z.object({
   name: z.string().min(2),
   email: z.string().email(),
-  password: z.string().min(8),
+  password: z.string().max(1024).refine(v=>!newAccountPasswordError(v),"اختر عبارة مرور قوية من15محرفًا على الأقل"),
 });
 
 router.post("/auth/signup", signupLimiter, async (req, res) => {
@@ -175,7 +181,7 @@ router.post("/auth/signup", signupLimiter, async (req, res) => {
       return res.status(409).json({ error: "البريد الإلكتروني مستخدم بالفعل" });
     }
 
-    const passwordHash = await bcrypt.hash(password, 12);
+    const passwordHash = await hashAccountPassword(password);
     // New self-serve signup is treated as a brand-new tenant: we create a
     // company and scoped administrative person. Administration is explicit;
     // creation alone grants no job/financial responsibilities or legal title.
@@ -211,6 +217,7 @@ router.post("/auth/signup", signupLimiter, async (req, res) => {
         return;
       }
       req.session.userId = user.id;
+      req.session.authEpoch = 0;
       req.session.role = user.role as typeof req.session.role;
       req.session.companyId = companyId;
       req.session.save((saveErr) => {
@@ -287,11 +294,15 @@ router.get("/auth/me", async (req, res) => {
       businessType = row?.businessType ?? null;
     }
 
+    const [mfa]=await accountRows(db,sql`SELECT c.account_mfa_required AND NOT EXISTS(
+      SELECT 1 FROM account_security a WHERE a.user_id=${user.id} AND a.totp_secret IS NOT NULL) AS required
+      FROM companies c WHERE c.id=${req.session.companyId!}`);
     return res.json({
       id: user.id,
       name: user.name,
       email: user.email,
       role: await managedProfile(user.id, req.session.companyId!) ? "scoped" : current.role,
+      mfaEnrollmentRequired:!!mfa?.required,
       branchId: user.branchId,
       preferredBranchId: user.preferredBranchId,
       avatarUrl: user.avatarUrl,

@@ -1,3 +1,4 @@
+import { PASSWORD_MIN_LENGTH } from "@/lib/account-security";
 import { useState } from "react";
 import {
   useListUsers,
@@ -54,7 +55,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { usePermissions } from "@/hooks/use-permissions";
@@ -122,7 +122,6 @@ function CreateUserDialog({ open, onOpenChange, roles, isOwner }: CreateUserDial
     phone: "",
     role: "cashier",
     password: "",
-    has2fa: false,
   });
 
   const createUser = useCreateUser({
@@ -131,7 +130,7 @@ function CreateUserDialog({ open, onOpenChange, roles, isOwner }: CreateUserDial
         await qc.invalidateQueries({ queryKey: getListUsersQueryKey() });
         toast({ title: "تم إنشاء المستخدم بنجاح" });
         onOpenChange(false);
-        setForm({ name: "", email: "", phone: "", role: "cashier", password: "", has2fa: false });
+        setForm({ name: "", email: "", phone: "", role: "cashier", password: "" });
       },
       onError: (err: unknown) => {
         const msg = err instanceof Error ? err.message : "فشل إنشاء المستخدم";
@@ -146,13 +145,16 @@ function CreateUserDialog({ open, onOpenChange, roles, isOwner }: CreateUserDial
       toast({ title: "حقول ناقصة", description: "الاسم والبريد وكلمة المرور مطلوبة.", variant: "destructive" });
       return;
     }
+    if (form.password.length < PASSWORD_MIN_LENGTH) {
+      toast({ title: "كلمة مرور قصيرة", description: `الحد الأدنى ${PASSWORD_MIN_LENGTH} حرفًا.`, variant: "destructive" });
+      return;
+    }
     createUser.mutate({
       data: {
         name: form.name,
         email: form.email,
         phone: form.phone || null,
         role: form.role,
-        has2fa: form.has2fa,
         // password is sent as an extra field; server accepts it via Zod.
         // CreateUserBody schema in spec is `additionalProperties: false`-free.
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -226,20 +228,13 @@ function CreateUserDialog({ open, onOpenChange, roles, isOwner }: CreateUserDial
               type="password"
               value={form.password}
               onChange={(e) => setForm({ ...form, password: e.target.value })}
-              placeholder="حد أدنى 6 أحرف"
+              placeholder={`حد أدنى ${PASSWORD_MIN_LENGTH} حرفًا`} minLength={PASSWORD_MIN_LENGTH}
               data-testid="input-user-password"
             />
           </div>
-          <div className="flex items-center justify-between rounded-lg border p-3">
-            <div>
-              <p className="text-sm font-medium">تفعيل 2FA</p>
-              <p className="text-xs text-muted-foreground">طبقة أمان إضافية للأدوار الحساسة.</p>
-            </div>
-            <Switch
-              checked={form.has2fa}
-              onCheckedChange={(checked) => setForm({ ...form, has2fa: checked })}
-            />
-          </div>
+          <p className="rounded-lg border bg-muted/40 p-3 text-xs text-muted-foreground" data-testid="text-user-2fa-note">
+            التحقق الثنائي يفعّله الموظف بنفسه من «أمان حسابي» ولا يمكن للمسؤول تشغيله أو إيقافه. كلمة المرور هذه أولية فقط ولا تُعدّل لهوية قائمة.
+          </p>
           <DialogFooter className="gap-2">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               إلغاء
@@ -446,7 +441,7 @@ export default function UsersPage() {
                   <th className="pb-3 font-medium">الدور</th>
                   <th className="pb-3 font-medium">رقم الجوال</th>
                   <th className="pb-3 font-medium">آخر دخول</th>
-                  <th className="pb-3 font-medium">2FA</th>
+                  <th className="pb-3 font-medium" title="تسجيل فعلي موثّق، للقراءة فقط">2FA (تسجيل فعلي)</th>
                   <th className="pb-3 font-medium">الحالة</th>
                   <th className="pb-3 font-medium"></th>
                 </tr>

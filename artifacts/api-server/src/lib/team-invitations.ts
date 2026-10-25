@@ -73,7 +73,8 @@ export async function acceptTeamInvitation(token: string, password: string, auth
     let identity = identities[0];
     if (identity) {
       if (authenticatedUserId !== identity.id) throw new FinancialRequestError("للهوية الموجودة: سجل الدخول المعتاد بالحساب نفسه ثم أعد فتح الدعوة؛ لا تستبدل كلمة مرورك", 403);
-      if (identity.has_2fa) throw new FinancialRequestError("الربط يتطلب مسار التحقق الإضافي؛ التفعيل اليدوي لا يتجاوزه", 409);
+      // The public route's account epoch/challenge gate already requires a
+      // fully verified identity. Legacy has_2fa is not enrollment evidence.
       if (!identity.is_active || !identity.password_hash || !await verifyAccountPassword(password, identity.password_hash)) {
         throw new FinancialRequestError("تعذر التفعيل بهذه البيانات", 403);
       }

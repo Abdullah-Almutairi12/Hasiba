@@ -30,7 +30,15 @@ export type AuthUser = {
   companies: AuthCompany[];
   /** True only for trusted-device POS cashier sessions. */
   posDevice?: boolean;
+  /** Company policy requires a verified second factor before business access. */
+  mfaEnrollmentRequired?: boolean;
 };
+
+/** Password accepted, second factor pending. Limited session: never cached as /auth/me. */
+export type MfaRequired = { mfaRequired: true };
+export type LoginResult = AuthUser | MfaRequired;
+export const isMfaRequired = (r: unknown): r is MfaRequired =>
+  !!r && typeof r === "object" && (r as { mfaRequired?: unknown }).mfaRequired === true;
 
 const API_BASE = `${import.meta.env.BASE_URL.replace(/\/$/, "")}/api`;
 
@@ -70,12 +78,14 @@ export function useAuth() {
 
   const loginMutation = useMutation({
     mutationFn: (vars: { email: string; password: string }) =>
-      apiFetch<AuthUser>("/auth/login", {
+      apiFetch<LoginResult>("/auth/login", {
         method: "POST",
         body: JSON.stringify(vars),
       }),
-    onSuccess: (user) => {
-      qc.setQueryData(ME_KEY, user);
+    onSuccess: (result) => {
+      // A pending-factor session must not populate auth/me or any operational cache.
+      if (isMfaRequired(result)) { qc.clear(); qc.setQueryData(ME_KEY, null); return; }
+      qc.setQueryData(ME_KEY, result);
     },
   });
 
@@ -103,7 +113,16 @@ export function useAuth() {
     if (identityKey !== null) syncWorkspaceIdentity(qc, identityKey);
   }, [identityKey, qc]);
 
+  /** After second-factor verification: drop all private cache and reload identity from the server. */
+  const completeMfaLogin = async () => {
+    qc.clear();
+    const me = await apiFetch<AuthUser>("/auth/me").catch(() => null);
+    qc.setQueryData(ME_KEY, me);
+    return me;
+  };
+
   return {
+    completeMfaLogin,
     user: meQuery.data ?? null,
     isLoading: meQuery.isLoading,
     isAuthenticated: !!meQuery.data,

@@ -5,6 +5,54 @@
  * حاسبة.AI - ERP System API
  * OpenAPI spec version: 0.1.0
  */
+export interface AccountSecurityProof {
+  /**
+     * @minLength 1
+     * @maxLength 1024
+     */
+  currentPassword: string;
+  /** @pattern ^\d{6}$ */
+  token?: string;
+  /**
+     * @minLength 48
+     * @maxLength 60
+     */
+  recoveryCode?: string;
+}
+
+export type AccountSecurityStateSessionsItem = {
+  reference: string;
+  current: boolean;
+  expiresAt: string;
+};
+
+export interface AccountSecurityState {
+  mfaEnabled: boolean;
+  companyRequiresMfa: boolean;
+  encryptionConfigured: boolean;
+  recoveryCodesRemaining: number;
+  canManagePolicy: boolean;
+  sessions: AccountSecurityStateSessionsItem[];
+}
+
+export interface AccountSecurityResult {
+  ok?: boolean;
+  reauthenticate?: boolean;
+  secret?: string;
+  otpauthUri?: string;
+  expiresInSeconds?: number;
+  recoveryCodes?: string[];
+  id?: number;
+  userId?: number;
+  name?: string;
+  /** @nullable */
+  email?: string | null;
+  companyId?: number;
+  role?: string;
+  receiptOnly?: boolean;
+  message?: string;
+}
+
 export type PosDeviceStatus = typeof PosDeviceStatus[keyof typeof PosDeviceStatus];
 
 
@@ -2939,8 +2987,50 @@ export interface CreateSupplierBody {
   notes?: string | null;
 }
 
+export type ChangeAccountPasswordBody = AccountSecurityProof & {
+  /** @maxLength 1024 */
+  newPassword: string;
+};
+
+export type ConfirmAccountTotpBody = {
+  /**
+     * @minLength 1
+     * @maxLength 1024
+     */
+  currentPassword: string;
+  /** @pattern ^\d{6}$ */
+  token: string;
+};
+
+export type UpdateCompanyMfaPolicyBody = AccountSecurityProof & {
+  required: boolean;
+};
+
+export type VerifyAccountMfaBody = (unknown & {
+  /** @pattern ^\d{6}$ */
+  token?: string;
+  /**
+     * @minLength 48
+     * @maxLength 60
+     */
+  recoveryCode?: string;
+});
+
+export type RequestAccountPasswordResetBody = {
+  /** @maxLength 254 */
+  email: string;
+};
+
+export type ResetAccountPasswordBody = {
+  /** @pattern ^[A-Za-z0-9_-]{43}$ */
+  token: string;
+  /** @maxLength 1024 */
+  newPassword: string;
+};
+
 export type AuthenticateAdministrationRecovery200 = {
-  userId: number;
+  userId?: number;
+  mfaRequired?: boolean;
 };
 
 export type ListCountSessions200Item = { [key: string]: unknown };

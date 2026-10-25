@@ -1,9 +1,9 @@
 import { lockApprovalAuthorityWrite } from "../lib/approval-authority";
 import { Router, type RequestHandler } from "express";
 import { db, usersTable, branchesTable, userCompaniesTable, companiesTable, employeeAccessTable } from "@workspace/db";
-import { desc, eq, and, ne, inArray } from "drizzle-orm";
+import { desc, eq, and, ne, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
-import bcrypt from "bcryptjs";
+import {hashAccountPassword,newAccountPasswordError} from "../lib/account-password";
 import {
   requireRole,
   adminGuard,
@@ -49,7 +49,7 @@ const safeUserColumns = {
   branchId: usersTable.branchId,
   preferredBranchId: usersTable.preferredBranchId,
   avatarUrl: usersTable.avatarUrl,
-  has2fa: usersTable.has2fa,
+  has2fa: sql<boolean>`EXISTS(SELECT 1 FROM account_security a WHERE a.user_id=${usersTable.id} AND a.totp_secret IS NOT NULL)`,
   isActive: usersTable.isActive,
   lastLoginAt: usersTable.lastLoginAt,
   createdAt: usersTable.createdAt,
@@ -205,14 +205,14 @@ const CreateUserBody = z.object({
   name: z.string().min(2).max(120),
   email: z.string().email(),
   phone: z.string().max(40).nullish(),
-  password: z.string().min(8).max(200).refine(
+  password: z.string().min(1).max(1024).refine(v=>!newAccountPasswordError(v),"اختر عبارة مرور قوية من15محرفًا على الأقل").refine(
     (value) => !isPublishedBootstrapPassword(value),
     "اختر كلمة مرور غير منشورة وغير مستخدمة للتجربة",
   ),
   role: RoleEnum,
   branchId: z.number().int().positive().nullish(),
   isActive: z.boolean().optional(),
-  has2fa: z.boolean().optional(),
+  has2fa: z.literal(false).optional(),
 });
 
 router.post("/users", adminGuard, async (req, res) => {
@@ -226,7 +226,7 @@ router.post("/users", adminGuard, async (req, res) => {
         .status(403)
         .json({ error: "فقط المالك يمكنه إنشاء حساب مالك آخر" });
     }
-    const passwordHash = await bcrypt.hash(body.password, 12);
+    const passwordHash = await hashAccountPassword(body.password);
     const created = await db.transaction(async (tx) => {
       await lockApprovalAuthorityWrite(tx);
       const [user] = await tx.insert(usersTable).values({
@@ -273,6 +273,8 @@ router.patch("/users/:id", adminGuard, legacyAccessEditor, async (req, res) => {
     const id = Number(req.params.id);
     if (!Number.isFinite(id)) return res.status(400).json({ error: "معرّف غير صحيح" });
     const body = UpdateUserBody.parse(req.body);
+    if(body.password!==undefined||body.has2fa!==undefined)
+      return res.status(403).json({error:"كلمة المرور وتسجيل المصادقة وسائل هوية عامة؛ يديرها صاحب الحساب من أمان الحساب فقط"});
     const actorRole = req.session.role;
 
     const companyId = req.session.companyId!;
@@ -307,8 +309,6 @@ router.patch("/users/:id", adminGuard, legacyAccessEditor, async (req, res) => {
     if (body.phone !== undefined) update.phone = body.phone;
     if (body.branchId !== undefined) update.branchId = body.branchId;
     if (body.isActive !== undefined) update.isActive = body.isActive;
-    if (body.has2fa !== undefined) update.has2fa = body.has2fa;
-    if (body.password !== undefined) update.passwordHash = await bcrypt.hash(body.password, 12);
 
     const updated = await db.transaction(async (tx) => {
       await lockApprovalAuthorityWrite(tx);

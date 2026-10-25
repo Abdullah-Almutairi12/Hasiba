@@ -30,6 +30,185 @@ tags:
   - name: auth
     description: Authentication & session management
 paths:
+  /auth/security:
+    get:
+      operationId: getAccountSecurity
+      responses:
+        "200":
+          description: Global self identity only; actual verified enrollment, never a tenant-admin flag
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/AccountSecurityState"}
+  /auth/security/password:
+    post:
+      operationId: changeAccountPassword
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - {$ref: "#/components/schemas/AccountSecurityProof"}
+                - {type: object, required: [newPassword], properties: {newPassword: {type: string, maxLength: 1024}}}
+      responses:
+        "200":
+          description: Password changed; all platform sessions invalidated; login required
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/AccountSecurityResult"}
+  /auth/security/sessions/revoke:
+    post:
+      operationId: revokeAccountSessions
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/AccountSecurityProof"}
+      responses:
+        "200":
+          description: Other platform sessions invalidated; current session regenerated; POS authority independent
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/AccountSecurityResult"}
+  /auth/security/totp/start:
+    post:
+      operationId: startAccountTotp
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/AccountSecurityProof"}
+      responses:
+        "200":
+          description: One-time enrollment material, expires in ten minutes; not activated
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/AccountSecurityResult"}
+  /auth/security/totp/confirm:
+    post:
+      operationId: confirmAccountTotp
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [currentPassword, token]
+              additionalProperties: false
+              properties:
+                currentPassword: {type: string, minLength: 1, maxLength: 1024}
+                token: {type: string, pattern: '^\d{6}$'}
+      responses:
+        "200":
+          description: New factor proven, epoch rotated; recovery codes shown only here
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/AccountSecurityResult"}
+  /auth/security/totp/disable:
+    post:
+      operationId: disableAccountTotp
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/AccountSecurityProof"}
+      responses:
+        "200":
+          description: Fresh current-password and factor proof required; required last factor cannot be removed
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/AccountSecurityResult"}
+  /auth/security/recovery/renew:
+    post:
+      operationId: renewAccountRecoveryCodes
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/AccountSecurityProof"}
+      responses:
+        "200":
+          description: Old set revoked atomically; random single-use replacement shown once
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/AccountSecurityResult"}
+  /auth/security/policy:
+    post:
+      operationId: updateCompanyMfaPolicy
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - {$ref: "#/components/schemas/AccountSecurityProof"}
+                - {type: object, required: [required], properties: {required: {type: boolean}}}
+      responses:
+        "200":
+          description: Current-company settings administrator only; cannot change global identity secrets
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/AccountSecurityResult"}
+  /auth/mfa/verify:
+    post:
+      operationId: verifyAccountMfa
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                token: {type: string, pattern: '^\d{6}$'}
+                recoveryCode: {type: string, minLength: 48, maxLength: 60}
+              oneOf:
+                - {required: [token]}
+                - {required: [recoveryCode]}
+      responses:
+        "200":
+          description: Consumed limited challenge; normal identity or receipt-only purpose preserved
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/AccountSecurityResult"}
+  /auth/password/forgot:
+    post:
+      operationId: requestAccountPasswordReset
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              additionalProperties: false
+              properties: {email: {type: string, format: email, maxLength: 254}}
+      responses:
+        "202":
+          description: Neutral response for existing and missing accounts; no token or link; prepared encrypted outbox, no live delivery
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/AccountSecurityResult"}
+  /auth/password/reset:
+    post:
+      operationId: resetAccountPassword
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, newPassword]
+              additionalProperties: false
+              properties:
+                token: {type: string, pattern: '^[A-Za-z0-9_-]{43}$'}
+                newPassword: {type: string, maxLength: 1024}
+      responses:
+        "200":
+          description: Single-use reset, epochs invalidated; existing factor remains enabled
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/AccountSecurityResult"}
   /pos-devices:
     get:
       operationId: listPosDevices
@@ -193,9 +372,9 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [userId]
                 properties:
                   userId: {type: integer}
+                  mfaRequired: {type: boolean}
   /administration:
     get:
       operationId: getAdministrationWorkspace
@@ -4643,6 +4822,48 @@ paths:
 
 components:
   schemas:
+    AccountSecurityProof:
+      type: object
+      required: [currentPassword]
+      properties:
+        currentPassword: {type: string, minLength: 1, maxLength: 1024}
+        token: {type: string, pattern: '^\d{6}$'}
+        recoveryCode: {type: string, minLength: 48, maxLength: 60}
+    AccountSecurityState:
+      type: object
+      required: [mfaEnabled, companyRequiresMfa, encryptionConfigured, recoveryCodesRemaining, canManagePolicy, sessions]
+      properties:
+        mfaEnabled: {type: boolean}
+        companyRequiresMfa: {type: boolean}
+        encryptionConfigured: {type: boolean}
+        recoveryCodesRemaining: {type: integer}
+        canManagePolicy: {type: boolean}
+        sessions:
+          type: array
+          items:
+            type: object
+            required: [reference, current, expiresAt]
+            properties:
+              reference: {type: string}
+              current: {type: boolean}
+              expiresAt: {type: string, format: date-time}
+    AccountSecurityResult:
+      type: object
+      properties:
+        ok: {type: boolean}
+        reauthenticate: {type: boolean}
+        secret: {type: string}
+        otpauthUri: {type: string}
+        expiresInSeconds: {type: integer}
+        recoveryCodes: {type: array, items: {type: string}}
+        id: {type: integer}
+        userId: {type: integer}
+        name: {type: string}
+        email: {type: [string, "null"]}
+        companyId: {type: integer}
+        role: {type: string}
+        receiptOnly: {type: boolean}
+        message: {type: string}
     PosDevice:
       type: object
       required: [id, status]

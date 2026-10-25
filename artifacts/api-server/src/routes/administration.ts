@@ -1,4 +1,5 @@
 import { Router, type Request, type Response, type NextFunction } from "express";
+import {beginAccountChallenge} from "../lib/account-security";
 import { z } from "zod";
 import { FinancialRequestError } from "../lib/financial-transaction";
 import { requireAuth } from "../middlewares/require-auth";
@@ -28,13 +29,16 @@ const revision=z.object({expectedRevision:z.number().int().positive()}).strict()
 export const administrationReceiptRouter=Router();
 const recoveryLimiter=rateLimit({windowMs:15*60*1000,max:10,standardHeaders:true,legacyHeaders:false});
 administrationReceiptRouter.post("/auth/administration/recover",recoveryLimiter,requireSameOrigin,wrap(async(req,res)=>{
-  const {email,password}=z.object({email:z.string().email(),password:z.string().min(1).max(512)}).strict().parse(req.body);
+  const {email,password}=z.object({email:z.string().email(),password:z.string().min(1).max(1024)}).strict().parse(req.body);
   const [user]=await adminRows(db,sql`SELECT id,password_hash FROM users WHERE lower(email)=${email.toLowerCase()} AND is_active`);
   if(!user||isPublishedBootstrapPassword(password)||!await verifyAccountPassword(password,user.password_hash))
     throw new FinancialRequestError("تعذر التحقق من بيانات الدخول",401);
+  const challenge=await beginAccountChallenge(req,user.id,user.password_hash,null,"receipt");
+  if(challenge.needed)return void res.json({mfaRequired:true});
   await new Promise<void>((resolve,reject)=>req.session.regenerate(e=>e?reject(e):resolve()));
   // Identity only: no company, membership, functional grant or financial authority.
   req.session.userId=user.id;
+  req.session.authEpoch=challenge.epoch;
   req.session.purpose="administration_receipt";
   await new Promise<void>((resolve,reject)=>req.session.save(e=>e?reject(e):resolve()));
   res.json({userId:user.id});

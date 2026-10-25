@@ -1,9 +1,11 @@
 import { createHash } from "node:crypto";
 import bcrypt from "bcryptjs";
+import {isPublishedBootstrapPassword} from "./bootstrap-password";
 
 const PREFIX = "sha256-bcrypt:";
 const prehash = (password: string) => createHash("sha256").update(password, "utf8").digest("base64");
 export function newAccountPasswordError(password: string) {
+  if(isPublishedBootstrapPassword(password))return "اختر عبارة مرور غير منشورة";
   if ([...password].length < 15 || password.length > 1024) return "اختر عبارة مرور من 15 محرفًا على الأقل وبحد أقصى 1024";
   const common = new Set(["passwordpassword", "123456789012345", "qwertyuiopasdfgh", "abcdefghijklmnop", "administrator123"]);
   if (common.has(password.toLowerCase()) || /^([\s\S])\1+$/u.test(password)) return "عبارة المرور شائعة أو سهلة التخمين";

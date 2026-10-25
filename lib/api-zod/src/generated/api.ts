@@ -8,6 +8,343 @@
 import * as zod from 'zod';
 
 
+export const GetAccountSecurityResponse = zod.object({
+  "mfaEnabled": zod.boolean(),
+  "companyRequiresMfa": zod.boolean(),
+  "encryptionConfigured": zod.boolean(),
+  "recoveryCodesRemaining": zod.number().int(),
+  "canManagePolicy": zod.boolean(),
+  "sessions": zod.array(zod.object({
+  "reference": zod.string(),
+  "current": zod.boolean(),
+  "expiresAt": zod.coerce.date()
+}))
+})
+
+
+export const changeAccountPasswordBodyOneCurrentPasswordMax = 1024;
+
+export const changeAccountPasswordBodyOneTokenRegExp = new RegExp('^\\d{6}$');
+export const changeAccountPasswordBodyOneRecoveryCodeMin = 48;
+export const changeAccountPasswordBodyOneRecoveryCodeMax = 60;
+
+export const changeAccountPasswordBodyTwoNewPasswordMax = 1024;
+
+
+
+export const ChangeAccountPasswordBody = zod.object({
+  "currentPassword": zod.string().min(1).max(changeAccountPasswordBodyOneCurrentPasswordMax),
+  "token": zod.string().regex(changeAccountPasswordBodyOneTokenRegExp).optional(),
+  "recoveryCode": zod.string().min(changeAccountPasswordBodyOneRecoveryCodeMin).max(changeAccountPasswordBodyOneRecoveryCodeMax).optional()
+}).and(zod.object({
+  "newPassword": zod.string().max(changeAccountPasswordBodyTwoNewPasswordMax)
+}))
+
+export const ChangeAccountPasswordResponse = zod.object({
+  "ok": zod.boolean().optional(),
+  "reauthenticate": zod.boolean().optional(),
+  "secret": zod.string().optional(),
+  "otpauthUri": zod.string().optional(),
+  "expiresInSeconds": zod.number().int().optional(),
+  "recoveryCodes": zod.array(zod.string()).optional(),
+  "id": zod.number().int().optional(),
+  "userId": zod.number().int().optional(),
+  "name": zod.string().optional(),
+  "email": zod.string().nullish(),
+  "companyId": zod.number().int().optional(),
+  "role": zod.string().optional(),
+  "receiptOnly": zod.boolean().optional(),
+  "message": zod.string().optional()
+})
+
+
+export const revokeAccountSessionsBodyCurrentPasswordMax = 1024;
+
+export const revokeAccountSessionsBodyTokenRegExp = new RegExp('^\\d{6}$');
+export const revokeAccountSessionsBodyRecoveryCodeMin = 48;
+export const revokeAccountSessionsBodyRecoveryCodeMax = 60;
+
+
+
+export const RevokeAccountSessionsBody = zod.object({
+  "currentPassword": zod.string().min(1).max(revokeAccountSessionsBodyCurrentPasswordMax),
+  "token": zod.string().regex(revokeAccountSessionsBodyTokenRegExp).optional(),
+  "recoveryCode": zod.string().min(revokeAccountSessionsBodyRecoveryCodeMin).max(revokeAccountSessionsBodyRecoveryCodeMax).optional()
+})
+
+export const RevokeAccountSessionsResponse = zod.object({
+  "ok": zod.boolean().optional(),
+  "reauthenticate": zod.boolean().optional(),
+  "secret": zod.string().optional(),
+  "otpauthUri": zod.string().optional(),
+  "expiresInSeconds": zod.number().int().optional(),
+  "recoveryCodes": zod.array(zod.string()).optional(),
+  "id": zod.number().int().optional(),
+  "userId": zod.number().int().optional(),
+  "name": zod.string().optional(),
+  "email": zod.string().nullish(),
+  "companyId": zod.number().int().optional(),
+  "role": zod.string().optional(),
+  "receiptOnly": zod.boolean().optional(),
+  "message": zod.string().optional()
+})
+
+
+export const startAccountTotpBodyCurrentPasswordMax = 1024;
+
+export const startAccountTotpBodyTokenRegExp = new RegExp('^\\d{6}$');
+export const startAccountTotpBodyRecoveryCodeMin = 48;
+export const startAccountTotpBodyRecoveryCodeMax = 60;
+
+
+
+export const StartAccountTotpBody = zod.object({
+  "currentPassword": zod.string().min(1).max(startAccountTotpBodyCurrentPasswordMax),
+  "token": zod.string().regex(startAccountTotpBodyTokenRegExp).optional(),
+  "recoveryCode": zod.string().min(startAccountTotpBodyRecoveryCodeMin).max(startAccountTotpBodyRecoveryCodeMax).optional()
+})
+
+export const StartAccountTotpResponse = zod.object({
+  "ok": zod.boolean().optional(),
+  "reauthenticate": zod.boolean().optional(),
+  "secret": zod.string().optional(),
+  "otpauthUri": zod.string().optional(),
+  "expiresInSeconds": zod.number().int().optional(),
+  "recoveryCodes": zod.array(zod.string()).optional(),
+  "id": zod.number().int().optional(),
+  "userId": zod.number().int().optional(),
+  "name": zod.string().optional(),
+  "email": zod.string().nullish(),
+  "companyId": zod.number().int().optional(),
+  "role": zod.string().optional(),
+  "receiptOnly": zod.boolean().optional(),
+  "message": zod.string().optional()
+})
+
+
+export const confirmAccountTotpBodyCurrentPasswordMax = 1024;
+
+export const confirmAccountTotpBodyTokenRegExp = new RegExp('^\\d{6}$');
+
+
+export const ConfirmAccountTotpBody = zod.object({
+  "currentPassword": zod.string().min(1).max(confirmAccountTotpBodyCurrentPasswordMax),
+  "token": zod.string().regex(confirmAccountTotpBodyTokenRegExp)
+})
+
+export const ConfirmAccountTotpResponse = zod.object({
+  "ok": zod.boolean().optional(),
+  "reauthenticate": zod.boolean().optional(),
+  "secret": zod.string().optional(),
+  "otpauthUri": zod.string().optional(),
+  "expiresInSeconds": zod.number().int().optional(),
+  "recoveryCodes": zod.array(zod.string()).optional(),
+  "id": zod.number().int().optional(),
+  "userId": zod.number().int().optional(),
+  "name": zod.string().optional(),
+  "email": zod.string().nullish(),
+  "companyId": zod.number().int().optional(),
+  "role": zod.string().optional(),
+  "receiptOnly": zod.boolean().optional(),
+  "message": zod.string().optional()
+})
+
+
+export const disableAccountTotpBodyCurrentPasswordMax = 1024;
+
+export const disableAccountTotpBodyTokenRegExp = new RegExp('^\\d{6}$');
+export const disableAccountTotpBodyRecoveryCodeMin = 48;
+export const disableAccountTotpBodyRecoveryCodeMax = 60;
+
+
+
+export const DisableAccountTotpBody = zod.object({
+  "currentPassword": zod.string().min(1).max(disableAccountTotpBodyCurrentPasswordMax),
+  "token": zod.string().regex(disableAccountTotpBodyTokenRegExp).optional(),
+  "recoveryCode": zod.string().min(disableAccountTotpBodyRecoveryCodeMin).max(disableAccountTotpBodyRecoveryCodeMax).optional()
+})
+
+export const DisableAccountTotpResponse = zod.object({
+  "ok": zod.boolean().optional(),
+  "reauthenticate": zod.boolean().optional(),
+  "secret": zod.string().optional(),
+  "otpauthUri": zod.string().optional(),
+  "expiresInSeconds": zod.number().int().optional(),
+  "recoveryCodes": zod.array(zod.string()).optional(),
+  "id": zod.number().int().optional(),
+  "userId": zod.number().int().optional(),
+  "name": zod.string().optional(),
+  "email": zod.string().nullish(),
+  "companyId": zod.number().int().optional(),
+  "role": zod.string().optional(),
+  "receiptOnly": zod.boolean().optional(),
+  "message": zod.string().optional()
+})
+
+
+export const renewAccountRecoveryCodesBodyCurrentPasswordMax = 1024;
+
+export const renewAccountRecoveryCodesBodyTokenRegExp = new RegExp('^\\d{6}$');
+export const renewAccountRecoveryCodesBodyRecoveryCodeMin = 48;
+export const renewAccountRecoveryCodesBodyRecoveryCodeMax = 60;
+
+
+
+export const RenewAccountRecoveryCodesBody = zod.object({
+  "currentPassword": zod.string().min(1).max(renewAccountRecoveryCodesBodyCurrentPasswordMax),
+  "token": zod.string().regex(renewAccountRecoveryCodesBodyTokenRegExp).optional(),
+  "recoveryCode": zod.string().min(renewAccountRecoveryCodesBodyRecoveryCodeMin).max(renewAccountRecoveryCodesBodyRecoveryCodeMax).optional()
+})
+
+export const RenewAccountRecoveryCodesResponse = zod.object({
+  "ok": zod.boolean().optional(),
+  "reauthenticate": zod.boolean().optional(),
+  "secret": zod.string().optional(),
+  "otpauthUri": zod.string().optional(),
+  "expiresInSeconds": zod.number().int().optional(),
+  "recoveryCodes": zod.array(zod.string()).optional(),
+  "id": zod.number().int().optional(),
+  "userId": zod.number().int().optional(),
+  "name": zod.string().optional(),
+  "email": zod.string().nullish(),
+  "companyId": zod.number().int().optional(),
+  "role": zod.string().optional(),
+  "receiptOnly": zod.boolean().optional(),
+  "message": zod.string().optional()
+})
+
+
+export const updateCompanyMfaPolicyBodyOneCurrentPasswordMax = 1024;
+
+export const updateCompanyMfaPolicyBodyOneTokenRegExp = new RegExp('^\\d{6}$');
+export const updateCompanyMfaPolicyBodyOneRecoveryCodeMin = 48;
+export const updateCompanyMfaPolicyBodyOneRecoveryCodeMax = 60;
+
+
+
+export const UpdateCompanyMfaPolicyBody = zod.object({
+  "currentPassword": zod.string().min(1).max(updateCompanyMfaPolicyBodyOneCurrentPasswordMax),
+  "token": zod.string().regex(updateCompanyMfaPolicyBodyOneTokenRegExp).optional(),
+  "recoveryCode": zod.string().min(updateCompanyMfaPolicyBodyOneRecoveryCodeMin).max(updateCompanyMfaPolicyBodyOneRecoveryCodeMax).optional()
+}).and(zod.object({
+  "required": zod.boolean()
+}))
+
+export const UpdateCompanyMfaPolicyResponse = zod.object({
+  "ok": zod.boolean().optional(),
+  "reauthenticate": zod.boolean().optional(),
+  "secret": zod.string().optional(),
+  "otpauthUri": zod.string().optional(),
+  "expiresInSeconds": zod.number().int().optional(),
+  "recoveryCodes": zod.array(zod.string()).optional(),
+  "id": zod.number().int().optional(),
+  "userId": zod.number().int().optional(),
+  "name": zod.string().optional(),
+  "email": zod.string().nullish(),
+  "companyId": zod.number().int().optional(),
+  "role": zod.string().optional(),
+  "receiptOnly": zod.boolean().optional(),
+  "message": zod.string().optional()
+})
+
+
+export const verifyAccountMfaBodyOneTokenRegExp = new RegExp('^\\d{6}$');
+export const verifyAccountMfaBodyOneRecoveryCodeMin = 48;
+export const verifyAccountMfaBodyOneRecoveryCodeMax = 60;
+
+export const verifyAccountMfaBodyTwoTokenRegExp = new RegExp('^\\d{6}$');
+export const verifyAccountMfaBodyTwoRecoveryCodeMin = 48;
+export const verifyAccountMfaBodyTwoRecoveryCodeMax = 60;
+
+export const verifyAccountMfaBodyThreeTokenRegExp = new RegExp('^\\d{6}$');
+export const verifyAccountMfaBodyThreeRecoveryCodeMin = 48;
+export const verifyAccountMfaBodyThreeRecoveryCodeMax = 60;
+
+
+
+export const VerifyAccountMfaBody = zod.union([zod.object({
+  "token": zod.string().regex(verifyAccountMfaBodyOneTokenRegExp),
+  "recoveryCode": zod.string().min(verifyAccountMfaBodyOneRecoveryCodeMin).max(verifyAccountMfaBodyOneRecoveryCodeMax).optional()
+}),zod.object({
+  "token": zod.string().regex(verifyAccountMfaBodyTwoTokenRegExp).optional(),
+  "recoveryCode": zod.string().min(verifyAccountMfaBodyTwoRecoveryCodeMin).max(verifyAccountMfaBodyTwoRecoveryCodeMax)
+})]).and(zod.object({
+  "token": zod.string().regex(verifyAccountMfaBodyThreeTokenRegExp).optional(),
+  "recoveryCode": zod.string().min(verifyAccountMfaBodyThreeRecoveryCodeMin).max(verifyAccountMfaBodyThreeRecoveryCodeMax).optional()
+}))
+
+export const VerifyAccountMfaResponse = zod.object({
+  "ok": zod.boolean().optional(),
+  "reauthenticate": zod.boolean().optional(),
+  "secret": zod.string().optional(),
+  "otpauthUri": zod.string().optional(),
+  "expiresInSeconds": zod.number().int().optional(),
+  "recoveryCodes": zod.array(zod.string()).optional(),
+  "id": zod.number().int().optional(),
+  "userId": zod.number().int().optional(),
+  "name": zod.string().optional(),
+  "email": zod.string().nullish(),
+  "companyId": zod.number().int().optional(),
+  "role": zod.string().optional(),
+  "receiptOnly": zod.boolean().optional(),
+  "message": zod.string().optional()
+})
+
+
+export const requestAccountPasswordResetBodyEmailMax = 254;
+
+
+
+export const RequestAccountPasswordResetBody = zod.object({
+  "email": zod.string().email().max(requestAccountPasswordResetBodyEmailMax)
+})
+
+export const RequestAccountPasswordResetResponse = zod.object({
+  "ok": zod.boolean().optional(),
+  "reauthenticate": zod.boolean().optional(),
+  "secret": zod.string().optional(),
+  "otpauthUri": zod.string().optional(),
+  "expiresInSeconds": zod.number().int().optional(),
+  "recoveryCodes": zod.array(zod.string()).optional(),
+  "id": zod.number().int().optional(),
+  "userId": zod.number().int().optional(),
+  "name": zod.string().optional(),
+  "email": zod.string().nullish(),
+  "companyId": zod.number().int().optional(),
+  "role": zod.string().optional(),
+  "receiptOnly": zod.boolean().optional(),
+  "message": zod.string().optional()
+})
+
+
+export const resetAccountPasswordBodyTokenRegExp = new RegExp('^[A-Za-z0-9_-]{43}$');
+export const resetAccountPasswordBodyNewPasswordMax = 1024;
+
+
+
+export const ResetAccountPasswordBody = zod.object({
+  "token": zod.string().regex(resetAccountPasswordBodyTokenRegExp),
+  "newPassword": zod.string().max(resetAccountPasswordBodyNewPasswordMax)
+})
+
+export const ResetAccountPasswordResponse = zod.object({
+  "ok": zod.boolean().optional(),
+  "reauthenticate": zod.boolean().optional(),
+  "secret": zod.string().optional(),
+  "otpauthUri": zod.string().optional(),
+  "expiresInSeconds": zod.number().int().optional(),
+  "recoveryCodes": zod.array(zod.string()).optional(),
+  "id": zod.number().int().optional(),
+  "userId": zod.number().int().optional(),
+  "name": zod.string().optional(),
+  "email": zod.string().nullish(),
+  "companyId": zod.number().int().optional(),
+  "role": zod.string().optional(),
+  "receiptOnly": zod.boolean().optional(),
+  "message": zod.string().optional()
+})
+
+
 export const ListPosDevicesResponseItem = zod.object({
   "id": zod.string(),
   "status": zod.enum(['registered', 'active', 'revoked']),
@@ -229,7 +566,8 @@ export const AuthenticateAdministrationRecoveryBody = zod.object({
 })
 
 export const AuthenticateAdministrationRecoveryResponse = zod.object({
-  "userId": zod.number().int()
+  "userId": zod.number().int().optional(),
+  "mfaRequired": zod.boolean().optional()
 })
 
 

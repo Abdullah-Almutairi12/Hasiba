@@ -152,6 +152,9 @@ app.use(
 app.use(express.json({ limit: "1mb" }));
 app.use(express.urlencoded({ extended: true, limit: "1mb" }));
 app.use(sessionMiddleware);
+// Configuration readiness only; never expose the encryption material.
+import {accountEncryptionReady} from "./lib/account-crypto";
+logger.info({accountMfaEncryptionConfigured:accountEncryptionReady()},"Account identity encryption configuration");
 
 // API-wide rate limit: 300 requests / minute / IP. Webhook endpoints from
 // trusted carriers/marketplaces use unpredictable bursts (delivery events,

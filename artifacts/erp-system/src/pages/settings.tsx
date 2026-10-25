@@ -280,6 +280,7 @@ function BranchesTab({ readOnly }: { readOnly: boolean }) {
         <CardContent className="flex flex-wrap gap-2">
           <Button variant="outline" onClick={() => navigate("/settings/users")} data-testid="btn-open-settings-users">فتح المستخدمين والصلاحيات <ChevronLeft className="ms-2 size-4" /></Button>
           <Button variant="ghost" onClick={() => navigate("/account/membership")} data-testid="btn-open-account-membership">عضويتي</Button>
+          <Button variant="ghost" onClick={() => navigate("/account/security")} data-testid="btn-open-account-security">أمان حسابي</Button>
           <Button variant="outline" onClick={() => navigate("/settings/pos-devices")} data-testid="btn-open-pos-devices">أجهزة نقاط البيع الموثوقة</Button>
         </CardContent>
       </Card>
@@ -702,6 +703,7 @@ function IntegrationsTab({ readOnly }: { readOnly: boolean }) {
 
 // ====================== 8. SECURITY (legacy NCA section preserved) ======================
 function SecurityTab() {
+  const [, navigate] = useLocation();
   const { data: checklist } = useGetSecurityChecklist();
   const score = checklist?.score ?? 0;
   const items = checklist?.items ?? [];
@@ -715,6 +717,10 @@ function SecurityTab() {
         <CardDescription>درجة الأمان العامة وضوابط الامتثال للهيئة الوطنية للأمن السيبراني.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-primary/20 bg-primary/5 p-3">
+          <div className="text-sm"><div className="font-medium">أمان حسابي</div><div className="text-xs text-muted-foreground">كلمة المرور، التحقق الثنائي، رموز الاسترداد، والجلسات — لهويتك أنت فقط.</div></div>
+          <Button variant="outline" size="sm" onClick={() => navigate("/account/security")} data-testid="btn-open-account-security-tab">فتح <ChevronLeft className="ms-1 size-4" /></Button>
+        </div>
         <div className="flex items-center gap-3">
           <div className="text-3xl font-bold tabular-nums">{score}%</div>
           <Badge variant="outline">

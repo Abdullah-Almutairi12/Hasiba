@@ -6,7 +6,7 @@ import { spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync, mkdirSync, readdirSync, symlinkSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve, join } from "node:path";
-import { randomUUID } from "node:crypto";
+import { randomUUID, randomBytes } from "node:crypto";
 import { createServer } from "node:net";
 
 const root = resolve(import.meta.dirname, "..");
@@ -48,6 +48,8 @@ try {
     DATABASE_URL: url,
     TEST_DATABASE_URL: url,
     SESSION_SECRET: randomUUID(),
+    ACCOUNT_MFA_ENCRYPTION_KEY: randomBytes(32).toString("hex"),
+    ACCOUNT_ISOLATED_TEST: "true",
     // Ensure no external effects are enabled during a verification run.
     SMTP_HOST: "", SMTP_USER: "", SMTP_PASS: "",
     SENTRY_DSN: "", AI_INTEGRATIONS_OPENAI_API_KEY: "", OPENAI_API_KEY: "",

@@ -1,6 +1,8 @@
 import { Router, type IRouter } from "express";
 import healthRouter from "./health";
 import authRouter from "./auth";
+import accountSecurityRouter from "./account-security";
+import {accountSessionGate} from "../middlewares/account-session";
 import dashboardRouter from "./dashboard";
 import productsRouter from "./products";
 import posRouter from "./pos";
@@ -72,6 +74,7 @@ router.use((req,res,next)=>{
 });
 // Before auth, activation, cross-company and operational routers alike.
 router.use(recoverySessionGate);
+router.use(accountSessionGate);
 router.use((req,res,next)=>{
   res.setHeader("X-Request-ID",String(req.id));
   if(req.method==="GET"){res.setHeader("Cache-Control","private, no-store");res.setHeader("X-Content-Type-Options","nosniff");}
@@ -81,6 +84,7 @@ router.use((req,res,next)=>{
 // Public routes (no auth required)
 router.use(healthRouter);
 router.use(authRouter);
+router.use(accountSecurityRouter);
 router.use(teamPublicRouter);
 router.use(administrationReceiptRouter);
 

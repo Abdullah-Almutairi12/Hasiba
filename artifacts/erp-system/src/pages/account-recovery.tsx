@@ -10,6 +10,7 @@ import { errorText } from "@/lib/team-access";
 import { readAllEvidence, type FinalizeEvidence } from "@/components/administration/shared";
 import { RecoveryCard } from "@/components/administration/handover-cards";
 import { ME_KEY } from "@/hooks/use-auth";
+import { MfaChallenge } from "@/components/account/mfa-challenge";
 
 /** Public, identity-only recovery. Never restores company access. */
 export default function AccountRecoveryPage() {
@@ -20,6 +21,8 @@ export default function AccountRecoveryPage() {
   const [userId, setUserId] = useState<number | null>(null);
   const [evidence, setEvidence] = useState<FinalizeEvidence[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [mfaStage, setMfaStage] = useState(false);
+  const finish = (id: number) => { qc.clear(); qc.setQueryData(ME_KEY, null); setMfaStage(false); setUserId(id); setEvidence(readAllEvidence(id)); };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault(); setError(null);
@@ -31,8 +34,9 @@ export default function AccountRecoveryPage() {
       qc.clear();
       qc.setQueryData(ME_KEY,null);
       setPassword("");
-      setUserId(r.userId);
-      setEvidence(readAllEvidence(r.userId));
+      if (r.mfaRequired) { setMfaStage(true); return; }
+      if (typeof r.userId !== "number") { setError("استجابة غير متوقعة من الخادم."); return; }
+      finish(r.userId);
     } catch (err) { setError(errorText(err)); }
   };
 
@@ -43,7 +47,13 @@ export default function AccountRecoveryPage() {
           <p className="flex items-center gap-2 text-xs font-semibold text-primary"><ShieldCheck className="size-4" /> استرجاع نتيجة تنفيذ</p>
           <h1 className="mt-1 text-2xl font-bold">التحقق من تسليم سابق</h1>
           <p className="mt-1 text-sm text-muted-foreground">إذا نفّذت تسليمًا أو مغادرة وانقطع الاتصال قبل التأكيد، تحقّق هوّيتك هنا لمراجعة الأدلة المحفوظة على هذا الجهاز. هذا لا يعيد وصولك إلى أي منشأة.</p>
-          {userId == null ? (
+          {userId == null && mfaStage ? (
+            <div className="mt-5"><MfaChallenge context="recovery" onCancel={() => setMfaStage(false)} onVerified={(r) => {
+              // Receipt-only identity: never fill operational cache, never navigate to tenant pages.
+              if (r.receiptOnly && typeof r.userId === "number") finish(r.userId);
+              else { qc.clear(); qc.setQueryData(ME_KEY, null); setMfaStage(false); setError("لم تُرجع خطوة التحقق هوية استرجاع. أعد المحاولة."); }
+            }} /></div>
+          ) : userId == null ? (
             <form className="mt-5 space-y-3" onSubmit={(e) => void submit(e)}>
               <div><Label htmlFor="rec-email">البريد</Label><Input id="rec-email" dir="ltr" type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} data-testid="input-recovery-email" /></div>
               <div><Label htmlFor="rec-pass">كلمة المرور</Label><Input id="rec-pass" dir="ltr" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} data-testid="input-recovery-password" /></div>

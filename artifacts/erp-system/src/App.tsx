@@ -92,9 +92,11 @@ const AdministrationPage = lazy(() => import("@/pages/administration"));
 const PosDevicePage = lazy(() => import("@/pages/pos-device"));
 const SettingsPosDevicesPage = lazy(() => import("@/pages/settings-pos-devices"));
 const AccountRecoveryPage = lazy(() => import("@/pages/account-recovery"));
+const AccountSecurityPage = lazy(() => import("@/pages/account-security"));
+const AccountPasswordPage = lazy(() => import("@/pages/account-password"));
 
 /** Paths a scoped (responsibility-bound) member may open. */
-const SCOPED_PATHS = new Set(["/my-work", "/administration", "/settings/users", "/account/membership", "/team-setup"]);
+const SCOPED_PATHS = new Set(["/my-work", "/administration", "/settings/users", "/account/membership", "/account/security", "/team-setup"]);
 const SCOPED_RETURNS_PATH = "/returns";
 
 /**
@@ -111,10 +113,16 @@ function ScopedGate({ children, pos = false }: { children: React.ReactNode; pos?
   const scoped = user?.role === "scoped";
   const posView = selected?.resource === "pos" && selected.actions.includes("pos.read");
   const inventoryCountView=location==="/inventory/stocktake"&&selected?.resource==="inventory"&&selected.actions.includes("inventory.read");
+  // Company policy requires a verified factor: only the self-security page is reachable.
+  const enrollOnly = !!user?.mfaEnrollmentRequired;
+  useEffect(() => {
+    if (enrollOnly && location !== "/account/security") setLocation("/account/security", { replace: true });
+  }, [enrollOnly, location, setLocation]);
   const allowed = !scoped || (pos ? posView : SCOPED_PATHS.has(location) || inventoryCountView || (location === SCOPED_RETURNS_PATH && canReachReturns(selected)));
   useEffect(() => {
-    if (!allowed) setLocation("/my-work", { replace: true });
-  }, [allowed, setLocation]);
+    if (!allowed && !enrollOnly) setLocation("/my-work", { replace: true });
+  }, [allowed, enrollOnly, setLocation]);
+  if (enrollOnly) return location === "/account/security" && !pos ? <>{children}</> : null;
   if (!allowed) return null;
   return <>{children}</>;
 }
@@ -182,6 +190,10 @@ function Router() {
 
         <Route path="/login" component={Login} />
         <Route path="/account/recovery" component={AccountRecoveryPage} />
+        <Route path="/account/password" component={AccountPasswordPage} />
+        <Route path="/account/security">
+          <Protected><AccountSecurityPage /></Protected>
+        </Route>
         <Route path="/signup" component={CreateCompany} />
         <Route path="/onboarding" component={OnboardingWizard} />
 

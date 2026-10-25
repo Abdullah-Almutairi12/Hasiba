@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { useAuth } from "@/hooks/use-auth";
+import { useAuth, isMfaRequired } from "@/hooks/use-auth";
+import { MfaChallenge } from "@/components/account/mfa-challenge";
 import { useLanguage } from "@/hooks/use-language";
 import {
   Calculator,
@@ -21,7 +22,8 @@ import {
 
 export default function Login() {
   const [, setLocation] = useLocation();
-  const { login, isLoggingIn, isAuthenticated } = useAuth();
+  const { login, isLoggingIn, isAuthenticated, user, completeMfaLogin } = useAuth();
+  const [mfaStage, setMfaStage] = useState(false);
   const { t, isRTL, toggleLanguage, language } = useLanguage();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -30,16 +32,18 @@ export default function Login() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (isAuthenticated) setLocation("/");
-  }, [isAuthenticated, setLocation]);
+    if (isAuthenticated) setLocation(user?.mfaEnrollmentRequired ? "/account/security" : "/");
+  }, [isAuthenticated, user?.mfaEnrollmentRequired, setLocation]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email || !password) return;
     setError(null);
     try {
-      await login({ email: email.trim().toLowerCase(), password });
-      setLocation("/");
+      const r = await login({ email: email.trim().toLowerCase(), password });
+      setPassword("");
+      if (isMfaRequired(r)) { setMfaStage(true); return; }
+      setLocation(r.mfaEnrollmentRequired ? "/account/security" : "/");
     } catch (err) {
       setError(err instanceof Error ? err.message : t("login.loginFailed"));
     }
@@ -154,6 +158,13 @@ export default function Login() {
               </p>
             </div>
 
+            {mfaStage ? (
+              <MfaChallenge context="login" onCancel={() => setMfaStage(false)} onVerified={async () => {
+                const me = await completeMfaLogin();
+                if (!me) { setMfaStage(false); setError("انتهت صلاحية خطوة التحقق. سجّل الدخول من جديد."); return; }
+                setLocation(me.mfaEnrollmentRequired ? "/account/security" : "/");
+              }} />
+            ) : (
             <form onSubmit={handleSubmit} className="space-y-5">
               {/* Email */}
               <div>
@@ -183,13 +194,11 @@ export default function Login() {
                   </label>
                   <button
                     type="button"
-                    className="cursor-not-allowed text-[11px] font-bold text-neutral-400"
-                    disabled
-                    aria-disabled="true"
-                    title={t("login.recoveryUnavailable")}
+                    className="text-[11px] font-bold text-[#2563EB] hover:underline"
+                    onClick={() => setLocation("/account/password")}
                     data-testid="button-forgot-password"
                   >
-                    {t("login.forgotPassword")} ({t("login.recoveryUnavailable")})
+                    {t("login.forgotPassword")}
                   </button>
                   <button type="button" className="text-[11px] font-bold text-[#2563EB] hover:underline" onClick={() => setLocation("/account/recovery")} data-testid="link-account-recovery">التحقق من تسليم سابق</button>
                 </div>
@@ -309,6 +318,7 @@ export default function Login() {
                 .
               </p>
             </form>
+            )}
           </div>
 
           {/* Trust footer */}

@@ -48,6 +48,8 @@ export const sessionMiddleware = session({
 
 declare module "express-session" {
   interface SessionData {
+    authEpoch?: number;
+    mfaChallenge?: string;
     purpose?: "administration_receipt" | "pos_device";
     posDevice?: import("../lib/pos-device-authority").PosDeviceAuthority;
     userId?: number;
