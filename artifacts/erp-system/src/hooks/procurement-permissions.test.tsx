@@ -1,6 +1,7 @@
 import {describe,it,expect,vi,beforeEach} from "vitest";
 import {renderHook} from "@testing-library/react";
 import {usePermissions} from "./use-permissions";
+import {canReachProcurement,actionLabel} from "../lib/pos-actions";
 const state=vi.hoisted(()=>({role:"scoped",selected:null as any}));
 vi.mock("@/hooks/use-auth",()=>({useAuth:()=>({user:{role:state.role}})}));
 vi.mock("@/lib/workspace-responsibility",()=>({useSelectedResponsibility:()=>state.selected}));
@@ -9,6 +10,15 @@ vi.mock("@workspace/api-client-react",()=>({
 }));
 describe("native procurement action visibility",()=>{
   beforeEach(()=>{state.role="scoped";state.selected=null;});
+  it("permits only the matching native source route with explicit base/read and renders known action labels",()=>{
+    const g={resource:"procurement",actions:["procurement.read","procurement.orders.read"]};
+    expect(canReachProcurement(g,"/procurement")).toBe(true);
+    expect(canReachProcurement(g,"/suppliers")).toBe(false);
+    expect(canReachProcurement(g,"/accounting")).toBe(false);
+    expect(canReachProcurement({...g,resource:"pos"},"/procurement")).toBe(false);
+    expect(canReachProcurement({...g,actions:["procurement.orders.read"]},"/procurement")).toBe(false);
+    expect(actionLabel("procurement.orders.approve")).not.toContain("غير معروف");
+  });
   it("requires one selected purchasing responsibility and explicit read; an inventory/ POS role never implies purchasing",()=>{
     for(const resource of ["inventory","pos"]){
       state.selected={resource,actions:["procurement.read","procurement.orders.read","procurement.orders.approve"]};

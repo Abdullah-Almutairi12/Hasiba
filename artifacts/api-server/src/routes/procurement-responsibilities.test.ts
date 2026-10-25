@@ -41,6 +41,9 @@ describe("native suppliers and purchase orders use existing responsibilities",()
     const list=ok(await f.selected(0,"get","/procurement/purchase-orders"));
     expect(list.map((p:any)=>p.id)).toContain(po.id);
     ok(await f.selected(2,"get",`/procurement/purchase-orders/${po.id}`),403);
+    ok(await f.selected(2,"get",`/procurement/purchase-orders/${po.id}/pdf`),403);
+    ok(await f.selected(2,"get",`/procurement/purchase-orders/${po.id}/pdf?download=1`),403);
+    ok(await f.selected(0,"get",`/exports/suppliers.xlsx?companyIds=${f.companies[1].id}`),403);
     ok(await f.selected(0,"post","/procurement/purchase-orders").send({...f.body(),supplierId:f.otherSupplier.id}),404);
     ok(await f.selected(0,"post","/procurement/purchase-orders").send(f.body(f.warehouses[1].id)),403);
     ok(await f.selected(0,"post","/procurement/purchase-orders").send({...f.body(),warehouseId:null}),403);
@@ -113,7 +116,8 @@ describe("native suppliers and purchase orders use existing responsibilities",()
   });
   it("exports directory only, prints owned sources, and records real grant evidence",async()=>{
     const f=await fixture(),po=await f.create();
-    ok(await f.selected(0,"get",`/procurement/purchase-orders/${po.id}/pdf`));
+    const printed=await f.selected(0,"get",`/procurement/purchase-orders/${po.id}/pdf`);
+    ok(printed);expect(printed.headers["content-type"]).toContain("application/pdf");
     const download=await f.selected(0,"get",`/procurement/purchase-orders/${po.id}/pdf?download=1`);
     expect(download.status).toBe(200);expect(download.headers["content-disposition"]).toContain("attachment");
     const exported=await f.selected(0,"get","/exports/suppliers.xlsx").buffer(true).parse((res,done)=>{
@@ -153,5 +157,12 @@ describe("native suppliers and purchase orders use existing responsibilities",()
       JOIN approval_requests r ON r.id=a.request_id WHERE r.record_id=$1 AND r.doc_type='purchase_order'
       AND a.action='approve'`,[po.id]);
     expect(saved).toHaveLength(1);expect(saved[0].authority_fingerprint).toBeTruthy();
+  });
+  it("does not inherit intercompany mirror cancellation from an otherwise valid PO grant",async()=>{
+    const f=await fixture(),po=await f.create();
+    await rows("UPDATE suppliers SET linked_company_id=$1 WHERE id=$2",[f.companies[1].id,f.supplier.id]);
+    for(const op of ["confirm","cancel","close"])
+      ok(await f.selected(0,"post",`/procurement/purchase-orders/${po.id}/${op}`).send({}),403);
+    expect((await rows("SELECT status FROM purchase_orders WHERE id=$1",[po.id]))[0].status).toBe("draft");
   });
 });

@@ -5,6 +5,20 @@
  * (including unavailable catalogue items and legacy previews).
  */
 export const ACTION_LABEL: Record<string, string> = {
+  "procurement.read":"تفعيل مساحة الموردين وأوامر الشراء",
+  "procurement.suppliers.read":"عرض دليل الموردين بلا صلاحيات مالية ضمنية",
+  "procurement.suppliers.create":"إنشاء مورد",
+  "procurement.suppliers.edit":"تعديل بيانات مورد",
+  "procurement.suppliers.export":"تصدير دليل الموردين",
+  "procurement.orders.read":"عرض أوامر الشراء ضمن النطاق",
+  "procurement.orders.create":"إنشاء أمر شراء",
+  "procurement.orders.confirm":"تقديم أو تأكيد أمر شراء",
+  "procurement.orders.approve":"مراجعة واعتماد أمر أنشأه شخص آخر",
+  "procurement.orders.cancel":"إلغاء أمر شراء",
+  "procurement.orders.close":"إغلاق أمر مستلم بالكامل دون تنفيذ الاستلام",
+  "procurement.orders.print":"طباعة أمر شراء",
+  "procurement.orders.export":"تنزيل أمر شراء",
+  "procurement.orders.send":"إرسال أمر شراء ومراجعة صندوق إرساله",
   "inventory.read": "عرض المخزون",
   "inventory.cost.read": "عرض تكلفة الأصناف",
   "inventory.transfer.receive": "استلام كامل حركة تحويل إلى مستودع الوجهة",
@@ -25,6 +39,12 @@ export const ACTION_LABEL: Record<string, string> = {
   "pos.return.payout": "صرف رد نقدي أو طلب رد يدوي",
   "pos.return.external": "تأكيد إثبات رد خارجي",
 };
+
+export function canReachProcurement(sel:{resource:string;actions:readonly string[]}|null|undefined,path:string):boolean{
+  if(sel?.resource!=="procurement"||!sel.actions.includes("procurement.read"))return false;
+  return path==="/suppliers"?sel.actions.includes("procurement.suppliers.read"):
+    path==="/procurement"&&sel.actions.includes("procurement.orders.read");
+}
 
 /** Never invent meaning: unknown keys are shown as unrecognised, with the key kept for support. */
 export function actionLabel(key: string, catalogLabel?: string | null): string {

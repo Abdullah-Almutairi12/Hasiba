@@ -65,6 +65,7 @@ export function ApprovalActions({ docType, recordId, compact, nativePurchaseOrde
       });
       setOpen(null);
       setComment("");
+      if(native)await qc.invalidateQueries({queryKey:["procurement"]});
       await qc.invalidateQueries({
         predicate: (q) => {
           const k = q.queryKey[0] as string | undefined;

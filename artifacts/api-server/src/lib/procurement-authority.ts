@@ -20,7 +20,7 @@ export const procurementAction = (method: string, path: string): string | null =
   return `procurement.orders.${tail === "retry" ? "send" : /^\d+$/.test(tail) ? "unsupported" : tail === "purchase-orders" ? "create" : tail}`;
 };
 
-export type ProcurementActor = { userId: number; companyId: number; grant: Responsibility | null; branches: number[] | null };
+export type ProcurementActor = { userId: number; companyId: number; grant: Responsibility | null; branches: number[] | null; action:string };
 export async function procurementActor(connection: DbOrTx, userId: number, companyId: number, action: string,
   independent = false): Promise<ProcurementActor> {
   const actor = await returnActor(userId, companyId, connection);
@@ -32,7 +32,7 @@ export async function procurementActor(connection: DbOrTx, userId: number, compa
       (!action.startsWith("procurement.orders.") || g.actions.includes("procurement.orders.read")) &&
       (!action.startsWith("procurement.suppliers.") || g.actions.includes("procurement.suppliers.read")));
     if (!grant) throw new FinancialRequestError("المسؤولية الحالية لا تجيز فعل الموردين أو أوامر الشراء", 403);
-    return { userId, companyId, grant, branches: [grant.branchId] };
+    return { userId, companyId, grant, branches: [grant.branchId],action };
   }
   const read = ["read", "print", "export"].includes(action.split(".").at(-1)!);
   const allowed = action === "procurement.orders.approve" ? ["owner", "manager"] :
@@ -43,7 +43,7 @@ export async function procurementActor(connection: DbOrTx, userId: number, compa
     throw new FinancialRequestError("دليل الموردين بلا فرع؛ التصدير القديم المقيد بالفروع غير متاح",403);
   if (!allowed.includes(actor.role) || actor.custom && !actor.capabilities.includes(read ? "view" : action.endsWith(".approve") ? "approve" : "create"))
     throw new FinancialRequestError("صلاحية الموردين أو أوامر الشراء غير متاحة", 403);
-  return { userId, companyId, grant: null, branches: actor.branches };
+  return { userId, companyId, grant: null, branches: actor.branches,action };
 }
 export async function requestProcurementActor(req: Request, action: string, connection: DbOrTx = db, write = false) {
   if (write) await lockApprovalAuthority(connection);
@@ -62,7 +62,12 @@ export function procurementOrderScope(actor: ProcurementActor): SQL {
 export async function assertProcurementOrder(actor: ProcurementActor, id: number, connection: DbOrTx = db, lock = false) {
   const query = connection.select().from(purchaseOrdersTable).where(and(eq(purchaseOrdersTable.id, id), procurementOrderScope(actor)));
   const [po] = await (lock ? query.for("update") : query);
-  if (!po) throw new FinancialRequestError("أمر الشراء خارج النطاق أو الحد المالي", 403);
+  if (!po) throw new FinancialRequestError("أمر الشراء غير متاح في النطاق الحالي", actor.grant?403:404);
+  if(actor.grant&&["confirm","approve","cancel","close"].some(a=>actor.action===`procurement.orders.${a}`)){
+    const related=await connection.execute(sql`SELECT linked_company_id FROM suppliers WHERE id=${po.supplierId} AND company_id=${actor.companyId}`);
+    if(po.requisitionId||po.rfqId||po.agreementId||related.rows[0]?.linked_company_id)
+      throw new FinancialRequestError("تنفيذ أمر مرتبط بدورة احتياج أو عقد أو شركة مقابلة خارج حدود هذه المنحة",403);
+  }
   return po;
 }
 export async function assertProcurementValue(actor: ProcurementActor, warehouseId: number | null, amount: string, connection: DbOrTx) {

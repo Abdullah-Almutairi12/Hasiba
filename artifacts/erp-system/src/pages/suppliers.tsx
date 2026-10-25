@@ -302,8 +302,8 @@ export default function Suppliers() {
                 <TableHead>الهاتف</TableHead>
                 <TableHead>البريد</TableHead>
                 <TableHead>الشركة المرتبطة</TableHead>
-                <TableHead className="text-center">الفواتير</TableHead>
-                <TableHead className="text-left">الرصيد</TableHead>
+                {!isScoped&&<TableHead className="text-center">الفواتير</TableHead>}
+                {!isScoped&&<TableHead className="text-left">الرصيد</TableHead>}
                 <TableHead className="text-end">إجراءات</TableHead>
               </TableRow>
             </TableHeader>
@@ -348,10 +348,10 @@ export default function Suppliers() {
                         <span className="text-muted-foreground">—</span>
                       )}
                     </TableCell>
-                    <TableCell className="text-center">{isScoped?"غير مشمول":s.invoicesCount}</TableCell>
-                    <TableCell className="text-left font-bold">
-                      {isScoped?"غير مشمول":s.balance.toLocaleString("ar-SA")}
-                    </TableCell>
+                    {!isScoped&&<TableCell className="text-center">{s.invoicesCount}</TableCell>}
+                    {!isScoped&&<TableCell className="text-left font-bold">
+                      {s.balance.toLocaleString("ar-SA")}
+                    </TableCell>}
                     <TableCell className="text-end">
                       <Button
                         hidden={!canProcurement("suppliers.edit")}
