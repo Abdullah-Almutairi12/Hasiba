@@ -21,6 +21,7 @@ import { finalizeCreditNoteIssue } from "./sales";
 import { assertDeferredReturnApproval } from "../lib/workflow-engine";
 import { invoiceReturnBudgets, returnMoney } from "../lib/sales-return-value";
 import { assertPosDeviceShift, posDeviceAuthority } from "../lib/pos-device-authority";
+import { captureClosingSettlement, auditClosingDecision } from "../lib/cash-closing-evidence";
 
 const router = Router();
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -46,7 +47,9 @@ export async function sessionCash(tx: Tx, sessionId: number, companyId: number) 
     coalesce((SELECT sum(r.amount) FROM return_payouts r WHERE r.session_id=s.id AND r.company_id=${companyId}
       AND r.method='cash' AND r.status='confirmed'),0) AS cash_refunds,
     coalesce((SELECT sum(e.amount) FROM pos_cash_expenses e WHERE e.session_id=s.id AND e.company_id=${companyId}),0) AS cash_expenses,
-    c.counted,c.difference,c.status AS closing_status,c.created_by AS closing_created_by,
+    c.counted,c.difference,c.reason AS closing_reason,c.status AS closing_status,c.created_by AS closing_created_by,
+    c.approved_by AS closing_approved_by,c.approved_at AS closing_approved_at,
+    c.review_reason,c.review_snapshot,c.settlement_revision,c.settlement_version,c.reconciliation_reason,
     EXISTS(SELECT 1 FROM audit_logs a WHERE a.company_id=${companyId} AND a.action='exception_used'
       AND a.entity='pos_owner_exception' AND a.details::jsonb->>'purpose'='cash_difference_review'
       AND a.details::jsonb->>'sessionId'=s.id::text) AS closing_owner_exception,
@@ -267,13 +270,18 @@ async function changePayout(tx: Tx, companyId: number, userId: number, input: un
 
 async function closeShift(tx: Tx, companyId: number, userId: number, input: unknown, approve: boolean) {
   const b = z.object({ sessionId: id, counted: z.number().min(0).max(999999999).optional(), reason: z.string().max(500).default(""),
-    unresolvedSalesCleared: z.boolean().optional() }).parse(input);
+    unresolvedSalesCleared: z.boolean().optional(), reviewReason: z.string().trim().max(1000).optional(),
+    settlementRevision: z.string().max(100).optional(), reconcile: z.boolean().optional() }).parse(input);
   const [session] = await tx.select().from(posSessionsTable).where(eq(posSessionsTable.id, b.sessionId)).for("update");
   if (!session) fail("الوردية غير متاحة", 404);
   await returnAuthorize(userId, companyId, approve ? "difference" : "close", session.branchId, tx);
   if (!approve) assertPosDeviceShift(session);
   const [old] = await query(tx, sql`SELECT * FROM pos_cash_closings WHERE session_id=${session.id} AND company_id=${companyId}`);
   if (old?.status === "approved") {
+    if (approve && (!old.review_reason || Number(old.approved_by) !== userId ||
+      b.reviewReason !== old.review_reason || b.settlementRevision !== old.settlement_revision)) {
+      fail("قرار الاعتماد مؤكد؛ لا يعدل المراجع أو التعليل أو نسخة التسوية بإعادة الطلب");
+    }
     if (!approve && (b.counted == null || cents(b.counted) !== cents(old.counted) || (b.reason ?? null) !== (old.reason ?? null))) {
       fail("الإقفال مؤكد ببيانات مختلفة؛ لا يعدل العد أو السبب بإعادة الطلب");
     }
@@ -284,12 +292,17 @@ async function closeShift(tx: Tx, companyId: number, userId: number, input: unkn
   const summary = await sessionCash(tx, session.id, companyId);
   if (approve) {
     if (!old || old.status !== "pending" || session.status !== "closing") fail("لا يوجد فرق ينتظر الاعتماد");
+    if (!b.reviewReason || b.reviewReason.length < 3) fail("يلزم تعليل مستقل للمراجع", 400);
     if (Number(old.created_by) === userId) {
       await consumeOwnerProof(tx,userId,companyId,"cash_difference_review",session.id,(input as Row).ownerProof);
     }
+    if (!old.settlement_revision || b.settlementRevision !== old.settlement_revision) fail("نسخة التسوية غير مطابقة؛ أعد تحميلها أو أعد التسوية");
+    const current = await captureClosingSettlement(tx, companyId, session.id, old);
+    if (current.revision !== old.settlement_revision) fail("تغيرت حقائق التسوية؛ يلزم إعادة التسوية والمراجعة");
     if (cents(old.expected) !== cents(summary.expected)) fail("تغيرت حركة الصندوق؛ يلزم إعادة التسوية");
     const difference = cents(old.difference);
     await scopedShiftDifference(tx, userId, companyId, session.branchId, money(difference));
+    if (difference !== 0) {
     const key = difference < 0 ? "cash_shortage" : "cash_surplus";
     await query(tx, sql`INSERT INTO accounts(code,name,name_ar,type,currency_code,system_key)
       VALUES(${`SYS-${key}`},${key},${difference < 0 ? "عجز الصندوق المعتمد" : "زيادة الصندوق المعتمدة"},
@@ -299,24 +312,48 @@ async function closeShift(tx: Tx, companyId: number, userId: number, input: unkn
     difference < 0
       ? [{ systemKey: key, debit: -difference / 100 }, { systemKey: "cash", credit: -difference / 100 }]
       : [{ systemKey: "cash", debit: difference / 100 }, { systemKey: key, credit: difference / 100 }]);
-    await query(tx, sql`UPDATE pos_cash_closings SET status='approved',approved_by=${userId},approved_at=now()
-      WHERE session_id=${session.id} AND company_id=${companyId}`);
+    }
+    const [decision] = await query(tx, sql`UPDATE pos_cash_closings SET status='approved',approved_by=${userId},approved_at=clock_timestamp(),
+      review_reason=${b.reviewReason ?? ""},review_snapshot=settlement_snapshot
+      WHERE session_id=${session.id} AND company_id=${companyId} RETURNING *`);
+    await auditClosingDecision(tx,companyId,userId,"approve", {sessionId:session.id,decision});
     await tx.update(posSessionsTable).set({ status: "closed", closedAt: new Date() }).where(eq(posSessionsTable.id, session.id));
-    return { ...old, status: "approved", approved_by: userId };
+    return decision;
   }
-  if (old || session.status !== "open") fail("الوردية مغلقة أو قيد اعتماد فرق");
+  const reconcile = b.reconcile && old?.status === "pending" && session.status === "closing";
+  if ((old || session.status !== "open") && !reconcile) fail("الوردية مغلقة أو قيد اعتماد فرق");
+  if (reconcile && b.settlementRevision !== (old.settlement_revision ?? `legacy-${session.id}`)) fail("تغيرت نسخة التسوية؛ أعد التحميل");
   if (!b.unresolvedSalesCleared || b.counted == null) fail("يلزم النقد المعدود وتأكيد مراجعة نتائج البيع غير المحسومة", 400);
   const counted = b.counted!;
   if (Number(counted.toFixed(2)) !== counted) fail("النقد المعدود بدقة هللتين", 400);
   const difference = cents(b.counted) - cents(summary.expected);
   if (difference !== 0 && b.reason.trim().length < 3) fail("يلزم سبب فرق الصندوق", 400);
   const status = difference === 0 ? "approved" : "pending";
+  if (reconcile) {
+    if (b.reason.trim().length < 3) fail("يلزم سبب إعادة التسوية",400);
+    // A reconciled pending variance remains pending even if the new variance is zero.
+    // Preserve the cashier's first reason; append the previous facts to the atomic audit.
+    const evidence = await captureClosingSettlement(tx,companyId,session.id,{
+      ...old,expected:summary.expected,counted:b.counted,difference:money(difference),
+      reconciliation_reason:b.reason.trim(),settlement_version:Number(old.settlement_version)+1,
+    });
+    const [revised] = await query(tx,sql`UPDATE pos_cash_closings SET expected=${String(summary.expected)},counted=${String(b.counted)},
+      difference=${money(difference)},reconciliation_reason=${b.reason.trim()},settlement_version=settlement_version+1,
+      settlement_snapshot=${JSON.stringify(evidence.snapshot)}::jsonb,settlement_revision=${evidence.revision}
+      WHERE session_id=${session.id} AND company_id=${companyId} RETURNING *`);
+    await auditClosingDecision(tx,companyId,userId,"reconcile",{sessionId:session.id,before:old,after:revised});
+    return revised;
+  }
   const [closing] = await query(tx, sql`INSERT INTO pos_cash_closings(session_id,company_id,expected,counted,difference,reason,status,created_by,approved_by,approved_at)
     VALUES(${session.id},${companyId},${String(summary.expected)},${String(b.counted)},${money(difference)},${b.reason},${status},${userId},
       ${difference === 0 ? userId : null},${difference === 0 ? new Date() : null}) RETURNING *`);
+  const evidence = await captureClosingSettlement(tx,companyId,session.id,closing);
+  const [saved] = await query(tx,sql`UPDATE pos_cash_closings SET settlement_snapshot=${JSON.stringify(evidence.snapshot)}::jsonb,
+    settlement_revision=${evidence.revision} WHERE session_id=${session.id} AND company_id=${companyId} RETURNING *`);
+  await auditClosingDecision(tx,companyId,userId,"close",{sessionId:session.id,closing:saved});
   await saveIssuer(tx,"closing",session.id,await captureIssuer(tx,companyId));
   await tx.update(posSessionsTable).set({ status: difference === 0 ? "closed" : "closing", closedAt: difference === 0 ? new Date() : null }).where(eq(posSessionsTable.id, session.id));
-  return closing;
+  return saved;
 }
 
 async function cashExpense(tx: Tx, companyId: number, userId: number, input: unknown) {

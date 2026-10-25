@@ -1,4 +1,5 @@
 import { beforeAll, describe, expect, it } from "vitest";
+import { closingReviewPayload } from "../test-utils/closing-review";
 import request from "supertest";
 import bcrypt from "bcryptjs";
 import { randomUUID, createHash } from "node:crypto";
@@ -67,7 +68,7 @@ async function fixture(legacy: boolean, extraActions: string[] = []) {
   const grant = ok(await agent.get("/api/workspace/access")).grants[0];
   const get = (path: string) => agent.get(`/api${path}`).set("X-Workspace-Responsibility", String(grant.id));
   const post = (path: string, body: object, key = randomUUID()) => agent.post(`/api${path}`).set("X-Workspace-Responsibility", String(grant.id)).set("Idempotency-Key", key).send(body);
-  const action = (name: string, payload: unknown) => post("/pos/returns/actions", { action: name, payload });
+  const action = async (name: string, payload: unknown) => post("/pos/returns/actions", { action: name, payload: name==="approve_close"?await closingReviewPayload(payload):payload });
   return { owner, agent, get, post, action, company: c.id, branch: b.id, wh: w.id, product: p.id, person, employee, identityId, grant };
 }
 type Fixture = Awaited<ReturnType<typeof fixture>>;
@@ -81,8 +82,8 @@ async function anotherActor(f: Fixture, actions: string[]) {
   const agent = actorAgent();
   ok(await agent.post("/api/auth/login").send({ email: person.email, password }));
   const grant = ok(await agent.get("/api/workspace/access")).grants[0];
-  return { employee, person, agent, grant, action: (action: string, payload: unknown) =>
-    agent.post("/api/pos/returns/actions").set("X-Workspace-Responsibility", String(grant.id)).send({ action, payload }) };
+  return { employee, person, agent, grant, action: async (action: string, payload: unknown) =>
+    agent.post("/api/pos/returns/actions").set("X-Workspace-Responsibility", String(grant.id)).send({ action, payload:action==="approve_close"?await closingReviewPayload(payload):payload }) };
 }
 async function openAndSell(f: Fixture, method = "cash") {
   const session = ok(await f.post("/pos/sessions", { branchId: f.branch, openingCash: 20, cashierName: "اسم الطلب" }), 201);
@@ -331,7 +332,7 @@ describe("native POS lifecycle for new and converted scoped employees", () => {
     expect(await rows("SELECT id FROM credit_notes WHERE company_id=$1",[f.company])).toHaveLength(1);
   });
   it("limits explicit sole-owner exceptions to one operation, then records responsibility without extra money or payroll", async () => {
-    const f=await fixture(false), act=(action:string,payload:unknown)=>f.owner.post("/api/pos/returns/actions").send({action,payload});
+    const f=await fixture(false), act=async(action:string,payload:unknown)=>f.owner.post("/api/pos/returns/actions").send({action,payload:action==="approve_close"?await closingReviewPayload(payload):payload});
     const session=ok(await f.owner.post("/api/pos/sessions").send({branchId:f.branch,openingCash:20,cashierName:"المالك"}),201);
     ok(await act("close",{sessionId:session.id,counted:19,reason:"فرق مصطنع للمالك",unresolvedSalesCleared:true}));
     ok(await act("approve_close",{sessionId:session.id}),403);
@@ -359,7 +360,7 @@ describe("native POS lifecycle for new and converted scoped employees", () => {
     ok(await act("responsibility",{...decision,evidence:"دليل مختلف",ownerProof:confirmation.proof}),409);
   });
   it.each(["expired","policy","amount","second_owner","source"] as const)("rejects a sole-owner proof after %s changes without posting the difference",async kind=>{
-    const f=await fixture(false),act=(action:string,payload:unknown)=>f.owner.post("/api/pos/returns/actions").send({action,payload});
+    const f=await fixture(false),act=async(action:string,payload:unknown)=>f.owner.post("/api/pos/returns/actions").send({action,payload:action==="approve_close"?await closingReviewPayload(payload):payload});
     const session=ok(await f.owner.post("/api/pos/sessions").send({branchId:f.branch,openingCash:20,cashierName:"المالك"}),201);
     ok(await act("close",{sessionId:session.id,counted:19,reason:"فرق مصطنع",unresolvedSalesCleared:true}));
     const p={enabled:true,operations:["cash_difference_review"],amountLimit:1,reason:"سياسة مصطنعة مؤرخة"};
@@ -441,8 +442,8 @@ describe("native POS lifecycle for new and converted scoped employees", () => {
     ok(await actorAgent().post("/api/auth/team-activation/accept").send({token:invite.activationToken,password}));
     const agent=actorAgent();ok(await agent.post("/api/auth/login").send({email:person.email,password}));
     let grant=ok(await agent.get("/api/workspace/access")).grants[0];
-    const approve=()=>agent.post("/api/pos/returns/actions").set("X-Workspace-Responsibility",String(grant.id))
-      .send({action:"approve_close",payload:{sessionId:sale.session.id}});
+    const approve=async()=>agent.post("/api/pos/returns/actions").set("X-Workspace-Responsibility",String(grant.id))
+      .send({action:"approve_close",payload:await closingReviewPayload({sessionId:sale.session.id})});
     const setLimit=async(limit:string)=>{
       employee=ok(await f.owner.get("/api/team/people")).find((x:any)=>x.personId===employee.personId);
       person.grants[0].amountLimit=limit;
@@ -551,7 +552,7 @@ describe("native POS lifecycle for new and converted scoped employees", () => {
     const before=await evidence(f);
     ok(await f.action("approve_close",{sessionId:sale.session.id}),403);
     expect(await evidence(f)).toEqual(before);
-    const approves=await Promise.all([1,2].map(()=>f.owner.post("/api/pos/returns/actions").send({action:"approve_close",payload:{sessionId:sale.session.id}})));
+    const approves=await Promise.all([1,2].map(async()=>f.owner.post("/api/pos/returns/actions").send({action:"approve_close",payload:await closingReviewPayload({sessionId:sale.session.id})})));
     expect(ok(approves[0]).status).toBe("approved");
     expect(ok(approves[1]).status).toBe("approved");
     expect((await rows("SELECT count(*)::int AS n FROM journal_entries WHERE company_id=$1 AND reference=$2",[f.company,`SHIFT-VAR-${sale.session.id}`]))[0].n).toBe(1);

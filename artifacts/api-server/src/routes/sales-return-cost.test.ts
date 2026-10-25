@@ -206,6 +206,7 @@ describe("original POS invoice: independent linked return lifecycle", () => {
       "0047_pos_station_evidence.sql",
       "0048_pos_cashier_evidence.sql",
       "0049_discard_legacy_unlock_challenges.sql",
+      "0050_cash_closing_review_evidence.sql",
     ]);
     expect(first.skipped).toHaveLength(26);
     expect(await snapshots()).toEqual(before);

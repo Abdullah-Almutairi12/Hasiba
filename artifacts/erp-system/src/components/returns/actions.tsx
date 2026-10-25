@@ -120,7 +120,7 @@ function CancelPayout({ payoutId }: { payoutId: string }) {
     onSubmit={async (reason) => { const r = await run("cancel_payout", { payoutId: Number(payoutId), reason }); if (r.ok) toast({ title: "أُرسل الإلغاء" }); return r; }} />;
 }
 
-export function CloseForm({ sessionId, expected }: { sessionId: string; expected: number }) {
+export function CloseForm({ sessionId, expected, settlementRevision }: { sessionId: string; expected: number; settlementRevision?: string }) {
   const { run, pending } = useAct();
   const scope = useActorScope();
   const { toast } = useToast();
@@ -143,7 +143,7 @@ export function CloseForm({ sessionId, expected }: { sessionId: string; expected
     const timer = window.setInterval(refresh, 1000);
     return () => window.clearInterval(timer);
   }, [open, scope]);
-  if (!open) return <Button size="sm" className="mt-3" variant="outline" onClick={() => setOpen(true)}><Lock className="me-1 size-4" /> إغلاق الوردية</Button>;
+  if (!open) return <Button size="sm" className="mt-3" variant="outline" onClick={() => setOpen(true)}><Lock className="me-1 size-4" /> {settlementRevision ? "إعادة تسوية الوردية" : "إغلاق الوردية"}</Button>;
   const c = num(counted);
   return (
     <div className="mt-3 space-y-2 rounded-xl bg-muted/50 p-3">
@@ -162,7 +162,8 @@ export function CloseForm({ sessionId, expected }: { sessionId: string; expected
         <Button size="sm" disabled={pending || blocked || c === null || c < 0 || !reviewed || (c !== expected && !reason.trim())} onClick={async () => {
           setErr(null);
           if (hasUnconfirmed()) { setBlocked(true); return; }
-          const r = await run("close", { sessionId: Number(sessionId), counted: c, reason: reason.trim(), unresolvedSalesCleared: true });
+          const r = await run("close", { sessionId: Number(sessionId), counted: c, reason: reason.trim(), unresolvedSalesCleared: true,
+            ...(settlementRevision ? {reconcile:true,settlementRevision} : {}) });
           if (r.ok) { toast({ title: r.res.status === "approved" ? "اكتمل إقفال الوردية واعتماده" : "سُجل الإغلاق بانتظار مراجعة الفرق" }); setOpen(false); } else setErr(r.err);
         }}>{pending ? "جارٍ الإرسال..." : "تأكيد الإغلاق"}</Button>
         <Button size="sm" variant="ghost" onClick={() => setOpen(false)}>إلغاء</Button>
@@ -171,17 +172,22 @@ export function CloseForm({ sessionId, expected }: { sessionId: string; expected
   );
 }
 
-export function ApproveClose({ sessionId, selfOwner=false }: { sessionId: string; selfOwner?:boolean }) {
+export function ApproveClose({ sessionId, settlementRevision, selfOwner=false }: { sessionId: string; settlementRevision: string; selfOwner?:boolean }) {
   const [proof,setProof]=useState("");
+  const [reviewReason,setReviewReason]=useState("");
   const { run, pending } = useAct();
   const { toast } = useToast();
   const [err, setErr] = useState<ErrInfo | null>(null);
   return (
     <div className="space-y-2">
+      <Label htmlFor={`review-reason-${sessionId}`}>تعليل المراجع المستقل</Label>
+      <Textarea id={`review-reason-${sessionId}`} maxLength={1000} value={reviewReason} onChange={e=>setReviewReason(e.target.value)}
+        placeholder="ما الذي راجعته ولماذا اعتمدت هذا الفرق؟" />
+      <p className="text-xs text-muted-foreground">التعليل لا يعدل سبب الكاشير ولا يقرر تحميل موظف مسؤولية الفرق.</p>
       {selfOwner&&<OwnerProof sessionId={sessionId} purpose="cash_difference_review" onProof={setProof}/>}
-      <Button size="sm" disabled={pending||(selfOwner&&!proof)} onClick={async () => {
+      <Button size="sm" disabled={pending||reviewReason.trim().length<3||!settlementRevision||(selfOwner&&!proof)} onClick={async () => {
         setErr(null);
-        const r = await run("approve_close", { sessionId: Number(sessionId),...(proof?{ownerProof:proof}:{}) });
+        const r = await run("approve_close", { sessionId: Number(sessionId),settlementRevision,reviewReason:reviewReason.trim(),...(proof?{ownerProof:proof}:{}) });
         if (r.ok) {toast({ title: selfOwner?"اكتمل الإقفال باستثناء المالك الموثق — ليس اعتمادًا مستقلًا":"اكتمل اعتماد الإقفال" });setProof("");} else setErr(r.err);
       }}>اعتماد الإغلاق بالفرق</Button>
       {err && <ErrorBox err={err} onClose={() => setErr(null)} />}

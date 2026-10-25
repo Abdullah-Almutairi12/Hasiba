@@ -10,11 +10,12 @@ import { db, pool, companiesTable, usersTable, userCompaniesTable, branchesTable
   categoriesTable, productsTable, posSessionsTable, fiscalYearsTable, fiscalPeriodsTable, employeesTable } from "@workspace/db";
 import app, { assertApplicationReady } from "../app";
 import { recordStockMove } from "../lib/stock-engine";
+import { closingReviewPayload } from "../test-utils/closing-review";
 
 beforeAll(assertApplicationReady);
 let address = 90;
-const action = (agent: ReturnType<typeof request.agent>, name: string, payload: Record<string, unknown>) =>
-  agent.post("/api/pos/returns/actions").send({ action: name, payload });
+const action = async (agent: ReturnType<typeof request.agent>, name: string, payload: Record<string, unknown>) =>
+  agent.post("/api/pos/returns/actions").send({ action: name, payload: name==="approve_close" ? await closingReviewPayload(payload) : payload });
 function ok(r: request.Response, status = 200) { expect(r.status, JSON.stringify(r.body)).toBe(status); return r.body; }
 async function fixture(method: "cash" | "card" = "cash", vatNumber?: string) {
   const tag = randomUUID(), password = "Synthetic-only-Returns-123!";
@@ -90,6 +91,56 @@ function savePdf(response:request.Response,name:string){
   mkdirSync(evidenceDir,{recursive:true});const path=`${evidenceDir}/${name}.pdf`;writeFileSync(path,response.body);
   return execFileSync("python",["-c","import pymupdf,sys; print('\\n'.join(p.get_text() for p in pymupdf.open(sys.argv[1])))",path],{encoding:"utf8"});
 }
+describe("cash closing review evidence",()=>{
+  it("requires a separate reason, preserves it and cashier facts, and rejects altered retries and unauthorized reviewers",async()=>{
+    const f=await fixture();
+    const closing=ok(await action(f.cashier.agent,"close",{sessionId:f.session.id,counted:90,reason:"سبب الكاشير الأصلي",unresolvedSalesCleared:true}));
+    const payload={sessionId:f.session.id,settlementRevision:closing.settlement_revision,reviewReason:"راجعت النقد والحركات وسبب الفرق"};
+    const raw=(agent:typeof f.manager.agent,p:object)=>agent.post("/api/pos/returns/actions").send({action:"approve_close",payload:p});
+    expect((await raw(f.manager.agent,{...payload,reviewReason:"   "})).status).toBe(400);
+    expect((await raw(f.cashier.agent,payload)).status).toBe(403);
+    const before=(await pool.query("SELECT count(*) FROM journal_entries WHERE company_id=$1",[f.company.id])).rows[0].count;
+    const responses=await Promise.all([raw(f.manager.agent,payload),raw(f.manager.agent,payload)]);
+    const approved=ok(responses[0]);
+    const repeated=ok(responses[1]);
+    expect(approved.review_reason).toBe(payload.reviewReason);
+    expect(repeated).toEqual(approved);
+    expect(approved.reason).toBe("سبب الكاشير الأصلي");
+    expect(approved.review_snapshot).toEqual(approved.settlement_snapshot);
+    expect(approved.approved_by).not.toBe(approved.created_by);
+    expect((await raw(f.manager.agent,{...payload,reviewReason:"تعليل مختلف"})).status).toBe(409);
+    expect(Number((await pool.query("SELECT count(*) FROM journal_entries WHERE company_id=$1",[f.company.id])).rows[0].count)).toBe(Number(before)+1);
+    const s=ok(await f.manager.agent.get("/api/pos/returns/workspace")).sessions.find((r:any)=>r.id===f.session.id);
+    expect(s.review_reason).toBe(payload.reviewReason);
+    expect(s.closing_reason).toBe("سبب الكاشير الأصلي");
+    expect(s.closing_approved_at).toBeTruthy();
+    const audit=(await pool.query("SELECT details FROM audit_logs WHERE company_id=$1 AND entity='pos_cash_closing' AND action='approve'",[f.company.id])).rows;
+    expect(audit).toHaveLength(1);
+    expect(JSON.parse(audit[0].details).decision.review_reason).toBe(payload.reviewReason);
+    // Remove the live reviewer role; a matching receipt is not a bypass.
+    await pool.query("UPDATE user_companies SET role='cashier' WHERE company_id=$1 AND user_id=$2",[f.company.id,approved.approved_by]);
+    expect((await raw(f.manager.agent,payload)).status).toBe(403);
+  });
+  it("binds source facts, rejects stale review and permits an audited pending reconciliation without rewriting the cashier reason",async()=>{
+    const f=await fixture();
+    const first=ok(await action(f.cashier.agent,"close",{sessionId:f.session.id,counted:90,reason:"عد الكاشير الأول",unresolvedSalesCleared:true}));
+    // Keep net expected cash unchanged: replacing a movement's identity must
+    // still invalidate review, not pass an amount-only comparison.
+    await pool.query("UPDATE pos_order_payments SET id=id+1000000 WHERE order_id=$1 AND method='cash'",[f.sale.id]);
+    expect((await action(f.manager.agent,"approve_close",{sessionId:f.session.id,settlementRevision:first.settlement_revision})).status).toBe(409);
+    const revised=ok(await action(f.cashier.agent,"close",{sessionId:f.session.id,counted:Number(first.expected),reason:"إعادة عد بعد تصحيح الحركة",unresolvedSalesCleared:true,reconcile:true,settlementRevision:first.settlement_revision}));
+    expect(revised.reason).toBe(first.reason);
+    expect(revised.settlement_version).toBe(2);
+    expect(revised.status).toBe("pending");
+    expect(revised.settlement_revision).not.toBe(first.settlement_revision);
+    expect((await action(f.manager.agent,"approve_close",{sessionId:f.session.id,settlementRevision:first.settlement_revision})).status).toBe(409);
+    ok(await action(f.manager.agent,"approve_close",{sessionId:f.session.id,settlementRevision:revised.settlement_revision}));
+    const audits=(await pool.query("SELECT details FROM audit_logs WHERE company_id=$1 AND entity='pos_cash_closing' AND action='reconcile'",[f.company.id])).rows;
+    expect(JSON.parse(audits[0].details).before.settlement_revision).toBe(first.settlement_revision);
+    expect((await pool.query("SELECT count(*) FROM journal_entries WHERE company_id=$1 AND source_ref=$2",[f.company.id,`SHIFT-VAR-${f.session.id}`])).rows[0].count).toBe("0");
+  });
+});
+
 describe("persisted issuer and operational print documents",()=>{
   it("uses two real tenant identities for new QR; freezes issued identity across profile edits; reprints are read-only",async()=>{
     const a=await fixture("cash","300000000000003"),b=await fixture("cash","311111111111113");

@@ -296,6 +296,13 @@ function SessionCard({ s, can, branchName, meId, accounts, employees }: {
         </div>
       </dl>
       <p className="mt-2 text-[11px] text-muted-foreground">النقد فقط. مبالغ البطاقة لا تمثل تسوية بنكية مؤكدة.</p>
+      {cs && <div className="mt-3 space-y-1 rounded-lg border p-3 text-sm">
+        <p>سبب الكاشير الأصلي: {str(s.closing_reason) || "غير محفوظ في الإصدار القديم"}</p>
+        {str(s.reconciliation_reason) && <p>سبب إعادة التسوية: {str(s.reconciliation_reason)}</p>}
+        <p>نسخة التسوية: {str(s.settlement_version)} <span dir="ltr" className="break-all text-xs">{str(s.settlement_revision)}</span></p>
+        {cs==="approved" && <><p>تعليل المراجع: {str(s.review_reason) || "لا يوجد تعليل مستقل محفوظ لهذا القرار التاريخي"}</p>
+          <p>المعتمد: {str(s.closing_approved_by)} — وقت القرار: {str(s.closing_approved_at)}</p></>}
+      </div>}
       {st === "open" && !pendingClose && (
         <div className="mt-3 flex flex-wrap gap-2">
           {can("expense") && <ExpenseForm sessionId={str(s.id)} accounts={accounts} />}
@@ -311,7 +318,9 @@ function SessionCard({ s, can, branchName, meId, accounts, employees }: {
       {pendingClose && (
         <div className="mt-3 rounded-xl bg-amber-50 p-3 text-xs text-amber-900 dark:bg-amber-950/40 dark:text-amber-100">
           إغلاق بفرق بانتظار اعتماد مستخدم مخول آخر.
-          {can("difference") && (!mine || can("configure")) && <div className="mt-2"><ApproveClose sessionId={str(s.id)} selfOwner={mine} /></div>}
+          {can("difference") && (!mine || can("configure")) && <div className="mt-2"><ApproveClose sessionId={str(s.id)} settlementRevision={str(s.settlement_revision)} selfOwner={mine} /></div>}
+          {can("close") && <CloseForm sessionId={str(s.id)} expected={num(s.expected) ?? 0}
+            settlementRevision={str(s.settlement_revision) || `legacy-${str(s.id)}`} />}
           {mine && !can("configure") && <div className="mt-1">لا يمكنك اعتماد إغلاق أنشأته بنفسك.</div>}
         </div>
       )}
