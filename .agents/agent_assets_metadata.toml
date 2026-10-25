@@ -602,3 +602,31 @@ mtime_ms = 1792961971872
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/69c46f7e-9595-46d9-aec1-850d194076bc/351aa921-c1ef-4617-91b9-b4acad91b6b5"
 storage_version_token = "1792961994516500"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "ym0amvSeSsKY_9XfwY9-F"
+uri = "file://generated-artifacts/purchase-receiving/report.html"
+type = "html"
+title = "تقرير صلاحيات استلام المشتريات"
+description = "النطاق المنفذ، نتائج النسخة115c2ae، وحدود القبول والمتبقي وروابط المزامنة المؤكدة."
+logical_id = "37efb4ae-6039-4f3e-b4b2-0edd7eedcdfa"
+content_hash = "sha256:542613759abf5f991f31980527a54ef320a804beec8ab068340e272b0d159a0f"
+size = 17643
+mtime_ms = 1792966291427
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/37efb4ae-6039-4f3e-b4b2-0edd7eedcdfa/d50f90c2-97c3-42ac-964b-8a89076b2362"
+storage_version_token = "1792966310302226"
+content_type = "text/html"
+
+[[outputs]]
+id = "QRtcvPdKIYgNckCXhrQ0t"
+uri = "file://generated-artifacts/purchase-receiving/hasiba-purchase-receiving-evidence.zip"
+type = "unspecified"
+title = "أدلة اختبار استلام المشتريات"
+description = "نتائج799اختبار خادم و211اختبار واجهة، والترقية ورحلة المتصفح وإيصالGitوبصمات الملفات؛ بلا أسرار أو بيانات تشغيلية."
+logical_id = "40bf5fe1-b637-48ac-a829-0493a37ac4b0"
+content_hash = "sha256:5498f06a27af129525ab3a3ec93175b2b653842c0ed5dbc3a0bdda03955790c6"
+size = 106602
+mtime_ms = 1792966291548
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/40bf5fe1-b637-48ac-a829-0493a37ac4b0/085a9be8-9afd-4e57-b2d8-889724c4d904"
+storage_version_token = "1792966312032821"
+content_type = "application/octet-stream"
