@@ -2010,7 +2010,7 @@ router.post("/procurement/goods-receipts", async (req, res) => {
       details: `${out.grn.reference} بقيمة ${out.totalValue.toFixed(2)}`,
     });
     res.status(201).json({ ...out.grn, receivedAt: out.grn.receivedAt.toISOString(),
-      ...(!receiptOnly(readActor)?{journalEntryId:out.journalEntryId}:{}) }); return;
+      ...(!readActor.grant?{journalEntryId:out.journalEntryId}:{}) }); return;
   } catch (err) {
     req.log.error({ err }, "create GRN failed");
     respondError(res, err); return;

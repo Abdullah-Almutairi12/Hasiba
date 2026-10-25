@@ -120,6 +120,23 @@ describe("purchase receiving with independent existing responsibilities",()=>{
       expect((await rows("SELECT count(*)::int n FROM goods_receipts WHERE po_id=$1",[po.id]))[0].n).toBe(0);
     }finally{await client.query("ROLLBACK");client.release();}
   });
+  it("combines explicit priced reading with receiving without returning journal metadata from a stale pre-fence view",async()=>{
+    const f=await fixture(),po=await f.create();
+    await f.update({grants:[{...personInput(f.people[0]).grants[0],templateMode:"override",
+      actions:[...actions,"procurement.orders.read"]}]});
+    expect(ok(await f.selected(0,"get",`/procurement/purchase-orders/${po.id}`)).lines[0].unitPrice).toBe(7.25);
+    const client=await pool.connect();
+    try{
+      await client.query("BEGIN");await client.query("SELECT pg_advisory_xact_lock(174223,35)");
+      await client.query("UPDATE responsibility_grants SET actions=$1::text[] WHERE id=$2",[actions,f.people[0].grants[0].id]);
+      const pending=f.receive(po,1).then(r=>r);
+      await new Promise(r=>setTimeout(r,100));await client.query("COMMIT");
+      const result=ok(await pending,201);
+      expect(result.id).toBeGreaterThan(0);
+      expect(result).not.toHaveProperty("journalEntryId");expect(result).not.toHaveProperty("totalValue");
+      expect(ok(await f.selected(0,"get",`/procurement/purchase-orders/${po.id}`)).lines[0]).not.toHaveProperty("unitPrice");
+    }finally{await client.query("ROLLBACK");client.release();}
+  });
   it("serializes different attempts against the remaining quantity and applies time/amount/upper deny rules",async()=>{
     const f=await fixture(),po=await f.create();
     const result=await Promise.all([f.receive(po,6),f.receive(po,6,randomUUID(),1)]);
