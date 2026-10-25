@@ -518,3 +518,31 @@ mtime_ms = 1792924462147
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/e6b29158-f8ae-4017-bc70-1b9ed8ca7cbd/288ed8a2-20bb-4b54-a4bd-4c0df85ccae0"
 storage_version_token = "1792924569139033"
 content_type = "text/html"
+
+[[outputs]]
+id = "90787VL0iDbKBG7n3t8Hl"
+uri = "file://generated-artifacts/account-security/hasiba-account-security-ar.html"
+type = "html"
+title = "حاسبة — تقرير شريحة أمان الحساب"
+description = "التنفيذ والحدود والأخطاء المصححة ونتائج التحقق وروابط المصدر والرفع المؤكد."
+logical_id = "261eece8-cb59-4a65-9b36-50b1d93d2f23"
+content_hash = "sha256:af95b7198a180d882f9da1baa66ed14e99f9b34d007732aa99a1cefcbcc6c771"
+size = 209520
+mtime_ms = 1792933828253
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/261eece8-cb59-4a65-9b36-50b1d93d2f23/b0f5386c-935a-4b7a-81a5-deb1a55132dd"
+storage_version_token = "1792933842692036"
+content_type = "text/html"
+
+[[outputs]]
+id = "ru3J0STYV_ZFKZ6nNKBtO"
+uri = "file://generated-artifacts/account-security/hasiba-account-security-evidence.zip"
+type = "unspecified"
+title = "أدلة التحقق — أمان الحساب"
+description = "30 ملفًا منقحًا: البوابات والاختبارات ودليل المتصفح وبصمات الملفات وتأكيد GitHub، دون مفاتيح أو رموز استعادة."
+logical_id = "3b7cc69e-a2c2-491e-a9ae-2cc4f55287e8"
+content_hash = "sha256:9c604352f7012534fbb7907f7b5c3935682a029070ad2b6936361ae199063563"
+size = 229294
+mtime_ms = 1792933828417
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/3b7cc69e-a2c2-491e-a9ae-2cc4f55287e8/d827c3de-6450-4cf5-9c1b-06086df5bc01"
+storage_version_token = "1792933844905565"
+content_type = "application/octet-stream"
