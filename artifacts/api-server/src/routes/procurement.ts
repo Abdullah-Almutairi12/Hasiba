@@ -19,6 +19,7 @@ import {
   goodsReceiptLinesTable,
   paymentRunsTable,
   paymentRunLinesTable,
+  approvalRequestsTable,
   blanketAgreementsTable,
   blanketAgreementItemsTable,
 } from "@workspace/db";
@@ -41,8 +42,11 @@ import {
   registerOnApprove,
   triggerEvent,
   requireFinancialLimit,
+  actOnApproval,
+  actionableApprovalSteps,
 } from "../lib/workflow-engine";
 import type { ApprovalExecutionContext } from "../lib/approval-context";
+import type { DbOrTx } from "../lib/journal-posting";
 import { logger } from "../lib/logger";
 import { sendMessage } from "../lib/integrations/messaging";
 import {
@@ -53,8 +57,20 @@ import {
 import { buildPurchaseOrderPdf } from "../lib/pdf/business-documents";
 import { getPrintCompany as getCompanyInfo } from "../lib/pdf/print-company";
 import { supplyScope, supplyParam, supplyReferencesGuard, requireSupplyReference } from "../lib/supply-chain-scope";
+import { requestProcurementActor, assertProcurementOrder, assertProcurementValue, procurementOrderScope, procurementAudit, procurementAction, procurementReviewAuthority } from "../lib/procurement-authority";
+import { lockApprovalAuthority } from "../lib/approval-authority";
 
 const router = Router();
+router.use(async(req,res,next)=>{
+  const action=procurementAction(req.method,req.path);
+  if(!action)return next();
+  try {
+    const actor=await requestProcurementActor(req,action==="procurement.orders.print"&&req.query.download==="1"?"procurement.orders.export":action);
+    const id=req.path.match(/^\/procurement\/purchase-orders\/(\d+)/)?.[1];
+    if(id)await assertProcurementOrder(actor,Number(id));
+    next();
+  }catch(err){respondError(res,err);}
+});
 const approvalDatabase = db;
 router.param("id", supplyParam((path) =>
   path.includes("/requisitions/") ? "requisition" :
@@ -644,7 +660,8 @@ router.get("/procurement/purchase-orders", async (req, res) => {
     const status = req.query.status as string | undefined;
     const supplierId = req.query.supplierId ? Number(req.query.supplierId) : undefined;
     const companyId = getCompanyId(req);
-    const conds = [supplyScope("purchaseOrder", purchaseOrdersTable.id, companyId)];
+    const actor=await requestProcurementActor(req,"procurement.orders.read");
+    const conds = [procurementOrderScope(actor)];
     if (status) conds.push(eq(purchaseOrdersTable.status, status));
     if (supplierId) conds.push(eq(purchaseOrdersTable.supplierId, supplierId));
     const { limit, offset } = parsePagination(req);
@@ -716,7 +733,7 @@ router.get("/procurement/purchase-orders", async (req, res) => {
         exchangeRate: Number(r.exchangeRate),
         approvedAt: r.approvedAt?.toISOString() ?? null,
         createdAt: r.createdAt.toISOString(),
-        lastSend: lastSendById.get(r.id) ?? null,
+        lastSend: actor.grant && !actor.grant.actions.includes("procurement.orders.send") ? null : lastSendById.get(r.id) ?? null,
       })),
     );
   } catch (err) {
@@ -735,16 +752,21 @@ router.post("/procurement/purchase-orders", async (req, res) => {
   }
   try {
     const out = await financialTransaction(req, async (tx) => {
+      const actor=await requestProcurementActor(req,"procurement.orders.create",tx,true);
       const [supplier] = await tx
         .select()
         .from(suppliersTable)
-        .where(eq(suppliersTable.id, body.supplierId))
+        .where(and(eq(suppliersTable.id, body.supplierId),eq(suppliersTable.companyId,actor.companyId)))
         .limit(1);
       if (!supplier) throw httpErr(404, "المورد غير موجود");
+      if(actor.grant && (supplier.linkedCompanyId || body.requisitionId || body.rfqId || body.agreementId))
+        throw httpErr(403,"التحويلات والعقود والربط المالي بين الشركات خارج نطاق هذه المسؤولية");
 
       // Defaults: currency from supplier, tax per-line falls back to
       // the supplier's defaultTax when the input didn't override it.
       const currency = body.currencyCode ?? supplier.defaultCurrency ?? "SAR";
+      if(actor.grant&&(currency!=="SAR"||body.exchangeRate!==1))
+        throw httpErr(403,"حد هذه الشريحة بالريال السعودي؛ العملات والتحويل تحتاج سياسة مالية مستقلة");
       // VAT gating: non-registered tenants cannot legally charge or
       // reclaim VAT — force every line's rate to 0 BEFORE totals are
       // computed so the persisted PO header + lines never carry VAT,
@@ -758,8 +780,8 @@ router.post("/procurement/purchase-orders", async (req, res) => {
         companyRowPo?.vatRegistrationStatus === "registered" ||
         companyRowPo?.vatRegistrationStatus === "voluntary";
       const supplierDefaultTax = vatEnabledPo ? Number(supplier.defaultTax ?? 15) : 0;
-      let subtotal = 0;
-      let vat = 0;
+      let subtotal = "0";
+      let vat = "0";
       const lineInserts: Array<{
         productId: number | null; description: string; quantity: string;
         unitPrice: string; taxRate: string; lineTotal: string;
@@ -776,20 +798,25 @@ router.post("/procurement/purchase-orders", async (req, res) => {
         // Final VAT clamp: non-registered tenants get 0 even if the
         // caller forced a taxRate in the payload.
         const taxRate = vatEnabledPo ? callerTaxRate : 0;
-        const sub = ln.quantity * ln.unitPrice;
-        const t = sub * (taxRate / 100);
-        subtotal += sub;
-        vat += t;
+        const computed=await tx.execute(sql`WITH amounts AS (SELECT
+          round(${String(ln.quantity)}::numeric*${String(ln.unitPrice)}::numeric,2) AS sub,
+          round(${String(ln.quantity)}::numeric*${String(ln.unitPrice)}::numeric*${String(taxRate)}::numeric/100,2) AS tax)
+          SELECT (${subtotal}::numeric+sub)::text AS subtotal,(${vat}::numeric+tax)::text AS vat,
+            (sub+tax)::text AS total FROM amounts`);
+        const amounts=computed.rows[0] as {subtotal:string;vat:string;total:string};
+        subtotal=amounts.subtotal;vat=amounts.vat;
         lineInserts.push({
           productId: ln.productId ?? null,
           description: ln.description,
           quantity: String(ln.quantity),
           unitPrice: String(ln.unitPrice),
           taxRate: String(taxRate),
-          lineTotal: (sub + t).toFixed(2),
+          lineTotal: amounts.total,
         });
       }
-      const total = subtotal + vat;
+      const calculated=await tx.execute(sql`SELECT (${subtotal}::numeric+${vat}::numeric)::text AS total`);
+      const total=String(calculated.rows[0].total);
+      await assertProcurementValue(actor,body.warehouseId??null,total,tx);
       const reference = await nextSeq("PO", new Date().getUTCFullYear());
 
       const [po] = await tx
@@ -805,14 +832,14 @@ router.post("/procurement/purchase-orders", async (req, res) => {
           expectedDate: body.expectedDate ?? null,
           currencyCode: currency,
           exchangeRate: String(body.exchangeRate),
-          subtotal: subtotal.toFixed(2),
-          vat: vat.toFixed(2),
-          total: total.toFixed(2),
+          subtotal,
+          vat,
+          total,
           notes: body.notes ?? null,
           requisitionId: body.requisitionId ?? null,
           rfqId: body.rfqId ?? null,
           agreementId: body.agreementId ?? null,
-          requiresApproval: total >= PO_APPROVAL_THRESHOLD,
+          requiresApproval: Number(total) >= PO_APPROVAL_THRESHOLD,
           createdBy: req.session?.userId ?? null,
         })
         .returning();
@@ -838,7 +865,11 @@ router.post("/procurement/purchase-orders", async (req, res) => {
         },
         tx,
       });
+      await procurementAudit(tx,actor,"purchase_order.created",{id:po.id,total:po.total});
       return po;
+    },async(tx,po)=>{
+      const actor=await requestProcurementActor(req,"procurement.orders.read",tx,true);
+      await assertProcurementOrder(actor,po.id,tx);
     });
     void recordAudit(req, { action: "create", entity: "purchase_order", details: out.reference });
     // Automation hook: rules with trigger.type='record_created' on the
@@ -859,6 +890,7 @@ router.post("/procurement/purchase-orders", async (req, res) => {
 
 router.get("/procurement/purchase-orders/:id", async (req, res) => {
   try {
+    const actor=await requestProcurementActor(req,"procurement.orders.read");
     const id = Number(req.params.id);
     const companyId = getCompanyId(req);
     // Header and all tenant-bearing references must agree on ownership.
@@ -897,8 +929,14 @@ router.get("/procurement/purchase-orders/:id", async (req, res) => {
     `);
     const outboxRows = (outboxResult as unknown as { rows?: Array<Record<string, unknown>> }).rows
       ?? (outboxResult as unknown as Array<Record<string, unknown>>);
+    const [review]=await db.select().from(approvalRequestsTable).where(and(
+      eq(approvalRequestsTable.companyId,companyId),eq(approvalRequestsTable.docType,"purchase_order"),
+      eq(approvalRequestsTable.recordId,id))).orderBy(desc(approvalRequestsTable.id)).limit(1);
     return res.json({
       ...po,
+      review:review?{id:review.id,recordId:id,currentStep:review.currentStep,
+        policyReviewRequired:!!review.reviewInvalidatedAt,
+        actionableSteps:await db.transaction(tx=>actionableApprovalSteps(review,req.session.userId!,tx))}:null,
       subtotal: Number(po.subtotal),
       vat: Number(po.vat),
       total: Number(po.total),
@@ -914,14 +952,14 @@ router.get("/procurement/purchase-orders/:id", async (req, res) => {
         taxRate: Number(l.taxRate),
         lineTotal: Number(l.lineTotal),
       })),
-      receipts: receipts.map((r) => ({ ...r, receivedAt: r.receivedAt.toISOString() })),
-      invoices: invoices.map((i) => ({
+      receipts: (actor.grant ? [] : receipts).map((r) => ({ ...r, receivedAt: r.receivedAt.toISOString() })),
+      invoices: (actor.grant ? [] : invoices).map((i) => ({
         ...i,
         amount: Number(i.amount),
         dueDate: i.dueDate?.toISOString() ?? null,
         createdAt: i.createdAt.toISOString(),
       })),
-      outbox: outboxRows.map((r) => ({
+      outbox: (actor.grant && !actor.grant.actions.includes("procurement.orders.send") ? [] : outboxRows).map((r) => ({
         id: r.id,
         recipient: r.recipient,
         subject: r.subject,
@@ -949,12 +987,23 @@ async function finalizePurchaseOrderConfirm(
   id: number,
   actor: { userId: number | null; reference?: string; companyId: number },
   context?: ApprovalExecutionContext,
+  approvalRequestId?: number,
 ): Promise<void> {
   const db = context?.connection ?? approvalDatabase;
   const po = await db.transaction(async (tx) => {
+    await lockApprovalAuthority(tx);
     const [po] = await tx.select().from(purchaseOrdersTable).where(and(
       eq(purchaseOrdersTable.id, id), supplyScope("purchaseOrder", purchaseOrdersTable.id, actor.companyId))).for("update");
     if (!po) throw httpErr(404, "not found");
+    if(context){
+      const decisions=await tx.execute(sql`SELECT approver_user_id,authority_fingerprint FROM approval_actions
+        WHERE request_id=${approvalRequestId!} AND action='approve'`);
+      for(const decision of decisions.rows){
+        if(!decision.authority_fingerprint || decision.authority_fingerprint!==await procurementReviewAuthority(
+          tx,actor.companyId,Number(decision.approver_user_id),id))
+          throw httpErr(403,"انتهت أهلية معتمد أمر الشراء؛ يلزم مراجعة جديدة");
+      }
+    }
     if (po.status !== "draft" && po.status !== "pending_approval") return;
     await tx
       .update(purchaseOrdersTable)
@@ -1008,8 +1057,7 @@ async function finalizePurchaseOrderConfirm(
   // Module hook: WhatsApp/SMS supplier confirmation. Runs after the
   // commit so the supplier never gets a notification for a PO that
   // failed to persist.
-  const supplierNotice = () => notifySupplierPoConfirmed(id);
-  if (context) context.afterCommit(supplierNotice); else void supplierNotice();
+  // Confirmation is not permission to send externally. Explicit /send owns it.
 }
 
 // Workflow-engine handler: when an approval chain completes, finalize the
@@ -1018,7 +1066,7 @@ async function finalizePurchaseOrderConfirm(
 // engine can roll the request back to pending and keep workflow + record
 // state consistent.
 registerOnApprove("purchase_order", async (recordId, _requestId, context) => {
-  await finalizePurchaseOrderConfirm(recordId, { userId: context.userId, companyId: context.companyId }, context);
+  await finalizePurchaseOrderConfirm(recordId, { userId: context.userId, companyId: context.companyId }, context,_requestId);
 });
 
 // On reject / changes-requested, unlock the PO so the submitter can edit
@@ -1157,9 +1205,10 @@ registerOnReject("payment_run", async (recordId, _requestId, _reason, context) =
 router.post("/procurement/purchase-orders/:id/confirm", async (req, res) => {
   try {
     const id = Number(req.params.id);
-    const [po] = await db.select().from(purchaseOrdersTable).where(eq(purchaseOrdersTable.id, id));
-    if (!po) { res.status(404).json({ error: "not found" }); return; }
-    if (po.status !== "draft") { res.status(409).json({ error: "أمر الشراء ليس بحالة مسودة." }); return; }
+    const result=await db.transaction(async tx=>{
+    const actor=await requestProcurementActor(req,"procurement.orders.confirm",tx,true);
+    const po=await assertProcurementOrder(actor,id,tx,true);
+    if (!["draft","pending_approval"].includes(po.status)) throw httpErr(409,"أمر الشراء ليس مسودة أو بانتظار مراجعة");
     // Workflow-engine hook: if a configurable approval rule matches, queue
     // the confirm and respond 202. The registered onApprove handler will
     // run finalizePurchaseOrderConfirm when the chain completes.
@@ -1169,37 +1218,35 @@ router.post("/procurement/purchase-orders/:id/confirm", async (req, res) => {
       recordId: id,
       recordRef: po.reference,
       amount: Number(po.total),
-      branchId: null,
+      branchId: po.warehouseId ? (await tx.select().from(warehousesTable).where(eq(warehousesTable.id,po.warehouseId)))[0]?.branchId : null,
       submittedByUserId: req.session?.userId ?? null,
       submittedByName: (req.session as { userName?: string } | undefined)?.userName ?? null,
-    });
+      forceRoles: po.requiresApproval ? ["manager"] : undefined,
+      forceReason:po.requiresApproval?"حد اعتماد أمر شراء محفوظ من الخادم":undefined,
+    },tx);
     if (submission.required) {
       // Lock the document into a real "pending_approval" business state so
       // it can't be re-confirmed or further edited while the chain is open.
       // The onApprove handler accepts both draft and pending_approval as
       // input, and the onReject handler reverts back to draft.
-      await db
+      await tx
         .update(purchaseOrdersTable)
         .set({ status: "pending_approval" })
         .where(eq(purchaseOrdersTable.id, id));
-      res.status(202).json({
+      return {
         ok: false,
         pendingApproval: true,
         approvalRequestId: submission.requestId,
         message: "أمر الشراء بانتظار الاعتماد",
-      });
-      return;
+      };
     }
     // Legacy hard-coded threshold gate (only applies when no configurable
     // workflow rule matched). Once an admin configures an approval rule for
     // purchase_order, the engine takes over end-to-end.
     if (po.requiresApproval && !po.approvedAt) {
-      res.status(409).json({
-        error: `أمر الشراء يتطلب اعتماد المدير (تجاوز ${PO_APPROVAL_THRESHOLD} ر.س).`,
-      });
-      return;
+      throw httpErr(409,"أمر الشراء يحتاج مراجعة مستقلة");
     }
-    const updated = await db.transaction(async (tx) => {
+    const updated = await tx.transaction(async (tx) => {
       const [u] = await tx
         .update(purchaseOrdersTable)
         .set({ status: "confirmed" })
@@ -1250,8 +1297,10 @@ router.post("/procurement/purchase-orders/:id/confirm", async (req, res) => {
       }
       return u;
     });
-    void recordAudit(req, { action: "confirm", entity: "purchase_order", details: updated.reference });
-    return res.json({ ok: true });
+    await procurementAudit(tx,actor,"purchase_order.confirmed",{id:updated.id,total:updated.total});
+    return {ok:true,pendingApproval:false};
+    });
+    return res.status(result.pendingApproval?202:200).json(result);
   } catch (err) {
     req.log.error({ err }, "confirm PO failed");
     respondError(res, err); return;
@@ -1260,30 +1309,19 @@ router.post("/procurement/purchase-orders/:id/confirm", async (req, res) => {
 
 router.post("/procurement/purchase-orders/:id/approve", async (req, res) => {
   try {
-    const role = req.session?.role;
-    if (role !== "owner" && role !== "manager") {
-      res.status(403).json({ error: "اعتماد أوامر الشراء مقصور على المدير/المالك." }); return;
-    }
     const id = Number(req.params.id);
-    const [po] = await db.select().from(purchaseOrdersTable).where(eq(purchaseOrdersTable.id, id));
-    if (!po) { res.status(404).json({ error: "not found" }); return; }
-    if (!po.requiresApproval) {
-      res.status(409).json({ error: "أمر الشراء لا يستوجب اعتماداً." }); return;
-    }
-    if (po.approvedAt) {
-      res.status(409).json({ error: "أمر الشراء مُعتمد مسبقاً." }); return;
-    }
-    if (po.status !== "draft" && po.status !== "confirmed") {
-      res.status(409).json({ error: `لا يمكن اعتماد أمر شراء بحالة "${po.status}".` }); return;
-    }
-    const [updated] = await db
-      .update(purchaseOrdersTable)
-      .set({ approvedBy: req.session?.userId ?? null, approvedAt: new Date() })
-      .where(and(eq(purchaseOrdersTable.id, id), eq(purchaseOrdersTable.companyId, getCompanyId(req))))
-      .returning();
-    if (!updated) { res.status(404).json({ error: "not found" }); return; }
-    void recordAudit(req, { action: "approve", entity: "purchase_order", details: updated.reference });
-    return res.json({ ok: true });
+    // The native button uses the SAME workflow decision, fact binding and
+    // independent-review rules. A header timestamp is not approval evidence.
+    const locator=await db.execute(sql`SELECT id FROM approval_requests WHERE company_id=${getCompanyId(req)}
+      AND doc_type='purchase_order' AND record_id=${id} AND status='pending'
+      AND review_invalidated_at IS NULL ORDER BY id DESC LIMIT 1`);
+    if(!locator.rows.length)throw httpErr(409,"قدّم أمر الشراء للمراجعة أولًا");
+    const action=z.enum(["approve","reject","request_changes"]).parse(req.body?.action??"approve");
+    const result=await actOnApproval(Number(locator.rows[0].id),req.session.userId!,null,action,
+      getCompanyId(req),typeof req.body?.comment==="string"?req.body.comment:undefined,{
+        decisionId:req.body?.decisionId,stepToken:req.body?.stepToken,
+      });
+    return res.json({ok:result.status==="approved",...result});
   } catch (err) {
     req.log.error({ err }, "approve PO failed");
     respondError(res, err); return;
@@ -1293,22 +1331,27 @@ router.post("/procurement/purchase-orders/:id/approve", async (req, res) => {
 router.post("/procurement/purchase-orders/:id/cancel", async (req, res) => {
   try {
     const id = Number(req.params.id);
-    const [po] = await db.select().from(purchaseOrdersTable).where(eq(purchaseOrdersTable.id, id));
-    if (!po) { res.status(404).json({ error: "not found" }); return; }
-    if (po.status === "fully_received" || po.status === "closed") {
-      res.status(409).json({ error: "لا يمكن إلغاء أمر شراء مستلم/مغلق." }); return;
-    }
     await db.transaction(async (tx) => {
+    const actor=await requestProcurementActor(req,"procurement.orders.cancel",tx,true);
+    const po=await assertProcurementOrder(actor,id,tx,true);
+    if (po.status === "fully_received" || po.status === "closed") {
+      throw httpErr(409,"لا يمكن إلغاء أمر شراء مستلم/مغلق.");
+    }
       await tx.update(purchaseOrdersTable).set({ status: "cancelled" }).where(and(eq(purchaseOrdersTable.id, id), eq(purchaseOrdersTable.companyId, getCompanyId(req))));
+      await tx.execute(sql`UPDATE approval_requests SET review_invalidated_at=clock_timestamp(),
+        review_invalidated_reason='ألغي أمر الشراء الأصلي؛ القرار التاريخي محفوظ'
+        WHERE company_id=${actor.companyId} AND doc_type='purchase_order' AND record_id=${id}
+        AND review_invalidated_at IS NULL`);
       // Auto-void the sibling-company sales order mirror, if any, so the
       // counterparty doesn't keep an open SO for a cancelled PO.
       await voidMirrorForSourceTx(tx, "purchase_order", id, {
         userId: req.session?.userId ?? null,
         userName: null,
       });
+      await procurementAudit(tx,actor,"purchase_order.cancelled",{id,status:po.status});
     });
     void recordAudit(req, {
-      action: "cancel", entity: "purchase_order", details: po.reference, severity: "warning",
+      action: "cancel", entity: "purchase_order", details: String(id), severity: "warning",
     });
     return res.json({ ok: true });
   } catch (err) {
@@ -1320,19 +1363,18 @@ router.post("/procurement/purchase-orders/:id/cancel", async (req, res) => {
 router.post("/procurement/purchase-orders/:id/close", async (req, res) => {
   try {
     const id = Number(req.params.id);
-    const [po] = await db.select().from(purchaseOrdersTable).where(eq(purchaseOrdersTable.id, id));
-    if (!po) { res.status(404).json({ error: "not found" }); return; }
+    await db.transaction(async tx=>{
+    const actor=await requestProcurementActor(req,"procurement.orders.close",tx,true);
+    const po=await assertProcurementOrder(actor,id,tx,true);
     // Lifecycle: only POs that are fully received may be closed. Cancellation
     // is a separate transition and goes through /cancel; closing a draft or
     // partially-received PO would short-circuit the audit trail.
     if (po.status !== "fully_received") {
-      res.status(409).json({
-        error: `لا يمكن إغلاق أمر شراء بحالة "${po.status}". يجب استلامه بالكامل أولاً.`,
-      });
-      return;
+      throw httpErr(409,`لا يمكن إغلاق أمر شراء بحالة "${po.status}". يجب استلامه بالكامل أولاً.`);
     }
-    await db.update(purchaseOrdersTable).set({ status: "closed" }).where(and(eq(purchaseOrdersTable.id, id), eq(purchaseOrdersTable.companyId, getCompanyId(req))));
-    void recordAudit(req, { action: "close", entity: "purchase_order", details: po.reference });
+    await tx.update(purchaseOrdersTable).set({ status: "closed" }).where(and(eq(purchaseOrdersTable.id, id), eq(purchaseOrdersTable.companyId, getCompanyId(req))));
+    await procurementAudit(tx,actor,"purchase_order.closed",{id});
+    });
     return res.json({ ok: true });
   } catch (err) {
     req.log.error({ err }, "close PO failed");
@@ -1500,7 +1542,7 @@ router.get("/procurement/purchase-orders/:id/pdf", async (req, res) => {
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader(
       "Content-Disposition",
-      `inline; filename="PO-${po.reference}.pdf"`,
+      `${req.query.download==="1"?"attachment":"inline"}; filename="PO-${po.reference}.pdf"`,
     );
     res.send(buf);
   } catch (err) {
@@ -1523,11 +1565,13 @@ export async function dispatchPurchaseOrder(opts: {
   messageOverride?: string;
   userId: number | null;
   retryOf?: number;
+  connection?: DbOrTx;
 }): Promise<{
   status: number;
   payload: Record<string, unknown>;
   audit?: { details: string };
 }> {
+  const db=opts.connection??approvalDatabase;
   const { po, supplier, pdfInput } = await loadPoForPdf(opts.poId, opts.companyId);
   const sendable = ["confirmed", "partially_received", "fully_received", "closed"];
   if (!sendable.includes(po.status)) {
@@ -1648,13 +1692,20 @@ router.post("/procurement/purchase-orders/:id/send", async (req, res) => {
   }
   try {
     const id = Number(req.params.id);
-    const result = await dispatchPurchaseOrder({
+    const result = await db.transaction(async tx=>{
+      const actor=await requestProcurementActor(req,"procurement.orders.send",tx,true);
+      await assertProcurementOrder(actor,id,tx,true);
+      const result=await dispatchPurchaseOrder({
       companyId: getCompanyId(req),
       poId: id,
       toOverride: body.to,
       subjectOverride: body.subject,
       messageOverride: body.message,
       userId: req.session?.userId ?? null,
+      connection:tx,
+      });
+      await procurementAudit(tx,actor,"purchase_order.sent",{id,status:result.status});
+      return result;
     });
     if (result.audit) {
       void recordAudit(req, {
@@ -1729,13 +1780,20 @@ router.post(
         res.status(409).json({ error: "تم الإرسال بنجاح مسبقاً، لا حاجة لإعادة المحاولة" });
         return;
       }
-      const dispatch = await dispatchPurchaseOrder({
+      const dispatch = await db.transaction(async tx=>{
+        const actor=await requestProcurementActor(req,"procurement.orders.send",tx,true);
+        await assertProcurementOrder(actor,id,tx,true);
+        const dispatch=await dispatchPurchaseOrder({
         companyId: getCompanyId(req),
         poId: id,
         toOverride: row.recipient as string,
         subjectOverride: row.subject as string,
         messageOverride: row.body as string,
         userId: req.session?.userId ?? null,
+        connection:tx,
+        });
+        await procurementAudit(tx,actor,"purchase_order.send_retry",{id,outboxId,status:dispatch.status});
+        return dispatch;
       });
       if (dispatch.audit) {
         void recordAudit(req, {

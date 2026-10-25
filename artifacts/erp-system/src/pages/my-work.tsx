@@ -152,6 +152,11 @@ export default function MyWorkPage() {
       )}
 
       {active && selectedGrant && selectedGrant.resource === "inventory" && <InventoryView grantId={selectedGrant.id} branch={branchName(selectedGrant.branchId)} />}
+      {active && selectedGrant?.resource==="procurement" && <section className="rounded-2xl border bg-card p-6 space-y-3">
+        <p>الموردون على مستوى الشركة، وأوامر الشراء ضمن الفرع والحد الحاليين. لا تمنح هذه المسؤولية الاستلام أو الصرف.</p>
+        {selectedGrant.actions.includes("procurement.suppliers.read")&&<Link href="/suppliers" className="inline-flex rounded border p-3">الموردون</Link>}
+        {selectedGrant.actions.includes("procurement.orders.read")&&<Link href="/procurement" className="inline-flex rounded border p-3">أوامر الشراء</Link>}
+      </section>}
       {active && selectedGrant && selectedGrant.resource === "pos" && (
         <section className="flex flex-col items-start gap-3 rounded-2xl border bg-card p-6 sm:flex-row sm:items-center" data-testid="panel-pos-responsibility">
           <ShoppingCart className="size-8 text-primary" />

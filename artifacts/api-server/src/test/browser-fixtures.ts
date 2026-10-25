@@ -1,3 +1,4 @@
+import "reflect-metadata";
 import { writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import bcrypt from "bcryptjs";
@@ -167,6 +168,38 @@ for (const role of ["owner", "sales"] as const) {
   }
   accounts.push({ email, password, companyId: company.id, role, customerId: customer.id, customerName: customer.name, productId: product.id, posSession, receiptInvoice, receiptInvoices, returnInvoice });
 }
+if(process.env.HASBA_BROWSER_PROCUREMENT==="true"){
+  const {posTemplateFixture,personInput,accepted}=await import("./pos-template-fixture");
+  const {updateTeamPerson}=await import("../lib/team-store");
+  const f=await posTemplateFixture();
+  const base=["procurement.read","procurement.suppliers.read","procurement.orders.read"];
+  const sets=[
+    [...base,"procurement.suppliers.create","procurement.suppliers.edit","procurement.suppliers.export",
+      "procurement.orders.create","procurement.orders.confirm","procurement.orders.cancel","procurement.orders.print","procurement.orders.export"],
+    [...base,"procurement.orders.approve","procurement.orders.print"],
+    base,
+  ];
+  const people:any[]=[];
+  for(let i=0;i<3;i++){
+    const p=f.people[i];
+    people.push(await updateTeamPerson(f.companies[0].id,f.ownerUser.id,p.personId,p.revision,{
+      ...personInput(p),loginKinds:["platform"],deniedActions:[],grants:[{
+        resource:"procurement",branchId:f.branches[i===2?1:0].id,warehouseIds:[f.warehouses[i===2?1:0].id],
+        actions:sets[i],amountLimit:"100000",startsAt:null,endsAt:null,
+      }],
+    },false));
+  }
+  const supplier=accepted(await f.owner.post("/api/suppliers").send({name:"مورد تجربة المشتريات المعزولة"}),201);
+  const po=accepted(await f.actors[0].post("/api/procurement/purchase-orders")
+    .set("X-Workspace-Responsibility",String(people[0].grants[0].id)).send({
+      supplierId:supplier.id,warehouseId:f.warehouses[0].id,
+      lines:[{description:"توريد اختباري يحتاج مراجعة",quantity:2,unitPrice:30000,taxRate:0}],
+    }),201);
+  for(let i=0;i<3;i++)accounts.push({
+    email:people[i].email!,password:f.password,role:["procurement-writer","procurement-reviewer","procurement-reader"][i],
+    companyId:f.companies[0].id,grantId:people[i].grants[0].id,poId:po.id,poReference:po.reference,supplierId:supplier.id,
+  });
+}
 writeFileSync(process.env.HASBA_BROWSER_STATE, JSON.stringify({
   // Both URLs point only to the generated, disposable loopback cluster.
   env: {
@@ -182,3 +215,6 @@ writeFileSync(process.env.HASBA_BROWSER_STATE, JSON.stringify({
   accounts,
 }), { mode: 0o600 });
 await pool.end();
+// This standalone fixture imports the native app only for the procurement
+// setup. Its interval workers must not keep spawnSync alive after pool.end().
+if(process.env.HASBA_BROWSER_PROCUREMENT==="true")process.exit(0);

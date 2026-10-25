@@ -3,9 +3,15 @@ import { pool } from "@workspace/db";
 import { returnActor, returnAuthorize } from "./return-access";
 import { getCompanyId } from "./scoped-db";
 import { managedProfile, selectedResponsibility } from "./responsibility-context";
+import { requestProcurementActor, assertProcurementOrder } from "./procurement-authority";
 /** Company aggregates cannot safely allocate branchless ledger rows. Fail closed. */
 export const aggregatePrintGuard:RequestHandler=async(req,res,next)=>{
   try {
+    if(/^\/exports\/suppliers\.(xlsx|pdf)(?:\?|$)/.test(req.originalUrl.replace(/^\/api/,""))){
+      if(req.query.companyIds) return res.status(403).json({error:"تصدير دليل الموردين يخص الشركة الحالية فقط"});
+      await requestProcurementActor(req,"procurement.suppliers.export");
+      return next();
+    }
     const current=getCompanyId(req);
     const selected=typeof req.query.companyIds==="string"?req.query.companyIds.split(",").map(Number).filter(n=>Number.isSafeInteger(n)&&n>0):[];
     for(const companyId of new Set([current,...selected])){
@@ -20,6 +26,11 @@ export async function checkDocumentPrint(req:Request, kind:"invoice"|"supplier"|
   const {FinancialRequestError}=await import("./financial-transaction");
   if(!Number.isSafeInteger(id)||id<1)throw new FinancialRequestError("معرف مستند غير صالح",400);
   const companyId=getCompanyId(req);
+  if(kind==="po"){
+    const action=req.query.download==="1"?"procurement.orders.export":"procurement.orders.print";
+    await assertProcurementOrder(await requestProcurementActor(req,action),id);
+    return;
+  }
   const a=await returnActor(req.session.userId!,companyId);
   if(a.custom) await returnAuthorize(a.userId,companyId,"view");
   const queries={

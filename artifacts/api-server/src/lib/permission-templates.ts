@@ -8,7 +8,7 @@ import { FinancialRequestError } from "./financial-transaction";
 import type { DbOrTx } from "./journal-posting";
 
 export const PermissionTemplateInput=z.object({
-  name:z.string().trim().min(2).max(100),resource:z.enum(["inventory","pos"]),
+  name:z.string().trim().min(2).max(100),resource:z.enum(["inventory","pos","procurement"]),
   actions:z.array(z.string()).min(1).max(20),
 }).strict();
 export const PermissionTemplateEdit=z.object({
@@ -17,7 +17,7 @@ export const PermissionTemplateEdit=z.object({
 }).strict();
 export const PermissionTemplateApply=PermissionTemplateEdit.extend({digest:z.string().regex(/^[a-f0-9]{64}$/)});
 type Edit=z.infer<typeof PermissionTemplateEdit>;
-type Template={id:number;name:string;resource:"inventory"|"pos";actions:string[];revision:number};
+type Template={id:number;name:string;resource:"inventory"|"pos"|"procurement";actions:string[];revision:number};
 function checkedActions(resource:string,actions:string[]) {
   // Reuse the grant action validator, including base read, available actions,
   // resource separation and direct-return dependencies. Dummy scope is never persisted.

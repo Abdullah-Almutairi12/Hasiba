@@ -163,6 +163,12 @@ export function usePermissions() {
   const scopedRead = scopedActs.includes("pos.read");
   const scopedSell = scopedRead && scopedActs.includes("pos.sell");
   const scopedShiftOpen = scopedRead && scopedActs.includes("pos.shift.open");
+  function canProcurement(action: string): boolean {
+    if(isScoped)return selected?.resource==="procurement" &&
+      selected.actions.includes("procurement.read") && selected.actions.includes(`procurement.${action}`) &&
+      selected.actions.includes(`procurement.${action.startsWith("suppliers.")?"suppliers":"orders"}.read`);
+    return has(action.endsWith(".read")||action.endsWith(".print")?"supplierRead":action.endsWith(".export")?"exports":action.endsWith(".approve")?"admin":"procurement");
+  }
 
   function has(group: PermissionKey): boolean {
     if (!role || isScoped) return false;
@@ -174,6 +180,8 @@ export function usePermissions() {
     // Scoped users see only their workspace; POS visibility depends on the
     // selected responsibility and is decided by the layout, not here.
     if (isScoped) return navKey === "my_work" || (navKey === "pos" && scopedRead) ||
+      (navKey==="suppliers"&&canProcurement("suppliers.read")) ||
+      (navKey==="procurement"&&canProcurement("orders.read")) ||
       (navKey==="stocktake"&&selected?.resource==="inventory"&&selected.actions.includes("inventory.read"));
     // Honour the admin-defined override matrix when available. The matrix
     // is the union of static defaults + per-cell overrides; an explicit
@@ -192,6 +200,7 @@ export function usePermissions() {
 
   return {
     role,
+    canProcurement,
     isOwner: role === "owner",
     isScoped,
     isAdmin: has("admin"),

@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import {openFileDownload} from "@/lib/download-file";
+import {openFileDownload,downloadPdf} from "@/lib/download-file";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiGet, apiPost } from "@/hooks/use-api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -69,6 +69,8 @@ interface PoOutboxEntry {
 }
 
 interface PoDetail extends PO {
+  review?: {id:number;recordId:number;currentStep:number;policyReviewRequired:boolean;
+    actionableSteps:Array<{sequence:number;stepToken:string}>}|null;
   notes: string | null;
   lines: PoLine[];
   receipts: Array<{ id: number; reference: string; receivedAt: string; notes: string | null }>;
@@ -264,6 +266,8 @@ function RequisitionsTab() {
 
 // =================================================================
 function POsTab({ onSelectPO }: { onSelectPO: (po: PO) => void }) {
+  const {canProcurement,isScoped}=usePermissions();
+  const [warehouseId,setWarehouseId]=useState("");
   const qc = useQueryClient();
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
@@ -279,6 +283,10 @@ function POsTab({ onSelectPO }: { onSelectPO: (po: PO) => void }) {
   });
   const { data: suppliers = [] } = useQuery<Supplier[]>({
     queryKey: ["/suppliers"], queryFn: () => apiGet("/suppliers"),
+    enabled:canProcurement("suppliers.read"),
+  });
+  const {data:warehouses=[]}=useQuery<Array<{id:number;name:string}>>({
+    queryKey:["/warehouses"],queryFn:()=>apiGet("/warehouses"),enabled:canProcurement("orders.create"),
   });
   const { data: products = [] } = useQuery<Product[]>({
     queryKey: ["/products"], queryFn: () => apiGet("/products"),
@@ -287,6 +295,7 @@ function POsTab({ onSelectPO }: { onSelectPO: (po: PO) => void }) {
   const create = useMutation({
     mutationFn: () => apiPost("/procurement/purchase-orders", {
       supplierId: Number(supplierId),
+      warehouseId:warehouseId?Number(warehouseId):null,
       notes: notes || null,
       lines: lines.map((l) => ({
         productId: l.productId ? Number(l.productId) : null,
@@ -318,13 +327,18 @@ function POsTab({ onSelectPO }: { onSelectPO: (po: PO) => void }) {
     <Card>
       <CardHeader className="flex flex-row items-center justify-between">
         <CardTitle>أوامر الشراء (PO)</CardTitle>
-        <Dialog open={open} onOpenChange={setOpen}>
+        <Dialog open={open&&canProcurement("orders.create")} onOpenChange={setOpen}>
           <DialogTrigger asChild>
-            <Button data-testid="button-new-po"><Plus className="me-1 size-4" />أمر شراء</Button>
+            <Button hidden={!canProcurement("orders.create")} data-testid="button-new-po"><Plus className="me-1 size-4" />أمر شراء</Button>
           </DialogTrigger>
           <DialogContent className="max-w-3xl">
             <DialogHeader><DialogTitle>أمر شراء جديد</DialogTitle></DialogHeader>
             <div className="space-y-3">
+              <Label>مستودع وفرع أمر الشراء</Label>
+              <select aria-label="مستودع أمر الشراء" className="w-full rounded border p-2" value={warehouseId} onChange={e=>setWarehouseId(e.target.value)}>
+                <option value="">{isScoped?"اختر المستودع المصرح":"بدون مستودع"}</option>
+                {warehouses.map(w=><option key={w.id} value={w.id}>{w.name}</option>)}
+              </select>
               <div>
                 <Label>المورد</Label>
                 <Select value={supplierId} onValueChange={setSupplierId}>
@@ -414,20 +428,20 @@ function POsTab({ onSelectPO }: { onSelectPO: (po: PO) => void }) {
                 </TableCell>
                 <TableCell>{new Date(r.orderDate).toLocaleDateString("ar-SA")}</TableCell>
                 <TableCell className="space-x-1 space-x-reverse" onClick={(e) => e.stopPropagation()}>
-                  {r.status === "draft" && r.requiresApproval && !r.approvedAt && (
-                    <Button size="sm" variant="outline" onClick={() => action.mutate({ id: r.id, op: "approve" })}>اعتماد</Button>
+                  {r.status === "pending_approval" && canProcurement("orders.approve") && (
+                    <Button size="sm" variant="outline" onClick={() => onSelectPO(r)}>مراجعة الاعتماد</Button>
                   )}
-                  {r.status === "draft" && (
+                  {r.status === "draft" && canProcurement("orders.confirm") && (
                     <Button size="sm" onClick={() => action.mutate({ id: r.id, op: "confirm" })}>تأكيد</Button>
                   )}
-                  {(r.status === "fully_received") && (
+                  {(r.status === "fully_received") && canProcurement("orders.close") && (
                     <Button size="sm" variant="outline" onClick={() => action.mutate({ id: r.id, op: "close" })}>إغلاق</Button>
                   )}
-                  {(r.status !== "fully_received" && r.status !== "closed" && r.status !== "cancelled") && (
+                  {canProcurement("orders.cancel") && (r.status !== "fully_received" && r.status !== "closed" && r.status !== "cancelled") && (
                     <Button size="sm" variant="ghost" className="text-rose-600"
                       onClick={() => action.mutate({ id: r.id, op: "cancel" })}>إلغاء</Button>
                   )}
-                  {r.status === "pending_approval" && (
+                  {r.status === "pending_approval" && !isScoped && (
                     <ApprovalActions docType="purchase_order" recordId={r.id} compact />
                   )}
                 </TableCell>
@@ -446,6 +460,7 @@ function POsTab({ onSelectPO }: { onSelectPO: (po: PO) => void }) {
 
 // =================================================================
 function PODetailDialog({ po, onClose }: { po: PO | null; onClose: () => void }) {
+  const {canProcurement,isScoped}=usePermissions();
   const qc = useQueryClient();
   const { toast } = useToast();
   const { data } = useQuery<PoDetail>({
@@ -472,8 +487,8 @@ function PODetailDialog({ po, onClose }: { po: PO | null; onClose: () => void })
     onError: (err: Error) => toast({ title: "فشل الاستلام", description: err.message, variant: "destructive" }),
   });
 
-  const canReceive = data && (data.status === "confirmed" || data.status === "partially_received");
-  const canSend = data && ["confirmed", "partially_received", "fully_received", "closed"].includes(data.status);
+  const canReceive = !isScoped && data && (data.status === "confirmed" || data.status === "partially_received");
+  const canSend = canProcurement("orders.send") && data && ["confirmed", "partially_received", "fully_received", "closed"].includes(data.status);
 
   const send = useMutation({
     mutationFn: () => apiPost(`/procurement/purchase-orders/${po!.id}/send`, {}),
@@ -516,7 +531,8 @@ function PODetailDialog({ po, onClose }: { po: PO | null; onClose: () => void })
 
   const previewPdf = () => {
     if (!po) return;
-    openFileDownload(`${(import.meta.env.BASE_URL||"/").replace(/\/$/,"")}/api/procurement/purchase-orders/${po.id}/pdf`);
+    void downloadPdf(`${(import.meta.env.BASE_URL||"/").replace(/\/$/,"")}/api/procurement/purchase-orders/${po.id}/pdf`,`PO-${po.reference}.pdf`)
+      .catch(e=>toast({title:"تعذرت الطباعة",description:e.message,variant:"destructive"}));
   };
 
   return (
@@ -525,6 +541,12 @@ function PODetailDialog({ po, onClose }: { po: PO | null; onClose: () => void })
         <DialogHeader>
           <DialogTitle>أمر الشراء {po?.reference} — {po?.supplierName}</DialogTitle>
         </DialogHeader>
+        {data && (
+          <>
+          {isScoped&&data.status==="pending_approval"&&canProcurement("orders.approve")&&
+            <ApprovalActions docType="purchase_order" recordId={data.id} nativePurchaseOrder={data.review??null}/>}
+          </>
+        )}
         {data && (
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
@@ -541,12 +563,16 @@ function PODetailDialog({ po, onClose }: { po: PO | null; onClose: () => void })
               <div><span className="text-muted-foreground">التاريخ:</span> {data.orderDate}</div>
               <div><span className="text-muted-foreground">المتوقع:</span> {data.expectedDate ?? "—"}</div>
             </div>
-            {canSend && (
+            {(canSend||canProcurement("orders.print")||canProcurement("orders.export")) && (
               <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/40 p-3">
-                <Button variant="outline" size="sm" onClick={previewPdf} data-testid="button-preview-po-pdf">
+                <Button hidden={!canProcurement("orders.print")} variant="outline" size="sm" onClick={previewPdf} data-testid="button-preview-po-pdf">
                   <Download className="me-1 size-4" />معاينة PDF
                 </Button>
-                <Button size="sm" onClick={() => send.mutate()} disabled={send.isPending}
+                {canProcurement("orders.export")&&<Button variant="outline" size="sm" data-testid="button-export-po-pdf" onClick={()=>{
+                  if(po)void downloadPdf(`${(import.meta.env.BASE_URL||"/").replace(/\/$/,"")}/api/procurement/purchase-orders/${po.id}/pdf?download=1`,`PO-${po.reference}.pdf`)
+                    .catch(e=>toast({title:"تعذر التنزيل",description:e.message,variant:"destructive"}));
+                }}>تنزيل أمر الشراء</Button>}
+                <Button hidden={!canSend} size="sm" onClick={() => send.mutate()} disabled={send.isPending}
                   data-testid="button-send-po">
                   <Mail className="me-1 size-4" />
                   {data.sentToSupplierAt ? "إعادة الإرسال للمورد" : "إرسال للمورد"}
@@ -1277,6 +1303,7 @@ export default function ProcurementPage() {
   // raise PRs but cannot read suppliers/POs/stats — those endpoints are
   // server-guarded by supplierReadGuard. Render a PR-only experience
   // for them so the page doesn't fire 403s on load.
+  const {isScoped,canProcurement}=usePermissions();
   const canReadProcurement = has("supplierRead");
 
   return (
@@ -1288,8 +1315,8 @@ export default function ProcurementPage() {
           <p className="text-sm text-muted-foreground">من طلب الشراء إلى الدفع — متكاملة مع المخزون والمحاسبة</p>
         </div>
       </div>
-      {canReadProcurement && <StatsRow />}
-      {!canReadProcurement ? (
+      {canReadProcurement && !isScoped && <StatsRow />}
+      {isScoped ? (canProcurement("orders.read")?<POsTab onSelectPO={setSelectedPo}/>:<p>اختر مسؤولية تجيز عرض أوامر الشراء.</p>) : !canReadProcurement ? (
         // Minimal PR-only view for non-procurement roles.
         <RequisitionsTab />
       ) : (

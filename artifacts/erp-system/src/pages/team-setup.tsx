@@ -557,7 +557,7 @@ function PersonEditor({ editing, catalog, branches, warehouses, onChange, onClos
   };
 
   const addTemplate = (tpl: TeamCatalog["templates"][number]) => {
-    const resource = tpl.resource === "pos" ? "pos" : "inventory";
+    const resource = tpl.resource as GrantResource;
     set({ grants: [...person.grants, { ...emptyGrant(resource), actions: tpl.actions.filter((a) => avail.has(a)) }] });
   };
 
@@ -842,6 +842,7 @@ function GrantCard({ index, grant, catalog, branches, warehouses, issues, onChan
           <SelectContent>
             <SelectItem value="inventory">المخزون</SelectItem>
             <SelectItem value="pos">نقطة البيع</SelectItem>
+            <SelectItem value="procurement">الموردون وأوامر الشراء</SelectItem>
           </SelectContent>
         </Select>
         <Select value={grant.branchId ? String(grant.branchId) : ""} onValueChange={(v) => onChange({ branchId: Number(v), warehouseIds: [] })}>
@@ -909,9 +910,9 @@ function GrantCard({ index, grant, catalog, branches, warehouses, issues, onChan
       </div>
 
       <div className="mt-4 grid gap-3 sm:grid-cols-3">
-        {grant.resource === "pos" && (
+        {grant.resource !== "inventory" && (
           <div>
-            <Label className="text-xs">سقف قيمة البيع الواحد (ر.س)</Label>
+            <Label className="text-xs">{grant.resource==="procurement"?"سقف قيمة أمر الشراء":"سقف قيمة البيع الواحد"} (ر.س)</Label>
             <Input dir="ltr" inputMode="decimal" placeholder="بلا سقف" value={grant.amountLimit ?? ""} onChange={(e) => onChange({ amountLimit: e.target.value || null })} data-testid={`input-grant-limit-${index}`} />
           </div>
         )}

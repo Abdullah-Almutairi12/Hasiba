@@ -7,12 +7,13 @@ import type {
   Warehouse,
 } from "@workspace/api-client-react";
 
-export type GrantResource = "inventory" | "pos";
+export type GrantResource = "inventory" | "pos" | "procurement";
 export type LoginKind = TeamPersonInputLoginKindsItem;
 
 export const RESOURCE_LABEL: Record<string, string> = {
   inventory: "المخزون",
   pos: "نقطة البيع",
+  procurement: "الموردون وأوامر الشراء",
 };
 
 export const STATUS_META: Record<string, { label: string; tone: "ok" | "warn" | "off" | "info" }> = {
@@ -109,7 +110,7 @@ export function validatePerson(
   person.grants.forEach((g, i) => {
     const p = `grants.${i}`;
     if (!g.branchId) issues.push({ path: `${p}.branchId`, message: `المسؤولية ${i + 1}: اختر الفرع.` });
-    if (g.warehouseIds.length === 0) issues.push({ path: `${p}.warehouseIds`, message: `المسؤولية ${i + 1}: اختر مستودعًا واحدًا على الأقل.` });
+    if (g.resource !== "procurement" && g.warehouseIds.length === 0) issues.push({ path: `${p}.warehouseIds`, message: `المسؤولية ${i + 1}: اختر مستودعًا واحدًا على الأقل.` });
     if (warehouses) {
       const foreign = g.warehouseIds.filter((id) => warehouses.find((w) => w.id === id)?.branchId !== g.branchId);
       if (foreign.length) issues.push({ path: `${p}.warehouseIds`, message: `المسؤولية ${i + 1}: المستودعات يجب أن تتبع الفرع نفسه.` });

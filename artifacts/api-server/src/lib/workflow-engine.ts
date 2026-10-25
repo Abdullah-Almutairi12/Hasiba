@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction } from "express";
 import { managedProfile, selectedResponsibility } from "./responsibility-context";
+import { procurementReviewAuthority } from "./procurement-authority";
 import { assertScopedReturnReview, scopedReturnGrants } from "./scoped-return-review";
 import {
   db,
@@ -583,6 +584,8 @@ export async function actionableApprovalSteps(
   const policy = frozenApprovalPolicy(request);
   if (!policy) return [];
   let nativeReturnApprover = false;
+  if(request.docType==="purchase_order"&&request.ruleId==null)
+    nativeReturnApprover=!!await procurementReviewAuthority(connection,request.companyId!,userId,request.recordId);
   if (request.docType === "credit_note") {
     const controls = await connection.execute(sql`SELECT branch_id FROM return_controls
       WHERE note_id=${request.recordId} AND company_id=${request.companyId}`);
@@ -757,7 +760,10 @@ async function actOnApprovalTransaction(
   // no "owner/manager override" — that would silently let any manager act
   // on accountant-only steps and defeat the approval matrix. Use the admin
   // matrix UI to reconfigure rules instead.
+  const purchaseAuthority=request.docType==="purchase_order"
+    ? await procurementReviewAuthority(db,companyId,userId,request.recordId):null;
   let actingStep: number | null = null;
+  if(purchaseAuthority && request.ruleId==null) actingStep=targetedSteps[0]?.sequence??null;
   if (returnApprover && request.ruleId == null) actingStep = targetedSteps[0]?.sequence ?? null;
   if (userId != null) {
     for (const s of targetedSteps) {
@@ -815,13 +821,15 @@ async function actOnApprovalTransaction(
     : action === "request_changes" ? { status: "changes_requested", finished: true }
     : steps.every(s => approvedSeq.has(s.sequence) || s.sequence === actingStep)
       ? { status: "approved", finished: true } : { status: "pending", finished: false };
-  const authority = action === "approve" && request.docType === "pos_over_limit" && userId != null
+  const authority = action==="approve" && request.docType==="purchase_order" ? purchaseAuthority : action === "approve" && request.docType === "pos_over_limit" && userId != null
     ? await posDecisionAuthority(request, steps.find(s => s.sequence === actingStep)!, userId, db)
     : action === "approve" && request.docType === "credit_note" && userId != null
       ? (await returnDecisionAuthorities(request, userId, db))[0] ?? null : null;
   if (action === "approve" && request.docType === "pos_over_limit" && !authority) {
     throw new FinancialRequestError("صلاحية المعتمد الحالية أو حده المالي لا يسمحان بهذه العملية", 403);
   }
+  if(action==="approve"&&request.docType==="purchase_order"&&!authority)
+    throw new FinancialRequestError("المراجع لا يملك صلاحية اعتماد حالية على حقائق أمر الشراء",403);
   if (action === "approve" && request.docType === "credit_note" && !authority) {
     const operational = await db.execute(sql`SELECT note_id FROM return_controls WHERE note_id=${request.recordId} AND company_id=${companyId}`);
     if (operational.rows.length) throw new FinancialRequestError("صلاحية معتمد المرتجع أو حده المالي غير متاحين", 403);

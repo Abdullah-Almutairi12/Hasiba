@@ -17,6 +17,7 @@ import {
 import { Textarea } from "./ui/textarea";
 import { useToast } from "../hooks/use-toast";
 import { Check, X, MessageSquare, ExternalLink } from "lucide-react";
+import {apiPost} from "../hooks/use-api";
 
 type Action = "approve" | "reject" | "request_changes";
 
@@ -24,10 +25,13 @@ export interface ApprovalActionsProps {
   docType: string;
   recordId: number;
   compact?: boolean;
+  nativePurchaseOrder?: {id:number;recordId:number;currentStep:number;policyReviewRequired?:boolean;
+    actionableSteps:Array<{sequence:number;stepToken:string}>}|null;
 }
 
-export function ApprovalActions({ docType, recordId, compact }: ApprovalActionsProps) {
-  const { data, isLoading } = useListApprovalRequests({ docType, status: "pending" });
+export function ApprovalActions({ docType, recordId, compact, nativePurchaseOrder }: ApprovalActionsProps) {
+  const native=nativePurchaseOrder!==undefined;
+  const { data, isLoading } = useListApprovalRequests({ docType, status: "pending" },{query:{enabled:!native}});
   const qc = useQueryClient();
   const act = useActOnApprovalRequest();
   const { toast } = useToast();
@@ -35,9 +39,9 @@ export function ApprovalActions({ docType, recordId, compact }: ApprovalActionsP
   const [selectedStepToken, setSelectedStepToken] = useState("");
   const [comment, setComment] = useState("");
 
-  if (isLoading) return null;
+  if (!native&&isLoading) return null;
   const list = data ?? [];
-  const req = list.find((r) => r.recordId === recordId);
+  const req = native?nativePurchaseOrder:list.find((r) => r.recordId === recordId);
   if (!req) return null;
   const available = req.actionableSteps ?? [];
   const selectedStep = available.find(s => s.stepToken === selectedStepToken) ?? available[0];
@@ -49,9 +53,11 @@ export function ApprovalActions({ docType, recordId, compact }: ApprovalActionsP
   const submit = async () => {
     if (!open) return;
     try {
-      const result = await act.mutateAsync({ id: open.id, data: {
+      const payload={
         action: open.action, comment: comment || null, stepToken: open.stepToken, decisionId: open.decisionId,
-      } });
+      };
+      const result = native?await apiPost<{finished:boolean}>(`/procurement/purchase-orders/${recordId}/approve`,payload):
+        await act.mutateAsync({id:open.id,data:payload});
       toast({
         title:
           open.action === "approve" ? (result.finished ? "تم الاعتماد" : "اعتمدت الخطوة؛ المراجعة مستمرة") :
@@ -89,11 +95,11 @@ export function ApprovalActions({ docType, recordId, compact }: ApprovalActionsP
       <Button size="sm" variant="outline" disabled={!selectedStep} onClick={() => begin("request_changes")}>
         <MessageSquare className="size-3" /> تعديل
       </Button>
-      <Link to={`/inbox?request=${req.id}`}>
+      {!native&&<Link to={`/inbox?request=${req.id}`}>
         <Button size="sm" variant="ghost" title="فتح في صندوق الوارد">
           <ExternalLink className="size-3" />
         </Button>
-      </Link>
+      </Link>}
       <Dialog open={open !== null} onOpenChange={(o) => !o && setOpen(null)}>
         <DialogContent>
           <DialogHeader>

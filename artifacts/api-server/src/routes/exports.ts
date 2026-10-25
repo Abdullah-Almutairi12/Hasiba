@@ -11,6 +11,7 @@ import { getCompanyId } from "../lib/scoped-db";
 import type { Request, Response, NextFunction } from "express";
 import { renderPdf } from "../lib/report-render";
 import { aggregatePrintGuard } from "../lib/print-permissions";
+import { managedProfile } from "../lib/responsibility-context";
 
 const router = Router();
 
@@ -90,7 +91,7 @@ async function postedAccountTotals(companyId: number, from?: string, to?: string
 async function fetchReportRows(
   type: ReportType,
   companyId: number,
-  q: { from?: string; to?: string } = {},
+  q: { from?: string; to?: string; directoryOnly?: boolean } = {},
 ): Promise<{ headers: string[]; rows: Array<Array<string | number>>; title: string }> {
   switch (type) {
     case "sales": {
@@ -164,8 +165,8 @@ async function fetchReportRows(
         .orderBy(desc(suppliersTable.createdAt));
       return {
         title: "تقرير الموردين",
-        headers: ["الاسم", "الرقم الضريبي", "الهاتف", "البريد", "الرصيد", "عدد الفواتير"],
-        rows: rows.map((r) => [r.name, r.vatNumber ?? "-", r.phone ?? "-", r.email ?? "-", Number(r.balance), Number(r.invoicesCount)]),
+        headers: q.directoryOnly ? ["الاسم","الرقم الضريبي","الهاتف","البريد"] : ["الاسم", "الرقم الضريبي", "الهاتف", "البريد", "الرصيد", "عدد الفواتير"],
+        rows: rows.map((r) => [r.name, r.vatNumber ?? "-", r.phone ?? "-", r.email ?? "-", ...(q.directoryOnly?[]:[Number(r.balance), Number(r.invoicesCount)])]),
       };
     }
     case "journal": {
@@ -333,7 +334,8 @@ router.get("/exports/:type.xlsx", async (req, res) => {
   const from = req.query.from as string | undefined;
   const to = req.query.to as string | undefined;
   try {
-    const { title, headers, rows } = await fetchReportRows(type, getCompanyId(req), { from, to });
+    const { title, headers, rows } = await fetchReportRows(type, getCompanyId(req), { from, to,
+      directoryOnly:!!await managedProfile(req.session.userId!,getCompanyId(req)) });
     const wb = new ExcelJS.Workbook();
     wb.creator = "حاسبة.AI";
     wb.created = new Date();
@@ -376,7 +378,8 @@ router.get("/exports/:type.pdf", async (req, res) => {
   const from = req.query.from as string | undefined;
   const to = req.query.to as string | undefined;
   try {
-    const { title, headers, rows } = await fetchReportRows(type, getCompanyId(req), { from, to });
+    const { title, headers, rows } = await fetchReportRows(type, getCompanyId(req), { from, to,
+      directoryOnly:!!await managedProfile(req.session.userId!,getCompanyId(req)) });
 
     await renderPdf(res,{slug:`${type}-${new Date().toISOString().slice(0,10)}`,title,headers,rows,companyId:getCompanyId(req),subtitle:from||to?`${from??"البداية"} — ${to??"النهاية"}`:null});
     void recordAudit(req, { action: "export", entity: "report", details: `PDF: ${type}` });

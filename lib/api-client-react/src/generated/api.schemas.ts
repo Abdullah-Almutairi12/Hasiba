@@ -358,6 +358,7 @@ export type PermissionTemplateInputResource = typeof PermissionTemplateInputReso
 export const PermissionTemplateInputResource = {
   inventory: 'inventory',
   pos: 'pos',
+  procurement: 'procurement',
 } as const;
 
 export interface PermissionTemplateInput {
@@ -414,6 +415,7 @@ export type TeamGrantInputResource = typeof TeamGrantInputResource[keyof typeof 
 export const TeamGrantInputResource = {
   inventory: 'inventory',
   pos: 'pos',
+  procurement: 'procurement',
 } as const;
 
 /**
@@ -2966,7 +2968,8 @@ export interface Supplier {
   phone?: string | null;
   /** @nullable */
   address?: string | null;
-  balance: number;
+  /** Omitted for supplier-directory responsibilities; separate financial access is required. */
+  balance?: number;
   /** @nullable */
   notes?: string | null;
   createdAt: string;

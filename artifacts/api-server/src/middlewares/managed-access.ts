@@ -4,6 +4,7 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import { currentResponsibilities, managedProfile, responsibilityContext } from "../lib/responsibility-context";
 import { teamRows } from "../lib/team-store";
 import { administrativeRights } from "../lib/administration-authority";
+import { procurementAction } from "../lib/procurement-authority";
 
 export const SCOPED_ROUTES = [
   ["GET", "/workspace/access", "self"],
@@ -60,7 +61,8 @@ export async function managedAccessGate(req: Request, res: Response, next: NextF
     if (/^\/team(?:\/|$)/.test(req.path) && (await administrativeRights(companyId,userId)).length) return next();
     const profile = await managedProfile(userId, companyId);
     if (!profile) return next();
-    let action: string | undefined = scopedRouteAction(req.method, req.path);
+    let action: string | undefined = procurementAction(req.method, req.path) ?? scopedRouteAction(req.method, req.path);
+    if (action === "procurement.orders.print" && req.query.download === "1") action = "procurement.orders.export";
     if (action === "pos.operation") {
       action = ({
         request: "pos.return.request", re_review: "pos.return.request", approve: "pos.return.approve", receive: "pos.return.receive", payout: "pos.return.payout",
@@ -84,8 +86,10 @@ export async function managedAccessGate(req: Request, res: Response, next: NextF
         res.json(branchIds.length ? await db.select().from(branchesTable).where(and(
           eq(branchesTable.companyId, companyId), inArray(branchesTable.id, branchIds))) : []);
       } else {
-        res.json(warehouseIds.length ? await db.select().from(warehousesTable).where(and(
-          eq(warehousesTable.companyId, companyId), inArray(warehousesTable.id, warehouseIds))) : []);
+        const wholeBranches=allowed.filter(g=>g.resource==="procurement"&&!g.warehouseIds.length).map(g=>g.branchId);
+        res.json(warehouseIds.length||wholeBranches.length ? await db.select().from(warehousesTable).where(and(
+          eq(warehousesTable.companyId, companyId), sql`(${warehousesTable.id}=ANY(${sql.param(warehouseIds)}::integer[])
+            OR ${warehousesTable.branchId}=ANY(${sql.param(wholeBranches)}::integer[]))`)) : []);
       }
       return;
     }
@@ -97,6 +101,8 @@ export async function managedAccessGate(req: Request, res: Response, next: NextF
       return void res.status(403).json({ error: "مسؤولية المخزون لا تمنح البيع في فرع آخر" });
     }
     if (action === "catalog") {
+      if(grant.resource==="procurement"&&!grant.actions.includes("procurement.orders.create"))
+        return void res.status(403).json({error:"دليل الموردين لا يمنح بيانات المنتجات"});
       if (req.path === "/categories" || req.path === "/products/categories") {
         res.json(await db.select().from(categoriesTable).where(sql`EXISTS(
           SELECT 1 FROM products p WHERE p.company_id=${companyId} AND p.category_id=${categoriesTable.id} AND p.is_active)`));
@@ -119,7 +125,7 @@ export async function managedAccessGate(req: Request, res: Response, next: NextF
           ORDER BY p.id LIMIT 500`);
         // Cost is deliberately absent, not fabricated as zero. Scoped cost
         // access is provided by /workspace/inventory using actual quants.
-        res.json(products);
+        res.json(grant.resource==="procurement"?products.map(({stock,...p})=>p):products);
       }
       return;
     }

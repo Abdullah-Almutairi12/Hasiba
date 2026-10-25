@@ -5088,7 +5088,7 @@ components:
       required: [name, resource, actions]
       properties:
         name: {type: string}
-        resource: {type: string, enum: [inventory, pos]}
+        resource: {type: string, enum: [inventory, pos, procurement]}
         actions: {type: array, items: {type: string}}
     PermissionTemplateEdit:
       type: object
@@ -5142,7 +5142,7 @@ components:
       type: object
       required: [resource, branchId, warehouseIds, actions, amountLimit, startsAt, endsAt]
       properties:
-        resource: { type: string, enum: [inventory, pos] }
+        resource: { type: string, enum: [inventory, pos, procurement] }
         templateId: {type: [integer, "null"]}
         templateRevision: {type: [integer, "null"]}
         templateMode: {type: [string, "null"], enum: [inherit, override, null]}
@@ -7831,7 +7831,7 @@ components:
         email: { type: string, nullable: true }
         phone: { type: string, nullable: true }
         address: { type: string, nullable: true }
-        balance: { type: number }
+        balance: { type: number, description: Omitted for supplier-directory responsibilities; separate financial access is required. }
         notes: { type: string, nullable: true }
         createdAt: { type: string }
         linkedCompanyId:
@@ -7842,7 +7842,7 @@ components:
           type: string
           nullable: true
           description: Display name of the linked sibling company, joined server-side.
-      required: [id, name, balance, createdAt]
+      required: [id, name, createdAt]
 
     CreateSupplierBody:
       type: object

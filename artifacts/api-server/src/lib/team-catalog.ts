@@ -1,6 +1,22 @@
 import { z } from "zod";
 
 export const TEAM_ACTIONS = [
+  ...[
+    ["read", "اختيار مسؤولية الموردين وأوامر الشراء — دون منح قراءة المستندات ضمنيًا"],
+    ["suppliers.read", "عرض بيانات الموردين — لا فواتيرهم أو دفعاتهم"],
+    ["suppliers.create", "إنشاء مورد"],
+    ["suppliers.edit", "تعديل مورد"],
+    ["suppliers.export", "تصدير دليل الموردين"],
+    ["orders.read", "عرض أوامر الشراء ضمن النطاق والحد"],
+    ["orders.create", "إنشاء أمر شراء"],
+    ["orders.confirm", "تقديم وتأكيد أمر شراء — دون استلام أو صرف"],
+    ["orders.approve", "اعتماد أمر شراء لشخص آخر"],
+    ["orders.cancel", "إلغاء أمر شراء"],
+    ["orders.close", "إغلاق أمر شراء مستلم بالكامل — لا استلام مخزني"],
+    ["orders.print", "طباعة أمر شراء"],
+    ["orders.export", "تنزيل ملف أمر شراء"],
+    ["orders.send", "إرسال أمر شراء وإعادة محاولته بصلاحية مستقلة"],
+  ].map(([key, label]) => ({ key: `procurement.${key}`, label, resource: "procurement", available: true })),
   { key: "inventory.read", label: "عرض مخزون المستودعات المحددة", resource: "inventory", available: true },
   { key: "inventory.cost.read", label: "عرض تكلفة المخزون", resource: "inventory", available: true },
   { key: "inventory.transfer.receive", label: "استلام تحويل قائم كاملًا في مستودع الوجهة المحدد — لا إرسال أو تسوية", resource: "inventory", available: true },
@@ -29,14 +45,16 @@ export const GrantInput = z.object({
   templateId:z.number().int().positive().nullable().optional(),
   templateRevision:z.number().int().positive().nullable().optional(),
   templateMode:z.enum(["inherit","override"]).nullable().optional(),
-  resource: z.enum(["inventory", "pos"]),
+  resource: z.enum(["inventory", "pos", "procurement"]),
   branchId: z.number().int().positive(),
-  warehouseIds: z.array(z.number().int().positive()).min(1).max(100),
+  warehouseIds: z.array(z.number().int().positive()).max(100),
   actions: z.array(z.string()).min(1).max(20),
   amountLimit: z.string().regex(/^\d{1,14}(\.\d{1,4})?$/).nullable(),
   startsAt: z.string().datetime({ offset: true }).nullable(),
   endsAt: z.string().datetime({ offset: true }).nullable(),
 }).strict().superRefine((g, ctx) => {
+  if (g.resource !== "procurement" && !g.warehouseIds.length)
+    ctx.addIssue({code:"custom",message:"هذه المسؤولية تحتاج مستودعًا واحدًا على الأقل"});
   if(g.templateId ? !g.templateRevision || !g.templateMode : g.templateRevision || g.templateMode)
     ctx.addIssue({code:"custom",message:"ربط القالب يحتاج المصدر والإصدار ونمط الوراثة معًا"});
   if (g.resource === "inventory" && g.amountLimit !== null) {
@@ -66,7 +84,7 @@ export const TeamPersonInput = z.object({
   if (!p.loginKinds.length && p.grants.length) ctx.addIssue({ code: "custom", message: "سجل بلا دخول لا يمنح مسؤوليات دخول" });
   if (p.loginKinds.includes("platform") && !p.email) ctx.addIssue({ code: "custom", message: "حساب المنصة يحتاج بريدًا حقيقيًا لمسار التفعيل" });
   if (p.grants.some(g => g.resource === "pos" && !p.loginKinds.includes("pos") ||
-    g.resource === "inventory" && !p.loginKinds.includes("platform"))) {
+    g.resource !== "pos" && !p.loginKinds.includes("platform"))) {
     ctx.addIssue({ code: "custom", message: "نوع الدخول لا يدعم إحدى المسؤوليات المختارة" });
   }
   if (p.deniedActions.some(key => !TEAM_ACTIONS.some(a => a.key === key))) {
@@ -75,7 +93,7 @@ export const TeamPersonInput = z.object({
 });
 export type TeamGrant = z.infer<typeof GrantInput>;
 export type TeamPerson = z.infer<typeof TeamPersonInput>;
-export const TEAM_MODULES = ["inventory","pos","finance","hr","payroll","crm","reports","ai","team"];
+export const TEAM_MODULES = ["inventory","pos","procurement","finance","hr","payroll","crm","reports","ai","team"];
 export const TEAM_TEMPLATES = [
   { key: "inventory_reader", label: "موظف مخزون — قراءة", resource: "inventory", actions: ["inventory.read"] },
   { key: "cashier", label: "كاشير — بيع مباشر بلا تجاوز", resource: "pos", actions: ["pos.read","pos.sell","pos.shift.open"] },

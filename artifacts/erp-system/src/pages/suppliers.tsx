@@ -33,6 +33,9 @@ import {
 import { Search, Plus, Truck, Pencil, Building2 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
+import {usePermissions} from "@/hooks/use-permissions";
+import {getWorkspaceResponsibility,WORKSPACE_RESPONSIBILITY_HEADER} from "@workspace/api-client-react";
+import {downloadPdf} from "@/lib/download-file";
 
 interface SupplierRow {
   id: number;
@@ -67,6 +70,7 @@ function SupplierForm({
   initial?: SupplierFull;
   onSaved: () => void;
 }) {
+  const {isScoped}=usePermissions();
   const { toast } = useToast();
   const isEdit = !!initial;
   const [name, setName] = useState(initial?.name ?? "");
@@ -84,7 +88,7 @@ function SupplierForm({
     initial?.linkedCompanyId != null ? String(initial.linkedCompanyId) : "none",
   );
 
-  const { data: siblings = [] } = useApiQuery<Sibling[]>("/companies/siblings");
+  const { data: siblings = [] } = useApiQuery<Sibling[]>("/companies/siblings",{enabled:!isScoped});
 
   const submit = async () => {
     if (!name.trim()) {
@@ -169,7 +173,7 @@ function SupplierForm({
         </div>
         <div>
           <Label>الشركة الشقيقة المرتبطة (اختياري)</Label>
-          <Select value={linkedCompanyId} onValueChange={setLinkedCompanyId}>
+          <Select disabled={isScoped} value={linkedCompanyId} onValueChange={setLinkedCompanyId}>
             <SelectTrigger>
               <SelectValue placeholder="بدون ربط" />
             </SelectTrigger>
@@ -195,6 +199,27 @@ function SupplierForm({
 }
 
 export default function Suppliers() {
+  const {canProcurement,isScoped}=usePermissions();
+  const {toast}=useToast();
+  const [exporting,setExporting]=useState(false);
+  const exportDirectory=async(format:"pdf"|"xlsx")=>{
+    if(exporting)return;
+    setExporting(true);
+    const url=`${import.meta.env.BASE_URL.replace(/\/$/,"")}/api/exports/suppliers.${format}`;
+    try{
+      if(format==="pdf")await downloadPdf(url,"suppliers.pdf");
+      else {
+        const responsibility=getWorkspaceResponsibility();
+        const response=await fetch(url,{credentials:"include",headers:responsibility?{[WORKSPACE_RESPONSIBILITY_HEADER]:responsibility}:{}});
+        if(!response.ok||!response.headers.get("content-type")?.includes("spreadsheetml"))
+          throw new Error("تعذر تصدير دليل الموردين أو انتهت الصلاحية");
+        const blob=await response.blob(),href=URL.createObjectURL(blob),a=document.createElement("a");
+        a.href=href;a.download="suppliers.xlsx";document.body.append(a);a.click();a.remove();
+        setTimeout(()=>URL.revokeObjectURL(href),1000);
+      }
+    }catch(e){toast({title:"تعذر التصدير",description:e instanceof Error?e.message:"خطأ غير متوقع",variant:"destructive"});}
+    finally{setExporting(false);}
+  };
   const [search, setSearch] = useState("");
   const [linkedOnly, setLinkedOnly] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
@@ -226,9 +251,13 @@ export default function Suppliers() {
             إدارة بيانات الموردين وربطهم بالشركات الشقيقة
           </p>
         </div>
-        <Dialog open={addOpen} onOpenChange={setAddOpen}>
+        {canProcurement("suppliers.export")&&<div className="flex gap-2">
+          <Button variant="outline" disabled={exporting} onClick={()=>void exportDirectory("xlsx")}>تصدير Excel</Button>
+          <Button variant="outline" disabled={exporting} onClick={()=>void exportDirectory("pdf")}>تصدير PDF</Button>
+        </div>}
+        <Dialog open={addOpen&&canProcurement("suppliers.create")} onOpenChange={setAddOpen}>
           <DialogTrigger asChild>
-            <Button className="gap-2" data-testid="button-add-supplier">
+            <Button hidden={!canProcurement("suppliers.create")} className="gap-2" data-testid="button-add-supplier">
               <Plus className="size-4" />
               إضافة مورد
             </Button>
@@ -319,12 +348,13 @@ export default function Suppliers() {
                         <span className="text-muted-foreground">—</span>
                       )}
                     </TableCell>
-                    <TableCell className="text-center">{s.invoicesCount}</TableCell>
+                    <TableCell className="text-center">{isScoped?"غير مشمول":s.invoicesCount}</TableCell>
                     <TableCell className="text-left font-bold">
-                      {s.balance.toLocaleString("ar-SA")}
+                      {isScoped?"غير مشمول":s.balance.toLocaleString("ar-SA")}
                     </TableCell>
                     <TableCell className="text-end">
                       <Button
+                        hidden={!canProcurement("suppliers.edit")}
                         variant="ghost"
                         size="sm"
                         onClick={() => setEditingId(s.id)}

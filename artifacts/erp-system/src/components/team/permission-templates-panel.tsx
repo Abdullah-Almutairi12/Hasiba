@@ -122,7 +122,7 @@ function CreateTemplate({ catalogActions, onDone }: { catalogActions: TeamAction
           <Label className="text-xs">المورد</Label>
           <select className="h-9 w-full rounded-md border bg-background px-2 text-sm" value={form.resource}
             onChange={(e) => setForm({ ...form, resource: e.target.value as GrantResource, actions: [] })} data-testid="select-template-resource">
-            <option value="inventory">المخزون</option><option value="pos">نقطة البيع</option>
+            <option value="inventory">المخزون</option><option value="pos">نقطة البيع</option><option value="procurement">الموردون وأوامر الشراء</option>
           </select>
         </div>
       </div>

@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, type Request } from "express";
 import { z, ZodError } from "zod";
 import { db, suppliersTable, invoicesTable, companiesTable } from "@workspace/db";
 import { eq, ilike, or, sql, desc, isNotNull } from "drizzle-orm";
@@ -7,6 +7,10 @@ import { recordAudit } from "../lib/audit";
 import { ScopedDb, getCompanyId } from "../lib/scoped-db";
 import { assertLinkedCompanyAllowed } from "../lib/assert-linked-company";
 import { and } from "drizzle-orm";
+import { requestProcurementActor, procurementAudit } from "../lib/procurement-authority";
+import { FinancialRequestError } from "../lib/financial-transaction";
+import { managedProfile } from "../lib/responsibility-context";
+const managedSupplier=async(req:Request)=>!!await managedProfile(req.session.userId!,getCompanyId(req));
 
 const router = Router();
 // Suppliers are written by both finance (accounting) and inventory (purchasing).
@@ -44,6 +48,7 @@ const CreateSupplierBody = z.object({
  */
 router.get("/suppliers", async (req, res) => {
   try {
+    const actor=await requestProcurementActor(req,"procurement.suppliers.read");
     const search = (req.query["search"] as string | undefined)?.trim();
     const linkedOnly = req.query["linkedOnly"] === "1" || req.query["linkedOnly"] === "true";
     const scoped = new ScopedDb(getCompanyId(req));
@@ -79,18 +84,18 @@ router.get("/suppliers", async (req, res) => {
       )
       .orderBy(desc(suppliersTable.createdAt));
 
-    res.json(
-      rows.map((r) => ({
+    return res.json(
+      rows.map(({balance,invoicesCount,...r}) => ({
         ...r,
-        balance: Number(r.balance),
-        invoicesCount: Number(r.invoicesCount),
+        ...(actor.grant ? {} : { balance: Number(balance), invoicesCount: Number(invoicesCount) }),
         createdAt: r.createdAt.toISOString(),
         linkedCompanyName: r.linkedCompanyName ?? null,
       })),
     );
   } catch (err) {
+    if(err instanceof FinancialRequestError) return res.status(err.status).json({error:err.message});
     req.log.error({ err }, "list suppliers failed");
-    res.status(500).json({ error: "internal" });
+    return res.status(500).json({ error: "internal" });
   }
 });
 
@@ -101,7 +106,10 @@ router.post("/suppliers", supplierWriteGuard, async (req, res) => {
     const userId = req.session?.userId;
     if (!userId) return res.status(401).json({ error: "غير مسجل دخول" });
     const linkedCompanyId = await assertLinkedCompanyAllowed(userId, body.linkedCompanyId);
-    const [created] = await db
+    const created = await db.transaction(async tx => {
+    const actor=await requestProcurementActor(req,"procurement.suppliers.create",tx,true);
+    if(actor.grant && linkedCompanyId != null) throw new FinancialRequestError("ربط الشركات ليس ضمن صلاحية إنشاء المورد",403);
+    const [created] = await tx
       .insert(suppliersTable)
       .values(scoped.stamp({
         name: body.name,
@@ -117,9 +125,14 @@ router.post("/suppliers", supplierWriteGuard, async (req, res) => {
         linkedCompanyId,
       }))
       .returning();
+    await procurementAudit(tx,actor,"supplier.created",{id:created.id});
+    return created;
+    });
     void recordAudit(req, { action: "create", entity: "supplier", details: `أُضيف المورد ${body.name}` });
-    return res.status(201).json(created);
+    const {balance,...directory}=created;
+    return res.status(201).json(await managedSupplier(req)?directory:created);
   } catch (err) {
+    if(err instanceof FinancialRequestError) return res.status(err.status).json({error:err.message});
     if (err instanceof ZodError) return res.status(400).json({ error: "بيانات غير صالحة", details: err.issues });
     // PG unique-violation on suppliers_vat_number_unique → 409 instead of 500.
     const code = (err as { code?: string; cause?: { code?: string } })?.code
@@ -175,19 +188,33 @@ router.patch("/suppliers/:id", supplierWriteGuard, async (req, res) => {
     if (b.defaultTax !== undefined) patch.defaultTax = String(b.defaultTax);
     if (b.linkedCompanyId !== undefined) patch.linkedCompanyId = b.linkedCompanyId;
 
-    const [updated] = await db
+    const updated = await db.transaction(async tx=>{
+    const actor=await requestProcurementActor(req,"procurement.suppliers.edit",tx,true);
+    const [before]=await tx.select().from(suppliersTable).where(and(eq(suppliersTable.id,id),scoped.scope(suppliersTable))).for("update");
+    if(!before)throw new FinancialRequestError("المورد غير موجود",404);
+    if(actor.grant && b.linkedCompanyId != null) throw new FinancialRequestError("ربط الشركات ليس ضمن صلاحية تعديل المورد",403);
+    if(actor.grant && b.linkedCompanyId!==undefined && before.linkedCompanyId!==b.linkedCompanyId)
+      throw new FinancialRequestError("تغيير ربط الشركات خارج نطاق تعديل دليل الموردين",403);
+    const [updated] = await tx
       .update(suppliersTable)
       .set(patch)
       .where(and(eq(suppliersTable.id, id), scoped.scope(suppliersTable)))
       .returning();
+    if(updated) await procurementAudit(tx,actor,"supplier.updated",{id,fields:Object.keys(patch),
+      before:Object.fromEntries(Object.keys(patch).map(k=>[k,before[k as keyof typeof before]])),
+      after:patch});
+    return updated;
+    });
     if (!updated) return res.status(404).json({ error: "not found" });
     void recordAudit(req, { action: "update", entity: "supplier", details: `حُدّث المورد ${updated.name}` });
+    const {balance,...directory}=updated;
     return res.json({
-      ...updated,
-      balance: Number(updated.balance),
+      ...directory,
+      ...(await managedSupplier(req)?{}:{balance:Number(balance)}),
       createdAt: updated.createdAt.toISOString(),
     });
   } catch (err) {
+    if(err instanceof FinancialRequestError) return res.status(err.status).json({error:err.message});
     if (err instanceof ZodError) return res.status(400).json({ error: "بيانات غير صالحة", details: err.issues });
     req.log.error({ err }, "update supplier failed");
     return res.status(500).json({ error: "internal" });
@@ -196,6 +223,7 @@ router.patch("/suppliers/:id", supplierWriteGuard, async (req, res) => {
 
 router.get("/suppliers/:id", async (req, res) => {
   try {
+    const actor=await requestProcurementActor(req,"procurement.suppliers.read");
     const id = Number(req.params["id"]);
     if (!Number.isFinite(id)) return res.status(400).json({ error: "bad id" });
 
@@ -205,6 +233,10 @@ router.get("/suppliers/:id", async (req, res) => {
       .from(suppliersTable)
       .where(and(eq(suppliersTable.id, id), scoped.scope(suppliersTable)));
     if (!supplier) return res.status(404).json({ error: "not found" });
+    if(actor.grant) {
+      const {balance: _balance,...directory}=supplier;
+      return res.json({supplier:{...directory,createdAt:supplier.createdAt.toISOString()}});
+    }
 
     // Field set matches the OpenAPI-generated SupplierDetail.recentInvoices schema
     // exactly (supplierName, confidence, fileUrl, createdAt). Keeping these aligned
@@ -245,6 +277,7 @@ router.get("/suppliers/:id", async (req, res) => {
       })),
     });
   } catch (err) {
+    if(err instanceof FinancialRequestError) return res.status(err.status).json({error:err.message});
     req.log.error({ err }, "get supplier failed");
     return res.status(500).json({ error: "internal" });
   }

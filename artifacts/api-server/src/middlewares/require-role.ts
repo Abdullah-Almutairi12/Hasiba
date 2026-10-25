@@ -3,6 +3,7 @@ import { db, usersTable, userCompaniesTable, companiesTable } from "@workspace/d
 import { and, eq } from "drizzle-orm";
 import { returnActor } from "../lib/return-access";
 import { managedProfile, selectedResponsibility } from "../lib/responsibility-context";
+import { procurementAction, requestProcurementActor } from "../lib/procurement-authority";
 
 export const ALL_ROLES = [
   "owner",
@@ -49,6 +50,15 @@ export function requireRole(...roles: Role[]) {
     req.session.role = userRole;
     let effectiveRole: Role = userRole;
     if (await managedProfile(req.session.userId, req.session.companyId ?? -1)) {
+      // Native PO/supplier handlers still enforce their own source and write
+      // transaction checks. Do not impersonate a broad purchasing role.
+      let action = procurementAction(req.method, req.originalUrl.split("?")[0].replace(/^\/api/, ""));
+      if(action==="procurement.orders.print"&&req.query.download==="1")action="procurement.orders.export";
+      if (action) {
+        try { await requestProcurementActor(req, action); next(); }
+        catch { res.status(403).json({ error: "فعل المشتريات غير ممنوح في المسؤولية الحالية" }); }
+        return;
+      }
       const grant = await selectedResponsibility(req.session.userId, req.session.companyId ?? -1);
       // One request has one verified responsibility, never a union of roles.
       effectiveRole = grant?.resource === "pos" ? "cashier" : "scoped";

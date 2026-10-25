@@ -7,12 +7,19 @@ import { supplyScope } from "./supply-chain-scope";
 import { paymentRunsTable } from "@workspace/db";
 import { frozenApprovalPolicy } from "./approval-policy";
 import { scopedReturnGrants } from "./scoped-return-review";
+import { procurementReviewAuthority } from "./procurement-authority";
 
 type ApprovalSourceScope = Pick<typeof approvalRequestsTable.$inferSelect, "companyId" | "branchId" | "recordId" | "docType">;
 export async function approvalViewer(userId: number, request: ApprovalSourceScope,
   connection: DbOrTx = db, existingActor?: Awaited<ReturnType<typeof returnActor>>) {
   if (request.companyId == null) return null;
   let actor = existingActor ?? await returnActor(userId, request.companyId, connection);
+  if(request.docType==="purchase_order"){
+    const read=await procurementReviewAuthority(connection,request.companyId,userId,request.recordId,"procurement.orders.read");
+    if(!read)return null;
+    const approve=await procurementReviewAuthority(connection,request.companyId,userId,request.recordId);
+    return {...actor,capabilities:approve?["view","approve"]:["view"]};
+  }
   if (request.docType === "credit_note") {
     const grants = await scopedReturnGrants(connection, userId, request.companyId, request.recordId);
     if (grants) {

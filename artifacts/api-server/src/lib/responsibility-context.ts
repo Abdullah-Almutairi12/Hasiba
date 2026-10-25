@@ -8,7 +8,7 @@ import { posDeviceAuthority } from "./pos-device-authority";
 
 export const responsibilityContext = new AsyncLocalStorage<{ userId: number; companyId: number; grantId: number }>();
 export type Responsibility = {
-  id: number; resource: "inventory" | "pos"; branchId: number; warehouseIds: number[];
+  id: number; resource: "inventory" | "pos" | "procurement"; branchId: number; warehouseIds: number[];
   actions: string[]; amountLimit: string | null; startsAt: string; endsAt: string | null;
 };
 export async function managedProfile(userId: number, companyId: number, connection: Pick<typeof db, "execute"> = db) {
