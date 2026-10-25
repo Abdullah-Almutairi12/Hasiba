@@ -1,4 +1,5 @@
 import "reflect-metadata";
+import { startAccountRecoveryWorker } from "./lib/account-recovery-delivery";
 // Sentry must be initialised BEFORE app/router imports so its
 // auto-instrumentation can wrap http/express at module load time.
 import { initSentry } from "./lib/sentry";
@@ -41,12 +42,14 @@ const reportingWorkerHandle = startReportingWorkers(5 * 60_000);
 // and refreshes their status from the carrier APIs (SMSA / Aramex /
 // Saee / Naqel). .unref() so it never blocks shutdown.
 const trackingHandle = startTrackingWorker(5 * 60_000);
+const accountRecoveryHandle = startAccountRecoveryWorker();
 
 function shutdown(signal: string): void {
   logger.info({ signal }, "Shutting down");
   clearInterval(zatcaRetryHandle);
   clearInterval(trackingHandle);
   clearInterval(reportingWorkerHandle);
+  clearInterval(accountRecoveryHandle);
   server.close(() => process.exit(0));
 }
 process.on("SIGTERM", () => shutdown("SIGTERM"));

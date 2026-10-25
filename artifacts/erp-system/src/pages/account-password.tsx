@@ -74,7 +74,7 @@ function ForgotForm() {
       <p className="flex items-center gap-2 text-xs font-semibold text-primary"><Mail className="size-4" /> نسيت كلمة المرور</p>
       <h1 className="mt-1 text-2xl font-bold">طلب إعادة تعيين</h1>
       <p className="mt-2 flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900 dark:bg-amber-950/30 dark:text-amber-100" data-testid="text-email-not-active">
-        <Info className="mt-0.5 size-4 shrink-0" /> هذه الخطوة تُجهّز الطلب فقط. التسليم عبر البريد الإلكتروني الخارجي غير مفعّل بعد، فلن يصلك رابط حاليًا.
+        <Info className="mt-0.5 size-4 shrink-0" /> يُجهّز الطلب دون كشف وجود الحساب. يُرسل الرابط فقط إذا كانت قناة البريد مهيأة ومفعّلة؛ نجاح الطلب لا يؤكد وصول الرسالة. عند عدم وصولها تواصل مع المسؤول عن الحساب.
       </p>
       {sent ? (
         <p className="mt-4 flex items-start gap-2 rounded-lg border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-100" data-testid="state-reset-requested">

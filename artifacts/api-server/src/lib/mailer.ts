@@ -50,19 +50,23 @@ export type MailDispatchResult =
 let cachedTransport: Transporter | null = null;
 let cachedConfigKey: string | null = null;
 
-function getTransport(): Transporter | null {
+function getTransport(sensitive = false): Transporter | null {
   const host = process.env.SMTP_HOST;
   const port = process.env.SMTP_PORT;
   const user = process.env.SMTP_USER;
   const pass = process.env.SMTP_PASS;
   if (!host || !port) return null;
-  const key = `${host}:${port}:${user ?? ""}`;
+  const key = `${host}:${port}:${user ?? ""}:${sensitive}`;
   if (cachedTransport && cachedConfigKey === key) return cachedTransport;
   cachedTransport = nodemailer.createTransport({
     host,
     port: Number(port),
     secure: process.env.SMTP_SECURE === "true",
     auth: user && pass ? { user, pass } : undefined,
+    requireTLS: sensitive && !["127.0.0.1", "::1", "localhost"].includes(host),
+    connectionTimeout: 10_000,
+    greetingTimeout: 10_000,
+    socketTimeout: 15_000,
   });
   cachedConfigKey = key;
   return cachedTransport;
@@ -72,8 +76,8 @@ export function isMailerConfigured(): boolean {
   return getTransport() !== null;
 }
 
-export async function sendMail(msg: MailMessage): Promise<MailDispatchResult> {
-  const transport = getTransport();
+export async function sendMail(msg: MailMessage, options: { sensitive?: boolean } = {}): Promise<MailDispatchResult> {
+  const transport = getTransport(options.sensitive);
   if (!transport) {
     return {
       sent: false,
@@ -113,7 +117,7 @@ export async function sendMail(msg: MailMessage): Promise<MailDispatchResult> {
     const accepted = norm((info as { accepted?: unknown }).accepted);
     const rejected = norm((info as { rejected?: unknown }).rejected);
     const pending = norm((info as { pending?: unknown }).pending);
-    logger.info(
+    if (!options.sensitive) logger.info(
       {
         to: msg.to,
         messageId: info.messageId,
@@ -133,7 +137,7 @@ export async function sendMail(msg: MailMessage): Promise<MailDispatchResult> {
     };
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
-    logger.error({ err, to: msg.to }, "mail.send_failed");
+    if (!options.sensitive) logger.error({ err, to: msg.to }, "mail.send_failed");
     return { sent: false, reason };
   }
 }

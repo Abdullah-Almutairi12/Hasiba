@@ -20,13 +20,15 @@ export async function requestAccountReset(email:string) {
   await db.transaction(async tx=>{
     const a=await lockAccount(tx,u.id);
     await tx.execute(sql`UPDATE account_password_resets SET consumed_at=coalesce(consumed_at,clock_timestamp()) WHERE user_id=${a.id}`);
+    await tx.execute(sql`UPDATE account_recovery_outbox SET status='cancelled',encrypted_payload='',error_code='superseded'
+      WHERE user_id=${a.id} AND status IN ('prepared','failed')`);
     await tx.execute(sql`INSERT INTO account_password_resets(token_hash,user_id,credential_epoch,expires_at)
       VALUES(${accountDigest(token)},${a.id},${a.credential_epoch},clock_timestamp()+interval '15 minutes')`);
-    await tx.execute(sql`INSERT INTO account_recovery_outbox(id,user_id,encrypted_payload)
-      VALUES(${randomUUID()},${a.id},${sealAccountSecret(a.id,"password-reset",JSON.stringify({token,email:a.email}))})`);
+    await tx.execute(sql`INSERT INTO account_recovery_outbox(id,user_id,token_hash,encrypted_payload)
+      VALUES(${randomUUID()},${a.id},${accountDigest(token)},${sealAccountSecret(a.id,"password-reset",JSON.stringify({token,email:a.email}))})`);
   });
   if(process.env.NODE_ENV==="test"&&process.env.ACCOUNT_ISOLATED_TEST==="true")testOutbox.set(email.toLowerCase(),[token]);
-  // Prepared encrypted outbox only. No external delivery in this assignment.
+  // Delivery is a separate opt-in worker; never reveals account existence to HTTP.
 }
 export async function finishAccountReset(token:string,newPassword:string) {
   const policy=newAccountPasswordError(newPassword);if(policy)throw new AccountSecurityError(policy);

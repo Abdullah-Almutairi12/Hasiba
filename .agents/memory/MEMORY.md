@@ -18,3 +18,4 @@
 - [Credential evidence](credential-evidence-policy.md) — deleting unsafe login challenges does not revoke old copies; incident recovery and financial evidence retention remain separate.
 - [MFA key lifecycle](account-mfa-key-policy.md) — use a dedicated external encryption root, not the session-cookie secret; provisioning and rotation are separate from test-only keys.
 - [Credential lock ordering](account-credential-locking.md) — password/MFA-policy writers take the authority writer fence before user rows; shared-to-writer upgrades deadlock concurrent login/reset.
+- [Recovery mail evidence](recovery-mail-evidence.md) — SMTP acceptance is not mailbox receipt; retry the same expiring token, never create new recovery authority.

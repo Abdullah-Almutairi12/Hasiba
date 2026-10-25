@@ -24,6 +24,7 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { FactorInput } from "@/components/account/factor-input";
+import { TotpQr } from "@/components/account/totp-qr";
 import { ME_KEY, useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import { errorText } from "@/lib/team-access";
@@ -284,7 +285,8 @@ function SecurityBody({ s }: { s: AccountSecurityState }) {
           {pending ? (
             <div className="space-y-3 rounded-xl border border-dashed border-primary/40 p-4" data-testid="panel-totp-pending">
               <p className="text-sm font-bold">تسجيل مؤقت — {pending.replacing ? "الاستبدال" : "التفعيل"} لم يحدث بعد</p>
-              <p className="text-xs text-muted-foreground">أضف الحساب في تطبيق المصادقة يدويًا بالمفتاح أدناه أو بالرابط. لن يُفعَّل شيء حتى تؤكّد برمز جديد من التطبيق{pending.replacing ? "؛ العامل القديم يبقى فعّالًا حتى ذلك الحين" : ""}. ينتهي خلال <span className="font-bold tabular-nums" data-testid="text-totp-expiry">{Math.floor(remaining / 60)}:{String(remaining % 60).padStart(2, "0")}</span>.</p>
+              <p className="text-xs text-muted-foreground">أضف الحساب بمسح QR أو يدويًا بالمفتاح أدناه. لن يُفعَّل شيء حتى تؤكّد برمز جديد من التطبيق{pending.replacing ? "؛ العامل القديم يبقى فعّالًا حتى ذلك الحين" : ""}. ينتهي خلال <span className="font-bold tabular-nums" data-testid="text-totp-expiry">{Math.floor(remaining / 60)}:{String(remaining % 60).padStart(2, "0")}</span>.</p>
+              <TotpQr uri={pending.uri} />
               <div className="space-y-1"><Label>المفتاح السري (إدخال يدوي)</Label><code className="block break-all rounded-md bg-muted p-2 font-mono text-xs" dir="ltr" data-testid="text-totp-secret">{pending.secret}</code></div>
               <div className="space-y-1"><Label>رابط الإعداد</Label><code className="block break-all rounded-md bg-muted p-2 font-mono text-[10px]" dir="ltr" data-testid="text-totp-uri">{pending.uri}</code></div>
               <div className="grid gap-3 md:grid-cols-2">
