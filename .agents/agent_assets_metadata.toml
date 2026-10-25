@@ -420,3 +420,17 @@ mtime_ms = 1792909542637
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/c6a41141-8d8b-41db-87f1-a1d47af3be97/6e124cbb-75a2-486c-ab47-10dfb078f268"
 storage_version_token = "1792909558277463"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "0s7aYwEQMAy5v0R1h5vpC"
+uri = "file://generated-artifacts/first-phase-continuation/hasiba-pos-template-company-evidence.zip"
+type = "unspecified"
+title = "حاسبة — تقرير قوالب البيع والشركات وحزمة الأدلة"
+description = "33 ملفًا: تقرير عربي، مصفوفة الحالات الـ22، نتائج التحقق، مصالحة قاعدة الاختبار، وتوثيق المتصفح و12 لقطة. المصدر c8266e9؛ الدفعة الأولى ما زالت جزئية."
+logical_id = "6ee96ccb-87e8-4b4b-bf79-c184b4b583b4"
+content_hash = "sha256:929bd0085798a5350161e6d72375746b6a9e6d80c82381698943a063cd3c656c"
+size = 850460
+mtime_ms = 1792912602109
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/6ee96ccb-87e8-4b4b-bf79-c184b4b583b4/d70989c8-2c88-4a3d-ab3b-5c7e12dccff0"
+storage_version_token = "1792912645099251"
+content_type = "application/octet-stream"
