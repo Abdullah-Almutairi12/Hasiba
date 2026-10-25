@@ -434,3 +434,31 @@ mtime_ms = 1792912602109
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/6ee96ccb-87e8-4b4b-bf79-c184b4b583b4/d70989c8-2c88-4a3d-ab3b-5c7e12dccff0"
 storage_version_token = "1792912645099251"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "04lUW2g_bOY8AHBgC7LML"
+uri = "file://generated-artifacts/first-phase-continuation/hasiba-pos-device-cashier-evidence.zip"
+type = "unspecified"
+title = "حاسبة — حزمة أدلة الجهاز والكاشير"
+description = "40 ملفًا: التقرير الكامل، نتائج الاختبارات، صور الفشل والإصلاح، مصالحة القاعدة، مصفوفة الحالات ونقطة الاستئناف. الحزمة سليمة وبصمات ملفاتها متحققة."
+logical_id = "10562797-6cab-4291-934d-2e949ae8fd3b"
+content_hash = "sha256:98e1c1c46e13723df08d19652f0c7fb146fd648454f910aaf74291d6089d8998"
+size = 672923
+mtime_ms = 1792916305477
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/10562797-6cab-4291-934d-2e949ae8fd3b/92437d51-7c91-45b6-8f93-23275287fc21"
+storage_version_token = "1792916330931149"
+content_type = "application/octet-stream"
+
+[[outputs]]
+id = "cz6bJZdMynVHk02Ru6ISy"
+uri = "file://generated-artifacts/first-phase-continuation/evidence/hasiba-pos-device-report-ar.html"
+type = "html"
+title = "ملخص التسليم بالعربية"
+description = "تقرير قابل للفتح مباشرة، يعرض النتائج والنسخ وصور قبل الإصلاح وبعده وحدود الاختبارات."
+logical_id = "1ea4a61b-168d-4bed-87a0-bb9d1f26ef0d"
+content_hash = "sha256:76fc3be6b1d6952ae69fd2cd448004b00c36d3ab7e813a1c884c1a45bd3f4c51"
+size = 311485
+mtime_ms = 1792916304781
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/1ea4a61b-168d-4bed-87a0-bb9d1f26ef0d/20cb1ec7-6410-4f85-aebf-75d5d58effc6"
+storage_version_token = "1792916333179046"
+content_type = "text/html"
