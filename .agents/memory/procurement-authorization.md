@@ -15,7 +15,7 @@ A monetary cap cannot be bypassed by switching currency or supplying an exchange
 
 **How to apply:** Keep other currencies explicitly blocked until an approved cap-currency/source-of-rate policy and separate tests replace that boundary. Do not silently infer conversion support from a currency selector.
 
-Physical purchase receiving is independently assignable without purchase prices or supplier balances. Automatic stock/GR-IR posting does not grant manual accounting authority.
+Physical purchase receiving is independently assignable without purchase prices or supplier balances. Automatic stock/GR-IR posting does not grant journal visibility or manual accounting authority.
 
 **Why:** The user explicitly requires a receiving employee to see item quantities, remaining quantities and destination without financial privileges, with explicit grants combinable independently of job title.
 
