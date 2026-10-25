@@ -22,7 +22,10 @@ const wrapped=(fn:(req:Request,res:Response)=>Promise<void>)=>(req:Request,res:R
   fn(req,res).catch(error=>{
     if(error instanceof FinancialRequestError){res.status(error.status).json({error:error.message});return;}
     if(error instanceof z.ZodError){res.status(400).json({error:"مدخلات الجهاز غير صالحة"});return;}
-    next(error);
+    // Database exceptions can embed SQL parameters (including credential hashes).
+    // Keep a correlatable failure without logging PINs, hashes or activation data.
+    req.log.error({ errorType: error instanceof Error ? error.name : "UnknownError" }, "POS device operation failed");
+    res.status(500).json({error:"تعذرت خدمة جهاز نقطة البيع",diagnosticRef:String(req.id)});
   });
 };
 const proofSchema=z.object({id:z.string().uuid(),nonce:z.string().min(20).max(100),signature:z.string().min(60).max(200)});
