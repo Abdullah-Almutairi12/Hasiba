@@ -211,8 +211,15 @@ describe("original POS invoice: independent linked return lifecycle", () => {
       "0051_account_security.sql",
       "0052_account_recovery_delivery.sql",
       "0053_procurement_responsibilities.sql",
+      "0054_procurement_self_receiving.sql",
     ]);
     expect(first.skipped).toHaveLength(26);
+    // Upgrade is additive: a legacy company neither opts into self receiving
+    // nor gains its independent permission merely by installing the new code.
+    expect(await (await import("../lib/procurement-receiving-policy")).receivingPolicy(f.companyId))
+      .toEqual({allowCreator:false,revision:0});
+    expect(await rows("SELECT count(*)::int AS n FROM responsibility_grants WHERE 'procurement.receipts.receive_self'=ANY(actions)"))
+      .toEqual([{n:0}]);
     expect(await snapshots()).toEqual(expectedAfter);
     expect(await rows("SELECT id,expected_qty::text,counted_qty::text,unit_cost::text FROM stock_take_lines WHERE id=$1",[oldCount.id]))
       .toEqual([oldCount]);
