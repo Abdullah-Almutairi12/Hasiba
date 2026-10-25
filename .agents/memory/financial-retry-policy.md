@@ -43,3 +43,19 @@ An open shift or a matching document in a branch does not confirm a particular s
 **Why:** Multiple cashiers and devices can legitimately create similar operations in the same branch. Treating a peer's open shift as confirmation can erase another request's unresolved evidence.
 
 **How to apply:** Resolve the exact saved key/body/authorization selector through its receipt or explicit reconciliation. Keep that recovery available even when another open shift appears.
+
+## Current cashier work is not a branch activity report
+
+An open shift returned for a branch is not automatically the current employee's shift. Clearing client caches cannot repair a server response that selects a peer's work.
+
+**Why:** A native switch test showed the second employee's read-only permissions correctly enforced while the screen still identified the first cashier and shift. Identity separation must hold in read selection and fresh execution, not just button permissions.
+
+**How to apply:** Keep current-device/current-cashier work separate from explicitly authorized branch-wide reporting. Never infer historical ownership from a cashier name or backfill unknown legacy ownership to make a test pass.
+
+## Device revocation also applies to receipt recovery
+
+Recovery does not exempt a revoked device from present authorization.
+
+**Why:** Financial deduplication is not permission to keep using a revoked authentication context. Both protections must hold together.
+
+**How to apply:** Deny the revoked context without deleting commit evidence; a currently authorized context of the original actor can recover the same result under source-read authority without executing again.
