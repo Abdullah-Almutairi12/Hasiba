@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { adminGuard } from "../middlewares/require-role";
 import { checkLegacyAdministrativeBoundary } from "../lib/administration-authority";
+import { FinancialRequestError } from "../lib/financial-transaction";
 
 const router = Router();
 
@@ -192,6 +193,7 @@ router.patch("/settings", adminGuard, async (req, res) => {
       .returning();
     return res.json(serialize(updated!, true));
   } catch (err) {
+    if(err instanceof FinancialRequestError)return res.status(err.status).json({error:err.message});
     req.log.error({ err }, "Patch app settings failed");
     return res.status(400).json({ error: "بيانات غير صحيحة" });
   }

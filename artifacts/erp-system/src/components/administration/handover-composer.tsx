@@ -34,7 +34,9 @@ export function HandoverComposer({ ws, existing, onClose, onSaved }: { ws: Admin
   const [error, setError] = useState<string | null>(null);
   const [ack, setAck] = useState(false);
 
-  const members = ws.members.filter((m) => m.id !== ws.userId && m.active !== false);
+  // active is ADMINISTRATION status, not account eligibility. A former admin
+  // who stayed employed can be appointed again, with fresh personal acceptance.
+  const members = ws.members.filter((m) => m.id !== ws.userId && (!m.status||m.status==="active"));
   const effDeparture: AdministrationHandoverInputDeparture = mode === "add" ? "retain" : departure;
   const destructive = DEPARTURE_LABEL[effDeparture].destructive;
 

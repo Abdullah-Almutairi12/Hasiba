@@ -11,6 +11,7 @@ import { readAllEvidence, RightChips, Panel, Empty, type FinalizeEvidence } from
 import { IncomingCard, OutgoingCard, RecoveryCard } from "@/components/administration/handover-cards";
 import { MembersPanel } from "@/components/administration/members-panel";
 import { HandoverComposer } from "@/components/administration/handover-composer";
+import { AdministrationSetupControls } from "@/components/administration/setup-controls";
 
 
 export default function AdministrationPage() {
@@ -81,6 +82,7 @@ export default function AdministrationPage() {
       </section>
 
       {recovery}
+      {(ws.rights.includes("settings")||ws.rights.includes("subscription"))&&<AdministrationSetupControls rights={ws.rights}/>}
 
       {ws.notifications.length > 0 && (
         <ul className="space-y-2" data-testid="list-notifications">

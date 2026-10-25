@@ -78,7 +78,13 @@ describe("company-local administration and explicit handover",()=>{
     expect(ok(await relog.get(`/api/auth/administration/handovers/${h.id}/receipt`)).state).toBe("completed");
   });
   it.each(["suspend","terminate"])("revokes only company-local access for %s and replays a committed lost response",async departure=>{
-    const f=await fixture(),h=await propose(f,departure);await accept(f,h.id);
+    const f=await fixture(),h=await propose(f,departure);
+    await db.transaction(tx=>ensureAdministrativePerson(tx,f.company,f.users[0].id));
+    await db.insert(userCompaniesTable).values({companyId:f.otherCompany,userId:f.users[1].id,role:"manager"});
+    const delegations=await query(`INSERT INTO approver_delegations(company_id,from_user_id,to_user_id,from_date,to_date)
+      VALUES($1,$3,$4,now()-interval '1 day',now()+interval '1 day'),($2,$3,$4,now()-interval '1 day',now()+interval '1 day')
+      RETURNING id,company_id`,[f.company,f.otherCompany,f.users[0].id,f.users[1].id]);
+    await accept(f,h.id);
     await complete(f.sender,h.id); // Treat response as lost; verify independent DB evidence first.
     expect((await query("SELECT * FROM user_companies WHERE company_id=$1 AND user_id=$2",[f.company,f.users[0].id])).length).toBe(0);
     expect((await query("SELECT * FROM user_companies WHERE company_id=$1 AND user_id=$2",[f.otherCompany,f.users[0].id])).length).toBe(1);
@@ -86,6 +92,11 @@ describe("company-local administration and explicit handover",()=>{
     expect((await query("SELECT * FROM audit_logs WHERE action='administration.completed' AND details::jsonb->>'id'=$1",[h.id])).length).toBe(1);
     expect(ok(await f.other.get("/api/administration")).userId).toBe(f.users[0].id);
     expect((await f.sender.get("/api/administration")).status).toBe(401);
+    const after=await query("SELECT id,company_id,revoked_at FROM approver_delegations WHERE id=ANY($1::integer[])",[delegations.map(d=>d.id)]);
+    expect(after.find(d=>d.company_id===f.company).revoked_at).not.toBeNull();
+    expect(after.find(d=>d.company_id===f.otherCompany).revoked_at).toBeNull();
+    expect((await query("SELECT status FROM employee_access WHERE company_id=$1 AND user_id=$2",[f.company,f.users[0].id]))[0].status).toBe("suspended");
+    expect((await query("SELECT * FROM employees WHERE company_id=$1 AND user_id=$2",[f.company,f.users[0].id])).length).toBe(1);
   });
   it("supports multiple independent administrators, distributes explicit responsibilities without finance",async()=>{
     const f=await fixture(),h=await propose(f,"retain");await accept(f,h.id);ok(await complete(f.sender,h.id));
@@ -96,6 +107,9 @@ describe("company-local administration and explicit handover",()=>{
     ok(await f.third.post(`/api/administration/handovers/${second.id}/accept`).send({expectedRevision:1}));
     ok(await complete(f.sender,second.id));
     expect(ok(await f.third.get("/api/administration")).rights).toEqual(["users","contact"]);
+    expect(ok(await f.third.get("/api/team/setup")).policy).toBeTruthy();
+    ok(await f.third.post("/api/team/people").send({creationKey:randomUUID(),name:"سجل دون دخول",email:null,loginKinds:[],grants:[],deniedActions:[]}),201);
+    expect((await f.third.put("/api/team/setup").send({expectedRevision:0,mode:"solo",step:"people",draft:{}})).status).toBe(403);
     expect((await f.third.put("/api/team/policy").send({enabledModules:[],seatLimit:1})).status).toBe(403);
     expect((await f.third.get("/api/accounting/journal-entries")).status).toBe(403);
   });
@@ -114,6 +128,24 @@ describe("company-local administration and explicit handover",()=>{
     expect((await complete(f.sender,h.id,1)).status).toBe(409);
     expect((await complete(f.sender,h.id,2)).status).toBe(409);
     await accept(f,h.id,2);ok(await complete(f.sender,h.id,2));
+  });
+  it("separates settings-only and subscription-only UI services without leaking or overwriting person drafts",async()=>{
+    const f=await fixture(),h={...input(f.users[1].id,"retain"),responsibilities:["settings"]};
+    ok(await f.sender.put("/api/administration/handovers").send(h));await accept(f,h.id);ok(await complete(f.sender,h.id));
+    ok(await f.sender.put("/api/team/setup").send({expectedRevision:0,mode:"team",step:"people",draft:{person:{name:"مسودة خاصة بالمسؤول عن المستخدمين"}}}));
+    const read=ok(await f.target.get("/api/team/setup"));expect(read.draft).toEqual({});
+    const updated=ok(await f.target.put("/api/team/setup").send({expectedRevision:read.revision,mode:"solo",step:read.step,draft:{}}));
+    expect(updated.draft).toEqual({});
+    expect((await query("SELECT draft FROM team_setup_state WHERE company_id=$1",[f.company]))[0].draft.person.name).toBe("مسودة خاصة بالمسؤول عن المستخدمين");
+    expect((await f.target.get("/api/team/people")).status).toBe(403);
+    const subscription={...input(f.users[2].id,"retain"),responsibilities:["subscription"]};
+    ok(await f.sender.put("/api/administration/handovers").send(subscription));
+    ok(await f.third.post(`/api/administration/handovers/${subscription.id}/accept`).send({expectedRevision:1}));
+    ok(await complete(f.sender,subscription.id));
+    const policy=ok(await f.third.get("/api/team/setup")).policy;
+    ok(await f.third.put("/api/team/policy").send({enabledModules:policy.enabledModules,seatLimit:10}));
+    expect((await f.third.get("/api/team/people")).status).toBe(403);
+    expect((await f.third.put("/api/team/setup").send({expectedRevision:updated.revision,mode:"team",step:"people",draft:{}})).status).toBe(403);
   });
   it("rechecks revoked recipient eligibility before execution, even after personal acceptance",async()=>{
     const f=await fixture(),h=await propose(f);await accept(f,h.id);

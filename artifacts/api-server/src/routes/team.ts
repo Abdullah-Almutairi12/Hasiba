@@ -10,7 +10,7 @@ import { managedProfile, currentResponsibilities, requireResponsibility } from "
 import { scopedRouteAction } from "../middlewares/managed-access";
 import { requireSameOrigin } from "../middlewares/require-same-origin";
 import { FinancialRequestError } from "../lib/financial-transaction";
-import { requireAdministrative } from "../lib/administration-authority";
+import { requireAdministrative, administrativeRights } from "../lib/administration-authority";
 import { getCompanyId } from "../lib/scoped-db";
 import { scopedIncomingTransfers } from "../lib/scoped-inventory-receipts";
 import { LegacyConversionInput, legacyTeamUsers, previewLegacyTeamConversion, applyLegacyTeamConversion,
@@ -72,9 +72,12 @@ export function makeTeamRouter(getStack: () => unknown[]) {
   }));
   router.get("/team/setup", wrap(async (req, res) => {
     const companyId = getCompanyId(req);
-    await requireAdministrative(companyId, req.session.userId!,"settings");
+    const rights=await administrativeRights(companyId,req.session.userId!);
+    if(!["users","settings","subscription"].some(r=>rights.includes(r)))
+      throw new FinancialRequestError("قراءة إعداد الفريق تتطلب مسؤولية المستخدمين أو الإعدادات أو الاشتراك",403);
     const [state] = await teamRows(db, sql`SELECT mode,step,draft,revision FROM team_setup_state WHERE company_id=${companyId}`);
-    res.json({ ...(state ?? { mode: "team", step: "people", draft: {}, revision: 0 }), policy: await teamPolicy(companyId) });
+    res.json({ ...(state ?? { mode: "team", step: "people", draft: {}, revision: 0 }),
+      draft:rights.includes("users")?(state?.draft??{}):{},policy: await teamPolicy(companyId) });
   }));
   // A partial form may be saved, but secrets/arbitrary fields cannot enter a
   // resumable draft. Incomplete rows are inert draft data, never grants.
@@ -97,13 +100,17 @@ export function makeTeamRouter(getStack: () => unknown[]) {
     const state = await teamWrite(companyId, userId, async tx => {
       const [old] = await teamRows<{ revision: number }>(tx, sql`SELECT revision FROM team_setup_state WHERE company_id=${companyId}`);
       if ((old?.revision ?? 0) !== body.expectedRevision) throw new FinancialRequestError("الإعداد تغير في جلسة أخرى؛ أعد تحميله", 409);
+      const canUsers=(await administrativeRights(companyId,userId,tx)).includes("users");
+      if(!canUsers && Object.keys(body.draft).length)throw new FinancialRequestError("مسودة الأشخاص تتطلب مسؤولية المستخدمين",403);
+      const [previous]=await teamRows<{draft:unknown}>(tx,sql`SELECT draft FROM team_setup_state WHERE company_id=${companyId}`);
+      const draft=canUsers?body.draft:(previous?.draft??{});
       const [saved] = await teamRows(tx, sql`INSERT INTO team_setup_state(company_id,mode,step,draft,revision,updated_by)
-        VALUES(${companyId},${body.mode},${body.step},${JSON.stringify(body.draft)}::jsonb,1,${userId})
+        VALUES(${companyId},${body.mode},${body.step},${JSON.stringify(draft)}::jsonb,1,${userId})
         ON CONFLICT(company_id) DO UPDATE SET mode=excluded.mode,step=excluded.step,draft=excluded.draft,
           revision=team_setup_state.revision+1,updated_by=excluded.updated_by,updated_at=now()
         RETURNING mode,step,draft,revision`);
       await teamAudit(tx, companyId, userId, "team.setup.save", { mode: body.mode, step: body.step, revision: Number(saved.revision) });
-      return { ...saved, policy: await teamPolicy(companyId, tx) };
+      return { ...saved,draft:canUsers?saved.draft:{}, policy: await teamPolicy(companyId, tx) };
     }, "settings");
     res.json(state);
   }));

@@ -145,21 +145,21 @@ export default function TeamSetupPage() {
     );
   }
   const rights = adminQ.data?.rights ?? [];
-  if (!rights.includes("users") || !rights.includes("settings")) {
+  if (!rights.includes("users")) {
     return (
       <div className="mx-auto mt-16 max-w-md rounded-2xl border bg-card p-8 text-center" data-testid="state-team-setup-forbidden">
         <Lock className="mx-auto mb-3 size-8 text-muted-foreground" />
         <h1 className="text-lg font-bold">إعداد الفريق يتطلب مسؤوليتي «المستخدمون» و«الإعدادات» معًا</h1>
-        <p className="mt-2 text-xs text-muted-foreground" data-testid="text-missing-rights">ينقصك: {[!rights.includes("users") && "المستخدمون", !rights.includes("settings") && "الإعدادات"].filter(Boolean).join("، ")}</p>
+        <p className="mt-2 text-xs text-muted-foreground" data-testid="text-missing-rights">ينقصك: مسؤولية المستخدمين. إعدادات المنشأة المنفصلة متاحة في صفحة الإدارة لمن يملك مسؤوليتها.</p>
         <p className="mt-2 text-sm text-muted-foreground">اطلب من مدير النظام إضافة الأشخاص وتحديد مسؤولياتهم.</p>
         <Link href="/administration" className="mt-3 inline-block text-sm text-primary underline" data-testid="link-administration-forbidden">صندوق تسليم الإدارة</Link>
       </div>
     );
   }
-  return <TeamSetupInner canSubscription={rights.includes("subscription")} />;
+  return <TeamSetupInner canSettings={rights.includes("settings")} canSubscription={rights.includes("subscription")} />;
 }
 
-function TeamSetupInner({ canSubscription }: { canSubscription: boolean }) {
+function TeamSetupInner({ canSubscription,canSettings }: { canSubscription: boolean;canSettings:boolean }) {
   const qc = useQueryClient();
   const { toast } = useToast();
   const setupQ = useGetTeamSetup({ query: { queryKey: getGetTeamSetupQueryKey(), refetchOnWindowFocus: false } });
@@ -206,6 +206,7 @@ function TeamSetupInner({ canSubscription }: { canSubscription: boolean }) {
   saveRef.current = saveSetup.mutateAsync;
 
   const persist = async (mode: "solo" | "team", step: TeamSetup["step"], draft: Record<string, unknown>) => {
+    if(!canSettings)return null;
     if (revisionRef.current === null) return null;
     setDraftState("saving");
     try {
@@ -225,7 +226,7 @@ function TeamSetupInner({ canSubscription }: { canSubscription: boolean }) {
   // Debounced draft autosave (compared against what was last sent).
   const mode = setup?.mode ?? "team";
   useEffect(() => {
-    if (!restoredRef.current || conflict || !setup || mode !== "team") return;
+    if (!canSettings || !restoredRef.current || conflict || !setup || mode !== "team") return;
     const draft = toDraft(editing?.person ?? null, editing?.personId ?? null);
     const json = JSON.stringify(draft);
     if (json === lastDraftRef.current) return;
@@ -238,7 +239,7 @@ function TeamSetupInner({ canSubscription }: { canSubscription: boolean }) {
       if (timerRef.current) clearTimeout(timerRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editing, conflict, mode]);
+  }, [editing, conflict, mode,canSettings]);
 
   const reloadAll = async () => {
     setConflict(false);
@@ -306,8 +307,8 @@ function TeamSetupInner({ canSubscription }: { canSubscription: boolean }) {
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Link href="/administration" className="flex items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-medium hover:border-primary/50" data-testid="link-administration"><ShieldCheck className="size-4" /> إدارة النظام والتسليم</Link>
-            <ModeButton active={setup.mode === "solo"} onClick={() => void chooseMode("solo")} icon={User} label="أعمل بمفردي" testId="button-mode-solo" disabled={saveSetup.isPending} />
-            <ModeButton active={setup.mode === "team"} onClick={() => void chooseMode("team")} icon={Users} label="لدي فريق" testId="button-mode-team" disabled={saveSetup.isPending} />
+            <ModeButton active={setup.mode === "solo"} onClick={() => void chooseMode("solo")} icon={User} label="أعمل بمفردي" testId="button-mode-solo" disabled={!canSettings||saveSetup.isPending} />
+            <ModeButton active={setup.mode === "team"} onClick={() => void chooseMode("team")} icon={Users} label="لدي فريق" testId="button-mode-team" disabled={!canSettings||saveSetup.isPending} />
           </div>
         </div>
         <ol className="relative mt-5 flex flex-wrap gap-x-6 gap-y-2 text-xs" data-testid="list-setup-steps">
@@ -318,6 +319,7 @@ function TeamSetupInner({ canSubscription }: { canSubscription: boolean }) {
             </li>
           ))}
           <li className="ms-auto text-muted-foreground" data-testid="status-draft">
+            {!canSettings&&"تعديلات الأشخاص تحفظ من أزرار الحفظ؛ إعداد المنشأة ومسودته لا يعدلان دون مسؤولية الإعدادات."}
             {draftState === "saving" && "جارٍ حفظ المسودة…"}
             {draftState === "saved" && `المسودة محفوظة · مراجعة ${revisionRef.current ?? setup.revision}`}
             {draftState === "failed" && <span className="text-destructive">لم تُحفظ المسودة — بياناتك ما زالت على الشاشة</span>}
