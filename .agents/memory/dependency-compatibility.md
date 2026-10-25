@@ -43,3 +43,9 @@ Do not let creation defaults change omitted PATCH fields.
 **Why:** Zod 4 applies defaults inside optional fields differently from Zod 3. After the generation change, a harmless description/deactivation patch could reset limits, active flags or workflow actions and invalidate an otherwise valid configuration.
 
 **How to apply:** Validate partial updates, then keep only top-level fields explicitly supplied by the caller. Preserve false/zero/null and validation/defaults inside explicitly replaced nested structures. Test omission independently of normal creation validation when changing schema libraries.
+
+Check generated path-parameter validators before consuming a new UUID route.
+
+**Why:** The installed generator/Zod combination emitted a UUID method on a coerced string that the installed Zod type does not support. Generating files succeeded, but the shared-library build failed.
+
+**How to apply:** Keep strict UUID validation at the server boundary and a compatible path-string contract when necessary; compile generated output before running consumers. Do not patch generated validators by hand or weaken server validation.

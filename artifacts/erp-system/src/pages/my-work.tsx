@@ -111,6 +111,7 @@ export default function MyWorkPage() {
           <div className="text-end text-xs text-muted-foreground">
             <span className="inline-block rounded-full border px-2 py-0.5 font-medium text-foreground" data-testid="status-workspace">{st.label}</span>
             {access.revision != null && <div className="mt-1">مراجعة الصلاحيات {access.revision} · تتحدّث تلقائيًا</div>}
+            <Link href="/administration" className="mt-1 inline-block text-primary underline" data-testid="link-administration-inbox">صندوق تسليم الإدارة</Link>
           </div>
         </div>
       </section>

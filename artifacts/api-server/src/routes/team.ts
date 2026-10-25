@@ -10,6 +10,7 @@ import { managedProfile, currentResponsibilities, requireResponsibility } from "
 import { scopedRouteAction } from "../middlewares/managed-access";
 import { requireSameOrigin } from "../middlewares/require-same-origin";
 import { FinancialRequestError } from "../lib/financial-transaction";
+import { requireAdministrative } from "../lib/administration-authority";
 import { getCompanyId } from "../lib/scoped-db";
 import { scopedIncomingTransfers } from "../lib/scoped-inventory-receipts";
 import { LegacyConversionInput, legacyTeamUsers, previewLegacyTeamConversion, applyLegacyTeamConversion,
@@ -71,7 +72,7 @@ export function makeTeamRouter(getStack: () => unknown[]) {
   }));
   router.get("/team/setup", wrap(async (req, res) => {
     const companyId = getCompanyId(req);
-    await teamOwner(companyId, req.session.userId!);
+    await requireAdministrative(companyId, req.session.userId!,"settings");
     const [state] = await teamRows(db, sql`SELECT mode,step,draft,revision FROM team_setup_state WHERE company_id=${companyId}`);
     res.json({ ...(state ?? { mode: "team", step: "people", draft: {}, revision: 0 }), policy: await teamPolicy(companyId) });
   }));
@@ -103,7 +104,7 @@ export function makeTeamRouter(getStack: () => unknown[]) {
         RETURNING mode,step,draft,revision`);
       await teamAudit(tx, companyId, userId, "team.setup.save", { mode: body.mode, step: body.step, revision: Number(saved.revision) });
       return { ...saved, policy: await teamPolicy(companyId, tx) };
-    });
+    }, "settings");
     res.json(state);
   }));
   router.put("/team/policy", wrap(async (req, res) => {
@@ -121,7 +122,7 @@ export function makeTeamRouter(getStack: () => unknown[]) {
       const after = await teamPolicy(companyId, tx);
       await teamAudit(tx, companyId, userId, "team.policy.development", { before: previous, after });
       return after;
-    }));
+    }, "subscription"));
   }));
   router.get("/team/people", wrap(async (req, res) => {
     await teamOwner(getCompanyId(req), req.session.userId!);

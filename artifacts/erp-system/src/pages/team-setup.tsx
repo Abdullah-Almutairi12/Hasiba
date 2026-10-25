@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { Link } from "wouter";
 import {
   useGetTeamSetup,
+  useGetAdministrationWorkspace,
+  getGetAdministrationWorkspaceQueryKey,
   getGetTeamSetupQueryKey,
   useSaveTeamSetup,
   useSaveTeamPolicy,
@@ -71,7 +74,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { usePermissions } from "@/hooks/use-permissions";
 import { cn } from "@/lib/utils";
 import {
   RESOURCE_LABEL,
@@ -128,20 +130,36 @@ const warehouseLabel = (warehouses: Warehouse[] | undefined, id: number) => {
 type Editing = { personId: number | null; person: TeamPersonInput; revision: number | null; status: string | null; userId?: number | null };
 
 export default function TeamSetupPage() {
-  const { isOwner } = usePermissions();
-  if (!isOwner) {
+  const adminQ = useGetAdministrationWorkspace({ query: { queryKey: getGetAdministrationWorkspaceQueryKey(), retry: false } });
+  if (adminQ.isLoading) {
+    return <div className="mx-auto max-w-6xl" data-testid="state-team-setup-checking"><Skeleton className="h-28 w-full rounded-2xl" /></div>;
+  }
+  if (adminQ.error) {
     return (
-      <div className="mx-auto mt-16 max-w-md rounded-2xl border bg-card p-8 text-center" data-testid="state-team-setup-forbidden">
-        <Lock className="mx-auto mb-3 size-8 text-muted-foreground" />
-        <h1 className="text-lg font-bold">إعداد الفريق متاح لمالك المنشأة فقط</h1>
-        <p className="mt-2 text-sm text-muted-foreground">اطلب من المالك إضافة الأشخاص وتحديد مسؤولياتهم.</p>
+      <div className="mx-auto mt-12 max-w-md rounded-2xl border border-destructive/40 bg-card p-6 text-center" role="alert" data-testid="state-team-setup-access-error">
+        <AlertTriangle className="mx-auto mb-2 size-7 text-destructive" />
+        <p className="font-bold">تعذر التحقق من صلاحياتك الإدارية</p>
+        <p className="mt-1 text-sm text-muted-foreground">{errorText(adminQ.error)}</p>
+        <Button className="mt-4" variant="outline" onClick={() => void adminQ.refetch()} data-testid="button-retry-team-access"><RefreshCw className="me-2 size-4" /> إعادة المحاولة</Button>
       </div>
     );
   }
-  return <TeamSetupInner />;
+  const rights = adminQ.data?.rights ?? [];
+  if (!rights.includes("users") || !rights.includes("settings")) {
+    return (
+      <div className="mx-auto mt-16 max-w-md rounded-2xl border bg-card p-8 text-center" data-testid="state-team-setup-forbidden">
+        <Lock className="mx-auto mb-3 size-8 text-muted-foreground" />
+        <h1 className="text-lg font-bold">إعداد الفريق يتطلب مسؤوليتي «المستخدمون» و«الإعدادات» معًا</h1>
+        <p className="mt-2 text-xs text-muted-foreground" data-testid="text-missing-rights">ينقصك: {[!rights.includes("users") && "المستخدمون", !rights.includes("settings") && "الإعدادات"].filter(Boolean).join("، ")}</p>
+        <p className="mt-2 text-sm text-muted-foreground">اطلب من مدير النظام إضافة الأشخاص وتحديد مسؤولياتهم.</p>
+        <Link href="/administration" className="mt-3 inline-block text-sm text-primary underline" data-testid="link-administration-forbidden">صندوق تسليم الإدارة</Link>
+      </div>
+    );
+  }
+  return <TeamSetupInner canSubscription={rights.includes("subscription")} />;
 }
 
-function TeamSetupInner() {
+function TeamSetupInner({ canSubscription }: { canSubscription: boolean }) {
   const qc = useQueryClient();
   const { toast } = useToast();
   const setupQ = useGetTeamSetup({ query: { queryKey: getGetTeamSetupQueryKey(), refetchOnWindowFocus: false } });
@@ -287,6 +305,7 @@ function TeamSetupInner() {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <Link href="/administration" className="flex items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-medium hover:border-primary/50" data-testid="link-administration"><ShieldCheck className="size-4" /> إدارة النظام والتسليم</Link>
             <ModeButton active={setup.mode === "solo"} onClick={() => void chooseMode("solo")} icon={User} label="أعمل بمفردي" testId="button-mode-solo" disabled={saveSetup.isPending} />
             <ModeButton active={setup.mode === "team"} onClick={() => void chooseMode("team")} icon={Users} label="لدي فريق" testId="button-mode-team" disabled={saveSetup.isPending} />
           </div>
@@ -368,7 +387,7 @@ function TeamSetupInner() {
 
       <LegacyConversionPanel branches={branches} warehouses={warehouses} />
 
-      <PolicyPanel setup={setup} />
+      {canSubscription ? <><p className="text-[11px] text-amber-700 dark:text-amber-300" data-testid="text-policy-dev-only">سياسة الاشتراك هنا للتطوير فقط ولا تغيّر أي التزام تجاري حقيقي.</p><PolicyPanel setup={setup} /></> : <p className="rounded-xl border border-dashed p-3 text-xs text-muted-foreground" data-testid="text-policy-no-subscription">سياسة الوحدات والمقاعد تتطلب مسؤولية «الاشتراك».</p>}
     </div>
   );
 }

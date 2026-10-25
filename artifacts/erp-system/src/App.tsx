@@ -86,9 +86,10 @@ const HelpPage = lazy(() => import("@/pages/help"));
 const TeamSetupPage = lazy(() => import("@/pages/team-setup"));
 const TeamActivatePage = lazy(() => import("@/pages/team-activate"));
 const MyWorkPage = lazy(() => import("@/pages/my-work"));
+const AdministrationPage = lazy(() => import("@/pages/administration"));
 
 /** Paths a scoped (responsibility-bound) member may open. */
-const SCOPED_PATHS = new Set(["/my-work"]);
+const SCOPED_PATHS = new Set(["/my-work", "/administration"]);
 const SCOPED_RETURNS_PATH = "/returns";
 
 /**
@@ -280,6 +281,9 @@ function Router() {
         </Route>
         <Route path="/team-setup">
           <Protected><TeamSetupPage /></Protected>
+        </Route>
+        <Route path="/administration">
+          <Protected><AdministrationPage /></Protected>
         </Route>
         <Route path="/my-work">
           <Protected><MyWorkPage /></Protected>

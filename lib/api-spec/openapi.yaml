@@ -30,6 +30,98 @@ tags:
   - name: auth
     description: Authentication & session management
 paths:
+  /administration:
+    get:
+      operationId: getAdministrationWorkspace
+      responses:
+        "200":
+          description: Company-local administrative responsibilities and own handovers
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdministrationWorkspace"
+  /administration/handovers:
+    put:
+      operationId: saveAdministrationHandover
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdministrationHandoverInput"
+      responses:
+        "200":
+          description: Saved revision; any previous acceptance invalidated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdministrationHandover"
+  /administration/handovers/{id}/accept:
+    parameters:
+      - {name: id, in: path, required: true, schema: {type: string}}
+    post:
+      operationId: acceptAdministrationHandover
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdministrationRevision"
+      responses:
+        "200":
+          description: Personal acceptance by the activated authenticated replacement
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdministrationHandover"
+  /auth/administration/handovers/{id}/complete:
+    parameters:
+      - {name: id, in: path, required: true, schema: {type: string}}
+    post:
+      operationId: completeAdministrationHandover
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdministrationRevision"
+      responses:
+        "200":
+          description: Atomic execution or committed replay by the original sender
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdministrationCompletion"
+  /auth/administration/handovers/{id}/receipt:
+    parameters:
+      - {name: id, in: path, required: true, schema: {type: string}}
+    get:
+      operationId: getAdministrationReceipt
+      responses:
+        "200":
+          description: Own receipt even after company-local departure
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdministrationHandover"
+  /administration/members/{id}:
+    parameters:
+      - {name: id, in: path, required: true, schema: {type: integer}}
+    patch:
+      operationId: updateAdministrator
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdministratorAccessInput"
+      responses:
+        "200":
+          description: Administrative reduction with last-manager protection
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdministrationAcknowledgement"
   /inventory/stock-takes:
     get:
       operationId: listCountSessions
@@ -4331,6 +4423,85 @@ paths:
 
 components:
   schemas:
+    AdministrationAcknowledgement:
+      type: object
+      required: [ok]
+      properties:
+        ok: {type: boolean}
+    AdministrationRevision:
+      type: object
+      required: [expectedRevision]
+      properties:
+        expectedRevision: {type: integer, minimum: 1}
+    AdministratorAccessInput:
+      type: object
+      required: [responsibilities, active]
+      properties:
+        responsibilities: {type: array, items: {type: string}}
+        active: {type: boolean}
+    AdministrationHandoverInput:
+      type: object
+      required: [id, expectedRevision, toUserId, personId, responsibilities, departure]
+      properties:
+        id: {type: string, format: uuid}
+        expectedRevision: {type: integer, minimum: 0}
+        toUserId: {type: [integer, "null"]}
+        personId: {type: [integer, "null"]}
+        responsibilities: {type: array, items: {type: string, enum: [users, administrators, settings, subscription, contact]}}
+        departure:
+          type: string
+          description: retain appoints an additional manager; the three departure choices are stay/suspend/terminate
+          enum: [retain, stay, suspend, terminate]
+    AdministrationHandover:
+      type: object
+      required: [id, revision, state, departure, responsibilities]
+      properties:
+        id: {type: string}
+        revision: {type: integer}
+        state: {type: string}
+        departure: {type: string}
+        responsibilities: {type: array, items: {type: string}}
+        from_user_id: {type: integer}
+        to_user_id: {type: [integer, "null"]}
+        person_id: {type: [integer, "null"]}
+        from_name: {type: string}
+        to_name: {type: [string, "null"]}
+        invited_name: {type: [string, "null"]}
+    AdministrationMember:
+      type: object
+      required: [id, name]
+      properties:
+        id: {type: integer}
+        name: {type: string}
+        role: {type: string}
+        status: {type: [string, "null"]}
+        active: {type: [boolean, "null"]}
+        responsibilities: {type: [array, "null"], items: {type: string}}
+    AdministrationNotice:
+      type: object
+      required: [id, message]
+      properties:
+        id: {type: string}
+        message: {type: string}
+    AdministrationWorkspace:
+      type: object
+      required: [userId, rights, responsibilities, handovers, members, pending, notifications]
+      properties:
+        userId: {type: integer}
+        rights: {type: array, items: {type: string}}
+        responsibilities: {type: array, items: {type: string}}
+        handovers: {type: array, items: {$ref: "#/components/schemas/AdministrationHandover"}}
+        members: {type: array, items: {$ref: "#/components/schemas/AdministrationMember"}}
+        pending: {type: array, items: {$ref: "#/components/schemas/AdministrationMember"}}
+        notifications: {type: array, items: {$ref: "#/components/schemas/AdministrationNotice"}}
+    AdministrationCompletion:
+      type: object
+      required: [ok, id, departure, replayed]
+      properties:
+        ok: {type: boolean}
+        id: {type: string}
+        departure: {type: string}
+        replayed: {type: boolean}
     TeamOk:
       type: object
       required: [ok]

@@ -5,29 +5,25 @@ import { lockApprovalAuthorityWrite } from "./approval-authority";
 import { FinancialRequestError } from "./financial-transaction";
 import type { DbOrTx } from "./journal-posting";
 import { TEAM_MODULES, type TeamPerson } from "./team-catalog";
+import { requireAdministrative, protectLastAdministrator, initializeLegacyAdministration, type AdminResponsibility } from "./administration-authority";
 
 export async function teamRows<T = Record<string, unknown>>(connection: Pick<typeof db, "execute">, statement: SQL): Promise<T[]> {
   return (await connection.execute(statement)).rows as T[];
 }
 export async function teamOwner(companyId: number, userId: number, connection: DbOrTx = db) {
-  const [owner] = await teamRows<{ name: string }>(connection, sql`
-    SELECT u.name FROM users u JOIN user_companies uc ON uc.user_id=u.id
-    JOIN companies c ON c.id=uc.company_id WHERE u.id=${userId} AND uc.company_id=${companyId}
-    AND uc.role='owner' AND u.is_active AND c.is_active
-    AND NOT EXISTS(SELECT 1 FROM employee_access a WHERE a.company_id=uc.company_id AND a.user_id=u.id)`);
-  if (!owner) throw new FinancialRequestError("إعداد الفريق وإدارة منح الوصول لمالك الشركة الحالي فقط", 403);
-  return owner;
+  return requireAdministrative(companyId,userId,"users",connection);
 }
-export async function teamWrite<T>(companyId: number, userId: number, work: (tx: DbOrTx) => Promise<T>) {
+export async function teamWrite<T>(companyId: number, userId: number, work: (tx: DbOrTx) => Promise<T>, capability: AdminResponsibility = "users") {
   return db.transaction(async tx => {
     await lockApprovalAuthorityWrite(tx);
     await tx.execute(sql`SELECT id FROM companies WHERE id=${companyId} FOR UPDATE`);
-    await teamOwner(companyId, userId, tx);
+    await initializeLegacyAdministration(tx,companyId);
+    await requireAdministrative(companyId,userId,capability,tx);
     return work(tx);
   });
 }
 export async function teamAudit(tx: DbOrTx, companyId: number, userId: number, action: string, details: unknown) {
-  const owner = await teamOwner(companyId, userId, tx);
+  const [owner] = await teamRows<{name:string}>(tx,sql`SELECT name FROM users WHERE id=${userId}`);
   await tx.insert(auditLogsTable).values({ companyId, userId, userName: owner.name,
     entity: "employee_access", action, details: JSON.stringify(details) });
 }
@@ -149,6 +145,7 @@ export async function updateTeamPerson(companyId: number, userId: number, person
     await previewTeamPerson(companyId, person, tx, personId);
     const status = suspended ? "suspended" : !person.loginKinds.length ? "record" :
       before.userId ? "active" : pendingStatus(person);
+    if (before.userId && status !== "active") await protectLastAdministrator(tx,companyId,before.userId);
     await tx.execute(sql`UPDATE employees SET name=${person.name},name_ar=${person.name},email=${person.email}
       WHERE id=${personId} AND company_id=${companyId}`);
     await tx.execute(sql`UPDATE employee_access SET login_kinds=${sql.param(person.loginKinds)}::text[],denied_actions=${sql.param(person.deniedActions)}::text[],

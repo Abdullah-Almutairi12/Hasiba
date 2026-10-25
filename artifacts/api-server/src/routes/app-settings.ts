@@ -3,6 +3,7 @@ import { db, appSettingsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { adminGuard } from "../middlewares/require-role";
+import { checkLegacyAdministrativeBoundary } from "../lib/administration-authority";
 
 const router = Router();
 
@@ -142,6 +143,7 @@ const PatchBody = z.object({
 // fields. Writes are admin-only.
 router.patch("/settings", adminGuard, async (req, res) => {
   try {
+    await checkLegacyAdministrativeBoundary(req.session.companyId!,req.session.userId!,"settings");
     const body = PatchBody.parse(req.body);
     const row = await ensureRow();
     const next: Partial<typeof appSettingsTable.$inferInsert> = {

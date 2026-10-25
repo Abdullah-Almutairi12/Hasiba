@@ -3,6 +3,7 @@ import { db, branchesTable, warehousesTable, categoriesTable } from "@workspace/
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { currentResponsibilities, managedProfile, responsibilityContext } from "../lib/responsibility-context";
 import { teamRows } from "../lib/team-store";
+import { administrativeRights } from "../lib/administration-authority";
 
 export const SCOPED_ROUTES = [
   ["GET", "/workspace/access", "self"],
@@ -49,6 +50,10 @@ export async function managedAccessGate(req: Request, res: Response, next: NextF
     const userId = req.session.userId;
     const companyId = req.session.companyId;
     if (!userId || !companyId) return next();
+    // Administrative endpoints enforce their own live company-local rights.
+    // Never bypass the financial/operational route gate for administrators.
+    if (/^\/administration(?:\/|$)/.test(req.path)) return next();
+    if (/^\/team(?:\/|$)/.test(req.path) && (await administrativeRights(companyId,userId)).length) return next();
     const profile = await managedProfile(userId, companyId);
     if (!profile) return next();
     let action: string | undefined = scopedRouteAction(req.method, req.path);

@@ -1,4 +1,5 @@
 import { lockApprovalAuthorityWrite } from "../lib/approval-authority";
+import { enrollCompanyAdministrator } from "../lib/administration-enrollment";
 import { Router } from "express";
 import {
   db,
@@ -13,6 +14,7 @@ import { ALL_ROLES, isRole } from "../middlewares/require-role";
 import { requireCompanyContext } from "../middlewares/require-company-context";
 import { assertAnotherActiveOwner } from "../lib/company-ownership";
 import { handleRouteError } from "../lib/handle-error";
+import { requireAdministrative } from "../lib/administration-authority";
 import { recordAudit } from "../lib/audit";
 import {
   countActiveCompanies,
@@ -72,6 +74,9 @@ router.use("/admin/companies/:id", ownerOnly, async (req, res, next) => {
     res.status(404).json({ error: "INVALID_REFERENCE", message: "الشركة غير متاحة" });
     return;
   }
+  try {await requireAdministrative(parsed.data,req.session.userId!,
+    /\/users(?:\/|$)/.test(req.originalUrl.split("?")[0])?"users":"settings");}
+  catch(err){handleRouteError(err,res);return;}
   next();
 });
 
@@ -211,15 +216,16 @@ router.post("/admin/companies", ownerOnly, async (req, res) => {
           address: body.address ?? {},
         })
         .returning({ id: companiesTable.id });
-      // Grant the calling owner non-default access to the new company so
+      // Grant the authorized creator non-default administrative access so
       // they can opt-in via /auth/switch-company. We deliberately do NOT
       // flip isDefault — that's the user's tenant of record.
       await tx.insert(userCompaniesTable).values({
         userId: callerId,
         companyId: created.id,
-        role: "owner",
+        role: "scoped",
         isDefault: false,
       });
+      await enrollCompanyAdministrator(tx,created.id,callerId);
       return created.id;
     });
 
@@ -529,12 +535,13 @@ router.delete(
         await lockApprovalAuthorityWrite(tx);
         await tx.select({ id: companiesTable.id }).from(companiesTable)
           .where(eq(companiesTable.id, companyId)).for("update");
+      await requireAdministrative(companyId,req.session.userId!,"settings",tx);
         const [existing] = await tx.select().from(userCompaniesTable)
           .where(and(eq(userCompaniesTable.userId, userId), eq(userCompaniesTable.companyId, companyId))).limit(1);
         if (!existing) {
           throw Object.assign(new Error("لا يوجد ربط بين المستخدم والشركة"), { status: 404 });
         }
-        if (existing.role === "owner") await assertAnotherActiveOwner(tx, companyId, userId);
+        await assertAnotherActiveOwner(tx, companyId, userId);
         const [{ count }] = await tx.select({ count: sql<number>`count(*)::int` }).from(userCompaniesTable)
           .where(eq(userCompaniesTable.companyId, companyId));
         if (Number(count) <= 1) {

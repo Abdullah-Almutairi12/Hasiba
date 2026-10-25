@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { enrollCompanyAdministrator } from "../lib/administration-enrollment";
 import bcrypt from "bcryptjs";
 import { verifyAccountPassword } from "../lib/account-password";
 import rateLimit from "express-rate-limit";
@@ -176,9 +177,8 @@ router.post("/auth/signup", signupLimiter, async (req, res) => {
 
     const passwordHash = await bcrypt.hash(password, 12);
     // New self-serve signup is treated as a brand-new tenant: we create a
-    // company row and grant the freshly-minted manager full owner-style
-    // access to it via user_companies. Phase 3 will expose a UI to invite
-    // additional users into the same company.
+    // company and scoped administrative person. Administration is explicit;
+    // creation alone grants no job/financial responsibilities or legal title.
     const { user, companyId } = await db.transaction(async (tx) => {
       const [u] = await tx
         .insert(usersTable)
@@ -186,7 +186,7 @@ router.post("/auth/signup", signupLimiter, async (req, res) => {
           name,
           email: normalizedEmail,
           passwordHash,
-          role: "manager",
+          role: "scoped",
           isActive: true,
         })
         .returning();
@@ -197,9 +197,10 @@ router.post("/auth/signup", signupLimiter, async (req, res) => {
       await tx.insert(userCompaniesTable).values({
         userId: u.id,
         companyId: c.id,
-        role: "manager",
+        role: "scoped",
         isDefault: true,
       });
+      await enrollCompanyAdministrator(tx,c.id,u.id);
       return { user: u, companyId: c.id };
     });
 

@@ -5,6 +5,109 @@
  * حاسبة.AI - ERP System API
  * OpenAPI spec version: 0.1.0
  */
+export interface AdministrationAcknowledgement {
+  ok: boolean;
+}
+
+export interface AdministrationRevision {
+  /** @minimum 1 */
+  expectedRevision: number;
+}
+
+export interface AdministratorAccessInput {
+  responsibilities: string[];
+  active: boolean;
+}
+
+export type AdministrationHandoverInputResponsibilitiesItem = typeof AdministrationHandoverInputResponsibilitiesItem[keyof typeof AdministrationHandoverInputResponsibilitiesItem];
+
+
+export const AdministrationHandoverInputResponsibilitiesItem = {
+  users: 'users',
+  administrators: 'administrators',
+  settings: 'settings',
+  subscription: 'subscription',
+  contact: 'contact',
+} as const;
+
+/**
+ * retain appoints an additional manager; the three departure choices are stay/suspend/terminate
+ */
+export type AdministrationHandoverInputDeparture = typeof AdministrationHandoverInputDeparture[keyof typeof AdministrationHandoverInputDeparture];
+
+
+export const AdministrationHandoverInputDeparture = {
+  retain: 'retain',
+  stay: 'stay',
+  suspend: 'suspend',
+  terminate: 'terminate',
+} as const;
+
+export interface AdministrationHandoverInput {
+  id: string;
+  /** @minimum 0 */
+  expectedRevision: number;
+  /** @nullable */
+  toUserId: number | null;
+  /** @nullable */
+  personId: number | null;
+  responsibilities: AdministrationHandoverInputResponsibilitiesItem[];
+  /** retain appoints an additional manager; the three departure choices are stay/suspend/terminate */
+  departure: AdministrationHandoverInputDeparture;
+}
+
+export interface AdministrationHandover {
+  id: string;
+  revision: number;
+  state: string;
+  departure: string;
+  responsibilities: string[];
+  from_user_id?: number;
+  /** @nullable */
+  to_user_id?: number | null;
+  /** @nullable */
+  person_id?: number | null;
+  from_name?: string;
+  /** @nullable */
+  to_name?: string | null;
+  /** @nullable */
+  invited_name?: string | null;
+}
+
+export interface AdministrationMember {
+  id: number;
+  name: string;
+  role?: string;
+  /** @nullable */
+  status?: string | null;
+  /** @nullable */
+  active?: boolean | null;
+  /** @nullable */
+  responsibilities?: string[] | null;
+}
+
+export interface AdministrationNotice {
+  id: string;
+  message: string;
+}
+
+export interface AdministrationWorkspace {
+  userId: number;
+  rights: string[];
+  responsibilities: string[];
+  handovers: AdministrationHandover[];
+  members: AdministrationMember[];
+  pending: AdministrationMember[];
+  notifications: AdministrationNotice[];
+}
+
+export interface AdministrationCompletion {
+  ok: boolean;
+  id: string;
+  departure: string;
+  replayed: boolean;
+}
+
 export interface TeamOk {
   ok: boolean;
 }

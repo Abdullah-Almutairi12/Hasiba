@@ -1,0 +1,78 @@
+// @vitest-environment jsdom
+import { describe, expect, it, vi, afterEach } from "vitest";
+import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { AdministrationWorkspace } from "@workspace/api-client-react";
+const calls=vi.hoisted(()=>({complete:vi.fn(),accept:vi.fn()}));
+
+vi.mock("@workspace/api-client-react", async (orig) => {
+  const m = await orig<Record<string, unknown>>();
+  const mut = () => ({ mutateAsync: vi.fn(), isPending: false });
+  return { ...m, useUpdateAdministrator: mut, useSaveAdministrationHandover: mut, useCreateTeamPerson: mut, useInviteTeamPerson: mut,
+    useCompleteAdministrationHandover:()=>({mutateAsync:calls.complete,isPending:false}),
+    useAcceptAdministrationHandover:()=>({mutateAsync:calls.accept,isPending:false}) };
+});
+import { MembersPanel } from "./members-panel";
+import { HandoverComposer } from "./handover-composer";
+import { IncomingCard, OutgoingCard, RecoveryCard } from "./handover-cards";
+import { readAllEvidence, writeEvidence } from "./shared";
+
+const ws = (rights: string[]): AdministrationWorkspace => ({
+  userId: 1, rights, responsibilities: rights, handovers: [], notifications: [], pending: [],
+  members: [{ id: 1, name: "أنا" }, { id: 2, name: "سارة", responsibilities: ["users"] }],
+});
+const wrap = (ui: React.ReactNode) => render(<QueryClientProvider client={new QueryClient()}>{ui}</QueryClientProvider>);
+afterEach(()=>{cleanup();localStorage.clear();vi.clearAllMocks();});
+
+describe("administration UI", () => {
+  it("member edit offers only reducing existing rights", () => {
+    wrap(<MembersPanel ws={ws(["administrators", "users", "settings"])} canManage onChanged={() => {}} />);
+    fireEvent.click(screen.getByTestId("button-edit-admin-2"));
+    expect(screen.getByTestId("checkbox-member-right-users")).toBeTruthy();
+    expect(screen.queryByTestId("checkbox-member-right-settings")).toBeNull();
+  });
+  it("without administrators the replacement mode is disabled and unowned responsibilities are not offered", () => {
+    wrap(<HandoverComposer ws={ws(["users", "contact"])} existing={null} onClose={() => {}} onSaved={() => {}} />);
+    expect((screen.getByTestId("radio-mode-replace") as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByTestId("radio-mode-add").getAttribute("aria-checked")).toBe("true");
+    expect(screen.queryByTestId("checkbox-handover-right-settings")).toBeNull();
+  });
+  it("persists before sending, never claims early completion, and blocks a fresh finalize after remount",async()=>{
+    calls.complete.mockImplementation(()=>new Promise(()=>{}));
+    const h={id:"pending-admin",revision:1,state:"accepted",departure:"stay",responsibilities:["administrators"]};
+    const first=wrap(<OutgoingCard h={h} userId={1} companyId={5} onChanged={()=>{}} onEdit={()=>{}} />);
+    fireEvent.click(screen.getByTestId("button-finalize-pending-admin"));
+    fireEvent.click(screen.getByTestId("checkbox-finalize-ack"));
+    fireEvent.click(screen.getByTestId("button-confirm-finalize"));
+    await waitFor(()=>expect(calls.complete).toHaveBeenCalledTimes(1));
+    expect(readAllEvidence(1)[0].revision).toBe(1);
+    expect(screen.queryByTestId("state-completed-pending-admin")).toBeNull();
+    first.unmount();
+    wrap(<OutgoingCard h={h} userId={1} companyId={5} onChanged={()=>{}} onEdit={()=>{}} />);
+    expect(screen.queryByTestId("button-edit-handover-pending-admin")).toBeNull();
+    fireEvent.click(screen.getByTestId("button-finalize-pending-admin"));
+    fireEvent.click(screen.getByTestId("checkbox-finalize-ack"));
+    fireEvent.click(screen.getByTestId("button-confirm-finalize"));
+    await waitFor(()=>expect(screen.getByTestId("error-unknown-pending-admin")).toBeTruthy());
+    expect(calls.complete).toHaveBeenCalledTimes(1);
+  });
+  it("keeps uncertain evidence after a later forbidden replay",async()=>{
+    const ev={id:"unknown-admin",revision:3,departure:"terminate",at:new Date().toISOString(),companyId:5};
+    writeEvidence(1,ev);
+    calls.complete.mockRejectedValue(Object.assign(new Error("revoked"),{status:403}));
+    wrap(<RecoveryCard ev={ev} userId={1} onDone={()=>{}} />);
+    fireEvent.click(screen.getByTestId("button-replay-unknown-admin"));
+    await waitFor(()=>expect(screen.getByTestId("text-recovery-message")).toBeTruthy());
+    expect(readAllEvidence(1)).toEqual([ev]);
+  });
+  it("requires personal explicit acknowledgement and sends the displayed acceptance revision",async()=>{
+    calls.accept.mockResolvedValue({});
+    wrap(<IncomingCard h={{id:"incoming-admin",revision:4,state:"proposed",departure:"stay",responsibilities:["administrators"]}} onChanged={()=>{}} />);
+    fireEvent.click(screen.getByTestId("button-review-accept-incoming-admin"));
+    expect((screen.getByTestId("button-confirm-accept") as HTMLButtonElement).disabled).toBe(true);
+    expect(calls.accept).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId("checkbox-accept-ack"));
+    fireEvent.click(screen.getByTestId("button-confirm-accept"));
+    await waitFor(()=>expect(calls.accept).toHaveBeenCalledWith({id:"incoming-admin",data:{expectedRevision:4}}));
+  });
+});

@@ -31,6 +31,13 @@ import type {
   ActOnApprovalRequest200,
   AdminStats,
   AdminSystemHealth,
+  AdministrationAcknowledgement,
+  AdministrationCompletion,
+  AdministrationHandover,
+  AdministrationHandoverInput,
+  AdministrationRevision,
+  AdministrationWorkspace,
+  AdministratorAccessInput,
   AiModel,
   AiReportSummary,
   Alert,
@@ -333,6 +340,527 @@ const withQueryKey = <T extends object, K>(query: T, queryKey: K): T & { queryKe
   }
   return result;
 };
+
+export const getGetAdministrationWorkspaceUrl = () => {
+
+
+
+
+  return `/api/administration`
+}
+
+export const getAdministrationWorkspace = async ( options?: Parameters<typeof customFetch>[1]): Promise<AdministrationWorkspace> => {
+
+  return customFetch<AdministrationWorkspace>(getGetAdministrationWorkspaceUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetAdministrationWorkspaceQueryKey = () => {
+    return [
+    `/api/administration`
+    ] as const;
+    }
+
+
+export const getGetAdministrationWorkspaceQueryOptions = <TData = Awaited<ReturnType<typeof getAdministrationWorkspace>>, TError = ErrorType<unknown>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getAdministrationWorkspace>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetAdministrationWorkspaceQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getAdministrationWorkspace>>> = ({ signal }) => getAdministrationWorkspace({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getAdministrationWorkspace>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetAdministrationWorkspaceQueryResult = NonNullable<Awaited<ReturnType<typeof getAdministrationWorkspace>>>
+export type GetAdministrationWorkspaceQueryError = ErrorType<unknown>
+
+
+export function useGetAdministrationWorkspace<TData = Awaited<ReturnType<typeof getAdministrationWorkspace>>, TError = ErrorType<unknown>>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getAdministrationWorkspace>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getAdministrationWorkspace>>,
+          TError,
+          Awaited<ReturnType<typeof getAdministrationWorkspace>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetAdministrationWorkspace<TData = Awaited<ReturnType<typeof getAdministrationWorkspace>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getAdministrationWorkspace>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getAdministrationWorkspace>>,
+          TError,
+          Awaited<ReturnType<typeof getAdministrationWorkspace>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetAdministrationWorkspace<TData = Awaited<ReturnType<typeof getAdministrationWorkspace>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getAdministrationWorkspace>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useGetAdministrationWorkspace<TData = Awaited<ReturnType<typeof getAdministrationWorkspace>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getAdministrationWorkspace>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetAdministrationWorkspaceQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getSaveAdministrationHandoverUrl = () => {
+
+
+
+
+  return `/api/administration/handovers`
+}
+
+export const saveAdministrationHandover = async (administrationHandoverInput: AdministrationHandoverInput, options?: Parameters<typeof customFetch>[1]): Promise<AdministrationHandover> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<AdministrationHandover>(getSaveAdministrationHandoverUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(administrationHandoverInput)
+  }
+);}
+
+
+
+
+
+export const getSaveAdministrationHandoverMutationKey = () => ['saveAdministrationHandover'] as const;
+
+export const getSaveAdministrationHandoverMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof saveAdministrationHandover>>, TError,SaveAdministrationHandoverMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof saveAdministrationHandover>>, TError,SaveAdministrationHandoverMutationVariables, TContext> => {
+
+const mutationKey = getSaveAdministrationHandoverMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof saveAdministrationHandover>>, SaveAdministrationHandoverMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  saveAdministrationHandover(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SaveAdministrationHandoverMutationResult = NonNullable<Awaited<ReturnType<typeof saveAdministrationHandover>>>
+    export type SaveAdministrationHandoverMutationBody = BodyType<AdministrationHandoverInput>
+    export type SaveAdministrationHandoverMutationError = ErrorType<unknown>
+    export type SaveAdministrationHandoverMutationVariables = {data: BodyType<AdministrationHandoverInput>}
+
+    export const useSaveAdministrationHandover = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof saveAdministrationHandover>>, TError,SaveAdministrationHandoverMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof saveAdministrationHandover>>,
+        TError,
+        SaveAdministrationHandoverMutationVariables,
+        TContext
+      > => {
+      return useMutation(getSaveAdministrationHandoverMutationOptions(options), queryClient);
+    }
+
+export const getAcceptAdministrationHandoverUrl = (id: string,) => {
+
+
+
+
+  return `/api/administration/handovers/${id}/accept`
+}
+
+export const acceptAdministrationHandover = async (id: string,
+    administrationRevision: AdministrationRevision, options?: Parameters<typeof customFetch>[1]): Promise<AdministrationHandover> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<AdministrationHandover>(getAcceptAdministrationHandoverUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(administrationRevision)
+  }
+);}
+
+
+
+
+
+export const getAcceptAdministrationHandoverMutationKey = () => ['acceptAdministrationHandover'] as const;
+
+export const getAcceptAdministrationHandoverMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof acceptAdministrationHandover>>, TError,AcceptAdministrationHandoverMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof acceptAdministrationHandover>>, TError,AcceptAdministrationHandoverMutationVariables, TContext> => {
+
+const mutationKey = getAcceptAdministrationHandoverMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof acceptAdministrationHandover>>, AcceptAdministrationHandoverMutationVariables> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  acceptAdministrationHandover(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AcceptAdministrationHandoverMutationResult = NonNullable<Awaited<ReturnType<typeof acceptAdministrationHandover>>>
+    export type AcceptAdministrationHandoverMutationBody = BodyType<AdministrationRevision>
+    export type AcceptAdministrationHandoverMutationError = ErrorType<unknown>
+    export type AcceptAdministrationHandoverMutationVariables = {id: string;data: BodyType<AdministrationRevision>}
+
+    export const useAcceptAdministrationHandover = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof acceptAdministrationHandover>>, TError,AcceptAdministrationHandoverMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof acceptAdministrationHandover>>,
+        TError,
+        AcceptAdministrationHandoverMutationVariables,
+        TContext
+      > => {
+      return useMutation(getAcceptAdministrationHandoverMutationOptions(options), queryClient);
+    }
+
+export const getCompleteAdministrationHandoverUrl = (id: string,) => {
+
+
+
+
+  return `/api/auth/administration/handovers/${id}/complete`
+}
+
+export const completeAdministrationHandover = async (id: string,
+    administrationRevision: AdministrationRevision, options?: Parameters<typeof customFetch>[1]): Promise<AdministrationCompletion> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<AdministrationCompletion>(getCompleteAdministrationHandoverUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(administrationRevision)
+  }
+);}
+
+
+
+
+
+export const getCompleteAdministrationHandoverMutationKey = () => ['completeAdministrationHandover'] as const;
+
+export const getCompleteAdministrationHandoverMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof completeAdministrationHandover>>, TError,CompleteAdministrationHandoverMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof completeAdministrationHandover>>, TError,CompleteAdministrationHandoverMutationVariables, TContext> => {
+
+const mutationKey = getCompleteAdministrationHandoverMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof completeAdministrationHandover>>, CompleteAdministrationHandoverMutationVariables> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  completeAdministrationHandover(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CompleteAdministrationHandoverMutationResult = NonNullable<Awaited<ReturnType<typeof completeAdministrationHandover>>>
+    export type CompleteAdministrationHandoverMutationBody = BodyType<AdministrationRevision>
+    export type CompleteAdministrationHandoverMutationError = ErrorType<unknown>
+    export type CompleteAdministrationHandoverMutationVariables = {id: string;data: BodyType<AdministrationRevision>}
+
+    export const useCompleteAdministrationHandover = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof completeAdministrationHandover>>, TError,CompleteAdministrationHandoverMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof completeAdministrationHandover>>,
+        TError,
+        CompleteAdministrationHandoverMutationVariables,
+        TContext
+      > => {
+      return useMutation(getCompleteAdministrationHandoverMutationOptions(options), queryClient);
+    }
+
+export const getGetAdministrationReceiptUrl = (id: string,) => {
+
+
+
+
+  return `/api/auth/administration/handovers/${id}/receipt`
+}
+
+export const getAdministrationReceipt = async (id: string, options?: Parameters<typeof customFetch>[1]): Promise<AdministrationHandover> => {
+
+  return customFetch<AdministrationHandover>(getGetAdministrationReceiptUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetAdministrationReceiptQueryKey = (id: string,) => {
+    return [
+    `/api/auth/administration/handovers/${id}/receipt`
+    ] as const;
+    }
+
+
+export const getGetAdministrationReceiptQueryOptions = <TData = Awaited<ReturnType<typeof getAdministrationReceipt>>, TError = ErrorType<unknown>>(id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getAdministrationReceipt>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetAdministrationReceiptQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getAdministrationReceipt>>> = ({ signal }) => getAdministrationReceipt(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: id !== null && id !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getAdministrationReceipt>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetAdministrationReceiptQueryResult = NonNullable<Awaited<ReturnType<typeof getAdministrationReceipt>>>
+export type GetAdministrationReceiptQueryError = ErrorType<unknown>
+
+
+export function useGetAdministrationReceipt<TData = Awaited<ReturnType<typeof getAdministrationReceipt>>, TError = ErrorType<unknown>>(
+ id: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getAdministrationReceipt>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getAdministrationReceipt>>,
+          TError,
+          Awaited<ReturnType<typeof getAdministrationReceipt>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetAdministrationReceipt<TData = Awaited<ReturnType<typeof getAdministrationReceipt>>, TError = ErrorType<unknown>>(
+ id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getAdministrationReceipt>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getAdministrationReceipt>>,
+          TError,
+          Awaited<ReturnType<typeof getAdministrationReceipt>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetAdministrationReceipt<TData = Awaited<ReturnType<typeof getAdministrationReceipt>>, TError = ErrorType<unknown>>(
+ id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getAdministrationReceipt>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useGetAdministrationReceipt<TData = Awaited<ReturnType<typeof getAdministrationReceipt>>, TError = ErrorType<unknown>>(
+ id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getAdministrationReceipt>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetAdministrationReceiptQueryOptions(id,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getUpdateAdministratorUrl = (id: number,) => {
+
+
+
+
+  return `/api/administration/members/${id}`
+}
+
+export const updateAdministrator = async (id: number,
+    administratorAccessInput: AdministratorAccessInput, options?: Parameters<typeof customFetch>[1]): Promise<AdministrationAcknowledgement> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<AdministrationAcknowledgement>(getUpdateAdministratorUrl(id),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(administratorAccessInput)
+  }
+);}
+
+
+
+
+
+export const getUpdateAdministratorMutationKey = () => ['updateAdministrator'] as const;
+
+export const getUpdateAdministratorMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateAdministrator>>, TError,UpdateAdministratorMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateAdministrator>>, TError,UpdateAdministratorMutationVariables, TContext> => {
+
+const mutationKey = getUpdateAdministratorMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateAdministrator>>, UpdateAdministratorMutationVariables> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  updateAdministrator(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateAdministratorMutationResult = NonNullable<Awaited<ReturnType<typeof updateAdministrator>>>
+    export type UpdateAdministratorMutationBody = BodyType<AdministratorAccessInput>
+    export type UpdateAdministratorMutationError = ErrorType<unknown>
+    export type UpdateAdministratorMutationVariables = {id: number;data: BodyType<AdministratorAccessInput>}
+
+    export const useUpdateAdministrator = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateAdministrator>>, TError,UpdateAdministratorMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof updateAdministrator>>,
+        TError,
+        UpdateAdministratorMutationVariables,
+        TContext
+      > => {
+      return useMutation(getUpdateAdministratorMutationOptions(options), queryClient);
+    }
 
 export const getListCountSessionsUrl = () => {
 

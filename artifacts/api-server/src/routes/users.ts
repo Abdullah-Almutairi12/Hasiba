@@ -17,9 +17,17 @@ import { assertCompanyBranch } from "../lib/company-access";
 import { isPublishedBootstrapPassword } from "../lib/bootstrap-password";
 import { assertAnotherActiveOwner } from "../lib/company-ownership";
 import { managedProfile } from "../lib/responsibility-context";
+import { checkLegacyAdministrativeBoundary } from "../lib/administration-authority";
 
 const router = Router();
 router.use(["/users", "/admin/team-consents"], requireCompanyContext);
+router.use(async(req,res,next)=>{
+  try {
+    if(/^\/users(?:\/\d+)?$/.test(req.path)||req.path.startsWith("/admin/team-consents"))
+      await checkLegacyAdministrativeBoundary(req.session.companyId!,req.session.userId!,"users");
+    next();
+  }catch(err){handleRouteError(err,res);}
+});
 const legacyAccessEditor: RequestHandler = async (req, res, next) => {
   try {
     const id = Number(req.params.id);
@@ -306,11 +314,11 @@ router.patch("/users/:id", adminGuard, legacyAccessEditor, async (req, res) => {
       await lockApprovalAuthorityWrite(tx);
       await tx.select({ id: companiesTable.id }).from(companiesTable)
         .where(eq(companiesTable.id, companyId)).for("update");
+      await checkLegacyAdministrativeBoundary(companyId,req.session.userId!,"users",tx);
       const [currentMembership] = await tx.select().from(userCompaniesTable)
         .where(and(eq(userCompaniesTable.userId, id), eq(userCompaniesTable.companyId, companyId))).limit(1);
       if (!currentMembership) throw Object.assign(new Error("المستخدم غير موجود"), { status: 404 });
-      if (currentMembership.role === "owner" &&
-        (body.isActive === false || (body.role !== undefined && body.role !== "owner"))) {
+      if (body.isActive === false || (currentMembership.role === "owner" && body.role !== undefined && body.role !== "owner")) {
         await assertAnotherActiveOwner(tx, companyId, id);
       }
       if (body.role !== undefined) await tx.update(userCompaniesTable).set({ role: body.role })
@@ -348,11 +356,12 @@ router.delete("/users/:id", ownerOnly, legacyAccessEditor, async (req, res) => {
       const companyId = req.session.companyId!;
       await tx.select({ id: companiesTable.id }).from(companiesTable)
         .where(eq(companiesTable.id, companyId)).for("update");
+      await checkLegacyAdministrativeBoundary(companyId,req.session.userId!,"users",tx);
       const [membership] = await tx.select().from(userCompaniesTable).where(and(
         eq(userCompaniesTable.userId, id), eq(userCompaniesTable.companyId, companyId),
       )).limit(1);
       if (!membership) throw Object.assign(new Error("المستخدم غير موجود"), { status: 404 });
-      if (membership.role === "owner") await assertAnotherActiveOwner(tx, companyId, id);
+      await assertAnotherActiveOwner(tx, companyId, id);
       await tx.delete(userCompaniesTable).where(eq(userCompaniesTable.id, membership.id));
     });
     return res.json({ ok: true });

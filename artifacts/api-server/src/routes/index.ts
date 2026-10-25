@@ -49,6 +49,7 @@ import docsRouter from "./docs";
 import { requireAuth } from "../middlewares/require-auth";
 import { managedAccessGate } from "../middlewares/managed-access";
 import { teamPublicRouter, makeTeamRouter } from "./team";
+import { administrationReceiptRouter, administrationRouter } from "./administration";
 import { requireCompanyContext } from "../middlewares/require-company-context";
 import printProfileRouter from "./print-profile";
 import operationalDocumentsRouter from "./operational-documents";
@@ -68,6 +69,7 @@ router.use((req,res,next)=>{
 router.use(healthRouter);
 router.use(authRouter);
 router.use(teamPublicRouter);
+router.use(administrationReceiptRouter);
 
 // Public user-manual endpoints (PDF export + JSON manifest). Mounted
 // BEFORE requireAuth so the docs site and external links work without
@@ -115,6 +117,7 @@ router.use(storageRouter);
 
 // Everything past this point operates inside a single tenant.
 router.use(requireCompanyContext);
+router.use(administrationRouter);
 router.use(makeTeamRouter(() => router.stack));
 router.use(printProfileRouter);
 router.use(operationalDocumentsRouter);

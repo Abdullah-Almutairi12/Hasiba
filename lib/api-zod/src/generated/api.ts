@@ -8,6 +8,152 @@
 import * as zod from 'zod';
 
 
+export const GetAdministrationWorkspaceResponse = zod.object({
+  "userId": zod.number().int(),
+  "rights": zod.array(zod.string()),
+  "responsibilities": zod.array(zod.string()),
+  "handovers": zod.array(zod.object({
+  "id": zod.string(),
+  "revision": zod.number().int(),
+  "state": zod.string(),
+  "departure": zod.string(),
+  "responsibilities": zod.array(zod.string()),
+  "from_user_id": zod.number().int().optional(),
+  "to_user_id": zod.number().int().nullish(),
+  "person_id": zod.number().int().nullish(),
+  "from_name": zod.string().optional(),
+  "to_name": zod.string().nullish(),
+  "invited_name": zod.string().nullish()
+})),
+  "members": zod.array(zod.object({
+  "id": zod.number().int(),
+  "name": zod.string(),
+  "role": zod.string().optional(),
+  "status": zod.string().nullish(),
+  "active": zod.boolean().nullish(),
+  "responsibilities": zod.array(zod.string()).nullish()
+})),
+  "pending": zod.array(zod.object({
+  "id": zod.number().int(),
+  "name": zod.string(),
+  "role": zod.string().optional(),
+  "status": zod.string().nullish(),
+  "active": zod.boolean().nullish(),
+  "responsibilities": zod.array(zod.string()).nullish()
+})),
+  "notifications": zod.array(zod.object({
+  "id": zod.string(),
+  "message": zod.string()
+}))
+})
+
+
+export const saveAdministrationHandoverBodyExpectedRevisionMin = 0;
+
+
+
+export const SaveAdministrationHandoverBody = zod.object({
+  "id": zod.string().uuid(),
+  "expectedRevision": zod.number().int().min(saveAdministrationHandoverBodyExpectedRevisionMin),
+  "toUserId": zod.number().int().nullable(),
+  "personId": zod.number().int().nullable(),
+  "responsibilities": zod.array(zod.enum(['users', 'administrators', 'settings', 'subscription', 'contact'])),
+  "departure": zod.enum(['retain', 'stay', 'suspend', 'terminate']).describe('retain appoints an additional manager; the three departure choices are stay/suspend/terminate')
+})
+
+export const SaveAdministrationHandoverResponse = zod.object({
+  "id": zod.string(),
+  "revision": zod.number().int(),
+  "state": zod.string(),
+  "departure": zod.string(),
+  "responsibilities": zod.array(zod.string()),
+  "from_user_id": zod.number().int().optional(),
+  "to_user_id": zod.number().int().nullish(),
+  "person_id": zod.number().int().nullish(),
+  "from_name": zod.string().optional(),
+  "to_name": zod.string().nullish(),
+  "invited_name": zod.string().nullish()
+})
+
+
+export const AcceptAdministrationHandoverParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+
+
+
+export const AcceptAdministrationHandoverBody = zod.object({
+  "expectedRevision": zod.number().int().min(1)
+})
+
+export const AcceptAdministrationHandoverResponse = zod.object({
+  "id": zod.string(),
+  "revision": zod.number().int(),
+  "state": zod.string(),
+  "departure": zod.string(),
+  "responsibilities": zod.array(zod.string()),
+  "from_user_id": zod.number().int().optional(),
+  "to_user_id": zod.number().int().nullish(),
+  "person_id": zod.number().int().nullish(),
+  "from_name": zod.string().optional(),
+  "to_name": zod.string().nullish(),
+  "invited_name": zod.string().nullish()
+})
+
+
+export const CompleteAdministrationHandoverParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+
+
+
+export const CompleteAdministrationHandoverBody = zod.object({
+  "expectedRevision": zod.number().int().min(1)
+})
+
+export const CompleteAdministrationHandoverResponse = zod.object({
+  "ok": zod.boolean(),
+  "id": zod.string(),
+  "departure": zod.string(),
+  "replayed": zod.boolean()
+})
+
+
+export const GetAdministrationReceiptParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const GetAdministrationReceiptResponse = zod.object({
+  "id": zod.string(),
+  "revision": zod.number().int(),
+  "state": zod.string(),
+  "departure": zod.string(),
+  "responsibilities": zod.array(zod.string()),
+  "from_user_id": zod.number().int().optional(),
+  "to_user_id": zod.number().int().nullish(),
+  "person_id": zod.number().int().nullish(),
+  "from_name": zod.string().optional(),
+  "to_name": zod.string().nullish(),
+  "invited_name": zod.string().nullish()
+})
+
+
+export const UpdateAdministratorParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const UpdateAdministratorBody = zod.object({
+  "responsibilities": zod.array(zod.string()),
+  "active": zod.boolean()
+})
+
+export const UpdateAdministratorResponse = zod.object({
+  "ok": zod.boolean()
+})
+
+
 /**
  * Existing sessions only, filtered by current company and selected branch/warehouses. No cost fields.
  */

@@ -544,11 +544,18 @@ router.patch("/hr/employees/:id", hrGuard, async (req, res) => {
     // Cross-tenant mutation defense: scope the UPDATE to (id, companyId)
     // so a forged id from another tenant returns no row → 404.
     const companyId = getCompanyId(req);
-    const [row] = await db
-      .update(employeesTable)
-      .set(update)
-      .where(and(eq(employeesTable.id, id), eq(employeesTable.companyId, companyId)))
-      .returning();
+    const row = await db.transaction(async tx => {
+      const {lockApprovalAuthorityWrite}=await import("../lib/approval-authority");
+      const {protectLastAdministrator}=await import("../lib/administration-authority");
+      await lockApprovalAuthorityWrite(tx);
+      await tx.execute(sql`SELECT id FROM companies WHERE id=${companyId} FOR UPDATE`);
+      const [before]=await tx.select().from(employeesTable).where(and(eq(employeesTable.id,id),eq(employeesTable.companyId,companyId)));
+      if(before?.userId && body.status && ["suspended","terminated"].includes(body.status))
+        await protectLastAdministrator(tx,companyId,before.userId);
+      const [updated]=await tx.update(employeesTable).set(update)
+        .where(and(eq(employeesTable.id,id),eq(employeesTable.companyId,companyId))).returning();
+      return updated;
+    });
     if (!row) return res.status(404).json({ error: "الموظف غير موجود" });
     // Automation hook: rules with trigger.type='record_updated' on the
     // 'employee' entity can react to changes (e.g. notify HR when an
