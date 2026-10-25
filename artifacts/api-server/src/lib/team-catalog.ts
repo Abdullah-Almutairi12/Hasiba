@@ -18,6 +18,7 @@ export const TEAM_ACTIONS = [
     ["orders.send", "إرسال أمر شراء وإعادة محاولته بصلاحية مستقلة"],
     ["receipts.read", "قراءة بنود استلام المشتريات والكميات — دون أسعار أو أرصدة"],
     ["receipts.receive", "استلام مشتريات مؤكدة كاملًا أو جزئيًا في الوجهة المحددة — لا اعتماد أو صرف أو عكس"],
+    ["receipts.receive_self", "استلام أمر شراء أنشأته بنفسي — فقط عند تفعيل سياسة المنشأة، بالإضافة لإذن الاستلام"],
   ].map(([key, label]) => ({ key: `procurement.${key}`, label, resource: "procurement", available: true })),
   { key: "inventory.read", label: "عرض مخزون المستودعات المحددة", resource: "inventory", available: true },
   { key: "inventory.cost.read", label: "عرض تكلفة المخزون", resource: "inventory", available: true },

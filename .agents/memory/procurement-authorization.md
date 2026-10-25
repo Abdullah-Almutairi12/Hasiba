@@ -20,3 +20,9 @@ Physical purchase receiving is independently assignable without purchase prices 
 **Why:** The user explicitly requires a receiving employee to see item quantities, remaining quantities and destination without financial privileges, with explicit grants combinable independently of job title.
 
 **How to apply:** Redact unauthorized financial fields on the server, not with zeros; preserve the original receiving/stock/accounting services and their segregation controls.
+
+Single-operator establishments are supported: separation of creator and receiver must be a configurable company policy, strict by default, not a permanent two-person requirement.
+
+**Why:** The user identified that absolute separation prevents a legitimate one-person business from operating. This is not permission to infer exceptions from an owner title or employee count.
+
+**How to apply:** Require explicitly enabled company policy, identity-confirmed settings authority, and a separate explicit self-receiving grant in addition to ordinary receiving scopes. Recheck under the authority fence; never relax purchase approval or make recovery of an already committed receipt execute again.

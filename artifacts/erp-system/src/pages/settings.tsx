@@ -23,6 +23,7 @@ import { useCurrentCompany } from "@/hooks/use-current-company";
 import { usePermissions } from "@/hooks/use-permissions";
 import { useToast } from "@/hooks/use-toast";
 import { CompanySettingsTab } from "@/components/company-settings-tab";
+import {ProcurementReceivingPolicy} from "@/components/procurement-receiving-policy";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -1426,7 +1427,7 @@ export default function SettingsPage() {
         <p className="mt-1 text-sm text-muted-foreground">
           ضبط هوية المنشأة والضرائب والفروع ونقاط البيع والمحاسبة والربط.
           {readOnly && (
-            <Badge variant="outline" className="ms-2">قراءة فقط — للتعديل يلزم دور المدير</Badge>
+            <Badge variant="outline" className="ms-2">الإعدادات العامة للقراءة فقط؛ إدارة سياسة الاستلام بصلاحية مستقلة</Badge>
           )}
           {user?.role && <span className="ms-2 text-xs text-muted-foreground">({user.role})</span>}
         </p>
@@ -1495,6 +1496,7 @@ export default function SettingsPage() {
             <CompanySettingsTab />
           </section>
           <CompanyTab readOnly={readOnly} />
+          <ProcurementReceivingPolicy />
         </TabsContent>
         <TabsContent value="tax"><TaxTab readOnly={readOnly} /></TabsContent>
         <TabsContent value="branches"><BranchesTab readOnly={readOnly} /></TabsContent>

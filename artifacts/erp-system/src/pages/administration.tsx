@@ -15,6 +15,7 @@ import { MembersPanel } from "@/components/administration/members-panel";
 import { HandoverComposer } from "@/components/administration/handover-composer";
 import { AdministrationSetupControls } from "@/components/administration/setup-controls";
 import { MembershipDeparture } from "@/components/administration/membership-departure";
+import {ProcurementReceivingPolicy} from "@/components/procurement-receiving-policy";
 
 type Variant = "users" | "membership" | "legacy";
 
@@ -133,6 +134,7 @@ export default function AdministrationPage({ variant = "legacy" }: { variant?: V
       </section>
 
       {recovery}
+      {!membership && ws.rights.includes("settings") && <ProcurementReceivingPolicy />}
       {!membership && isAdmin && <PrimaryOwnerPanel ws={ws} onChanged={() => void invalidate()} onTransfer={() => !openOutgoing && setComposer({ handover: null, ownerTransfer: true })} />}
       {membership&&<MembershipDeparture primary={ws.isPrimaryOwner===true}/>}
       {!membership && (ws.rights.includes("settings")||ws.rights.includes("subscription"))&&<AdministrationSetupControls rights={ws.rights}/>}

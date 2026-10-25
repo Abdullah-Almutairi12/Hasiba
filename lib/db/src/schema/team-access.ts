@@ -15,6 +15,7 @@ export const teamSetupStateTable = pgTable("team_setup_state", {
 });
 export const teamAccessPolicyTable = pgTable("team_access_policy", {
   companyId: integer("company_id").primaryKey().references(() => companiesTable.id),
+  procurementReceivingPolicy: jsonb("procurement_receiving_policy").notNull().default({allowCreator:false,revision:0}),
   enabledModules: text("enabled_modules").array().notNull(),
   seatLimit: integer("seat_limit"),
   source: text("source").notNull().default("development_configuration"),

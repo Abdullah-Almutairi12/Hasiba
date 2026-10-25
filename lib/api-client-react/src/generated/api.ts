@@ -157,6 +157,7 @@ import type {
   GetGeneralLedgerParams,
   GetPosReceiptPdfParams,
   GetPrintProfile200,
+  GetProcurementReceivingPolicy200,
   GetProductRecommendations200,
   GetProductRecommendationsParams,
   GetProfitLossParams,
@@ -314,6 +315,8 @@ import type {
   UpdateInvoiceBody,
   UpdatePrintProfile200,
   UpdatePrintProfileBody,
+  UpdateProcurementReceivingPolicy200,
+  UpdateProcurementReceivingPolicyBody,
   UpdateProductBody,
   UpdateSupportTicketBody,
   UpdateSystemSettings200,
@@ -367,6 +370,195 @@ const withQueryKey = <T extends object, K>(query: T, queryKey: K): T & { queryKe
   }
   return result;
 };
+
+export const getGetProcurementReceivingPolicyUrl = () => {
+
+
+
+
+  return `/api/team/procurement-receiving-policy`
+}
+
+/**
+ * @summary Read company receiving segregation policy with settings administration
+ */
+export const getProcurementReceivingPolicy = async ( options?: Parameters<typeof customFetch>[1]): Promise<GetProcurementReceivingPolicy200> => {
+
+  return customFetch<GetProcurementReceivingPolicy200>(getGetProcurementReceivingPolicyUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetProcurementReceivingPolicyQueryKey = () => {
+    return [
+    `/api/team/procurement-receiving-policy`
+    ] as const;
+    }
+
+
+export const getGetProcurementReceivingPolicyQueryOptions = <TData = Awaited<ReturnType<typeof getProcurementReceivingPolicy>>, TError = ErrorType<unknown>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getProcurementReceivingPolicy>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetProcurementReceivingPolicyQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getProcurementReceivingPolicy>>> = ({ signal }) => getProcurementReceivingPolicy({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getProcurementReceivingPolicy>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetProcurementReceivingPolicyQueryResult = NonNullable<Awaited<ReturnType<typeof getProcurementReceivingPolicy>>>
+export type GetProcurementReceivingPolicyQueryError = ErrorType<unknown>
+
+
+export function useGetProcurementReceivingPolicy<TData = Awaited<ReturnType<typeof getProcurementReceivingPolicy>>, TError = ErrorType<unknown>>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getProcurementReceivingPolicy>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getProcurementReceivingPolicy>>,
+          TError,
+          Awaited<ReturnType<typeof getProcurementReceivingPolicy>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetProcurementReceivingPolicy<TData = Awaited<ReturnType<typeof getProcurementReceivingPolicy>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getProcurementReceivingPolicy>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getProcurementReceivingPolicy>>,
+          TError,
+          Awaited<ReturnType<typeof getProcurementReceivingPolicy>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetProcurementReceivingPolicy<TData = Awaited<ReturnType<typeof getProcurementReceivingPolicy>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getProcurementReceivingPolicy>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Read company receiving segregation policy with settings administration
+ */
+
+export function useGetProcurementReceivingPolicy<TData = Awaited<ReturnType<typeof getProcurementReceivingPolicy>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getProcurementReceivingPolicy>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetProcurementReceivingPolicyQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getUpdateProcurementReceivingPolicyUrl = () => {
+
+
+
+
+  return `/api/team/procurement-receiving-policy`
+}
+
+/**
+ * @summary Change company receiving policy with live settings authority and account proof
+ */
+export const updateProcurementReceivingPolicy = async (updateProcurementReceivingPolicyBody: UpdateProcurementReceivingPolicyBody, options?: Parameters<typeof customFetch>[1]): Promise<UpdateProcurementReceivingPolicy200> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<UpdateProcurementReceivingPolicy200>(getUpdateProcurementReceivingPolicyUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(updateProcurementReceivingPolicyBody)
+  }
+);}
+
+
+
+
+
+export const getUpdateProcurementReceivingPolicyMutationKey = () => ['updateProcurementReceivingPolicy'] as const;
+
+export const getUpdateProcurementReceivingPolicyMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateProcurementReceivingPolicy>>, TError,UpdateProcurementReceivingPolicyMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateProcurementReceivingPolicy>>, TError,UpdateProcurementReceivingPolicyMutationVariables, TContext> => {
+
+const mutationKey = getUpdateProcurementReceivingPolicyMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateProcurementReceivingPolicy>>, UpdateProcurementReceivingPolicyMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  updateProcurementReceivingPolicy(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateProcurementReceivingPolicyMutationResult = NonNullable<Awaited<ReturnType<typeof updateProcurementReceivingPolicy>>>
+    export type UpdateProcurementReceivingPolicyMutationBody = BodyType<UpdateProcurementReceivingPolicyBody>
+    export type UpdateProcurementReceivingPolicyMutationError = ErrorType<unknown>
+    export type UpdateProcurementReceivingPolicyMutationVariables = {data: BodyType<UpdateProcurementReceivingPolicyBody>}
+
+    /**
+ * @summary Change company receiving policy with live settings authority and account proof
+ */
+export const useUpdateProcurementReceivingPolicy = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateProcurementReceivingPolicy>>, TError,UpdateProcurementReceivingPolicyMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof updateProcurementReceivingPolicy>>,
+        TError,
+        UpdateProcurementReceivingPolicyMutationVariables,
+        TContext
+      > => {
+      return useMutation(getUpdateProcurementReceivingPolicyMutationOptions(options), queryClient);
+    }
 
 export const getGetAccountSecurityUrl = () => {
 

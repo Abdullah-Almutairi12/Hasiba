@@ -1,4 +1,5 @@
 import { Router } from "express";
+import {assertCreatorReceiving} from "../lib/procurement-receiving-policy";
 import { z, ZodError } from "zod";
 import { parsePagination } from "../lib/pagination";
 import {
@@ -1861,24 +1862,7 @@ router.post("/procurement/goods-receipts", async (req, res) => {
       if (po.status !== "confirmed" && po.status !== "partially_received") {
         throw httpErr(409, `لا يمكن استلام بضاعة على أمر شراء بحالة ${po.status}`);
       }
-      // Segregation of Duties: the user who created the purchase order
-      // cannot also be the user who confirms physical receipt of the
-      // goods. Allowing both signatures from one human defeats the
-      // standard fraud control (fictitious receipts → fictitious
-      // payables). The rule applies to every role including owner —
-      // emergencies should route through the configured approval matrix
-      // (workflow-engine) instead of being side-stepped at this layer.
-      const sessionUserId = req.session?.userId ?? null;
-      if (
-        sessionUserId != null &&
-        po.createdBy != null &&
-        sessionUserId === po.createdBy
-      ) {
-        throw httpErr(
-          403,
-          "لا يمكن استلام بضاعة على أمر شراء قمت بإنشائه (مبدأ فصل المهام). يجب على مستخدم آخر تسجيل الاستلام.",
-        );
-      }
+      await assertCreatorReceiving(actor,po.createdBy,tx);
       const warehouseId = body.warehouseId ?? po.warehouseId ?? (await getDefaultWarehouseId(tx, getCompanyId(req)));
       await assertReceiptDestination(actor,po,warehouseId,tx);
       const reference = await nextSeq("GRN", new Date().getUTCFullYear());

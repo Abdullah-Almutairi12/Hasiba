@@ -30,6 +30,54 @@ tags:
   - name: auth
     description: Authentication & session management
 paths:
+  /team/procurement-receiving-policy:
+    get:
+      operationId: getProcurementReceivingPolicy
+      tags: [team]
+      summary: Read company receiving segregation policy with settings administration
+      responses:
+        "200":
+          description: Company policy; absent configuration defaults to segregation
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [allowCreator, revision]
+                properties:
+                  allowCreator: { type: boolean }
+                  revision: { type: integer }
+    put:
+      operationId: updateProcurementReceivingPolicy
+      tags: [team]
+      summary: Change company receiving policy with live settings authority and account proof
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [allowCreator, revision, proof]
+              properties:
+                allowCreator: { type: boolean }
+                revision: { type: integer, minimum: 0 }
+                proof:
+                  type: object
+                  required: [currentPassword]
+                  properties:
+                    currentPassword: { type: string }
+                    token: { type: string }
+                    recoveryCode: { type: string }
+      responses:
+        "200":
+          description: Updated company policy
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [allowCreator, revision]
+                properties:
+                  allowCreator: { type: boolean }
+                  revision: { type: integer }
   /auth/security:
     get:
       operationId: getAccountSecurity

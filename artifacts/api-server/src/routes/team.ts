@@ -8,6 +8,8 @@ import { teamOwner, teamRows, teamWrite, teamPeople, teamPolicy, teamAudit, prev
 import { issueTeamInvitation, inspectTeamInvitation, acceptTeamInvitation } from "../lib/team-invitations";
 import { managedProfile, currentResponsibilities, requireResponsibility } from "../lib/responsibility-context";
 import { scopedRouteAction } from "../middlewares/managed-access";
+import {receivingPolicy,changeReceivingPolicy} from "../lib/procurement-receiving-policy";
+import {AccountSecurityError} from "../lib/account-security";
 import { requireSameOrigin } from "../middlewares/require-same-origin";
 import { FinancialRequestError } from "../lib/financial-transaction";
 import { requireAdministrative, administrativeRights } from "../lib/administration-authority";
@@ -19,7 +21,7 @@ import { LegacyConversionInput, legacyTeamUsers, previewLegacyTeamConversion, ap
 type AsyncHandler = (req: Request, res: Response) => Promise<unknown>;
 const wrap = (handler: AsyncHandler) => async (req: Request, res: Response, next: NextFunction) => {
   try { await handler(req, res); } catch (err) {
-    if (err instanceof FinancialRequestError) return void res.status(err.status).json({ error: err.message });
+    if (err instanceof FinancialRequestError || err instanceof AccountSecurityError) return void res.status(err.status).json({ error: err.message });
     if (err instanceof z.ZodError) return void res.status(400).json({ error: err.issues.map(i => i.message).join("؛ ") });
     next(err);
   }
@@ -47,6 +49,16 @@ function routeInventory(stack: unknown[]): Array<{ method: string; path: string;
 }
 export function makeTeamRouter(getStack: () => unknown[]) {
   const router = Router();
+  router.get("/team/procurement-receiving-policy",wrap(async(req,res)=>{
+    await requireAdministrative(getCompanyId(req),req.session.userId!,"settings");
+    res.json(await receivingPolicy(getCompanyId(req)));
+  }));
+  router.put("/team/procurement-receiving-policy",activationLimiter,requireSameOrigin,wrap(async(req,res)=>{
+    const input=z.object({allowCreator:z.boolean(),revision:z.number().int().nonnegative(),
+      proof:z.object({currentPassword:z.string().min(1).max(1024),token:z.string().max(20).optional(),
+        recoveryCode:z.string().max(100).optional()}).strict()}).strict().parse(req.body);
+    res.json(await changeReceivingPolicy(req,input));
+  }));
   router.get("/team/legacy/users", wrap(async (req, res) => {
     res.json(await legacyTeamUsers(getCompanyId(req), req.session.userId!));
   }));

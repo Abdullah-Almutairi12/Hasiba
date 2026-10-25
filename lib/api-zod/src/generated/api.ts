@@ -8,6 +8,38 @@
 import * as zod from 'zod';
 
 
+/**
+ * @summary Read company receiving segregation policy with settings administration
+ */
+export const GetProcurementReceivingPolicyResponse = zod.object({
+  "allowCreator": zod.boolean(),
+  "revision": zod.number().int()
+})
+
+
+/**
+ * @summary Change company receiving policy with live settings authority and account proof
+ */
+export const updateProcurementReceivingPolicyBodyRevisionMin = 0;
+
+
+
+export const UpdateProcurementReceivingPolicyBody = zod.object({
+  "allowCreator": zod.boolean(),
+  "revision": zod.number().int().min(updateProcurementReceivingPolicyBodyRevisionMin),
+  "proof": zod.object({
+  "currentPassword": zod.string(),
+  "token": zod.string().optional(),
+  "recoveryCode": zod.string().optional()
+})
+})
+
+export const UpdateProcurementReceivingPolicyResponse = zod.object({
+  "allowCreator": zod.boolean(),
+  "revision": zod.number().int()
+})
+
+
 export const GetAccountSecurityResponse = zod.object({
   "mfaEnabled": zod.boolean(),
   "companyRequiresMfa": zod.boolean(),

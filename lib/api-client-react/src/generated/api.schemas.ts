@@ -2999,6 +2999,29 @@ export interface CreateSupplierBody {
   notes?: string | null;
 }
 
+export type GetProcurementReceivingPolicy200 = {
+  allowCreator: boolean;
+  revision: number;
+};
+
+export type UpdateProcurementReceivingPolicyBodyProof = {
+  currentPassword: string;
+  token?: string;
+  recoveryCode?: string;
+};
+
+export type UpdateProcurementReceivingPolicyBody = {
+  allowCreator: boolean;
+  /** @minimum 0 */
+  revision: number;
+  proof: UpdateProcurementReceivingPolicyBodyProof;
+};
+
+export type UpdateProcurementReceivingPolicy200 = {
+  allowCreator: boolean;
+  revision: number;
+};
+
 export type ChangeAccountPasswordBody = AccountSecurityProof & {
   /** @maxLength 1024 */
   newPassword: string;

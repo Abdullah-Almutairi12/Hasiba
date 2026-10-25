@@ -21,6 +21,7 @@ export const ACTION_LABEL: Record<string, string> = {
   "procurement.orders.send":"إرسال أمر شراء ومراجعة صندوق إرساله",
   "procurement.receipts.read":"عرض كميات استلام المشتريات دون أسعار",
   "procurement.receipts.receive":"تسجيل استلام جزئي أو كامل — دون صرف أو اعتماد أو عكس",
+  "procurement.receipts.receive_self":"استلام أمر أنشأته بنفسي — بسياسة منشأة مفعلة وإذن استلام مستقل",
   "inventory.read": "عرض المخزون",
   "inventory.cost.read": "عرض تكلفة الأصناف",
   "inventory.transfer.receive": "استلام كامل حركة تحويل إلى مستودع الوجهة",

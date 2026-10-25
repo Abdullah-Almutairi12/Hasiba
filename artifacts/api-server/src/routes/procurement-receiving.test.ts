@@ -149,3 +149,96 @@ describe("purchase receiving with independent existing responsibilities",()=>{
     ok(await f.receive(po,1,randomUUID(),1),403);
   });
 });
+
+const selfActions=[...actions,"procurement.receipts.receive_self","procurement.orders.read",
+  "procurement.orders.create","procurement.orders.confirm","procurement.orders.approve"];
+async function selfOrder(f:Awaited<ReturnType<typeof fixture>>,price=7.25){
+  await f.update({grants:[{...personInput(f.people[0]).grants[0],templateMode:"override",actions:selfActions}]});
+  const supplier=ok(await f.owner.post("/api/suppliers").send({name:"مورد منشأة فردية مصطنع"}),201);
+  const po=ok(await f.selected(0,"post","/procurement/purchase-orders").set("Idempotency-Key",randomUUID()).send({
+    supplierId:supplier.id,warehouseId:f.warehouses[0].id,
+    lines:[{productId:f.products[0].id,description:"صنف تشغيل فردي",quantity:10,unitPrice:price,taxRate:0}],
+  }),201);
+  if(!po.requiresApproval)ok(await f.selected(0,"post",`/procurement/purchase-orders/${po.id}/confirm`).send({}));
+  return ok(await f.selected(0,"get",`/procurement/purchase-orders/${po.id}`));
+}
+const policyPath="/api/team/procurement-receiving-policy";
+async function enableSelf(f:Awaited<ReturnType<typeof fixture>>,allowCreator=true){
+  const previous=ok(await f.owner.get(policyPath));
+  return ok(await f.owner.put(policyPath).send({allowCreator,revision:previous.revision,proof:{currentPassword:f.password}}));
+}
+describe("explicit company policy for creator purchase receiving",()=>{
+  it("defaults to separation even with a self grant; requires account proof and settings administration, then both grants",async()=>{
+    const f=await fixture(),po=await selfOrder(f);
+    expect(ok(await f.owner.get(policyPath))).toEqual({allowCreator:false,revision:0});
+    ok(await f.receive(po,1),403);
+    ok(await f.owner.put(policyPath).send({allowCreator:true,revision:0,proof:{currentPassword:"wrong"}}),401);
+    ok(await f.actors[0].put(policyPath).send({allowCreator:true,revision:0,proof:{currentPassword:f.password}}),403);
+    await enableSelf(f);
+    await f.update({grants:[{...personInput(f.people[0]).grants[0],templateMode:"override",actions:selfActions.filter(a=>!a.endsWith("receive_self"))}]});
+    ok(await f.receive(po,1),403);
+    await f.update({grants:[{...personInput(f.people[0]).grants[0],templateMode:"override",actions:selfActions}]});
+    ok(await f.receive(po,1),201);
+    const logs=await rows("SELECT details FROM audit_logs WHERE company_id=$1 AND action='procurement.receiving_policy.changed'",[f.companies[0].id]);
+    expect(logs).toHaveLength(1);
+    expect(JSON.parse(logs[0].details)).toMatchObject({identityConfirmed:true,before:{allowCreator:false},after:{allowCreator:true}});
+    expect(JSON.stringify(logs)).not.toContain(f.password);
+  });
+  it("keeps committed recovery after disabling policy and withdrawing self permission without stock or journal duplication",async()=>{
+    const f=await fixture(),po=await selfOrder(f);await enableSelf(f);
+    const key=randomUUID(),first=ok(await f.receive(po,2,key),201);
+    await enableSelf(f,false);
+    await f.update({grants:[{...personInput(f.people[0]).grants[0],templateMode:"override",actions:selfActions.filter(a=>!a.endsWith("receive_self"))}]});
+    const replay=await f.receive(po,2,key);
+    expect(ok(replay,201).id).toBe(first.id);expect(replay.headers["idempotency-replayed"]).toBe("true");
+    ok(await f.receive(po,1),403);
+    expect((await rows("SELECT count(*)::int n FROM goods_receipts WHERE po_id=$1",[po.id]))[0].n).toBe(1);
+    expect((await rows("SELECT sum(quantity)::float8 q,sum(quantity*unit_cost)::float8 v FROM stock_moves WHERE source_type='goods_receipt' AND source_id=$1",[first.id]))[0]).toMatchObject({q:2,v:14.5});
+    expect((await rows(`SELECT sum(l.debit)::float8 d,sum(l.credit)::float8 c,COUNT(DISTINCT e.id)::int n FROM journal_entries e
+      JOIN journal_entry_lines l ON l.entry_id=e.id WHERE e.company_id=$1 AND e.source_ref=$2`,[f.companies[0].id,`GRN-${first.id}`]))[0]).toMatchObject({d:14.5,c:14.5,n:1});
+  });
+  it.each(["policy","permission"])("rechecks %s withdrawn while the receipt waits for the writer fence",async(kind)=>{
+    const f=await fixture(),po=await selfOrder(f);await enableSelf(f);
+    const c=await pool.connect();
+    try{
+      await c.query("BEGIN");await c.query("SELECT pg_advisory_xact_lock(174223,35)");
+      if(kind==="policy")await c.query(`UPDATE team_access_policy SET procurement_receiving_policy='{"allowCreator":false,"revision":2}' WHERE company_id=$1`,[f.companies[0].id]);
+      else await c.query("UPDATE responsibility_grants SET actions=array_remove(actions,'procurement.receipts.receive_self') WHERE id=$1",[f.people[0].grants[0].id]);
+      const pending=f.receive(po,1).then(r=>r);await new Promise(r=>setTimeout(r,100));await c.query("COMMIT");
+      ok(await pending,403);
+      expect((await rows("SELECT count(*)::int n FROM goods_receipts WHERE po_id=$1",[po.id]))[0].n).toBe(0);
+    }finally{await c.query("ROLLBACK");c.release();}
+  });
+  it("isolates company policy and warehouses and does not turn an owner role into a self grant",async()=>{
+    const f=await fixture(),po=await selfOrder(f);
+    await rows(`INSERT INTO team_access_policy(company_id,enabled_modules,updated_by,procurement_receiving_policy)
+      VALUES($1,ARRAY['procurement'],$2,'{"allowCreator":true,"revision":1}')`,[f.companies[1].id,f.ownerUser.id]);
+    ok(await f.receive(po,1),403);
+    expect(ok(await f.owner.get(policyPath)).allowCreator).toBe(false);
+    await enableSelf(f);
+    ok(await f.receive(po,1,randomUUID(),0,{warehouseId:f.warehouses[2].id}),404);
+    ok(await f.receive(po,1,randomUUID(),0,{warehouseId:f.extraWarehouse.id}),403);
+    const own=await f.create();
+    ok(await f.owner.post("/api/procurement/goods-receipts").set("Idempotency-Key",randomUUID()).send({
+      poId:own.id,lines:[{poLineId:own.lines[0].id,quantity:1}]}),403);
+    ok(await f.owner.put(policyPath).send({companyId:f.companies[1].id,allowCreator:false,revision:1,proof:{currentPassword:f.password}}),400);
+  });
+  it("preserves independent approval and rejects stale policy versions",async()=>{
+    const f=await fixture(),po=await selfOrder(f,6000);await enableSelf(f);
+    expect(po.requiresApproval).toBe(true);
+    ok(await f.selected(0,"post",`/procurement/purchase-orders/${po.id}/confirm`).send({}),202);
+    ok(await f.selected(0,"post",`/procurement/purchase-orders/${po.id}/approve`).send({}),403);
+    expect(ok(await f.selected(0,"get",`/procurement/purchase-orders/${po.id}`)).status).not.toBe("confirmed");
+    ok(await f.receive(po,1),409);
+    ok(await f.owner.put(policyPath).send({allowCreator:false,revision:0,proof:{currentPassword:f.password}}),409);
+    expect(ok(await f.owner.get(policyPath)).allowCreator).toBe(true);
+  });
+  it("allows explicit settings delegation independent of job title without giving that administrator receiving powers",async()=>{
+    const f=await fixture();
+    await rows("INSERT INTO company_administrators(company_id,user_id,responsibilities) VALUES($1,$2,ARRAY['settings']) ON CONFLICT(company_id,user_id) DO UPDATE SET responsibilities=ARRAY['settings'],active=true",
+      [f.companies[0].id,f.people[0].userId]);
+    const p=ok(await f.actors[0].get(policyPath));
+    ok(await f.actors[0].put(policyPath).send({allowCreator:true,revision:p.revision,proof:{currentPassword:f.password}}));
+    expect(ok(await f.actors[0].get(policyPath)).allowCreator).toBe(true);
+  });
+});
