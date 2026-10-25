@@ -1,6 +1,7 @@
 import { canReachReturns } from "@/lib/pos-actions";
 import { lazy, Suspense, useEffect } from "react";
 import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
+import { clearActivationToken } from "@/lib/activation-token";
 import { useTheme } from "@/hooks/use-theme";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { createAppQueryClient } from "@/lib/query-client";
@@ -141,6 +142,7 @@ function Protected({ children }: { children: React.ReactNode }) {
 function Router() {
   const [location] = useLocation();
   const { theme } = useTheme();
+  useEffect(()=>{if(location!=="/team-activate")clearActivationToken();},[location]);
 
   useEffect(() => {
     let isDark: boolean;

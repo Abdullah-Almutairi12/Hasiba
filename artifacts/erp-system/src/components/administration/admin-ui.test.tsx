@@ -25,6 +25,13 @@ const wrap = (ui: React.ReactNode) => render(<QueryClientProvider client={new Qu
 afterEach(()=>{cleanup();localStorage.clear();vi.clearAllMocks();});
 
 describe("administration UI", () => {
+  it("distinguishes a retained active scoped user from revoked administration",()=>{
+    const value=ws(["administrators"]);
+    value.members[1]={...value.members[1],role:"scoped",status:"active",active:false,responsibilities:[]};
+    wrap(<MembersPanel ws={value} canManage onChanged={()=>{}}/>);
+    expect(screen.getByText("دخول نشط · مستخدم مقيّد")).toBeTruthy();
+    expect(screen.queryByText("غير نشط")).toBeNull();
+  });
   it("member edit offers only reducing existing rights", () => {
     wrap(<MembersPanel ws={ws(["administrators", "users", "settings"])} canManage onChanged={() => {}} />);
     fireEvent.click(screen.getByTestId("button-edit-admin-2"));

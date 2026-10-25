@@ -12,14 +12,15 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
-import { MIN_NEW_PASSWORD, checkNewPassword, errorText, readTokenFromHash } from "@/lib/team-access";
+import { MIN_NEW_PASSWORD, checkNewPassword, errorText } from "@/lib/team-access";
+import { captureActivationToken,clearActivationToken } from "@/lib/activation-token";
 
 type Phase = "reading" | "missing" | "inspecting" | "invalid" | "ready" | "done";
 
 export default function TeamActivatePage() {
   // Token lives in memory only: captured from the fragment, then the
   // address bar is cleaned. Never stored, logged, or put in a query string.
-  const tokenRef = useRef<string | null>(null);
+  const tokenRef = useRef<string | null>(captureActivationToken(window.location.pathname,window.location.hash));
   const [phase, setPhase] = useState<Phase>("reading");
   const [info, setInfo] = useState<InspectTeamActivation200 | null>(null);
   const [invalidText, setInvalidText] = useState("");
@@ -36,16 +37,12 @@ export default function TeamActivatePage() {
   inspectRef.current = inspect.mutateAsync;
 
   useEffect(() => {
-    if (tokenRef.current === null) {
-      tokenRef.current = readTokenFromHash(window.location.hash);
-      if (window.location.hash) {
-        window.history.replaceState(window.history.state, "", window.location.pathname);
-      }
-    }
     const token = tokenRef.current;
     if (!token) { setPhase("missing"); return; }
     setPhase("inspecting");
-    inspectRef.current({ data: { token } })
+    const request=inspectRef.current({ data: { token } });
+    if(window.location.hash)window.history.replaceState(window.history.state,"",window.location.pathname);
+    request
       .then((res) => { setInfo(res); setPhase("ready"); })
       .catch((err) => { setInvalidText(errorText(err)); setPhase("invalid"); });
   }, []);
@@ -65,6 +62,7 @@ export default function TeamActivatePage() {
     try {
       const res = await accept.mutateAsync({ data: { token: tokenRef.current, password: pw } });
       tokenRef.current = null;
+      clearActivationToken();
       setPw(""); setPw2("");
       setDoneEmail(res.email);
       setPhase("done");
@@ -90,12 +88,12 @@ export default function TeamActivatePage() {
           )}
           {phase === "missing" && (
             <Message icon={AlertTriangle} tone="warn" title="الرابط غير مكتمل" testId="state-activation-missing">
-              افتح رابط التفعيل كما وصلك من مالك المنشأة. إن فقدته فاطلب منه رابطًا جديدًا.
+              افتح رابط التفعيل كما وصلك من مسؤول المنشأة. إن فقدته فاطلب منه رابطًا جديدًا.
             </Message>
           )}
           {phase === "invalid" && (
             <Message icon={AlertTriangle} tone="warn" title="تعذر استخدام هذا الرابط" testId="state-activation-invalid">
-              {invalidText} قد يكون منتهيًا أو أُلغي أو استُخدم. اطلب من المالك رابطًا جديدًا.
+              {invalidText} قد يكون منتهيًا أو أُلغي أو استُخدم. اطلب من المسؤول رابطًا جديدًا.
             </Message>
           )}
           {phase === "done" && (

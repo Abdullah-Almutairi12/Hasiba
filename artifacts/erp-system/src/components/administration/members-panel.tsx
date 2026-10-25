@@ -34,7 +34,7 @@ export function MembersPanel({ ws, canManage, onChanged }: { ws: AdministrationW
               {ws.members.map((m) => (
                 <tr key={`m${m.id}`} data-testid={`row-member-${m.id}`}>
                   <td className="p-2.5 font-medium">{m.name}{m.id === ws.userId && <span className="ms-1 text-xs text-primary">(أنت)</span>}</td>
-                  <td className="p-2.5 text-xs text-muted-foreground">{m.active === false ? "غير نشط" : m.status ?? m.role ?? "نشط"}</td>
+                  <td className="p-2.5 text-xs text-muted-foreground">{m.status==="active" ? (m.role==="scoped"?"دخول نشط · مستخدم مقيّد":"دخول نشط") : m.status??"دخول نشط"}</td>
                   <td className="p-2.5"><RightChips list={m.responsibilities ?? []} /></td>
                   <td className="p-2.5 text-end">{canManage && m.id !== ws.userId && (m.responsibilities?.length ?? 0) > 0 && <Button size="sm" variant="ghost" onClick={() => open(m)} data-testid={`button-edit-admin-${m.id}`}>سحب مسؤوليات</Button>}</td>
                 </tr>
