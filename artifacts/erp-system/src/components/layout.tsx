@@ -345,6 +345,10 @@ function UserMenu() {
           <Settings className="me-2 size-4" />
           إعدادات حسابي وعضوية المنشأة
         </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => setLocation("/account/security")} data-testid="menu-account-security">
+          <Settings className="me-2 size-4" />
+          أمان حسابي وكلمة المرور
+        </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem
           onClick={handleLogout}

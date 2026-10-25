@@ -169,6 +169,7 @@ describe("original POS invoice: independent linked return lifecycle", () => {
       return result;
     };
     const before = await snapshots();
+    const expectedAfter={...before,companies:before.companies.map(c=>({...c,account_mfa_required:false}))};
     await rows(`INSERT INTO financial_limits(role,action_key,max_value,description)
       VALUES('hr','sales.refund_amount',333,'Synthetic pre-upgrade policy evidence') ON CONFLICT DO NOTHING RETURNING id`);
     const oldLimits = await rows("SELECT id,role,action_key,max_value,description,updated_at FROM financial_limits ORDER BY id");
@@ -210,7 +211,7 @@ describe("original POS invoice: independent linked return lifecycle", () => {
       "0051_account_security.sql",
     ]);
     expect(first.skipped).toHaveLength(26);
-    expect(await snapshots()).toEqual(before);
+    expect(await snapshots()).toEqual(expectedAfter);
     expect(await rows("SELECT id,expected_qty::text,counted_qty::text,unit_cost::text FROM stock_take_lines WHERE id=$1",[oldCount.id]))
       .toEqual([oldCount]);
     expect(await rows("SELECT count_revision::text FROM stock_take_lines WHERE id=$1",[oldCount.id])).toEqual([{count_revision:"0"}]);
@@ -230,7 +231,7 @@ describe("original POS invoice: independent linked return lifecycle", () => {
       .toEqual([{ n: 0 }]);
     const second = await runMigrations(process.env.TEST_DATABASE_URL!, () => {});
     expect(second.applied).toHaveLength(0);
-    expect(await snapshots()).toEqual(before);
+    expect(await snapshots()).toEqual(expectedAfter);
     const unbalanced = await rows(`SELECT j.id FROM journal_entries j
       JOIN journal_entry_lines l ON l.entry_id=j.id WHERE j.company_id=$1
       GROUP BY j.id HAVING sum(l.base_debit)<>sum(l.base_credit)`, [f.companyId]);

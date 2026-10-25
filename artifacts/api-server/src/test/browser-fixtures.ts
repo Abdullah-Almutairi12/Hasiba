@@ -9,6 +9,9 @@ import { eq,sql } from "drizzle-orm";
 import { employeesTable,commissionPlansTable } from "@workspace/db";
 import { recordStockMove } from "../lib/stock-engine";
 
+if (process.env.NODE_ENV!=="test"||process.env.ACCOUNT_ISOLATED_TEST!=="true") {
+  throw new Error("Browser fixtures require the isolated test runner environment.");
+}
 if (!process.env.HASBA_BROWSER_STATE || !process.env.TEST_DATABASE_URL) {
   throw new Error("Run through node scripts/test-isolated.mjs --browser");
 }
@@ -166,7 +169,16 @@ for (const role of ["owner", "sales"] as const) {
 }
 writeFileSync(process.env.HASBA_BROWSER_STATE, JSON.stringify({
   // Both URLs point only to the generated, disposable loopback cluster.
-  env: { DATABASE_URL: process.env.TEST_DATABASE_URL, TEST_DATABASE_URL: process.env.TEST_DATABASE_URL, VITEST: "true" },
+  env: {
+    DATABASE_URL: process.env.TEST_DATABASE_URL, TEST_DATABASE_URL: process.env.TEST_DATABASE_URL, VITEST: "true",
+    NODE_ENV: "test", ACCOUNT_ISOLATED_TEST: process.env.ACCOUNT_ISOLATED_TEST,
+    // These values originate in test-isolated's random disposable environment,
+    // not the workspace key/cookie secret. Preserve the boundary in browser APIs.
+    ACCOUNT_MFA_ENCRYPTION_KEY: process.env.ACCOUNT_MFA_ENCRYPTION_KEY,
+    SESSION_SECRET: process.env.SESSION_SECRET,
+    SMTP_HOST: "", SMTP_USER: "", SMTP_PASS: "", SENTRY_DSN: "",
+    AI_INTEGRATIONS_OPENAI_API_KEY: "", OPENAI_API_KEY: "",
+  },
   accounts,
 }), { mode: 0o600 });
 await pool.end();
