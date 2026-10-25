@@ -46,7 +46,11 @@ function restore<T>(saved: Snapshot): T {
  * Equal payloads with different keys remain legitimate separate transactions.
  * Errors roll back both the business writes and receipt; retries can succeed.
  */
-export async function financialTransaction<T>(req: Request, work: (tx: Tx) => Promise<T>): Promise<T> {
+export async function financialTransaction<T>(
+  req: Request,
+  work: (tx: Tx) => Promise<T>,
+  authorizeReplay?: (tx: Tx, result: T) => Promise<void>,
+): Promise<T> {
   const key = req.get("Idempotency-Key");
   if (!key) return db.transaction(work);
   if (key && !/^[A-Za-z0-9][A-Za-z0-9_.:-]{7,127}$/.test(key)) {
@@ -68,8 +72,12 @@ export async function financialTransaction<T>(req: Request, work: (tx: Tx) => Pr
       if (previous.requestHash !== requestHash) {
         throw new FinancialRequestError("استُخدم مفتاح الطلب لبيانات مختلفة. ابدأ عملية جديدة.", 409);
       }
+      const result = restore<T>(previous.result as Snapshot);
+      // Routes that distinguish source reading from fresh execution must
+      // authorize the persisted source before disclosing a committed receipt.
+      await authorizeReplay?.(tx, result);
       req.res?.setHeader("Idempotency-Replayed", "true");
-      return restore<T>(previous.result as Snapshot);
+      return result;
     }
     const result = await work(tx);
     await tx.insert(financialRequestsTable).values({

@@ -697,6 +697,14 @@ router.post(
           throw new FinancialRequestError("المسؤولية لا تجيز مستودع الصرف أو فرع العملية", 403);
         }
         requestOnlyDiscount = !grant.actions.includes("pos.discount") && grant.actions.includes("pos.discount.request");
+        // These restrictions concern NEW writes, not an already committed
+        // receipt. Keep them after replay lookup and inside the authority fence.
+        const rawBody = req.body ?? {};
+        if (rawBody.paymentIntentId != null || rawBody.approvalId != null ||
+          rawBody.approvalRequestId != null && !grant.actions.some(a => a === "pos.discount" || a === "pos.discount.request") ||
+          rawBody.managerPassword || rawBody.managerOverride) {
+          throw new FinancialRequestError("دخول المدير والدفع الشبكي غير مفعلين لهذا المسار المقيد", 403);
+        }
         if (discount > 0 && !grant.actions.includes("pos.discount") && !requestOnlyDiscount ||
           !grant.actions.includes("pos.payment.record") && (
             body.paymentMethod !== "cash" || body.payments?.some(p => p.method !== "cash"))) {
@@ -1387,6 +1395,25 @@ router.post(
           payerName: p.payerName ?? null,
         })),
       };
+    }, async (tx, previous) => {
+      await lockApprovalAuthority(tx);
+      if (!await managedProfile(req.session.userId!, companyId, tx)) return;
+      const grant = await selectedResponsibility(req.session.userId!, companyId, tx);
+      if (!grant || grant.resource !== "pos" || !grant.actions.includes("pos.read")) {
+        throw new FinancialRequestError("لا يوجد إذن حالي لقراءة نتيجة البيع", 403);
+      }
+      // Match the original issued invoice/order graph, not today's default
+      // warehouse, the browser's branch fields, or a different readable till.
+      const source = await tx.execute(sql`SELECT i.id FROM customer_invoices i
+        JOIN sales_orders so ON so.id=i.so_id AND so.company_id=i.company_id
+        JOIN warehouses w ON w.id=so.warehouse_id AND w.company_id=i.company_id AND w.branch_id=i.branch_id
+        JOIN pos_orders o ON o.order_number=i.source_ref
+        JOIN pos_sessions s ON s.id=o.session_id AND s.branch_id=i.branch_id
+        JOIN branches b ON b.id=s.branch_id AND b.company_id=i.company_id
+        WHERE i.id=${previous.invoiceId} AND o.id=${previous.order.id}
+          AND i.company_id=${companyId} AND i.branch_id=${grant.branchId}
+          AND w.id=ANY(${sql.param(grant.warehouseIds)}::integer[])`);
+      if (!source.rows.length) throw new FinancialRequestError("نتيجة البيع خارج نطاق القراءة الحالي", 403);
     });
 
     if (res.getHeader("Idempotency-Replayed")) {

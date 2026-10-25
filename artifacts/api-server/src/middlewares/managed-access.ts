@@ -30,7 +30,10 @@ export const SCOPED_ROUTES = [
   ["GET", "/pos/sessions", "pos.read"],
   ["GET", "/pos/sessions/:id", "pos.read"],
   ["POST", "/pos/sessions", "pos.shift.open"],
-  ["POST", "/pos/orders", "pos.sell"],
+  // A committed response is recoverable with current source read authority.
+  // Fresh checkout rechecks sell and tender/discount authority inside its
+  // financial transaction, after receipt lookup and under the authority fence.
+  ["POST", "/pos/orders", "pos.read"],
   ["GET", "/pos/orders/:id/receipt.pdf", "pos.read"],
   ["GET", "/sales/credit-notes/:id/pdf", "pos.read"],
   ["GET", "/pos/refunds/:id/pdf", "pos.read"],
@@ -131,18 +134,6 @@ export async function managedAccessGate(req: Request, res: Response, next: NextF
             AND w.branch_id=${grant.branchId} AND w.id IN
               (SELECT jsonb_array_elements_text(${JSON.stringify(grant.warehouseIds)}::jsonb)::int))`);
       if (!allowed.rows.length) return void res.status(403).json({ error: "طلب الاستثناء خارج المصدر أو نطاق مسؤوليتك" });
-    }
-    if (action === "pos.sell") {
-      const body = req.body ?? {};
-      if (Number(body.discount ?? 0) !== 0 && !grant.actions.some(a => a === "pos.discount" || a === "pos.discount.request") ||
-        body.paymentIntentId != null || body.approvalId != null ||
-        body.approvalRequestId != null && !grant.actions.some(a => a === "pos.discount" || a === "pos.discount.request") ||
-        Array.isArray(body.items) && body.items.some((i: { quantity: number }) => Number(i?.quantity) <= 0) ||
-        body.managerPassword || body.managerOverride ||
-        !grant.actions.includes("pos.payment.record") && (Array.isArray(body.payments) && body.payments.some((p: { method: string }) => p.method !== "cash") ||
-        body.paymentMethod && body.paymentMethod !== "cash")) {
-        return void res.status(403).json({ error: "لم تمنح صلاحية الخصم أو طلب استثنائه أو تسجيل التحصيل المطلوب؛ دخول المدير والدفع الشبكي غير مفعلين لهذا المسار" });
-      }
     }
     if (req.path === "/sales/sellers/workspace" && req.query.branchId != null &&
       Number(req.query.branchId) !== grant.branchId) {
