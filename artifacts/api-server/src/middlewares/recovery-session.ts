@@ -4,7 +4,7 @@ import type { Request, Response, NextFunction } from "express";
 export function recoverySessionGate(req: Request, res: Response, next: NextFunction) {
   if (req.session?.purpose !== "administration_receipt") return next();
   const allowed = req.method === "POST" && [
-    "/auth/login", "/auth/logout", "/auth/administration/recover",
+    "/auth/login", "/auth/logout", "/auth/administration/recover", "/auth/password/forgot", "/auth/password/reset",
   ].includes(req.path) ||
     req.method === "GET" && /^\/auth\/administration\/handovers\/[^/]+\/receipt$/.test(req.path) ||
     req.method === "POST" && /^\/auth\/administration\/handovers\/[^/]+\/complete$/.test(req.path);

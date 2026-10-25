@@ -3396,13 +3396,19 @@ export const ListUsersResponse = zod.array(ListUsersResponseItem)
 /**
  * @summary Create a user
  */
+export const createUserBodyPasswordMin = 15;
+export const createUserBodyPasswordMax = 1024;
+
+
+
 export const CreateUserBody = zod.object({
+  "password": zod.string().min(createUserBodyPasswordMin).max(createUserBodyPasswordMax),
   "name": zod.string(),
   "email": zod.string(),
   "phone": zod.string().nullish(),
   "role": zod.string(),
   "branchId": zod.number().int().nullish(),
-  "has2fa": zod.boolean().optional()
+  "has2fa": zod.literal(false).optional().describe('Compatibility only; cannot enroll an authenticator. Enrollment is self-owned and proven separately.')
 })
 
 export const CreateUserResponse = zod.object({

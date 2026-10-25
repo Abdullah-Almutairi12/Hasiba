@@ -14,7 +14,7 @@ import { MfaChallenge } from "@/components/account/mfa-challenge";
 
 /** Public, identity-only recovery. Never restores company access. */
 export default function AccountRecoveryPage() {
-  const auth = useAuthenticateAdministrationRecovery();
+  const auth = useAuthenticateAdministrationRecovery({ mutation: { gcTime: 0 } });
   const qc=useQueryClient();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -37,7 +37,8 @@ export default function AccountRecoveryPage() {
       if (r.mfaRequired) { setMfaStage(true); return; }
       if (typeof r.userId !== "number") { setError("استجابة غير متوقعة من الخادم."); return; }
       finish(r.userId);
-    } catch (err) { setError(errorText(err)); }
+    } catch (err) { setPassword(""); setError(errorText(err)); }
+    finally { auth.reset(); }
   };
 
   return (

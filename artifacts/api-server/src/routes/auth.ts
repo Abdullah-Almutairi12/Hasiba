@@ -103,6 +103,7 @@ router.post("/auth/login", loginLimiter, async (req, res) => {
     const effectiveRole = await managedProfile(user.id, companyId) ? "scoped" : membership.role;
     const challenge=await beginAccountChallenge(req,user.id,user.passwordHash,companyId,"login");
     if(challenge.needed)return res.json({mfaRequired:true});
+    const [policy]=await accountRows(db,sql`SELECT account_mfa_required FROM companies WHERE id=${companyId}`);
     await db.update(usersTable).set({ lastLoginAt: new Date() }).where(eq(usersTable.id, user.id));
 
     req.session.regenerate((regenErr) => {
@@ -130,6 +131,7 @@ router.post("/auth/login", loginLimiter, async (req, res) => {
           preferredBranchId: user.preferredBranchId,
           avatarUrl: user.avatarUrl,
           companyId,
+          mfaEnrollmentRequired:!!policy?.account_mfa_required,
         });
       });
     });

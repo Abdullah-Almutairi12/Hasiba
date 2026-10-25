@@ -42,4 +42,11 @@ CREATE TABLE account_recovery_outbox (
   created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
   status text NOT NULL DEFAULT 'prepared' CHECK(status IN ('prepared','sent','failed'))
 );
+CREATE TABLE account_security_events (
+  id bigserial PRIMARY KEY,
+  user_id integer NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  company_id integer REFERENCES companies(id) ON DELETE SET NULL,
+  event text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT clock_timestamp()
+);
 ALTER TABLE companies ADD COLUMN account_mfa_required boolean NOT NULL DEFAULT false;

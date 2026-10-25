@@ -16,7 +16,7 @@ export function MfaChallenge({ onVerified, onCancel, context }: {
   onCancel: () => void;
   context: "login" | "recovery";
 }) {
-  const verify = useVerifyAccountMfa();
+  const verify = useVerifyAccountMfa({ mutation: { gcTime: 0 } });
   const [mode, setMode] = useState<FactorMode>("totp");
   const [value, setValue] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -35,6 +35,8 @@ export function MfaChallenge({ onVerified, onCancel, context }: {
     } catch (err) {
       setValue("");
       setError(errorText(err) || "تعذّر التحقق من العامل الإضافي.");
+    } finally {
+      verify.reset();
     }
   };
 

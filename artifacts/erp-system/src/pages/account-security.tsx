@@ -258,7 +258,7 @@ function SecurityBody({ s }: { s: AccountSecurityState }) {
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="grid gap-3 md:grid-cols-2">
-            <div className="space-y-1.5"><Label htmlFor="sec-new">كلمة المرور الجديدة</Label><Input id="sec-new" type="password" dir="ltr" autoComplete="new-password" minLength={PASSWORD_MIN_LENGTH} value={newPw} disabled={busy} onChange={(e) => setNewPw(e.target.value)} placeholder={`${PASSWORD_MIN_LENGTH} حرفًا على الأقل`} data-testid="input-new-password" /></div>
+            <div className="space-y-1.5"><Label htmlFor="sec-new">كلمة المرور الجديدة</Label><Input id="sec-new" type="password" dir="ltr" autoComplete="new-password" value={newPw} disabled={busy} onChange={(e) => setNewPw(e.target.value)} placeholder={`${PASSWORD_MIN_LENGTH} حرفًا على الأقل`} data-testid="input-new-password" /></div>
             <div className="space-y-1.5"><Label htmlFor="sec-new2">تأكيد كلمة المرور</Label><Input id="sec-new2" type="password" dir="ltr" autoComplete="new-password" value={newPw2} disabled={busy} onChange={(e) => setNewPw2(e.target.value)} data-testid="input-new-password-confirm" /></div>
           </div>
           {pwProblem && <p className="text-xs text-muted-foreground" data-testid="text-password-problem">{pwProblem}</p>}

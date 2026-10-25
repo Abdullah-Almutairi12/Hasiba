@@ -7,7 +7,7 @@ export async function accountSessionGate(req:Request,res:Response,next:NextFunct
   try {
     if(req.session.purpose==="pos_device")return next();
     if(req.session.mfaChallenge) {
-      if(req.method==="POST"&&["/auth/mfa/verify","/auth/logout","/auth/login","/auth/administration/recover"].includes(req.path))return next();
+      if(req.method==="POST"&&["/auth/mfa/verify","/auth/logout","/auth/login","/auth/administration/recover","/auth/password/forgot","/auth/password/reset"].includes(req.path))return next();
       return void res.status(401).json({error:"يلزم استيفاء العامل الثاني قبل استخدام الحساب",mfaRequired:true});
     }
     if(!req.session.userId||["/auth/login","/auth/logout","/auth/password/forgot","/auth/password/reset"].includes(req.path))return next();

@@ -5,15 +5,18 @@ import {db} from "@workspace/db";
 import type {DbOrTx} from "./journal-posting";
 import {adminRows,administrativeRights} from "./administration-authority";
 import {hashAccountPassword,newAccountPasswordError,verifyAccountPassword} from "./account-password";
-import {lockApprovalAuthority} from "./approval-authority";
+import {lockApprovalAuthority,lockApprovalAuthorityWrite} from "./approval-authority";
 import {accountDigest,accountEncryptionReady,newTotp,openAccountSecret,sealAccountSecret,totpCounter} from "./account-crypto";
 
 export class AccountSecurityError extends Error {
   constructor(message:string,public status=400){super(message);}
 }
 export const accountRows=adminRows;
-export async function lockAccount(tx:DbOrTx,id:number):Promise<Record<string,any>> {
-  await lockApprovalAuthority(tx);
+export async function lockAccount(tx:DbOrTx,id:number,writesUser=false):Promise<Record<string,any>> {
+  // Existing database triggers on users take the WRITER authority fence.
+  // A password writer must take that side BEFORE user locks, never upgrade
+  // a shared fence while another login is waiting for the same user row.
+  await (writesUser?lockApprovalAuthorityWrite(tx):lockApprovalAuthority(tx));
   const [u]=await accountRows(tx,sql`SELECT * FROM users WHERE id=${id} FOR UPDATE`);
   if(!u?.is_active)throw new AccountSecurityError("تعذر التحقق من الحساب",401);
   await tx.execute(sql`INSERT INTO account_security(user_id) VALUES(${id}) ON CONFLICT DO NOTHING`);
@@ -42,8 +45,11 @@ export async function beginAccountChallenge(req:Request,userId:number,hash:strin
 }
 async function audit(tx:DbOrTx,id:number,event:string,companyId:number|null) {
   // Never log credentials, OTPs, reset tokens, secret envelopes or recovery codes.
-  await tx.execute(sql`INSERT INTO audit_logs(company_id,user_id,user_name,action,entity,details,ip_address)
-    SELECT ${companyId},id,name,${event},'account_security','{}','server' FROM users WHERE id=${id}`);
+  await tx.execute(sql`INSERT INTO account_security_events(user_id,company_id,event)
+    VALUES(${id},${companyId},${event})`);
+  if(event==="account.company_policy.changed"&&companyId!=null)
+    await tx.execute(sql`INSERT INTO audit_logs(company_id,user_id,user_name,action,entity,details,ip_address)
+      SELECT ${companyId},id,name,${event},'account_security','{}','server' FROM users WHERE id=${id}`);
 }
 async function factor(tx:DbOrTx,a:Record<string,any>,token?:string,recoveryCode?:string) {
   if(!a.totp_secret)return true;
@@ -85,9 +91,9 @@ export async function completeAccountChallenge(req:Request,input:{token?:string,
   return result;
 }
 export type AccountProof={currentPassword:string,token?:string,recoveryCode?:string};
-export async function withAccountProof<T>(req:Request,proof:AccountProof,work:(tx:DbOrTx,a:Record<string,any>)=>Promise<T>) {
+export async function withAccountProof<T>(req:Request,proof:AccountProof,work:(tx:DbOrTx,a:Record<string,any>)=>Promise<T>,writesUser=false) {
   const result=await db.transaction(async tx=>{
-    const a=await lockAccount(tx,req.session.userId!);
+    const a=await lockAccount(tx,req.session.userId!,writesUser);
     if((req.session.authEpoch??0)!==a.credential_epoch||
       (a.locked_until&&new Date(a.locked_until).getTime()>Date.now()))return {ok:false as const};
     if(!await verifyAccountPassword(proof.currentPassword,a.password_hash??"")||!await factor(tx,a,proof.token,proof.recoveryCode)){
@@ -122,7 +128,7 @@ export async function changeAccountPassword(req:Request,input:AccountProof&{newP
     await tx.execute(sql`UPDATE users SET password_hash=${hash} WHERE id=${a.id}`);
     await rotateEpoch(tx,a);await audit(tx,a.id,"account.password.changed",req.session.companyId??null);
     return {ok:true,reauthenticate:true};
-  });
+  },true);
 }
 export async function revokeOtherSessions(req:Request,input:AccountProof) {
   const epoch=await withAccountProof(req,input,async(tx,a)=>{

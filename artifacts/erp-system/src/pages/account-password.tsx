@@ -10,20 +10,19 @@ import { PASSWORD_MIN_LENGTH, passwordProblem } from "@/lib/account-security";
 
 const TOKEN_RE = /^[A-Za-z0-9_-]{43}$/;
 
-/** Reads #token=… once into memory and immediately strips it from the URL. */
-function takeFragmentToken(): string | null {
-  const hash = window.location.hash;
+/** Pure read of #token=… (safe under StrictMode double render). */
+export function readFragmentToken(hash: string): string | null {
   if (!hash) return null;
   const t = new URLSearchParams(hash.slice(1)).get("token");
-  window.history.replaceState(window.history.state, "", window.location.pathname + window.location.search);
-  return t && TOKEN_RE.test(t) ? t : t ? "" : null;
+  return t && TOKEN_RE.test(t) ? t : t !== null ? "" : null;
 }
 
 export default function AccountPasswordPage() {
-  const [token, setToken] = useState<string | null>(null);
+  // Captured in component state during render; the fragment is stripped in an
+  // idempotent effect, so a StrictMode re-run cannot lose the captured token.
+  const [token] = useState<string | null>(() => readFragmentToken(window.location.hash));
   useEffect(() => {
-    setToken(takeFragmentToken());
-    return () => setToken(null);
+    if (window.location.hash) window.history.replaceState(window.history.state, "", window.location.pathname + window.location.search);
   }, []);
 
   return (
@@ -109,7 +108,7 @@ function ResetForm({ token }: { token: string }) {
         <p className="mt-4 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive" data-testid="error-reset-token">الرابط غير مكتمل أو تالف. اطلب إعادة تعيين جديدة.</p>
       ) : (
         <form className="mt-5 space-y-3" onSubmit={(e) => void submit(e)}>
-          <div><Label htmlFor="rp-new">كلمة المرور الجديدة</Label><Input id="rp-new" type="password" dir="ltr" autoComplete="new-password" minLength={PASSWORD_MIN_LENGTH} value={pw} onChange={(e) => setPw(e.target.value)} placeholder={`${PASSWORD_MIN_LENGTH} حرفًا على الأقل`} data-testid="input-reset-password" /></div>
+          <div><Label htmlFor="rp-new">كلمة المرور الجديدة</Label><Input id="rp-new" type="password" dir="ltr" autoComplete="new-password" value={pw} onChange={(e) => setPw(e.target.value)} placeholder={`${PASSWORD_MIN_LENGTH} حرفًا على الأقل`} data-testid="input-reset-password" /></div>
           <div><Label htmlFor="rp-new2">تأكيد كلمة المرور</Label><Input id="rp-new2" type="password" dir="ltr" autoComplete="new-password" value={pw2} onChange={(e) => setPw2(e.target.value)} data-testid="input-reset-password-confirm" /></div>
           {problem && <p className="text-xs text-muted-foreground">{problem}</p>}
           {error && <p role="alert" className="text-sm text-destructive" data-testid="error-reset">{error}</p>}

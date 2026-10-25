@@ -1,4 +1,4 @@
-import { PASSWORD_MIN_LENGTH } from "@/lib/account-security";
+import { PASSWORD_MIN_LENGTH, PASSWORD_MAX_LENGTH, codePointLength } from "@/lib/account-security";
 import { useState } from "react";
 import {
   useListUsers,
@@ -145,8 +145,8 @@ function CreateUserDialog({ open, onOpenChange, roles, isOwner }: CreateUserDial
       toast({ title: "حقول ناقصة", description: "الاسم والبريد وكلمة المرور مطلوبة.", variant: "destructive" });
       return;
     }
-    if (form.password.length < PASSWORD_MIN_LENGTH) {
-      toast({ title: "كلمة مرور قصيرة", description: `الحد الأدنى ${PASSWORD_MIN_LENGTH} حرفًا.`, variant: "destructive" });
+    if (codePointLength(form.password) < PASSWORD_MIN_LENGTH || codePointLength(form.password) > PASSWORD_MAX_LENGTH) {
+      toast({ title: "كلمة مرور قصيرة", description: `من ${PASSWORD_MIN_LENGTH} إلى ${PASSWORD_MAX_LENGTH} حرفًا.`, variant: "destructive" });
       return;
     }
     createUser.mutate({
@@ -228,7 +228,7 @@ function CreateUserDialog({ open, onOpenChange, roles, isOwner }: CreateUserDial
               type="password"
               value={form.password}
               onChange={(e) => setForm({ ...form, password: e.target.value })}
-              placeholder={`حد أدنى ${PASSWORD_MIN_LENGTH} حرفًا`} minLength={PASSWORD_MIN_LENGTH}
+              placeholder={`حد أدنى ${PASSWORD_MIN_LENGTH} حرفًا`}
               data-testid="input-user-password"
             />
           </div>

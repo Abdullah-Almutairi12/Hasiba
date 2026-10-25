@@ -2277,6 +2277,11 @@ export interface User {
 }
 
 export interface CreateUserBody {
+  /**
+     * @minLength 15
+     * @maxLength 1024
+     */
+  password: string;
   name: string;
   email: string;
   /** @nullable */
@@ -2284,7 +2289,11 @@ export interface CreateUserBody {
   role: string;
   /** @nullable */
   branchId?: number | null;
-  has2fa?: boolean;
+  /**
+     * Compatibility only; cannot enroll an authenticator. Enrollment is self-owned and proven separately.
+     * @deprecated
+     */
+  has2fa?: false;
 }
 
 export interface Role {

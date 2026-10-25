@@ -6954,6 +6954,11 @@ components:
     CreateUserBody:
       type: object
       properties:
+        password:
+          type: string
+          minLength: 15
+          maxLength: 1024
+          writeOnly: true
         name:
           type: string
         email:
@@ -6968,7 +6973,10 @@ components:
           nullable: true
         has2fa:
           type: boolean
-      required: [name, email, role]
+          enum: [false]
+          deprecated: true
+          description: Compatibility only; cannot enroll an authenticator. Enrollment is self-owned and proven separately.
+      required: [name, email, role, password]
 
     Role:
       type: object

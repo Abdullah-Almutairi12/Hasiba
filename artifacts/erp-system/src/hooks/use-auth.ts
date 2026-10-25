@@ -82,9 +82,13 @@ export function useAuth() {
         method: "POST",
         body: JSON.stringify(vars),
       }),
+    // Credentials must not linger in the mutation cache.
+    gcTime: 0,
     onSuccess: (result) => {
+      // Any prior identity's private cache is dropped before the new state lands.
+      qc.clear();
       // A pending-factor session must not populate auth/me or any operational cache.
-      if (isMfaRequired(result)) { qc.clear(); qc.setQueryData(ME_KEY, null); return; }
+      if (isMfaRequired(result)) { qc.setQueryData(ME_KEY, null); return; }
       qc.setQueryData(ME_KEY, result);
     },
   });
@@ -126,7 +130,10 @@ export function useAuth() {
     user: meQuery.data ?? null,
     isLoading: meQuery.isLoading,
     isAuthenticated: !!meQuery.data,
-    login: loginMutation.mutateAsync,
+    login: async (vars: { email: string; password: string }) => {
+      try { return await loginMutation.mutateAsync(vars); }
+      finally { loginMutation.reset(); }
+    },
     loginError: loginMutation.error as Error | null,
     isLoggingIn: loginMutation.isPending,
     logout: logoutMutation.mutateAsync,

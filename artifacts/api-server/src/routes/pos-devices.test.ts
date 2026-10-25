@@ -7,6 +7,7 @@ import app from "../app";
 import { posTemplateFixture, accepted as ok, testActor, type PosTemplateFixture } from "../test/pos-template-fixture";
 import { deviceBinding } from "../lib/pos-device-crypto";
 import { teamRows } from "../lib/team-store";
+import {hashAccountPassword} from "../lib/account-password";
 
 type Device={id:string;privateKey:KeyObject;token?:string};
 let f:PosTemplateFixture,device:Device,foreign:Device,person:any,other:any,foreignPerson:any,committedBody:any;
@@ -270,9 +271,29 @@ describe.sequential("POS device software proof and cashier-only identity",()=>{
       ok(await call(cashier.agent,device,"post","/pos/orders",committedBody,person.grants[0].id,randomUUID()),403);
     } finally {await writer.query("ROLLBACK");writer.release();}
   });
-  it("does not present an unimplemented second factor or a checklist percentage as compliance evidence",async()=>{
+  it("does not present optional factor availability or a checklist percentage as company-wide compliance evidence",async()=>{
     const checklist=ok(await f.owner.get("/api/security/checklist"));
     expect(checklist.items.find((item:any)=>item.key==="2fa").status).toBe("warning");
     expect(checklist.ncaCompliant).toBe(false);
+  });
+  it("keeps a dual-credential cashier device and PIN separate when that identity changes its platform password",async()=>{
+    const both=await personWithoutEmail(f.branches[0].id,f.warehouses[0].id,"كاشير توافق مصطنع");
+    // A historical dual-credential identity, created only in this disposable DB.
+    const email=`dual-${randomUUID()}@example.invalid`,password="Synthetic dual platform phrase 2026!";
+    await rows("UPDATE users SET email=$1,password_hash=$2 WHERE id=$3",[email,await hashAccountPassword(password),both.userId]);
+    const d=await register(f.branches[0].id);await activate(d);
+    const cashier=await unlock(d,both);ok(cashier.response);
+    const before=(await rows("SELECT pin_hash FROM pos_employee_credentials WHERE employee_id=$1",[both.personId]))[0];
+    const platform=testActor(),otherPlatform=testActor();
+    ok(await platform.post("/api/auth/login").send({email,password}));
+    ok(await otherPlatform.post("/api/auth/login").send({email,password}));
+    ok(await platform.post("/api/auth/security/password").send({currentPassword:password,newPassword:"New synthetic dual platform phrase 2026!"}));
+    ok(await otherPlatform.get("/api/auth/me"),401);
+    expect(ok(await call(cashier.agent,d,"get","/auth/me",{},both.grants[0].id)).posDevice).toBe(true);
+    const after=(await rows("SELECT pin_hash FROM pos_employee_credentials WHERE employee_id=$1",[both.personId]))[0];
+    expect(before.pin_hash===after.pin_hash).toBe(true);
+    ok(await call(cashier.agent,d,"get","/auth/security",{},both.grants[0].id),403);
+    await rows("UPDATE employee_access SET status='suspended' WHERE employee_id=$1",[both.personId]);
+    ok(await call(cashier.agent,d,"get","/auth/me",{},both.grants[0].id),403);
   });
 });

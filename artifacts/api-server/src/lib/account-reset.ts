@@ -34,7 +34,7 @@ export async function finishAccountReset(token:string,newPassword:string) {
   const [r]=await accountRows(db,sql`SELECT user_id FROM account_password_resets WHERE token_hash=${accountDigest(token)}`);
   if(!r)throw new AccountSecurityError("الرابط غير صالح أو انتهى",401);
   return db.transaction(async tx=>{
-    const a=await lockAccount(tx,r.user_id);
+    const a=await lockAccount(tx,r.user_id,true);
     const [reset]=await accountRows(tx,sql`SELECT *,expires_at>clock_timestamp() AS valid FROM account_password_resets
       WHERE token_hash=${accountDigest(token)} FOR UPDATE`);
     if(!reset?.valid||reset.consumed_at||reset.credential_epoch!==a.credential_epoch)throw new AccountSecurityError("الرابط غير صالح أو انتهى",401);
@@ -44,8 +44,8 @@ export async function finishAccountReset(token:string,newPassword:string) {
     await tx.execute(sql`UPDATE account_password_resets SET consumed_at=coalesce(consumed_at,clock_timestamp()) WHERE user_id=${a.id}`);
     await tx.execute(sql`UPDATE account_login_challenges SET consumed_at=coalesce(consumed_at,clock_timestamp()) WHERE user_id=${a.id}`);
     await tx.execute(sql`DELETE FROM session WHERE (sess->>'userId')::int=${a.id} AND coalesce(sess->>'purpose','')<>'pos_device'`);
-    await tx.execute(sql`INSERT INTO audit_logs(user_id,user_name,action,entity,details,ip_address)
-      VALUES(${a.id},${a.name},'account.password.reset','account_security','{}','server')`);
+    await tx.execute(sql`INSERT INTO account_security_events(user_id,event)
+      VALUES(${a.id},'account.password.reset')`);
     // The enrolled TOTP secret and last accepted counter remain unchanged.
     return {ok:true,reauthenticate:true};
   });
