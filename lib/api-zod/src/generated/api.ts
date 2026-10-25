@@ -106,11 +106,13 @@ export const SetPosEmployeePinResponse = zod.object({
 export const issuePosDeviceChallengeBodyBindingRegExp = new RegExp('^[a-f0-9]{64}$');
 
 
+
 export const IssuePosDeviceChallengeBody = zod.object({
   "deviceId": zod.string().uuid(),
   "purpose": zod.enum(['activate', 'unlock', 'request']),
-  "binding": zod.string().regex(issuePosDeviceChallengeBodyBindingRegExp)
-})
+  "binding": zod.string().regex(issuePosDeviceChallengeBodyBindingRegExp).optional(),
+  "personId": zod.number().int().min(1).optional()
+}).describe('unlock requires personId and forbids binding; activate/request require binding and forbid personId. PIN is never included in challenge input or binding.')
 
 export const IssuePosDeviceChallengeResponse = zod.object({
   "id": zod.string(),

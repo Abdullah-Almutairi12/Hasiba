@@ -20,6 +20,7 @@ import { scopedReturnGrants } from "../lib/scoped-return-review";
 import { finalizeCreditNoteIssue } from "./sales";
 import { assertDeferredReturnApproval } from "../lib/workflow-engine";
 import { invoiceReturnBudgets, returnMoney } from "../lib/sales-return-value";
+import { assertPosDeviceShift, posDeviceAuthority } from "../lib/pos-device-authority";
 
 const router = Router();
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -113,8 +114,14 @@ router.get("/pos/returns/workspace", async (req, res) => {
         AND so.company_id=i.company_id WHERE i.id=n.invoice_id AND i.company_id=n.company_id AND so.warehouse_id=ANY($3::int[])))
       ORDER BY n.id DESC LIMIT 200`, [companyId, allowed, warehouseIds])).rows;
     const sessions = await db.transaction(async tx => {
+      const device=posDeviceAuthority.getStore();
+      // A cashier's workspace is not a branch-wide till report. Explicit
+      // reviewers retain their granted review queue without receiving write power.
+      const own=device && !actor.capabilities.some(c=>["difference","reports","responsibility"].includes(c));
       const ids = await query(tx, sql`SELECT s.id FROM pos_sessions s JOIN branches b ON b.id=s.branch_id
-        WHERE b.company_id=${companyId} ORDER BY s.id DESC LIMIT 100`);
+        WHERE b.company_id=${companyId} AND s.branch_id=ANY(${sql`ARRAY[${sql.join(allowed.map(n=>sql`${n}`),sql`, `)}]::integer[]`})
+        ${own ? sql`AND s.pos_station_id=${device.stationId} AND s.cashier_user_id=${device.userId}` : sql``}
+        ORDER BY s.id DESC LIMIT 100`);
       const results = [];
       for (const row of ids) {
         const summary = await sessionCash(tx, Number(row.id), companyId);
@@ -201,6 +208,7 @@ async function payout(tx: Tx, companyId: number, userId: number, input: unknown)
   const [session] = await tx.select().from(posSessionsTable).where(eq(posSessionsTable.id, b.sessionId)).for("update");
   if (!session || session.status !== "open") fail("الوردية مغلقة أو بانتظار التسوية");
   await returnAuthorize(userId, companyId, "payout", session.branchId, tx);
+  assertPosDeviceShift(session);
   if (session.branchId !== Number(control.branch_id)) fail("الصرف يجب أن يكون من وردية الفرع الأصلي المسموح");
   if (b.method === "cash" && !b.delivered) fail("يلزم تأكيد تسليم النقد لصاحب الاستحقاق", 400);
   const cash = await sessionCash(tx, session.id, companyId);
@@ -263,6 +271,7 @@ async function closeShift(tx: Tx, companyId: number, userId: number, input: unkn
   const [session] = await tx.select().from(posSessionsTable).where(eq(posSessionsTable.id, b.sessionId)).for("update");
   if (!session) fail("الوردية غير متاحة", 404);
   await returnAuthorize(userId, companyId, approve ? "difference" : "close", session.branchId, tx);
+  if (!approve) assertPosDeviceShift(session);
   const [old] = await query(tx, sql`SELECT * FROM pos_cash_closings WHERE session_id=${session.id} AND company_id=${companyId}`);
   if (old?.status === "approved") {
     if (!approve && (b.counted == null || cents(b.counted) !== cents(old.counted) || (b.reason ?? null) !== (old.reason ?? null))) {
@@ -316,6 +325,7 @@ async function cashExpense(tx: Tx, companyId: number, userId: number, input: unk
   const [session] = await tx.select().from(posSessionsTable).where(eq(posSessionsTable.id, b.sessionId)).for("update");
   if (!session) fail("الوردية غير متاحة", 404);
   await returnAuthorize(userId, companyId, "expense", session.branchId, tx);
+  assertPosDeviceShift(session);
   const fingerprint = createHash("sha256").update(JSON.stringify({ ...b, userId })).digest("hex");
   const [old] = await query(tx, sql`SELECT * FROM pos_cash_expenses WHERE company_id=${companyId} AND idempotency_key=${b.idempotencyKey}`);
   if (old) { if (old.fingerprint !== fingerprint) fail("مفتاح الطلب لبيانات مختلفة"); return old; }

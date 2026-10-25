@@ -8,6 +8,10 @@ import { FinancialRequestError } from "./financial-transaction";
 export const deviceHash = (value: string) => createHash("sha256").update(value).digest("hex");
 export const deviceBinding = (method: string, path: string, body: unknown) =>
   deviceHash(`${method.toUpperCase()}:${path}:${JSON.stringify(body ?? {})}`);
+// Public identity only: never persist a fast offline verifier of a short PIN.
+// Device/generation, purpose, nonce and expiry are independently bound by the proof.
+export const unlockDeviceBinding = (personId: number) =>
+  deviceBinding("POST", "/api/pos-device/unlock", { personId });
 export type DeviceRow = { id: string; company_id: number; branch_id: number; station_id: number; generation: number;
   public_jwk: { kty: string; crv: string; x: string; y: string }; status: string };
 export async function getPosDevice(connection: DbOrTx, id: string, lock = false) {

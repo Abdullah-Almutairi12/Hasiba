@@ -4687,11 +4687,13 @@ components:
     PosDeviceChallengeInput:
       type: object
       additionalProperties: false
-      required: [deviceId, purpose, binding]
+      required: [deviceId, purpose]
       properties:
         deviceId: {type: string, format: uuid}
         purpose: {type: string, enum: [activate, unlock, request]}
         binding: {type: string, pattern: '^[a-f0-9]{64}$'}
+        personId: {type: integer, minimum: 1}
+      description: "unlock requires personId and forbids binding; activate/request require binding and forbid personId. PIN is never included in challenge input or binding."
     PosDeviceChallenge:
       type: object
       required: [id, nonce, payload, expiresIn]

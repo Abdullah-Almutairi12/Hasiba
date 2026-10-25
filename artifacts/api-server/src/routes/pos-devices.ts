@@ -9,7 +9,7 @@ import { getCompanyId } from "../lib/scoped-db";
 import { teamOwner, teamRows, teamAudit } from "../lib/team-store";
 import { lockApprovalAuthority, lockApprovalAuthorityWrite } from "../lib/approval-authority";
 import { assertPosDeviceAuthority, posDeviceAuthority, type PosDeviceAuthority } from "../lib/pos-device-authority";
-import { consumeDeviceProof, deviceBinding, deviceChallenge, deviceHash, getPosDevice } from "../lib/pos-device-crypto";
+import { consumeDeviceProof, deviceBinding, unlockDeviceBinding, deviceChallenge, deviceHash, getPosDevice } from "../lib/pos-device-crypto";
 import { registerPosDevice, changePosDevice, setPosPin } from "../lib/pos-device-management";
 import { currentResponsibilities } from "../lib/responsibility-context";
 import { requireSameOrigin } from "../middlewares/require-same-origin";
@@ -35,8 +35,11 @@ const limiter=rateLimit({windowMs:60_000,max:120,standardHeaders:true,legacyHead
 posDevicePublicRouter.use((_req,res,next)=>{res.set("Cache-Control","no-store");next();});
 posDevicePublicRouter.use("/pos-device",limiter,requireSameOrigin);
 posDevicePublicRouter.post("/pos-device/challenge",wrapped(async(req,res)=>{
-  const b=z.object({deviceId:z.string().uuid(),purpose:z.enum(["activate","unlock","request"]),binding:z.string().regex(/^[a-f0-9]{64}$/)}).strict().parse(req.body);
-  res.json(await deviceChallenge(b.deviceId,b.purpose,b.binding));
+  const b=z.discriminatedUnion("purpose",[
+    z.object({deviceId:z.string().uuid(),purpose:z.literal("unlock"),personId:z.number().int().positive()}).strict(),
+    z.object({deviceId:z.string().uuid(),purpose:z.enum(["activate","request"]),binding:z.string().regex(/^[a-f0-9]{64}$/)}).strict(),
+  ]).parse(req.body);
+  res.json(await deviceChallenge(b.deviceId,b.purpose,b.purpose==="unlock"?unlockDeviceBinding(b.personId):b.binding));
 }));
 posDevicePublicRouter.post("/pos-device/activate",wrapped(async(req,res)=>{
   const b=requestProofSchema.extend({token:z.string().min(30).max(100)}).strict().parse(req.body);
@@ -61,7 +64,7 @@ posDevicePublicRouter.post("/pos-device/unlock",wrapped(async(req,res)=>{
     await lockApprovalAuthority(tx);
     const d=await getPosDevice(tx,b.deviceId,true);
     if(d.status!=="active")throw new FinancialRequestError("الجهاز غير مفعل",403);
-    await consumeDeviceProof(tx,d,"unlock",deviceBinding("POST","/api/pos-device/unlock",{personId:b.personId,pin:b.pin}),b.proof);
+    await consumeDeviceProof(tx,d,"unlock",unlockDeviceBinding(b.personId),b.proof);
     const [p]=await teamRows<{pin_hash:string;revision:number;failures:number;blocked:boolean;user_id:number}>(tx,sql`
       SELECT p.*, (p.locked_until>clock_timestamp()) AS blocked,a.user_id
       FROM pos_employee_credentials p JOIN employee_access a ON a.employee_id=p.employee_id AND a.company_id=p.company_id

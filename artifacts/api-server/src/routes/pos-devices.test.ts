@@ -20,7 +20,9 @@ async function register(branch:number,name="جهاز تجربة برمجية",st
   return {id:result.id,privateKey:keys.privateKey};
 }
 async function proof(d:Device,purpose:"activate"|"unlock"|"request",path:string,body:unknown={},method="POST",privateKey=d.privateKey){
-  const c=ok(await testActor().post("/api/pos-device/challenge").send({deviceId:d.id,purpose,binding:deviceBinding(method,path,body)}));
+  const c=ok(await testActor().post("/api/pos-device/challenge").send(purpose==="unlock"
+    ? {deviceId:d.id,purpose,personId:(body as {personId:number}).personId}
+    : {deviceId:d.id,purpose,binding:deviceBinding(method,path,body)}));
   return {id:c.id,nonce:c.nonce,signature:sign("sha256",Buffer.from(c.payload),
     {key:privateKey,dsaEncoding:"ieee-p1363"}).toString("base64url")};
 }
@@ -47,7 +49,8 @@ async function personWithoutEmail(branch:number,warehouse:number,name:string){
     loginKinds:["pos"],deniedActions:[],grants:[{resource:"pos",branchId:branch,warehouseIds:[warehouse],
       actions:["pos.read","pos.sell","pos.shift.open"],amountLimit:"10",startsAt:new Date(Date.now()-60_000).toISOString(),endsAt:null}]}),201);
   ok(await f.owner.post(`/api/pos-devices/employees/${p.personId}/pin`).send({pin}));
-  return p;
+  // PIN enrollment creates the login identity; the pre-enrollment DTO has null userId.
+  return {...p,userId:(await rows("SELECT user_id FROM employee_access WHERE employee_id=$1",[p.personId]))[0].user_id};
 }
 describe.sequential("POS device software proof and cashier-only identity",()=>{
   beforeAll(async()=>{
@@ -102,6 +105,10 @@ describe.sequential("POS device software proof and cashier-only identity",()=>{
     ok(await call(otherCompany.agent,foreign,"get","/products",{},person.grants[0].id),403);
     const p=await proof(device,"request","/api/products?search=allowed",{},"GET");
     ok(await first.agent.get("/api/products?search=changed").set("X-POS-Proof",Buffer.from(JSON.stringify(p)).toString("base64url")),403);
+    const shiftBody={branchId:f.branches[0].id,openingCash:0,cashierName:"غير قابل للتبديل"};
+    const shiftProof=await proof(device,"request","/api/pos/sessions",shiftBody);
+    ok(await first.agent.post("/api/pos/sessions").set("X-POS-Proof",Buffer.from(JSON.stringify(shiftProof)).toString("base64url"))
+      .set("X-Workspace-Responsibility",String(person.grants[0].id)).send({...shiftBody,openingCash:1}),403);
     const second=await unlock(device,other);ok(second.response);
     const otherMe=ok(await call(second.agent,device,"get","/auth/me",{},other.grants[0].id));
     expect(otherMe.id).not.toBe(me.id);expect(otherMe.name).toBe("كاشير بديل");
@@ -118,6 +125,26 @@ describe.sequential("POS device software proof and cashier-only identity",()=>{
     ok(await f.owner.post(`/api/pos-devices/employees/${person.personId}/pin`).send({pin}));
     ok(await call(active.agent,device,"get","/auth/me"),403);
     ok((await unlock(device)).response);
+  });
+  it("issues an unlock challenge from public person identity only, never a PIN verifier",async()=>{
+    const response=await testActor().post("/api/pos-device/challenge").send({
+      deviceId:device.id,purpose:"unlock",personId:person.personId});
+    const challenge=ok(response);
+    const stored=await rows("SELECT binding FROM pos_device_challenges WHERE id=$1",[challenge.id]);
+    const oldVerifier=deviceBinding("POST","/api/pos-device/unlock",{personId:person.personId,pin});
+    expect(JSON.stringify({challenge,stored})).not.toContain(oldVerifier);
+    ok(await testActor().post("/api/pos-device/challenge").send({
+      deviceId:device.id,purpose:"unlock",binding:oldVerifier}),400);
+    const wrongKey=await proof(device,"unlock","/api/pos-device/unlock",{personId:person.personId},"POST",foreign.privateKey);
+    ok(await testActor().post("/api/pos-device/unlock").send({deviceId:device.id,personId:person.personId,pin,proof:wrongKey}),403);
+    const signed=await proof(device,"unlock","/api/pos-device/unlock",{personId:person.personId});
+    ok(await testActor().post("/api/pos-device/unlock").send({deviceId:device.id,personId:other.personId,pin,proof:signed}),403);
+    const body={deviceId:device.id,personId:person.personId,pin,proof:signed};
+    ok(await testActor().post("/api/pos-device/unlock").send(body));
+    ok(await testActor().post("/api/pos-device/unlock").send(body),403);
+    const [record]=await rows("SELECT binding FROM pos_device_challenges WHERE id=$1",[signed.id]);
+    expect(record.binding).toBe(deviceBinding("POST","/api/pos-device/unlock",{personId:person.personId}));
+    expect(record.binding).not.toBe(oldVerifier);
   });
   it("sells once at server limit, refuses foreign branch/grant, revokes live device yet a new authorized reader recovers exactly the committed result",async()=>{
     const cashier=await unlock(device);ok(cashier.response);
@@ -154,6 +181,70 @@ describe.sequential("POS device software proof and cashier-only identity",()=>{
     expect((await rows("SELECT quantity::text FROM stock_quants WHERE product_id=$1 AND warehouse_id=$2",[f.products[0].id,f.warehouses[0].id]))[0].quantity).toBe("19.0000");
     device=reader;
   });
+  it("filters company, station and cashier in SQL before the twenty-shift result limit",async()=>{
+    const cashier=await unlock(device);ok(cashier.response);
+    const shift=ok(await call(cashier.agent,device,"post","/pos/sessions",
+      {branchId:f.branches[0].id,openingCash:0,cashierName:"موظفي"}),201);
+    await rows(`INSERT INTO pos_sessions(branch_id,session_number,cashier_name,opened_at,cashier_user_id,pos_station_id)
+      SELECT $1,'other-'||gen_random_uuid(),'موظف آخر',now()+interval '1 minute',$2,NULL FROM generate_series(1,25)`,
+      [f.branches[0].id,other.userId]);
+    const visible=ok(await call(cashier.agent,device,"get","/pos/sessions"));
+    expect(visible.some((s:any)=>s.id===shift.id)).toBe(true);
+    expect(visible.every((s:any)=>s.cashierUserId===person.userId && s.posStationId===shift.posStationId)).toBe(true);
+  });
+  it("routes granted device close actions to the existing authority service, without implicit approval or configuration",async()=>{
+    const cashier=await unlock(device);ok(cashier.response);
+    await rows("UPDATE responsibility_grants SET actions=array_append(actions,'pos.shift.close') WHERE id=$1",[person.grants[0].id]);
+    const shift=ok(await call(cashier.agent,device,"post","/pos/sessions",
+      {branchId:f.branches[0].id,openingCash:0,cashierName:"وردية إقفال"}),201);
+    const peer=ok(await call((await unlock(device,other)).agent,device,"post","/pos/sessions",
+      {branchId:f.branches[0].id,openingCash:0,cashierName:"وردية زميل"},other.grants[0].id),201);
+    ok(await call(cashier.agent,device,"post","/pos/returns/actions",
+      {action:"close",payload:{sessionId:peer.id,counted:0,unresolvedSalesCleared:true}}),403);
+    const workspace=ok(await call(cashier.agent,device,"get","/pos/returns/workspace"));
+    expect(workspace.sessions.some((s:any)=>Number(s.id)===peer.id)).toBe(false);
+    expect(workspace.sessions.some((s:any)=>Number(s.id)===shift.id)).toBe(true);
+    const body={action:"close",payload:{sessionId:shift.id,counted:0,unresolvedSalesCleared:true}};
+    ok(await call(cashier.agent,device,"post","/pos/returns/actions",body));
+    ok(await call(cashier.agent,device,"post","/pos/returns/actions",body));
+    for(const action of ["approve_close","configure_policy","configure_access"])
+      ok(await call(cashier.agent,device,"post","/pos/returns/actions",{action,payload:{sessionId:shift.id}}),403);
+    await rows("UPDATE responsibility_grants SET actions=array_remove(actions,'pos.shift.close') WHERE id=$1",[person.grants[0].id]);
+    ok(await call(cashier.agent,device,"post","/pos/returns/actions",body),403);
+  });
+  it("supports a device return request only with its live grant, retaining separate review, receipt and payout authorities and replay evidence",async()=>{
+    const cashier=await unlock(device);ok(cashier.response);
+    const workspace=ok(await call(cashier.agent,device,"get","/pos/returns/workspace"));
+    const invoice=workspace.invoices[0];
+    const payload={customerId:invoice.customer_id,invoiceId:invoice.id,warehouseId:f.warehouses[0].id,
+      restock:true,goodsReceived:false,disposition:"resale",settlementMethod:"cash",proofRef:"دليل معزول",
+      reason:"طلب مرتجع من جهاز",lines:[{invoiceLineId:invoice.lines[0].id,productId:f.products[0].id,
+        description:"منتج",quantity:1,unitPrice:10,taxRate:0}],idempotencyKey:randomUUID()};
+    const action={action:"request",payload};
+    ok(await call(cashier.agent,device,"post","/pos/returns/actions",action),403);
+    await rows("UPDATE responsibility_grants SET actions=array_append(actions,'pos.return.request') WHERE id=$1",[person.grants[0].id]);
+    // An explicit company-level financial ceiling is still required; device
+    // routing and a grant must not bypass the independent policy's default zero.
+    ok(await f.owner.post("/api/workflow/financial-limits").send({role:"scoped",actionKey:"sales.credit_note_amount",maxValue:10}));
+    const note=ok(await call(cashier.agent,device,"post","/pos/returns/actions",action),202);
+    const snapshot=()=>rows(`SELECT (SELECT count(*)::int FROM credit_notes WHERE company_id=$1) notes,
+      (SELECT count(*)::int FROM stock_moves WHERE product_id=$2) moves,
+      (SELECT count(*)::int FROM journal_entries WHERE company_id=$1) journals,
+      (SELECT count(*)::int FROM return_payouts WHERE company_id=$1) payouts`,[f.companies[0].id,f.products[0].id]);
+    const before=await snapshot();
+    const replay=await call(cashier.agent,device,"post","/pos/returns/actions",action);
+    expect(ok(replay,202).id).toBe(note.id);
+    expect(await snapshot()).toEqual(before);
+    for(const [action,payload] of [
+      ["approve",{noteId:note.id,comment:"لا صلاحية اعتماد"}],
+      ["receive",{noteId:note.id,reference:"لا صلاحية استلام"}],
+      ["payout",{noteId:note.id,receiptId:invoice.receipts[0].id,sessionId:committedBody.sessionId,
+        amount:10,method:"cash",reference:"لا صلاحية صرف",idempotencyKey:randomUUID()}],
+    ] as const) ok(await call(cashier.agent,device,"post","/pos/returns/actions",{action,payload}),403);
+    expect(await snapshot()).toEqual(before);
+    await rows("UPDATE responsibility_grants SET actions=array_remove(actions,'pos.return.request') WHERE id=$1",[person.grants[0].id]);
+    ok(await call(cashier.agent,device,"post","/pos/returns/actions",{action:"request",payload:{...payload,idempotencyKey:randomUUID()}}),403);
+  });
   it("denies suspended membership and revoked responsibility during an open session and a request waiting at the authority fence",async()=>{
     const cashier=await unlock(device);ok(cashier.response);
     const p=await proof(device,"request","/api/pos/sessions",{branchId:f.branches[0].id,openingCash:0,cashierName:"مؤجل"});
@@ -178,5 +269,10 @@ describe.sequential("POS device software proof and cashier-only identity",()=>{
       await rows("UPDATE responsibility_grants SET actions=ARRAY['pos.read'] WHERE employee_id=$1",[person.personId]);
       ok(await call(cashier.agent,device,"post","/pos/orders",committedBody,person.grants[0].id,randomUUID()),403);
     } finally {await writer.query("ROLLBACK");writer.release();}
+  });
+  it("does not present an unimplemented second factor or a checklist percentage as compliance evidence",async()=>{
+    const checklist=ok(await f.owner.get("/api/security/checklist"));
+    expect(checklist.items.find((item:any)=>item.key==="2fa").status).toBe("warning");
+    expect(checklist.ncaCompliant).toBe(false);
   });
 });

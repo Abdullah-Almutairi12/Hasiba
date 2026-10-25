@@ -7,6 +7,17 @@ export type PosDeviceAuthority = { deviceId: string; generation: number; company
   userId: number; personId: number; pinRevision: number; branchId: number; stationId: number };
 export const posDeviceAuthority = new AsyncLocalStorage<PosDeviceAuthority>();
 
+/** A till operation must not borrow a peer's/legacy/unowned shift. */
+export function assertPosDeviceShift(session: {
+  branchId: number; posStationId: number | null; cashierUserId: number | null;
+}) {
+  const device = posDeviceAuthority.getStore();
+  if (device && (session.branchId !== device.branchId || session.posStationId !== device.stationId ||
+    session.cashierUserId !== device.userId)) {
+    throw new FinancialRequestError("الوردية ليست للكاشير ومحطته الحاليين؛ لا تنقل عهدة وردية أخرى",403);
+  }
+}
+
 /** Caller already holds the authority fence, including on financial replay. */
 export async function assertPosDeviceAuthority(connection: DbOrTx, value = posDeviceAuthority.getStore()) {
   if (!value) return;

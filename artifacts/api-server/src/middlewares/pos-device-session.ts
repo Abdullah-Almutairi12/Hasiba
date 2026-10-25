@@ -16,7 +16,13 @@ export async function posDeviceSessionGate(req: Request,res: Response,next: Next
   }
   const allowed = req.method==="GET"
     ? /^\/(?:auth\/me|workspace\/access|branches|warehouses|products(?:\/categories)?|categories|sales\/sellers\/workspace|print\/profile|pos(?:\/.*)?)$/.test(req.path)
-    : req.method==="POST" && ["/pos/orders","/pos/sessions"].includes(req.path);
+    : req.method==="POST" && (["/pos/orders","/pos/sessions"].includes(req.path) ||
+      (req.path==="/pos/returns/actions" && [
+        "request","approve","re_review","receive","payout","confirm_external","cancel_payout",
+        "close","approve_close","expense","responsibility","export",
+      ].includes(req.body?.action)));
+  // Only route supported operations. Existing source services still require
+  // each live grant, branch, amount and independent review; never configuration.
   const context=req.session.posDevice;
   if(!allowed || !context || context.userId!==req.session.userId || context.companyId!==req.session.companyId) {
     res.status(403).json({error:"جلسة جهاز الكاشير لا تجيز دخول المنصة أو تغيير المنشأة أو إدارة الحساب"}); return;

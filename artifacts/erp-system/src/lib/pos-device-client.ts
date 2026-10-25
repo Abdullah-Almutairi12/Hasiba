@@ -163,6 +163,16 @@ export async function bindingFor(method: string, pathWithQuery: string, body: un
   return sha256Hex(`${method.toUpperCase()}:${pathWithQuery}:${JSON.stringify(body ?? {})}`);
 }
 
+export async function challengeInputFor(deviceId: string, purpose: "activate" | "unlock" | "request",
+  method: string, pathWithQuery: string, body: unknown) {
+  if (purpose === "unlock") {
+    const personId = (body as {personId?:unknown})?.personId;
+    if (!Number.isSafeInteger(personId) || Number(personId) <= 0) throw new Error("رقم موظف غير صالح");
+    return { deviceId, purpose, personId: Number(personId) };
+  }
+  return { deviceId, purpose, binding: await bindingFor(method, pathWithQuery, body) };
+}
+
 let originalFetch: typeof fetch = (...a) => fetch(...a);
 
 /**
@@ -174,14 +184,14 @@ export async function signProof(
   method: string,
   pathWithQuery: string,
   body: unknown,
-  issue?: (input: { deviceId: string; purpose: "activate" | "unlock" | "request"; binding: string }) => Promise<{ id: string; nonce: string; payload: string }>,
+  issue?: (input: { deviceId: string; purpose: "activate" | "unlock" | "request"; binding?: string; personId?: number }) => Promise<{ id: string; nonce: string; payload: string }>,
 ): Promise<Proof> {
   const deviceId = getRegistrationId();
   if (!deviceId) throw new Error("هذا المتصفح غير مسجل كجهاز نقطة بيع.");
   const pair = await loadPair();
   if (!pair) throw new Error("مفتاح الجهاز غير موجود في هذا المتصفح.");
-  const binding = await bindingFor(method, pathWithQuery, body);
-  const ch = issue ? await issue({ deviceId, purpose, binding }) : await challengeViaOriginal(deviceId, purpose, binding);
+  const input = await challengeInputFor(deviceId, purpose, method, pathWithQuery, body);
+  const ch = issue ? await issue(input) : await challengeViaOriginal(input);
   const sig = await crypto.subtle.sign(
     { name: "ECDSA", hash: "SHA-256" },
     pair.privateKey,
@@ -190,12 +200,12 @@ export async function signProof(
   return { id: ch.id, nonce: ch.nonce, signature: b64url(sig) };
 }
 
-async function challengeViaOriginal(deviceId: string, purpose: string, binding: string): Promise<{ id: string; nonce: string; payload: string }> {
+async function challengeViaOriginal(input: { deviceId: string; purpose: string; binding?: string; personId?: number }): Promise<{ id: string; nonce: string; payload: string }> {
   const res = await originalFetch(apiUrl("/pos-device/challenge"), {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ deviceId, purpose, binding }),
+    body: JSON.stringify(input),
   });
   if (!res.ok) {
     const e = (await res.json().catch(() => ({}))) as { error?: string };

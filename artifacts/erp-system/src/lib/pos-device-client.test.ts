@@ -2,9 +2,25 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   findAnyPendingEvidence, findPendingEvidence, forgetBlockReason, rememberActor,
   setPosMode, unlockBlockReason, parsePublicJwk,
+  challengeInputFor,
 } from "./pos-device-client";
 
 beforeEach(() => { sessionStorage.clear(); localStorage.clear(); });
+
+describe("unlock challenge privacy", () => {
+  it("sends public identity without PIN, binding or a fast PIN digest", async () => {
+    const a=await challengeInputFor("device","unlock","POST","/api/pos-device/unlock",{personId:7,pin:"81367429"});
+    const b=await challengeInputFor("device","unlock","POST","/api/pos-device/unlock",{personId:7,pin:"another-secret"});
+    expect(a).toEqual({deviceId:"device",purpose:"unlock",personId:7});
+    expect(b).toEqual(a);
+    expect(JSON.stringify(a)).not.toContain("81367429");
+  });
+  it("binds a different employee identity and refuses invalid identities", async () => {
+    expect(await challengeInputFor("device","unlock","POST","ignored",{personId:8,pin:"secret"}))
+      .toEqual({deviceId:"device",purpose:"unlock",personId:8});
+    await expect(challengeInputFor("device","unlock","POST","ignored",{personId:0,pin:"secret"})).rejects.toThrow();
+  });
+});
 
 describe("pending evidence guards", () => {
   it("finds employee-scoped POS checkout but not another employee's", () => {

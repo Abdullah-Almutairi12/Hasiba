@@ -82,11 +82,16 @@ export const PosDeviceChallengeInputPurpose = {
   request: 'request',
 } as const;
 
+/**
+ * unlock requires personId and forbids binding; activate/request require binding and forbid personId. PIN is never included in challenge input or binding.
+ */
 export interface PosDeviceChallengeInput {
   deviceId: string;
   purpose: PosDeviceChallengeInputPurpose;
   /** @pattern ^[a-f0-9]{64}$ */
-  binding: string;
+  binding?: string;
+  /** @minimum 1 */
+  personId?: number;
 }
 
 export interface PosDeviceChallenge {

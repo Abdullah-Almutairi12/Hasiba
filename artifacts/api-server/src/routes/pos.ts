@@ -289,6 +289,7 @@ router.get("/pos/sessions", posReadGuard, async (req, res) => {
     // sessions belonging to other tenants' branches are filtered out.
     const companyId = getCompanyId(req);
     const actor = await returnAuthorize(req.session.userId!, companyId, "view");
+    const device = posDeviceAuthority.getStore();
     const sessions = await db
       .select({
         id: posSessionsTable.id,
@@ -312,13 +313,17 @@ router.get("/pos/sessions", posReadGuard, async (req, res) => {
           eq(branchesTable.companyId, companyId),
         ),
       )
+      .where(and(
+        actor.branches ? inArray(posSessionsTable.branchId, actor.branches) : undefined,
+        device ? eq(posSessionsTable.branchId, device.branchId) : undefined,
+        device ? eq(posSessionsTable.posStationId, device.stationId) : undefined,
+        device ? eq(posSessionsTable.cashierUserId, device.userId) : undefined,
+      ))
       .orderBy(desc(posSessionsTable.openedAt))
       .limit(20);
 
     res.json(
-      sessions.filter(s => !posDeviceAuthority.getStore() || (
-        s.posStationId === posDeviceAuthority.getStore()!.stationId && s.cashierUserId === posDeviceAuthority.getStore()!.userId))
-      .filter(s => !actor.branches || actor.branches.includes(s.branchId)).map((s) => ({
+      sessions.map((s) => ({
         ...s,
         totalSales: Number(s.totalSales),
         openedAt: s.openedAt.toISOString(),

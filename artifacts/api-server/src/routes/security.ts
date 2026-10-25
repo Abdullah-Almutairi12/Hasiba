@@ -10,8 +10,8 @@ const CHECKLIST = [
   {
     key: "2fa",
     title: "تفعيل المصادقة الثنائية (2FA) للمسؤولين",
-    description: "إلزامي لجميع الحسابات بصلاحية مدير نظام أو مدير مالي",
-    status: "active",
+    description: "غير مثبتة: وجود حقل has2fa لا يثبت طلب عامل ثانٍ أو التحقق منه أثناء الدخول. يلزم تنفيذ دورة التسجيل والتحقق والإلغاء والاستعادة واختبارها.",
+    status: "warning",
     severity: "critical",
   },
   {
@@ -66,7 +66,8 @@ router.get("/security/checklist", async (_req, res) => {
   const score = Math.round((activeCount / CHECKLIST.length) * 100);
   res.json({
     score,
-    ncaCompliant: score >= 80,
+    // Checklist completion is not an independent NCA compliance assessment.
+    ncaCompliant: false,
     items: CHECKLIST,
     roleMatrix: ROLE_MATRIX,
   });
