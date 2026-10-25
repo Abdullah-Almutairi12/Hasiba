@@ -490,3 +490,31 @@ mtime_ms = 1792921739261
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/7d262c49-83fe-4539-8e6d-62c2d1043d56/3bc8b2c0-5a36-48af-b401-a703f5d8180d"
 storage_version_token = "1792921761368302"
 content_type = "text/html"
+
+[[outputs]]
+id = "tENkkqwWPlU0zjEqVaeGX"
+uri = "file://generated-artifacts/closing-review/hasiba-cash-review-evidence.zip"
+type = "unspecified"
+title = "حاسبة — أدلة تعليل اعتماد فرق الوردية"
+description = "27 ملفًا تشمل نتائج المصدر e8def4c، تقرير المتصفح وصوره، مصالحة القيد الواحد، الإخفاقات التشخيصية والمتبقي. الحالة17 لم تنفذ بعد."
+logical_id = "9dec085d-ea1d-4a53-9aff-f1ed089c0751"
+content_hash = "sha256:fc54dc8b4ccbb20a73f6c6bb5fdd84feb40967a310bf62499e795b13e0dc1fa1"
+size = 409925
+mtime_ms = 1792924462189
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/9dec085d-ea1d-4a53-9aff-f1ed089c0751/7768279b-cfc9-4dbc-8530-47f112c182cf"
+storage_version_token = "1792924567781828"
+content_type = "application/octet-stream"
+
+[[outputs]]
+id = "75NnsF9Da2DTMhZj0vMzN"
+uri = "file://generated-artifacts/closing-review/hasiba-cash-review-ar.html"
+type = "html"
+title = "تقرير تعليل الإقفال ونقطة استئناف أمان الحساب"
+description = "تقرير عربي يوضح السبب الأصلي وتعليل المراجع وربط الحقائق ونتائج 766 API و187 واجهة وحدود الدليل والمتطلبات المتبقية."
+logical_id = "e6b29158-f8ae-4017-bc70-1b9ed8ca7cbd"
+content_hash = "sha256:1fea9b2f7b1dfe2625c917ae3f0056583c4a72b75e6e97befa96a0abba3870d3"
+size = 12855
+mtime_ms = 1792924462147
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/e6b29158-f8ae-4017-bc70-1b9ed8ca7cbd/288ed8a2-20bb-4b54-a4bd-4c0df85ccae0"
+storage_version_token = "1792924569139033"
+content_type = "text/html"
