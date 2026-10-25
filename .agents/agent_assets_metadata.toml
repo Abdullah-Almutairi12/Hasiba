@@ -364,3 +364,17 @@ mtime_ms = 1792885150147
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/8b5b59e6-74c6-4da7-89e0-3e6c9b254055/f526bacd-f9f5-4919-9a7a-a330aa6a5658"
 storage_version_token = "1792885159135345"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "Di-ZQp6QImh_I16EZFarS"
+uri = "file://generated-artifacts/first-phase-continuation/hasiba-count-workflow-evidence-350cf9d.zip"
+type = "unspecified"
+title = "حاسبة — تقرير وأدلة عدّ الجرد والاستعادة"
+description = "التقرير العربي،714 اختبار API و153 واجهة،سجلات15 بوابة،وأدلة المتصفح وضياع الرد والاستعادة دون تكرار. اتفاق إدارة النظام مثبت،وتنفيذه ما زال متبقيًا."
+logical_id = "01a0ce13-adc5-4f4d-bc02-37f79aa9f294"
+content_hash = "sha256:69d3b945e8438bed97c1c88460f51affc40a5e2297c38c0bed2754278753541e"
+size = 387470
+mtime_ms = 1792895646711
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/01a0ce13-adc5-4f4d-bc02-37f79aa9f294/6d1ac3a8-bd34-4114-bc35-82b2f3b29f66"
+storage_version_token = "1792895654901575"
+content_type = "application/octet-stream"
