@@ -44,4 +44,18 @@ describe("native procurement action visibility",()=>{
     expect(result.current.canProcurement("orders.cancel")).toBe(false);
     expect(result.current.canSee("procurement")).toBe(false);
   });
+  it("permits native receiving with read+receive but no order price/read or accounting role",()=>{
+    state.selected={resource:"procurement",actions:["procurement.read","procurement.receipts.read","procurement.receipts.receive"]};
+    const {result,rerender}=renderHook(usePermissions);
+    expect(canReachProcurement(state.selected,"/procurement")).toBe(true);
+    expect(result.current.canSee("procurement")).toBe(true);
+    expect(result.current.canProcurement("receipts.receive")).toBe(true);
+    for(const action of ["orders.read","orders.approve","orders.cancel","orders.export","suppliers.read"])
+      expect(result.current.canProcurement(action)).toBe(false);
+    expect(result.current.canManageFinance).toBe(false);
+    expect(result.current.canManageInventory).toBe(false);
+    state.selected={...state.selected,actions:["procurement.read","procurement.receipts.read"]};rerender();
+    expect(result.current.canProcurement("receipts.receive")).toBe(false);
+    expect(result.current.canProcurement("receipts.read")).toBe(true);
+  });
 });

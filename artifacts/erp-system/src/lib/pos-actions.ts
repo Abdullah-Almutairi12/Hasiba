@@ -19,6 +19,8 @@ export const ACTION_LABEL: Record<string, string> = {
   "procurement.orders.print":"طباعة أمر شراء",
   "procurement.orders.export":"تنزيل أمر شراء",
   "procurement.orders.send":"إرسال أمر شراء ومراجعة صندوق إرساله",
+  "procurement.receipts.read":"عرض كميات استلام المشتريات دون أسعار",
+  "procurement.receipts.receive":"تسجيل استلام جزئي أو كامل — دون صرف أو اعتماد أو عكس",
   "inventory.read": "عرض المخزون",
   "inventory.cost.read": "عرض تكلفة الأصناف",
   "inventory.transfer.receive": "استلام كامل حركة تحويل إلى مستودع الوجهة",
@@ -43,7 +45,7 @@ export const ACTION_LABEL: Record<string, string> = {
 export function canReachProcurement(sel:{resource:string;actions:readonly string[]}|null|undefined,path:string):boolean{
   if(sel?.resource!=="procurement"||!sel.actions.includes("procurement.read"))return false;
   return path==="/suppliers"?sel.actions.includes("procurement.suppliers.read"):
-    path==="/procurement"&&sel.actions.includes("procurement.orders.read");
+    path==="/procurement"&&(sel.actions.includes("procurement.orders.read")||sel.actions.includes("procurement.receipts.read"));
 }
 
 /** Never invent meaning: unknown keys are shown as unrecognised, with the key kept for support. */

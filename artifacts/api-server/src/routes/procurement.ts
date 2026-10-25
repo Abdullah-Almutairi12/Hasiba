@@ -59,6 +59,7 @@ import { getPrintCompany as getCompanyInfo } from "../lib/pdf/print-company";
 import { supplyScope, supplyParam, supplyReferencesGuard, requireSupplyReference } from "../lib/supply-chain-scope";
 import { requestProcurementActor, assertProcurementOrder, assertProcurementValue, procurementOrderScope, procurementAudit, procurementAction, procurementReviewAuthority } from "../lib/procurement-authority";
 import { lockApprovalAuthority } from "../lib/approval-authority";
+import { receiptOnly, receiptOrderView, assertReceiptDestination } from "../lib/procurement-authority";
 
 const router = Router();
 router.use(async(req,res,next)=>{
@@ -662,11 +663,12 @@ router.get("/procurement/purchase-orders", async (req, res) => {
     const companyId = getCompanyId(req);
     const actor=await requestProcurementActor(req,"procurement.orders.read");
     const conds = [procurementOrderScope(actor)];
+    if(receiptOnly(actor))conds.push(inArray(purchaseOrdersTable.status,["confirmed","partially_received","fully_received","closed"]));
     if (status) conds.push(eq(purchaseOrdersTable.status, status));
     if (supplierId) conds.push(eq(purchaseOrdersTable.supplierId, supplierId));
     const { limit, offset } = parsePagination(req);
     const joined = await db
-      .select({ po: purchaseOrdersTable })
+      .select({ po: purchaseOrdersTable, warehouseName: warehousesTable.nameAr })
       .from(purchaseOrdersTable)
       .leftJoin(warehousesTable, eq(warehousesTable.id, purchaseOrdersTable.warehouseId))
       .where(and(...conds))
@@ -674,6 +676,7 @@ router.get("/procurement/purchase-orders", async (req, res) => {
       .limit(limit)
       .offset(offset);
     const rows = joined.map((j) => j.po);
+    if(receiptOnly(actor)){res.json(joined.map(j=>({...receiptOrderView(j.po),warehouseName:j.warehouseName})));return;}
 
     // Surface the latest send attempt per PO from procurement_email_outbox
     // (kind='purchase_order') so the list can render a delivered / queued /
@@ -895,12 +898,13 @@ router.get("/procurement/purchase-orders/:id", async (req, res) => {
     const companyId = getCompanyId(req);
     // Header and all tenant-bearing references must agree on ownership.
     const [joined] = await db
-      .select({ po: purchaseOrdersTable })
+      .select({ po: purchaseOrdersTable, warehouseName: warehousesTable.nameAr })
       .from(purchaseOrdersTable)
       .leftJoin(warehousesTable, eq(warehousesTable.id, purchaseOrdersTable.warehouseId))
       .where(and(eq(purchaseOrdersTable.id, id), supplyScope("purchaseOrder", purchaseOrdersTable.id, companyId)));
     const po = joined?.po;
     if (!po) { res.status(404).json({ error: "not found" }); return; }
+    await assertProcurementOrder(actor,id);
     const lines = await db
       .select()
       .from(purchaseOrderLinesTable)
@@ -910,11 +914,20 @@ router.get("/procurement/purchase-orders/:id", async (req, res) => {
         id: goodsReceiptsTable.id,
         reference: goodsReceiptsTable.reference,
         receivedAt: goodsReceiptsTable.receivedAt,
+        warehouseId: goodsReceiptsTable.warehouseId,
         notes: goodsReceiptsTable.notes,
       })
       .from(goodsReceiptsTable)
       .where(eq(goodsReceiptsTable.poId, id))
       .orderBy(desc(goodsReceiptsTable.receivedAt));
+    if(receiptOnly(actor)){
+      if(!["confirmed","partially_received","fully_received","closed"].includes(po.status))
+        throw new FinancialRequestError("أمر الشراء غير مؤكد للاستلام",403);
+      return res.json({...receiptOrderView(po),warehouseName:joined.warehouseName,lines:lines.map(l=>({
+        id:l.id,productId:l.productId,description:l.description,quantity:Number(l.quantity),
+        receivedQty:Number(l.receivedQty),remainingQty:Number(l.quantity)-Number(l.receivedQty),
+      })),receipts:receipts.filter(r=>r.warehouseId===po.warehouseId).map(r=>({id:r.id,reference:r.reference,receivedAt:r.receivedAt.toISOString()})),invoices:[]});
+    }
     const invoices = await db
       .select()
       .from(invoicesTable)
@@ -952,7 +965,7 @@ router.get("/procurement/purchase-orders/:id", async (req, res) => {
         taxRate: Number(l.taxRate),
         lineTotal: Number(l.lineTotal),
       })),
-      receipts: (actor.grant ? [] : receipts).map((r) => ({ ...r, receivedAt: r.receivedAt.toISOString() })),
+      receipts: (actor.grant&&!actor.grant.actions.includes("procurement.receipts.read") ? [] : receipts).map((r) => ({ ...r, receivedAt: r.receivedAt.toISOString() })),
       invoices: (actor.grant ? [] : invoices).map((i) => ({
         ...i,
         amount: Number(i.amount),
@@ -1814,7 +1827,7 @@ router.post(
 // =========================================================================
 const GrnLineInput = z.object({
   poLineId: z.coerce.number().int().positive(),
-  quantity: z.coerce.number().positive(),
+  quantity: z.coerce.number().finite().positive().refine(v=>v===Number(v.toFixed(4)),"الكمية تدعم أربع منازل عشرية فقط"),
   // Optional lot/serial/barcode for tracked products. The stock engine
   // requires lotId for lot-tracked receipts and serialId for serial-
   // tracked products; we resolve a lotNumber to a lot row here.
@@ -1827,7 +1840,7 @@ const CreateGrnBody = z.object({
   poId: z.coerce.number().int().positive(),
   warehouseId: z.coerce.number().int().nullable().optional(),
   notes: z.string().nullable().optional(),
-  lines: z.array(GrnLineInput).min(1),
+  lines: z.array(GrnLineInput).min(1).refine(lines=>new Set(lines.map(l=>l.poLineId)).size===lines.length,"لا تكرر بند أمر الشراء في الاستلام"),
 });
 
 router.post("/procurement/goods-receipts", async (req, res) => {
@@ -1839,9 +1852,12 @@ router.post("/procurement/goods-receipts", async (req, res) => {
     res.status(400).json({ error: "Bad request" }); return;
   }
   try {
+    const readActor=await requestProcurementActor(req,"procurement.receipts.read");
+    if(readActor.grant&&!req.get("Idempotency-Key"))
+      throw new FinancialRequestError("يلزم معرف محاولة ثابت للاستلام وإعادة استرجاع نتيجته",400);
     const out = await financialTransaction(req, async (tx) => {
-      const [po] = await tx.select().from(purchaseOrdersTable).where(and(eq(purchaseOrdersTable.id, body.poId), supplyScope("purchaseOrder", purchaseOrdersTable.id, getCompanyId(req)))).for("update");
-      if (!po) throw httpErr(404, "أمر الشراء غير موجود");
+      const actor=await requestProcurementActor(req,"procurement.receipts.receive",tx,true);
+      const po=await assertProcurementOrder(actor,body.poId,tx,true);
       if (po.status !== "confirmed" && po.status !== "partially_received") {
         throw httpErr(409, `لا يمكن استلام بضاعة على أمر شراء بحالة ${po.status}`);
       }
@@ -1864,6 +1880,7 @@ router.post("/procurement/goods-receipts", async (req, res) => {
         );
       }
       const warehouseId = body.warehouseId ?? po.warehouseId ?? (await getDefaultWarehouseId(tx, getCompanyId(req)));
+      await assertReceiptDestination(actor,po,warehouseId,tx);
       const reference = await nextSeq("GRN", new Date().getUTCFullYear());
 
       const [grn] = await tx
@@ -1886,11 +1903,11 @@ router.post("/procurement/goods-receipts", async (req, res) => {
         if (!poLine || poLine.poId !== po.id) {
           throw httpErr(400, "سطر أمر الشراء غير صالح");
         }
-        const remaining = Number(poLine.quantity) - Number(poLine.receivedQty);
-        if (ln.quantity > remaining + 0.0001) {
+        const valid=await tx.execute(sql`SELECT ${String(ln.quantity)}::numeric <= ${poLine.quantity}::numeric - ${poLine.receivedQty}::numeric AS allowed`);
+        if (!valid.rows[0]?.allowed) {
           throw httpErr(
             409,
-            `الكمية المستلمة (${ln.quantity}) تتجاوز المتبقي على السطر (${remaining}).`,
+            "الكمية المستلمة تتجاوز المتبقي على السطر.",
           );
         }
         if (!poLine.productId) {
@@ -1950,13 +1967,13 @@ router.post("/procurement/goods-receipts", async (req, res) => {
         })
         .from(purchaseOrderLinesTable)
         .where(eq(purchaseOrderLinesTable.poId, po.id));
-      const totalQ = linesAfter.reduce((s, l) => s + Number(l.q), 0);
-      const totalR = linesAfter.reduce((s, l) => s + Number(l.r), 0);
-      const newStatus = totalR <= 0 ? po.status
-        : totalR + 0.0001 >= totalQ ? "fully_received" : "partially_received";
+      const newStatus = linesAfter.every(l=>l.q===l.r) ? "fully_received" : "partially_received";
       await tx.update(purchaseOrdersTable).set({ status: newStatus }).where(eq(purchaseOrdersTable.id, po.id));
 
       // Post Dr Inventory / Cr GR-IR for the receipt value.
+      const exactValue=await tx.execute(sql`SELECT COALESCE(SUM(quantity*unit_cost),0)::text AS value
+        FROM goods_receipt_lines WHERE grn_id=${grn.id}`);
+      totalValue=Number(exactValue.rows[0]?.value);
       let journalEntryId: number | null = null;
       if (totalValue > 0) {
         const result = await postJournalEntry(
@@ -1978,13 +1995,22 @@ router.post("/procurement/goods-receipts", async (req, res) => {
         );
         journalEntryId = result.id;
       }
+      await procurementAudit(tx,actor,"goods_receipt.created",{id:grn.id,poId:po.id,warehouseId,lines:body.lines});
       return { grn, journalEntryId, totalValue };
+    },async(tx,result)=>{
+      const actor=await requestProcurementActor(req,"procurement.receipts.read",tx,true);
+      // A lower execution ceiling cannot erase an already committed, non-priced receipt.
+      // Company, branch, destination, active read authority and source identity remain mandatory.
+      const reading={...actor,grant:actor.grant?{...actor.grant,amountLimit:null}:null};
+      const po=await assertProcurementOrder(reading,result.grn.poId,tx);
+      await assertReceiptDestination(actor,po,result.grn.warehouseId,tx);
     });
     void recordAudit(req, {
       action: "create", entity: "goods_receipt",
       details: `${out.grn.reference} بقيمة ${out.totalValue.toFixed(2)}`,
     });
-    res.status(201).json({ ...out.grn, receivedAt: out.grn.receivedAt.toISOString(), journalEntryId: out.journalEntryId }); return;
+    res.status(201).json({ ...out.grn, receivedAt: out.grn.receivedAt.toISOString(),
+      ...(!receiptOnly(readActor)?{journalEntryId:out.journalEntryId}:{}) }); return;
   } catch (err) {
     req.log.error({ err }, "create GRN failed");
     respondError(res, err); return;
@@ -1993,6 +2019,7 @@ router.post("/procurement/goods-receipts", async (req, res) => {
 
 router.get("/procurement/goods-receipts", async (req, res) => {
   try {
+    const actor=await requestProcurementActor(req,"procurement.receipts.read");
     const poId = req.query.poId ? Number(req.query.poId) : undefined;
     const rows = await db
       .select({
@@ -2007,7 +2034,9 @@ router.get("/procurement/goods-receipts", async (req, res) => {
       })
       .from(goodsReceiptsTable)
       .leftJoin(purchaseOrdersTable, eq(goodsReceiptsTable.poId, purchaseOrdersTable.id))
-      .where(and(supplyScope("receipt", goodsReceiptsTable.id, getCompanyId(req)), poId ? eq(goodsReceiptsTable.poId, poId) : undefined))
+      .where(and(supplyScope("receipt", goodsReceiptsTable.id, getCompanyId(req)),procurementOrderScope(actor),
+        actor.grant?eq(goodsReceiptsTable.warehouseId,purchaseOrdersTable.warehouseId):undefined,
+        poId ? eq(goodsReceiptsTable.poId, poId) : undefined))
       .orderBy(desc(goodsReceiptsTable.receivedAt));
     res.json(rows.map((r) => ({ ...r, receivedAt: r.receivedAt.toISOString() })));
   } catch (err) {

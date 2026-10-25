@@ -26,7 +26,7 @@ export async function apiPost<T>(path: string, body: unknown): Promise<T> {
   });
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
-    throw new Error(data?.error ?? `HTTP ${res.status}`);
+    throw Object.assign(new Error(data?.error ?? `HTTP ${res.status}`),{status:res.status});
   }
   return (await res.json()) as T;
 }

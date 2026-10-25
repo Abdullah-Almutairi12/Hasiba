@@ -11,6 +11,9 @@ import { lockApprovalAuthority } from "./approval-authority";
 import { authorityFingerprint } from "./approval-authority";
 
 export const procurementAction = (method: string, path: string): string | null => {
+  // A committed receipt remains recoverable with source read authority.
+  // Fresh physical receipt is checked inside the transaction, under the fence.
+  if (path === "/procurement/goods-receipts" && ["GET","POST"].includes(method)) return "procurement.receipts.read";
   if (/^\/suppliers(?:\/\d+)?$/.test(path))
     return `procurement.suppliers.${method === "GET" ? "read" : method === "POST" ? "create" : method === "PATCH" ? "edit" : "unsupported"}`;
   if (/^\/exports\/suppliers\.(xlsx|pdf)$/.test(path)) return "procurement.suppliers.export";
@@ -28,7 +31,10 @@ export async function procurementActor(connection: DbOrTx, userId: number, compa
   if (profile) {
     const grants = independent ? await currentResponsibilities(userId, companyId, connection) :
       [await selectedResponsibility(userId, companyId, connection)].filter(Boolean) as Responsibility[];
+    if(action==="procurement.orders.read" && grants.some(g=>g.resource==="procurement" &&
+      !g.actions.includes(action)&&g.actions.includes("procurement.receipts.read"))) action="procurement.receipts.read";
     const grant = grants.find(g => g.resource === "procurement" && g.actions.includes(action) &&
+      (!action.startsWith("procurement.receipts.") || g.actions.includes("procurement.receipts.read")) &&
       (!action.startsWith("procurement.orders.") || g.actions.includes("procurement.orders.read")) &&
       (!action.startsWith("procurement.suppliers.") || g.actions.includes("procurement.suppliers.read")));
     if (!grant) throw new FinancialRequestError("المسؤولية الحالية لا تجيز فعل الموردين أو أوامر الشراء", 403);
@@ -44,6 +50,20 @@ export async function procurementActor(connection: DbOrTx, userId: number, compa
   if (!allowed.includes(actor.role) || actor.custom && !actor.capabilities.includes(read ? "view" : action.endsWith(".approve") ? "approve" : "create"))
     throw new FinancialRequestError("صلاحية الموردين أو أوامر الشراء غير متاحة", 403);
   return { userId, companyId, grant: null, branches: actor.branches,action };
+}
+export const receiptOnly = (actor: ProcurementActor) => !!actor.grant && !actor.grant.actions.includes("procurement.orders.read");
+export function receiptOrderView(po: typeof purchaseOrdersTable.$inferSelect) {
+  return {id:po.id,reference:po.reference,supplierName:po.supplierName,status:po.status,
+    warehouseId:po.warehouseId,orderDate:po.orderDate,expectedDate:po.expectedDate,receiptOnly:true};
+}
+export async function assertReceiptDestination(actor:ProcurementActor,po:typeof purchaseOrdersTable.$inferSelect,
+  warehouseId:number,connection:DbOrTx) {
+  const [w]=await connection.select().from(warehousesTable).where(and(
+    eq(warehousesTable.id,warehouseId),eq(warehousesTable.companyId,actor.companyId)));
+  if(!w || actor.branches!==null&&!actor.branches.includes(w.branchId!) ||
+    actor.grant?.warehouseIds.length&&!actor.grant.warehouseIds.includes(w.id) ||
+    actor.grant&&po.warehouseId!==warehouseId)
+    throw new FinancialRequestError("وجهة الاستلام غير مطابقة لأمر الشراء أو خارج نطاق المستودع",403);
 }
 export async function requestProcurementActor(req: Request, action: string, connection: DbOrTx = db, write = false) {
   if (write) await lockApprovalAuthority(connection);

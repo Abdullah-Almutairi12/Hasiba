@@ -16,6 +16,8 @@ export const TEAM_ACTIONS = [
     ["orders.print", "طباعة أمر شراء"],
     ["orders.export", "تنزيل ملف أمر شراء"],
     ["orders.send", "إرسال أمر شراء وإعادة محاولته بصلاحية مستقلة"],
+    ["receipts.read", "قراءة بنود استلام المشتريات والكميات — دون أسعار أو أرصدة"],
+    ["receipts.receive", "استلام مشتريات مؤكدة كاملًا أو جزئيًا في الوجهة المحددة — لا اعتماد أو صرف أو عكس"],
   ].map(([key, label]) => ({ key: `procurement.${key}`, label, resource: "procurement", available: true })),
   { key: "inventory.read", label: "عرض مخزون المستودعات المحددة", resource: "inventory", available: true },
   { key: "inventory.cost.read", label: "عرض تكلفة المخزون", resource: "inventory", available: true },

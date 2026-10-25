@@ -43,6 +43,8 @@ interface Requisition {
 }
 
 interface PO {
+  receiptOnly?: boolean;
+  warehouseId?: number|null; warehouseName?: string|null;
   id: number; reference: string; supplierId: number; supplierName: string;
   status: string; orderDate: string; expectedDate: string | null;
   total: number; subtotal: number; vat: number;
@@ -267,6 +269,7 @@ function RequisitionsTab() {
 // =================================================================
 function POsTab({ onSelectPO }: { onSelectPO: (po: PO) => void }) {
   const {canProcurement,isScoped}=usePermissions();
+  const showPrices=!isScoped||canProcurement("orders.read");
   const [warehouseId,setWarehouseId]=useState("");
   const qc = useQueryClient();
   const { toast } = useToast();
@@ -400,8 +403,8 @@ function POsTab({ onSelectPO }: { onSelectPO: (po: PO) => void }) {
         <Table>
           <TableHeader><TableRow>
             <TableHead>المرجع</TableHead><TableHead>المورد</TableHead>
-            <TableHead>الإجمالي</TableHead><TableHead>الحالة</TableHead>
-            <TableHead>الإرسال</TableHead>
+            {showPrices&&<TableHead>الإجمالي</TableHead>}<TableHead>الحالة</TableHead>
+            {canProcurement("orders.send")&&<TableHead>الإرسال</TableHead>}
             <TableHead>التاريخ</TableHead><TableHead>الإجراءات</TableHead>
           </TableRow></TableHeader>
           <TableBody>
@@ -415,7 +418,7 @@ function POsTab({ onSelectPO }: { onSelectPO: (po: PO) => void }) {
               <TableRow key={r.id} className={`cursor-pointer hover:bg-muted/50 ${sendTone}`} onClick={() => onSelectPO(r)}>
                 <TableCell className="font-mono">{r.reference}</TableCell>
                 <TableCell>{r.supplierName}</TableCell>
-                <TableCell>{fmt(r.total)}</TableCell>
+                {showPrices&&<TableCell>{fmt(r.total)}</TableCell>}
                 <TableCell>
                   <div className="flex flex-wrap items-center gap-1">
                     <StatusBadge status={r.status} />
@@ -423,9 +426,9 @@ function POsTab({ onSelectPO }: { onSelectPO: (po: PO) => void }) {
                     <SendStatusBadge doc={r} testIdPrefix="badge-po-send-status" />
                   </div>
                 </TableCell>
-                <TableCell>
+                {canProcurement("orders.send")&&<TableCell>
                   <SendStatusBadge doc={r} testIdPrefix="badge-po-send-status" />
-                </TableCell>
+                </TableCell>}
                 <TableCell>{new Date(r.orderDate).toLocaleDateString("ar-SA")}</TableCell>
                 <TableCell className="space-x-1 space-x-reverse" onClick={(e) => e.stopPropagation()}>
                   {r.status === "pending_approval" && canProcurement("orders.approve") && (
@@ -461,6 +464,7 @@ function POsTab({ onSelectPO }: { onSelectPO: (po: PO) => void }) {
 // =================================================================
 function PODetailDialog({ po, onClose }: { po: PO | null; onClose: () => void }) {
   const {canProcurement,isScoped}=usePermissions();
+  const showPrices=!isScoped||canProcurement("orders.read");
   const qc = useQueryClient();
   const { toast } = useToast();
   const { data } = useQuery<PoDetail>({
@@ -469,25 +473,34 @@ function PODetailDialog({ po, onClose }: { po: PO | null; onClose: () => void })
     enabled: !!po,
   });
   const [recvQty, setRecvQty] = useState<Record<number, number>>({});
+  // Keep the SAME intent after an unknown result, even if a refetch now says fully received.
+  // The shared financialFetch lease and server receipt remain the authority, not this UI state.
+  const [receiptIntent,setReceiptIntent]=useState<{poId:number;lines:Array<{poLineId:number;quantity:number}>}|null>(null);
 
   const receive = useMutation({
-    mutationFn: () => apiPost("/procurement/goods-receipts", {
-      poId: po!.id,
-      lines: Object.entries(recvQty).filter(([, q]) => q > 0).map(([id, q]) => ({
+    mutationFn: () => {
+      const intent=receiptIntent??{poId:po!.id,
+      lines: Object.entries(recvQty).filter(([id, q]) => q > 0&&data?.lines.some(l=>l.id===Number(id))).map(([id, q]) => ({
         poLineId: Number(id), quantity: q,
-      })),
-    }),
-    onSuccess: () => {
+      }))};
+      setReceiptIntent(intent);
+      return apiPost<{id:number;poId:number}>("/procurement/goods-receipts",intent);
+    },
+    onSuccess: (result) => {
       toast({ title: "تم تسجيل الاستلام" });
+      setReceiptIntent(null);
       setRecvQty({});
-      qc.invalidateQueries({ queryKey: [`/procurement/purchase-orders/${po!.id}`] });
+      qc.invalidateQueries({ queryKey: [`/procurement/purchase-orders/${result.poId}`] });
       qc.invalidateQueries({ queryKey: ["/procurement/purchase-orders"] });
       qc.invalidateQueries({ queryKey: ["/procurement/goods-receipts"] });
     },
-    onError: (err: Error) => toast({ title: "فشل الاستلام", description: err.message, variant: "destructive" }),
+    onError: (err: Error&{status?:number}) => {
+      if(err.status===400||err.status===409)setReceiptIntent(null);
+      toast({ title: "تعذر تأكيد الاستلام", description: err.message, variant: "destructive" });
+    },
   });
 
-  const canReceive = !isScoped && data && (data.status === "confirmed" || data.status === "partially_received");
+  const canReceive = canProcurement("receipts.receive") && data && (data.status === "confirmed" || data.status === "partially_received");
   const canSend = canProcurement("orders.send") && data && ["confirmed", "partially_received", "fully_received", "closed"].includes(data.status);
 
   const send = useMutation({
@@ -551,7 +564,8 @@ function PODetailDialog({ po, onClose }: { po: PO | null; onClose: () => void })
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
               <div><span className="text-muted-foreground">الحالة:</span> <StatusBadge status={data.status} /></div>
-              {vatEnabled ? (
+              {data.warehouseId&&<div><span className="text-muted-foreground">مستودع الوجهة:</span> {data.warehouseName||`#${data.warehouseId}`}</div>}
+              {showPrices&&(vatEnabled ? (
                 <>
                   <div><span className="text-muted-foreground">المجموع:</span> {fmt(data.subtotal)}</div>
                   <div><span className="text-muted-foreground">الضريبة:</span> {fmt(data.vat)}</div>
@@ -559,7 +573,7 @@ function PODetailDialog({ po, onClose }: { po: PO | null; onClose: () => void })
                 </>
               ) : (
                 <div><span className="text-muted-foreground">الإجمالي:</span> <strong>{fmt(data.total)}</strong></div>
-              )}
+              ))}
               <div><span className="text-muted-foreground">التاريخ:</span> {data.orderDate}</div>
               <div><span className="text-muted-foreground">المتوقع:</span> {data.expectedDate ?? "—"}</div>
             </div>
@@ -591,8 +605,9 @@ function PODetailDialog({ po, onClose }: { po: PO | null; onClose: () => void })
                 <Table>
                   <TableHeader><TableRow>
                     <TableHead>الوصف</TableHead><TableHead>طلبت</TableHead>
-                    <TableHead>استلمت</TableHead><TableHead>فُوترت</TableHead>
-                    <TableHead>السعر</TableHead>
+                    <TableHead>استلمت</TableHead><TableHead>المتبقي</TableHead>
+                    {showPrices&&<TableHead>فُوترت</TableHead>}
+                    {showPrices&&<TableHead>السعر</TableHead>}
                     {canReceive && <TableHead>كمية الاستلام</TableHead>}
                   </TableRow></TableHeader>
                   <TableBody>
@@ -603,11 +618,13 @@ function PODetailDialog({ po, onClose }: { po: PO | null; onClose: () => void })
                           <TableCell>{ln.description}</TableCell>
                           <TableCell>{ln.quantity}</TableCell>
                           <TableCell>{ln.receivedQty}</TableCell>
-                          <TableCell>{ln.billedQty}</TableCell>
-                          <TableCell>{fmt(ln.unitPrice)}</TableCell>
+                          <TableCell>{remaining}</TableCell>
+                          {showPrices&&<TableCell>{ln.billedQty}</TableCell>}
+                          {showPrices&&<TableCell>{fmt(ln.unitPrice)}</TableCell>}
                           {canReceive && (
                             <TableCell>
-                              <Input type="number" min={0} max={remaining} className="w-24"
+                              <Input aria-label={`كمية استلام ${ln.description}`} type="number" min={0} max={remaining} step="0.0001" className="w-24"
+                                disabled={receive.isPending||!!receiptIntent}
                                 value={recvQty[ln.id] ?? ""}
                                 onChange={(e) => setRecvQty({ ...recvQty, [ln.id]: Number(e.target.value) })}
                                 placeholder={`متبقي ${remaining}`} />
@@ -620,11 +637,12 @@ function PODetailDialog({ po, onClose }: { po: PO | null; onClose: () => void })
                 </Table>
               </CardContent>
             </Card>
-            {canReceive && (
+            {(canReceive||receiptIntent) && (
               <div className="flex justify-end">
-                <Button onClick={() => receive.mutate()}
-                  disabled={receive.isPending || !Object.values(recvQty).some((v) => v > 0)}>
-                  <Truck className="me-1 size-4" />تسجيل استلام
+                <Button data-testid="button-receive-purchase" onClick={() => receive.mutate()}
+                  disabled={receive.isPending || receiptIntent!=null&&receiptIntent.poId!==po?.id ||
+                    !receiptIntent&&!data.lines.some(l=>(recvQty[l.id]??0)>0)}>
+                  <Truck className="me-1 size-4" />{receiptIntent?"استرجاع نتيجة محاولة الاستلام":"تسجيل استلام"}
                 </Button>
               </div>
             )}
@@ -1316,7 +1334,7 @@ export default function ProcurementPage() {
         </div>
       </div>
       {canReadProcurement && !isScoped && <StatsRow />}
-      {isScoped ? (canProcurement("orders.read")?<POsTab onSelectPO={setSelectedPo}/>:<p>اختر مسؤولية تجيز عرض أوامر الشراء.</p>) : !canReadProcurement ? (
+      {isScoped ? ((canProcurement("orders.read")||canProcurement("receipts.read"))?<POsTab onSelectPO={setSelectedPo}/>:<p>اختر مسؤولية تجيز عرض أوامر الشراء أو كميات الاستلام.</p>) : !canReadProcurement ? (
         // Minimal PR-only view for non-procurement roles.
         <RequisitionsTab />
       ) : (

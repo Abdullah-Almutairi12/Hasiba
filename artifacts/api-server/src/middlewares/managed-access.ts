@@ -76,6 +76,8 @@ export async function managedAccessGate(req: Request, res: Response, next: NextF
     const grants = await currentResponsibilities(userId, companyId);
     const header = Number(req.get("X-Workspace-Responsibility"));
     const grant = grants.find(g => g.id === header);
+    if(action==="procurement.orders.read"&&grant?.resource==="procurement"&&
+      !grant.actions.includes(action)&&grant.actions.includes("procurement.receipts.read")) action="procurement.receipts.read";
     // Names used by the assignment selector reveal only branches/warehouses
     // already in the user's own live responsibilities, never financial data.
     if (action === "metadata") {

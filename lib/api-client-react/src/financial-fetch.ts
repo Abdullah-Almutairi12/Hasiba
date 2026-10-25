@@ -48,7 +48,11 @@ export async function financialFetch(input: RequestInfo | URL, init: RequestInit
   if (response.status >= 500 || [408, 429].includes(response.status)) {
     throw new Error(uncertainOutcomeMessage);
   }
-  if (response.ok || (response.status >= 400 && response.status < 500 && ![408, 429].includes(response.status))) {
+  // Read/session/scope withdrawal can deny disclosure of an ALREADY committed GRN.
+  // Keep its identity until confirmation; unlike validation/conflict this is not rollback evidence.
+  const retainReceiptIdentity=/\/procurement\/goods-receipts$/.test(path)&&
+    response.status>=400&&![400,409].includes(response.status);
+  if (response.ok || (response.status >= 400 && response.status < 500 && ![408, 429].includes(response.status)&&!retainReceiptIdentity)) {
     // Do not erase a later intent created by another call after our success.
     try {
       if (sessionStorage.getItem(storageKey) === key) sessionStorage.removeItem(storageKey);

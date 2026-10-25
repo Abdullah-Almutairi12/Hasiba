@@ -4,6 +4,12 @@ description: Why financial retry receipts must not expire like an ordinary cache
 ---
 Do not add age-based expiry or routine cleanup of financial retry receipts without an explicit product policy for late retries and reviewed financial reversals.
 
+An authorization or session failure while recovering a result is not evidence that its earlier transaction rolled back. Retain the client's original request identity as well as the server receipt.
+
+**Why:** Reading an already committed result may be refused after access is withdrawn. Generating a new key when access returns could duplicate a partial financial operation.
+
+**How to apply:** Distinguish validation/conflict from unavailable recovery authority; keep company, user and source read checks, and never retry an uncertain operation with a new identity.
+
 **Why:** A receipt is proof that a financial intent already committed, not a performance cache. Deleting it can make a delayed retry create a second invoice or journal entry. Matching payloads alone cannot replace it because users must be able to intentionally create two identical invoices.
 
 **How to apply:** Review retention, user/company deletion, restore/import, and cleanup proposals for loss of replay protection. Keep company/user authorization separate from receipt lookup, and preserve the distinction between retrying an uncertain outcome and starting another legitimate intent.

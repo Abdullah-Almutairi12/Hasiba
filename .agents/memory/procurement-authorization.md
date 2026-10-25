@@ -14,3 +14,9 @@ A monetary cap cannot be bypassed by switching currency or supplying an exchange
 **Why:** No independently approved FX policy exists for this grant's ceiling; comparing raw foreign amounts or client-selected conversion would misrepresent the authorized limit.
 
 **How to apply:** Keep other currencies explicitly blocked until an approved cap-currency/source-of-rate policy and separate tests replace that boundary. Do not silently infer conversion support from a currency selector.
+
+Physical purchase receiving is independently assignable without purchase prices or supplier balances. Automatic stock/GR-IR posting does not grant manual accounting authority.
+
+**Why:** The user explicitly requires a receiving employee to see item quantities, remaining amounts and destination without financial privileges, with explicit grants combinable independently of job title.
+
+**How to apply:** Redact unauthorized financial fields on the server, not with zeros; preserve the original receiving/stock/accounting services and their segregation controls.
