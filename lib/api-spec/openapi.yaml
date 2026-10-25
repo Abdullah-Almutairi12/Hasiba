@@ -1739,6 +1739,30 @@ paths:
               schema:
                 $ref: "#/components/schemas/Invoice"
 
+  /invoices/match-preview:
+    post:
+      operationId: previewSupplierInvoiceMatch
+      tags: [invoices]
+      summary: Scoped read-only comparison with ordered, received and previously billed quantities
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SupplierInvoiceComparisonInput"
+      responses:
+        "200":
+          description: Advisory comparison only, not approval or quantity reservation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SupplierInvoiceComparison"
+        "400":
+          description: Invalid input or source line
+        "403":
+          description: Missing review responsibility or monetary ceiling
+        "404":
+          description: Source outside authorized scope
   /invoices/stats:
     get:
       operationId: getInvoiceStats
@@ -6313,6 +6337,70 @@ components:
           type: string
       required: [id, invoiceNumber, supplierName, amount, status, createdAt]
 
+    SupplierInvoiceComparisonInput:
+      type: object
+      additionalProperties: false
+      required: [poId, items]
+      properties:
+        poId: { type: integer, minimum: 1 }
+        items:
+          type: array
+          minItems: 1
+          maxItems: 500
+          items:
+            type: object
+            additionalProperties: false
+            required: [poLineId, quantity, unitPrice]
+            properties:
+              poLineId: { type: integer, minimum: 1 }
+              quantity: { type: number, exclusiveMinimum: 0, maximum: 1000000000 }
+              unitPrice: { type: number, minimum: 0, maximum: 1000000000 }
+              unit: { type: string, minLength: 1, maxLength: 60 }
+    SupplierInvoiceComparison:
+      type: object
+      required: [advisoryOnly, source, currency, currentSubtotal, lines, requiresReview, policy, explanation, evidenceLimit]
+      properties:
+        advisoryOnly: { type: boolean, enum: [true] }
+        source:
+          type: object
+          required: [id, reference, canOpenOrder]
+          properties:
+            id: { type: integer }
+            reference: { type: string }
+            canOpenOrder: { type: boolean }
+        currency: { type: string }
+        currentSubtotal: { type: string }
+        requiresReview: { type: boolean }
+        explanation: { type: string }
+        evidenceLimit: { type: string }
+        policy:
+          type: object
+          required: [priceTolerancePct, quantityTolerance]
+          properties:
+            priceTolerancePct: { type: number }
+            quantityTolerance: { type: number }
+        lines:
+          type: array
+          items:
+            type: object
+            required: [id, description, unit, ordered, received, billed, current, currentAmount, excess, orderUnitPrice, quantityMismatch, priceMismatch, unitMismatch, messages]
+            properties:
+              id: { type: integer }
+              description: { type: string }
+              unit: { type: string }
+              ordered: { type: string }
+              received: { type: string }
+              billed: { type: string }
+              current: { type: string }
+              currentAmount: { type: string }
+              excess: { type: string }
+              orderUnitPrice: { type: string }
+              quantityMismatch: { type: boolean }
+              priceMismatch: { type: boolean }
+              unitMismatch: { type: boolean }
+              messages:
+                type: array
+                items: { type: string }
     CreateInvoiceBody:
       type: object
       properties:

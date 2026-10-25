@@ -26,3 +26,9 @@ Single-operator establishments are supported: separation of creator and receiver
 **Why:** The user identified that absolute separation prevents a legitimate one-person business from operating. This is not permission to infer exceptions from an owner title or employee count.
 
 **How to apply:** Require explicitly enabled company policy, identity-confirmed settings authority, and a separate explicit self-receiving grant in addition to ordinary receiving scopes. Recheck under the authority fence; never relax purchase approval or make recovery of an already committed receipt execute again.
+
+Advisory supplier-invoice comparisons are not binding review decisions or approvals; keep their grants distinct when extending the financial workflow.
+
+**Why:** The user requires independently granted actual actions and no automatic expansion of an employee's authority. A read-only discrepancy preview must not silently become financial review power later.
+
+**How to apply:** Reuse the responsibility system but require a separate explicit decision grant and source evidence before a comparison can be accepted as a workflow review.

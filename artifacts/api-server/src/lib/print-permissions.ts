@@ -4,6 +4,7 @@ import { returnActor, returnAuthorize } from "./return-access";
 import { getCompanyId } from "./scoped-db";
 import { managedProfile, selectedResponsibility } from "./responsibility-context";
 import { requestProcurementActor, assertProcurementOrder } from "./procurement-authority";
+import { assertSupplierInvoice } from "./supplier-invoice-access";
 /** Company aggregates cannot safely allocate branchless ledger rows. Fail closed. */
 export const aggregatePrintGuard:RequestHandler=async(req,res,next)=>{
   try {
@@ -26,6 +27,11 @@ export async function checkDocumentPrint(req:Request, kind:"invoice"|"supplier"|
   const {FinancialRequestError}=await import("./financial-transaction");
   if(!Number.isSafeInteger(id)||id<1)throw new FinancialRequestError("معرف مستند غير صالح",400);
   const companyId=getCompanyId(req);
+  if(kind==="supplier"){
+    const action=req.path.endsWith("/pdf")?(req.query.download==="1"?"export":"print"):"read";
+    await assertSupplierInvoice(req,id,action);
+    return;
+  }
   if(kind==="po"){
     const action=req.query.download==="1"?"procurement.orders.export":"procurement.orders.print";
     await assertProcurementOrder(await requestProcurementActor(req,action),id);

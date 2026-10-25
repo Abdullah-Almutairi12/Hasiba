@@ -37,6 +37,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { usePermissions } from "@/hooks/use-permissions";
 import { useVatEnabled } from "@/hooks/use-vat-status";
 import { PdfPreviewSheet } from "@/components/pdf-preview-sheet";
+import { SupplierInvoiceComparison } from "@/components/supplier-invoice-comparison";
+import { SupplierInvoiceDetails } from "@/components/supplier-invoice-details";
+import { useSelectedResponsibility } from "@/lib/workspace-responsibility";
 
 type ExtractedItem = {
   description: string;
@@ -103,6 +106,10 @@ async function resizeImage(file: File, maxDim = 1600, quality = 0.85): Promise<s
 
 export default function Invoices() {
   const { canManageFinance } = usePermissions();
+  const selectedGrant = useSelectedResponsibility();
+  const canPrintInvoice = selectedGrant?.resource !== "procurement" || selectedGrant.actions.includes("procurement.invoices.print");
+  const canExportInvoice = selectedGrant?.resource !== "procurement" || selectedGrant.actions.includes("procurement.invoices.export");
+  const [detailsId, setDetailsId] = useState<number | null>(null);
   const vatEnabled = useVatEnabled();
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [scanOpen, setScanOpen] = useState(false);
@@ -527,7 +534,8 @@ export default function Invoices() {
                       </TableCell>
                       <TableCell className="text-left">
                         <div className="flex items-center gap-1.5 flex-wrap justify-end">
-                          <Button
+                          <Button size="sm" variant="outline" onClick={() => setDetailsId(invoice.id)}>التفاصيل</Button>
+                          {canPrintInvoice && <Button
                             size="sm"
                             variant="outline"
                             className="gap-1.5"
@@ -535,7 +543,7 @@ export default function Invoices() {
                             onClick={() => setPreviewTarget({ id: invoice.id, number: invoice.invoiceNumber || `#${invoice.id}` })}
                           >
                             <Printer className="size-3.5" /> طباعة
-                          </Button>
+                          </Button>}
                           {canManageFinance
                             && (invoice as { isLocked?: boolean }).isLocked
                             && !(invoice as { reversedById?: number | null }).reversedById
@@ -776,6 +784,7 @@ export default function Invoices() {
                 )}
               </div>
 
+              {selectedPoId && extracted && <SupplierInvoiceComparison poId={selectedPoId} items={extracted.items} />}
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <Label>البنود</Label>
@@ -920,7 +929,10 @@ export default function Invoices() {
         pdfUrl={previewTarget ? `${API_BASE}/invoices/${previewTarget.id}/pdf` : null}
         title={previewTarget ? `فاتورة ${previewTarget.number}` : "معاينة الفاتورة"}
         downloadName={previewTarget ? `${previewTarget.number}.pdf` : "invoice.pdf"}
+        allowDownload={canExportInvoice}
+        downloadUrl={previewTarget ? `${API_BASE}/invoices/${previewTarget.id}/pdf?download=1` : undefined}
       />
+      <SupplierInvoiceDetails id={detailsId} onClose={() => setDetailsId(null)} />
     </div>
   );
 }

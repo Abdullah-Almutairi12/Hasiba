@@ -1670,6 +1670,76 @@ export interface Invoice {
   createdAt: string;
 }
 
+export type SupplierInvoiceComparisonInputItemsItem = {
+  /** @minimum 1 */
+  poLineId: number;
+  /**
+     * @maximum 1000000000
+     * @exclusiveMinimum 0
+     */
+  quantity: number;
+  /**
+     * @minimum 0
+     * @maximum 1000000000
+     */
+  unitPrice: number;
+  /**
+     * @minLength 1
+     * @maxLength 60
+     */
+  unit?: string;
+};
+
+export interface SupplierInvoiceComparisonInput {
+  /** @minimum 1 */
+  poId: number;
+  /**
+     * @minItems 1
+     * @maxItems 500
+     */
+  items: SupplierInvoiceComparisonInputItemsItem[];
+}
+
+export type SupplierInvoiceComparisonSource = {
+  id: number;
+  reference: string;
+  canOpenOrder: boolean;
+};
+
+export type SupplierInvoiceComparisonPolicy = {
+  priceTolerancePct: number;
+  quantityTolerance: number;
+};
+
+export type SupplierInvoiceComparisonLinesItem = {
+  id: number;
+  description: string;
+  unit: string;
+  ordered: string;
+  received: string;
+  billed: string;
+  current: string;
+  currentAmount: string;
+  excess: string;
+  orderUnitPrice: string;
+  quantityMismatch: boolean;
+  priceMismatch: boolean;
+  unitMismatch: boolean;
+  messages: string[];
+};
+
+export interface SupplierInvoiceComparison {
+  advisoryOnly: true;
+  source: SupplierInvoiceComparisonSource;
+  currency: string;
+  currentSubtotal: string;
+  requiresReview: boolean;
+  explanation: string;
+  evidenceLimit: string;
+  policy: SupplierInvoiceComparisonPolicy;
+  lines: SupplierInvoiceComparisonLinesItem[];
+}
+
 export interface CreateInvoiceBody {
   supplierName: string;
   amount: number;

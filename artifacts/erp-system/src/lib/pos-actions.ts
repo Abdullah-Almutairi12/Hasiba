@@ -5,6 +5,10 @@
  * (including unavailable catalogue items and legacy previews).
  */
 export const ACTION_LABEL: Record<string, string> = {
+  "procurement.invoices.read":"عرض فواتير الموردين وتفاصيلها ومرفقاتها ضمن النطاق",
+  "procurement.invoices.compare":"معاينة مطابقة فاتورة المورد دون قرار مراجعة أو اعتماد أو ترحيل",
+  "procurement.invoices.print":"طباعة فاتورة المورد",
+  "procurement.invoices.export":"تنزيل ملف فاتورة المورد",
   "procurement.read":"تفعيل مساحة الموردين وأوامر الشراء",
   "procurement.suppliers.read":"عرض دليل الموردين بلا صلاحيات مالية ضمنية",
   "procurement.suppliers.create":"إنشاء مورد",
@@ -46,6 +50,7 @@ export const ACTION_LABEL: Record<string, string> = {
 export function canReachProcurement(sel:{resource:string;actions:readonly string[]}|null|undefined,path:string):boolean{
   if(sel?.resource!=="procurement"||!sel.actions.includes("procurement.read"))return false;
   return path==="/suppliers"?sel.actions.includes("procurement.suppliers.read"):
+    path==="/invoices"?sel.actions.includes("procurement.invoices.read"):
     path==="/procurement"&&(sel.actions.includes("procurement.orders.read")||sel.actions.includes("procurement.receipts.read"));
 }
 

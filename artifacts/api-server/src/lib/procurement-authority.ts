@@ -11,6 +11,10 @@ import { lockApprovalAuthority } from "./approval-authority";
 import { authorityFingerprint } from "./approval-authority";
 
 export const procurementAction = (method: string, path: string): string | null => {
+  if (method === "POST" && path === "/invoices/match-preview") return "procurement.invoices.compare";
+  if (method === "GET" && /^\/invoices(?:\/(?:stats|\d+(?:\/(?:zatca-qr|pdf))?))?$/.test(path))
+    return path.endsWith("/pdf") ? "procurement.invoices.print" : "procurement.invoices.read";
+  if (method === "GET" && path.startsWith("/storage/objects/invoices/")) return "procurement.invoices.read";
   // A committed receipt remains recoverable with source read authority.
   // Fresh physical receipt is checked inside the transaction, under the fence.
   if (path === "/procurement/goods-receipts" && ["GET","POST"].includes(method)) return "procurement.receipts.read";
@@ -36,11 +40,12 @@ export async function procurementActor(connection: DbOrTx, userId: number, compa
     const grant = grants.find(g => g.resource === "procurement" && g.actions.includes(action) &&
       (!action.startsWith("procurement.receipts.") || g.actions.includes("procurement.receipts.read")) &&
       (!action.startsWith("procurement.orders.") || g.actions.includes("procurement.orders.read")) &&
+      (!action.startsWith("procurement.invoices.") || g.actions.includes("procurement.invoices.read")) &&
       (!action.startsWith("procurement.suppliers.") || g.actions.includes("procurement.suppliers.read")));
     if (!grant) throw new FinancialRequestError("المسؤولية الحالية لا تجيز فعل الموردين أو أوامر الشراء", 403);
     return { userId, companyId, grant, branches: [grant.branchId],action };
   }
-  const read = ["read", "print", "export"].includes(action.split(".").at(-1)!);
+  const read = ["read", "print", "export"].includes(action.split(".").at(-1)!) || action === "procurement.invoices.compare";
   const allowed = action === "procurement.orders.approve" ? ["owner", "manager"] :
     read ? ["owner", "manager", "accountant", "inventory", "auditor"] : ["owner", "manager", "accountant", "inventory"];
   if(action.endsWith(".export")&&actor.custom&&(!actor.capabilities.includes("export")||!actor.capabilities.includes("reports")))

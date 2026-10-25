@@ -63,6 +63,7 @@ export async function managedAccessGate(req: Request, res: Response, next: NextF
     if (!profile) return next();
     let action: string | undefined = procurementAction(req.method, req.path) ?? scopedRouteAction(req.method, req.path);
     if (action === "procurement.orders.print" && req.query.download === "1") action = "procurement.orders.export";
+    if (action === "procurement.invoices.print" && req.query.download === "1") action = "procurement.invoices.export";
     if (action === "pos.operation") {
       action = ({
         request: "pos.return.request", re_review: "pos.return.request", approve: "pos.return.approve", receive: "pos.return.receive", payout: "pos.return.payout",

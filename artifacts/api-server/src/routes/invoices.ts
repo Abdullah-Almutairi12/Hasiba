@@ -22,6 +22,8 @@ import { evaluateAnomalies } from "../lib/anomaly-engine";
 import { getCompanyInfo } from "../lib/pdf/purchase-order";
 import { getPrintCompany } from "../lib/pdf/print-company";
 import { buildSupplierInvoicePdf } from "../lib/pdf/business-documents";
+import { supplierInvoiceActor, supplierInvoiceScope, assertSupplierInvoice } from "../lib/supplier-invoice-access";
+import { supplierInvoiceMatchPreview } from "../lib/supplier-invoice-matching";
 
 // Postgres unique-violation SQLSTATE.
 // Drizzle wraps pg errors and may surface the original on `.cause`,
@@ -42,6 +44,9 @@ function isUniqueViolation(err: unknown): boolean {
 }
 
 const router = Router();
+
+// Read-only matching uses the same scoped source authority as invoice details.
+router.post("/invoices/match-preview", invoiceReadGuard, supplierInvoiceMatchPreview);
 
 const SELLER_NAME = process.env["ZATCA_SELLER_NAME"] ?? "حاسبة AI";
 const VAT_NUMBER = process.env["ZATCA_VAT_NUMBER"] ?? "300000000000003";
@@ -73,7 +78,7 @@ router.get("/invoices", invoiceReadGuard, async (req, res) => {
   try {
     const { status } = req.query;
     // Tenant scope: only return invoices belonging to the caller's company.
-    const companyScope = eq(invoicesTable.companyId, getCompanyId(req));
+    const companyScope = supplierInvoiceScope(await supplierInvoiceActor(req));
     const rows = await db
       .select()
       .from(invoicesTable)
@@ -93,6 +98,7 @@ router.get("/invoices", invoiceReadGuard, async (req, res) => {
       }))
     );
   } catch (err) {
+    if (err instanceof FinancialRequestError) return void res.status(err.status).json({ error: err.message });
     req.log.error({ err }, "Error fetching invoices");
     res.status(500).json({ error: "Internal server error" });
   }
@@ -148,7 +154,7 @@ router.get("/invoices/stats", invoiceReadGuard, async (req, res) => {
   try {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const companyId = getCompanyId(req);
+    const readScope = supplierInvoiceScope(await supplierInvoiceActor(req));
 
     const [stats] = await db
       .select({
@@ -157,7 +163,7 @@ router.get("/invoices/stats", invoiceReadGuard, async (req, res) => {
         needsReviewCount: sql<number>`count(*) filter (where ${invoicesTable.status} = 'needs_review')`,
       })
       .from(invoicesTable)
-      .where(eq(invoicesTable.companyId, companyId));
+      .where(readScope);
 
     res.json({
       todayCount: Number(stats.todayCount),
@@ -166,6 +172,7 @@ router.get("/invoices/stats", invoiceReadGuard, async (req, res) => {
       accuracyRate: 97.8,
     });
   } catch (err) {
+    if (err instanceof FinancialRequestError) return void res.status(err.status).json({ error: err.message });
     req.log.error({ err }, "Error fetching invoice stats");
     res.status(500).json({ error: "Internal server error" });
   }
@@ -174,11 +181,7 @@ router.get("/invoices/stats", invoiceReadGuard, async (req, res) => {
 router.get("/invoices/:id", invoiceReadGuard, async (req, res) => {
   try {
     const id = Number(req.params.id);
-    const [invoice] = await db
-      .select()
-      .from(invoicesTable)
-      .where(and(eq(invoicesTable.id, id), eq(invoicesTable.companyId, getCompanyId(req))));
-    if (!invoice) return res.status(404).json({ error: "Not found" });
+    const { invoice } = await assertSupplierInvoice(req, id);
 
     return res.json({
       ...invoice,
@@ -187,6 +190,7 @@ router.get("/invoices/:id", invoiceReadGuard, async (req, res) => {
       createdAt: invoice.createdAt.toISOString(),
     });
   } catch (err) {
+    if (err instanceof FinancialRequestError) return res.status(err.status).json({ error: err.message });
     req.log.error({ err }, "Error fetching invoice");
     return res.status(500).json({ error: "Internal server error" });
   }
@@ -195,11 +199,7 @@ router.get("/invoices/:id", invoiceReadGuard, async (req, res) => {
 router.get("/invoices/:id/zatca-qr", invoiceReadGuard, async (req, res) => {
   try {
     const id = Number(req.params.id);
-    const [invoice] = await db
-      .select()
-      .from(invoicesTable)
-      .where(and(eq(invoicesTable.id, id), eq(invoicesTable.companyId, getCompanyId(req))));
-    if (!invoice) return res.status(404).json({ error: "Not found" });
+    const { invoice } = await assertSupplierInvoice(req, id);
 
     // VAT gating: a non-registered tenant must never emit a ZATCA QR
     // (the QR carries a VAT amount + VAT registration number it does
@@ -261,6 +261,7 @@ router.get("/invoices/:id/zatca-qr", invoiceReadGuard, async (req, res) => {
       vatAmount,
     });
   } catch (err) {
+    if (err instanceof FinancialRequestError) return res.status(err.status).json({ error: err.message });
     req.log.error({ err }, "Error generating ZATCA QR");
     return res.status(500).json({ error: "Internal server error" });
   }
@@ -345,14 +346,7 @@ router.get("/invoices/:id/pdf", invoiceReadGuard, async (req, res) => {
     }
     // Tenant scope: cross-tenant PDF reads collapse to 404.
     const companyId = getCompanyId(req);
-    const [invoice] = await db
-      .select()
-      .from(invoicesTable)
-      .where(and(eq(invoicesTable.id, id), eq(invoicesTable.companyId, companyId)));
-    if (!invoice) {
-      res.status(404).json({ error: "Not found" });
-      return;
-    }
+    const { invoice } = await assertSupplierInvoice(req, id, req.query.download === "1" ? "export" : "print");
 
     const supplier = invoice.supplierId
       ? (
@@ -468,6 +462,7 @@ router.get("/invoices/:id/pdf", invoiceReadGuard, async (req, res) => {
     );
     res.send(pdf);
   } catch (err) {
+    if (err instanceof FinancialRequestError) { res.status(err.status).json({ error: err.message }); return; }
     req.log.error({ err }, "render supplier invoice PDF");
     res.status(500).json({ error: "Internal server error" });
   }

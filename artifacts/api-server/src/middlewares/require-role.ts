@@ -54,6 +54,7 @@ export function requireRole(...roles: Role[]) {
       // transaction checks. Do not impersonate a broad purchasing role.
       let action = procurementAction(req.method, req.originalUrl.split("?")[0].replace(/^\/api/, ""));
       if(action==="procurement.orders.print"&&req.query.download==="1")action="procurement.orders.export";
+      if(action==="procurement.invoices.print"&&req.query.download==="1")action="procurement.invoices.export";
       if (action) {
         try { await requestProcurementActor(req, action); next(); }
         catch { res.status(403).json({ error: "فعل المشتريات غير ممنوح في المسؤولية الحالية" }); }

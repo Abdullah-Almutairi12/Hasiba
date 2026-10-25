@@ -168,14 +168,19 @@ for (const role of ["owner", "sales"] as const) {
   }
   accounts.push({ email, password, companyId: company.id, role, customerId: customer.id, customerName: customer.name, productId: product.id, posSession, receiptInvoice, receiptInvoices, returnInvoice });
 }
-if(process.env.HASBA_BROWSER_PROCUREMENT==="true"||process.env.HASBA_BROWSER_RECEIVING==="true"||process.env.HASBA_BROWSER_SELF_RECEIVING==="true"){
+if(process.env.HASBA_BROWSER_PROCUREMENT==="true"||process.env.HASBA_BROWSER_RECEIVING==="true"||process.env.HASBA_BROWSER_SELF_RECEIVING==="true"||process.env.HASBA_BROWSER_INVOICE_READ==="true"){
   const {posTemplateFixture,personInput,accepted}=await import("./pos-template-fixture");
   const {updateTeamPerson}=await import("../lib/team-store");
   const f=await posTemplateFixture();
   const selfReceiving=process.env.HASBA_BROWSER_SELF_RECEIVING==="true";
-  const receiving=process.env.HASBA_BROWSER_RECEIVING==="true"||selfReceiving;
+  const invoiceRead=process.env.HASBA_BROWSER_INVOICE_READ==="true";
+  const receiving=process.env.HASBA_BROWSER_RECEIVING==="true"||selfReceiving||invoiceRead;
   const base=receiving?["procurement.read","procurement.receipts.read"]:["procurement.read","procurement.suppliers.read","procurement.orders.read"];
-  const sets=receiving?[[...base,"procurement.receipts.receive"],base,[...base,"procurement.receipts.receive"]]:[
+  const sets=invoiceRead?[
+    ["procurement.read","procurement.invoices.read","procurement.invoices.compare"],
+    ["procurement.read","procurement.invoices.read"],
+    ["procurement.read","procurement.receipts.read"],
+  ]:receiving?[[...base,"procurement.receipts.receive"],base,[...base,"procurement.receipts.receive"]]:[
     [...base,"procurement.suppliers.create","procurement.suppliers.edit","procurement.suppliers.export",
       "procurement.orders.create","procurement.orders.confirm","procurement.orders.cancel","procurement.orders.print","procurement.orders.export"],
     [...base,"procurement.orders.approve","procurement.orders.print"],
@@ -208,7 +213,10 @@ if(process.env.HASBA_BROWSER_PROCUREMENT==="true"||process.env.HASBA_BROWSER_REC
   if(selfReceiving)await db.execute(sql`INSERT INTO company_administrators(company_id,user_id,responsibilities)
     VALUES(${f.companies[0].id},${people[0].userId},ARRAY['settings']) ON CONFLICT(company_id,user_id)
     DO UPDATE SET active=true,responsibilities=ARRAY['settings']`);
+  const readInvoice=invoiceRead?(await db.execute(sql`INSERT INTO invoices(company_id,supplier_id,invoice_number,supplier_name,amount,po_id)
+    VALUES(${f.companies[0].id},${supplier.id},${`READ-${tag}`},'مورد تجربة المشتريات المعزولة',72.50,${po.id}) RETURNING id`)).rows[0]:null;
   for(let i=0;i<3;i++)accounts.push({
+    ...(invoiceRead?{invoiceRead:true,invoiceId:readInvoice?.id}:{}),
     email:people[i].email!,password:f.password,role:(selfReceiving&&i===0?"purchase-self-receiver":(receiving?["purchase-receiver","purchase-receipt-reader","purchase-other-warehouse"]:["procurement-writer","procurement-reviewer","procurement-reader"])[i]),
     companyId:f.companies[0].id,grantId:people[i].grants[0].id,poId:po.id,poReference:po.reference,supplierId:supplier.id,
   });
@@ -230,4 +238,4 @@ writeFileSync(process.env.HASBA_BROWSER_STATE, JSON.stringify({
 await pool.end();
 // This standalone fixture imports the native app only for the procurement
 // setup. Its interval workers must not keep spawnSync alive after pool.end().
-if(process.env.HASBA_BROWSER_PROCUREMENT==="true"||process.env.HASBA_BROWSER_RECEIVING==="true"||process.env.HASBA_BROWSER_SELF_RECEIVING==="true")process.exit(0);
+if(process.env.HASBA_BROWSER_PROCUREMENT==="true"||process.env.HASBA_BROWSER_RECEIVING==="true"||process.env.HASBA_BROWSER_SELF_RECEIVING==="true"||process.env.HASBA_BROWSER_INVOICE_READ==="true")process.exit(0);

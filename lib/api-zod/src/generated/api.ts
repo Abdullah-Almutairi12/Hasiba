@@ -2520,6 +2520,68 @@ export const UpdateInvoiceResponse = zod.object({
 
 
 /**
+ * @summary Scoped read-only comparison with ordered, received and previously billed quantities
+ */
+
+
+export const previewSupplierInvoiceMatchBodyItemsItemQuantityExclusiveMin = 0;
+export const previewSupplierInvoiceMatchBodyItemsItemQuantityMax = 1000000000;
+
+export const previewSupplierInvoiceMatchBodyItemsItemUnitPriceMin = 0;
+export const previewSupplierInvoiceMatchBodyItemsItemUnitPriceMax = 1000000000;
+
+export const previewSupplierInvoiceMatchBodyItemsItemUnitMax = 60;
+
+export const previewSupplierInvoiceMatchBodyItemsMax = 500;
+
+
+
+export const PreviewSupplierInvoiceMatchBody = zod.object({
+  "poId": zod.number().int().min(1),
+  "items": zod.array(zod.object({
+  "poLineId": zod.number().int().min(1),
+  "quantity": zod.number().gt(previewSupplierInvoiceMatchBodyItemsItemQuantityExclusiveMin).max(previewSupplierInvoiceMatchBodyItemsItemQuantityMax),
+  "unitPrice": zod.number().min(previewSupplierInvoiceMatchBodyItemsItemUnitPriceMin).max(previewSupplierInvoiceMatchBodyItemsItemUnitPriceMax),
+  "unit": zod.string().min(1).max(previewSupplierInvoiceMatchBodyItemsItemUnitMax).optional()
+})).min(1).max(previewSupplierInvoiceMatchBodyItemsMax)
+})
+
+export const PreviewSupplierInvoiceMatchResponse = zod.object({
+  "advisoryOnly": zod.literal(true),
+  "source": zod.object({
+  "id": zod.number().int(),
+  "reference": zod.string(),
+  "canOpenOrder": zod.boolean()
+}),
+  "currency": zod.string(),
+  "currentSubtotal": zod.string(),
+  "requiresReview": zod.boolean(),
+  "explanation": zod.string(),
+  "evidenceLimit": zod.string(),
+  "policy": zod.object({
+  "priceTolerancePct": zod.number(),
+  "quantityTolerance": zod.number()
+}),
+  "lines": zod.array(zod.object({
+  "id": zod.number().int(),
+  "description": zod.string(),
+  "unit": zod.string(),
+  "ordered": zod.string(),
+  "received": zod.string(),
+  "billed": zod.string(),
+  "current": zod.string(),
+  "currentAmount": zod.string(),
+  "excess": zod.string(),
+  "orderUnitPrice": zod.string(),
+  "quantityMismatch": zod.boolean(),
+  "priceMismatch": zod.boolean(),
+  "unitMismatch": zod.boolean(),
+  "messages": zod.array(zod.string())
+}))
+})
+
+
+/**
  * @summary Get invoice processing stats
  */
 export const GetInvoiceStatsResponse = zod.object({

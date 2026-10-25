@@ -9,6 +9,8 @@ interface PdfPreviewSheetProps {
   pdfUrl: string | null;
   title: string;
   downloadName: string;
+  allowDownload?: boolean;
+  downloadUrl?: string;
 }
 
 export function PdfPreviewSheet({
@@ -17,6 +19,8 @@ export function PdfPreviewSheet({
   pdfUrl,
   title,
   downloadName,
+  allowDownload = true,
+  downloadUrl,
 }: PdfPreviewSheetProps) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
@@ -68,13 +72,26 @@ export function PdfPreviewSheet({
     if (blobUrl) window.open(blobUrl, "_blank", "noopener,noreferrer");
   }
 
-  function handleDownload() {
+  async function handleDownload() {
+    if (!allowDownload) return;
     if (!blobUrl) return;
+    let downloadBlobUrl: string | null = null;
+    if (downloadUrl) {
+      try {
+        const response = await fetch(downloadUrl, { credentials: "include" });
+        if (!response.ok) throw new Error("تعذر التنزيل؛ تحقق من صلاحية التصدير الحالية");
+        downloadBlobUrl = URL.createObjectURL(await response.blob());
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "تعذر تنزيل الملف");
+        return;
+      }
+    }
     const a = document.createElement("a");
-    a.href = blobUrl;
+    a.href = downloadBlobUrl ?? blobUrl;
     a.download = downloadName;
     document.body.appendChild(a);
     a.click();
+    if (downloadBlobUrl) setTimeout(() => URL.revokeObjectURL(downloadBlobUrl!), 1000);
     a.remove();
   }
 
@@ -88,7 +105,7 @@ export function PdfPreviewSheet({
         <div className="flex items-center justify-between gap-2 pe-8">
           <SheetTitle className="text-base truncate">{title}</SheetTitle>
           <div className="flex items-center gap-2">
-            <Button
+            {allowDownload && <Button
               size="sm"
               variant="outline"
               className="gap-1.5"
@@ -97,7 +114,7 @@ export function PdfPreviewSheet({
               data-testid="button-pdf-preview-download"
             >
               <Download className="size-3.5" /> تحميل
-            </Button>
+            </Button>}
             <Button
               size="sm"
               className="gap-1.5"

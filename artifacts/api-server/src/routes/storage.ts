@@ -4,6 +4,8 @@ import { z } from "zod/v4";
 import { ObjectStorageService, ObjectNotFoundError, objectStorageClient } from "../lib/objectStorage";
 import { handleRouteError } from "../lib/handle-error";
 import { returnActor } from "../lib/return-access";
+import { invoiceAttachmentAccess } from "../lib/supplier-invoice-access";
+import { FinancialRequestError } from "../lib/financial-transaction";
 
 const router = Router();
 const storage = new ObjectStorageService();
@@ -84,6 +86,10 @@ router.get("/storage/objects/*splat", async (req, res) => {
     const raw = (req.params as Record<string, string | string[]>)["splat"];
     const objectKey = Array.isArray(raw) ? raw.join("/") : raw;
     if (!objectKey) return res.status(400).json({ error: "missing key" });
+    if (objectKey.startsWith("invoices/")) {
+      if (!req.session?.userId) return res.status(401).json({ error: "غير مسجل دخول" });
+      await invoiceAttachmentAccess(req, `/api/storage/objects/${objectKey}`);
+    }
     // New print logos are tenant-owned immutable assets, not public opaque URLs.
     if(objectKey.startsWith("company-print/")){
       const match=/^company-print\/(\d+)\//.exec(objectKey);
@@ -108,10 +114,11 @@ router.get("/storage/objects/*splat", async (req, res) => {
 
     const [metadata] = await file.getMetadata();
     res.setHeader("Content-Type", (metadata.contentType as string) || "application/octet-stream");
-    res.setHeader("Cache-Control", "private, max-age=86400");
+    res.setHeader("Cache-Control", objectKey.startsWith("invoices/") ? "private, no-store" : "private, max-age=86400");
     file.createReadStream().on("error", () => res.status(500).end()).pipe(res);
     return;
   } catch (err) {
+    if (err instanceof FinancialRequestError) return res.status(err.status).json({ error: err.message });
     if (err instanceof ObjectNotFoundError) return res.status(404).json({ error: "not found" });
     req.log.error({ err }, "serve object failed");
     return res.status(500).json({ error: "internal error" });

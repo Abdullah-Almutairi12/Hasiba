@@ -1,6 +1,10 @@
 import { z } from "zod";
 
 export const TEAM_ACTIONS = [
+  { key: "procurement.invoices.read", label: "عرض فواتير الموردين وتفاصيلها ومرفقها ضمن النطاق", resource: "procurement", available: true },
+  { key: "procurement.invoices.compare", label: "معاينة مطابقة فاتورة المورد — لا قرار مراجعة أو اعتماد أو ترحيل", resource: "procurement", available: true },
+  { key: "procurement.invoices.print", label: "طباعة فاتورة مورد", resource: "procurement", available: true },
+  { key: "procurement.invoices.export", label: "تنزيل نسخة PDF من فاتورة مورد", resource: "procurement", available: true },
   ...[
     ["read", "اختيار مسؤولية الموردين وأوامر الشراء — دون منح قراءة المستندات ضمنيًا"],
     ["suppliers.read", "عرض بيانات الموردين — لا فواتيرهم أو دفعاتهم"],
