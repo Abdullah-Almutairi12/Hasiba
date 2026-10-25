@@ -274,6 +274,16 @@ function BranchesTab({ readOnly }: { readOnly: boolean }) {
     <div className="space-y-4">
       <Card>
         <CardHeader>
+          <CardTitle>المستخدمون والصلاحيات</CardTitle>
+          <CardDescription>مالك النظام والمديرون ومسؤولياتهم، وتعليق الوصول أو إزالة العضوية. يظهر للمخوّلين فقط.</CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={() => navigate("/settings/users")} data-testid="btn-open-settings-users">فتح المستخدمين والصلاحيات <ChevronLeft className="ms-2 size-4" /></Button>
+          <Button variant="ghost" onClick={() => navigate("/account/membership")} data-testid="btn-open-account-membership">عضويتي</Button>
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Boxes className="size-5 text-primary" />
             إدارة الفروع

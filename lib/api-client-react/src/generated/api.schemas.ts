@@ -9,6 +9,40 @@ export interface AdministrationAcknowledgement {
   ok: boolean;
 }
 
+export interface PrimaryOwnerAppointmentInput {
+  acknowledge: boolean;
+}
+
+export type CompanyMembershipDepartureInputDeparture = typeof CompanyMembershipDepartureInputDeparture[keyof typeof CompanyMembershipDepartureInputDeparture];
+
+
+export const CompanyMembershipDepartureInputDeparture = {
+  suspend: 'suspend',
+  terminate: 'terminate',
+} as const;
+
+export interface CompanyMembershipDepartureInput {
+  acknowledge: boolean;
+  departure: CompanyMembershipDepartureInputDeparture;
+}
+
+export type CompanyAccessRevocationInputDeparture = typeof CompanyAccessRevocationInputDeparture[keyof typeof CompanyAccessRevocationInputDeparture];
+
+
+export const CompanyAccessRevocationInputDeparture = {
+  suspend: 'suspend',
+  terminate: 'terminate',
+} as const;
+
+export interface CompanyAccessRevocationInput {
+  departure: CompanyAccessRevocationInputDeparture;
+}
+
+export interface AdministrationRecoveryInput {
+  email: string;
+  password: string;
+}
+
 export interface AdministrationRevision {
   /** @minimum 1 */
   expectedRevision: number;
@@ -52,6 +86,7 @@ export interface AdministrationHandoverInput {
   /** @nullable */
   personId: number | null;
   responsibilities: AdministrationHandoverInputResponsibilitiesItem[];
+  ownerTransfer?: boolean;
   /** retain appoints an additional manager; the three departure choices are stay/suspend/terminate */
   departure: AdministrationHandoverInputDeparture;
 }
@@ -72,6 +107,7 @@ export interface AdministrationHandover {
   to_name?: string | null;
   /** @nullable */
   invited_name?: string | null;
+  owner_transfer?: boolean;
 }
 
 export interface AdministrationMember {
@@ -82,6 +118,7 @@ export interface AdministrationMember {
   status?: string | null;
   /** @nullable */
   active?: boolean | null;
+  primary_owner?: boolean;
   /** @nullable */
   responsibilities?: string[] | null;
 }
@@ -99,6 +136,10 @@ export interface AdministrationWorkspace {
   members: AdministrationMember[];
   pending: AdministrationMember[];
   notifications: AdministrationNotice[];
+  /** @nullable */
+  primaryOwnerId?: number | null;
+  isPrimaryOwner?: boolean;
+  canAppointPrimaryOwner?: boolean;
 }
 
 export interface AdministrationCompletion {
@@ -2667,6 +2708,10 @@ export interface CreateSupplierBody {
   /** @nullable */
   notes?: string | null;
 }
+
+export type AuthenticateAdministrationRecovery200 = {
+  userId: number;
+};
 
 export type ListCountSessions200Item = { [key: string]: unknown };
 

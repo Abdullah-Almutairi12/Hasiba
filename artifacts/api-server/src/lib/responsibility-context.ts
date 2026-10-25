@@ -3,6 +3,7 @@ import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import { teamRows } from "./team-store";
 import { FinancialRequestError } from "./financial-transaction";
+import { isPrimarySystemOwner } from "./primary-system-owner";
 
 export const responsibilityContext = new AsyncLocalStorage<{ userId: number; companyId: number; grantId: number }>();
 export type Responsibility = {
@@ -10,6 +11,9 @@ export type Responsibility = {
   actions: string[]; amountLimit: string | null; startsAt: string; endsAt: string | null;
 };
 export async function managedProfile(userId: number, companyId: number, connection: Pick<typeof db, "execute"> = db) {
+  // Explicit subscriber appointment unlocks the existing owner operation services.
+  // All other administrators keep their existing scoped functional grants.
+  if(await isPrimarySystemOwner(companyId,userId,connection))return null;
   const [row] = await teamRows<{ managed: boolean; status: string; revision: number; employee_id: number | null; deniedActions: string[] }>(connection, sql`
     SELECT (a.employee_id IS NOT NULL OR uc.role='scoped') AS managed,
       CASE WHEN uc.user_id IS NOT NULL AND u.is_active AND c.is_active

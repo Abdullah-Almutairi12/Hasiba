@@ -16,17 +16,20 @@ import { RightsPicker } from "@/components/administration/members-panel";
 
 type Candidate = { kind: "user" | "person"; id: number } | null;
 
-export function HandoverComposer({ ws, existing, onClose, onSaved }: { ws: AdministrationWorkspace; existing: AdministrationHandover | null; onClose: () => void; onSaved: () => void }) {
+const ALL_RESPONSIBILITIES = ["users", "administrators", "settings", "subscription", "contact"] as const;
+
+export function HandoverComposer({ ws, existing, onClose, onSaved, ownerTransfer: ownerTransferProp = false }: { ws: AdministrationWorkspace; existing: AdministrationHandover | null; onClose: () => void; onSaved: () => void; ownerTransfer?: boolean }) {
+  const ownerTransfer = ownerTransferProp || existing?.owner_transfer === true;
   const qc = useQueryClient();
   const { toast } = useToast();
   const save = useSaveAdministrationHandover();
   const createPerson = useCreateTeamPerson();
   const invite = useInviteTeamPerson();
   const id = useMemo(() => existing?.id ?? crypto.randomUUID(), [existing]);
-  const [mode, setMode] = useState<"replace" | "add">(existing?.departure === "retain" || !ws.rights.includes("administrators") ? "add" : "replace");
+  const [mode, setMode] = useState<"replace" | "add">(!ownerTransfer && (existing?.departure === "retain" || !ws.rights.includes("administrators")) ? "add" : "replace");
   const canReplace = ws.rights.includes("administrators");
   const [departure, setDeparture] = useState<AdministrationHandoverInputDeparture>((existing && existing.departure !== "retain" ? existing.departure : "stay") as AdministrationHandoverInputDeparture);
-  const [resp, setResp] = useState<string[]>(existing?.responsibilities ?? ws.rights);
+  const [resp, setResp] = useState<string[]>(ownerTransfer ? [...ALL_RESPONSIBILITIES] : existing?.responsibilities ?? ws.rights);
   const [cand, setCand] = useState<Candidate>(existing?.to_user_id ? { kind: "user", id: existing.to_user_id } : existing?.person_id ? { kind: "person", id: existing.person_id } : null);
   const [newName, setNewName] = useState("");
   const [newEmail, setNewEmail] = useState("");
@@ -36,7 +39,7 @@ export function HandoverComposer({ ws, existing, onClose, onSaved }: { ws: Admin
 
   // active is ADMINISTRATION status, not account eligibility. A former admin
   // who stayed employed can be appointed again, with fresh personal acceptance.
-  const members = ws.members.filter((m) => m.id !== ws.userId && (!m.status||m.status==="active"));
+  const members = ws.members.filter((m) => m.id !== ws.userId && !m.primary_owner && (!m.status||m.status==="active"));
   const effDeparture: AdministrationHandoverInputDeparture = mode === "add" ? "retain" : departure;
   const destructive = DEPARTURE_LABEL[effDeparture].destructive;
 
@@ -55,10 +58,11 @@ export function HandoverComposer({ ws, existing, onClose, onSaved }: { ws: Admin
   const submit = async () => {
     setError(null);
     if (!cand) { setError("اختر البديل أو ادعُ شخصًا جديدًا."); return; }
+    if (ownerTransfer && ALL_RESPONSIBILITIES.some((r) => !resp.includes(r))) { setError("نقل مالك النظام يتطلب جميع المسؤوليات الخمس."); return; }
     if (!resp.length) { setError("اختر مسؤولية إدارية واحدة على الأقل."); return; }
     if (mode === "replace" && !resp.includes("administrators")) { setError("الاستبدال (بقاء/تعليق/إنهاء) يتطلب تسليم مسؤولية «مديرو النظام». لتعيين مدير إضافي بمجموعة جزئية اختر «إضافة مدير إضافي»."); return; }
     try {
-      await save.mutateAsync({ data: { id, expectedRevision: existing?.revision ?? 0, toUserId: cand.kind === "user" ? cand.id : null, personId: cand.kind === "person" ? cand.id : null, responsibilities: resp as AdministrationHandoverInputResponsibilitiesItem[], departure: effDeparture } });
+      await save.mutateAsync({ data: { id, expectedRevision: existing?.revision ?? 0, toUserId: cand.kind === "user" ? cand.id : null, personId: cand.kind === "person" ? cand.id : null, responsibilities: resp as AdministrationHandoverInputResponsibilitiesItem[], departure: effDeparture, ...(ownerTransfer ? { ownerTransfer: true } : {}) } });
       toast({ title: existing ? "حُفظت مراجعة جديدة — يلزم قبول البديل مجددًا" : "أُرسل الاقتراح إلى البديل" });
       onSaved();
     } catch (err) { setError(errorText(err)); }
@@ -67,18 +71,25 @@ export function HandoverComposer({ ws, existing, onClose, onSaved }: { ws: Admin
   const busy = createPerson.isPending || invite.isPending;
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent dir="rtl" className="max-h-[90dvh] overflow-y-auto sm:max-w-2xl" data-testid="dialog-handover">
-        <DialogHeader><DialogTitle>{existing ? `تعديل التسليم (مراجعة ${existing.revision})` : "تسليم الإدارة أو إضافة مدير"}</DialogTitle>
+      <DialogContent dir="rtl" className="max-h-[90dvh] overflow-y-auto sm:max-w-2xl" data-testid={ownerTransfer ? "dialog-owner-transfer" : "dialog-handover"}>
+        <DialogHeader><DialogTitle>{ownerTransfer ? (existing ? `تعديل نقل مالك النظام (مراجعة ${existing.revision})` : "نقل مسؤولية مالك النظام") : existing ? `تعديل التسليم (مراجعة ${existing.revision})` : "تسليم الإدارة أو إضافة مدير"}</DialogTitle>
           <DialogDescription>{existing ? "أي تعديل يُلغي قبول البديل السابق." : "يقبل البديل صراحة بعد تفعيل حسابه، ثم تنفذ أنت النسخة المقبولة."}</DialogDescription></DialogHeader>
 
-        <div role="radiogroup" aria-label="نوع الإجراء" className="grid gap-2 sm:grid-cols-2">
+        {ownerTransfer && (
+          <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100" data-testid="notice-owner-transfer">
+            <p className="font-bold">هذا ليس تسليم إدارة عاديًا</p>
+            <p className="mt-1 text-xs">ينتقل التحكم الكامل في المنشأة إلى البديل، بما فيه العمليات المالية والمديرون والاشتراك. يُشترط حساب مفعّل وقبول صريح منه، وتُسلَّم المسؤوليات الخمس كاملة. صفة مالك النظام لا تثبت الملكية القانونية.</p>
+          </div>
+        )}
+
+        {!ownerTransfer && <div role="radiogroup" aria-label="نوع الإجراء" className="grid gap-2 sm:grid-cols-2">
           {([["replace", "استبدالي بمدير آخر", "تختار ما يحدث لوصولك بعد التنفيذ."], ["add", "إضافة مدير إضافي", "تبقى كما أنت؛ يمكن اختيار أي مجموعة من مسؤولياتك."]] as const).map(([k, t, b]) => (
             <button key={k} type="button" role="radio" aria-checked={mode === k} disabled={k === "replace" && !canReplace} title={k === "replace" && !canReplace ? "يتطلب مسؤولية مديرو النظام" : undefined} onClick={() => setMode(k)} data-testid={`radio-mode-${k}`}
               className={cn("rounded-xl border p-3 text-start transition-colors disabled:cursor-not-allowed disabled:opacity-50", mode === k ? "border-primary bg-primary/5 ring-1 ring-primary/30" : "hover:border-primary/40")}>
               <p className="text-sm font-bold">{t}</p><p className="text-xs text-muted-foreground">{b}</p>
             </button>
           ))}
-        </div>
+        </div>}
 
         <fieldset className="space-y-2">
           <legend className="mb-1 text-sm font-semibold">البديل</legend>
@@ -104,8 +115,9 @@ export function HandoverComposer({ ws, existing, onClose, onSaved }: { ws: Admin
           </div>
         </fieldset>
 
+        {ownerTransfer ? <p className="text-xs text-muted-foreground" data-testid="text-owner-transfer-rights">تُنقل جميع المسؤوليات الإدارية الخمس مع التحكم المالي الكامل.</p> : <>
         <RightsPicker value={resp} onChange={setResp} prefix="handover" options={ws.rights} />
-        <p className="text-[11px] text-muted-foreground">لا تُمنح أي صلاحيات تشغيلية أو مالية مع الإدارة.</p>
+        <p className="text-[11px] text-muted-foreground">لا تُمنح أي صلاحيات تشغيلية أو مالية مع الإدارة.</p></>}
 
         {mode === "replace" && (
           <fieldset className="space-y-1.5">
@@ -121,12 +133,12 @@ export function HandoverComposer({ ws, existing, onClose, onSaved }: { ws: Admin
         {destructive && (
           <label className="flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/5 p-2.5 text-sm" data-testid="warning-departure">
             <Checkbox checked={ack} onCheckedChange={(v) => setAck(v === true)} data-testid="checkbox-departure-ack" />
-            أفهم أن وصولي سيتغير عند التنفيذ ولن تُمنح أي صلاحيات مالية تلقائيًا.
+            {ownerTransfer ? "أفهم أن وصولي سيتغير عند التنفيذ وأن البديل سيصبح مالك النظام بتحكم مالي كامل." : "أفهم أن وصولي سيتغير عند التنفيذ ولن تُمنح أي صلاحيات مالية تلقائيًا."}
           </label>
         )}
         {error && <p role="alert" className="text-sm text-destructive" data-testid="error-handover">{error}</p>}
         <DialogFooter><Button variant="ghost" onClick={onClose}>إلغاء</Button>
-          <Button disabled={save.isPending || (destructive && !ack)} onClick={() => void submit()} data-testid="button-save-handover">{save.isPending && <Loader2 className="me-2 size-4 animate-spin" />} {existing ? "حفظ مراجعة جديدة" : "إرسال للبديل"}</Button></DialogFooter>
+          <Button disabled={save.isPending || (destructive && !ack)} onClick={() => void submit()} data-testid="button-save-handover">{save.isPending && <Loader2 className="me-2 size-4 animate-spin" />} {existing ? "حفظ مراجعة جديدة" : ownerTransfer ? "إرسال طلب نقل الملكية" : "إرسال للبديل"}</Button></DialogFooter>
       </DialogContent>
     </Dialog>
   );

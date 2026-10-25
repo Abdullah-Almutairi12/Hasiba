@@ -191,6 +191,7 @@ export default function Login() {
                   >
                     {t("login.forgotPassword")} ({t("login.recoveryUnavailable")})
                   </button>
+                  <button type="button" className="text-[11px] font-bold text-[#2563EB] hover:underline" onClick={() => setLocation("/account/recovery")} data-testid="link-account-recovery">التحقق من تسليم سابق</button>
                 </div>
                 <div className="relative">
                   <Lock className={`absolute top-1/2 size-4 -translate-y-1/2 text-neutral-400 ${isRTL ? "right-3" : "left-3"}`} />

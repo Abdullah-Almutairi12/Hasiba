@@ -39,6 +39,136 @@ async function accept(f:Awaited<ReturnType<typeof fixture>>,id:string,revision=1
   return ok(await f.target.post(`/api/administration/handovers/${id}/accept`).send({expectedRevision:revision}));
 }
 const complete=(a:request.Agent,id:string,revision=1)=>a.post(`/api/auth/administration/handovers/${id}/complete`).send({expectedRevision:revision});
+async function appoint(f:Awaited<ReturnType<typeof fixture>>) {
+  return ok(await f.sender.post("/api/administration/owner/appoint").send({acknowledge:true}));
+}
+describe("explicit primary system owner, independent manager lifecycle and identity-only recovery",()=>{
+  it("does not mass-promote legacy owners or administrators; requires explicit authorized acknowledgement",async()=>{
+    const f=await fixture();
+    expect(ok(await f.sender.get("/api/administration")).primaryOwnerId).toBeNull();
+    expect(ok(await f.sender.get("/api/administration")).canAppointPrimaryOwner).toBe(true);
+    expect((await f.sender.post("/api/administration/owner/appoint").send({acknowledge:false})).status).toBe(400);
+    const existing=await propose(f,"retain");await accept(f,existing.id);ok(await complete(f.sender,existing.id));
+    expect((await f.target.post("/api/administration/owner/appoint").send({acknowledge:true})).status).toBe(403);
+    await appoint(f);await appoint(f);
+    expect(ok(await f.sender.get("/api/administration")).isPrimaryOwner).toBe(true);
+    expect(ok(await f.other.get("/api/administration")).isPrimaryOwner).toBe(false);
+    expect((await f.target.post("/api/administration/owner/appoint").send({acknowledge:true})).status).toBe(409);
+    expect((await query("SELECT * FROM audit_logs WHERE company_id=$1 AND action='system_owner.appointed'",[f.company])).length).toBe(1);
+  });
+  it("subscriber signup remains scoped until its evidenced creator explicitly appoints the account owner",async()=>{
+    const a=agent(),email=`subscriber-${randomUUID()}@example.invalid`;
+    ok(await a.post("/api/auth/signup").send({name:"مسؤول مشترك صريح",email,password}),201);
+    expect(ok(await a.get("/api/administration")).canAppointPrimaryOwner).toBe(true);
+    expect((await a.get("/api/accounting/journal-entries")).status).toBe(403);
+    ok(await a.post("/api/administration/owner/appoint").send({acknowledge:true}));
+    expect(ok(await a.get("/api/auth/me")).role).toBe("owner");
+    ok(await a.get("/api/accounting/journal-entries"));
+    expect((await query("SELECT * FROM responsibility_grants WHERE company_id=(SELECT company_id FROM user_companies uc JOIN users u ON u.id=uc.user_id WHERE u.email=$1)",[email])).length).toBe(0);
+  });
+  it("serializes concurrent explicit first appointments and keeps one primary owner without changing other legacy permissions",async()=>{
+    const f=await fixture();
+    await query("UPDATE user_companies SET role='owner' WHERE company_id=$1 AND user_id=$2",[f.company,f.users[1].id]);
+    const results=await Promise.all([f.sender,f.target].map(a=>a.post("/api/administration/owner/appoint").send({acknowledge:true})));
+    expect(results.map(r=>r.status).sort()).toEqual([200,409]);
+    expect((await query("SELECT * FROM company_administrators WHERE company_id=$1 AND primary_owner",[f.company])).length).toBe(1);
+    expect((await query("SELECT role FROM user_companies WHERE company_id=$1 AND user_id=ANY($2::integer[])",[f.company,f.users.slice(0,2).map(u=>u.id)])).every(r=>r.role==="owner")).toBe(true);
+  });
+  it.each(["suspend","terminate"])("owner appoints and edits independent managers, then revokes %s during a live session without consent",async departure=>{
+    const f=await fixture();await appoint(f);
+    ok(await f.sender.patch(`/api/administration/members/${f.users[1].id}`).send({responsibilities:["users","contact"],active:true}));
+    expect(ok(await f.target.get("/api/administration")).rights).toEqual(["users","contact"]);
+    expect((await f.target.get("/api/accounting/journal-entries")).status).toBe(403);
+    ok(await f.sender.patch(`/api/administration/members/${f.users[1].id}`).send({responsibilities:all,active:true}));
+    expect(ok(await f.target.get("/api/administration")).rights).toEqual(all);
+    expect((await f.target.patch(`/api/administration/members/${f.users[2].id}`).send({responsibilities:all,active:true})).status).toBe(409);
+    await db.insert(userCompaniesTable).values({companyId:f.otherCompany,userId:f.users[1].id,role:"manager"});
+    const other=agent();ok(await other.post("/api/auth/login").send({email:f.users[1].email,password}));
+    ok(await other.post("/api/auth/switch-company").send({companyId:f.otherCompany}));
+    await db.transaction(tx=>ensureAdministrativePerson(tx,f.company,f.users[1].id));
+    ok(await f.sender.post(`/api/administration/members/${f.users[1].id}/access`).send({departure}));
+    expect((await f.target.get("/api/administration")).status).toBe(401);
+    ok(await other.get("/api/auth/me"));
+    expect((await query("SELECT * FROM user_companies WHERE company_id=$1 AND user_id=$2",[f.company,f.users[1].id])).length).toBe(0);
+    expect((await query("SELECT * FROM employees WHERE company_id=$1 AND user_id=$2",[f.company,f.users[1].id])).length).toBe(1);
+    expect((await query("SELECT * FROM administration_handovers WHERE company_id=$1",[f.company])).length).toBe(0);
+  });
+  it("protects the primary owner even with other active administrators, including old membership and employee editors",async()=>{
+    const f=await fixture();await appoint(f);
+    await db.transaction(tx=>ensureAdministrativePerson(tx,f.company,f.users[0].id));
+    ok(await f.sender.patch(`/api/administration/members/${f.users[1].id}`).send({responsibilities:all,active:true}));
+    expect((await f.sender.patch(`/api/administration/members/${f.users[0].id}`).send({responsibilities:all,active:false})).status).toBe(409);
+    expect((await f.sender.patch(`/api/administration/members/${f.users[0].id}`).send({responsibilities:["administrators"],active:true})).status).toBe(409);
+    expect((await f.sender.post(`/api/administration/members/${f.users[0].id}/access`).send({departure:"terminate"})).status).toBe(409);
+    expect((await f.sender.post("/api/administration/membership/leave").send({acknowledge:true,departure:"terminate"})).status).toBe(409);
+    expect((await f.sender.patch(`/api/users/${f.users[0].id}`).send({role:"manager"})).status).toBe(409);
+    const [person]=await query("SELECT employee_id FROM employee_access WHERE company_id=$1 AND user_id=$2",[f.company,f.users[0].id]);
+    expect((await f.sender.patch(`/api/hr/employees/${person.employee_id}`).send({status:"terminated"})).status).toBe(409);
+    expect((await f.sender.patch(`/api/hr/employees/${person.employee_id}`).send({userId:null})).status).toBe(409);
+    expect((await f.sender.patch(`/api/hr/employees/${person.employee_id}`).send({userId:f.users[2].id})).status).toBe(409);
+    expect(ok(await f.sender.get("/api/administration")).primaryOwnerId).toBe(f.users[0].id);
+  });
+  it("a non-administrator may voluntarily leave only their own company membership while history and other membership survive",async()=>{
+    const f=await fixture();await appoint(f);
+    await db.transaction(tx=>ensureAdministrativePerson(tx,f.company,f.users[1].id));
+    await db.insert(userCompaniesTable).values({companyId:f.otherCompany,userId:f.users[1].id,role:"manager"});
+    expect((await f.target.post("/api/administration/membership/leave").send({acknowledge:false,departure:"terminate"})).status).toBe(400);
+    ok(await f.target.post("/api/administration/membership/leave").send({acknowledge:true,departure:"terminate"}));
+    expect((await f.target.get("/api/administration")).status).toBe(401);
+    expect((await query("SELECT company_id FROM user_companies WHERE user_id=$1",[f.users[1].id])).map(r=>r.company_id)).toEqual([f.otherCompany]);
+    expect((await query("SELECT * FROM employees WHERE company_id=$1 AND user_id=$2",[f.company,f.users[1].id])).length).toBe(1);
+    expect(ok(await f.sender.get("/api/administration")).isPrimaryOwner).toBe(true);
+  });
+  it("transfers full account responsibility only with a live replacement accepting the exact owner-transfer revision",async()=>{
+    const f=await fixture();await appoint(f);
+    const h={...input(f.users[1].id,"terminate"),ownerTransfer:true};
+    expect((await f.sender.put("/api/administration/handovers").send({...h,ownerTransfer:false})).status).toBe(409);
+    ok(await f.sender.put("/api/administration/handovers").send(h));
+    expect((await complete(f.sender,h.id)).status).toBe(409);
+    await accept(f,h.id);
+    ok(await f.sender.put("/api/administration/handovers").send({...h,expectedRevision:1,departure:"suspend"}));
+    expect((await complete(f.sender,h.id,2)).status).toBe(409);
+    await accept(f,h.id,2);
+    const responses=await Promise.all([complete(f.sender,h.id,2),complete(f.sender,h.id,2)]);
+    expect(responses.map(r=>r.status)).toEqual([200,200]);
+    expect(responses.filter(r=>r.body.replayed===true)).toHaveLength(1);
+    expect(ok(await f.target.get("/api/administration")).isPrimaryOwner).toBe(true);
+    expect(ok(await f.target.get("/api/auth/me")).role).toBe("owner");
+    ok(await f.target.get("/api/accounting/journal-entries"));
+    expect(ok(await f.other.get("/api/administration")).isPrimaryOwner).toBe(false);
+    expect((await query("SELECT * FROM audit_logs WHERE action='administration.completed' AND details::jsonb->>'id'=$1",[h.id])).length).toBe(1);
+  });
+  it("recovers a lost committed result without any other membership, without restoring company or financial access",async()=>{
+    const f=await fixture();await appoint(f);
+    await query("DELETE FROM user_companies WHERE company_id=$1 AND user_id=$2",[f.otherCompany,f.users[0].id]);
+    const h={...input(f.users[1].id,"terminate"),ownerTransfer:true};
+    ok(await f.sender.put("/api/administration/handovers").send(h));await accept(f,h.id);
+    ok(await complete(f.sender,h.id));
+    const recovery=agent();
+    expect((await recovery.post("/api/auth/login").send({email:f.users[0].email,password})).status).toBe(403);
+    expect(ok(await recovery.post("/api/auth/administration/recover").send({email:f.users[0].email,password})).userId).toBe(f.users[0].id);
+    expect(ok(await recovery.get(`/api/auth/administration/handovers/${h.id}/receipt`)).state).toBe("completed");
+    expect(ok(await complete(recovery,h.id)).replayed).toBe(true);
+    expect((await recovery.get("/api/accounting/journal-entries")).status).toBe(403);
+    expect((await recovery.get("/api/administration")).status).toBe(403);
+    expect((await f.third.get(`/api/auth/administration/handovers/${h.id}/receipt`)).status).toBe(404);
+    expect((await query("SELECT * FROM user_companies WHERE user_id=$1",[f.users[0].id])).length).toBe(0);
+    expect((await query("SELECT * FROM audit_logs WHERE action='administration.completed' AND details::jsonb->>'id'=$1",[h.id])).length).toBe(1);
+    await query("UPDATE users SET is_active=false WHERE id=$1",[f.users[0].id]);
+    expect((await recovery.get(`/api/auth/administration/handovers/${h.id}/receipt`)).status).toBe(401);
+  });
+  it("rechecks revoked replacement eligibility and concurrent attempts cannot remove the primary owner",async()=>{
+    const f=await fixture();await appoint(f);
+    const h={...input(f.users[1].id),ownerTransfer:true};
+    ok(await f.sender.put("/api/administration/handovers").send(h));await accept(f,h.id);
+    ok(await f.sender.post(`/api/administration/members/${f.users[1].id}/access`).send({departure:"suspend"}));
+    expect((await complete(f.sender,h.id)).status).toBe(409);
+    const changes=await Promise.all(["suspend","terminate"].map(departure=>
+      f.sender.post(`/api/administration/members/${f.users[0].id}/access`).send({departure})));
+    expect(changes.map(r=>r.status)).toEqual([409,409]);
+    expect(ok(await f.sender.get("/api/administration")).isPrimaryOwner).toBe(true);
+  });
+});
 describe("company-local administration and explicit handover",()=>{
   it("self-service creator is an administrator, not a legal owner or automatic financial approver",async()=>{
     const agent=request.agent(app),email=`signup-${randomUUID()}@example.invalid`;

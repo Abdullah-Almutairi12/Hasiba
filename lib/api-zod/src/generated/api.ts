@@ -8,6 +8,48 @@
 import * as zod from 'zod';
 
 
+export const LeaveCompanyMembershipBody = zod.object({
+  "acknowledge": zod.boolean(),
+  "departure": zod.enum(['suspend', 'terminate'])
+})
+
+export const LeaveCompanyMembershipResponse = zod.object({
+  "ok": zod.boolean()
+})
+
+
+export const AppointPrimarySystemOwnerBody = zod.object({
+  "acknowledge": zod.boolean()
+})
+
+export const AppointPrimarySystemOwnerResponse = zod.object({
+  "ok": zod.boolean()
+})
+
+
+export const RevokeCompanyMemberAccessParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const RevokeCompanyMemberAccessBody = zod.object({
+  "departure": zod.enum(['suspend', 'terminate'])
+})
+
+export const RevokeCompanyMemberAccessResponse = zod.object({
+  "ok": zod.boolean()
+})
+
+
+export const AuthenticateAdministrationRecoveryBody = zod.object({
+  "email": zod.string(),
+  "password": zod.string()
+})
+
+export const AuthenticateAdministrationRecoveryResponse = zod.object({
+  "userId": zod.number().int()
+})
+
+
 export const GetAdministrationWorkspaceResponse = zod.object({
   "userId": zod.number().int(),
   "rights": zod.array(zod.string()),
@@ -23,7 +65,8 @@ export const GetAdministrationWorkspaceResponse = zod.object({
   "person_id": zod.number().int().nullish(),
   "from_name": zod.string().optional(),
   "to_name": zod.string().nullish(),
-  "invited_name": zod.string().nullish()
+  "invited_name": zod.string().nullish(),
+  "owner_transfer": zod.boolean().optional()
 })),
   "members": zod.array(zod.object({
   "id": zod.number().int(),
@@ -31,6 +74,7 @@ export const GetAdministrationWorkspaceResponse = zod.object({
   "role": zod.string().optional(),
   "status": zod.string().nullish(),
   "active": zod.boolean().nullish(),
+  "primary_owner": zod.boolean().optional(),
   "responsibilities": zod.array(zod.string()).nullish()
 })),
   "pending": zod.array(zod.object({
@@ -39,12 +83,16 @@ export const GetAdministrationWorkspaceResponse = zod.object({
   "role": zod.string().optional(),
   "status": zod.string().nullish(),
   "active": zod.boolean().nullish(),
+  "primary_owner": zod.boolean().optional(),
   "responsibilities": zod.array(zod.string()).nullish()
 })),
   "notifications": zod.array(zod.object({
   "id": zod.string(),
   "message": zod.string()
-}))
+})),
+  "primaryOwnerId": zod.number().int().nullish(),
+  "isPrimaryOwner": zod.boolean().optional(),
+  "canAppointPrimaryOwner": zod.boolean().optional()
 })
 
 
@@ -58,6 +106,7 @@ export const SaveAdministrationHandoverBody = zod.object({
   "toUserId": zod.number().int().nullable(),
   "personId": zod.number().int().nullable(),
   "responsibilities": zod.array(zod.enum(['users', 'administrators', 'settings', 'subscription', 'contact'])),
+  "ownerTransfer": zod.boolean().optional(),
   "departure": zod.enum(['retain', 'stay', 'suspend', 'terminate']).describe('retain appoints an additional manager; the three departure choices are stay/suspend/terminate')
 })
 
@@ -72,7 +121,8 @@ export const SaveAdministrationHandoverResponse = zod.object({
   "person_id": zod.number().int().nullish(),
   "from_name": zod.string().optional(),
   "to_name": zod.string().nullish(),
-  "invited_name": zod.string().nullish()
+  "invited_name": zod.string().nullish(),
+  "owner_transfer": zod.boolean().optional()
 })
 
 
@@ -98,7 +148,8 @@ export const AcceptAdministrationHandoverResponse = zod.object({
   "person_id": zod.number().int().nullish(),
   "from_name": zod.string().optional(),
   "to_name": zod.string().nullish(),
-  "invited_name": zod.string().nullish()
+  "invited_name": zod.string().nullish(),
+  "owner_transfer": zod.boolean().optional()
 })
 
 
@@ -136,7 +187,8 @@ export const GetAdministrationReceiptResponse = zod.object({
   "person_id": zod.number().int().nullish(),
   "from_name": zod.string().optional(),
   "to_name": zod.string().nullish(),
-  "invited_name": zod.string().nullish()
+  "invited_name": zod.string().nullish(),
+  "owner_transfer": zod.boolean().optional()
 })
 
 

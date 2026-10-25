@@ -30,6 +30,71 @@ tags:
   - name: auth
     description: Authentication & session management
 paths:
+  /administration/membership/leave:
+    post:
+      operationId: leaveCompanyMembership
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/CompanyMembershipDepartureInput"}
+      responses:
+        "200":
+          description: Voluntary company-local departure with primary-owner and last-administrator protection
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/AdministrationAcknowledgement"}
+  /administration/owner/appoint:
+    post:
+      operationId: appointPrimarySystemOwner
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PrimaryOwnerAppointmentInput"
+      responses:
+        "200":
+          description: Explicit first appointment by an existing fully authorized legacy owner; never bulk migration
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/AdministrationAcknowledgement"}
+  /administration/members/{id}/access:
+    parameters:
+      - {name: id, in: path, required: true, schema: {type: integer}}
+    post:
+      operationId: revokeCompanyMemberAccess
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CompanyAccessRevocationInput"
+      responses:
+        "200":
+          description: Owner-authorized company-local revocation without recipient consent
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/AdministrationAcknowledgement"}
+  /auth/administration/recover:
+    post:
+      operationId: authenticateAdministrationRecovery
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdministrationRecoveryInput"
+      responses:
+        "200":
+          description: Identity-only session; grants no company access
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [userId]
+                properties:
+                  userId: {type: integer}
   /administration:
     get:
       operationId: getAdministrationWorkspace
@@ -4428,6 +4493,28 @@ components:
       required: [ok]
       properties:
         ok: {type: boolean}
+    PrimaryOwnerAppointmentInput:
+      type: object
+      required: [acknowledge]
+      properties:
+        acknowledge: {type: boolean}
+    CompanyMembershipDepartureInput:
+      type: object
+      required: [acknowledge, departure]
+      properties:
+        acknowledge: {type: boolean}
+        departure: {type: string, enum: [suspend, terminate]}
+    CompanyAccessRevocationInput:
+      type: object
+      required: [departure]
+      properties:
+        departure: {type: string, enum: [suspend, terminate]}
+    AdministrationRecoveryInput:
+      type: object
+      required: [email, password]
+      properties:
+        email: {type: string}
+        password: {type: string}
     AdministrationRevision:
       type: object
       required: [expectedRevision]
@@ -4448,6 +4535,7 @@ components:
         toUserId: {type: [integer, "null"]}
         personId: {type: [integer, "null"]}
         responsibilities: {type: array, items: {type: string, enum: [users, administrators, settings, subscription, contact]}}
+        ownerTransfer: {type: boolean}
         departure:
           type: string
           description: retain appoints an additional manager; the three departure choices are stay/suspend/terminate
@@ -4467,6 +4555,7 @@ components:
         from_name: {type: string}
         to_name: {type: [string, "null"]}
         invited_name: {type: [string, "null"]}
+        owner_transfer: {type: boolean}
     AdministrationMember:
       type: object
       required: [id, name]
@@ -4476,6 +4565,7 @@ components:
         role: {type: string}
         status: {type: [string, "null"]}
         active: {type: [boolean, "null"]}
+        primary_owner: {type: boolean}
         responsibilities: {type: [array, "null"], items: {type: string}}
     AdministrationNotice:
       type: object
@@ -4494,6 +4584,9 @@ components:
         members: {type: array, items: {$ref: "#/components/schemas/AdministrationMember"}}
         pending: {type: array, items: {$ref: "#/components/schemas/AdministrationMember"}}
         notifications: {type: array, items: {$ref: "#/components/schemas/AdministrationNotice"}}
+        primaryOwnerId: {type: [integer, "null"]}
+        isPrimaryOwner: {type: boolean}
+        canAppointPrimaryOwner: {type: boolean}
     AdministrationCompletion:
       type: object
       required: [ok, id, departure, replayed]

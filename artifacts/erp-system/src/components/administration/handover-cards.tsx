@@ -26,7 +26,7 @@ export function IncomingCard({ h, onChanged }: { h: AdministrationHandover; onCh
   };
   return (
     <article className="rounded-xl border p-4 transition-colors hover:border-primary/40" data-testid={`card-incoming-${h.id}`}>
-      <div className="mb-3 flex items-center justify-between gap-2"><StatePill state={h.state} testId={`status-incoming-${h.id}`} /></div>
+      <div className="mb-3 flex items-center justify-between gap-2"><StatePill state={h.state} testId={`status-incoming-${h.id}`} />{h.owner_transfer ? <span className="rounded-full border border-amber-400 bg-amber-50 px-2 py-0.5 text-[11px] font-bold text-amber-900 dark:bg-amber-950/40 dark:text-amber-100" data-testid={`badge-owner-transfer-incoming-${h.id}`}>نقل مالك النظام · تحكم مالي كامل</span> : <span className="text-[11px] text-muted-foreground">تسليم إدارة عادي</span>}</div>
       <HandoverDetails h={h} />
       {canAccept && <Button size="sm" className="mt-3" onClick={() => { setAck(false); setOpen(true); }} data-testid={`button-review-accept-${h.id}`}><ShieldCheck className="me-2 size-4" /> مراجعة وقبول</Button>}
       <Dialog open={open} onOpenChange={setOpen}>
@@ -77,7 +77,7 @@ export function OutgoingCard({ h, userId, companyId, onEdit, onChanged }: { h: A
   return (
     <article className="rounded-xl border p-4 transition-colors hover:border-primary/40" data-testid={`card-outgoing-${h.id}`}>
       <div className="mb-3 flex items-center justify-between gap-2">
-        <StatePill state={h.state} testId={`status-outgoing-${h.id}`} />
+        <StatePill state={h.state} testId={`status-outgoing-${h.id}`} />{h.owner_transfer ? <span className="rounded-full border border-amber-400 bg-amber-50 px-2 py-0.5 text-[11px] font-bold text-amber-900 dark:bg-amber-950/40 dark:text-amber-100" data-testid={`badge-owner-transfer-outgoing-${h.id}`}>نقل مالك النظام · تحكم مالي كامل</span> : <span className="text-[11px] text-muted-foreground">تسليم إدارة عادي</span>}
         {!readAllEvidence(userId).some(e=>e.id===h.id) && h.state !== "completed" && h.state !== "cancelled" && <Button size="sm" variant="ghost" onClick={onEdit} data-testid={`button-edit-handover-${h.id}`}><Pencil className="me-1 size-3.5" /> تعديل</Button>}
       </div>
       <HandoverDetails h={h} />

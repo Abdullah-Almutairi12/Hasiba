@@ -18,6 +18,6 @@ export async function ensureAdministrativePerson(tx:DbOrTx,companyId:number,user
 }
 export async function enrollCompanyAdministrator(tx:DbOrTx,companyId:number,userId:number) {
   await ensureAdministrativePerson(tx,companyId,userId);
-  await tx.execute(sql`INSERT INTO company_administrators(company_id,user_id,responsibilities)
-    VALUES(${companyId},${userId},${sql.param([...ADMIN_RESPONSIBILITIES])}::text[])`);
+  await tx.execute(sql`INSERT INTO company_administrators(company_id,user_id,responsibilities,may_appoint_primary_owner)
+    VALUES(${companyId},${userId},${sql.param([...ADMIN_RESPONSIBILITIES])}::text[],true)`);
 }

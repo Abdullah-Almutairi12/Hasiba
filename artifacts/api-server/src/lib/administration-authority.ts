@@ -51,6 +51,9 @@ export async function checkLegacyAdministrativeBoundary(companyId:number,userId:
 }
 /** Call under authority writer fence + company row lock before ANY membership/access downgrade. */
 export async function protectLastAdministrator(tx: DbOrTx, companyId: number, userId: number) {
+  const [primary]=await adminRows(tx,sql`SELECT user_id FROM company_administrators
+    WHERE company_id=${companyId} AND user_id=${userId} AND primary_owner`);
+  if(primary)throw new FinancialRequestError("لا يمكن تعطيل أو إزالة مالك النظام الرئيسي؛ انقل مسؤوليته إلى بديل مفعّل يقبل الاستلام أولًا",409);
   if (!(await administrativeRights(companyId,userId,tx)).includes("administrators")) return;
   const candidates = await adminRows<{user_id:number}>(tx,sql`SELECT user_id FROM user_companies
     WHERE company_id=${companyId} AND user_id<>${userId}`);

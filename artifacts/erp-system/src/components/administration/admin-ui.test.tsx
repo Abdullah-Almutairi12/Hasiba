@@ -3,16 +3,18 @@ import { describe, expect, it, vi, afterEach } from "vitest";
 import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { AdministrationWorkspace } from "@workspace/api-client-react";
-const calls=vi.hoisted(()=>({complete:vi.fn(),accept:vi.fn()}));
+const calls=vi.hoisted(()=>({complete:vi.fn(),accept:vi.fn(),update:vi.fn(),revoke:vi.fn(),save:vi.fn(),leave:vi.fn()}));
 
 vi.mock("@workspace/api-client-react", async (orig) => {
   const m = await orig<Record<string, unknown>>();
   const mut = () => ({ mutateAsync: vi.fn(), isPending: false });
-  return { ...m, useUpdateAdministrator: mut, useSaveAdministrationHandover: mut, useCreateTeamPerson: mut, useInviteTeamPerson: mut,
+  return { ...m, useUpdateAdministrator:()=>({mutateAsync:calls.update,isPending:false}), useSaveAdministrationHandover:()=>({mutateAsync:calls.save,isPending:false}), useRevokeCompanyMemberAccess:()=>({mutateAsync:calls.revoke,isPending:false}), useCreateTeamPerson: mut, useInviteTeamPerson: mut,
+    useLeaveCompanyMembership:()=>({mutateAsync:calls.leave,isPending:false}),
     useCompleteAdministrationHandover:()=>({mutateAsync:calls.complete,isPending:false}),
     useAcceptAdministrationHandover:()=>({mutateAsync:calls.accept,isPending:false}) };
 });
 import { MembersPanel } from "./members-panel";
+import { MembershipDeparture } from "./membership-departure";
 import { HandoverComposer } from "./handover-composer";
 import { IncomingCard, OutgoingCard, RecoveryCard } from "./handover-cards";
 import { readAllEvidence, writeEvidence } from "./shared";
@@ -81,5 +83,54 @@ describe("administration UI", () => {
     fireEvent.click(screen.getByTestId("checkbox-accept-ack"));
     fireEvent.click(screen.getByTestId("button-confirm-accept"));
     await waitFor(()=>expect(calls.accept).toHaveBeenCalledWith({id:"incoming-admin",data:{expectedRevision:4}}));
+  });
+  it("primary owner can add responsibilities directly and is protected from revocation",async()=>{
+    const v={...ws(["administrators","users","settings","subscription","contact"]),isPrimaryOwner:true,primaryOwnerId:1};
+    v.members[0]={...v.members[0],primary_owner:true};
+    wrap(<MembersPanel ws={v} canManage onChanged={()=>{}}/>);
+    expect(screen.queryByTestId("button-suspend-member-1")).toBeNull();
+    fireEvent.click(screen.getByTestId("button-edit-admin-2"));
+    fireEvent.click(screen.getByTestId("checkbox-member-right-settings"));
+    fireEvent.click(screen.getByTestId("button-save-admin"));
+    await waitFor(()=>expect(calls.update).toHaveBeenCalledWith({id:2,data:{responsibilities:["users","settings"],active:true}}));
+  });
+  it("member suspension requires consequence acknowledgement",async()=>{
+    const v={...ws(["administrators"]),isPrimaryOwner:true,primaryOwnerId:1};
+    wrap(<MembersPanel ws={v} canManage onChanged={()=>{}}/>);
+    fireEvent.click(screen.getByTestId("button-terminate-member-2"));
+    expect((screen.getByTestId("button-confirm-revoke") as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByTestId("checkbox-revoke-ack"));
+    fireEvent.click(screen.getByTestId("button-confirm-revoke"));
+    await waitFor(()=>expect(calls.revoke).toHaveBeenCalledWith({id:2,data:{departure:"terminate"}}));
+  });
+  it("owner transfer sends all five responsibilities with ownerTransfer",async()=>{
+    const v={...ws(["administrators","users","settings","subscription","contact"]),isPrimaryOwner:true};
+    wrap(<HandoverComposer ws={v} existing={null} ownerTransfer onClose={()=>{}} onSaved={()=>{}}/>);
+    expect(screen.getByTestId("notice-owner-transfer")).toBeTruthy();
+    expect(screen.queryByTestId("radio-mode-add")).toBeNull();
+    fireEvent.click(screen.getByTestId("radio-candidate-user-2"));
+    fireEvent.click(screen.getByTestId("checkbox-departure-ack"));
+    fireEvent.click(screen.getByTestId("button-save-handover"));
+    await waitFor(()=>expect(calls.save).toHaveBeenCalled());
+    const data=calls.save.mock.calls[0][0].data;
+    expect(data.ownerTransfer).toBe(true);
+    expect([...data.responsibilities].sort()).toEqual(["administrators","contact","settings","subscription","users"]);
+    expect(data.departure).toBe("stay");
+  });
+  it("ordinary self-departure is explicit, scoped by the server and acknowledges each choice",async()=>{
+    calls.leave.mockResolvedValue({ok:true});
+    wrap(<MembershipDeparture primary={false}/>);
+    expect((screen.getByTestId("button-self-departure") as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByTestId("checkbox-self-departure-ack"));
+    fireEvent.change(screen.getByTestId("select-self-departure"),{target:{value:"suspend"}});
+    expect((screen.getByTestId("button-self-departure") as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByTestId("checkbox-self-departure-ack"));
+    fireEvent.click(screen.getByTestId("button-self-departure"));
+    await waitFor(()=>expect(calls.leave).toHaveBeenCalledWith({data:{acknowledge:true,departure:"suspend"}}));
+  });
+  it("primary owner cannot use ordinary self-departure even while other administrators exist",()=>{
+    wrap(<MembershipDeparture primary/>);
+    expect(screen.getByTestId("state-primary-cannot-leave")).toBeTruthy();
+    expect(screen.queryByTestId("button-self-departure")).toBeNull();
   });
 });

@@ -88,9 +88,10 @@ const TeamSetupPage = lazy(() => import("@/pages/team-setup"));
 const TeamActivatePage = lazy(() => import("@/pages/team-activate"));
 const MyWorkPage = lazy(() => import("@/pages/my-work"));
 const AdministrationPage = lazy(() => import("@/pages/administration"));
+const AccountRecoveryPage = lazy(() => import("@/pages/account-recovery"));
 
 /** Paths a scoped (responsibility-bound) member may open. */
-const SCOPED_PATHS = new Set(["/my-work", "/administration"]);
+const SCOPED_PATHS = new Set(["/my-work", "/administration", "/settings/users", "/account/membership"]);
 const SCOPED_RETURNS_PATH = "/returns";
 
 /**
@@ -170,6 +171,7 @@ function Router() {
         </Route>
 
         <Route path="/login" component={Login} />
+        <Route path="/account/recovery" component={AccountRecoveryPage} />
         <Route path="/signup" component={CreateCompany} />
         <Route path="/onboarding" component={OnboardingWizard} />
 
@@ -284,8 +286,14 @@ function Router() {
         <Route path="/team-setup">
           <Protected><TeamSetupPage /></Protected>
         </Route>
+        <Route path="/settings/users">
+          <Protected><AdministrationPage variant="users" /></Protected>
+        </Route>
+        <Route path="/account/membership">
+          <Protected><AdministrationPage variant="membership" /></Protected>
+        </Route>
         <Route path="/administration">
-          <Protected><AdministrationPage /></Protected>
+          <Protected><AdministrationPage variant="legacy" /></Protected>
         </Route>
         <Route path="/my-work">
           <Protected><MyWorkPage /></Protected>

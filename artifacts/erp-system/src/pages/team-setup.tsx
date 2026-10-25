@@ -152,7 +152,7 @@ export default function TeamSetupPage() {
         <h1 className="text-lg font-bold">إعداد الفريق يتطلب مسؤوليتي «المستخدمون» و«الإعدادات» معًا</h1>
         <p className="mt-2 text-xs text-muted-foreground" data-testid="text-missing-rights">ينقصك: مسؤولية المستخدمين. إعدادات المنشأة المنفصلة متاحة في صفحة الإدارة لمن يملك مسؤوليتها.</p>
         <p className="mt-2 text-sm text-muted-foreground">اطلب من مدير النظام إضافة الأشخاص وتحديد مسؤولياتهم.</p>
-        <Link href="/administration" className="mt-3 inline-block text-sm text-primary underline" data-testid="link-administration-forbidden">صندوق تسليم الإدارة</Link>
+        <Link href="/account/membership" className="mt-3 inline-block text-sm text-primary underline" data-testid="link-administration-forbidden">عضويتي في المنشأة</Link>
       </div>
     );
   }
@@ -306,7 +306,7 @@ function TeamSetupInner({ canSubscription,canSettings }: { canSubscription: bool
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Link href="/administration" className="flex items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-medium hover:border-primary/50" data-testid="link-administration"><ShieldCheck className="size-4" /> إدارة النظام والتسليم</Link>
+            <Link href="/settings/users" className="flex items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-medium hover:border-primary/50" data-testid="link-administration"><ShieldCheck className="size-4" /> المستخدمون والصلاحيات</Link>
             <ModeButton active={setup.mode === "solo"} onClick={() => void chooseMode("solo")} icon={User} label="أعمل بمفردي" testId="button-mode-solo" disabled={!canSettings||saveSetup.isPending} />
             <ModeButton active={setup.mode === "team"} onClick={() => void chooseMode("team")} icon={Users} label="لدي فريق" testId="button-mode-team" disabled={!canSettings||saveSetup.isPending} />
           </div>

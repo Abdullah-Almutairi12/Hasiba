@@ -35,6 +35,7 @@ import type {
   AdministrationCompletion,
   AdministrationHandover,
   AdministrationHandoverInput,
+  AdministrationRecoveryInput,
   AdministrationRevision,
   AdministrationWorkspace,
   AdministratorAccessInput,
@@ -62,6 +63,7 @@ import type {
   AssignUserRequest,
   AuditConsent,
   AuditLog,
+  AuthenticateAdministrationRecovery200,
   AutomationRule,
   AutomationRuleInput,
   AutomationRulePatch,
@@ -81,7 +83,9 @@ import type {
   CloseYearResult,
   ClosingEntry,
   Company,
+  CompanyAccessRevocationInput,
   CompanyDeleteError,
+  CompanyMembershipDepartureInput,
   CompanySettings,
   CompanySettingsPatch,
   CompanyUser,
@@ -211,6 +215,7 @@ import type {
   PosSession,
   PosSummary,
   PostJournalEntry200,
+  PrimaryOwnerAppointmentInput,
   Product,
   ProductStats,
   ProfitLoss,
@@ -340,6 +345,335 @@ const withQueryKey = <T extends object, K>(query: T, queryKey: K): T & { queryKe
   }
   return result;
 };
+
+export const getLeaveCompanyMembershipUrl = () => {
+
+
+
+
+  return `/api/administration/membership/leave`
+}
+
+export const leaveCompanyMembership = async (companyMembershipDepartureInput: CompanyMembershipDepartureInput, options?: Parameters<typeof customFetch>[1]): Promise<AdministrationAcknowledgement> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<AdministrationAcknowledgement>(getLeaveCompanyMembershipUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(companyMembershipDepartureInput)
+  }
+);}
+
+
+
+
+
+export const getLeaveCompanyMembershipMutationKey = () => ['leaveCompanyMembership'] as const;
+
+export const getLeaveCompanyMembershipMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof leaveCompanyMembership>>, TError,LeaveCompanyMembershipMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof leaveCompanyMembership>>, TError,LeaveCompanyMembershipMutationVariables, TContext> => {
+
+const mutationKey = getLeaveCompanyMembershipMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof leaveCompanyMembership>>, LeaveCompanyMembershipMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  leaveCompanyMembership(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type LeaveCompanyMembershipMutationResult = NonNullable<Awaited<ReturnType<typeof leaveCompanyMembership>>>
+    export type LeaveCompanyMembershipMutationBody = BodyType<CompanyMembershipDepartureInput>
+    export type LeaveCompanyMembershipMutationError = ErrorType<unknown>
+    export type LeaveCompanyMembershipMutationVariables = {data: BodyType<CompanyMembershipDepartureInput>}
+
+    export const useLeaveCompanyMembership = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof leaveCompanyMembership>>, TError,LeaveCompanyMembershipMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof leaveCompanyMembership>>,
+        TError,
+        LeaveCompanyMembershipMutationVariables,
+        TContext
+      > => {
+      return useMutation(getLeaveCompanyMembershipMutationOptions(options), queryClient);
+    }
+
+export const getAppointPrimarySystemOwnerUrl = () => {
+
+
+
+
+  return `/api/administration/owner/appoint`
+}
+
+export const appointPrimarySystemOwner = async (primaryOwnerAppointmentInput: PrimaryOwnerAppointmentInput, options?: Parameters<typeof customFetch>[1]): Promise<AdministrationAcknowledgement> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<AdministrationAcknowledgement>(getAppointPrimarySystemOwnerUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(primaryOwnerAppointmentInput)
+  }
+);}
+
+
+
+
+
+export const getAppointPrimarySystemOwnerMutationKey = () => ['appointPrimarySystemOwner'] as const;
+
+export const getAppointPrimarySystemOwnerMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof appointPrimarySystemOwner>>, TError,AppointPrimarySystemOwnerMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof appointPrimarySystemOwner>>, TError,AppointPrimarySystemOwnerMutationVariables, TContext> => {
+
+const mutationKey = getAppointPrimarySystemOwnerMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof appointPrimarySystemOwner>>, AppointPrimarySystemOwnerMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  appointPrimarySystemOwner(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AppointPrimarySystemOwnerMutationResult = NonNullable<Awaited<ReturnType<typeof appointPrimarySystemOwner>>>
+    export type AppointPrimarySystemOwnerMutationBody = BodyType<PrimaryOwnerAppointmentInput>
+    export type AppointPrimarySystemOwnerMutationError = ErrorType<unknown>
+    export type AppointPrimarySystemOwnerMutationVariables = {data: BodyType<PrimaryOwnerAppointmentInput>}
+
+    export const useAppointPrimarySystemOwner = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof appointPrimarySystemOwner>>, TError,AppointPrimarySystemOwnerMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof appointPrimarySystemOwner>>,
+        TError,
+        AppointPrimarySystemOwnerMutationVariables,
+        TContext
+      > => {
+      return useMutation(getAppointPrimarySystemOwnerMutationOptions(options), queryClient);
+    }
+
+export const getRevokeCompanyMemberAccessUrl = (id: number,) => {
+
+
+
+
+  return `/api/administration/members/${id}/access`
+}
+
+export const revokeCompanyMemberAccess = async (id: number,
+    companyAccessRevocationInput: CompanyAccessRevocationInput, options?: Parameters<typeof customFetch>[1]): Promise<AdministrationAcknowledgement> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<AdministrationAcknowledgement>(getRevokeCompanyMemberAccessUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(companyAccessRevocationInput)
+  }
+);}
+
+
+
+
+
+export const getRevokeCompanyMemberAccessMutationKey = () => ['revokeCompanyMemberAccess'] as const;
+
+export const getRevokeCompanyMemberAccessMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof revokeCompanyMemberAccess>>, TError,RevokeCompanyMemberAccessMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof revokeCompanyMemberAccess>>, TError,RevokeCompanyMemberAccessMutationVariables, TContext> => {
+
+const mutationKey = getRevokeCompanyMemberAccessMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof revokeCompanyMemberAccess>>, RevokeCompanyMemberAccessMutationVariables> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  revokeCompanyMemberAccess(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RevokeCompanyMemberAccessMutationResult = NonNullable<Awaited<ReturnType<typeof revokeCompanyMemberAccess>>>
+    export type RevokeCompanyMemberAccessMutationBody = BodyType<CompanyAccessRevocationInput>
+    export type RevokeCompanyMemberAccessMutationError = ErrorType<unknown>
+    export type RevokeCompanyMemberAccessMutationVariables = {id: number;data: BodyType<CompanyAccessRevocationInput>}
+
+    export const useRevokeCompanyMemberAccess = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof revokeCompanyMemberAccess>>, TError,RevokeCompanyMemberAccessMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof revokeCompanyMemberAccess>>,
+        TError,
+        RevokeCompanyMemberAccessMutationVariables,
+        TContext
+      > => {
+      return useMutation(getRevokeCompanyMemberAccessMutationOptions(options), queryClient);
+    }
+
+export const getAuthenticateAdministrationRecoveryUrl = () => {
+
+
+
+
+  return `/api/auth/administration/recover`
+}
+
+export const authenticateAdministrationRecovery = async (administrationRecoveryInput: AdministrationRecoveryInput, options?: Parameters<typeof customFetch>[1]): Promise<AuthenticateAdministrationRecovery200> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<AuthenticateAdministrationRecovery200>(getAuthenticateAdministrationRecoveryUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(administrationRecoveryInput)
+  }
+);}
+
+
+
+
+
+export const getAuthenticateAdministrationRecoveryMutationKey = () => ['authenticateAdministrationRecovery'] as const;
+
+export const getAuthenticateAdministrationRecoveryMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof authenticateAdministrationRecovery>>, TError,AuthenticateAdministrationRecoveryMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof authenticateAdministrationRecovery>>, TError,AuthenticateAdministrationRecoveryMutationVariables, TContext> => {
+
+const mutationKey = getAuthenticateAdministrationRecoveryMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof authenticateAdministrationRecovery>>, AuthenticateAdministrationRecoveryMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  authenticateAdministrationRecovery(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AuthenticateAdministrationRecoveryMutationResult = NonNullable<Awaited<ReturnType<typeof authenticateAdministrationRecovery>>>
+    export type AuthenticateAdministrationRecoveryMutationBody = BodyType<AdministrationRecoveryInput>
+    export type AuthenticateAdministrationRecoveryMutationError = ErrorType<unknown>
+    export type AuthenticateAdministrationRecoveryMutationVariables = {data: BodyType<AdministrationRecoveryInput>}
+
+    export const useAuthenticateAdministrationRecovery = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof authenticateAdministrationRecovery>>, TError,AuthenticateAdministrationRecoveryMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof authenticateAdministrationRecovery>>,
+        TError,
+        AuthenticateAdministrationRecoveryMutationVariables,
+        TContext
+      > => {
+      return useMutation(getAuthenticateAdministrationRecoveryMutationOptions(options), queryClient);
+    }
 
 export const getGetAdministrationWorkspaceUrl = () => {
 

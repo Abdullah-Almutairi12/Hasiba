@@ -339,6 +339,10 @@ function UserMenu() {
           <Settings className="me-2 size-4" />
           {t("header.settings")}
         </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => setLocation("/account/membership")} data-testid="menu-account-membership">
+          <Settings className="me-2 size-4" />
+          إعدادات حسابي وعضوية المنشأة
+        </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem
           onClick={handleLogout}

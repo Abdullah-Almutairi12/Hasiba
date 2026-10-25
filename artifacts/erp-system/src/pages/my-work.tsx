@@ -1,3 +1,4 @@
+import { useGetAdministrationWorkspace, getGetAdministrationWorkspaceQueryKey } from "@workspace/api-client-react";
 import { useEffect, useMemo, useState } from "react";
 import { actionLabel, posResponsibilitySummary } from "@/lib/pos-actions";
 import { Link, useLocation } from "wouter";
@@ -111,11 +112,11 @@ export default function MyWorkPage() {
           <div className="text-end text-xs text-muted-foreground">
             <span className="inline-block rounded-full border px-2 py-0.5 font-medium text-foreground" data-testid="status-workspace">{st.label}</span>
             {access.revision != null && <div className="mt-1">مراجعة الصلاحيات {access.revision} · تتحدّث تلقائيًا</div>}
-            <Link href="/administration" className="mt-1 inline-block text-primary underline" data-testid="link-administration-inbox">صندوق تسليم الإدارة</Link>
           </div>
         </div>
       </section>
 
+      <AdministrationActionNotice />
       {pending && (
         <div role="alert" className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100" data-testid="banner-pending-checkout">
           <p className="font-bold">عملية بيع غير مؤكدة بانتظار الاسترجاع</p>
@@ -257,5 +258,26 @@ function InventoryView({ grantId, branch }: { grantId: number; branch: string })
       )}
       <InventoryTransferReceipts key={grantId} grantId={grantId}/>
     </section>
+  );
+}
+
+/** Only an actionable proposal for THIS person surfaces in daily work. */
+function AdministrationActionNotice() {
+  const q = useGetAdministrationWorkspace({ query: { queryKey: getGetAdministrationWorkspaceQueryKey(), retry: false, refetchInterval: 30_000 } });
+  const ws = q.data;
+  if (!ws) return null;
+  const toAccept = ws.handovers.find((h) => h.to_user_id === ws.userId && (h.state === "pending" || h.state === "proposed"));
+  const toFinalize = ws.handovers.find((h) => h.from_user_id === ws.userId && h.state === "accepted");
+  const h = toAccept ?? toFinalize;
+  if (!h) return null;
+  const owner = h.owner_transfer === true;
+  const text = toAccept
+    ? `${h.from_name ?? "مدير"} يقترح ${owner ? "نقل مسؤولية مالك النظام" : "تسليم مسؤوليات إدارية"} إليك. يلزم قبولك الصريح.`
+    : `قَبِل ${h.to_name ?? h.invited_name ?? "البديل"} ${owner ? "نقل مالك النظام" : "التسليم"}. بانتظار تنفيذك.`;
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-sky-300 bg-sky-50 p-4 text-sm text-sky-900 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-100" data-testid="notice-administration-action">
+      <p>{text}</p>
+      <Link href={toAccept ? "/account/membership" : "/settings/users"} className="font-semibold underline" data-testid="link-administration-action">فتح الاقتراح</Link>
+    </div>
   );
 }

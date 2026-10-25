@@ -550,7 +550,9 @@ router.patch("/hr/employees/:id", hrGuard, async (req, res) => {
       await lockApprovalAuthorityWrite(tx);
       await tx.execute(sql`SELECT id FROM companies WHERE id=${companyId} FOR UPDATE`);
       const [before]=await tx.select().from(employeesTable).where(and(eq(employeesTable.id,id),eq(employeesTable.companyId,companyId)));
-      if(before?.userId && body.status && ["suspended","terminated"].includes(body.status))
+      if(before?.userId && (
+        (body.status!==undefined&&!["active","on_leave","probation","preboarding"].includes(body.status))||
+        (body.userId!==undefined&&body.userId!==before.userId)))
         await protectLastAdministrator(tx,companyId,before.userId);
       const [updated]=await tx.update(employeesTable).set(update)
         .where(and(eq(employeesTable.id,id),eq(employeesTable.companyId,companyId))).returning();
