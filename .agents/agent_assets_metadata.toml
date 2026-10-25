@@ -574,3 +574,31 @@ mtime_ms = 1792953092748
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/5f8b3fd5-1d93-4dc3-83e5-a51cd001c346/e14ddf0e-7e10-41a5-8512-d3e5cb79115e"
 storage_version_token = "1792953126835158"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "BUVZjVVG1Q8_TZK5e7IJ6"
+uri = "file://generated-artifacts/procurement-responsibilities/report.html"
+type = "html"
+title = "تقرير الموردين وأوامر الشراء — حاسبة"
+description = "التنفيذ المثبت، نتائج النسخة المختبرة، حدود المتصفح، والمتبقي والمزامنة المؤكدة."
+logical_id = "94b31ddb-acb7-46da-bd72-0758a981142a"
+content_hash = "sha256:1f8b0d9819a2bf402f5e5aaeb533bfc849b6c3a8b5bd9eaba5b2d3f9a12d4452"
+size = 18417
+mtime_ms = 1792961971619
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/94b31ddb-acb7-46da-bd72-0758a981142a/7e4324a0-4bb7-4f49-b49a-3cd46637dc7c"
+storage_version_token = "1792961992622842"
+content_type = "text/html"
+
+[[outputs]]
+id = "z4-wHjVdZMXNiyiMCp309"
+uri = "file://generated-artifacts/procurement-responsibilities/hasiba-procurement-evidence.zip"
+type = "unspecified"
+title = "حزمة أدلة التحقق والمزامنة"
+description = "15 بوابة، نتائج اختبارات الخادم والواجهة، رحلة المتصفح، إيصال GitHub وبصمات الملفات. بلا بيانات تشغيلية أو أسرار."
+logical_id = "69c46f7e-9595-46d9-aec1-850d194076bc"
+content_hash = "sha256:d34cd88c35ff070787a594712e1f7f807de4c812fda756e4f7b69348f1582d9f"
+size = 127211
+mtime_ms = 1792961971872
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/69c46f7e-9595-46d9-aec1-850d194076bc/351aa921-c1ef-4617-91b9-b4acad91b6b5"
+storage_version_token = "1792961994516500"
+content_type = "application/octet-stream"
