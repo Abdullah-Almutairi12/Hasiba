@@ -200,6 +200,7 @@ describe("original POS invoice: independent linked return lifecycle", () => {
       "0043_primary_system_owner.sql",
       "0044_membership_departure.sql",
       "0045_permission_templates.sql",
+      "0046_pos_device_identity.sql",
     ]);
     expect(first.skipped).toHaveLength(26);
     expect(await snapshots()).toEqual(before);
@@ -212,6 +213,8 @@ describe("original POS invoice: independent linked return lifecycle", () => {
     expect(await rows("SELECT count(*)::int AS n FROM invoice_seller_lines WHERE company_id=$1", [f.companyId])).toEqual([{ n: 0 }]);
     // Installing the bridge must not silently convert old memberships.
     expect(await rows("SELECT count(*)::int AS n FROM legacy_team_conversions")).toEqual([{ n: 0 }]);
+    expect(await rows("SELECT count(*)::int AS n FROM pos_devices")).toEqual([{ n: 0 }]);
+    expect(await rows("SELECT count(*)::int AS n FROM pos_employee_credentials")).toEqual([{ n: 0 }]);
     expect(await rows(`SELECT column_default FROM information_schema.columns
       WHERE table_schema='public' AND table_name='return_controls' AND column_name='receipt_required'`))
       .toEqual([{ column_default: "false" }]);
