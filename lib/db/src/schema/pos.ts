@@ -7,6 +7,7 @@ import { customersTable } from "./customers";
 import { companiesTable } from "./companies";
 
 export const posSessionsTable = pgTable("pos_sessions", {
+  posStationId: integer("pos_station_id"),
   id: serial("id").primaryKey(),
   sessionNumber: text("session_number").notNull().unique(),
   branchId: integer("branch_id").notNull().references(() => branchesTable.id),

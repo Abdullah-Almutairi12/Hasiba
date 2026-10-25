@@ -13,9 +13,9 @@ let f:PosTemplateFixture,device:Device,foreign:Device,person:any,other:any,forei
 const pin="81367429";
 const rows=(text:string,args:unknown[]=[])=>pool.query(text,args).then(r=>r.rows);
 const keypair=()=>generateKeyPairSync("ec",{namedCurve:"prime256v1"});
-async function register(branch:number,name="جهاز تجربة برمجية"):Promise<Device>{
+async function register(branch:number,name="جهاز تجربة برمجية",stationName="نقطة اختبار"):Promise<Device>{
   const keys=keypair(),j=keys.publicKey.export({format:"jwk"});
-  const result=ok(await f.owner.post("/api/pos-devices").send({name,branchId:branch,stationName:"نقطة اختبار",
+  const result=ok(await f.owner.post("/api/pos-devices").send({name,branchId:branch,stationName,
     publicJwk:{kty:j.kty,crv:j.crv,x:j.x,y:j.y}}),201);
   return {id:result.id,privateKey:keys.privateKey};
 }
@@ -124,6 +124,10 @@ describe.sequential("POS device software proof and cashier-only identity",()=>{
     const shift=ok(await call(cashier.agent,device,"post","/pos/sessions",{branchId:f.branches[0].id,openingCash:0,cashierName:"كاشير بلا بريد"}),201);
     const body={sessionId:shift.id,paymentMethod:"cash",discount:0,items:[{productId:f.products[0].id,quantity:1,unitPrice:0.01}]};
     committedBody=body;
+    const differentStation=await register(f.branches[0].id,"جهاز نقطة أخرى","نقطة مختلفة");
+    await activate(differentStation);
+    const wrongStation=await unlock(differentStation);ok(wrongStation.response);
+    ok(await call(wrongStation.agent,differentStation,"post","/pos/orders",body,person.grants[0].id,randomUUID()),403);
     const key=randomUUID();
     const sale=ok(await call(cashier.agent,device,"post","/pos/orders",body,person.grants[0].id,key),201);
     expect(Number(sale.total)).toBe(10);

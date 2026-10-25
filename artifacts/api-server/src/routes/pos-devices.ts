@@ -29,6 +29,7 @@ const proofSchema=z.object({id:z.string().uuid(),nonce:z.string().min(20).max(10
 const requestProofSchema=z.object({deviceId:z.string().uuid(),proof:proofSchema});
 const limiter=rateLimit({windowMs:60_000,max:120,standardHeaders:true,legacyHeaders:false,
   message:{error:"طلبات كثيرة، انتظر قليلًا"}});
+posDevicePublicRouter.use((_req,res,next)=>{res.set("Cache-Control","no-store");next();});
 posDevicePublicRouter.use("/pos-device",limiter,requireSameOrigin);
 posDevicePublicRouter.post("/pos-device/challenge",wrapped(async(req,res)=>{
   const b=z.object({deviceId:z.string().uuid(),purpose:z.enum(["activate","unlock","request"]),binding:z.string().regex(/^[a-f0-9]{64}$/)}).strict().parse(req.body);
@@ -72,7 +73,7 @@ posDevicePublicRouter.post("/pos-device/unlock",wrapped(async(req,res)=>{
       return {error:true as const};
     }
     const context:PosDeviceAuthority={deviceId:d.id,generation:d.generation,companyId:d.company_id,
-      branchId:d.branch_id,userId:p.user_id,personId:b.personId,pinRevision:p.revision};
+      branchId:d.branch_id,stationId:d.station_id,userId:p.user_id,personId:b.personId,pinRevision:p.revision};
     await assertPosDeviceAuthority(tx,context);
     const grants=await posDeviceAuthority.run(context,()=>currentResponsibilities(p.user_id,d.company_id,tx));
     if(!grants.some(g=>g.actions.includes("pos.read")))throw new FinancialRequestError("لا مسؤولية POS فعالة لهذا الفرع",403);
@@ -92,9 +93,10 @@ posDevicePublicRouter.post("/pos-device/unlock",wrapped(async(req,res)=>{
 posDevicePublicRouter.get("/auth/me",wrapped(async(req,res)=>{
   if(req.session.purpose!=="pos_device"){res.status(404).json({error:"not POS"});return;}
   const c=req.session.posDevice!;
-  const [row]=await teamRows<{name:string}>(db,sql`SELECT name FROM users WHERE id=${c.userId}`);
+  const [row]=await teamRows<{name:string;businessType:string|null}>(db,sql`SELECT u.name,c.business_type AS "businessType"
+    FROM users u JOIN companies c ON c.id=${c.companyId} WHERE u.id=${c.userId}`);
   res.json({id:c.userId,name:row.name,email:null,role:"scoped",branchId:c.branchId,preferredBranchId:c.branchId,
-    avatarUrl:null,companyId:c.companyId,businessType:"retail",companies:[],posDevice:true});
+    avatarUrl:null,companyId:c.companyId,businessType:row.businessType,companies:[],posDevice:true});
 }));
 
 posDeviceAdminRouter.get("/pos-devices",wrapped(async(req,res)=>{
