@@ -994,6 +994,57 @@ paths:
               schema:
                 type: array
                 items: { $ref: "#/components/schemas/WorkspaceStock" }
+  /workspace/inventory/movement-options:
+    get:
+      operationId: getWorkspaceInventoryMovementOptions
+      tags: [Team]
+      parameters:
+        - { name: X-Workspace-Responsibility, in: header, required: true, schema: { type: integer } }
+      responses:
+        "200":
+          description: Live movement actions and explicitly assigned source/destination warehouses; no cost. First 1000 ordinary products only.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [actions, sources, destinations, products, recent]
+                properties:
+                  actions: { type: array, items: { type: string } }
+                  sources:
+                    type: array
+                    items: &movementWarehouse
+                      type: object
+                      required: [id, branchId, name, responsibilityId]
+                      properties:
+                        id: { type: integer }
+                        branchId: { type: integer }
+                        name: { type: string }
+                        responsibilityId: { type: integer }
+                  destinations:
+                    type: array
+                    items: *movementWarehouse
+                  products:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, name, sku]
+                      properties:
+                        id: { type: integer }
+                        name: { type: string }
+                        sku: { type: string }
+                  recent:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, kind, state, quantity, productName]
+                      properties:
+                        id: { type: integer }
+                        kind: { type: string }
+                        state: { type: string }
+                        quantity: { type: string }
+                        productName: { type: string }
+        "403":
+          description: No live inventory read responsibility
   /workspace/inventory/transfers:
     get:
       operationId: getWorkspaceInventoryTransfers

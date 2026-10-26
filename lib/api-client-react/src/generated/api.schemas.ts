@@ -3447,6 +3447,42 @@ export type AcceptTeamActivation200 = {
   email: string;
 };
 
+export type GetWorkspaceInventoryMovementOptions200SourcesItem = {
+  id: number;
+  branchId: number;
+  name: string;
+  responsibilityId: number;
+};
+
+export type GetWorkspaceInventoryMovementOptions200DestinationsItem = {
+  id: number;
+  branchId: number;
+  name: string;
+  responsibilityId: number;
+};
+
+export type GetWorkspaceInventoryMovementOptions200ProductsItem = {
+  id: number;
+  name: string;
+  sku: string;
+};
+
+export type GetWorkspaceInventoryMovementOptions200RecentItem = {
+  id: number;
+  kind: string;
+  state: string;
+  quantity: string;
+  productName: string;
+};
+
+export type GetWorkspaceInventoryMovementOptions200 = {
+  actions: string[];
+  sources: GetWorkspaceInventoryMovementOptions200SourcesItem[];
+  destinations: GetWorkspaceInventoryMovementOptions200DestinationsItem[];
+  products: GetWorkspaceInventoryMovementOptions200ProductsItem[];
+  recent: GetWorkspaceInventoryMovementOptions200RecentItem[];
+};
+
 export type GetWorkspaceInventoryTransfers200TransfersItemState = typeof GetWorkspaceInventoryTransfers200TransfersItemState[keyof typeof GetWorkspaceInventoryTransfers200TransfersItemState];
 
 

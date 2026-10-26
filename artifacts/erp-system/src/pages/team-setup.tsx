@@ -756,7 +756,7 @@ function PersonEditor({ editing, catalog, branches, warehouses, onChange, onClos
                       {g.actions.map((a) => <Badge key={a} variant="secondary">{actionLabel(a, catalog.actions.find((x) => x.key === a)?.label)}</Badge>)}
                     </div>
                     <div className="mt-2 text-xs text-muted-foreground">
-                      {g.amountLimit ? `سقف البيع: ${g.amountLimit} ر.س` : "بلا سقف إضافي"}
+                      {g.amountLimit ? `سقف ${g.resource==="inventory"?"الحركة":g.resource==="procurement"?"أمر الشراء":"البيع"}: ${g.amountLimit} ر.س` : "بلا سقف إضافي"}
                       {g.startsAt && ` · من ${new Date(g.startsAt).toLocaleString("ar-SA")}`}
                       {g.endsAt && ` · حتى ${new Date(g.endsAt).toLocaleString("ar-SA")}`}
                     </div>
@@ -910,9 +910,9 @@ function GrantCard({ index, grant, catalog, branches, warehouses, issues, onChan
       </div>
 
       <div className="mt-4 grid gap-3 sm:grid-cols-3">
-        {grant.resource !== "inventory" && (
+        {(grant.resource !== "inventory" || grant.actions.some(a=>["inventory.move.receipt","inventory.move.issue","inventory.transfer.send"].includes(a))) && (
           <div>
-            <Label className="text-xs">{grant.resource==="procurement"?"سقف قيمة أمر الشراء":"سقف قيمة البيع الواحد"} (ر.س)</Label>
+            <Label className="text-xs">{grant.resource==="inventory"?"سقف قيمة حركة المخزون المحسوبة خادميًا":grant.resource==="procurement"?"سقف قيمة أمر الشراء":"سقف قيمة البيع الواحد"} (ر.س)</Label>
             <Input dir="ltr" inputMode="decimal" placeholder="بلا سقف" value={grant.amountLimit ?? ""} onChange={(e) => onChange({ amountLimit: e.target.value || null })} data-testid={`input-grant-limit-${index}`} />
           </div>
         )}

@@ -34,6 +34,8 @@ import { lockApprovalAuthority } from "../lib/approval-authority";
 import { inventoryTransferReadGuard, transferAuthority, transferReceiptReference, auditTransferReceipt } from "../lib/scoped-inventory-receipts";
 import { lockStocktakeForCount, auditCountObservation, stocktakeReadAuthority } from "../lib/stocktake-count";
 import { inventoryActor,auditInventoryMutation } from "../lib/scoped-inventory-actor";
+import { managedProfile } from "../lib/responsibility-context";
+import { executeScopedInventoryMovement, inventoryMovementOptions } from "../lib/scoped-inventory-movements";
 
 const router = Router();
 router.use("/inventory", supplyReferencesGuard);
@@ -200,8 +202,15 @@ const ManualMoveBody = z.object({
   notes: z.string().optional(),
 });
 
-router.post("/inventory/moves", inventoryGuard, async (req, res) => {
+router.get("/workspace/inventory/movement-options",inventoryTransferReadGuard,async(req,res)=>{
+ try{res.json(await inventoryMovementOptions(req));}
+ catch(error){res.status(error instanceof FinancialRequestError?error.status:400).json({error:error instanceof Error?error.message:"تعذر تحميل نطاق الحركة"});}
+});
+router.post("/inventory/moves", inventoryTransferReadGuard, async (req, res) => {
   try {
+    if(await managedProfile(req.session.userId!,getCompanyId(req))){
+      res.status(201).json(await executeScopedInventoryMovement(req,false));return;
+    }
     const body = ManualMoveBody.parse(req.body);
     const result = await financialTransaction(req, async (tx) => {
       // Legacy compatibility only: managed-access still refuses unsupported
@@ -281,8 +290,11 @@ const TransferBody = z.object({
   notes: z.string().optional(),
 });
 
-router.post("/inventory/transfers", inventoryGuard, async (req, res) => {
+router.post("/inventory/transfers", inventoryTransferReadGuard, async (req, res) => {
   try {
+    if(await managedProfile(req.session.userId!,getCompanyId(req))){
+      res.status(201).json(await executeScopedInventoryMovement(req,true));return;
+    }
     const body = TransferBody.parse(req.body);
     if (body.fromWarehouseId === body.toWarehouseId) {
       return res.status(400).json({ error: "المصدر والوجهة لا يمكن أن يكونا نفس المستودع" });
@@ -579,6 +591,8 @@ router.post("/inventory/stock-takes", inventoryGuard, async (req, res) => {
       await lockApprovalAuthority(tx);
       await inventoryActor(tx,req,"inventory.write");
       const ref = `ST-${Date.now()}`;
+      // Coordinate the snapshot with new delegated warehouse movements only.
+      await tx.execute(sql`SELECT id FROM warehouses WHERE id=${body.warehouseId} AND company_id=${getCompanyId(req)} FOR UPDATE`);
       const [take] = await tx
         .insert(stockTakesTable)
         .values({

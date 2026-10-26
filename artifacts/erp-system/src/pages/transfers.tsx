@@ -30,6 +30,9 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { ArrowLeftRight, Plus, Truck } from "lucide-react";
+import { useSelectedResponsibility } from "@/lib/workspace-responsibility";
+import { InventoryMovements } from "@/components/inventory-movements";
+import { InventoryTransferReceipts } from "@/components/inventory-transfer-receipts";
 
 interface TransferRow {
   id: number;
@@ -54,7 +57,14 @@ interface Product {
   sku: string;
 }
 
-export default function TransfersPage() {
+export default function TransfersPage(){
+  const selected=useSelectedResponsibility();
+  if(selected?.resource==="inventory")return <div className="space-y-4"><h1 className="text-3xl font-bold">التحويلات بين المستودعات</h1>
+    <InventoryMovements grantId={selected.id} onlyTransfer/>
+    <InventoryTransferReceipts grantId={selected.id}/></div>;
+  return <LegacyTransfersPage/>;
+}
+function LegacyTransfersPage() {
   const qc = useQueryClient();
   const { toast } = useToast();
   const [open, setOpen] = useState(false);

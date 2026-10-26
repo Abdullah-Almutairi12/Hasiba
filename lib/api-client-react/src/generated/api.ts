@@ -173,6 +173,7 @@ import type {
   GetSupplierInvoiceDraftOptionsParams,
   GetTrialBalanceParams,
   GetVatReturnParams,
+  GetWorkspaceInventoryMovementOptions200,
   GetWorkspaceInventoryTransfers200,
   HealthStatus,
   ImportBankStatementBody,
@@ -5428,6 +5429,101 @@ export function useGetWorkspaceInventory<TData = Awaited<ReturnType<typeof getWo
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getGetWorkspaceInventoryQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetWorkspaceInventoryMovementOptionsUrl = () => {
+
+
+
+
+  return `/api/workspace/inventory/movement-options`
+}
+
+export const getWorkspaceInventoryMovementOptions = async ( options?: Parameters<typeof customFetch>[1]): Promise<GetWorkspaceInventoryMovementOptions200> => {
+
+  return customFetch<GetWorkspaceInventoryMovementOptions200>(getGetWorkspaceInventoryMovementOptionsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetWorkspaceInventoryMovementOptionsQueryKey = () => {
+    return [
+    `/api/workspace/inventory/movement-options`
+    ] as const;
+    }
+
+
+export const getGetWorkspaceInventoryMovementOptionsQueryOptions = <TData = Awaited<ReturnType<typeof getWorkspaceInventoryMovementOptions>>, TError = ErrorType<void>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getWorkspaceInventoryMovementOptions>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetWorkspaceInventoryMovementOptionsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getWorkspaceInventoryMovementOptions>>> = ({ signal }) => getWorkspaceInventoryMovementOptions({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getWorkspaceInventoryMovementOptions>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetWorkspaceInventoryMovementOptionsQueryResult = NonNullable<Awaited<ReturnType<typeof getWorkspaceInventoryMovementOptions>>>
+export type GetWorkspaceInventoryMovementOptionsQueryError = ErrorType<void>
+
+
+export function useGetWorkspaceInventoryMovementOptions<TData = Awaited<ReturnType<typeof getWorkspaceInventoryMovementOptions>>, TError = ErrorType<void>>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getWorkspaceInventoryMovementOptions>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getWorkspaceInventoryMovementOptions>>,
+          TError,
+          Awaited<ReturnType<typeof getWorkspaceInventoryMovementOptions>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetWorkspaceInventoryMovementOptions<TData = Awaited<ReturnType<typeof getWorkspaceInventoryMovementOptions>>, TError = ErrorType<void>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getWorkspaceInventoryMovementOptions>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getWorkspaceInventoryMovementOptions>>,
+          TError,
+          Awaited<ReturnType<typeof getWorkspaceInventoryMovementOptions>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetWorkspaceInventoryMovementOptions<TData = Awaited<ReturnType<typeof getWorkspaceInventoryMovementOptions>>, TError = ErrorType<void>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getWorkspaceInventoryMovementOptions>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useGetWorkspaceInventoryMovementOptions<TData = Awaited<ReturnType<typeof getWorkspaceInventoryMovementOptions>>, TError = ErrorType<void>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getWorkspaceInventoryMovementOptions>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetWorkspaceInventoryMovementOptionsQueryOptions(options)
 
   const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 

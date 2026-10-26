@@ -22,6 +22,7 @@ import { RESOURCE_LABEL, errorText, grantWindowState, statusMeta } from "@/lib/t
 import { refreshSelectedFromAccess, selectResponsibility, selectionFromAccess, useSelectedResponsibility } from "@/lib/workspace-responsibility";
 import { readPendingPosAttempt } from "@/hooks/use-pos-checkout";
 import { InventoryTransferReceipts } from "@/components/inventory-transfer-receipts";
+import { InventoryMovements } from "@/components/inventory-movements";
 
 const fmtQty = (q: string) => {
   const n = Number(q);
@@ -221,6 +222,7 @@ function InventoryView({ grantId, branch }: { grantId: number; branch: string })
 
   return (
     <section className="rounded-2xl border bg-card" data-testid="panel-inventory">
+      <InventoryMovements grantId={grantId}/>
       <div className="flex flex-wrap items-center gap-3 border-b p-4">
         <div className="flex-1">
           <h2 className="font-bold">مخزون {branch}</h2>

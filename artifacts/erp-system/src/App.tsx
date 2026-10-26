@@ -112,7 +112,7 @@ function ScopedGate({ children, pos = false }: { children: React.ReactNode; pos?
   const selected = useSelectedResponsibility();
   const scoped = user?.role === "scoped";
   const posView = selected?.resource === "pos" && selected.actions.includes("pos.read");
-  const inventoryCountView=location==="/inventory/stocktake"&&selected?.resource==="inventory"&&selected.actions.includes("inventory.read");
+  const inventoryCountView=["/inventory/stocktake","/inventory/transfers"].includes(location)&&selected?.resource==="inventory"&&selected.actions.includes("inventory.read");
   // Company policy requires a verified factor: only the self-security page is reachable.
   const enrollOnly = !!user?.mfaEnrollmentRequired;
   useEffect(() => {

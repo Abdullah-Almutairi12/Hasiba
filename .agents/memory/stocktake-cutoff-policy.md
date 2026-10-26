@@ -16,3 +16,14 @@ cycles, choose and test a freeze/cutoff or movement reconciliation policy. Inclu
 sales and receipts after the snapshot and overlapping warehouse counts. Do not
 silently grant variance approval with a count permission or replace the existing
 financial engine without separate evidence.
+
+A narrow guard that blocks newly delegated movements during an open count is
+not evidence of a global stocktake cutoff.
+
+**Why:** Legacy sales, receipts and other writers can still move stock during a
+count. Serializing a count opening with selected new movement types does not
+reconcile those other writers or authorize variance approval.
+
+**How to apply:** Preserve that guard, but keep delegated count creation/variance
+closure and unsupported adjustments unavailable until the complete movement and
+overlapping-count policy is proven. Do not expand its acceptance claim.

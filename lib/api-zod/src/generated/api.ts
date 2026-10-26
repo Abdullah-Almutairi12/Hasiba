@@ -1489,6 +1489,39 @@ export const GetWorkspaceInventoryResponseItem = zod.object({
 export const GetWorkspaceInventoryResponse = zod.array(GetWorkspaceInventoryResponseItem)
 
 
+export const GetWorkspaceInventoryMovementOptionsHeader = zod.object({
+  "X-Workspace-Responsibility": zod.number().int()
+})
+
+export const GetWorkspaceInventoryMovementOptionsResponse = zod.object({
+  "actions": zod.array(zod.string()),
+  "sources": zod.array(zod.object({
+  "id": zod.number().int(),
+  "branchId": zod.number().int(),
+  "name": zod.string(),
+  "responsibilityId": zod.number().int()
+})),
+  "destinations": zod.array(zod.object({
+  "id": zod.number().int(),
+  "branchId": zod.number().int(),
+  "name": zod.string(),
+  "responsibilityId": zod.number().int()
+})),
+  "products": zod.array(zod.object({
+  "id": zod.number().int(),
+  "name": zod.string(),
+  "sku": zod.string()
+})),
+  "recent": zod.array(zod.object({
+  "id": zod.number().int(),
+  "kind": zod.string(),
+  "state": zod.string(),
+  "quantity": zod.string(),
+  "productName": zod.string()
+}))
+})
+
+
 export const GetWorkspaceInventoryTransfersHeader = zod.object({
   "X-Workspace-Responsibility": zod.number().int()
 })
