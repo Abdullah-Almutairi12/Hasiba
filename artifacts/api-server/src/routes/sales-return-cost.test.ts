@@ -220,6 +220,7 @@ describe("original POS invoice: independent linked return lifecycle", () => {
       "0060_scoped_app_settings.sql",
       "0061_stocktake_observation_cutoff.sql",
       "0062_stocktake_count_participants.sql",
+      "0063_stocktake_variance_review.sql",
     ]);
     expect(first.skipped).toHaveLength(26);
     // Upgrade is additive: a legacy company neither opts into self receiving
@@ -232,6 +233,9 @@ describe("original POS invoice: independent linked return lifecycle", () => {
     expect(await rows("SELECT id,expected_qty::text,counted_qty::text,unit_cost::text FROM stock_take_lines WHERE id=$1",[oldCount.id]))
       .toEqual([oldCount]);
     expect(await rows("SELECT count_revision::text FROM stock_take_lines WHERE id=$1",[oldCount.id])).toEqual([{count_revision:"0"}]);
+    expect(await rows("SELECT variance_review FROM stock_takes WHERE id=$1",[oldTake.id])).toEqual([{variance_review:null}]);
+    expect(await rows("SELECT count(*)::int n FROM team_access_policy WHERE stocktake_policy->>'allowParticipant'='true'")).toEqual([{n:0}]);
+    expect(await rows("SELECT count(*)::int n FROM responsibility_grants WHERE 'inventory.stocktake.approve_self'=ANY(actions)")).toEqual([{n:0}]);
     expect(await rows("SELECT count_checkpoint FROM stock_take_lines WHERE id=$1",[oldCount.id])).toEqual([{count_checkpoint:null}]);
     expect(await rows("SELECT closure_result FROM stock_takes WHERE id=$1",[oldTake.id])).toEqual([{closure_result:null}]);
     expect(await rows("SELECT user_id FROM stocktake_count_participants WHERE take_id=$1",[oldTake.id])).toEqual([]);

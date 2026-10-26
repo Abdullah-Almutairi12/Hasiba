@@ -157,11 +157,24 @@ function StockTakeDetail({ id, onClose }: { id: number; onClose: () => void }) {
   const qc = useQueryClient();
   const { toast } = useToast();
   const { user } = useAuth();
+  const [reviewReason,setReviewReason]=useState(""),[reviewPassword,setReviewPassword]=useState(""),
+    [reviewToken,setReviewToken]=useState(""),[reviewRecovery,setReviewRecovery]=useState("");
   const { data, error, isLoading } = useQuery<{ id: number; reference: string; status: string; canCount:boolean;canComplete:boolean;
+    canApprove:boolean;requiresExceptionProof:boolean;review:{approved:boolean;approvedBy:number}|null;
+    varianceValue:{amount:string;currency:string}|null;
     hasCountParticipation:boolean;approvalBlockReason:string|null;lines: StockTakeLine[] }>({
     queryKey: [`/inventory/stock-takes/${id}`],
     queryFn: () => apiGet(`/inventory/stock-takes/${id}`,countHeaders()),
     refetchInterval: 15_000,
+  });
+  const approve=useMutation({
+    mutationFn:()=>apiPost(`/inventory/stock-takes/${id}/approve`,{reason:reviewReason,
+      ...(data?.requiresExceptionProof?{proof:{currentPassword:reviewPassword,
+        ...(reviewToken?{token:reviewToken}:{}),...(reviewRecovery?{recoveryCode:reviewRecovery}:{})}}:{})}),
+    onSuccess:()=>toast({title:"حُفظ اعتماد الفروق دون ترحيل؛ يمكن للمخوّل تنفيذ الترحيل"}),
+    onError:(e:Error)=>toast({title:"لم يكتمل الاعتماد",description:e.message,variant:"destructive"}),
+    onSettled:()=>{setReviewPassword("");setReviewToken("");setReviewRecovery("");
+      void qc.invalidateQueries({queryKey:[`/inventory/stock-takes/${id}`]});},
   });
 
   const complete = useMutation({
@@ -173,6 +186,7 @@ function StockTakeDetail({ id, onClose }: { id: number; onClose: () => void }) {
       onClose();
     },
     onError: (e: Error) => toast({ title: "خطأ", description: e.message, variant: "destructive" }),
+    onSettled:()=>{void qc.invalidateQueries({queryKey:[`/inventory/stock-takes/${id}`]});},
   });
 
   if (isLoading) return <p role="status">جارٍ تحميل الجرد…</p>;
@@ -185,7 +199,7 @@ function StockTakeDetail({ id, onClose }: { id: number; onClose: () => void }) {
           <div className="flex gap-2">
             {data.status !== "done" && data.canComplete && (
               <Button onClick={() => complete.mutate()} disabled={complete.isPending}>
-                <CheckCircle2 className="ms-2 size-4" /> إقفال وتسجيل التعديلات
+                <CheckCircle2 className="ms-2 size-4" /> {data.review?"ترحيل الفروق المعتمدة":"إقفال وتسجيل التعديلات"}
               </Button>
             )}
             <Button variant="outline" onClick={onClose}>إغلاق</Button>
@@ -193,12 +207,33 @@ function StockTakeDetail({ id, onClose }: { id: number; onClose: () => void }) {
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
+        {data.status==="in_progress"&&data.varianceValue&&<p>
+          قيمة الفروق المطلقة من الخادم: {data.varianceValue.amount} {data.varianceValue.currency}.
+          لا تُقاص الزيادات والعجوزات لاختبار الحد. يعاد حساب القيمة والتحقق من الحدود عند الاعتماد والترحيل.
+        </p>}
+        {data.status==="in_progress"&&data.canApprove&&<div className="space-y-2 rounded-md border p-3">
+          <Label htmlFor={`review-reason-${id}`}>سبب اعتماد فروق الجرد</Label>
+          <Input id={`review-reason-${id}`} value={reviewReason} maxLength={500} onChange={e=>setReviewReason(e.target.value)} disabled={approve.isPending}/>
+          {data.requiresExceptionProof&&<>
+            <p>استثناء منشأة مفعّل: يلزم إذنك الصريح وحدّك المالي وتأكيد هويتك الحالية. لا يعالج ذلك هوية عد تاريخية مفقودة.</p>
+            <Label htmlFor={`review-password-${id}`}>كلمة مرور الحساب لتأكيد الاستثناء</Label>
+            <Input id={`review-password-${id}`} type="password" autoComplete="current-password" value={reviewPassword} onChange={e=>setReviewPassword(e.target.value)}/>
+            <Label htmlFor={`review-token-${id}`}>رمز تطبيق المصادقة إن كان مفعّلًا</Label>
+            <Input id={`review-token-${id}`} type="password" autoComplete="one-time-code" value={reviewToken} onChange={e=>setReviewToken(e.target.value)}/>
+            <Label htmlFor={`review-recovery-${id}`}>رمز استعادة بدل رمز التطبيق</Label>
+            <Input id={`review-recovery-${id}`} type="password" autoComplete="off" value={reviewRecovery} onChange={e=>setReviewRecovery(e.target.value)}/>
+          </>}
+          <Button disabled={approve.isPending||reviewReason.trim().length<3||(data.requiresExceptionProof&&!reviewPassword)}
+            onClick={()=>approve.mutate()}>اعتماد الفروق دون ترحيل</Button>
+        </div>}
+        {data.status==="in_progress"&&data.review&&<p role="status">اعتماد مسجل بواسطة المستخدم {data.review.approvedBy}.
+          يعاد التحقق من حقائق العد والتكلفة والسياسة وأهلية المعتمد عند الترحيل.</p>}
         {data.status==="in_progress"&&data.approvalBlockReason&&
           <p role="status" className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
             {data.approvalBlockReason}
           </p>}
         {data.status==="in_progress"&&<p className="text-sm text-muted-foreground">
-          من سجّل أو عدّل أي كمية معدودة لا يعتمد فروق هذه الجلسة بالكامل، حتى لو كان مديرًا.
+          الافتراضي: من سجّل أو عدّل أي كمية معدودة لا يعتمد فروق هذه الجلسة بالكامل، حتى لو كان مديرًا.
           إنشاء الجلسة أو مشاهدتها وحدهما لا يمنع الاعتماد؛ ويلزم دائمًا التخويل المستقل.
         </p>}
         <p className="text-sm">الحركة مسموحة أثناء الجرد. ابدأ عد كل صنف ثم أكده دون حركة متداخلة أثناء عده.

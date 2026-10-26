@@ -38,7 +38,9 @@ import { inventoryActor,auditInventoryMutation } from "../lib/scoped-inventory-a
 import { managedProfile } from "../lib/responsibility-context";
 import { executeScopedInventoryMovement, inventoryMovementOptions } from "../lib/scoped-inventory-movements";
 import { countPoint, preparePoint, verifyPoint, advanceCountGeneration, type CountPoint } from "../lib/stocktake-cutoff";
-import { stocktakeSeparation, assertIndependentStocktakeReviewer } from "../lib/stocktake-separation";
+import { stocktakeSeparation,stocktakeUnknownParticipantBlock } from "../lib/stocktake-separation";
+import {approveStocktake,StocktakeApproval,stocktakeAction,stocktakePolicy,authorizeStocktakePosting,recheckStocktakePosting,stocktakeVarianceValue} from "../lib/stocktake-review";
+import {AccountSecurityError} from "../lib/account-security";
 
 const router = Router();
 router.use("/inventory", supplyReferencesGuard);
@@ -653,6 +655,7 @@ router.get("/inventory/stock-takes", inventoryTransferReadGuard, async (req, res
     .limit(50);
   res.json(rows.map((r) => ({
     ...r,
+    varianceReview:undefined,
     startedAt: r.startedAt.toISOString(),
     completedAt: r.completedAt?.toISOString() ?? null,
   })));
@@ -663,6 +666,13 @@ router.get("/inventory/stock-takes/:id", inventoryTransferReadGuard, async (req,
   const id = Number(req.params.id);
   const {actor}=await stocktakeReadAuthority(db,req,id);
   const separation=await stocktakeSeparation(db,id,actor.userId);
+  const policy=await stocktakePolicy(actor.companyId);
+  let approveActor:Awaited<ReturnType<typeof stocktakeAction>>|null=null,postAllowed=false;
+  try{approveActor=await stocktakeAction(db,req,id,"approve");}catch(e){if(!(e instanceof FinancialRequestError))throw e;}
+  try{await stocktakeAction(db,req,id,"post");postAllowed=true;}catch(e){if(!(e instanceof FinancialRequestError))throw e;}
+  const exceptionAllowed=!!(policy.allowParticipant&&approveActor?.grant?.actions.includes("inventory.stocktake.approve_self")&&
+    approveActor.grant.amountLimit!==null);
+  const eligible=!separation.unknownCount&&(!separation.participated||exceptionAllowed);
   const [take] = await db.select().from(stockTakesTable).where(eq(stockTakesTable.id, id)).limit(1);
   if (!take) return res.status(404).json({ error: "Not found" });
   const lines = await db
@@ -683,9 +693,15 @@ router.get("/inventory/stock-takes/:id", inventoryTransferReadGuard, async (req,
   return res.json({
     ...take,
     canCount:actor.grant?actor.grant.actions.includes("inventory.stocktake.count"):["owner","manager","inventory"].includes(actor.role),
-    canComplete:!separation.blockReason&&!actor.grant&&["owner","manager","inventory"].includes(actor.role),
+    varianceReview:undefined,
+    varianceValue:approveActor||postAllowed?await stocktakeVarianceValue(db,id,actor.companyId,take.warehouseId):null,
+    canApprove:!!approveActor&&eligible,
+    requiresExceptionProof:separation.participated&&exceptionAllowed,
+    review:take.varianceReview?{approved:true,approvedBy:(take.varianceReview as {userId:number}).userId}:null,
+    canComplete:postAllowed&&!separation.unknownCount&&
+      (!!take.varianceReview||(!separation.participated&&!actor.grant)),
     hasCountParticipation:separation.participated,
-    approvalBlockReason:separation.blockReason,
+    approvalBlockReason:separation.unknownCount?stocktakeUnknownParticipantBlock:eligible?null:separation.blockReason,
     startedAt: take.startedAt.toISOString(),
     completedAt: take.completedAt?.toISOString() ?? null,
     lines: lines.map((l) => ({
@@ -853,12 +869,21 @@ router.post("/inventory/stock-takes/:id/lines", inventoryTransferReadGuard, asyn
   }
 });
 
-router.post("/inventory/stock-takes/:id/complete", inventoryGuard, async (req, res) => {
+router.post("/inventory/stock-takes/:id/approve",inventoryTransferReadGuard,async(req,res)=>{
+  try{
+    res.json(await approveStocktake(req,Number(req.params.id),StocktakeApproval.parse(req.body)));
+  }catch(e){
+    if(e instanceof FinancialRequestError||e instanceof AccountSecurityError)return void res.status(e.status).json({error:e.message});
+    if(e instanceof z.ZodError)return void res.status(400).json({error:"أدخل سبب الاعتماد وبيانات تحقق صحيحة دون حقول إضافية"});
+    req.log.error({err:e},"stocktake approval failed");res.status(500).json({error:"تعذر اعتماد الفروق"});
+  }
+});
+router.post("/inventory/stock-takes/:id/complete", inventoryTransferReadGuard, async (req, res) => {
   try {
     const id = Number(req.params.id);
     const result = await db.transaction(async (tx) => {
       await lockApprovalAuthority(tx);
-      await inventoryActor(tx,req,"inventory.write");
+      await stocktakeReadAuthority(tx,req,id);
       const [take] = await tx
         .select().from(stockTakesTable)
         .where(and(eq(stockTakesTable.id, id), supplyScope("take", stockTakesTable.id, getCompanyId(req)))).for("update");
@@ -879,10 +904,9 @@ router.post("/inventory/stock-takes/:id/complete", inventoryGuard, async (req, r
         if(saved.generation!==point.generation)throw new FinancialRequestError("أقفل جرد آخر لهذا الصنف بعد عده؛ أعد العد قبل إقفال هذه الجلسة",409);
         points.set(l.id,point);
       }
-      await inventoryActor(tx,req,"inventory.write");
       // The parent lock excludes all count writers. Recheck after the stock
       // locks too: participation committed while waiting cannot be bypassed.
-      const separation=await assertIndependentStocktakeReviewer(tx,id,req.session.userId!);
+      const separation=await authorizeStocktakePosting(tx,req,id);
       let adjustments = 0;
       for (const l of lines) {
         if (l.countedQty == null) continue;
@@ -922,12 +946,14 @@ router.post("/inventory/stock-takes/:id/complete", inventoryGuard, async (req, r
         });
         adjustments++;
       }
+      await recheckStocktakePosting(tx,req,id,separation);
       const result={adjustments};
       await tx.execute(sql`INSERT INTO audit_logs(user_id,user_name,company_id,action,entity,details)
         SELECT id,name,${getCompanyId(req)},'inventory.stocktake.closed','stock_take',
           jsonb_build_object('takeId',${id}::integer,'completedBy',id,
             'countParticipantIds',${JSON.stringify(separation.participantIds)}::jsonb,
-            'independentOfCount',true,'path','legacy_complete','adjustments',${adjustments}::integer)::text
+            'independentOfCount',${separation.independent}::boolean,'review',${JSON.stringify(separation.review)}::jsonb,
+            'path',${separation.review?"reviewed_complete":"legacy_complete"}::text,'adjustments',${adjustments}::integer)::text
         FROM users WHERE id=${req.session.userId!}`);
       await tx.update(stockTakesTable).set({status:"done",completedAt:new Date(),
         completedBy:req.session.userId!,closureResult:result}).where(eq(stockTakesTable.id,id));

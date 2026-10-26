@@ -14,6 +14,11 @@ describe("effective responsibility descriptions", () => {
 });
 
 describe("pos action labels", () => {
+  it("names stocktake review, posting and explicit participant exception separately",()=>{
+    expect(actionLabel("inventory.stocktake.approve")).toContain("دون ترحيل");
+    expect(actionLabel("inventory.stocktake.post")).toContain("دون اعتماد ضمني");
+    expect(actionLabel("inventory.stocktake.approve_self")).toContain("تأكيد هوية");
+  });
   it("names destination custody receipt without describing it as cost access or an independent approval",()=>{
     expect(actionLabel("inventory.transfer.receive")).toBe("استلام كامل حركة تحويل إلى مستودع الوجهة");
     expect(actionLabel("inventory.transfer.receive")).not.toContain("غير معروف");

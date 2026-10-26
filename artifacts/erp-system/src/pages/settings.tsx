@@ -1529,6 +1529,7 @@ function SettingsContent() {
           </section>}
           <CompanyTab readOnly={readOnly} />
           {!branchId&&<ProcurementReceivingPolicy />}
+          {!branchId&&<ProcurementReceivingPolicy kind="stocktake" />}
         </TabsContent>
         <TabsContent value="tax"><TaxTab readOnly={readOnly} /></TabsContent>
         <TabsContent value="branches"><BranchesTab readOnly={readOnly} /></TabsContent>

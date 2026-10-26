@@ -548,6 +548,19 @@ paths:
                   status: {type: string}
                   canCount: {type: boolean}
                   canComplete: {type: boolean}
+                  canApprove: {type: boolean}
+                  requiresExceptionProof: {type: boolean}
+                  varianceValue:
+                    type: [object, "null"]
+                    description: Server-valued gross variance and company base currency for approver/poster only; null for count-only reader.
+                    properties:
+                      amount: {type: string}
+                      currency: {type: string}
+                  review:
+                    type: [object, "null"]
+                    properties:
+                      approved: {type: boolean}
+                      approvedBy: {type: integer}
                   hasCountParticipation: {type: boolean}
                   approvalBlockReason: {type: [string, "null"]}
                   lines:
@@ -569,6 +582,116 @@ paths:
                         openingQty: {type: number}
         "403": {description: Outside current branch/warehouse or current membership denied}
         "404": {description: Not owned or missing}
+  /inventory/stock-takes/{id}/approve:
+    parameters:
+      - {name: id, in: path, required: true, schema: {type: integer}}
+    post:
+      operationId: approveStocktakeVariance
+      tags: [Inventory]
+      description: Server-bound native variance review without stock or GL writes. Requires current approve grant and bounds, independent reviewer by default. Explicit company exception requires separate approve_self permission, finite cap, reason and current account proof; missing historical count identity is never overridable.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [reason]
+              properties:
+                reason: {type: string, minLength: 3, maxLength: 500}
+                proof:
+                  type: object
+                  additionalProperties: false
+                  required: [currentPassword]
+                  properties:
+                    currentPassword: {type: string, minLength: 1, maxLength: 1024}
+                    token: {type: string, maxLength: 20}
+                    recoveryCode: {type: string, maxLength: 100}
+      responses:
+        "200":
+          description: Approved native facts; not posted
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [approved]
+                properties:
+                  approved: {type: boolean}
+        "400": {description: Invalid reason or input}
+        "401": {description: Identity proof failed}
+        "403": {description: "Current grant, separation, company policy or limit denies"}
+        "409": {description: Closed or stale count point}
+  /inventory/stock-takes/{id}/complete:
+    parameters:
+      - {name: id, in: path, required: true, schema: {type: integer}}
+    post:
+      operationId: postStocktakeVariance
+      tags: [Inventory]
+      description: Native stock engine and GL transaction with durable closure receipt. Delegated post requires a current facts-bound review and live reviewer eligibility. A committed retry needs current source read; legacy independent atomic completion remains available.
+      responses:
+        "200":
+          description: Durable committed closure
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [adjustments]
+                properties:
+                  adjustments: {type: integer}
+        "403": {description: Current source or execution authority denied}
+        "409": {description: "Review missing, stale, superseded or closed without receipt"}
+  /team/stocktake-policy:
+    get:
+      operationId: getStocktakeSeparationPolicy
+      tags: [Team]
+      responses:
+        "200":
+          description: Company-owned segregation policy; settings administrator only
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [allowParticipant, revision]
+                properties:
+                  allowParticipant: {type: boolean}
+                  revision: {type: integer}
+    put:
+      operationId: updateStocktakeSeparationPolicy
+      tags: [Team]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [allowParticipant, revision, reason, proof]
+              properties:
+                allowParticipant: {type: boolean}
+                revision: {type: integer, minimum: 0}
+                reason: {type: string, minLength: 3, maxLength: 500}
+                proof:
+                  type: object
+                  additionalProperties: false
+                  required: [currentPassword]
+                  properties:
+                    currentPassword: {type: string, minLength: 1, maxLength: 1024}
+                    token: {type: string, maxLength: 20}
+                    recoveryCode: {type: string, maxLength: 100}
+      responses:
+        "200":
+          description: New audited policy revision; no operational stock writes
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [allowParticipant, revision]
+                properties:
+                  allowParticipant: {type: boolean}
+                  revision: {type: integer}
+        "401": {description: Identity proof failed}
+        "403": {description: Settings authority denied}
+        "409": {description: Revision changed}
   /inventory/stock-takes/{id}/lookup:
     parameters:
       - {name: id, in: path, required: true, schema: {type: integer}}

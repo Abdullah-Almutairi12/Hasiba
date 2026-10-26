@@ -9,6 +9,7 @@ import { issueTeamInvitation, inspectTeamInvitation, acceptTeamInvitation } from
 import { managedProfile, currentResponsibilities, requireResponsibility } from "../lib/responsibility-context";
 import { scopedRouteAction } from "../middlewares/managed-access";
 import {receivingPolicy,changeReceivingPolicy} from "../lib/procurement-receiving-policy";
+import {stocktakePolicy,changeStocktakePolicy,StocktakeProof} from "../lib/stocktake-review";
 import {AccountSecurityError} from "../lib/account-security";
 import { requireSameOrigin } from "../middlewares/require-same-origin";
 import { FinancialRequestError } from "../lib/financial-transaction";
@@ -49,6 +50,15 @@ function routeInventory(stack: unknown[]): Array<{ method: string; path: string;
 }
 export function makeTeamRouter(getStack: () => unknown[]) {
   const router = Router();
+  router.get("/team/stocktake-policy",wrap(async(req,res)=>{
+    await requireAdministrative(getCompanyId(req),req.session.userId!,"settings");
+    res.json(await stocktakePolicy(getCompanyId(req)));
+  }));
+  router.put("/team/stocktake-policy",activationLimiter,requireSameOrigin,wrap(async(req,res)=>{
+    const input=z.object({allowParticipant:z.boolean(),revision:z.number().int().nonnegative(),
+      reason:z.string().trim().min(3).max(500),proof:StocktakeProof}).strict().parse(req.body);
+    res.json(await changeStocktakePolicy(req,input));
+  }));
   router.get("/team/procurement-receiving-policy",wrap(async(req,res)=>{
     await requireAdministrative(getCompanyId(req),req.session.userId!,"settings");
     res.json(await receivingPolicy(getCompanyId(req)));

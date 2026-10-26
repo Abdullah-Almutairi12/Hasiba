@@ -11,10 +11,10 @@ export type Responsibility = {
   id: number; resource: "inventory" | "pos" | "procurement"; branchId: number; warehouseIds: number[];
   actions: string[]; amountLimit: string | null; startsAt: string; endsAt: string | null;
 };
-export async function managedProfile(userId: number, companyId: number, connection: Pick<typeof db, "execute"> = db) {
+export async function managedProfile(userId: number, companyId: number, connection: Pick<typeof db, "execute"> = db, explicitPrimary=false) {
   // Explicit subscriber appointment unlocks the existing owner operation services.
   // All other administrators keep their existing scoped functional grants.
-  if(await isPrimarySystemOwner(companyId,userId,connection))return null;
+  if(!explicitPrimary&&await isPrimarySystemOwner(companyId,userId,connection))return null;
   const [row] = await teamRows<{ managed: boolean; status: string; revision: number; employee_id: number | null; deniedActions: string[] }>(connection, sql`
     SELECT (a.employee_id IS NOT NULL OR uc.role='scoped') AS managed,
       CASE WHEN uc.user_id IS NOT NULL AND u.is_active AND c.is_active
@@ -30,8 +30,8 @@ export async function managedProfile(userId: number, companyId: number, connecti
     WHERE u.id=${userId}`);
   return row?.managed ? row : null;
 }
-export async function currentResponsibilities(userId: number, companyId: number, connection: Pick<typeof db, "execute"> = db): Promise<Responsibility[]> {
-  const profile = await managedProfile(userId, companyId, connection);
+export async function currentResponsibilities(userId: number, companyId: number, connection: Pick<typeof db, "execute"> = db, explicitPrimary=false): Promise<Responsibility[]> {
+  const profile = await managedProfile(userId, companyId, connection,explicitPrimary);
   if (!profile || profile.status !== "active") return [];
   const rows = await teamRows<Responsibility>(connection, sql`
     SELECT g.id,g.resource,g.branch_id AS "branchId",g.warehouse_ids AS "warehouseIds",

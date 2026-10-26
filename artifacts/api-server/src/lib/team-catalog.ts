@@ -35,6 +35,9 @@ export const TEAM_ACTIONS = [
   { key: "inventory.transfer.send", label: "إرسال تحويل للصنف العادي — يحتاج منحًا صريحة على المصدر والوجهة، ولا يمنح الاستلام", resource: "inventory", available: true },
   { key: "inventory.transfer.receive", label: "استلام تحويل قائم كاملًا في مستودع الوجهة المحدد — لا إرسال أو تسوية", resource: "inventory", available: true },
   { key: "inventory.stocktake.count", label: "عدّ جرد قائم في المستودع المحدد — دون إنشاء أو إقفال أو تكلفة", resource: "inventory", available: true },
+  { key: "inventory.stocktake.approve", label: "اعتماد فروق الجرد بقيمتها الخادمية ضمن المستودع والحد — دون ترحيل", resource: "inventory", available: true },
+  { key: "inventory.stocktake.post", label: "ترحيل فروق الجرد المعتمدة بالخدمات الأصلية — دون عد أو اعتماد ضمني", resource: "inventory", available: true },
+  { key: "inventory.stocktake.approve_self", label: "استثناء صريح لاعتماد جلسة شاركت في عدها — يحتاج سياسة وتأكيد هوية وسبب وحد مالي صريح", resource: "inventory", available: true },
   { key: "pos.read", label: "عرض نقطة البيع المحددة", resource: "pos", available: true },
   { key: "pos.sell", label: "تنفيذ بيع ضمن النطاق والحد المالي", resource: "pos", available: true },
   { key: "pos.shift.open", label: "فتح وردية", resource: "pos", available: true },
@@ -72,7 +75,8 @@ export const GrantInput = z.object({
   if(g.templateId ? !g.templateRevision || !g.templateMode : g.templateRevision || g.templateMode)
     ctx.addIssue({code:"custom",message:"ربط القالب يحتاج المصدر والإصدار ونمط الوراثة معًا"});
   if (g.resource === "inventory" && g.amountLimit !== null &&
-    !g.actions.some(a=>["inventory.move.receipt","inventory.move.issue","inventory.transfer.send"].includes(a))) {
+    !g.actions.some(a=>["inventory.move.receipt","inventory.move.issue","inventory.transfer.send",
+      "inventory.stocktake.approve","inventory.stocktake.post"].includes(a))) {
     ctx.addIssue({ code: "custom", message: "سقف قيمة المخزون يحتاج إذن حركة صريحًا؛ لا يخص القراءة وحدها" });
   }
   if (!g.actions.includes(`${g.resource}.read`)) {

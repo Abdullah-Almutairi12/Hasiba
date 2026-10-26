@@ -26,7 +26,7 @@ export async function stocktakeSeparation(
           WHERE p.take_id=l.stock_take_id AND p.line_id=l.id))) AS "unknownCount"`);
   const participated = participantIds.includes(userId);
   return {
-    participantIds, participated,
+    participantIds, participated, unknownCount,
     blockReason: participated ? stocktakeParticipantBlock :
       unknownCount ? stocktakeUnknownParticipantBlock : null,
   };

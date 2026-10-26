@@ -60,6 +60,8 @@ import type {
   ApprovalRule,
   ApprovalRuleInput,
   ApprovalRulePatch,
+  ApproveStocktakeVariance200,
+  ApproveStocktakeVarianceBody,
   ApproverDelegation,
   AskAiAssistant200,
   AskAiAssistantBody,
@@ -172,6 +174,7 @@ import type {
   GetSellerReportParams,
   GetSellerWorkspace200,
   GetSellerWorkspaceParams,
+  GetStocktakeSeparationPolicy200,
   GetSupplier200,
   GetSupplierInvoiceDraftOptionsParams,
   GetTrialBalanceParams,
@@ -240,6 +243,7 @@ import type {
   PosSummary,
   PosUnlockInput,
   PostJournalEntry200,
+  PostStocktakeVariance200,
   PrepareCountCheckpoint200,
   PrimaryOwnerAppointmentInput,
   Product,
@@ -331,6 +335,8 @@ import type {
   UpdateProcurementReceivingPolicy200,
   UpdateProcurementReceivingPolicyBody,
   UpdateProductBody,
+  UpdateStocktakeSeparationPolicy200,
+  UpdateStocktakeSeparationPolicyBody,
   UpdateSupportTicketBody,
   UpdateSystemSettings200,
   UpdateSystemSettingsBody,
@@ -3177,6 +3183,340 @@ export function useGetCountSession<TData = Awaited<ReturnType<typeof getCountSes
 
 
 
+
+export const getApproveStocktakeVarianceUrl = (id: number,) => {
+
+
+
+
+  return `/api/inventory/stock-takes/${id}/approve`
+}
+
+/**
+ * Server-bound native variance review without stock or GL writes. Requires current approve grant and bounds, independent reviewer by default. Explicit company exception requires separate approve_self permission, finite cap, reason and current account proof; missing historical count identity is never overridable.
+ */
+export const approveStocktakeVariance = async (id: number,
+    approveStocktakeVarianceBody: ApproveStocktakeVarianceBody, options?: Parameters<typeof customFetch>[1]): Promise<ApproveStocktakeVariance200> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<ApproveStocktakeVariance200>(getApproveStocktakeVarianceUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(approveStocktakeVarianceBody)
+  }
+);}
+
+
+
+
+
+export const getApproveStocktakeVarianceMutationKey = () => ['approveStocktakeVariance'] as const;
+
+export const getApproveStocktakeVarianceMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof approveStocktakeVariance>>, TError,ApproveStocktakeVarianceMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof approveStocktakeVariance>>, TError,ApproveStocktakeVarianceMutationVariables, TContext> => {
+
+const mutationKey = getApproveStocktakeVarianceMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof approveStocktakeVariance>>, ApproveStocktakeVarianceMutationVariables> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  approveStocktakeVariance(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ApproveStocktakeVarianceMutationResult = NonNullable<Awaited<ReturnType<typeof approveStocktakeVariance>>>
+    export type ApproveStocktakeVarianceMutationBody = BodyType<ApproveStocktakeVarianceBody>
+    export type ApproveStocktakeVarianceMutationError = ErrorType<void>
+    export type ApproveStocktakeVarianceMutationVariables = {id: number;data: BodyType<ApproveStocktakeVarianceBody>}
+
+    export const useApproveStocktakeVariance = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof approveStocktakeVariance>>, TError,ApproveStocktakeVarianceMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof approveStocktakeVariance>>,
+        TError,
+        ApproveStocktakeVarianceMutationVariables,
+        TContext
+      > => {
+      return useMutation(getApproveStocktakeVarianceMutationOptions(options), queryClient);
+    }
+
+export const getPostStocktakeVarianceUrl = (id: number,) => {
+
+
+
+
+  return `/api/inventory/stock-takes/${id}/complete`
+}
+
+/**
+ * Native stock engine and GL transaction with durable closure receipt. Delegated post requires a current facts-bound review and live reviewer eligibility. A committed retry needs current source read; legacy independent atomic completion remains available.
+ */
+export const postStocktakeVariance = async (id: number, options?: Parameters<typeof customFetch>[1]): Promise<PostStocktakeVariance200> => {
+
+  return customFetch<PostStocktakeVariance200>(getPostStocktakeVarianceUrl(id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getPostStocktakeVarianceMutationKey = () => ['postStocktakeVariance'] as const;
+
+export const getPostStocktakeVarianceMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postStocktakeVariance>>, TError,PostStocktakeVarianceMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof postStocktakeVariance>>, TError,PostStocktakeVarianceMutationVariables, TContext> => {
+
+const mutationKey = getPostStocktakeVarianceMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof postStocktakeVariance>>, PostStocktakeVarianceMutationVariables> = (props) => {
+          const {id} = props ?? {};
+
+          return  postStocktakeVariance(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PostStocktakeVarianceMutationResult = NonNullable<Awaited<ReturnType<typeof postStocktakeVariance>>>
+
+    export type PostStocktakeVarianceMutationError = ErrorType<void>
+    export type PostStocktakeVarianceMutationVariables = {id: number}
+
+    export const usePostStocktakeVariance = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postStocktakeVariance>>, TError,PostStocktakeVarianceMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof postStocktakeVariance>>,
+        TError,
+        PostStocktakeVarianceMutationVariables,
+        TContext
+      > => {
+      return useMutation(getPostStocktakeVarianceMutationOptions(options), queryClient);
+    }
+
+export const getGetStocktakeSeparationPolicyUrl = () => {
+
+
+
+
+  return `/api/team/stocktake-policy`
+}
+
+export const getStocktakeSeparationPolicy = async ( options?: Parameters<typeof customFetch>[1]): Promise<GetStocktakeSeparationPolicy200> => {
+
+  return customFetch<GetStocktakeSeparationPolicy200>(getGetStocktakeSeparationPolicyUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetStocktakeSeparationPolicyQueryKey = () => {
+    return [
+    `/api/team/stocktake-policy`
+    ] as const;
+    }
+
+
+export const getGetStocktakeSeparationPolicyQueryOptions = <TData = Awaited<ReturnType<typeof getStocktakeSeparationPolicy>>, TError = ErrorType<unknown>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getStocktakeSeparationPolicy>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetStocktakeSeparationPolicyQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getStocktakeSeparationPolicy>>> = ({ signal }) => getStocktakeSeparationPolicy({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getStocktakeSeparationPolicy>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetStocktakeSeparationPolicyQueryResult = NonNullable<Awaited<ReturnType<typeof getStocktakeSeparationPolicy>>>
+export type GetStocktakeSeparationPolicyQueryError = ErrorType<unknown>
+
+
+export function useGetStocktakeSeparationPolicy<TData = Awaited<ReturnType<typeof getStocktakeSeparationPolicy>>, TError = ErrorType<unknown>>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getStocktakeSeparationPolicy>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getStocktakeSeparationPolicy>>,
+          TError,
+          Awaited<ReturnType<typeof getStocktakeSeparationPolicy>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetStocktakeSeparationPolicy<TData = Awaited<ReturnType<typeof getStocktakeSeparationPolicy>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getStocktakeSeparationPolicy>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getStocktakeSeparationPolicy>>,
+          TError,
+          Awaited<ReturnType<typeof getStocktakeSeparationPolicy>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetStocktakeSeparationPolicy<TData = Awaited<ReturnType<typeof getStocktakeSeparationPolicy>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getStocktakeSeparationPolicy>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useGetStocktakeSeparationPolicy<TData = Awaited<ReturnType<typeof getStocktakeSeparationPolicy>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getStocktakeSeparationPolicy>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetStocktakeSeparationPolicyQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getUpdateStocktakeSeparationPolicyUrl = () => {
+
+
+
+
+  return `/api/team/stocktake-policy`
+}
+
+export const updateStocktakeSeparationPolicy = async (updateStocktakeSeparationPolicyBody: UpdateStocktakeSeparationPolicyBody, options?: Parameters<typeof customFetch>[1]): Promise<UpdateStocktakeSeparationPolicy200> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<UpdateStocktakeSeparationPolicy200>(getUpdateStocktakeSeparationPolicyUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(updateStocktakeSeparationPolicyBody)
+  }
+);}
+
+
+
+
+
+export const getUpdateStocktakeSeparationPolicyMutationKey = () => ['updateStocktakeSeparationPolicy'] as const;
+
+export const getUpdateStocktakeSeparationPolicyMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateStocktakeSeparationPolicy>>, TError,UpdateStocktakeSeparationPolicyMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateStocktakeSeparationPolicy>>, TError,UpdateStocktakeSeparationPolicyMutationVariables, TContext> => {
+
+const mutationKey = getUpdateStocktakeSeparationPolicyMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateStocktakeSeparationPolicy>>, UpdateStocktakeSeparationPolicyMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  updateStocktakeSeparationPolicy(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateStocktakeSeparationPolicyMutationResult = NonNullable<Awaited<ReturnType<typeof updateStocktakeSeparationPolicy>>>
+    export type UpdateStocktakeSeparationPolicyMutationBody = BodyType<UpdateStocktakeSeparationPolicyBody>
+    export type UpdateStocktakeSeparationPolicyMutationError = ErrorType<void>
+    export type UpdateStocktakeSeparationPolicyMutationVariables = {data: BodyType<UpdateStocktakeSeparationPolicyBody>}
+
+    export const useUpdateStocktakeSeparationPolicy = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateStocktakeSeparationPolicy>>, TError,UpdateStocktakeSeparationPolicyMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof updateStocktakeSeparationPolicy>>,
+        TError,
+        UpdateStocktakeSeparationPolicyMutationVariables,
+        TContext
+      > => {
+      return useMutation(getUpdateStocktakeSeparationPolicyMutationOptions(options), queryClient);
+    }
 
 export const getLookupCountProductUrl = (id: number,
     params: LookupCountProductParams,) => {

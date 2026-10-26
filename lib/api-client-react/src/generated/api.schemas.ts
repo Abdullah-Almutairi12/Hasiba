@@ -3381,6 +3381,23 @@ export type AuthenticateAdministrationRecovery200 = {
 
 export type ListCountSessions200Item = { [key: string]: unknown };
 
+/**
+ * Server-valued gross variance and company base currency for approver/poster only; null for count-only reader.
+ * @nullable
+ */
+export type GetCountSession200VarianceValue = {
+  amount?: string;
+  currency?: string;
+} | null;
+
+/**
+ * @nullable
+ */
+export type GetCountSession200Review = {
+  approved?: boolean;
+  approvedBy?: number;
+} | null;
+
 export type GetCountSession200LinesItem = {
   id: number;
   productId: number;
@@ -3407,10 +3424,82 @@ export type GetCountSession200 = {
   status: string;
   canCount: boolean;
   canComplete: boolean;
+  canApprove?: boolean;
+  requiresExceptionProof?: boolean;
+  /**
+     * Server-valued gross variance and company base currency for approver/poster only; null for count-only reader.
+     * @nullable
+     */
+  varianceValue?: GetCountSession200VarianceValue;
+  /** @nullable */
+  review?: GetCountSession200Review;
   hasCountParticipation: boolean;
   /** @nullable */
   approvalBlockReason: string | null;
   lines: GetCountSession200LinesItem[];
+};
+
+export type ApproveStocktakeVarianceBodyProof = {
+  /**
+     * @minLength 1
+     * @maxLength 1024
+     */
+  currentPassword: string;
+  /** @maxLength 20 */
+  token?: string;
+  /** @maxLength 100 */
+  recoveryCode?: string;
+};
+
+export type ApproveStocktakeVarianceBody = {
+  /**
+     * @minLength 3
+     * @maxLength 500
+     */
+  reason: string;
+  proof?: ApproveStocktakeVarianceBodyProof;
+};
+
+export type ApproveStocktakeVariance200 = {
+  approved: boolean;
+};
+
+export type PostStocktakeVariance200 = {
+  adjustments: number;
+};
+
+export type GetStocktakeSeparationPolicy200 = {
+  allowParticipant: boolean;
+  revision: number;
+};
+
+export type UpdateStocktakeSeparationPolicyBodyProof = {
+  /**
+     * @minLength 1
+     * @maxLength 1024
+     */
+  currentPassword: string;
+  /** @maxLength 20 */
+  token?: string;
+  /** @maxLength 100 */
+  recoveryCode?: string;
+};
+
+export type UpdateStocktakeSeparationPolicyBody = {
+  allowParticipant: boolean;
+  /** @minimum 0 */
+  revision: number;
+  /**
+     * @minLength 3
+     * @maxLength 500
+     */
+  reason: string;
+  proof: UpdateStocktakeSeparationPolicyBodyProof;
+};
+
+export type UpdateStocktakeSeparationPolicy200 = {
+  allowParticipant: boolean;
+  revision: number;
 };
 
 export type LookupCountProductParams = {

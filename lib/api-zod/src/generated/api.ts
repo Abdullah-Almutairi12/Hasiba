@@ -782,6 +782,16 @@ export const GetCountSessionResponse = zod.object({
   "status": zod.string(),
   "canCount": zod.boolean(),
   "canComplete": zod.boolean(),
+  "canApprove": zod.boolean().optional(),
+  "requiresExceptionProof": zod.boolean().optional(),
+  "varianceValue": zod.object({
+  "amount": zod.string().optional(),
+  "currency": zod.string().optional()
+}).nullish().describe('Server-valued gross variance and company base currency for approver/poster only; null for count-only reader.'),
+  "review": zod.object({
+  "approved": zod.boolean().optional(),
+  "approvedBy": zod.number().int().optional()
+}).nullish(),
   "hasCountParticipation": zod.boolean(),
   "approvalBlockReason": zod.string().nullable(),
   "lines": zod.array(zod.object({
@@ -797,6 +807,86 @@ export const GetCountSessionResponse = zod.object({
   "observedAt": zod.string().nullish(),
   "openingQty": zod.number().optional()
 }))
+})
+
+
+/**
+ * Server-bound native variance review without stock or GL writes. Requires current approve grant and bounds, independent reviewer by default. Explicit company exception requires separate approve_self permission, finite cap, reason and current account proof; missing historical count identity is never overridable.
+ */
+export const ApproveStocktakeVarianceParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const approveStocktakeVarianceBodyReasonMin = 3;
+export const approveStocktakeVarianceBodyReasonMax = 500;
+
+export const approveStocktakeVarianceBodyProofCurrentPasswordMax = 1024;
+
+export const approveStocktakeVarianceBodyProofTokenMax = 20;
+
+export const approveStocktakeVarianceBodyProofRecoveryCodeMax = 100;
+
+
+
+export const ApproveStocktakeVarianceBody = zod.object({
+  "reason": zod.string().min(approveStocktakeVarianceBodyReasonMin).max(approveStocktakeVarianceBodyReasonMax),
+  "proof": zod.object({
+  "currentPassword": zod.string().min(1).max(approveStocktakeVarianceBodyProofCurrentPasswordMax),
+  "token": zod.string().max(approveStocktakeVarianceBodyProofTokenMax).optional(),
+  "recoveryCode": zod.string().max(approveStocktakeVarianceBodyProofRecoveryCodeMax).optional()
+}).optional()
+})
+
+export const ApproveStocktakeVarianceResponse = zod.object({
+  "approved": zod.boolean()
+})
+
+
+/**
+ * Native stock engine and GL transaction with durable closure receipt. Delegated post requires a current facts-bound review and live reviewer eligibility. A committed retry needs current source read; legacy independent atomic completion remains available.
+ */
+export const PostStocktakeVarianceParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const PostStocktakeVarianceResponse = zod.object({
+  "adjustments": zod.number().int()
+})
+
+
+export const GetStocktakeSeparationPolicyResponse = zod.object({
+  "allowParticipant": zod.boolean(),
+  "revision": zod.number().int()
+})
+
+
+export const updateStocktakeSeparationPolicyBodyRevisionMin = 0;
+
+export const updateStocktakeSeparationPolicyBodyReasonMin = 3;
+export const updateStocktakeSeparationPolicyBodyReasonMax = 500;
+
+export const updateStocktakeSeparationPolicyBodyProofCurrentPasswordMax = 1024;
+
+export const updateStocktakeSeparationPolicyBodyProofTokenMax = 20;
+
+export const updateStocktakeSeparationPolicyBodyProofRecoveryCodeMax = 100;
+
+
+
+export const UpdateStocktakeSeparationPolicyBody = zod.object({
+  "allowParticipant": zod.boolean(),
+  "revision": zod.number().int().min(updateStocktakeSeparationPolicyBodyRevisionMin),
+  "reason": zod.string().min(updateStocktakeSeparationPolicyBodyReasonMin).max(updateStocktakeSeparationPolicyBodyReasonMax),
+  "proof": zod.object({
+  "currentPassword": zod.string().min(1).max(updateStocktakeSeparationPolicyBodyProofCurrentPasswordMax),
+  "token": zod.string().max(updateStocktakeSeparationPolicyBodyProofTokenMax).optional(),
+  "recoveryCode": zod.string().max(updateStocktakeSeparationPolicyBodyProofRecoveryCodeMax).optional()
+})
+})
+
+export const UpdateStocktakeSeparationPolicyResponse = zod.object({
+  "allowParticipant": zod.boolean(),
+  "revision": zod.number().int()
 })
 
 
