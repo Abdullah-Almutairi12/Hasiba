@@ -756,3 +756,31 @@ mtime_ms = 1793008084387
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/5636b0ad-bdf5-41bd-816a-fb0823909072/d9804113-ab22-4f9f-9a29-de15bc9ee25a"
 storage_version_token = "1793008106121070"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "DiXsOPGsRVnqmHRnBHQMl"
+uri = "file://generated-artifacts/stocktake-cutoff/delivery.html"
+type = "html"
+title = "تقرير سلامة الجرد أثناء حركة المخزون"
+description = "المنفذ ونتائج المصدر 8e243a6، وحدود المتصفح، والمصالحة المالية ونقطة الاستئناف — ملف عربي مستقل."
+logical_id = "33117450-82ff-4aa3-ab9c-5016d8b30357"
+content_hash = "sha256:2d6c371807b16a33b9cd1c5b1c3e8ed78e0bc9c9acd57604ebdd321a5bd16609"
+size = 1026466
+mtime_ms = 1793042410541
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/33117450-82ff-4aa3-ab9c-5016d8b30357/3e4db5fe-bdd7-409c-94f3-853f76f610fc"
+storage_version_token = "1793042430420361"
+content_type = "text/html"
+
+[[outputs]]
+id = "k3f920ZCpblqWP4tf8IFX"
+uri = "file://generated-artifacts/stocktake-cutoff/evidence.zip"
+type = "unspecified"
+title = "أدلة اختبارات الجرد والمصالحة"
+description = "نتائج البوابات والاختبارات المنقحة وصور الواجهة ومصالحة SQL وإيصال المزامنة؛ دون أسرار أو بيانات عملاء."
+logical_id = "2514b0b7-c144-4492-a0f3-c04307a89483"
+content_hash = "sha256:bd4614ecf5101c65936ee22cf3199260c192ef3d12a8efe95abb7038bc082ef1"
+size = 920273
+mtime_ms = 1793042410753
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/2514b0b7-c144-4492-a0f3-c04307a89483/0b69fd03-2e0e-4abd-b698-d270f7956edc"
+storage_version_token = "1793042433620373"
+content_type = "application/octet-stream"
