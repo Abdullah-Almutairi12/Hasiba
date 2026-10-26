@@ -129,7 +129,7 @@ const StepSchema = z.object({
 const RuleBody = z.object({
   name: z.string().min(1),
   docType: z.enum([
-    "purchase_order",
+    "purchase_order", "supplier_invoice",
     "sales_order",
     "expense_claim",
     "leave_request",
@@ -444,7 +444,7 @@ const DelegationBody = z.object({
   toDate: z.string().datetime({ offset: true }),
   reason: z.string().nullish(),
   branchId: z.number().int().positive().nullable(),
-  docTypes: z.array(z.enum(["purchase_order", "sales_order", "expense_claim", "leave_request",
+  docTypes: z.array(z.enum(["purchase_order", "supplier_invoice", "sales_order", "expense_claim", "leave_request",
     "journal_entry", "credit_note", "credit_note_cancel", "payment_run", "pos_over_limit"])).min(1).max(9),
   maxAmount: z.number().finite().nonnegative().max(99999999999999).nullable()
     .refine(value => value == null || Math.abs(value * 10000 - Math.round(value * 10000)) < 0.001, "الحد يدعم أربع منازل عشرية"),

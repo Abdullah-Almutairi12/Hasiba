@@ -10,6 +10,8 @@ import { inArray } from "drizzle-orm";
 import { postJournalEntry, reverseJournalEntry, ClosedPeriodError } from "../lib/journal-posting";
 import { getCompanyId } from "../lib/scoped-db";
 import { financialTransaction, FinancialRequestError } from "../lib/financial-transaction";
+import { lockApprovalAuthority } from "../lib/approval-authority";
+import { assertLegacyInvoiceCommitAllowed } from "../lib/workflow-engine";
 import { journalEntriesTable } from "@workspace/db";
 import { eq, sql, desc, ilike, and } from "drizzle-orm";
 import { CreateInvoiceBody, UpdateInvoiceBody } from "@workspace/api-zod";
@@ -24,6 +26,8 @@ import { getPrintCompany } from "../lib/pdf/print-company";
 import { buildSupplierInvoicePdf } from "../lib/pdf/business-documents";
 import { supplierInvoiceActor, supplierInvoiceScope, assertSupplierInvoice } from "../lib/supplier-invoice-access";
 import { supplierInvoiceMatchPreview } from "../lib/supplier-invoice-matching";
+import { supplierInvoiceEvidence } from "../lib/supplier-invoice-evidence";
+import invoiceLifecycleRouter from "./supplier-invoice-lifecycle";
 
 // Postgres unique-violation SQLSTATE.
 // Drizzle wraps pg errors and may surface the original on `.cause`,
@@ -44,6 +48,8 @@ function isUniqueViolation(err: unknown): boolean {
 }
 
 const router = Router();
+router.use(invoiceLifecycleRouter);
+router.get("/invoices/:id/evidence", invoiceReadGuard, supplierInvoiceEvidence);
 
 // Read-only matching uses the same scoped source authority as invoice details.
 router.post("/invoices/match-preview", invoiceReadGuard, supplierInvoiceMatchPreview);
@@ -92,6 +98,7 @@ router.get("/invoices", invoiceReadGuard, async (req, res) => {
     res.json(
       rows.map((inv) => ({
         ...inv,
+        invoiceNumber:inv.supplierDocumentNumber??inv.invoiceNumber,
         amount: Number(inv.amount),
         dueDate: inv.dueDate?.toISOString() ?? null,
         createdAt: inv.createdAt.toISOString(),
@@ -185,6 +192,7 @@ router.get("/invoices/:id", invoiceReadGuard, async (req, res) => {
 
     return res.json({
       ...invoice,
+      invoiceNumber:invoice.supplierDocumentNumber??invoice.invoiceNumber,
       amount: Number(invoice.amount),
       dueDate: invoice.dueDate?.toISOString() ?? null,
       createdAt: invoice.createdAt.toISOString(),
@@ -293,7 +301,8 @@ router.patch("/invoices/:id", financeGuard, async (req, res) => {
       body.supplierName !== undefined ||
       (body.status !== undefined && body.status !== current.status);
 
-    if (current.isLocked && wantsFinancialEdit) {
+    if(current.lifecycleVersion===1) return res.status(409).json({error:"استخدم تعديل المسودة أو إجراءات الفاتورة؛ لا يسمح بتجاوز المراجعة"});
+    if ((current.isLocked || current.lineEvidenceVersion!=null) && wantsFinancialEdit) {
       return res.status(409).json({
         error: "هذه الفاتورة مقفلة بعد الاعتماد. لتصحيح القيمة أنشئ قيداً عكسياً ثم فاتورة جديدة.",
         code: "INVOICE_LOCKED",
@@ -384,6 +393,12 @@ router.get("/invoices/:id/pdf", invoiceReadGuard, async (req, res) => {
       }));
     }
 
+    if(invoice.lineEvidenceVersion===1) {
+      const evidence=await db.execute(sql`SELECT description,quantity,unit_price,net_amount,tax_rate
+        FROM supplier_invoice_lines WHERE invoice_id=${invoice.id} AND company_id=${companyId} ORDER BY position`);
+      poLines=evidence.rows.map(l=>({description:String(l.description),quantity:Number(l.quantity),
+        unitPrice:Number(l.unit_price),taxRate:Number(l.tax_rate),lineTotal:Number(l.net_amount)}));
+    }
     const company = await getPrintCompany(getCompanyId(req));
 
     // Build a ZATCA QR (Phase 1, TLV-base64) on the fly so the printed
@@ -401,7 +416,7 @@ router.get("/invoices/:id/pdf", invoiceReadGuard, async (req, res) => {
     let qrDataUrl: string | null = null;
     if (pdfVatEnabled) try {
       const totalWithVat = Number(invoice.amount);
-      const vatAmount = (totalWithVat * VAT_RATE) / (1 + VAT_RATE);
+      const vatAmount = invoice.lifecycleVersion===1?Number(invoice.vatAmount):(totalWithVat * VAT_RATE) / (1 + VAT_RATE);
       const timestamp = invoice.createdAt
         .toISOString()
         .replace(/\.\d{3}Z$/, "Z");
@@ -429,15 +444,16 @@ router.get("/invoices/:id/pdf", invoiceReadGuard, async (req, res) => {
 
     const pdf = await buildSupplierInvoicePdf(
       {
-        invoiceNumber: invoice.invoiceNumber,
+        invoiceNumber: invoice.supplierDocumentNumber??invoice.invoiceNumber,
         invoiceDate: invoice.invoiceDate
           ? invoice.invoiceDate.toISOString().slice(0, 10)
           : null,
         dueDate: invoice.dueDate
           ? invoice.dueDate.toISOString().slice(0, 10)
           : null,
-        currencyCode: supplier?.defaultCurrency ?? "SAR",
+        currencyCode: invoice.currencyCode??supplier?.defaultCurrency ?? "SAR",
         amount: Number(invoice.amount),
+        ...(invoice.lifecycleVersion===1?{subtotal:Number(invoice.netAmount),vat:Number(invoice.vatAmount)}:{}),
         status: invoice.status,
         notes: invoice.notes,
         poReference,
@@ -450,7 +466,7 @@ router.get("/invoices/:id/pdf", invoiceReadGuard, async (req, res) => {
         },
         lines: poLines,
         zatcaQrDataUrl: qrDataUrl,
-        vatEnabled: pdfVatEnabled,
+        vatEnabled: invoice.lifecycleVersion===1?Number(invoice.vatAmount)>0:pdfVatEnabled,
       },
       company,
     );
@@ -477,7 +493,7 @@ router.delete("/invoices/:id", financeGuard, async (req, res) => {
     const tenantScope = and(eq(invoicesTable.id, id), eq(invoicesTable.companyId, companyId));
     const [current] = await db.select().from(invoicesTable).where(tenantScope);
     if (!current) return res.status(404).json({ error: "Not found" });
-    if (current.isLocked) {
+    if (current.isLocked || current.lineEvidenceVersion!=null) {
       return res.status(409).json({
         error: "لا يمكن حذف فاتورة معتمدة/مقفلة. استخدم قيد عكسي بدلاً من ذلك.",
         code: "INVOICE_LOCKED",
@@ -527,6 +543,7 @@ router.post("/invoices/:id/reverse", financeGuard, async (req, res) => {
           { httpStatus: 409 },
         );
       }
+      if(orig.lifecycleVersion===1) throw new FinancialRequestError("استخدم إجراء العكس المرتبط بدليل الفاتورة وقيدها",409);
       if (orig.reversedById) {
         throw Object.assign(new Error("الفاتورة معكوسة مسبقاً."), { httpStatus: 409 });
       }
@@ -815,6 +832,7 @@ router.post("/invoices/from-scan", supplierInvoiceAgent, async (req, res) => {
   const scanCompanyId = getCompanyId(req);
   try {
     const result = await financialTransaction(req, async (tx) => {
+  await lockApprovalAuthority(tx);
   let poLinesById: Map<number, { id: number; poId: number; quantity: string; receivedQty: string; billedQty: string; unitPrice: string }> | null = null;
   if (body.poId) {
     // Force addToInventory=false on PO-linked invoices: the linked GRN
@@ -918,6 +936,12 @@ router.post("/invoices/from-scan", supplierInvoiceAgent, async (req, res) => {
     }
   }
 
+      const branch=body.poId?(await tx.execute(sql`SELECT w.branch_id FROM purchase_orders p
+        JOIN warehouses w ON w.id=p.warehouse_id AND w.company_id=${scanCompanyId}
+        WHERE p.id=${body.poId} AND p.company_id=${scanCompanyId}`)).rows[0]:null;
+      if(body.poId&&!branch)throw new FinancialRequestError("مصدر الفاتورة غير متاح في الشركة والفرع",404);
+      await assertLegacyInvoiceCommitAllowed(tx,scanCompanyId,body.total,branch?Number(branch.branch_id):null);
+
       // 0) Find or create the supplier so the invoice can be linked to a supplier record.
       // VAT number has a UNIQUE constraint, so we use ON CONFLICT DO UPDATE to
       // make this race-safe under concurrent imports (the conflicting row is
@@ -993,6 +1017,18 @@ router.post("/invoices/from-scan", supplierInvoiceAgent, async (req, res) => {
         })
         .returning();
       if (!invoice) throw new Error("Failed to create invoice");
+      // Preserve the submitted document's lines, never reconstruct an invoice
+      // from an order later. Decimal products are calculated in PostgreSQL.
+      for (const [position, item] of body.items.entries()) {
+        await tx.execute(sql`INSERT INTO supplier_invoice_lines
+          (invoice_id,company_id,position,description,quantity,unit_price,source_total,
+           net_amount,product_id,po_line_id)
+          VALUES(${invoice.id},${companyId},${position},${item.description},
+            ${String(item.quantity)}::numeric,${String(item.unitPrice)}::numeric,
+            ${String(item.total)}::numeric,${String(item.quantity)}::numeric*${String(item.unitPrice)}::numeric,
+            ${item.productId??null},${item.poLineId??null})`);
+      }
+      await tx.update(invoicesTable).set({lineEvidenceVersion:1,billedQuantitiesApplied:!!body.poId}).where(eq(invoicesTable.id,invoice.id));
 
       // 3-way match: the resolved invoice supplier must match the PO
       // supplier — otherwise we'd be increasing one supplier's AP while

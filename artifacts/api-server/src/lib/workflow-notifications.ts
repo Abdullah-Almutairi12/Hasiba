@@ -8,12 +8,20 @@ import { paymentRunsTable } from "@workspace/db";
 import { frozenApprovalPolicy } from "./approval-policy";
 import { scopedReturnGrants } from "./scoped-return-review";
 import { procurementReviewAuthority } from "./procurement-authority";
+import { invoiceDecisionAuthority } from "./supplier-invoice-access";
 
-type ApprovalSourceScope = Pick<typeof approvalRequestsTable.$inferSelect, "companyId" | "branchId" | "recordId" | "docType">;
+type ApprovalSourceScope = Pick<typeof approvalRequestsTable.$inferSelect, "companyId" | "branchId" | "recordId" | "docType">
+  & Partial<Pick<typeof approvalRequestsTable.$inferSelect,"amount">>;
 export async function approvalViewer(userId: number, request: ApprovalSourceScope,
   connection: DbOrTx = db, existingActor?: Awaited<ReturnType<typeof returnActor>>) {
   if (request.companyId == null) return null;
   let actor = existingActor ?? await returnActor(userId, request.companyId, connection);
+  if(request.docType==="supplier_invoice"){
+    const read=await invoiceDecisionAuthority(connection,request.companyId,userId,request.recordId,"read",request);
+    if(!read)return null;
+    const approve=await invoiceDecisionAuthority(connection,request.companyId,userId,request.recordId);
+    return {...actor,capabilities:approve?["view","approve"]:["view"]};
+  }
   if(request.docType==="purchase_order"){
     const read=await procurementReviewAuthority(connection,request.companyId,userId,request.recordId,"procurement.orders.read");
     if(!read)return null;

@@ -17,6 +17,23 @@ export const invoicesTable = pgTable("invoices", {
   dueDate: timestamp("due_date"),
   poId: integer("po_id"),
   notes: text("notes"),
+  lineEvidenceVersion: integer("line_evidence_version"),
+  billedQuantitiesApplied: boolean("billed_quantities_applied").notNull().default(false),
+  lifecycleVersion: integer("lifecycle_version"),
+  currencyCode:text("currency_code"),
+  createdBy: integer("created_by"),
+  branchId: integer("branch_id"),
+  supplierDocumentNumber: text("supplier_document_number"),
+  normalizedDocumentNumber: text("normalized_document_number"),
+  documentType: text("document_type").notNull().default("invoice"),
+  invoiceKind: text("invoice_kind").notNull().default("goods"),
+  netAmount: numeric("net_amount",{precision:18,scale:2}),
+  vatAmount: numeric("vat_amount",{precision:18,scale:2}),
+  expenseAccountId: integer("expense_account_id"),
+  reviewedBy: integer("reviewed_by"),
+  reviewAuthority: text("review_authority"),
+  reviewedSource: text("reviewed_source"),
+  journalEntryId: integer("journal_entry_id"),
   // Audit lock: set true when the invoice is approved/finalised. Locked
   // invoices cannot be deleted or have financial fields edited — only a
   // reverse invoice (qiyud 3aksi) may neutralise them.

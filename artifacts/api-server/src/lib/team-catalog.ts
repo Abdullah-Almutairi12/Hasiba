@@ -1,6 +1,10 @@
 import { z } from "zod";
 
 export const TEAM_ACTIONS = [
+  ...["create","edit","review","submit","approve","post","cancel","reverse"].map((action,i)=>({
+    key:`procurement.invoices.${action}`,label:["إنشاء مسودة فاتورة مورد","تعديل مسودة فاتورة مورد","مراجعة مطابقة فاتورة مورد","تقديم فاتورة مورد للاعتماد","اعتماد فاتورة مورد","ترحيل فاتورة مورد","إلغاء مسودة فاتورة مورد","عكس فاتورة مورد مرحلة"][i]!,
+    resource:"procurement" as const,available:true,
+  })),
   { key: "procurement.invoices.read", label: "عرض فواتير الموردين وتفاصيلها ومرفقها ضمن النطاق", resource: "procurement", available: true },
   { key: "procurement.invoices.compare", label: "معاينة مطابقة فاتورة المورد — لا قرار مراجعة أو اعتماد أو ترحيل", resource: "procurement", available: true },
   { key: "procurement.invoices.print", label: "طباعة فاتورة مورد", resource: "procurement", available: true },

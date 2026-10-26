@@ -9,6 +9,7 @@ const state = vi.hoisted(() => ({
 vi.mock("@workspace/api-client-react", () => ({
   usePreviewSupplierInvoiceMatch: () => ({ ...state, isPending: false }),
   useGetInvoice: () => ({ data: state.invoice, isError: state.invoiceError, isLoading: false }),
+  useGetSupplierInvoiceEvidence: () => ({data:undefined,isError:false,isLoading:false}),
 }));
 afterEach(() => {
   cleanup(); vi.clearAllMocks(); state.data = undefined; state.isError = false;

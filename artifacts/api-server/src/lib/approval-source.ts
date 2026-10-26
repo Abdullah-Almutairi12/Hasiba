@@ -5,6 +5,7 @@ import { FinancialRequestError } from "./financial-transaction";
 
 // These are native document relationships, not browser-controlled table names.
 const sources = {
+  supplier_invoice: {table:"invoices",lines:"supplier_invoice_lines",parent:"invoice_id"},
   purchase_order: { table: "purchase_orders", lines: "purchase_order_lines", parent: "po_id" },
   sales_order: { table: "sales_orders", lines: "sales_order_lines", parent: "so_id" },
   journal_entry: { table: "journal_entries", lines: "journal_entry_lines", parent: "entry_id" },
@@ -64,7 +65,9 @@ export async function approvalSourceFingerprint(
   // jsonb::text is hashed BEFORE parsing in JS: decimal precision and every
   // material field are retained, including equal-total distributions.
   const result = await connection.execute(sql`
-    SELECT jsonb_build_object('header',approval_material_row_v1(to_jsonb(s)),
+    SELECT jsonb_build_object('header',approval_material_row_v1(
+      ${docType==="supplier_invoice"?sql`to_jsonb(s)-ARRAY['billed_quantities_applied','reviewed_source',
+        'journal_entry_id','is_locked','locked_at','reversed_by_id','reverses_id','reversed_reason']::text[]`:sql`to_jsonb(s)`}),
       'lines',${lines},'owner',${ownerCompany},'context',${context})::text AS facts
     FROM ${sql.identifier(source.table)} s ${owner}
     WHERE s.id=${recordId} AND ${ownerCompany}=${companyId} ${nativeScope} FOR UPDATE OF s ${employeeLock}`);

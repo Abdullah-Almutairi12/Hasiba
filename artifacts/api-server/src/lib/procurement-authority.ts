@@ -11,8 +11,12 @@ import { lockApprovalAuthority } from "./approval-authority";
 import { authorityFingerprint } from "./approval-authority";
 
 export const procurementAction = (method: string, path: string): string | null => {
+  if(method==="GET"&&path==="/invoices/draft-options")return "procurement.invoices.read";
+  if(method==="POST"&&path==="/invoices/drafts")return "procurement.invoices.create";
+  if(method==="PATCH"&&/^\/invoices\/\d+\/draft$/.test(path))return "procurement.invoices.edit";
+  if(method==="POST"&&/^\/invoices\/\d+\/process$/.test(path))return "procurement.invoices.read";
   if (method === "POST" && path === "/invoices/match-preview") return "procurement.invoices.compare";
-  if (method === "GET" && /^\/invoices(?:\/(?:stats|\d+(?:\/(?:zatca-qr|pdf))?))?$/.test(path))
+  if (method === "GET" && /^\/invoices(?:\/(?:stats|\d+(?:\/(?:zatca-qr|pdf|evidence))?))?$/.test(path))
     return path.endsWith("/pdf") ? "procurement.invoices.print" : "procurement.invoices.read";
   if (method === "GET" && path.startsWith("/storage/objects/invoices/")) return "procurement.invoices.read";
   // A committed receipt remains recoverable with source read authority.

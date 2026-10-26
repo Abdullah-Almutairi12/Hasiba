@@ -2419,11 +2419,25 @@ export const ListInvoicesQueryParams = zod.object({
 })
 
 export const ListInvoicesResponseItem = zod.object({
+  "supplierId": zod.number().int().nullish(),
+  "supplierDocumentNumber": zod.string().nullish(),
+  "currencyCode": zod.string().nullish(),
+  "lifecycleVersion": zod.number().int().nullish(),
+  "lineEvidenceVersion": zod.number().int().nullish(),
+  "branchId": zod.number().int().nullish(),
+  "poId": zod.number().int().nullish(),
+  "invoiceKind": zod.string().optional(),
+  "netAmount": zod.string().nullish(),
+  "vatAmount": zod.string().nullish(),
+  "expenseAccountId": zod.number().int().nullish(),
+  "reviewedBy": zod.number().int().nullish(),
+  "journalEntryId": zod.number().int().nullish(),
+  "invoiceDate": zod.string().nullish(),
   "id": zod.number().int(),
   "invoiceNumber": zod.string(),
   "supplierName": zod.string(),
   "amount": zod.number(),
-  "status": zod.enum(['pending', 'processing', 'done', 'failed', 'needs_review']),
+  "status": zod.enum(['pending', 'processing', 'done', 'failed', 'needs_review', 'draft', 'pending_approval', 'approved', 'rejected', 'cancelled', 'reversed']),
   "confidence": zod.number().nullish(),
   "fileUrl": zod.string().nullish(),
   "dueDate": zod.string().nullish(),
@@ -2449,11 +2463,25 @@ export const CreateInvoiceBody = zod.object({
 })
 
 export const CreateInvoiceResponse = zod.object({
+  "supplierId": zod.number().int().nullish(),
+  "supplierDocumentNumber": zod.string().nullish(),
+  "currencyCode": zod.string().nullish(),
+  "lifecycleVersion": zod.number().int().nullish(),
+  "lineEvidenceVersion": zod.number().int().nullish(),
+  "branchId": zod.number().int().nullish(),
+  "poId": zod.number().int().nullish(),
+  "invoiceKind": zod.string().optional(),
+  "netAmount": zod.string().nullish(),
+  "vatAmount": zod.string().nullish(),
+  "expenseAccountId": zod.number().int().nullish(),
+  "reviewedBy": zod.number().int().nullish(),
+  "journalEntryId": zod.number().int().nullish(),
+  "invoiceDate": zod.string().nullish(),
   "id": zod.number().int(),
   "invoiceNumber": zod.string(),
   "supplierName": zod.string(),
   "amount": zod.number(),
-  "status": zod.enum(['pending', 'processing', 'done', 'failed', 'needs_review']),
+  "status": zod.enum(['pending', 'processing', 'done', 'failed', 'needs_review', 'draft', 'pending_approval', 'approved', 'rejected', 'cancelled', 'reversed']),
   "confidence": zod.number().nullish(),
   "fileUrl": zod.string().nullish(),
   "dueDate": zod.string().nullish(),
@@ -2472,11 +2500,25 @@ export const GetInvoiceParams = zod.object({
 })
 
 export const GetInvoiceResponse = zod.object({
+  "supplierId": zod.number().int().nullish(),
+  "supplierDocumentNumber": zod.string().nullish(),
+  "currencyCode": zod.string().nullish(),
+  "lifecycleVersion": zod.number().int().nullish(),
+  "lineEvidenceVersion": zod.number().int().nullish(),
+  "branchId": zod.number().int().nullish(),
+  "poId": zod.number().int().nullish(),
+  "invoiceKind": zod.string().optional(),
+  "netAmount": zod.string().nullish(),
+  "vatAmount": zod.string().nullish(),
+  "expenseAccountId": zod.number().int().nullish(),
+  "reviewedBy": zod.number().int().nullish(),
+  "journalEntryId": zod.number().int().nullish(),
+  "invoiceDate": zod.string().nullish(),
   "id": zod.number().int(),
   "invoiceNumber": zod.string(),
   "supplierName": zod.string(),
   "amount": zod.number(),
-  "status": zod.enum(['pending', 'processing', 'done', 'failed', 'needs_review']),
+  "status": zod.enum(['pending', 'processing', 'done', 'failed', 'needs_review', 'draft', 'pending_approval', 'approved', 'rejected', 'cancelled', 'reversed']),
   "confidence": zod.number().nullish(),
   "fileUrl": zod.string().nullish(),
   "dueDate": zod.string().nullish(),
@@ -2501,11 +2543,25 @@ export const UpdateInvoiceBody = zod.object({
 })
 
 export const UpdateInvoiceResponse = zod.object({
+  "supplierId": zod.number().int().nullish(),
+  "supplierDocumentNumber": zod.string().nullish(),
+  "currencyCode": zod.string().nullish(),
+  "lifecycleVersion": zod.number().int().nullish(),
+  "lineEvidenceVersion": zod.number().int().nullish(),
+  "branchId": zod.number().int().nullish(),
+  "poId": zod.number().int().nullish(),
+  "invoiceKind": zod.string().optional(),
+  "netAmount": zod.string().nullish(),
+  "vatAmount": zod.string().nullish(),
+  "expenseAccountId": zod.number().int().nullish(),
+  "reviewedBy": zod.number().int().nullish(),
+  "journalEntryId": zod.number().int().nullish(),
+  "invoiceDate": zod.string().nullish(),
   "id": zod.number().int(),
   "invoiceNumber": zod.string(),
   "supplierName": zod.string(),
   "amount": zod.number(),
-  "status": zod.enum(['pending', 'processing', 'done', 'failed', 'needs_review']),
+  "status": zod.enum(['pending', 'processing', 'done', 'failed', 'needs_review', 'draft', 'pending_approval', 'approved', 'rejected', 'cancelled', 'reversed']),
   "confidence": zod.number().nullish(),
   "fileUrl": zod.string().nullish(),
   "dueDate": zod.string().nullish(),
@@ -2519,9 +2575,182 @@ export const UpdateInvoiceResponse = zod.object({
 })
 
 
+
+
+
+export const GetSupplierInvoiceDraftOptionsQueryParams = zod.object({
+  "invoiceId": zod.coerce.number().int().min(1).optional()
+})
+
+export const GetSupplierInvoiceDraftOptionsResponse = zod.object({
+  "suppliers": zod.array(zod.object({
+  "id": zod.number().int(),
+  "name": zod.string()
+})),
+  "branches": zod.array(zod.object({
+  "id": zod.number().int(),
+  "name": zod.string()
+})),
+  "accounts": zod.array(zod.object({
+  "id": zod.number().int(),
+  "name": zod.string()
+})),
+  "orders": zod.array(zod.object({
+  "id": zod.number().int(),
+  "reference": zod.string(),
+  "supplierId": zod.number().int().nullable(),
+  "branchId": zod.number().int(),
+  "referenceOnly": zod.boolean().optional(),
+  "lines": zod.array(zod.object({
+  "id": zod.number().int(),
+  "description": zod.string(),
+  "quantity": zod.string().optional(),
+  "unitPrice": zod.string().optional(),
+  "unit": zod.string(),
+  "productId": zod.number().int().nullable()
+}))
+}))
+})
+
+
+
+export const createSupplierInvoiceDraftBodyInvoiceNumberMax = 160;
+
+
+export const createSupplierInvoiceDraftBodyItemsItemQuantityExclusiveMin = 0;
+
+export const createSupplierInvoiceDraftBodyItemsItemUnitPriceMin = 0;
+
+export const createSupplierInvoiceDraftBodyItemsMax = 500;
+
+
+
+export const CreateSupplierInvoiceDraftBody = zod.object({
+  "supplierId": zod.number().int().min(1),
+  "invoiceNumber": zod.string().min(1).max(createSupplierInvoiceDraftBodyInvoiceNumberMax),
+  "invoiceDate": zod.string(),
+  "branchId": zod.number().int().min(1),
+  "poId": zod.number().int().nullish(),
+  "kind": zod.enum(['goods', 'service', 'expense']),
+  "expenseAccountId": zod.number().int().nullish(),
+  "notes": zod.string().optional(),
+  "items": zod.array(zod.object({
+  "description": zod.string(),
+  "quantity": zod.number().gt(createSupplierInvoiceDraftBodyItemsItemQuantityExclusiveMin),
+  "unitPrice": zod.number().min(createSupplierInvoiceDraftBodyItemsItemUnitPriceMin),
+  "taxRate": zod.union([zod.literal(0),zod.literal(15)]).optional(),
+  "poLineId": zod.number().int().nullish(),
+  "productId": zod.number().int().nullish(),
+  "unit": zod.string().optional()
+})).min(1).max(createSupplierInvoiceDraftBodyItemsMax)
+})
+
+export const CreateSupplierInvoiceDraftResponse = zod.object({
+  "id": zod.number().int(),
+  "status": zod.string(),
+  "amount": zod.string()
+})
+
+
+export const UpdateSupplierInvoiceDraftParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+
+export const updateSupplierInvoiceDraftBodyInvoiceNumberMax = 160;
+
+
+export const updateSupplierInvoiceDraftBodyItemsItemQuantityExclusiveMin = 0;
+
+export const updateSupplierInvoiceDraftBodyItemsItemUnitPriceMin = 0;
+
+export const updateSupplierInvoiceDraftBodyItemsMax = 500;
+
+
+
+export const UpdateSupplierInvoiceDraftBody = zod.object({
+  "supplierId": zod.number().int().min(1),
+  "invoiceNumber": zod.string().min(1).max(updateSupplierInvoiceDraftBodyInvoiceNumberMax),
+  "invoiceDate": zod.string(),
+  "branchId": zod.number().int().min(1),
+  "poId": zod.number().int().nullish(),
+  "kind": zod.enum(['goods', 'service', 'expense']),
+  "expenseAccountId": zod.number().int().nullish(),
+  "notes": zod.string().optional(),
+  "items": zod.array(zod.object({
+  "description": zod.string(),
+  "quantity": zod.number().gt(updateSupplierInvoiceDraftBodyItemsItemQuantityExclusiveMin),
+  "unitPrice": zod.number().min(updateSupplierInvoiceDraftBodyItemsItemUnitPriceMin),
+  "taxRate": zod.union([zod.literal(0),zod.literal(15)]).optional(),
+  "poLineId": zod.number().int().nullish(),
+  "productId": zod.number().int().nullish(),
+  "unit": zod.string().optional()
+})).min(1).max(updateSupplierInvoiceDraftBodyItemsMax)
+})
+
+export const UpdateSupplierInvoiceDraftResponse = zod.object({
+  "id": zod.number().int(),
+  "status": zod.string(),
+  "amount": zod.string()
+})
+
+
+export const ProcessSupplierInvoiceParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const ProcessSupplierInvoiceBody = zod.object({
+  "action": zod.enum(['review', 'submit', 'post', 'cancel', 'reverse']),
+  "reason": zod.string().optional()
+})
+
+export const ProcessSupplierInvoiceResponse = zod.object({
+  "id": zod.number().int(),
+  "status": zod.string(),
+  "amount": zod.string()
+})
+
+
+/**
+ * @summary Original supplier invoice lines, never reconstructed from an order
+ */
+export const GetSupplierInvoiceEvidenceParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const GetSupplierInvoiceEvidenceResponse = zod.object({
+  "version": zod.number().int().nullable(),
+  "poId": zod.number().int().nullable(),
+  "historicalLimit": zod.string().nullable(),
+  "receipts": zod.array(zod.object({
+  "id": zod.number().int(),
+  "reference": zod.string(),
+  "receiptLineId": zod.number().int(),
+  "invoiceLineId": zod.number().int(),
+  "quantity": zod.string(),
+  "unitCost": zod.string(),
+  "reversedAt": zod.string().nullable()
+})).optional(),
+  "lines": zod.array(zod.object({
+  "id": zod.number().int(),
+  "position": zod.number().int(),
+  "description": zod.string(),
+  "quantity": zod.string(),
+  "unitPrice": zod.string(),
+  "netAmount": zod.string(),
+  "sourceTotal": zod.string(),
+  "taxRate": zod.number().optional(),
+  "unit": zod.string().nullable(),
+  "poLineId": zod.number().int().nullable(),
+  "productId": zod.number().int().nullable()
+}))
+})
+
+
 /**
  * @summary Scoped read-only comparison with ordered, received and previously billed quantities
  */
+
 
 
 export const previewSupplierInvoiceMatchBodyItemsItemQuantityExclusiveMin = 0;
@@ -2537,6 +2766,7 @@ export const previewSupplierInvoiceMatchBodyItemsMax = 500;
 
 
 export const PreviewSupplierInvoiceMatchBody = zod.object({
+  "invoiceId": zod.number().int().min(1).optional(),
   "poId": zod.number().int().min(1),
   "items": zod.array(zod.object({
   "poLineId": zod.number().int().min(1),
@@ -4827,11 +5057,25 @@ export const GetSupplierResponse = zod.object({
   "linkedCompanyName": zod.string().nullish().describe('Display name of the linked sibling company, joined server-side.')
 }),
   "recentInvoices": zod.array(zod.object({
+  "supplierId": zod.number().int().nullish(),
+  "supplierDocumentNumber": zod.string().nullish(),
+  "currencyCode": zod.string().nullish(),
+  "lifecycleVersion": zod.number().int().nullish(),
+  "lineEvidenceVersion": zod.number().int().nullish(),
+  "branchId": zod.number().int().nullish(),
+  "poId": zod.number().int().nullish(),
+  "invoiceKind": zod.string().optional(),
+  "netAmount": zod.string().nullish(),
+  "vatAmount": zod.string().nullish(),
+  "expenseAccountId": zod.number().int().nullish(),
+  "reviewedBy": zod.number().int().nullish(),
+  "journalEntryId": zod.number().int().nullish(),
+  "invoiceDate": zod.string().nullish(),
   "id": zod.number().int(),
   "invoiceNumber": zod.string(),
   "supplierName": zod.string(),
   "amount": zod.number(),
-  "status": zod.enum(['pending', 'processing', 'done', 'failed', 'needs_review']),
+  "status": zod.enum(['pending', 'processing', 'done', 'failed', 'needs_review', 'draft', 'pending_approval', 'approved', 'rejected', 'cancelled', 'reversed']),
   "confidence": zod.number().nullish(),
   "fileUrl": zod.string().nullish(),
   "dueDate": zod.string().nullish(),

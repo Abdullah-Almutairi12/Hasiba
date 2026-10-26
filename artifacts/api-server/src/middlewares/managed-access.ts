@@ -4,7 +4,9 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import { currentResponsibilities, managedProfile, responsibilityContext } from "../lib/responsibility-context";
 import { teamRows } from "../lib/team-store";
 import { administrativeRights } from "../lib/administration-authority";
-import { procurementAction } from "../lib/procurement-authority";
+import { procurementAction,requestProcurementActor,procurementOrderScope } from "../lib/procurement-authority";
+import { assertSupplierInvoice } from "../lib/supplier-invoice-access";
+import { FinancialRequestError } from "../lib/financial-transaction";
 
 export const SCOPED_ROUTES = [
   ["GET", "/workspace/access", "self"],
@@ -62,6 +64,8 @@ export async function managedAccessGate(req: Request, res: Response, next: NextF
     const profile = await managedProfile(userId, companyId);
     if (!profile) return next();
     let action: string | undefined = procurementAction(req.method, req.path) ?? scopedRouteAction(req.method, req.path);
+    const approvalPath=/^\/workflow\/approval-requests(?:\/(\d+)(?:\/(act))?)?$/.exec(req.path);
+    if(!action&&approvalPath&&(req.method==="GET"||req.method==="POST"&&approvalPath[2]==="act"))action="approval.workspace";
     if (action === "procurement.orders.print" && req.query.download === "1") action = "procurement.orders.export";
     if (action === "procurement.invoices.print" && req.query.download === "1") action = "procurement.invoices.export";
     if (action === "pos.operation") {
@@ -77,6 +81,31 @@ export async function managedAccessGate(req: Request, res: Response, next: NextF
     const grants = await currentResponsibilities(userId, companyId);
     const header = Number(req.get("X-Workspace-Responsibility"));
     const grant = grants.find(g => g.id === header);
+    if(approvalPath&&grant?.resource==="procurement"&&(req.method==="GET"||req.method==="POST"&&approvalPath[2]==="act")){
+      if(!grant.actions.includes("procurement.read")||!["procurement.invoices.read","procurement.orders.read"].some(a=>grant.actions.includes(a)))
+        return void res.status(403).json({error:"الموافقة لا تمنح قراءة مصدرها ضمنيًا"});
+      await responsibilityContext.run({userId,companyId,grantId:grant.id},async()=>{
+        if(approvalPath[1]){
+          const result=await db.execute(sql`SELECT doc_type,record_id,branch_id,amount FROM approval_requests
+            WHERE id=${Number(approvalPath[1])} AND company_id=${companyId}`);
+          const source=result.rows[0];
+          if(!source)throw new FinancialRequestError("طلب الاعتماد غير متاح",404);
+          if(Number(source.branch_id)!==grant.branchId||grant.amountLimit!=null&&Math.abs(Number(source.amount))>Number(grant.amountLimit))
+            throw new FinancialRequestError("طلب الاعتماد خارج نطاق المسؤولية",404);
+          const verb=req.method==="POST"&&req.body.action!=="comment"?"approve":"read";
+          if(source.doc_type==="supplier_invoice"){
+            await assertSupplierInvoice(req,Number(source.record_id),verb);
+          }else if(source.doc_type==="purchase_order"){
+            const actor=await requestProcurementActor(req,`procurement.orders.${verb}`);
+            const owned=await db.execute(sql`SELECT id FROM purchase_orders WHERE id=${Number(source.record_id)}
+              AND ${procurementOrderScope(actor)}`);
+            if(!owned.rows.length)throw new FinancialRequestError("مصدر الاعتماد خارج النطاق",404);
+          }else throw new FinancialRequestError("المصدر ليس ضمن مسؤولية المشتريات",403);
+        }
+        next();
+      });
+      return;
+    }
     if(action==="procurement.orders.read"&&grant?.resource==="procurement"&&
       !grant.actions.includes(action)&&grant.actions.includes("procurement.receipts.read")) action="procurement.receipts.read";
     // Names used by the assignment selector reveal only branches/warehouses
@@ -149,5 +178,8 @@ export async function managedAccessGate(req: Request, res: Response, next: NextF
       return void res.status(403).json({ error: "الفرع خارج مسؤولية نقطة البيع" });
     }
     responsibilityContext.run({ userId, companyId, grantId: grant.id }, next);
-  } catch (err) { next(err); }
+  } catch (err) {
+    if(err instanceof FinancialRequestError){res.status(err.status).json({error:err.message});return;}
+    next(err);
+  }
 }

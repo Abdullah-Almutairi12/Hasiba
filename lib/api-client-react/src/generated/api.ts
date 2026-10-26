@@ -169,6 +169,7 @@ import type {
   GetSellerWorkspace200,
   GetSellerWorkspaceParams,
   GetSupplier200,
+  GetSupplierInvoiceDraftOptionsParams,
   GetTrialBalanceParams,
   GetVatReturnParams,
   GetWorkspaceInventoryTransfers200,
@@ -277,6 +278,11 @@ import type {
   Supplier,
   SupplierInvoiceComparison,
   SupplierInvoiceComparisonInput,
+  SupplierInvoiceDraftInput,
+  SupplierInvoiceDraftOptions,
+  SupplierInvoiceEvidence,
+  SupplierInvoiceProcessInput,
+  SupplierInvoiceProcessResult,
   SupportTicket,
   SwitchCompany200,
   SwitchCompanyRequest,
@@ -10000,6 +10006,457 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       > => {
       return useMutation(getUpdateInvoiceMutationOptions(options), queryClient);
     }
+
+export const getGetSupplierInvoiceDraftOptionsUrl = (params?: GetSupplierInvoiceDraftOptionsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/invoices/draft-options?${stringifiedParams}` : `/api/invoices/draft-options`
+}
+
+export const getSupplierInvoiceDraftOptions = async (params?: GetSupplierInvoiceDraftOptionsParams, options?: Parameters<typeof customFetch>[1]): Promise<SupplierInvoiceDraftOptions> => {
+
+  return customFetch<SupplierInvoiceDraftOptions>(getGetSupplierInvoiceDraftOptionsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetSupplierInvoiceDraftOptionsQueryKey = (params?: GetSupplierInvoiceDraftOptionsParams,) => {
+    return [
+    `/api/invoices/draft-options`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetSupplierInvoiceDraftOptionsQueryOptions = <TData = Awaited<ReturnType<typeof getSupplierInvoiceDraftOptions>>, TError = ErrorType<void>>(params?: GetSupplierInvoiceDraftOptionsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getSupplierInvoiceDraftOptions>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetSupplierInvoiceDraftOptionsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getSupplierInvoiceDraftOptions>>> = ({ signal }) => getSupplierInvoiceDraftOptions(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getSupplierInvoiceDraftOptions>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetSupplierInvoiceDraftOptionsQueryResult = NonNullable<Awaited<ReturnType<typeof getSupplierInvoiceDraftOptions>>>
+export type GetSupplierInvoiceDraftOptionsQueryError = ErrorType<void>
+
+
+export function useGetSupplierInvoiceDraftOptions<TData = Awaited<ReturnType<typeof getSupplierInvoiceDraftOptions>>, TError = ErrorType<void>>(
+ params: undefined |  GetSupplierInvoiceDraftOptionsParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getSupplierInvoiceDraftOptions>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getSupplierInvoiceDraftOptions>>,
+          TError,
+          Awaited<ReturnType<typeof getSupplierInvoiceDraftOptions>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetSupplierInvoiceDraftOptions<TData = Awaited<ReturnType<typeof getSupplierInvoiceDraftOptions>>, TError = ErrorType<void>>(
+ params?: GetSupplierInvoiceDraftOptionsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getSupplierInvoiceDraftOptions>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getSupplierInvoiceDraftOptions>>,
+          TError,
+          Awaited<ReturnType<typeof getSupplierInvoiceDraftOptions>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetSupplierInvoiceDraftOptions<TData = Awaited<ReturnType<typeof getSupplierInvoiceDraftOptions>>, TError = ErrorType<void>>(
+ params?: GetSupplierInvoiceDraftOptionsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getSupplierInvoiceDraftOptions>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useGetSupplierInvoiceDraftOptions<TData = Awaited<ReturnType<typeof getSupplierInvoiceDraftOptions>>, TError = ErrorType<void>>(
+ params?: GetSupplierInvoiceDraftOptionsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getSupplierInvoiceDraftOptions>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetSupplierInvoiceDraftOptionsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCreateSupplierInvoiceDraftUrl = () => {
+
+
+
+
+  return `/api/invoices/drafts`
+}
+
+export const createSupplierInvoiceDraft = async (supplierInvoiceDraftInput: SupplierInvoiceDraftInput, options?: Parameters<typeof customFetch>[1]): Promise<SupplierInvoiceProcessResult> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<SupplierInvoiceProcessResult>(getCreateSupplierInvoiceDraftUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(supplierInvoiceDraftInput)
+  }
+);}
+
+
+
+
+
+export const getCreateSupplierInvoiceDraftMutationKey = () => ['createSupplierInvoiceDraft'] as const;
+
+export const getCreateSupplierInvoiceDraftMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createSupplierInvoiceDraft>>, TError,CreateSupplierInvoiceDraftMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createSupplierInvoiceDraft>>, TError,CreateSupplierInvoiceDraftMutationVariables, TContext> => {
+
+const mutationKey = getCreateSupplierInvoiceDraftMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createSupplierInvoiceDraft>>, CreateSupplierInvoiceDraftMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  createSupplierInvoiceDraft(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateSupplierInvoiceDraftMutationResult = NonNullable<Awaited<ReturnType<typeof createSupplierInvoiceDraft>>>
+    export type CreateSupplierInvoiceDraftMutationBody = BodyType<SupplierInvoiceDraftInput>
+    export type CreateSupplierInvoiceDraftMutationError = ErrorType<void>
+    export type CreateSupplierInvoiceDraftMutationVariables = {data: BodyType<SupplierInvoiceDraftInput>}
+
+    export const useCreateSupplierInvoiceDraft = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createSupplierInvoiceDraft>>, TError,CreateSupplierInvoiceDraftMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof createSupplierInvoiceDraft>>,
+        TError,
+        CreateSupplierInvoiceDraftMutationVariables,
+        TContext
+      > => {
+      return useMutation(getCreateSupplierInvoiceDraftMutationOptions(options), queryClient);
+    }
+
+export const getUpdateSupplierInvoiceDraftUrl = (id: number,) => {
+
+
+
+
+  return `/api/invoices/${id}/draft`
+}
+
+export const updateSupplierInvoiceDraft = async (id: number,
+    supplierInvoiceDraftInput: SupplierInvoiceDraftInput, options?: Parameters<typeof customFetch>[1]): Promise<SupplierInvoiceProcessResult> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<SupplierInvoiceProcessResult>(getUpdateSupplierInvoiceDraftUrl(id),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(supplierInvoiceDraftInput)
+  }
+);}
+
+
+
+
+
+export const getUpdateSupplierInvoiceDraftMutationKey = () => ['updateSupplierInvoiceDraft'] as const;
+
+export const getUpdateSupplierInvoiceDraftMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateSupplierInvoiceDraft>>, TError,UpdateSupplierInvoiceDraftMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateSupplierInvoiceDraft>>, TError,UpdateSupplierInvoiceDraftMutationVariables, TContext> => {
+
+const mutationKey = getUpdateSupplierInvoiceDraftMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateSupplierInvoiceDraft>>, UpdateSupplierInvoiceDraftMutationVariables> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  updateSupplierInvoiceDraft(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateSupplierInvoiceDraftMutationResult = NonNullable<Awaited<ReturnType<typeof updateSupplierInvoiceDraft>>>
+    export type UpdateSupplierInvoiceDraftMutationBody = BodyType<SupplierInvoiceDraftInput>
+    export type UpdateSupplierInvoiceDraftMutationError = ErrorType<void>
+    export type UpdateSupplierInvoiceDraftMutationVariables = {id: number;data: BodyType<SupplierInvoiceDraftInput>}
+
+    export const useUpdateSupplierInvoiceDraft = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateSupplierInvoiceDraft>>, TError,UpdateSupplierInvoiceDraftMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof updateSupplierInvoiceDraft>>,
+        TError,
+        UpdateSupplierInvoiceDraftMutationVariables,
+        TContext
+      > => {
+      return useMutation(getUpdateSupplierInvoiceDraftMutationOptions(options), queryClient);
+    }
+
+export const getProcessSupplierInvoiceUrl = (id: number,) => {
+
+
+
+
+  return `/api/invoices/${id}/process`
+}
+
+export const processSupplierInvoice = async (id: number,
+    supplierInvoiceProcessInput: SupplierInvoiceProcessInput, options?: Parameters<typeof customFetch>[1]): Promise<SupplierInvoiceProcessResult> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<SupplierInvoiceProcessResult>(getProcessSupplierInvoiceUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(supplierInvoiceProcessInput)
+  }
+);}
+
+
+
+
+
+export const getProcessSupplierInvoiceMutationKey = () => ['processSupplierInvoice'] as const;
+
+export const getProcessSupplierInvoiceMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof processSupplierInvoice>>, TError,ProcessSupplierInvoiceMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof processSupplierInvoice>>, TError,ProcessSupplierInvoiceMutationVariables, TContext> => {
+
+const mutationKey = getProcessSupplierInvoiceMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof processSupplierInvoice>>, ProcessSupplierInvoiceMutationVariables> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  processSupplierInvoice(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ProcessSupplierInvoiceMutationResult = NonNullable<Awaited<ReturnType<typeof processSupplierInvoice>>>
+    export type ProcessSupplierInvoiceMutationBody = BodyType<SupplierInvoiceProcessInput>
+    export type ProcessSupplierInvoiceMutationError = ErrorType<void>
+    export type ProcessSupplierInvoiceMutationVariables = {id: number;data: BodyType<SupplierInvoiceProcessInput>}
+
+    export const useProcessSupplierInvoice = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof processSupplierInvoice>>, TError,ProcessSupplierInvoiceMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof processSupplierInvoice>>,
+        TError,
+        ProcessSupplierInvoiceMutationVariables,
+        TContext
+      > => {
+      return useMutation(getProcessSupplierInvoiceMutationOptions(options), queryClient);
+    }
+
+export const getGetSupplierInvoiceEvidenceUrl = (id: number,) => {
+
+
+
+
+  return `/api/invoices/${id}/evidence`
+}
+
+/**
+ * @summary Original supplier invoice lines, never reconstructed from an order
+ */
+export const getSupplierInvoiceEvidence = async (id: number, options?: Parameters<typeof customFetch>[1]): Promise<SupplierInvoiceEvidence> => {
+
+  return customFetch<SupplierInvoiceEvidence>(getGetSupplierInvoiceEvidenceUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetSupplierInvoiceEvidenceQueryKey = (id: number,) => {
+    return [
+    `/api/invoices/${id}/evidence`
+    ] as const;
+    }
+
+
+export const getGetSupplierInvoiceEvidenceQueryOptions = <TData = Awaited<ReturnType<typeof getSupplierInvoiceEvidence>>, TError = ErrorType<void>>(id: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getSupplierInvoiceEvidence>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetSupplierInvoiceEvidenceQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getSupplierInvoiceEvidence>>> = ({ signal }) => getSupplierInvoiceEvidence(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: id !== null && id !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getSupplierInvoiceEvidence>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetSupplierInvoiceEvidenceQueryResult = NonNullable<Awaited<ReturnType<typeof getSupplierInvoiceEvidence>>>
+export type GetSupplierInvoiceEvidenceQueryError = ErrorType<void>
+
+
+export function useGetSupplierInvoiceEvidence<TData = Awaited<ReturnType<typeof getSupplierInvoiceEvidence>>, TError = ErrorType<void>>(
+ id: number, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getSupplierInvoiceEvidence>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getSupplierInvoiceEvidence>>,
+          TError,
+          Awaited<ReturnType<typeof getSupplierInvoiceEvidence>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetSupplierInvoiceEvidence<TData = Awaited<ReturnType<typeof getSupplierInvoiceEvidence>>, TError = ErrorType<void>>(
+ id: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getSupplierInvoiceEvidence>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getSupplierInvoiceEvidence>>,
+          TError,
+          Awaited<ReturnType<typeof getSupplierInvoiceEvidence>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetSupplierInvoiceEvidence<TData = Awaited<ReturnType<typeof getSupplierInvoiceEvidence>>, TError = ErrorType<void>>(
+ id: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getSupplierInvoiceEvidence>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Original supplier invoice lines, never reconstructed from an order
+ */
+
+export function useGetSupplierInvoiceEvidence<TData = Awaited<ReturnType<typeof getSupplierInvoiceEvidence>>, TError = ErrorType<void>>(
+ id: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getSupplierInvoiceEvidence>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetSupplierInvoiceEvidenceQueryOptions(id,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
 export const getPreviewSupplierInvoiceMatchUrl = () => {
 

@@ -62,6 +62,7 @@ import { useToast } from "@/hooks/use-toast";
 
 const DOC_TYPES = [
   { v: "purchase_order",  label: "أوامر الشراء" },
+  { v: "supplier_invoice",label: "فواتير الموردين" },
   { v: "sales_order",     label: "أوامر البيع" },
   { v: "credit_note",         label: "إشعارات دائنة (ترحيل)" },
   { v: "credit_note_cancel",  label: "إلغاء إشعارات دائنة" },

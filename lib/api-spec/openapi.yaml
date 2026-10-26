@@ -1739,6 +1739,93 @@ paths:
               schema:
                 $ref: "#/components/schemas/Invoice"
 
+  /invoices/draft-options:
+    get:
+      operationId: getSupplierInvoiceDraftOptions
+      tags: [invoices]
+      parameters:
+        - { name: invoiceId, in: query, schema: { type: integer, minimum: 1 } }
+      responses:
+        "200":
+          description: Purpose-limited reference identities, no supplier balances
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SupplierInvoiceDraftOptions" }
+        "403": { description: Draft creation is not authorized }
+  /invoices/drafts:
+    post:
+      operationId: createSupplierInvoiceDraft
+      tags: [invoices]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SupplierInvoiceDraftInput" }
+      responses:
+        "200":
+          description: Saved original draft, no stock or ledger posting
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SupplierInvoiceProcessResult" }
+        "400": { description: Invalid draft }
+        "403": { description: Not authorized }
+        "409": { description: Confirmed duplicate }
+  /invoices/{id}/draft:
+    patch:
+      operationId: updateSupplierInvoiceDraft
+      tags: [invoices]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SupplierInvoiceDraftInput" }
+      responses:
+        "200":
+          description: Updated draft, prior facts retained and approval invalidated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SupplierInvoiceProcessResult" }
+        "403": { description: Not authorized }
+        "409": { description: State or duplicate conflict }
+  /invoices/{id}/process:
+    post:
+      operationId: processSupplierInvoice
+      tags: [invoices]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SupplierInvoiceProcessInput" }
+      responses:
+        "200":
+          description: Committed action or recovered original result
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SupplierInvoiceProcessResult" }
+        "403": { description: Current authority denied }
+        "409": { description: "Facts, policy, or state changed" }
+  /invoices/{id}/evidence:
+    get:
+      operationId: getSupplierInvoiceEvidence
+      tags: [invoices]
+      summary: Original supplier invoice lines, never reconstructed from an order
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Original evidence or an explicit historical limit
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SupplierInvoiceEvidence" }
+        "403": { description: Permission denied }
+        "404": { description: Source unavailable in scope }
   /invoices/match-preview:
     post:
       operationId: previewSupplierInvoiceMatch
@@ -6296,6 +6383,20 @@ components:
     Invoice:
       type: object
       properties:
+        supplierId: { type: [integer, "null"] }
+        supplierDocumentNumber: { type: [string, "null"] }
+        currencyCode: { type: [string, "null"] }
+        lifecycleVersion: { type: [integer, "null"] }
+        lineEvidenceVersion: { type: [integer, "null"] }
+        branchId: { type: [integer, "null"] }
+        poId: { type: [integer, "null"] }
+        invoiceKind: { type: string }
+        netAmount: { type: [string, "null"] }
+        vatAmount: { type: [string, "null"] }
+        expenseAccountId: { type: [integer, "null"] }
+        reviewedBy: { type: [integer, "null"] }
+        journalEntryId: { type: [integer, "null"] }
+        invoiceDate: { type: [string, "null"] }
         id:
           type: integer
         invoiceNumber:
@@ -6306,7 +6407,7 @@ components:
           type: number
         status:
           type: string
-          enum: [pending, processing, done, failed, needs_review]
+          enum: [pending, processing, done, failed, needs_review, draft, pending_approval, approved, rejected, cancelled, reversed]
         confidence:
           type: number
           nullable: true
@@ -6337,11 +6438,129 @@ components:
           type: string
       required: [id, invoiceNumber, supplierName, amount, status, createdAt]
 
+    SupplierInvoiceDraftOptions:
+      type: object
+      required: [suppliers, branches, accounts, orders]
+      properties:
+        suppliers: { type: array, items: { $ref: "#/components/schemas/SupplierInvoiceReference" } }
+        branches: { type: array, items: { $ref: "#/components/schemas/SupplierInvoiceReference" } }
+        accounts: { type: array, items: { $ref: "#/components/schemas/SupplierInvoiceReference" } }
+        orders:
+          type: array
+          items:
+            type: object
+            required: [id, reference, supplierId, branchId, lines]
+            properties:
+              id: { type: integer }
+              reference: { type: string }
+              supplierId: { type: [integer, "null"] }
+              branchId: { type: integer }
+              referenceOnly: { type: boolean }
+              lines:
+                type: array
+                items:
+                  type: object
+                  required: [id, description, unit, productId]
+                  properties:
+                    id: { type: integer }
+                    description: { type: string }
+                    quantity: { type: string }
+                    unitPrice: { type: string }
+                    unit: { type: string }
+                    productId: { type: [integer, "null"] }
+    SupplierInvoiceReference:
+      type: object
+      required: [id, name]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+    SupplierInvoiceDraftInput:
+      type: object
+      additionalProperties: false
+      required: [supplierId, invoiceNumber, invoiceDate, branchId, kind, items]
+      properties:
+        supplierId: { type: integer, minimum: 1 }
+        invoiceNumber: { type: string, minLength: 1, maxLength: 160 }
+        invoiceDate: { type: string }
+        branchId: { type: integer, minimum: 1 }
+        poId: { type: [integer, "null"] }
+        kind: { type: string, enum: [goods, service, expense] }
+        expenseAccountId: { type: [integer, "null"] }
+        notes: { type: string }
+        items:
+          type: array
+          minItems: 1
+          maxItems: 500
+          items:
+            $ref: "#/components/schemas/SupplierInvoiceDraftLineInput"
+    SupplierInvoiceDraftLineInput:
+      type: object
+      additionalProperties: false
+      required: [description, quantity, unitPrice]
+      properties:
+        description: { type: string }
+        quantity: { type: number, exclusiveMinimum: 0 }
+        unitPrice: { type: number, minimum: 0 }
+        taxRate: { type: integer, enum: [0, 15] }
+        poLineId: { type: [integer, "null"] }
+        productId: { type: [integer, "null"] }
+        unit: { type: string }
+    SupplierInvoiceProcessInput:
+      type: object
+      required: [action]
+      properties:
+        action: { type: string, enum: [review, submit, post, cancel, reverse] }
+        reason: { type: string }
+    SupplierInvoiceProcessResult:
+      type: object
+      required: [id, status, amount]
+      properties:
+        id: { type: integer }
+        status: { type: string }
+        amount: { type: string }
+    SupplierInvoiceEvidence:
+      type: object
+      required: [version, poId, lines, historicalLimit]
+      properties:
+        version: { type: [integer, "null"] }
+        poId: { type: [integer, "null"] }
+        historicalLimit: { type: [string, "null"] }
+        receipts:
+          type: array
+          items:
+            type: object
+            required: [id, reference, receiptLineId, invoiceLineId, quantity, unitCost, reversedAt]
+            properties:
+              id: { type: integer }
+              reference: { type: string }
+              receiptLineId: { type: integer }
+              invoiceLineId: { type: integer }
+              quantity: { type: string }
+              unitCost: { type: string }
+              reversedAt: { type: [string, "null"] }
+        lines:
+          type: array
+          items:
+            type: object
+            required: [id, position, description, quantity, unitPrice, netAmount, sourceTotal, unit, poLineId, productId]
+            properties:
+              id: { type: integer }
+              position: { type: integer }
+              description: { type: string }
+              quantity: { type: string }
+              unitPrice: { type: string }
+              netAmount: { type: string }
+              sourceTotal: { type: string }
+              taxRate: { type: number }
+              unit: { type: [string, "null"] }
+              poLineId: { type: [integer, "null"] }
+              productId: { type: [integer, "null"] }
     SupplierInvoiceComparisonInput:
       type: object
       additionalProperties: false
       required: [poId, items]
       properties:
+        invoiceId: { type: integer, minimum: 1 }
         poId: { type: integer, minimum: 1 }
         items:
           type: array

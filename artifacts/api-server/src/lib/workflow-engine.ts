@@ -1,6 +1,7 @@
 import type { Request, Response, NextFunction } from "express";
 import { managedProfile, selectedResponsibility } from "./responsibility-context";
 import { procurementReviewAuthority } from "./procurement-authority";
+import { invoiceDecisionAuthority } from "./supplier-invoice-access";
 import { assertScopedReturnReview, scopedReturnGrants } from "./scoped-return-review";
 import {
   db,
@@ -35,6 +36,7 @@ import { authorityFingerprint, lockApprovalAuthority } from "./approval-authorit
 // chain completes the engine can re-run the original confirmation logic.
 // ---------------------------------------------------------------------------
 export type DocType =
+  | "supplier_invoice"
   | "purchase_order"
   | "sales_order"
   | "expense_claim"
@@ -96,6 +98,26 @@ export async function submitForApproval(input: SubmitInput, connection: DbOrTx =
   return connection.transaction((tx) => submitForApprovalTransaction(input, tx));
 }
 
+async function approvalCandidates(input:Pick<SubmitInput,"companyId"|"docType"|"amount">,connection:DbOrTx) {
+  const amount=String(Number(input.amount??0));
+  return connection.select().from(approvalRulesTable).where(and(
+    eq(approvalRulesTable.companyId,input.companyId),eq(approvalRulesTable.docType,input.docType),
+    eq(approvalRulesTable.isActive,true),lte(approvalRulesTable.minAmount,amount),
+    or(isNull(approvalRulesTable.maxAmount),gt(approvalRulesTable.maxAmount,amount))));
+}
+
+/** Old OCR booking is not an alternative route around a company's approval
+ * matrix. Branchless legacy input cannot assert exemption from a branch rule. */
+export async function assertLegacyInvoiceCommitAllowed(connection:DbOrTx,companyId:number,amount:number,branchId:number|null) {
+  await lockApprovalAuthority(connection);
+  const candidates=await approvalCandidates({companyId,docType:"supplier_invoice",amount},connection);
+  const legacy=await connection.select({id:approvalRulesTable.id}).from(approvalRulesTable).where(and(
+    isNull(approvalRulesTable.companyId),eq(approvalRulesTable.docType,"supplier_invoice"),
+    eq(approvalRulesTable.isActive,true))).limit(1);
+  if(legacy.length||candidates.some(r=>branchId==null||r.branchId==null||r.branchId===branchId))
+    throw new FinancialRequestError("لا يجوز تجاوز سياسة اعتماد فواتير الموردين بالإدخال الفوري؛ استخدم مسودة الفاتورة ومراجعتها وتقديمها",409);
+}
+
 async function submitForApprovalTransaction(input: SubmitInput, db: DbOrTx): Promise<SubmitResult> {
   await lockApprovalAuthority(db);
   if (!Number.isSafeInteger(input.companyId) || input.companyId <= 0) throw new Error("يلزم نطاق شركة للاعتماد");
@@ -137,6 +159,13 @@ async function submitForApprovalTransaction(input: SubmitInput, db: DbOrTx): Pro
   let replacesReview = false;
   if (prior && ["pending", "approved"].includes(prior.status)) {
     let currentAuthority = true;
+    if (prior.status === "approved" && prior.docType === "supplier_invoice") {
+      try { await assertDeferredInvoiceApproval(input.companyId,prior.recordId,db); }
+      catch(error) {
+        if(!(error instanceof FinancialRequestError)||![403,409].includes(error.status))throw error;
+        currentAuthority=false;
+      }
+    }
     if (prior.status === "approved" && prior.docType === "pos_over_limit") {
       try { await assertDeferredPosApproval(prior, db); }
       catch (error) {
@@ -182,18 +211,7 @@ async function submitForApprovalTransaction(input: SubmitInput, db: DbOrTx): Pro
   // Find the most-specific active rule: same branch beats null branch,
   // tighter amount window beats wider. Take the highest min_amount that
   // still matches our amount, then highest specificity.
-  const candidates = await db
-    .select()
-    .from(approvalRulesTable)
-    .where(
-      and(
-        eq(approvalRulesTable.companyId, input.companyId),
-        eq(approvalRulesTable.docType, input.docType),
-        eq(approvalRulesTable.isActive, true),
-        lte(approvalRulesTable.minAmount, String(amount)),
-        or(isNull(approvalRulesTable.maxAmount), gt(approvalRulesTable.maxAmount, String(amount))),
-      ),
-    );
+  const candidates = await approvalCandidates(input,db);
   // Branch matching:
   //   - rule.branchId == null  → global rule, applies to any document.
   //   - rule.branchId == X     → applies only when document.branchId === X.
@@ -586,6 +604,8 @@ export async function actionableApprovalSteps(
   let nativeReturnApprover = false;
   if(request.docType==="purchase_order"&&request.ruleId==null)
     nativeReturnApprover=!!await procurementReviewAuthority(connection,request.companyId!,userId,request.recordId);
+  if(request.docType==="supplier_invoice"&&request.ruleId==null)
+    nativeReturnApprover=!!await invoiceDecisionAuthority(connection,request.companyId!,userId,request.recordId);
   if (request.docType === "credit_note") {
     const controls = await connection.execute(sql`SELECT branch_id FROM return_controls
       WHERE note_id=${request.recordId} AND company_id=${request.companyId}`);
@@ -643,6 +663,28 @@ export async function actOnApproval(
     catch (err) { logger.error({ err, requestId, companyId }, "approval post-commit effect failed"); }
   }
   return result;
+}
+
+export async function assertDeferredInvoiceApproval(companyId:number,id:number,connection:DbOrTx):Promise<boolean>{
+  const [request]=await connection.select().from(approvalRequestsTable).where(and(
+    eq(approvalRequestsTable.companyId,companyId),eq(approvalRequestsTable.docType,"supplier_invoice"),
+    eq(approvalRequestsTable.recordId,id))).orderBy(desc(approvalRequestsTable.id)).limit(1).for("update");
+  if(!request)return false;
+  if(request.status!=="approved"||request.reviewInvalidatedAt||!await approvalSourceMatches(request,connection))
+    throw new FinancialRequestError("اعتماد الفاتورة غير صالح لحقائقها الحالية",409);
+  const policy=frozenApprovalPolicy(request);
+  const actions=await connection.select().from(approvalActionsTable).where(and(
+    eq(approvalActionsTable.requestId,request.id),eq(approvalActionsTable.action,"approve")));
+  if(!policy||actions.length!==policy.steps.length)
+    throw new FinancialRequestError("سلسلة اعتماد الفاتورة غير مكتملة",403);
+  for(const step of policy.steps){
+    const matches=actions.filter(a=>a.stepSequence===step.sequence),action=matches[0];
+    if(matches.length!==1||!action.approverUserId||!action.authorityFingerprint||
+      action.authorityFingerprint!==await invoiceDecisionAuthority(connection,companyId,action.approverUserId,id)||
+      request.ruleId!=null&&!(await resolveApprovers(step.approverRole,step.approverUserId,request.branchId,companyId,connection,request)).includes(action.approverUserId))
+      throw new FinancialRequestError("تغيرت أهلية معتمد الفاتورة؛ يلزم اعتماد جديد",403);
+  }
+  return true;
 }
 
 async function actOnApprovalTransaction(
@@ -761,7 +803,9 @@ async function actOnApprovalTransaction(
   // on accountant-only steps and defeat the approval matrix. Use the admin
   // matrix UI to reconfigure rules instead.
   const purchaseAuthority=request.docType==="purchase_order"
-    ? await procurementReviewAuthority(db,companyId,userId,request.recordId):null;
+    ? await procurementReviewAuthority(db,companyId,userId,request.recordId)
+    :request.docType==="supplier_invoice" && userId!=null
+      ?await invoiceDecisionAuthority(db,companyId,userId,request.recordId):null;
   let actingStep: number | null = null;
   if(purchaseAuthority && request.ruleId==null) actingStep=targetedSteps[0]?.sequence??null;
   if (returnApprover && request.ruleId == null) actingStep = targetedSteps[0]?.sequence ?? null;
@@ -821,14 +865,14 @@ async function actOnApprovalTransaction(
     : action === "request_changes" ? { status: "changes_requested", finished: true }
     : steps.every(s => approvedSeq.has(s.sequence) || s.sequence === actingStep)
       ? { status: "approved", finished: true } : { status: "pending", finished: false };
-  const authority = action==="approve" && request.docType==="purchase_order" ? purchaseAuthority : action === "approve" && request.docType === "pos_over_limit" && userId != null
+  const authority = action==="approve" && ["purchase_order","supplier_invoice"].includes(request.docType) ? purchaseAuthority : action === "approve" && request.docType === "pos_over_limit" && userId != null
     ? await posDecisionAuthority(request, steps.find(s => s.sequence === actingStep)!, userId, db)
     : action === "approve" && request.docType === "credit_note" && userId != null
       ? (await returnDecisionAuthorities(request, userId, db))[0] ?? null : null;
   if (action === "approve" && request.docType === "pos_over_limit" && !authority) {
     throw new FinancialRequestError("صلاحية المعتمد الحالية أو حده المالي لا يسمحان بهذه العملية", 403);
   }
-  if(action==="approve"&&request.docType==="purchase_order"&&!authority)
+  if(action==="approve"&&["purchase_order","supplier_invoice"].includes(request.docType)&&!authority)
     throw new FinancialRequestError("المراجع لا يملك صلاحية اعتماد حالية على حقائق أمر الشراء",403);
   if (action === "approve" && request.docType === "credit_note" && !authority) {
     const operational = await db.execute(sql`SELECT note_id FROM return_controls WHERE note_id=${request.recordId} AND company_id=${companyId}`);

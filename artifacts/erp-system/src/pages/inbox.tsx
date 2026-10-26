@@ -37,6 +37,7 @@ import { useLanguage } from "@/hooks/use-language";
 import { useAuth } from "@/hooks/use-auth";
 
 const DOC_LABELS: Record<string, string> = {
+  supplier_invoice: "فاتورة مورد",
   purchase_order: "أمر شراء",
   sales_order: "أمر بيع",
   credit_note: "إشعار دائن (ترحيل)",

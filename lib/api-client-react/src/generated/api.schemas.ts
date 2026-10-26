@@ -1642,9 +1642,42 @@ export const InvoiceStatus = {
   done: 'done',
   failed: 'failed',
   needs_review: 'needs_review',
+  draft: 'draft',
+  pending_approval: 'pending_approval',
+  approved: 'approved',
+  rejected: 'rejected',
+  cancelled: 'cancelled',
+  reversed: 'reversed',
 } as const;
 
 export interface Invoice {
+  /** @nullable */
+  supplierId?: number | null;
+  /** @nullable */
+  supplierDocumentNumber?: string | null;
+  /** @nullable */
+  currencyCode?: string | null;
+  /** @nullable */
+  lifecycleVersion?: number | null;
+  /** @nullable */
+  lineEvidenceVersion?: number | null;
+  /** @nullable */
+  branchId?: number | null;
+  /** @nullable */
+  poId?: number | null;
+  invoiceKind?: string;
+  /** @nullable */
+  netAmount?: string | null;
+  /** @nullable */
+  vatAmount?: string | null;
+  /** @nullable */
+  expenseAccountId?: number | null;
+  /** @nullable */
+  reviewedBy?: number | null;
+  /** @nullable */
+  journalEntryId?: number | null;
+  /** @nullable */
+  invoiceDate?: string | null;
   id: number;
   invoiceNumber: string;
   supplierName: string;
@@ -1670,6 +1703,154 @@ export interface Invoice {
   createdAt: string;
 }
 
+export type SupplierInvoiceDraftOptionsOrdersItemLinesItem = {
+  id: number;
+  description: string;
+  quantity?: string;
+  unitPrice?: string;
+  unit: string;
+  /** @nullable */
+  productId: number | null;
+};
+
+export type SupplierInvoiceDraftOptionsOrdersItem = {
+  id: number;
+  reference: string;
+  /** @nullable */
+  supplierId: number | null;
+  branchId: number;
+  referenceOnly?: boolean;
+  lines: SupplierInvoiceDraftOptionsOrdersItemLinesItem[];
+};
+
+export interface SupplierInvoiceReference {
+  id: number;
+  name: string;
+}
+
+export interface SupplierInvoiceDraftOptions {
+  suppliers: SupplierInvoiceReference[];
+  branches: SupplierInvoiceReference[];
+  accounts: SupplierInvoiceReference[];
+  orders: SupplierInvoiceDraftOptionsOrdersItem[];
+}
+
+export type SupplierInvoiceDraftInputKind = typeof SupplierInvoiceDraftInputKind[keyof typeof SupplierInvoiceDraftInputKind];
+
+
+export const SupplierInvoiceDraftInputKind = {
+  goods: 'goods',
+  service: 'service',
+  expense: 'expense',
+} as const;
+
+export type SupplierInvoiceDraftLineInputTaxRate = typeof SupplierInvoiceDraftLineInputTaxRate[keyof typeof SupplierInvoiceDraftLineInputTaxRate];
+
+
+export const SupplierInvoiceDraftLineInputTaxRate = {
+  NUMBER_0: 0,
+  NUMBER_15: 15,
+} as const;
+
+export interface SupplierInvoiceDraftLineInput {
+  description: string;
+  /** @exclusiveMinimum 0 */
+  quantity: number;
+  /** @minimum 0 */
+  unitPrice: number;
+  taxRate?: SupplierInvoiceDraftLineInputTaxRate;
+  /** @nullable */
+  poLineId?: number | null;
+  /** @nullable */
+  productId?: number | null;
+  unit?: string;
+}
+
+export interface SupplierInvoiceDraftInput {
+  /** @minimum 1 */
+  supplierId: number;
+  /**
+     * @minLength 1
+     * @maxLength 160
+     */
+  invoiceNumber: string;
+  invoiceDate: string;
+  /** @minimum 1 */
+  branchId: number;
+  /** @nullable */
+  poId?: number | null;
+  kind: SupplierInvoiceDraftInputKind;
+  /** @nullable */
+  expenseAccountId?: number | null;
+  notes?: string;
+  /**
+     * @minItems 1
+     * @maxItems 500
+     */
+  items: SupplierInvoiceDraftLineInput[];
+}
+
+export type SupplierInvoiceProcessInputAction = typeof SupplierInvoiceProcessInputAction[keyof typeof SupplierInvoiceProcessInputAction];
+
+
+export const SupplierInvoiceProcessInputAction = {
+  review: 'review',
+  submit: 'submit',
+  post: 'post',
+  cancel: 'cancel',
+  reverse: 'reverse',
+} as const;
+
+export interface SupplierInvoiceProcessInput {
+  action: SupplierInvoiceProcessInputAction;
+  reason?: string;
+}
+
+export interface SupplierInvoiceProcessResult {
+  id: number;
+  status: string;
+  amount: string;
+}
+
+export type SupplierInvoiceEvidenceReceiptsItem = {
+  id: number;
+  reference: string;
+  receiptLineId: number;
+  invoiceLineId: number;
+  quantity: string;
+  unitCost: string;
+  /** @nullable */
+  reversedAt: string | null;
+};
+
+export type SupplierInvoiceEvidenceLinesItem = {
+  id: number;
+  position: number;
+  description: string;
+  quantity: string;
+  unitPrice: string;
+  netAmount: string;
+  sourceTotal: string;
+  taxRate?: number;
+  /** @nullable */
+  unit: string | null;
+  /** @nullable */
+  poLineId: number | null;
+  /** @nullable */
+  productId: number | null;
+};
+
+export interface SupplierInvoiceEvidence {
+  /** @nullable */
+  version: number | null;
+  /** @nullable */
+  poId: number | null;
+  /** @nullable */
+  historicalLimit: string | null;
+  receipts?: SupplierInvoiceEvidenceReceiptsItem[];
+  lines: SupplierInvoiceEvidenceLinesItem[];
+}
+
 export type SupplierInvoiceComparisonInputItemsItem = {
   /** @minimum 1 */
   poLineId: number;
@@ -1691,6 +1872,8 @@ export type SupplierInvoiceComparisonInputItemsItem = {
 };
 
 export interface SupplierInvoiceComparisonInput {
+  /** @minimum 1 */
+  invoiceId?: number;
   /** @minimum 1 */
   poId: number;
   /**
@@ -3606,6 +3789,13 @@ export const ListInvoicesStatus = {
   failed: 'failed',
   needs_review: 'needs_review',
 } as const;
+
+export type GetSupplierInvoiceDraftOptionsParams = {
+/**
+ * @minimum 1
+ */
+invoiceId?: number;
+};
 
 export type ListJournalEntriesParams = {
 status?: string;

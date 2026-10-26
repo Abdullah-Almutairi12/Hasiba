@@ -9,6 +9,14 @@ export const ACTION_LABEL: Record<string, string> = {
   "procurement.invoices.compare":"معاينة مطابقة فاتورة المورد دون قرار مراجعة أو اعتماد أو ترحيل",
   "procurement.invoices.print":"طباعة فاتورة المورد",
   "procurement.invoices.export":"تنزيل ملف فاتورة المورد",
+  "procurement.invoices.create":"إنشاء مسودة فاتورة مورد دون صرف أو استلام",
+  "procurement.invoices.edit":"تعديل مسودة فاتورة وإعادة مراجعتها مع حفظ التاريخ",
+  "procurement.invoices.review":"مراجعة حقائق الفاتورة والمطابقة — ليست اعتمادًا",
+  "procurement.invoices.submit":"تقديم فاتورة للموافقات حسب السياسة",
+  "procurement.invoices.approve":"اعتماد فاتورة مورد ضمن النطاق — ليس ترحيلًا أو دفعًا",
+  "procurement.invoices.post":"ترحيل التزام الفاتورة — دون صرف أو استلام ضمني",
+  "procurement.invoices.cancel":"إلغاء المسودة مع حفظ التاريخ",
+  "procurement.invoices.reverse":"عكس فاتورة مرحلة بسند وقيد موثق",
   "procurement.read":"تفعيل مساحة الموردين وأوامر الشراء",
   "procurement.suppliers.read":"عرض دليل الموردين بلا صلاحيات مالية ضمنية",
   "procurement.suppliers.create":"إنشاء مورد",
@@ -49,7 +57,8 @@ export const ACTION_LABEL: Record<string, string> = {
 
 export function canReachProcurement(sel:{resource:string;actions:readonly string[]}|null|undefined,path:string):boolean{
   if(sel?.resource!=="procurement"||!sel.actions.includes("procurement.read"))return false;
-  return path==="/suppliers"?sel.actions.includes("procurement.suppliers.read"):
+  return ["/inbox","/approvals"].includes(path)?["procurement.invoices.read","procurement.orders.read"].some(a=>sel.actions.includes(a)):
+    path==="/suppliers"?sel.actions.includes("procurement.suppliers.read"):
     path==="/invoices"?sel.actions.includes("procurement.invoices.read"):
     path==="/procurement"&&(sel.actions.includes("procurement.orders.read")||sel.actions.includes("procurement.receipts.read"));
 }

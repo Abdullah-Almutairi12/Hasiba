@@ -39,6 +39,7 @@ import { useVatEnabled } from "@/hooks/use-vat-status";
 import { PdfPreviewSheet } from "@/components/pdf-preview-sheet";
 import { SupplierInvoiceComparison } from "@/components/supplier-invoice-comparison";
 import { SupplierInvoiceDetails } from "@/components/supplier-invoice-details";
+import { SupplierInvoiceDraftDialog } from "@/components/supplier-invoice-draft";
 import { useSelectedResponsibility } from "@/lib/workspace-responsibility";
 
 type ExtractedItem = {
@@ -370,6 +371,12 @@ export default function Invoices() {
 
   const getStatusBadge = (status: string) => {
     switch (status) {
+      case "draft": return <Badge variant="outline">مسودة — غير مرحلة</Badge>;
+      case "pending_approval": return <Badge variant="outline">بانتظار الاعتماد</Badge>;
+      case "approved": return <Badge variant="outline">معتمدة — غير مرحلة</Badge>;
+      case "rejected": return <Badge variant="destructive">مرفوضة</Badge>;
+      case "cancelled": return <Badge variant="outline">ملغاة مع حفظ التاريخ</Badge>;
+      case "reversed": return <Badge variant="outline">معكوسة بسند موثق</Badge>;
       case "done":
         return <Badge className="bg-green-100 text-green-800 hover:bg-green-100 border-none"><CheckCircle2 className="size-3 mr-1" /> مكتمل</Badge>;
       case "processing":
@@ -393,6 +400,8 @@ export default function Invoices() {
           <h1 className="text-3xl font-bold tracking-tight">فواتير الموردين (AI)</h1>
           <p className="text-muted-foreground">{canScanInvoice ? "استخراج بيانات الفواتير تلقائياً وإضافتها للمخزون والمحاسبة" : "عرض فواتير الموردين ومرفقاتها ضمن نطاق مسؤوليتك"}</p>
         </div>
+        <SupplierInvoiceDraftDialog allowed={selectedGrant?.resource==="procurement"
+          ?selectedGrant.actions.includes("procurement.invoices.create"):canManageFinance} onSaved={setDetailsId}/>
         {canScanInvoice && <Button size="lg" onClick={openScanner} className="gap-2 shadow-md" data-testid="button-open-scanner">
           <Sparkles className="size-4" /> تصوير فاتورة جديدة
         </Button>}
@@ -562,6 +571,7 @@ export default function Invoices() {
                             <Printer className="size-3.5" /> طباعة
                           </Button>}
                           {canManageFinance
+                            && invoice.lifecycleVersion!==1
                             && (invoice as { isLocked?: boolean }).isLocked
                             && !(invoice as { reversedById?: number | null }).reversedById
                             && !(invoice as { reversesId?: number | null }).reversesId && (
@@ -949,7 +959,7 @@ export default function Invoices() {
         allowDownload={canExportInvoice}
         downloadUrl={previewTarget ? `${API_BASE}/invoices/${previewTarget.id}/pdf?download=1` : undefined}
       />
-      <SupplierInvoiceDetails id={detailsId} onClose={() => setDetailsId(null)} />
+      <SupplierInvoiceDetails legacyFinance={canManageFinance} id={detailsId} onClose={() => setDetailsId(null)} />
     </div>
   );
 }

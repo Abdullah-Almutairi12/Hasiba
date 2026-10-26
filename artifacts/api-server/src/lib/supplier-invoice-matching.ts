@@ -2,10 +2,11 @@ import type { Request, Response } from "express";
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import { z } from "zod";
-import { invoiceMatchingOrder } from "./supplier-invoice-access";
+import { invoiceMatchingOrder, assertSupplierInvoice } from "./supplier-invoice-access";
 import { FinancialRequestError } from "./financial-transaction";
 
 export const invoiceMatchInput = z.object({
+  invoiceId: z.number().int().positive().optional(),
   poId: z.number().int().positive(),
   items: z.array(z.object({
     poLineId: z.number().int().positive(),
@@ -20,6 +21,19 @@ export const invoiceMatchInput = z.object({
 export async function supplierInvoiceMatchPreview(req: Request, res: Response) {
   try {
     const body = invoiceMatchInput.parse(req.body);
+    let excludeInvoice: number | null = null;
+    if(body.invoiceId) {
+      const {invoice}=await assertSupplierInvoice(req,body.invoiceId,"compare");
+      if(invoice.poId!==body.poId || invoice.lineEvidenceVersion!==1)
+        throw new FinancialRequestError("لا توجد بنود أصلية محفوظة مرتبطة بهذا الأمر؛ لا يمكن اختلاق مقارنة تاريخية",409);
+      const lines=await db.execute(sql`SELECT po_line_id,quantity,unit_price,unit FROM supplier_invoice_lines
+        WHERE invoice_id=${invoice.id} AND company_id=${invoice.companyId} ORDER BY position`);
+      if(!lines.rows.length || lines.rows.some(l=>!l.po_line_id || Number(l.quantity)<=0))
+        throw new FinancialRequestError("الفاتورة لا تحمل بنود مطابقة بضاعة موجبة مكتملة الربط",409);
+      body.items=lines.rows.map(l=>({poLineId:Number(l.po_line_id),quantity:Number(l.quantity),
+        unitPrice:Number(l.unit_price),...(l.unit?{unit:String(l.unit)}:{})}));
+      excludeInvoice=invoice.billedQuantitiesApplied?invoice.id:null;
+    }
     const { actor, order } = await invoiceMatchingOrder(req, body.poId);
     const tolerance = Number(process.env.PO_INVOICE_PRICE_TOLERANCE_PCT ?? "5");
     if (!Number.isFinite(tolerance) || tolerance < 0 || tolerance > 100) {
@@ -37,12 +51,14 @@ export async function supplierInvoiceMatchPreview(req: Request, res: Response) {
         GROUP BY "poLineId"
       )
       SELECT r.id,l.description,coalesce(to_jsonb(l)->>'unit',p.unit,'piece') AS unit,
-        l.quantity::text AS ordered,l.received_qty::text AS received,l.billed_qty::text AS billed,
+        l.quantity::text AS ordered,l.received_qty::text AS received,
+        (l.billed_qty-self.quantity)::text AS billed,
         l.unit_price::text AS "orderUnitPrice",r.quantity::text AS current,
         r.amount::text AS "currentAmount",
-        greatest(r.quantity-(l.received_qty-l.billed_qty),0)::text AS excess,
-        r.quantity>(l.received_qty-l.billed_qty) AS "quantityMismatch",
-        l.unit_price>0 AND (
+        l.product_id IS NOT NULL AS "requiresReceipt",
+        greatest(r.quantity-((CASE WHEN l.product_id IS NULL THEN l.quantity ELSE l.received_qty END)-l.billed_qty+self.quantity),0)::text AS excess,
+        r.quantity>((CASE WHEN l.product_id IS NULL THEN l.quantity ELSE l.received_qty END)-l.billed_qty+self.quantity) AS "quantityMismatch",
+        l.unit_price=0 AND r.max_price>0 OR l.unit_price>0 AND (
           abs(r.min_price-l.unit_price)*100>l.unit_price*${tolerance}::numeric OR
           abs(r.max_price-l.unit_price)*100>l.unit_price*${tolerance}::numeric) AS "priceMismatch",
         coalesce(EXISTS(SELECT 1 FROM unnest(r.units) u
@@ -50,6 +66,8 @@ export async function supplierInvoiceMatchPreview(req: Request, res: Response) {
       FROM requested r
       LEFT JOIN purchase_order_lines l ON l.id=r.id AND l.po_id=${order.id}
       LEFT JOIN products p ON p.id=l.product_id AND p.company_id=${actor.companyId}
+      CROSS JOIN LATERAL (SELECT coalesce(sum(e.quantity),0) AS quantity FROM supplier_invoice_lines e
+        WHERE e.invoice_id=${excludeInvoice} AND e.po_line_id=l.id AND e.company_id=${actor.companyId}) self
       ORDER BY r.id`);
     if (result.rows.some(row => row.ordered == null)) {
       throw new FinancialRequestError("بند المطابقة غير موجود في أمر الشراء المصرح به", 400);
@@ -64,7 +82,7 @@ export async function supplierInvoiceMatchPreview(req: Request, res: Response) {
     const lines = result.rows.map(row => ({
       ...row,
       messages: [
-        ...(row.quantityMismatch ? [`كمية الفاتورة تتجاوز الكمية المستلمة المسجلة غير المفوترة بمقدار ${row.excess} ${row.unit}`] : []),
+        ...(row.quantityMismatch ? [`كمية الفاتورة تتجاوز ${row.requiresReceipt?"الكمية المستلمة":"الكمية المتعاقد عليها للخدمة"} غير المفوترة بمقدار ${row.excess} ${row.unit}`] : []),
         ...(row.priceMismatch ? [`سعر الفاتورة يختلف عن أمر الشراء بأكثر من التفاوت المهيأ (${tolerance}%)`] : []),
         ...(row.unitMismatch ? ["وحدة البند مختلفة؛ يلزم التحقق من التحويل المعتمد، ولا يجري تحويل تلقائي في هذه المعاينة"] : []),
       ],

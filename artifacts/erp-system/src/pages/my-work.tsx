@@ -156,6 +156,8 @@ export default function MyWorkPage() {
         <p>الموردون على مستوى الشركة، وأوامر الشراء ضمن الفرع والحد الحاليين. لا تمنح هذه المسؤولية الاستلام أو الصرف.</p>
         {selectedGrant.actions.includes("procurement.suppliers.read")&&<Link href="/suppliers" className="inline-flex rounded border p-3">الموردون</Link>}
         {selectedGrant.actions.includes("procurement.invoices.read")&&<Link href="/invoices" className="inline-flex rounded border p-3">فواتير الموردين</Link>}
+        {selectedGrant.actions.includes("procurement.invoices.read")&&selectedGrant.actions.includes("procurement.invoices.approve")&&
+          <Link href="/approvals" className="inline-flex rounded border p-3">موافقات فواتير الموردين</Link>}
         {selectedGrant.actions.includes("procurement.orders.read")&&<Link href="/procurement" className="inline-flex rounded border p-3">أوامر الشراء</Link>}
         {!selectedGrant.actions.includes("procurement.orders.read")&&selectedGrant.actions.includes("procurement.receipts.read")&&<Link href="/procurement" className="inline-flex rounded border p-3">استلام المشتريات</Link>}
       </section>}
