@@ -290,4 +290,14 @@ describe("original supplier invoice lifecycle",()=>{
    expect(saved.status).toBe("done");expect(saved.isLocked).toBe(true);
    expect(Number((await rows(`SELECT balance FROM suppliers WHERE id=$1`,[f.supplier.id]))[0].balance)).toBe(100);
  });
+ it("keeps canonical identity scoped to the supplier on the retained scan entry point too",async()=>{
+   const f=await fixture(),number=`مرجع-${randomUUID()}`;
+   const other=ok(await f.owner.post("/api/suppliers").send({name:`مورد مستقل ${randomUUID()}`}),201);
+   const body={invoiceNumber:number,total:50,subtotal:50,vat:0,postToAccounting:false,addToInventory:false,
+     items:[{description:"بنود أصلية لاختبار الهوية",quantity:1,unitPrice:50,total:50}]};
+   const send=(supplierName:string)=>f.owner.post("/api/invoices/from-scan").set("Idempotency-Key",randomUUID()).send({...body,supplierName});
+   ok(await send(f.supplier.name));ok(await send(other.name));
+   expect((await send(f.supplier.name)).status).toBe(409);
+   expect((await rows(`SELECT id FROM invoices WHERE company_id=$1 AND invoice_number=$2`,[f.companies[0].id,number]))).toHaveLength(2);
+ });
 });

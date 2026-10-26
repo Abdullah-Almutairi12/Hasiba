@@ -1,3 +1,10 @@
+## Evidence database lifetime
+
+Keep the isolated browser database alive until independent financial reconciliation has been captured, then stop it explicitly.
+
+**Why:** A fixed fixture timeout previously removed the synthetic database after UI evidence but before SQL reconciliation. Screenshots alone cannot replace that missing evidence.
+
+**How to apply:** Check the fixture lifetime before long multi-actor journeys; arrange an explicit monitored stop and cleanup rather than depending on a short expiry. Never fall back to customer data to recover missing test evidence.
 ---
 name: Financial browser fault injection
 description: Verify a genuinely lost committed response through the preview proxy without relying on browser request routing

@@ -32,3 +32,9 @@ Advisory supplier-invoice comparisons are not binding review decisions or approv
 **Why:** The user requires independently granted actual actions and no automatic expansion of an employee's authority. A read-only discrepancy preview must not silently become financial review power later.
 
 **How to apply:** Reuse the responsibility system but require a separate explicit decision grant and source evidence before a comparison can be accepted as a workflow review.
+
+Partial-invoice operation limits apply to the server-calculated invoice amount, not automatically to the larger parent order.
+
+**Why:** A legitimate partial or service invoice may be within the employee's limit even when the whole order is not. Internal matching must not silently grant permission to read the full order's financial details.
+
+**How to apply:** Keep execution authority separate from source disclosure. Provide only authorized reference metadata when the parent exceeds the read limit; do not return hidden prices as zero or grant payment/receiving rights.

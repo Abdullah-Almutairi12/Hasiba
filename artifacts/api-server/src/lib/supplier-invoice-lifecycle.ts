@@ -280,7 +280,7 @@ export async function processSupplierInvoice(req:Request,id:number,action:"revie
     }
     await audit(tx,req,id,action);
     const [saved]=await tx.select().from(invoicesTable).where(eq(invoicesTable.id,id));
-    return {id,status:saved.status,amount:saved.amount};
+    return {id,status:saved.status,amount:saved.amount,journalEntryId:saved.journalEntryId,reversedById:saved.reversedById};
   });
 }
 

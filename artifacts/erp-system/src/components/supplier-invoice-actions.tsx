@@ -21,7 +21,8 @@ export function SupplierInvoiceActions({invoice,evidence,legacyFinance=false}:{i
       const result=await processSupplierInvoice(invoice.id,payload,{headers:{"Idempotency-Key":key}});
       const labels:Record<string,string>={draft:"مسودة",pending_approval:"بانتظار الاعتماد",approved:"معتمدة",
         done:"مرحلة",cancelled:"ملغاة مع حفظ الأصل",reversed:"معكوسة بسند"};
-      attempts.current.delete(identity);setNotice(`حُفظت / استُرجعت نتيجة المحاولة — الحالة: ${labels[result.status]??result.status}`);
+      const confirmation=action==="review"?"اكتملت المراجعة وحُفظ دليلها؛ ليست اعتمادًا أو ترحيلًا.":`الحالة: ${labels[result.status]??result.status}`;
+      attempts.current.delete(identity);setNotice(`حُفظت / استُرجعت نتيجة المحاولة — ${confirmation}${result.journalEntryId?` — القيد ${result.journalEntryId}`:""}${result.reversedById?` — سند العكس ${result.reversedById}`:""}`);
       await refreshSupplierInvoices(client);
     }catch(e){setError(e instanceof Error?e.message:"تعذر استلام النتيجة؛ أعد نفس الإجراء للتحقق دون تكرار الأثر.");}
     finally{setPending(false);}

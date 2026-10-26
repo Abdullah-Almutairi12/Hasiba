@@ -2648,7 +2648,9 @@ export const CreateSupplierInvoiceDraftBody = zod.object({
 export const CreateSupplierInvoiceDraftResponse = zod.object({
   "id": zod.number().int(),
   "status": zod.string(),
-  "amount": zod.string()
+  "amount": zod.string(),
+  "journalEntryId": zod.number().int().nullish(),
+  "reversedById": zod.number().int().nullish()
 })
 
 
@@ -2691,7 +2693,9 @@ export const UpdateSupplierInvoiceDraftBody = zod.object({
 export const UpdateSupplierInvoiceDraftResponse = zod.object({
   "id": zod.number().int(),
   "status": zod.string(),
-  "amount": zod.string()
+  "amount": zod.string(),
+  "journalEntryId": zod.number().int().nullish(),
+  "reversedById": zod.number().int().nullish()
 })
 
 
@@ -2707,7 +2711,9 @@ export const ProcessSupplierInvoiceBody = zod.object({
 export const ProcessSupplierInvoiceResponse = zod.object({
   "id": zod.number().int(),
   "status": zod.string(),
-  "amount": zod.string()
+  "amount": zod.string(),
+  "journalEntryId": zod.number().int().nullish(),
+  "reversedById": zod.number().int().nullish()
 })
 
 

@@ -6518,6 +6518,8 @@ components:
         id: { type: integer }
         status: { type: string }
         amount: { type: string }
+        journalEntryId: { type: [integer, "null"] }
+        reversedById: { type: [integer, "null"] }
     SupplierInvoiceEvidence:
       type: object
       required: [version, poId, lines, historicalLimit]

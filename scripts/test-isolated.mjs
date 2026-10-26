@@ -124,8 +124,11 @@ try {
         HASBA_BROWSER_REVALUATIONS: process.argv.includes("--revaluations") ? "true" : "" });
     console.log("[test:isolated] Browser fixtures ready. State: /tmp/hasba-browser-state.json (synthetic data only).");
     await new Promise((done) => {
-      const timer = setTimeout(done, (process.argv.includes("--return-settlement") ? 30 : 15) * 60 * 1000);
-      for (const signal of ["SIGINT", "SIGTERM"]) process.once(signal, () => { clearTimeout(timer); done(); });
+      // Financial browser evidence must remain available for independent SQL
+      // reconciliation. Opt-in holding is explicitly stopped by the caller.
+      const timer = process.argv.includes("--hold-browser") ? setInterval(() => {}, 60_000) :
+        setTimeout(done, (process.argv.includes("--return-settlement") ? 30 : 15) * 60 * 1000);
+      for (const signal of ["SIGINT", "SIGTERM"]) process.once(signal, () => { if(timer)clearTimeout(timer); done(); });
     });
     rmSync(state, { force: true });
     exitCode = 0;

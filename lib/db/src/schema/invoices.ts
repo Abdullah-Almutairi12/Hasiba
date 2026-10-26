@@ -6,7 +6,7 @@ import { companiesTable } from "./companies";
 
 export const invoicesTable = pgTable("invoices", {
   id: serial("id").primaryKey(),
-  invoiceNumber: text("invoice_number").notNull().unique(),
+  invoiceNumber: text("invoice_number").notNull(),
   supplierId: integer("supplier_id").references(() => suppliersTable.id, { onDelete: "set null" }),
   supplierName: text("supplier_name").notNull(),
   amount: numeric("amount", { precision: 10, scale: 2 }).notNull(),

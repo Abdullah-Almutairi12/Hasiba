@@ -212,6 +212,11 @@ describe("original POS invoice: independent linked return lifecycle", () => {
       "0052_account_recovery_delivery.sql",
       "0053_procurement_responsibilities.sql",
       "0054_procurement_self_receiving.sql",
+      "0055_supplier_invoice_evidence.sql",
+      "0056_supplier_invoice_lifecycle.sql",
+      "0057_supplier_invoice_receipt_allocations.sql",
+      "0058_supplier_invoice_currency_fence.sql",
+      "0059_supplier_invoice_identity_scope.sql",
     ]);
     expect(first.skipped).toHaveLength(26);
     // Upgrade is additive: a legacy company neither opts into self receiving

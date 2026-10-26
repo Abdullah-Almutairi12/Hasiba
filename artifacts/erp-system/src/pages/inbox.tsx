@@ -29,7 +29,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
 import { CheckCheck, Inbox, Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
@@ -56,6 +56,10 @@ const DOC_LABELS: Record<string, string> = {
 // non-admins can only create delegations from their own user id.
 // ---------------------------------------------------------------------------
 function MyDelegations() {
+  const {user}=useAuth();
+  return user?.role==="scoped"?<p className="text-sm text-muted-foreground">إدارة التفويضات ليست ممنوحة ضمن مسؤولية المستند؛ اعتماد الفاتورة لا يمنح تفويض الآخرين تلقائيًا.</p>:<ConfiguredDelegations/>;
+}
+function ConfiguredDelegations() {
   const { toast } = useToast();
   const qc = useQueryClient();
   const { user } = useAuth();
@@ -365,7 +369,9 @@ export default function InboxPage() {
 
       <Dialog open={!!selectedId} onOpenChange={(o) => !o && setSelectedId(null)}>
         <DialogContent className="max-w-lg">
-          <DialogHeader><DialogTitle>طلب اعتماد {detail?.recordRef ?? ""}</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>طلب اعتماد {detail?.recordRef ?? ""}</DialogTitle>
+            <DialogDescription>راجع حقائق المصدر والسياسة المحفوظة؛ يبقى التنفيذ خاضعًا للصلاحيات الحالية.</DialogDescription>
+          </DialogHeader>
           {detail && (
             <div className="space-y-3 text-sm">
               {detail.policyReviewRequired ? (
@@ -389,7 +395,7 @@ export default function InboxPage() {
                 <div className="mb-1 text-xs font-bold">السلسلة</div>
                 <ol className="list-decimal space-y-1 ps-5">
                   {detail.steps.map((s) => (
-                    <li key={s.id}>الخطوة {s.sequence} · دور: <Badge variant="outline">{APPROVAL_ROLES[s.approverRole] ?? "دور مخصص"}</Badge></li>
+                    <li key={s.id}>الخطوة {s.sequence} · <Badge variant="outline">{detail.docType==="supplier_invoice"?"معتمد وفق السياسة المحفوظة":APPROVAL_ROLES[s.approverRole] ?? "دور مخصص"}</Badge></li>
                   ))}
                 </ol>
               </div>

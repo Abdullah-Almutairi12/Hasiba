@@ -1810,6 +1810,10 @@ export interface SupplierInvoiceProcessResult {
   id: number;
   status: string;
   amount: string;
+  /** @nullable */
+  journalEntryId?: number | null;
+  /** @nullable */
+  reversedById?: number | null;
 }
 
 export type SupplierInvoiceEvidenceReceiptsItem = {
