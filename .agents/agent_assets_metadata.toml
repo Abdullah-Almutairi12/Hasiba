@@ -840,3 +840,31 @@ mtime_ms = 1793051026011
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/f57b5fa4-b2cf-42a7-9baa-c512339047b8/0df52fdd-e108-4ff5-bc48-f33140848c19"
 storage_version_token = "1793051042720985"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "SaqXIz-YHZZWBiMQ-iqSe"
+uri = "file://generated-artifacts/variant-movements/delivery.html"
+type = "html"
+title = "حاسبة — تقرير تسليم حركات المتغيرات"
+description = "تقرير عربي بالمنفذ والاختبارات النهائية وحدود رحلة المتصفح والمصالحة والمتبقي، مع صور مضمّنة."
+logical_id = "1eea4643-1b0a-43d4-89ec-9c204e81a32b"
+content_hash = "sha256:6d2a78f09b9554ac4ac0df4ba02463d1914190e87249223ec9aa19b70e1642c0"
+size = 1404113
+mtime_ms = 1793058435656
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/1eea4643-1b0a-43d4-89ec-9c204e81a32b/6287234e-a843-487e-852e-b7d728b85feb"
+storage_version_token = "1793058458344819"
+content_type = "text/html"
+
+[[outputs]]
+id = "1rl6ViNOcd1uA247xA8te"
+uri = "file://generated-artifacts/variant-movements/evidence.zip"
+type = "unspecified"
+title = "حاسبة — حزمة أدلة التحقق"
+description = "نتائج البوابات والاختبارات، دليل فقد الرد واستعادته، مصالحة SQL، الصور وإيصال GitHub، دون بيانات دخول."
+logical_id = "4d48b44a-035e-43fc-8d17-87a55b80f18c"
+content_hash = "sha256:6b366901eda4b19a515b14d9052f5de84779a2802f16c6e8b15ad8c700ac0c1a"
+size = 543161
+mtime_ms = 1793058435732
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/4d48b44a-035e-43fc-8d17-87a55b80f18c/78b4db1b-47db-4b78-847c-806b6cd15e43"
+storage_version_token = "1793058461363822"
+content_type = "application/octet-stream"
