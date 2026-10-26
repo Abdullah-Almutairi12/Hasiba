@@ -728,3 +728,31 @@ mtime_ms = 1793003368965
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/893c47c5-f235-4c8d-b41c-3487595e88f3/4054ce5a-5673-4427-91a7-e8d4e5fbd2a1"
 storage_version_token = "1793003400949153"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "3Fv7xd1VUpcUdZ8d8Hevp"
+uri = "file://generated-artifacts/scoped-movements/delivery.html"
+type = "html"
+title = "تقرير حركات المخزون المقيدة — النسخة المختبرة"
+description = "المنفذ والاختبارات وحدود القبول ونقطة الاستئناف، مع صور الرحلة الأصلية."
+logical_id = "70db9201-5812-4b25-b7f2-2c53d9a85d75"
+content_hash = "sha256:29c526f68a5fc20af4685fdecb62d0c9b935ac984204450ee0eb43675617c37a"
+size = 829089
+mtime_ms = 1793008083982
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/70db9201-5812-4b25-b7f2-2c53d9a85d75/705634eb-666d-48fa-b5d8-458efa5aae75"
+storage_version_token = "1793008103061141"
+content_type = "text/html"
+
+[[outputs]]
+id = "fWCEn0dtB_F3LkKi7O6F_"
+uri = "file://generated-artifacts/scoped-movements/evidence.zip"
+type = "unspecified"
+title = "حزمة أدلة حركات المخزون"
+description = "نتائج منقحة للبوابات والاختبارات، ومصالحة SQL، ودليل استرجاع الرد المفقود، وصور الواجهة. بلا أسرار أو سجلات خام."
+logical_id = "5636b0ad-bdf5-41bd-816a-fb0823909072"
+content_hash = "sha256:459a07a6ea05f85c0d3d7879e42855ca2a5203ea5b77ced35e7419d5591c83d0"
+size = 1083165
+mtime_ms = 1793008084387
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/5636b0ad-bdf5-41bd-816a-fb0823909072/d9804113-ab22-4f9f-9a29-de15bc9ee25a"
+storage_version_token = "1793008106121070"
+content_type = "application/octet-stream"
