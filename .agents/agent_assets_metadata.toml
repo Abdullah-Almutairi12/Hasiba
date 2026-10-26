@@ -784,3 +784,31 @@ mtime_ms = 1793042410753
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/2514b0b7-c144-4492-a0f3-c04307a89483/0b69fd03-2e0e-4abd-b698-d270f7956edc"
 storage_version_token = "1793042433620373"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "GciCJTZaw5kCjC1YhZ882"
+uri = "file://generated-artifacts/stocktake-separation/delivery.html"
+type = "html"
+title = "حاسبة — تقرير سياسة استقلال معتمد الجرد"
+description = "التنفيذ وحدوده، نتائج التحقق، المصدر المختبر ولقطات الواجهة الأصلية."
+logical_id = "813b96e5-066e-4645-abe5-c959cc75f516"
+content_hash = "sha256:2c832fd3b60de6450d1e1551386752563199ef46d3dcd126eb096b7bc5fc4f67"
+size = 499325
+mtime_ms = 1793046111516
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/813b96e5-066e-4645-abe5-c959cc75f516/c3cefa35-4b8b-4257-b361-dd1bf28e3744"
+storage_version_token = "1793046134485949"
+content_type = "text/html"
+
+[[outputs]]
+id = "aWnYrqi7VfWLHyEPNBw6X"
+uri = "file://generated-artifacts/stocktake-separation/evidence.zip"
+type = "unspecified"
+title = "أدلة اختبار استقلال معتمد الجرد"
+description = "نتائج البوابات والحالات المركزة، مصالحة SQL مستقلة، أدلة المتصفح وإيصال GitHub، دون بيانات دخول."
+logical_id = "8ef44554-d3cc-4a47-9178-0d05c22cbb51"
+content_hash = "sha256:883f81c950dcc5624382fc087e90f2c45c9d9261d72854991c7ef8a3cbce7b65"
+size = 259153
+mtime_ms = 1793046111526
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/8ef44554-d3cc-4a47-9178-0d05c22cbb51/98dc200d-aa45-4696-b881-18b6c6b72807"
+storage_version_token = "1793046136715378"
+content_type = "application/octet-stream"
