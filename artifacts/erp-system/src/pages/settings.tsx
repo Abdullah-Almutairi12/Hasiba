@@ -1454,13 +1454,13 @@ function SettingsContent() {
     <div className="mx-auto max-w-7xl space-y-6 p-3 sm:p-4 md:p-6">
       <div>
         <h1 className="text-2xl font-bold sm:text-3xl">الإعدادات</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
+        <div className="mt-1 text-sm text-muted-foreground">
           ضبط هوية المنشأة والضرائب والفروع ونقاط البيع والمحاسبة والربط.
           {readOnly && (
             <Badge variant="outline" className="ms-2">الإعدادات العامة للقراءة فقط؛ إدارة سياسة الاستلام بصلاحية مستقلة</Badge>
           )}
           {user?.role && <span className="ms-2 text-xs text-muted-foreground">({user.role})</span>}
-        </p>
+        </div>
       </div>
 
       {activeCompany && canSwitch && (

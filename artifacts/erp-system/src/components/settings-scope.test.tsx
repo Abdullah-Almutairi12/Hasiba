@@ -19,16 +19,19 @@ function mount(){
 afterEach(()=>{cleanup();vi.restoreAllMocks();mocks.patch.mockClear();mocks.allowed=true;mocks.company=2;});
 describe("Original settings company/branch scope",()=>{
  it("shows parent provenance and resets only the explicit branch keys with both version stamps",async()=>{
-  vi.spyOn(window,"confirm").mockReturnValue(true);mount();
+  mount();
   fireEvent.change(screen.getByLabelText("نطاق إعدادات الفرع"),{target:{value:"11"}});
+  fireEvent.click(screen.getByRole("button",{name:"تأكيد"}));
   expect(await screen.findByText(/receiptCopies/)).toBeTruthy();
   fireEvent.click(screen.getByText("إعادة pos للموروث"));
+  fireEvent.click(screen.getByRole("button",{name:"تأكيد"}));
   await waitFor(()=>expect(mocks.patch).toHaveBeenCalledWith({params:{branchId:11},
    data:{expectedCompanyId:2,expectedRevision:4,expectedParentRevision:8,reset:{pos:["receiptCopies"]}}}));
  });
  it("clears the selected branch on company changes rather than applying the old branch to the new company",async()=>{
-  vi.spyOn(window,"confirm").mockReturnValue(true);const view=mount();
+  const view=mount();
   fireEvent.change(screen.getByLabelText("نطاق إعدادات الفرع"),{target:{value:"11"}});
+  fireEvent.click(screen.getByRole("button",{name:"تأكيد"}));
   mocks.company=3;
   view.rerender(<QueryClientProvider client={new QueryClient()}><SettingsScopeProvider><SettingsScopeBar/></SettingsScopeProvider></QueryClientProvider>);
   await waitFor(()=>expect((screen.getByLabelText("نطاق إعدادات الفرع") as HTMLSelectElement).value).toBe(""));

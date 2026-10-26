@@ -4,6 +4,8 @@ import {useGetAppSettings,usePatchAppSettings,getGetAppSettingsQueryKey} from "@
 import {useQueryClient} from "@tanstack/react-query";
 import {useToast} from "@/hooks/use-toast";
 import {Button} from "@/components/ui/button";
+import {AlertDialog,AlertDialogContent,AlertDialogHeader,AlertDialogTitle,AlertDialogDescription,
+ AlertDialogFooter,AlertDialogCancel,AlertDialogAction} from "@/components/ui/alert-dialog";
 export type SettingsBaseline={values:Record<string,unknown>;companyId:number;revision:number;parentRevision:number;scopeKey:number;dirty:boolean};
 const Context=createContext<{branchId:number|undefined;setBranchId:(id:number|undefined)=>void;baseline:MutableRefObject<Record<string,SettingsBaseline>>;
  generation:number;reload:()=>void}>({branchId:undefined,setBranchId:()=>{},baseline:{current:{}},generation:0,reload:()=>{}});
@@ -25,10 +27,11 @@ export function SettingsScopeBar(){
  const params=branchId?{branchId}:undefined;
  const settings=useGetAppSettings(params);
  const patch=usePatchAppSettings(),client=useQueryClient(),{toast}=useToast();
+ const [confirmation,setConfirmation]=useState<{title:string;description:string;run:()=>void|Promise<void>}|null>(null);
  const scope=settings.data?.scope;
  const overrides=Object.entries(scope?.overrides??{}).filter(([,keys])=>keys.length);
  async function restore(section:string,keys:string[]){
-  if(!scope||!window.confirm("إزالة تخصيص هذا القسم للفرع والعودة إلى قيم المنشأة الحالية؟"))return;
+  if(!scope)return;
   try{
    await patch.mutateAsync({params,data:{expectedCompanyId:scope.companyId,expectedRevision:scope.revision,expectedParentRevision:scope.parentRevision,reset:{[section]:keys}}});
    await client.invalidateQueries({queryKey:getGetAppSettingsQueryKey()});
@@ -36,14 +39,25 @@ export function SettingsScopeBar(){
   }catch(error){toast({title:"لم تُحفظ العودة للموروث",description:error instanceof Error?error.message:"أعد تحميل النسخة",variant:"destructive"});}
  }
  return <section className="space-y-3 rounded-lg border p-4" aria-label="نطاق إعدادات المنشأة والفرع" data-testid="settings-scope">
+  <AlertDialog open={!!confirmation} onOpenChange={open=>{if(!open)setConfirmation(null);}}>
+   <AlertDialogContent dir="rtl"><AlertDialogHeader>
+    <AlertDialogTitle>{confirmation?.title}</AlertDialogTitle>
+    <AlertDialogDescription>{confirmation?.description}</AlertDialogDescription>
+   </AlertDialogHeader><AlertDialogFooter>
+    <AlertDialogCancel>إلغاء</AlertDialogCancel>
+    <AlertDialogAction onClick={()=>{const action=confirmation?.run;setConfirmation(null);void action?.();}}>تأكيد</AlertDialogAction>
+   </AlertDialogFooter></AlertDialogContent>
+  </AlertDialog>
   <label className="flex items-center gap-3">نطاق الإعدادات العامة
    <select aria-label="نطاق إعدادات الفرع" className="rounded border p-2" value={branchId??""} disabled={!scope?.canManage||patch.isPending}
-    onChange={e=>{if(window.confirm("ستعرض إعدادات النطاق الآخر. احفظ تعديلات النموذج أولًا إن لزم."))setBranchId(e.target.value?Number(e.target.value):undefined);}}>
+    onChange={e=>{const id=e.target.value?Number(e.target.value):undefined;setConfirmation({
+     title:"تبديل نطاق الإعدادات",description:"ستُفقد تعديلات النموذج غير المحفوظة عند تبديل النطاق. هل تريد عرض إعدادات النطاق المحدد؟",run:()=>setBranchId(id)});}}>
     <option value="">المنشأة — القيم الافتراضية</option>
     {(scope?.availableBranches??[]).map(b=><option key={b.id} value={b.id}>{b.nameAr??b.name}</option>)}
    </select>
   </label>
-  <Button variant="outline" onClick={async()=>{if(window.confirm("تجاهل تعديلات النماذج غير المحفوظة وإعادة تحميل النسخة الحالية؟")){reload();await client.invalidateQueries({queryKey:getGetAppSettingsQueryKey()});}}}>إعادة تحميل نسخة الإعدادات</Button>
+  <Button variant="outline" onClick={()=>setConfirmation({title:"إعادة تحميل الإعدادات",description:"ستُفقد تعديلات النماذج غير المحفوظة ويُعرض آخر إعداد محفوظ.",
+   run:async()=>{reload();await client.invalidateQueries({queryKey:getGetAppSettingsQueryKey()});}})}>إعادة تحميل نسخة الإعدادات</Button>
   {settings.isLoading?<p>جار تحميل نسخة الإعدادات…</p>:settings.isError?<p role="alert">تعذر تحميل الإعدادات؛ لن يُتاح الحفظ دون نسخة مؤكدة.</p>:
    <p className="text-sm text-muted-foreground">{branchId?"إعداد الفرع يرث قيم المنشأة إلا الحقول المخصصة أدناه.":"إعداد المنشأة الافتراضي للفروع."}
     {" "}نسخة النطاق: {scope?.revision}؛ نسخة المنشأة: {scope?.parentRevision}.
@@ -52,7 +66,8 @@ export function SettingsScopeBar(){
     {" "}حفظ التفضيلات لا يثبت تفعيل تكامل خارجي أو تغيير سياسة مالية؛ إعدادات المحركات القانونية والمالية تبقى في خدماتها المخصصة.
    </p>}
   {branchId&&scope?.canManage&&(overrides.length?overrides.map(([section,keys])=><div key={section} className="flex flex-wrap items-center gap-3 text-sm">
-   <span>{section}: مخصص — {keys.join("، ")}</span><Button variant="outline" disabled={patch.isPending} onClick={()=>restore(section,keys)}>إعادة {section} للموروث</Button>
+   <span>{section}: مخصص — {keys.join("، ")}</span><Button variant="outline" disabled={patch.isPending} onClick={()=>setConfirmation({
+    title:"العودة إلى إعداد المنشأة",description:"سيُزال تخصيص هذا القسم للفرع ويعود إلى قيم المنشأة الحالية. إعداد المنشأة نفسه لن يتغير.",run:()=>restore(section,keys)})}>إعادة {section} للموروث</Button>
   </div>):<p>لا تخصيصات؛ جميع الحقول من إعداد المنشأة.</p>)}
   {scope?.canManage&&<details><summary>سجل آخر50 نسخة لهذا النطاق — بلا قيم سرية</summary>
    {(scope.history??[]).length?(scope.history??[]).map((v,i)=><p key={i} className="text-sm">
