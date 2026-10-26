@@ -208,6 +208,7 @@ export const stockTakesTable = pgTable("stock_takes", {
   completedBy: integer("completed_by").references(() => usersTable.id),
   createdBy: integer("created_by").references(() => usersTable.id),
   closureResult: jsonb("closure_result"),
+  countParticipationIncomplete: boolean("count_participation_incomplete").notNull().default(false),
 });
 
 export const stockTakeLinesTable = pgTable(

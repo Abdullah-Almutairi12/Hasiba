@@ -8,7 +8,7 @@ import {recordStockMove,completeTransfer} from "../lib/stock-engine";
 import app,{assertApplicationReady} from "../app";
 
 const tag=`moving-${randomUUID()}`,password="Synthetic moving stocktake password 2026!";
-let actor:request.Agent,company:number,user:number,wh:number,dest:number,product:number;
+let actor:request.Agent,reviewer:request.Agent,company:number,user:number,wh:number,dest:number,product:number;
 const rows=async(q:string,v:unknown[]=[])=> (await pool.query(q,v)).rows;
 const ok=(r:request.Response,status=200)=>{expect(r.status,JSON.stringify(r.body)).toBe(status);return r.body;};
 const open=async()=>ok(await actor.post("/api/inventory/stock-takes").send({warehouseId:wh}),201).id as number;
@@ -16,7 +16,7 @@ const prepare=async(id:number)=>ok(await actor.post(`/api/inventory/stock-takes/
 const save=(id:number,p:{lineId:number;checkpointId:string;expectedRevision:string},n:number,key=randomUUID())=>
  actor.patch(`/api/inventory/stock-takes/${id}/lines/${p.lineId}`).set("Idempotency-Key",key)
  .send({countedQty:n,checkpointId:p.checkpointId,expectedRevision:p.expectedRevision});
-const close=(id:number)=>actor.post(`/api/inventory/stock-takes/${id}/complete`).send({});
+const close=(id:number)=>reviewer.post(`/api/inventory/stock-takes/${id}/complete`).send({});
 const move=async(kind:"receipt"|"issue",quantity:number,unitCost?:number)=>ok(await actor.post("/api/inventory/moves")
  .set("Idempotency-Key",randomUUID()).send({productId:product,warehouseId:wh,kind,quantity,unitCost}),201);
 async function proof(){
@@ -44,6 +44,10 @@ beforeAll(async()=>{
  const [fy]=await db.insert(fiscalYearsTable).values({companyId:company,name:tag,startDate:`${year}-01-01`,endDate:`${year}-12-31`}).returning();
  await db.insert(fiscalPeriodsTable).values({fiscalYearId:fy.id,name:tag,startDate:`${year}-01-01`,endDate:`${year}-12-31`,status:"open"});
  actor=request.agent(app);ok(await actor.post("/api/auth/login").send({email:u.email,password}));
+ const [r]=await db.insert(usersTable).values({name:`${tag}-reviewer`,email:`${tag}-reviewer@example.invalid`,
+  passwordHash:await bcrypt.hash(password,4),role:"owner",isActive:true,has2fa:false}).returning();
+ await db.insert(userCompaniesTable).values({userId:r.id,companyId:company,role:"owner",isDefault:true});
+ reviewer=request.agent(app);ok(await reviewer.post("/api/auth/login").send({email:r.email,password}));
  await move("receipt",100,5);
 });
 describe("moving stocktake cutoff on native services",()=>{

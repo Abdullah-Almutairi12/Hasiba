@@ -157,7 +157,8 @@ function StockTakeDetail({ id, onClose }: { id: number; onClose: () => void }) {
   const qc = useQueryClient();
   const { toast } = useToast();
   const { user } = useAuth();
-  const { data, error, isLoading } = useQuery<{ id: number; reference: string; status: string; canCount:boolean;canComplete:boolean;lines: StockTakeLine[] }>({
+  const { data, error, isLoading } = useQuery<{ id: number; reference: string; status: string; canCount:boolean;canComplete:boolean;
+    hasCountParticipation:boolean;approvalBlockReason:string|null;lines: StockTakeLine[] }>({
     queryKey: [`/inventory/stock-takes/${id}`],
     queryFn: () => apiGet(`/inventory/stock-takes/${id}`,countHeaders()),
     refetchInterval: 15_000,
@@ -192,6 +193,14 @@ function StockTakeDetail({ id, onClose }: { id: number; onClose: () => void }) {
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
+        {data.status==="in_progress"&&data.approvalBlockReason&&
+          <p role="status" className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
+            {data.approvalBlockReason}
+          </p>}
+        {data.status==="in_progress"&&<p className="text-sm text-muted-foreground">
+          من سجّل أو عدّل أي كمية معدودة لا يعتمد فروق هذه الجلسة بالكامل، حتى لو كان مديرًا.
+          إنشاء الجلسة أو مشاهدتها وحدهما لا يمنع الاعتماد؛ ويلزم دائمًا التخويل المستقل.
+        </p>}
         <p className="text-sm">الحركة مسموحة أثناء الجرد. ابدأ عد كل صنف ثم أكده دون حركة متداخلة أثناء عده.
           المتوقّع هو رصيد نقطة العد؛ الحركات اللاحقة لا تُحسب فرقًا. العدد القديم بلا نقطة موثقة يحتاج إعادة عد.</p>
         {user?.companyId && <StocktakeScanner key={`${user.id}:${user.companyId}:${id}`} id={id}

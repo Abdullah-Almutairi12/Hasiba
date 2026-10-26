@@ -7,6 +7,7 @@
 - [Standard issue valuation](standard-issue-valuation.md) — standard price edits are prospective; ordinary issues realize carrying-cost differences net in COGS, not by automatic revaluation.
 - [Inventory revaluation](inventory-revaluation-policy.md) — independent approval covers both valuation and variance account; corrections must preserve stock/GL agreement.
 - [Stocktake cutoff](stocktake-cutoff-policy.md) — serialized observations do not prove a valid adjustment; require a movement cutoff/reconciliation policy before delegated variance approval.
+- [Stocktake approval independence](stocktake-approval-separation.md) — every historical count writer is excluded from approving the whole session; creation or viewing alone does not exclude.
 - [Product direction](product-scope.md) — flexible branch-connected ERP; retail barcode tables, nested food-service tiles, and payment choices beside checkout.
 - [Arabic print integrity](arabic-print-integrity.md) — inspect extracted logical text as well as appearance; double shaping and ligatures can silently corrupt copying.
 - [Repository synchronization](repository-sync.md) — GitHub handoff is required; verify remote equality and disclose ignored outputs rather than calling a local checkpoint synchronized.

@@ -3407,6 +3407,9 @@ export type GetCountSession200 = {
   status: string;
   canCount: boolean;
   canComplete: boolean;
+  hasCountParticipation: boolean;
+  /** @nullable */
+  approvalBlockReason: string | null;
   lines: GetCountSession200LinesItem[];
 };
 

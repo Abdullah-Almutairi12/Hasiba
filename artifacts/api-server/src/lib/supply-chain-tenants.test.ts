@@ -26,6 +26,7 @@ type Fixture = Record<"company" | "user" | "branch" | "warehouse" | "product" | 
   "rfq" | "po" | "poLine" | "receipt" | "run" | "agreement", number>;
 const fixtures: Fixture[] = [];
 const agents: request.Agent[] = [];
+const independentReviewers: number[] = [];
 let category = 0;
 let poisonedBom = 0;
 let poisonedPo = 0;
@@ -68,6 +69,10 @@ beforeAll(async () => {
     f.reorder = (await db.insert(reorderRulesTable).values({ productId: f.product, warehouseId: f.warehouse, minQty: "20", maxQty: "30" }).returning())[0].id;
     f.take = (await db.insert(stockTakesTable).values({ reference: name, warehouseId: f.warehouse, status: "in_progress" }).returning())[0].id;
     f.takeLine = (await db.insert(stockTakeLinesTable).values({ stockTakeId: f.take, productId: f.product, expectedQty: "10", countedQty: "10" }).returning())[0].id;
+    // This synthetic initial observation has a known actor. Unknown historical
+    // actors are exercised separately and must not be "fixed" by recounting.
+    await db.execute(sql`INSERT INTO stocktake_count_participants(take_id,user_id,line_id)
+      VALUES(${f.take},${f.user},${f.takeLine})`);
     f.center = (await db.insert(workCentersTable).values({ companyId: f.company, code: name, name, nameAr: name }).returning())[0].id;
     f.routing = (await db.insert(routingsTable).values({ companyId: f.company, reference: name, name, nameAr: name }).returning())[0].id;
     await db.insert(routingOperationsTable).values({ routingId: f.routing, workCenterId: f.center, name, nameAr: name });
@@ -134,8 +139,9 @@ afterAll(async () => {
   await db.delete(warehousesTable).where(inArray(warehousesTable.companyId, companyIds));
   await db.delete(branchesTable).where(inArray(branchesTable.id, ids("branch")));
   await db.delete(suppliersTable).where(inArray(suppliersTable.id, ids("supplier")));
-  await db.execute(sql`DELETE FROM audit_logs WHERE user_id IN (${sql.join(ids("user").map((id) => sql`${id}`), sql`, `)})`);
-  await db.delete(usersTable).where(inArray(usersTable.id, ids("user")));
+  const userIds=[...ids("user"),...independentReviewers];
+  await db.execute(sql`DELETE FROM audit_logs WHERE user_id IN (${sql.join(userIds.map((id) => sql`${id}`), sql`, `)})`);
+  await db.delete(usersTable).where(inArray(usersTable.id, userIds));
   await cleanupCompanyDefaults(companyIds);
   await db.delete(companiesTable).where(inArray(companiesTable.id, companyIds));
   await db.delete(categoriesTable).where(eq(categoriesTable.id, category));
@@ -330,7 +336,13 @@ describe("supply-chain tenant boundaries", () => {
     await agents[0].patch(`/api/inventory/stock-takes/${a.take}/lines/${a.takeLine}`).send({
       countedQty: 9, expectedRevision:point.body.expectedRevision,checkpointId:point.body.checkpointId,
     }).expect(200);
-    await agents[0].post(`/api/inventory/stock-takes/${a.take}/complete`).send({}).expect(200);
+    const [reviewerUser]=await db.insert(usersTable).values({name:`${tag}-reviewer`,email:`${tag}-reviewer@example.invalid`,
+      passwordHash:await bcrypt.hash("SupplyTest123!",4),role:"owner",isActive:true,has2fa:false}).returning();
+    independentReviewers.push(reviewerUser.id);
+    await db.insert(userCompaniesTable).values({userId:reviewerUser.id,companyId:a.company,role:"owner",isDefault:true});
+    const reviewer=request.agent(app);
+    await reviewer.post("/api/auth/login").send({email:reviewerUser.email,password:"SupplyTest123!"}).expect(200);
+    await reviewer.post(`/api/inventory/stock-takes/${a.take}/complete`).send({}).expect(200);
     await agents[0].post("/api/inventory/moves").send({ productId: a.product, warehouseId: a.warehouse, quantity: 1, kind: "receipt", unitCost: 0 }).expect(201);
     await agents[0].get(`/api/procurement/purchase-orders/${a.po}/pdf`).expect(200);
     await agents[0].post("/api/procurement/goods-receipts").send({ poId: a.po, warehouseId: a.warehouse, lines: [{ poLineId: a.poLine, quantity: 1 }] }).expect(201);

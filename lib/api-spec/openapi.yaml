@@ -533,7 +533,7 @@ paths:
     get:
       operationId: getCountSession
       tags: [Inventory]
-      description: Cost-blind count lines with numeric-string countRevision, canCount and canComplete. Count permission never grants completion.
+      description: Cost-blind count lines with numeric-string countRevision. canComplete excludes every historical count writer for the entire session, regardless of role; creating/viewing alone does not count. Count permission never grants completion.
       responses:
         "200":
           description: Cost-blind detail
@@ -541,13 +541,15 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [id, reference, status, canCount, canComplete, lines]
+                required: [id, reference, status, canCount, canComplete, hasCountParticipation, approvalBlockReason, lines]
                 properties:
                   id: {type: integer}
                   reference: {type: string}
                   status: {type: string}
                   canCount: {type: boolean}
                   canComplete: {type: boolean}
+                  hasCountParticipation: {type: boolean}
+                  approvalBlockReason: {type: [string, "null"]}
                   lines:
                     type: array
                     items:

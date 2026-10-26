@@ -6,7 +6,7 @@ import {db,pool,companiesTable,usersTable,userCompaniesTable,branchesTable,wareh
 import app,{assertApplicationReady} from "../app";
 
 const tag=`count-safety-${randomUUID()}`,password="Synthetic count safety phrase 2026!";
-let owner:request.Agent,company:number,ownerId:number,warehouse:number,product:number,unexpected:number,branch:number;
+let owner:request.Agent,reviewer:request.Agent,company:number,ownerId:number,warehouse:number,product:number,unexpected:number,branch:number;
 const ok=(r:request.Response,status=200)=>{expect(r.status,JSON.stringify(r.body)).toBe(status);return r.body;};
 const rows=async(text:string,values:unknown[]=[])=> (await pool.query(text,values)).rows;
 async function take() {
@@ -158,7 +158,11 @@ describe("legacy count safety before enabling scoped counting",()=>{
   });
   it("replays a committed count after an actual zero-variance close without reopening or writing another observation",async()=>{
     const t=await take(),key=randomUUID();
-    ok(await set(t,key));expect(ok(await owner.post(`/api/inventory/stock-takes/${t.id}/complete`).send({}))).toEqual({adjustments:0});
+    const [r]=await db.insert(usersTable).values({name:`${tag}-reviewer`,email:`${tag}-reviewer@example.invalid`,
+      passwordHash:await bcrypt.hash(password,4),role:"owner",isActive:true,has2fa:false}).returning();
+    await db.insert(userCompaniesTable).values({userId:r.id,companyId:company,role:"owner",isDefault:true});
+    reviewer=request.agent(app);ok(await reviewer.post("/api/auth/login").send({email:r.email,password}));
+    ok(await set(t,key));expect(ok(await reviewer.post(`/api/inventory/stock-takes/${t.id}/complete`).send({}))).toEqual({adjustments:0});
     const closed=await proof(t.id);
     const replay=await set(t,key);ok(replay);expect(replay.headers["idempotency-replayed"]).toBe("true");
     ok(await set(t,randomUUID(),5),409);ok(await scan(t.id,randomUUID()),400);

@@ -38,6 +38,7 @@ import { inventoryActor,auditInventoryMutation } from "../lib/scoped-inventory-a
 import { managedProfile } from "../lib/responsibility-context";
 import { executeScopedInventoryMovement, inventoryMovementOptions } from "../lib/scoped-inventory-movements";
 import { countPoint, preparePoint, verifyPoint, advanceCountGeneration, type CountPoint } from "../lib/stocktake-cutoff";
+import { stocktakeSeparation, assertIndependentStocktakeReviewer } from "../lib/stocktake-separation";
 
 const router = Router();
 router.use("/inventory", supplyReferencesGuard);
@@ -661,6 +662,7 @@ router.get("/inventory/stock-takes/:id", inventoryTransferReadGuard, async (req,
   try {
   const id = Number(req.params.id);
   const {actor}=await stocktakeReadAuthority(db,req,id);
+  const separation=await stocktakeSeparation(db,id,actor.userId);
   const [take] = await db.select().from(stockTakesTable).where(eq(stockTakesTable.id, id)).limit(1);
   if (!take) return res.status(404).json({ error: "Not found" });
   const lines = await db
@@ -681,7 +683,9 @@ router.get("/inventory/stock-takes/:id", inventoryTransferReadGuard, async (req,
   return res.json({
     ...take,
     canCount:actor.grant?actor.grant.actions.includes("inventory.stocktake.count"):["owner","manager","inventory"].includes(actor.role),
-    canComplete:!actor.grant&&["owner","manager","inventory"].includes(actor.role),
+    canComplete:!separation.blockReason&&!actor.grant&&["owner","manager","inventory"].includes(actor.role),
+    hasCountParticipation:separation.participated,
+    approvalBlockReason:separation.blockReason,
     startedAt: take.startedAt.toISOString(),
     completedAt: take.completedAt?.toISOString() ?? null,
     lines: lines.map((l) => ({
@@ -876,6 +880,9 @@ router.post("/inventory/stock-takes/:id/complete", inventoryGuard, async (req, r
         points.set(l.id,point);
       }
       await inventoryActor(tx,req,"inventory.write");
+      // The parent lock excludes all count writers. Recheck after the stock
+      // locks too: participation committed while waiting cannot be bypassed.
+      const separation=await assertIndependentStocktakeReviewer(tx,id,req.session.userId!);
       let adjustments = 0;
       for (const l of lines) {
         if (l.countedQty == null) continue;
@@ -916,6 +923,12 @@ router.post("/inventory/stock-takes/:id/complete", inventoryGuard, async (req, r
         adjustments++;
       }
       const result={adjustments};
+      await tx.execute(sql`INSERT INTO audit_logs(user_id,user_name,company_id,action,entity,details)
+        SELECT id,name,${getCompanyId(req)},'inventory.stocktake.closed','stock_take',
+          jsonb_build_object('takeId',${id}::integer,'completedBy',id,
+            'countParticipantIds',${JSON.stringify(separation.participantIds)}::jsonb,
+            'independentOfCount',true,'path','legacy_complete','adjustments',${adjustments}::integer)::text
+        FROM users WHERE id=${req.session.userId!}`);
       await tx.update(stockTakesTable).set({status:"done",completedAt:new Date(),
         completedBy:req.session.userId!,closureResult:result}).where(eq(stockTakesTable.id,id));
       return result;

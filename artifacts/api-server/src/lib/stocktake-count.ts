@@ -36,6 +36,13 @@ export async function lockStocktakeForCount(connection:InventoryConnection,req:R
 
 export async function auditCountObservation(connection:InventoryConnection,actor:InventoryActor,takeId:number,lineId:number,
   previous:string|null,counted:string,mode:"set"|"scan") {
+  // The same transaction records the count, durable session participation and
+  // its detailed audit. Recounts never remove previous participants.
+  if(previous!==null)await connection.execute(sql`UPDATE stock_takes SET count_participation_incomplete=true
+    WHERE id=${takeId} AND NOT EXISTS(SELECT 1 FROM stocktake_count_participants
+      WHERE take_id=${takeId} AND line_id=${lineId})`);
+  await connection.execute(sql`INSERT INTO stocktake_count_participants(take_id,user_id,line_id)
+    VALUES(${takeId},${actor.userId},${lineId}) ON CONFLICT DO NOTHING`);
   await connection.execute(sql`INSERT INTO audit_logs(user_id,user_name,company_id,action,entity,details)
     VALUES(${actor.userId},${actor.name},${actor.companyId},'inventory.stocktake.counted','stock_take',
       jsonb_build_object('takeId',${takeId}::integer,'lineId',${lineId}::integer,'mode',${mode}::text,

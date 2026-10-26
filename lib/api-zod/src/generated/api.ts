@@ -767,7 +767,7 @@ export const ListCountSessionsResponse = zod.array(ListCountSessionsResponseItem
 
 
 /**
- * Cost-blind count lines with numeric-string countRevision, canCount and canComplete. Count permission never grants completion.
+ * Cost-blind count lines with numeric-string countRevision. canComplete excludes every historical count writer for the entire session, regardless of role; creating/viewing alone does not count. Count permission never grants completion.
  */
 export const GetCountSessionParams = zod.object({
   "id": zod.coerce.number().int()
@@ -782,6 +782,8 @@ export const GetCountSessionResponse = zod.object({
   "status": zod.string(),
   "canCount": zod.boolean(),
   "canComplete": zod.boolean(),
+  "hasCountParticipation": zod.boolean(),
+  "approvalBlockReason": zod.string().nullable(),
   "lines": zod.array(zod.object({
   "id": zod.number().int(),
   "productId": zod.number().int(),

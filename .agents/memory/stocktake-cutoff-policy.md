@@ -2,7 +2,7 @@
 name: Stocktake variance cutoff
 description: Do not delegate variance approval merely because count observations are serialized
 ---
-New delegated stocktake variance approval remains unavailable in this slice.
+Delegated stocktake variance approval requires separate evidence from counting.
 Counting and financial variance approval are different authorities.
 
 **Why:** Applying counted quantity minus an opening snapshot to today's quantity
@@ -29,5 +29,7 @@ was physically observed.
 recount if stock moves during the interval; reconcile subsequent movements
 without applying them twice. A later completion, even with zero variance,
 must invalidate older observations of the same product/location. Never invent
-count-point evidence for legacy observations. This decision does not authorize
-delegated variance approval, tracked/variant counts or a global ERP claim.
+count-point evidence for legacy observations. The movement decision alone does
+not authorize delegated approval, tracked/variant counts or a global ERP claim.
+For the later explicit approval-independence policy, see
+`stocktake-approval-separation.md`.

@@ -3089,7 +3089,7 @@ export const getGetCountSessionUrl = (id: number,) => {
 }
 
 /**
- * Cost-blind count lines with numeric-string countRevision, canCount and canComplete. Count permission never grants completion.
+ * Cost-blind count lines with numeric-string countRevision. canComplete excludes every historical count writer for the entire session, regardless of role; creating/viewing alone does not count. Count permission never grants completion.
  */
 export const getCountSession = async (id: number, options?: Parameters<typeof customFetch>[1]): Promise<GetCountSession200> => {
 
