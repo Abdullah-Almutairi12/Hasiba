@@ -74,7 +74,7 @@ describe("untracked variants through existing scoped stock services",()=>{
   ok(await send(a,{...body(v),variantId:other.blue}),403);
   const [foreignVariant]=await rows("INSERT INTO product_variants(product_id,sku,cost_price) VALUES($1,$2,7) RETURNING id",
    [foreignProduct,`foreign-variant-${randomUUID()}`]);
-  ok(await send(a,{...body(v),variantId:foreignVariant.id}),403);
+  ok(await send(a,{...body(v),variantId:foreignVariant.id}),404);
   ok(await send(a,{...body(v),productId:foreignProduct}),404);
   ok(await send(a,{...body(v),warehouseId:foreignWh}),404);
   ok(await send(a,{...body(v),warehouseId:destination}),403);

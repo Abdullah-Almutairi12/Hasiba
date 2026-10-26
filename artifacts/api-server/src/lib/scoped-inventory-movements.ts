@@ -20,12 +20,22 @@ type Movement={productId:number;variantId?:number;quantity:number;notes:string;f
 /** Legacy bodies historically stripped variantId. Never silently turn such a
  * request into a parent-level quantity; explicit responsibility grants own
  * the newly accepted variant movement path. Ordinary legacy writes unchanged. */
-export async function rejectLegacyVariantMovement(connection:Pick<typeof db,"execute">,companyId:number,productId:number,variantId:unknown){
- const [parent]=await teamRows<{variant:boolean}>(connection,sql`SELECT
+export async function rejectLegacyVariantMovement(connection:Pick<typeof db,"execute">,companyId:number,productId:number,variantId:unknown,warehouseIds:number[]){
+ const query=sql`SELECT tracking_mode AS tracking,
   (is_variant_parent OR EXISTS(SELECT 1 FROM product_variants v WHERE v.product_id=products.id)) AS variant
-  FROM products WHERE id=${productId} AND company_id=${companyId} FOR UPDATE`);
- if(variantId!==undefined||parent?.variant)
-  throw new FinancialRequestError("حركة المتغير تحتاج مسؤولية استلام أو صرف أو تحويل صريحة واختيار المتغير؛ لا حركة عامة على الأب",409);
+  FROM products WHERE id=${productId} AND company_id=${companyId}`;
+ const [initial]=await teamRows<{variant:boolean;tracking:string}>(connection,query);
+ const reject=()=>{throw new FinancialRequestError("حركة المتغير تحتاج مسؤولية استلام أو صرف أو تحويل صريحة واختيار المتغير؛ لا حركة عامة على الأب",409);};
+ if(variantId!==undefined||initial?.variant)reject();
+ // Do not add stock/parent locks to the accepted tracked legacy paths.
+ if(initial?.tracking!=="none")return;
+ // Take the native ordinary quant advisory keys BEFORE the product row.
+ // A count close already holds these keys before updating the product total.
+ // The opposite order would introduce a deadlock into accepted ordinary moves.
+ for(const warehouseId of [...new Set(warehouseIds)].sort((a,b)=>a-b))
+  await connection.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${`${productId}-${warehouseId}-0-0`},0))`);
+ const [parent]=await teamRows<{variant:boolean}>(connection,sql`${query} FOR UPDATE`);
+ if(parent?.variant)reject();
 }
 
 async function authority(connection:Pick<typeof db,"execute">,req:Request,m:Movement,execute:boolean){

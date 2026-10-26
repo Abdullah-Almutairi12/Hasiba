@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import request from "supertest";
 import bcrypt from "bcryptjs";
-import { eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import {
   db, companiesTable, usersTable, userCompaniesTable, categoriesTable,
   branchesTable, warehousesTable, productsTable, suppliersTable, invoicesTable,
@@ -26,6 +26,7 @@ type Fixture = Record<"company" | "user" | "branch" | "warehouse" | "product" | 
   "rfq" | "po" | "poLine" | "receipt" | "run" | "agreement", number>;
 const fixtures: Fixture[] = [];
 const agents: request.Agent[] = [];
+const ordinaryProducts: number[] = [];
 const independentReviewers: number[] = [];
 let category = 0;
 let poisonedBom = 0;
@@ -129,13 +130,13 @@ afterAll(async () => {
   await db.delete(routingsTable).where(inArray(routingsTable.id, [...ids("routing"), legacyRouting]));
   await db.delete(workCentersTable).where(inArray(workCentersTable.id, [...ids("center"), legacyCenter]));
   for (const table of [stockTakeLinesTable, stockMovesTable, stockQuantsTable, stockSerialsTable, reorderRulesTable, productVariantsTable, stockLotsTable]) {
-    await db.delete(table).where(inArray(table.productId, ids("product")));
+    await db.delete(table).where(inArray(table.productId, [...ids("product"),...ordinaryProducts]));
   }
   await db.delete(stockTakesTable).where(inArray(stockTakesTable.warehouseId, ids("warehouse")));
   // Disposable fixture teardown only; retain the production FK protection.
   await db.execute(sql`DELETE FROM stocktake_product_fences WHERE warehouse_id IN
     (${sql.join(ids("warehouse").map(id=>sql`${id}`),sql`, `)})`);
-  await db.delete(productsTable).where(inArray(productsTable.id, ids("product")));
+  await db.delete(productsTable).where(inArray(productsTable.id, [...ids("product"),...ordinaryProducts]));
   await db.delete(warehousesTable).where(inArray(warehousesTable.companyId, companyIds));
   await db.delete(branchesTable).where(inArray(branchesTable.id, ids("branch")));
   await db.delete(suppliersTable).where(inArray(suppliersTable.id, ids("supplier")));
@@ -343,7 +344,16 @@ describe("supply-chain tenant boundaries", () => {
     const reviewer=request.agent(app);
     await reviewer.post("/api/auth/login").send({email:reviewerUser.email,password:"SupplyTest123!"}).expect(200);
     await reviewer.post(`/api/inventory/stock-takes/${a.take}/complete`).send({}).expect(200);
-    await agents[0].post("/api/inventory/moves").send({ productId: a.product, warehouseId: a.warehouse, quantity: 1, kind: "receipt", unitCost: 0 }).expect(201);
+    // This shared catalog fixture has a variant. A generic legacy parent move
+    // is now intentionally rejected; same-company ordinary moves must still work.
+    await agents[0].post("/api/inventory/moves").send({ productId: a.product, warehouseId: a.warehouse, quantity: 1, kind: "receipt", unitCost: 0 }).expect(409);
+    const [catalog]=await db.select({categoryId:productsTable.categoryId}).from(productsTable).where(eq(productsTable.id,a.product));
+    const [ordinary]=await db.insert(productsTable).values({companyId:a.company,categoryId:catalog.categoryId,name:`${tag}-ordinary`,nameAr:`${tag}-ordinary`,
+      sku:`${tag}-ordinary`,price:"0",costPrice:"0",stock:"0"}).returning();
+    ordinaryProducts.push(ordinary.id);
+    await agents[0].post("/api/inventory/moves").send({productId:ordinary.id,warehouseId:a.warehouse,quantity:1,kind:"receipt",unitCost:0}).expect(201);
+    const [ordinaryQuant]=await db.select().from(stockQuantsTable).where(and(eq(stockQuantsTable.productId,ordinary.id),eq(stockQuantsTable.warehouseId,a.warehouse)));
+    expect(ordinaryQuant.quantity).toBe("1.0000");
     await agents[0].get(`/api/procurement/purchase-orders/${a.po}/pdf`).expect(200);
     await agents[0].post("/api/procurement/goods-receipts").send({ poId: a.po, warehouseId: a.warehouse, lines: [{ poLineId: a.poLine, quantity: 1 }] }).expect(201);
     const created = await agents[0].post("/api/manufacturing/work-orders").send({ bomId: a.bom, quantity: 1 }).expect(201);

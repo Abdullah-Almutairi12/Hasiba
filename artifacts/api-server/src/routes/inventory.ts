@@ -223,7 +223,7 @@ router.post("/inventory/moves", inventoryTransferReadGuard, async (req, res) => 
       // warehouse, amount and period enforcement, not just this role recheck.
       await lockApprovalAuthority(tx);
       await inventoryActor(tx,req,"inventory.write");
-      await rejectLegacyVariantMovement(tx,getCompanyId(req),body.productId,req.body?.variantId);
+      await rejectLegacyVariantMovement(tx,getCompanyId(req),body.productId,req.body?.variantId,[body.warehouseId]);
       let lotId: number | undefined;
       if (body.lotNumber) {
         lotId = await getOrCreateLot(tx, body.productId, body.lotNumber, body.expiryDate ?? null);
@@ -309,7 +309,7 @@ router.post("/inventory/transfers", inventoryTransferReadGuard, async (req, res)
       await lockApprovalAuthority(tx);
       await inventoryActor(tx,req,"inventory.write");
       // Phase 1: outbound (in_transit)
-      await rejectLegacyVariantMovement(tx,getCompanyId(req),body.productId,req.body?.variantId);
+     await rejectLegacyVariantMovement(tx,getCompanyId(req),body.productId,req.body?.variantId,[body.fromWarehouseId,body.toWarehouseId]);
       const out = await recordStockMove(tx, {
         companyId: getCompanyId(req),
         productId: body.productId,
