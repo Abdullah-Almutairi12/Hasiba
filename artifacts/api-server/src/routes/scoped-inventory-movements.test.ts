@@ -125,9 +125,14 @@ describe("three explicitly scoped inventory movements",()=>{
   expect(r.destinations).toEqual([]);expect(r.sources.map((s:{id:number})=>s.id)).toEqual([warehouse]);
   expect(JSON.stringify(r)).not.toMatch(/unitCost|avgCost|costPrice|totalValue/);
  });
- it("blocks delegated moves during an active count without changing or closing that count",async()=>{
+ it("allows delegated moves during an active count under the approved moving-count policy without closing it",async()=>{
   const a=await member(),take=ok(await owner.post("/api/inventory/stock-takes").send({warehouseId:warehouse}),201),before=await snapshot();
-  try{ok(await send(a),409);ok(await send(a,payload("receipt")),409);expect(await snapshot()).toEqual(before);}
+  try{
+   ok(await send(a),201);ok(await send(a,payload("receipt")),201);
+   const after=await snapshot();expect(after.quants).toEqual(before.quants);
+   expect((await rows("SELECT status FROM stock_takes WHERE id=$1",[take.id]))[0].status).toBe("in_progress");
+   expect(after.audits.length).toBe(before.audits.length+2);
+  }
   finally{await rows("UPDATE stock_takes SET status='cancelled' WHERE id=$1",[take.id]);}
  });
  it("does not bypass a higher individual deny, an inventory module ceiling, or a closed fiscal period",async()=>{
@@ -153,7 +158,7 @@ describe("three explicitly scoped inventory movements",()=>{
   finally{await pool.query(`DROP TRIGGER ${fn} ON audit_logs`);await pool.query(`DROP FUNCTION ${fn}()`);}
   const done=ok(await send(a,payload(),key),201);expect(done.moveId).toBeTruthy();
  });
- it("serializes a count opening snapshot ahead of a waiting delegated move, without granting count close",async()=>{
+ it("preserves a count opening snapshot while a waiting delegated move proceeds under the moving-count policy",async()=>{
   const a=await member(),lock=await pool.connect(),before=await snapshot();
   await lock.query("BEGIN");await lock.query("SELECT id FROM warehouses WHERE id=$1 FOR UPDATE",[warehouse]);
   const opening=owner.post("/api/inventory/stock-takes").send({warehouseId:warehouse}).then(r=>r);
@@ -164,7 +169,13 @@ describe("three explicitly scoped inventory movements",()=>{
    const movement=send(a).then(r=>r);
    await lock.query("COMMIT");
    const take=ok(await opening,201);
-   try{ok(await movement,409);expect(await snapshot()).toEqual(before);}
+   try{
+    ok(await movement,201);
+    const after=await snapshot();
+    expect(Number(after.quants.find((q:{warehouse_id:number})=>q.warehouse_id===warehouse).quantity))
+     .toBe(Number(before.quants.find((q:{warehouse_id:number})=>q.warehouse_id===warehouse).quantity)-2);
+    expect((await rows("SELECT status FROM stock_takes WHERE id=$1",[take.id]))[0].status).toBe("in_progress");
+   }
    finally{await rows("UPDATE stock_takes SET status='cancelled' WHERE id=$1",[take.id]);}
   }finally{await lock.query("ROLLBACK");lock.release();}
  });

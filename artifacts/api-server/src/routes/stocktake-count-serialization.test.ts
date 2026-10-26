@@ -14,10 +14,25 @@ async function take() {
   const detail=ok(await owner.get(`/api/inventory/stock-takes/${created.id}`));
   return {id:created.id as number,lineId:detail.lines[0].id as number,revision:detail.lines[0].countRevision as string};
 }
-const scan=(id:number,key:string,quantity=1,productId=product)=>owner.post(`/api/inventory/stock-takes/${id}/lines`)
-  .set("Idempotency-Key",key).send({productId,countedQty:quantity});
-const set=(t:{id:number;lineId:number;revision?:string},key:string,countedQty=10)=>owner.patch(`/api/inventory/stock-takes/${t.id}/lines/${t.lineId}`)
-  .set("Idempotency-Key",key).send({countedQty,expectedRevision:t.revision??"0"});
+const scanPoints=new Map<string,Promise<string|undefined>>();
+const scan=async(id:number,key:string,quantity=1,productId=product)=>{
+ if(!scanPoints.has(key)){
+  scanPoints.set(key,owner.post(`/api/inventory/stock-takes/${id}/checkpoint`).send({productId})
+    .then(p=>p.status===200?p.body.checkpointId:undefined));
+ }
+ const checkpointId=await scanPoints.get(key);
+ return owner.post(`/api/inventory/stock-takes/${id}/lines`)
+ .set("Idempotency-Key",key).send({productId,countedQty:quantity,checkpointId});
+};
+const setPoints=new Map<string,string>();
+const set=async(t:{id:number;lineId:number;revision?:string},key:string,countedQty=10)=>{
+ if(!setPoints.has(key)){
+  const p=await owner.post(`/api/inventory/stock-takes/${t.id}/checkpoint`).send({productId:product});
+  if(p.status===200)setPoints.set(key,p.body.checkpointId);
+ }
+ return owner.patch(`/api/inventory/stock-takes/${t.id}/lines/${t.lineId}`)
+ .set("Idempotency-Key",key).send({countedQty,expectedRevision:t.revision??"0",checkpointId:setPoints.get(key)});
+};
 async function proof(id:number) {
   return {
     take:(await rows("SELECT status FROM stock_takes WHERE id=$1",[id]))[0],
@@ -66,7 +81,8 @@ describe("legacy count safety before enabling scoped counting",()=>{
     ok(await agent.get(`/api/inventory/stock-takes/${foreign.id}`).set(header),403);
     ok(await agent.post("/api/inventory/stock-takes").set(header).send({warehouseId:warehouse}),403);
     ok(await agent.post(`/api/inventory/stock-takes/${t.id}/complete`).set(header).send({}),403);
-    const write=()=>agent.post(`/api/inventory/stock-takes/${t.id}/lines`).set(header).set("Idempotency-Key",key).send({productId:product,countedQty:1});
+    const point=ok(await agent.post(`/api/inventory/stock-takes/${t.id}/checkpoint`).set(header).send({productId:product}));
+    const write=()=>agent.post(`/api/inventory/stock-takes/${t.id}/lines`).set(header).set("Idempotency-Key",key).send({productId:product,countedQty:1,checkpointId:point.checkpointId});
     ok(await write(),201);
     const after=await proof(t.id);
     expect(after.quants).toEqual(before.quants);expect(after.journals).toBe(before.journals);expect(after.audits).toHaveLength(1);

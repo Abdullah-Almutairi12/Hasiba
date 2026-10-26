@@ -790,7 +790,10 @@ export const GetCountSessionResponse = zod.object({
   "lotId": zod.number().int().nullish(),
   "expectedQty": zod.number(),
   "countedQty": zod.number().nullable(),
-  "countRevision": zod.string().regex(getCountSessionResponseLinesItemCountRevisionRegExp)
+  "countRevision": zod.string().regex(getCountSessionResponseLinesItemCountRevisionRegExp),
+  "observationConfirmed": zod.boolean().optional(),
+  "observedAt": zod.string().nullish(),
+  "openingQty": zod.number().optional()
 }))
 })
 
@@ -805,6 +808,26 @@ export const LookupCountProductQueryParams = zod.object({
 
 export const LookupCountProductResponse = zod.object({
   "productId": zod.number().int()
+})
+
+
+/**
+ * Start a 15 minute physical count interval. No stock, cost or journal changes. Ordinary products only.
+ */
+export const PrepareCountCheckpointParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const PrepareCountCheckpointBody = zod.object({
+  "productId": zod.number().int()
+})
+
+export const PrepareCountCheckpointResponse = zod.object({
+  "checkpointId": zod.string().uuid(),
+  "lineId": zod.number().int(),
+  "expectedRevision": zod.string(),
+  "expectedQty": zod.number(),
+  "expiresAt": zod.string()
 })
 
 
@@ -827,7 +850,8 @@ export const incrementCountObservationBodyCountedQtyMin = 0;
 export const IncrementCountObservationBody = zod.object({
   "productId": zod.number().int(),
   "lotId": zod.number().int().optional(),
-  "countedQty": zod.number().min(incrementCountObservationBodyCountedQtyMin).default(incrementCountObservationBodyCountedQtyDefault)
+  "countedQty": zod.number().min(incrementCountObservationBodyCountedQtyMin).default(incrementCountObservationBodyCountedQtyDefault),
+  "checkpointId": zod.string().uuid()
 })
 
 export const IncrementCountObservationResponse = zod.object({
@@ -855,7 +879,8 @@ export const replaceCountObservationBodyExpectedRevisionRegExp = new RegExp('^\\
 
 export const ReplaceCountObservationBody = zod.object({
   "countedQty": zod.number().min(replaceCountObservationBodyCountedQtyMin),
-  "expectedRevision": zod.string().regex(replaceCountObservationBodyExpectedRevisionRegExp)
+  "expectedRevision": zod.string().regex(replaceCountObservationBodyExpectedRevisionRegExp),
+  "checkpointId": zod.string().uuid()
 })
 
 export const ReplaceCountObservationResponse = zod.object({

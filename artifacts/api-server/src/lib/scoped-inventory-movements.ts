@@ -38,11 +38,8 @@ async function authority(connection:Pick<typeof db,"execute">,req:Request,m:Move
  if(!product)throw invalid();
  if(execute&&(product.tracking!=="none"||product.variant))
   throw new FinancialRequestError("هذا المسار يدعم الصنف العادي فقط؛ التشغيلة والتسلسل والمتغير تحتاج مسارًا مقيدًا مستقلًا",409);
- if(execute){
-  const active=await teamRows(connection,sql`SELECT id FROM stock_takes
-    WHERE warehouse_id=ANY(${sql.param(ids)}::integer[]) AND status IN ('draft','in_progress') LIMIT 1`);
-  if(active.length)throw new FinancialRequestError("يوجد جرد مفتوح في أحد مستودعات الحركة؛ الحركة المفوضة موقوفة حتى حسمه وفق السياسة",409);
- }
+ // The approved moving-count policy reconciles each observed product at close.
+ // Do not impose the former narrow warehouse freeze on delegated actors.
  return {actor,grants:[actor.grant,destination]};
 }
 
@@ -63,8 +60,7 @@ export async function executeScopedInventoryMovement(req:Request,isTransfer:bool
  const result=await financialTransaction(req,async tx=>{
   await lockApprovalAuthority(tx);
   await authority(tx,req,m,true);
-  // Stocktake creation takes the SAME warehouse locks before its opening snapshot.
-  // This is a narrow guard for these new delegated moves, not a global count cutoff.
+  // All quantities still pass through the shared stock-engine key locks.
   const out=await recordStockMove(tx,{companyId:req.session.companyId!,productId:m.productId,quantity:m.quantity,
    kind:m.kind,state:m.kind==="transfer"?"in_transit":"done",fromWarehouseId:m.from,toWarehouseId:m.to,
    sourceType:m.kind==="transfer"?"transfer":"manual",sourceRef:`SCOPED-${req.get("Idempotency-Key")}`,

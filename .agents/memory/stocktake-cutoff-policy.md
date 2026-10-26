@@ -2,9 +2,8 @@
 name: Stocktake variance cutoff
 description: Do not delegate variance approval merely because count observations are serialized
 ---
-New delegated stocktake variance approval must remain unavailable until an explicit
-movement cutoff or reconciliation policy is proven. Counting and financial
-variance approval are different authorities.
+New delegated stocktake variance approval remains unavailable in this slice.
+Counting and financial variance approval are different authorities.
 
 **Why:** Applying counted quantity minus an opening snapshot to today's quantity
 can double-count an intervening sale or receipt. Two overlapping counts of one
@@ -17,13 +16,18 @@ sales and receipts after the snapshot and overlapping warehouse counts. Do not
 silently grant variance approval with a count permission or replace the existing
 financial engine without separate evidence.
 
-A narrow guard that blocks newly delegated movements during an open count is
-not evidence of a global stocktake cutoff.
+The user explicitly chose continued stock movement with a documented per-product
+count point, not a warehouse freeze. Do not restore the former narrow freeze on
+delegated moves or impose a new operational freeze on existing companies.
 
-**Why:** Legacy sales, receipts and other writers can still move stock during a
-count. Serializing a count opening with selected new movement types does not
-reconcile those other writers or authorize variance approval.
+**Why:** On 2026-10-26 the user selected this policy after being shown the two
+options. A physical count interval must be explicit: capturing a cutoff only
+after a cashier has counted/scanned a unit cannot establish when that unit
+was physically observed.
 
-**How to apply:** Preserve that guard, but keep delegated count creation/variance
-closure and unsupported adjustments unavailable until the complete movement and
-overlapping-count policy is proven. Do not expand its acceptance claim.
+**How to apply:** Establish the count point before physical counting. Require
+recount if stock moves during the interval; reconcile subsequent movements
+without applying them twice. A later completion, even with zero variance,
+must invalidate older observations of the same product/location. Never invent
+count-point evidence for legacy observations. This decision does not authorize
+delegated variance approval, tracked/variant counts or a global ERP claim.

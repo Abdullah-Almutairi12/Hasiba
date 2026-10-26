@@ -102,6 +102,9 @@ import type {
   CorrectInvoiceAttributionBody,
   CountAlertsCleanupRuns200,
   CountAlertsCleanupRunsParams,
+  CountCheckpointInput,
+  CountReplacementInput,
+  CountScanInput,
   CountUnreadInbox200,
   CreateAccountBody,
   CreateAnnouncementBody,
@@ -179,7 +182,6 @@ import type {
   ImportBankStatementBody,
   InboxItem,
   IncrementCountObservation201,
-  IncrementCountObservationBody,
   InspectInvoiceIdentity200,
   InspectTeamActivation200,
   InventoryRevaluation,
@@ -238,6 +240,7 @@ import type {
   PosSummary,
   PosUnlockInput,
   PostJournalEntry200,
+  PrepareCountCheckpoint200,
   PrimaryOwnerAppointmentInput,
   Product,
   ProductStats,
@@ -245,7 +248,6 @@ import type {
   ReceiveInventoryTransfer200,
   ReceiveInventoryTransferBody,
   ReplaceCountObservation200,
-  ReplaceCountObservationBody,
   ReportInsights,
   RequestAccountPasswordResetBody,
   RequestTeamConsentReconfirm200,
@@ -3286,6 +3288,92 @@ export function useLookupCountProduct<TData = Awaited<ReturnType<typeof lookupCo
 
 
 
+export const getPrepareCountCheckpointUrl = (id: number,) => {
+
+
+
+
+  return `/api/inventory/stock-takes/${id}/checkpoint`
+}
+
+/**
+ * Start a 15 minute physical count interval. No stock, cost or journal changes. Ordinary products only.
+ */
+export const prepareCountCheckpoint = async (id: number,
+    countCheckpointInput: CountCheckpointInput, options?: Parameters<typeof customFetch>[1]): Promise<PrepareCountCheckpoint200> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<PrepareCountCheckpoint200>(getPrepareCountCheckpointUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(countCheckpointInput)
+  }
+);}
+
+
+
+
+
+export const getPrepareCountCheckpointMutationKey = () => ['prepareCountCheckpoint'] as const;
+
+export const getPrepareCountCheckpointMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof prepareCountCheckpoint>>, TError,PrepareCountCheckpointMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof prepareCountCheckpoint>>, TError,PrepareCountCheckpointMutationVariables, TContext> => {
+
+const mutationKey = getPrepareCountCheckpointMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof prepareCountCheckpoint>>, PrepareCountCheckpointMutationVariables> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  prepareCountCheckpoint(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PrepareCountCheckpointMutationResult = NonNullable<Awaited<ReturnType<typeof prepareCountCheckpoint>>>
+    export type PrepareCountCheckpointMutationBody = BodyType<CountCheckpointInput>
+    export type PrepareCountCheckpointMutationError = ErrorType<void>
+    export type PrepareCountCheckpointMutationVariables = {id: number;data: BodyType<CountCheckpointInput>}
+
+    export const usePrepareCountCheckpoint = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof prepareCountCheckpoint>>, TError,PrepareCountCheckpointMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof prepareCountCheckpoint>>,
+        TError,
+        PrepareCountCheckpointMutationVariables,
+        TContext
+      > => {
+      return useMutation(getPrepareCountCheckpointMutationOptions(options), queryClient);
+    }
+
 export const getIncrementCountObservationUrl = (id: number,) => {
 
 
@@ -3298,7 +3386,7 @@ export const getIncrementCountObservationUrl = (id: number,) => {
  * Atomic increment, not an absolute replacement. Fixed Idempotency-Key is required for scoped access and safe retry. Variant/ambiguous lot scans are rejected.
  */
 export const incrementCountObservation = async (id: number,
-    incrementCountObservationBody: IncrementCountObservationBody, options?: Parameters<typeof customFetch>[1]): Promise<IncrementCountObservation201> => {
+    countScanInput: CountScanInput, options?: Parameters<typeof customFetch>[1]): Promise<IncrementCountObservation201> => {
 
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
@@ -3319,7 +3407,7 @@ return customFetch<IncrementCountObservation201>(getIncrementCountObservationUrl
     ...options,
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
-    body: JSON.stringify(incrementCountObservationBody)
+    body: JSON.stringify(countScanInput)
   }
 );}
 
@@ -3357,9 +3445,9 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
   return  { mutationFn, ...mutationOptions }}
 
     export type IncrementCountObservationMutationResult = NonNullable<Awaited<ReturnType<typeof incrementCountObservation>>>
-    export type IncrementCountObservationMutationBody = BodyType<IncrementCountObservationBody>
+    export type IncrementCountObservationMutationBody = BodyType<CountScanInput>
     export type IncrementCountObservationMutationError = ErrorType<void>
-    export type IncrementCountObservationMutationVariables = {id: number;data: BodyType<IncrementCountObservationBody>}
+    export type IncrementCountObservationMutationVariables = {id: number;data: BodyType<CountScanInput>}
 
     export const useIncrementCountObservation = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof incrementCountObservation>>, TError,IncrementCountObservationMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
@@ -3386,7 +3474,7 @@ export const getReplaceCountObservationUrl = (id: number,
  */
 export const replaceCountObservation = async (id: number,
     lineId: number,
-    replaceCountObservationBody: ReplaceCountObservationBody, options?: Parameters<typeof customFetch>[1]): Promise<ReplaceCountObservation200> => {
+    countReplacementInput: CountReplacementInput, options?: Parameters<typeof customFetch>[1]): Promise<ReplaceCountObservation200> => {
 
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
@@ -3407,7 +3495,7 @@ return customFetch<ReplaceCountObservation200>(getReplaceCountObservationUrl(id,
     ...options,
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
-    body: JSON.stringify(replaceCountObservationBody)
+    body: JSON.stringify(countReplacementInput)
   }
 );}
 
@@ -3445,9 +3533,9 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
   return  { mutationFn, ...mutationOptions }}
 
     export type ReplaceCountObservationMutationResult = NonNullable<Awaited<ReturnType<typeof replaceCountObservation>>>
-    export type ReplaceCountObservationMutationBody = BodyType<ReplaceCountObservationBody>
+    export type ReplaceCountObservationMutationBody = BodyType<CountReplacementInput>
     export type ReplaceCountObservationMutationError = ErrorType<void>
-    export type ReplaceCountObservationMutationVariables = {id: number;lineId: number;data: BodyType<ReplaceCountObservationBody>}
+    export type ReplaceCountObservationMutationVariables = {id: number;lineId: number;data: BodyType<CountReplacementInput>}
 
     export const useReplaceCountObservation = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof replaceCountObservation>>, TError,ReplaceCountObservationMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}

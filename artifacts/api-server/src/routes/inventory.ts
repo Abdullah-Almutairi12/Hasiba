@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { randomUUID } from "node:crypto";
 import {
   db,
   productsTable,
@@ -36,6 +37,7 @@ import { lockStocktakeForCount, auditCountObservation, stocktakeReadAuthority } 
 import { inventoryActor,auditInventoryMutation } from "../lib/scoped-inventory-actor";
 import { managedProfile } from "../lib/responsibility-context";
 import { executeScopedInventoryMovement, inventoryMovementOptions } from "../lib/scoped-inventory-movements";
+import { countPoint, preparePoint, verifyPoint, advanceCountGeneration, type CountPoint } from "../lib/stocktake-cutoff";
 
 const router = Router();
 router.use("/inventory", supplyReferencesGuard);
@@ -587,11 +589,11 @@ router.post("/inventory/stock-takes", inventoryGuard, async (req, res) => {
       warehouseId: z.coerce.number().int(),
       notes: z.string().optional(),
     }).parse(req.body);
-    const result = await db.transaction(async (tx) => {
+    const result = await financialTransaction(req,async (tx) => {
       await lockApprovalAuthority(tx);
       await inventoryActor(tx,req,"inventory.write");
-      const ref = `ST-${Date.now()}`;
-      // Coordinate the snapshot with new delegated warehouse movements only.
+      const ref = `ST-${Date.now()}-${randomUUID().slice(0,8)}`;
+      // Opening snapshot is historical context, NOT the eventual adjustment base.
       await tx.execute(sql`SELECT id FROM warehouses WHERE id=${body.warehouseId} AND company_id=${getCompanyId(req)} FOR UPDATE`);
       const [take] = await tx
         .insert(stockTakesTable)
@@ -625,6 +627,10 @@ router.post("/inventory/stock-takes", inventoryGuard, async (req, res) => {
         });
       }
       return take;
+    },async(tx,result)=>{
+      await lockApprovalAuthority(tx);
+      await inventoryActor(tx,req,"inventory.write");
+      await stocktakeReadAuthority(tx,req,result.id);
     });
     res.status(201).json(result);
   } catch (err) {
@@ -667,6 +673,7 @@ router.get("/inventory/stock-takes/:id", inventoryTransferReadGuard, async (req,
       expectedQty: stockTakeLinesTable.expectedQty,
       countedQty: stockTakeLinesTable.countedQty,
       countRevision: stockTakeLinesTable.countRevision,
+      countCheckpoint: stockTakeLinesTable.countCheckpoint,
     })
     .from(stockTakeLinesTable)
     .leftJoin(productsTable, eq(stockTakeLinesTable.productId, productsTable.id))
@@ -679,7 +686,11 @@ router.get("/inventory/stock-takes/:id", inventoryTransferReadGuard, async (req,
     completedAt: take.completedAt?.toISOString() ?? null,
     lines: lines.map((l) => ({
       ...l,
-      expectedQty: Number(l.expectedQty),
+      countCheckpoint: undefined,
+      observationConfirmed: l.countCheckpoint!=null,
+      observedAt: (l.countCheckpoint as CountPoint|null)?.observedAt??null,
+      openingQty: Number(l.expectedQty),
+      expectedQty: Number((l.countCheckpoint as CountPoint|null)?.quantity??l.expectedQty),
       countedQty: l.countedQty == null ? null : Number(l.countedQty),
     })),
   });
@@ -703,6 +714,31 @@ router.get("/inventory/stock-takes/:id/lookup",inventoryTransferReadGuard,async(
   }
 });
 
+// A short stock lock establishes a physical-count interval, not a stock freeze.
+router.post("/inventory/stock-takes/:id/checkpoint", inventoryTransferReadGuard, async(req,res)=>{
+  try {
+    const body=z.object({productId:z.coerce.number().int().positive()}).strict().parse(req.body);
+    const takeId=Number(req.params.id);
+    const result=await db.transaction(async tx=>{
+      await lockApprovalAuthority(tx);
+      const {actor,take}=await lockStocktakeForCount(tx,req,takeId);
+      const point=await countPoint(tx,actor.companyId,take.warehouseId,body.productId);
+      // Authority may have expired while waiting for the stock lock.
+      await inventoryActor(tx,req,"inventory.stocktake.count");
+      let [line]=await tx.select().from(stockTakeLinesTable).where(and(
+        eq(stockTakeLinesTable.stockTakeId,takeId),eq(stockTakeLinesTable.productId,body.productId),
+        isNull(stockTakeLinesTable.variantId),isNull(stockTakeLinesTable.lotId)));
+      if(!line) [line]=await tx.insert(stockTakeLinesTable).values({stockTakeId:takeId,productId:body.productId,
+        expectedQty:point.quantity}).returning();
+      return {lineId:line.id,expectedRevision:line.countRevision,
+        ...await preparePoint(tx,takeId,line.id,actor.userId,point)};
+    });
+    res.json(result);
+  } catch(error) {
+    res.status(error instanceof FinancialRequestError?error.status:400).json({error:error instanceof Error?error.message:"تعذر بدء عد الصنف"});
+  }
+});
+
 router.patch("/inventory/stock-takes/:id/lines/:lineId", inventoryTransferReadGuard, async (req, res) => {
   try {
     const takeId = Number(req.params.id);
@@ -712,17 +748,23 @@ router.patch("/inventory/stock-takes/:id/lines/:lineId", inventoryTransferReadGu
     const body = z.object({
       countedQty: z.coerce.number().finite().nonnegative(),
       expectedRevision: z.string().regex(/^\d{1,30}$/).optional(),
+      checkpointId: z.string().uuid().optional(),
     }).strict().parse(req.body);
     const result=await financialTransaction(req,async tx=>{
       await lockApprovalAuthority(tx);
-      const {actor}=await lockStocktakeForCount(tx,req,takeId);
-      const [line]=await tx.select({id:stockTakeLinesTable.id,countedQty:stockTakeLinesTable.countedQty,countRevision:stockTakeLinesTable.countRevision})
+      const {actor,take}=await lockStocktakeForCount(tx,req,takeId);
+      const [line]=await tx.select({id:stockTakeLinesTable.id,productId:stockTakeLinesTable.productId,
+        countedQty:stockTakeLinesTable.countedQty,countRevision:stockTakeLinesTable.countRevision})
         .from(stockTakeLinesTable).innerJoin(productsTable,eq(productsTable.id,stockTakeLinesTable.productId))
         .where(and(eq(stockTakeLinesTable.id,lineId),eq(stockTakeLinesTable.stockTakeId,takeId),eq(productsTable.companyId,actor.companyId)));
       if(!line)throw new FinancialRequestError("السطر غير موجود في هذه الجلسة",404);
       if(body.expectedRevision===undefined)throw new FinancialRequestError("حدّث الجلسة قبل تعديل العدد؛ نسخة السطر مطلوبة",428);
       if(body.expectedRevision!==line.countRevision)throw new FinancialRequestError("تعارض: تغير العدد منذ فتحه. حدّث السطر وراجع العدد قبل الحفظ",409);
+      const point=await countPoint(tx,actor.companyId,take.warehouseId,line.productId);
+      const checkpoint=await verifyPoint(tx,takeId,lineId,actor.userId,body.checkpointId,point);
+      await inventoryActor(tx,req,"inventory.stocktake.count");
       const [updated]=await tx.update(stockTakeLinesTable).set({countedQty:String(body.countedQty),
+        countCheckpoint:checkpoint,
         countRevision:sql`${stockTakeLinesTable.countRevision}+1`}).where(eq(stockTakeLinesTable.id,lineId))
         .returning({countedQty:stockTakeLinesTable.countedQty});
       await auditCountObservation(tx,actor,takeId,lineId,line.countedQty,updated.countedQty!,"set");
@@ -748,6 +790,7 @@ router.post("/inventory/stock-takes/:id/lines", inventoryTransferReadGuard, asyn
       productId: z.coerce.number().int(),
       lotId: z.coerce.number().int().optional(),
       countedQty: z.coerce.number().finite().nonnegative().default(1),
+      checkpointId: z.string().uuid().optional(),
     }).strict().parse(req.body);
     if (body.lotId != null) {
       const [lot] = await db.select().from(stockLotsTable).where(and(eq(stockLotsTable.id, body.lotId), eq(stockLotsTable.productId, body.productId)));
@@ -756,6 +799,8 @@ router.post("/inventory/stock-takes/:id/lines", inventoryTransferReadGuard, asyn
     const result = await financialTransaction(req,async (tx) => {
       await lockApprovalAuthority(tx);
       const {actor,take}=await lockStocktakeForCount(tx,req,takeId,400);
+      const point=await countPoint(tx,actor.companyId,take.warehouseId,body.productId);
+      await inventoryActor(tx,req,"inventory.stocktake.count");
       // This barcode path must never collapse variant/lot-specific observations.
       const [complex]=await tx.execute(sql`SELECT 1 FROM stock_take_lines
         WHERE stock_take_id=${takeId} AND product_id=${body.productId}
@@ -777,43 +822,24 @@ router.post("/inventory/stock-takes/:id/lines", inventoryTransferReadGuard, asyn
         .limit(1);
 
       if (existing[0]) {
+        const checkpoint=await verifyPoint(tx,takeId,existing[0].id,actor.userId,body.checkpointId,point);
+        const previous=existing[0].countCheckpoint as CountPoint|null;
+        if(existing[0].countedQty!==null&&(!previous||previous.fingerprint!==point.fingerprint))
+          throw new FinancialRequestError("تحرك الصنف خلال سلسلة المسحات؛ أعد عد الصنف كاملًا من نقطة جديدة",409);
         const [updated]=await tx
           .update(stockTakeLinesTable)
           .set({ countedQty: sql`COALESCE(${stockTakeLinesTable.countedQty},0)+${body.countedQty}::numeric`,
+            countCheckpoint:previous??checkpoint,
             countRevision:sql`${stockTakeLinesTable.countRevision}+1` })
           .where(eq(stockTakeLinesTable.id, existing[0].id)).returning({countedQty:stockTakeLinesTable.countedQty});
         await auditCountObservation(tx,actor,takeId,existing[0].id,existing[0].countedQty,updated.countedQty!,"scan");
         return { lineId: existing[0].id, countedQty: Number(updated.countedQty) };
       }
 
-      // Compute expected qty / unit cost from current quants in this warehouse.
-      const cur = await tx
-        .select({
-          quantity: stockQuantsTable.quantity,
-          avgCost: stockQuantsTable.avgCost,
-        })
-        .from(stockQuantsTable)
-        .where(and(
-          eq(stockQuantsTable.warehouseId, take.warehouseId),
-          eq(stockQuantsTable.productId, body.productId),
-          body.lotId ? eq(stockQuantsTable.lotId, body.lotId) : sql`${stockQuantsTable.lotId} IS NULL`,
-        ))
-        .limit(1);
-      const expected = cur[0] ? Number(cur[0].quantity) : 0;
-      const unitCost = cur[0] ? Number(cur[0].avgCost) : 0;
-      const [created] = await tx
-        .insert(stockTakeLinesTable)
-        .values({
-          stockTakeId: takeId,
-          productId: body.productId,
-          lotId: body.lotId ?? null,
-          expectedQty: String(expected),
-          countedQty: String(body.countedQty),
-          unitCost: String(unitCost),
-        })
-        .returning({ id: stockTakeLinesTable.id,countedQty:stockTakeLinesTable.countedQty });
-      await auditCountObservation(tx,actor,takeId,created.id,null,created.countedQty!,"scan");
-      return { lineId: created.id, countedQty: Number(created.countedQty) };
+      // Unknown items must first obtain a server checkpoint through the same
+      // native page. Never infer an opening balance at the moment of saving.
+      throw new FinancialRequestError("ابدأ عد الصنف أولًا للحصول على نقطة عد موثقة",428);
+
     });
     res.status(201).json(result);
   } catch (err) {
@@ -829,25 +855,49 @@ router.post("/inventory/stock-takes/:id/complete", inventoryGuard, async (req, r
     const result = await db.transaction(async (tx) => {
       await lockApprovalAuthority(tx);
       await inventoryActor(tx,req,"inventory.write");
-      // Atomic state transition: only the caller that successfully flips
-      // the take from in_progress -> done proceeds to post adjustments.
-      // A second concurrent /complete sees no row returned and aborts,
-      // so adjustments and GL postings are never duplicated.
       const [take] = await tx
-        .update(stockTakesTable)
-        .set({ status: "done", completedAt: new Date(), completedBy: req.session?.userId ?? null })
-        .where(and(eq(stockTakesTable.id, id), supplyScope("take", stockTakesTable.id, getCompanyId(req)), eq(stockTakesTable.status, "in_progress")))
-        .returning();
-      if (!take) throw new Error("الجرد غير موجود أو مغلق بالفعل");
-      const lines = await tx.select().from(stockTakeLinesTable).where(eq(stockTakeLinesTable.stockTakeId, id));
+        .select().from(stockTakesTable)
+        .where(and(eq(stockTakesTable.id, id), supplyScope("take", stockTakesTable.id, getCompanyId(req)))).for("update");
+      if (!take) throw new Error("الجرد غير موجود");
+      if(take.status==="done"&&take.closureResult)return take.closureResult;
+      if(take.status!=="in_progress")throw new FinancialRequestError("الجرد مغلق ولا توجد نتيجة إقفال محفوظة للاستعادة",409);
+      const lines = await tx.select().from(stockTakeLinesTable).where(eq(stockTakeLinesTable.stockTakeId, id))
+        .orderBy(stockTakeLinesTable.productId,stockTakeLinesTable.id);
+      const points=new Map<number,CountPoint>();
+      // Lock all observed ordinary product keys in deterministic order BEFORE
+      // validating any cutoff. Other stocktakes use exactly the same order.
+      for(const l of lines) {
+        if(l.countedQty===null)continue;
+        if(l.variantId!==null||l.lotId!==null)throw new FinancialRequestError("المتتبعات والمتغيرات خارج شريحة الجرد المتحرك",400);
+        const point=await countPoint(tx,getCompanyId(req),take.warehouseId,l.productId);
+        const saved=l.countCheckpoint as CountPoint|null;
+        if(!saved)throw new FinancialRequestError("يوجد عدد قديم دون نقطة عد موثقة؛ أعد عد الصنف قبل الإقفال",409);
+        if(saved.generation!==point.generation)throw new FinancialRequestError("أقفل جرد آخر لهذا الصنف بعد عده؛ أعد العد قبل إقفال هذه الجلسة",409);
+        points.set(l.id,point);
+      }
+      await inventoryActor(tx,req,"inventory.write");
       let adjustments = 0;
       for (const l of lines) {
         if (l.countedQty == null) continue;
-        const expected = Number(l.expectedQty);
-        const counted = Number(l.countedQty);
-        const variance = counted - expected;
+        const saved=l.countCheckpoint as CountPoint;
+        const [{delta}]=await tx.execute(sql`SELECT (${l.countedQty}::numeric-${saved.quantity}::numeric)::text AS delta`)
+          .then(r=>(r as unknown as {rows:{delta:string}[]}).rows);
+        const variance=Number(delta);
+        await advanceCountGeneration(tx,take.warehouseId,l.productId);
+        // Persist reconciliation evidence even when no financial adjustment is needed.
+        await tx.execute(sql`INSERT INTO audit_logs(user_id,user_name,company_id,action,entity,details)
+          SELECT ${req.session.userId!},name,${getCompanyId(req)},'inventory.stocktake.reconciled','stock_take',
+            ${JSON.stringify({takeId:id,lineId:l.id,productId:l.productId,openingQty:l.expectedQty,
+              observedExpectedQty:saved.quantity,countedQty:l.countedQty,atCloseQty:points.get(l.id)!.quantity,
+              delta,generation:saved.generation,observedAt:saved.observedAt})}
+          FROM users WHERE id=${req.session.userId!}`);
         if (Math.abs(variance) < 0.0001) continue;
         const qty = Math.abs(variance);
+        const [{cost}]=await tx.execute(sql`SELECT COALESCE(
+          (SELECT avg_cost FROM stock_quants WHERE product_id=${l.productId} AND warehouse_id=${take.warehouseId}
+           AND variant_id IS NULL AND lot_id IS NULL LIMIT 1),
+          (SELECT cost_price FROM products WHERE id=${l.productId}))::float8 AS cost`)
+          .then(r=>(r as unknown as {rows:{cost:number}[]}).rows);
         await recordStockMove(tx, {
           companyId: getCompanyId(req),
           productId: l.productId,
@@ -856,7 +906,7 @@ router.post("/inventory/stock-takes/:id/complete", inventoryGuard, async (req, r
           fromWarehouseId: variance < 0 ? take.warehouseId : null,
           toWarehouseId: variance > 0 ? take.warehouseId : null,
           lotId: l.lotId ?? null,
-          unitCost: Number(l.unitCost),
+          unitCost: cost,
           sourceType: "stocktake",
           sourceId: id,
           sourceRef: take.reference,
@@ -865,7 +915,10 @@ router.post("/inventory/stock-takes/:id/complete", inventoryGuard, async (req, r
         });
         adjustments++;
       }
-      return { adjustments };
+      const result={adjustments};
+      await tx.update(stockTakesTable).set({status:"done",completedAt:new Date(),
+        completedBy:req.session.userId!,closureResult:result}).where(eq(stockTakesTable.id,id));
+      return result;
     });
     res.json(result);
   } catch (err) {

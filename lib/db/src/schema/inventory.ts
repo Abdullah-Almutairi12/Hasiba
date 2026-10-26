@@ -207,6 +207,7 @@ export const stockTakesTable = pgTable("stock_takes", {
   completedAt: timestamp("completed_at"),
   completedBy: integer("completed_by").references(() => usersTable.id),
   createdBy: integer("created_by").references(() => usersTable.id),
+  closureResult: jsonb("closure_result"),
 });
 
 export const stockTakeLinesTable = pgTable(
@@ -220,6 +221,7 @@ export const stockTakeLinesTable = pgTable(
     expectedQty: numeric("expected_qty", { precision: 18, scale: 4 }).notNull().default("0"),
     countedQty: numeric("counted_qty", { precision: 18, scale: 4 }),
     countRevision: numeric("count_revision", { precision: 30, scale: 0 }).notNull().default("0"),
+    countCheckpoint: jsonb("count_checkpoint"),
     unitCost: numeric("unit_cost", { precision: 18, scale: 4 }).notNull().default("0"),
   },
   (t) => ({

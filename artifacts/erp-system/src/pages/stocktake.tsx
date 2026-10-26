@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { Link } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiGet, apiPost } from "@/hooks/use-api";
@@ -28,6 +28,7 @@ import { StocktakeScanner } from "@/components/stocktake-scanner";
 import { countHeaders, countIntentKey } from "@/lib/stocktake-intent";
 import { useAuth } from "@/hooks/use-auth";
 import { useSelectedResponsibility } from "@/lib/workspace-responsibility";
+import {StocktakeLineCounter} from "@/components/stocktake-line-counter";
 
 interface StockTake {
   id: number;
@@ -46,6 +47,7 @@ interface StockTakeLine {
   expectedQty: number;
   countedQty: number | null;
   countRevision: string;
+  observationConfirmed: boolean;
 }
 
 interface Warehouse { id: number; nameAr: string }
@@ -151,7 +153,6 @@ export default function StockTakePage() {
     </div>
   );
 }
-
 function StockTakeDetail({ id, onClose }: { id: number; onClose: () => void }) {
   const qc = useQueryClient();
   const { toast } = useToast();
@@ -160,25 +161,6 @@ function StockTakeDetail({ id, onClose }: { id: number; onClose: () => void }) {
     queryKey: [`/inventory/stock-takes/${id}`],
     queryFn: () => apiGet(`/inventory/stock-takes/${id}`,countHeaders()),
     refetchInterval: 15_000,
-  });
-
-  const updateLine = useMutation({
-    mutationFn: ({ lineId, countedQty, expectedRevision }: { lineId: number; countedQty: number; expectedRevision: string }) =>
-      fetch(`${import.meta.env.BASE_URL.replace(/\/$/, "")}/api/inventory/stock-takes/${id}/lines/${lineId}`, {
-        method: "PATCH",
-        credentials: "include",
-        headers: { "Content-Type": "application/json", "Idempotency-Key": crypto.randomUUID(), ...countHeaders() },
-        body: JSON.stringify({ countedQty, expectedRevision }),
-      }).then(async r => {
-        const result=await r.json();
-        if (!r.ok) throw new Error(result.error??"تعذر تأكيد تعديل العدد؛ حدّث السطر قبل إعادة المحاولة");
-        return result;
-      }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: [`/inventory/stock-takes/${id}`] }),
-    onError: (e:Error) => {
-      toast({title:"لم يُؤكّد تعديل العدد",description:e.message,variant:"destructive"});
-      void qc.invalidateQueries({queryKey:[`/inventory/stock-takes/${id}`]});
-    },
   });
 
   const complete = useMutation({
@@ -210,6 +192,8 @@ function StockTakeDetail({ id, onClose }: { id: number; onClose: () => void }) {
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
+        <p className="text-sm">الحركة مسموحة أثناء الجرد. ابدأ عد كل صنف ثم أكده دون حركة متداخلة أثناء عده.
+          المتوقّع هو رصيد نقطة العد؛ الحركات اللاحقة لا تُحسب فرقًا. العدد القديم بلا نقطة موثقة يحتاج إعادة عد.</p>
         {user?.companyId && <StocktakeScanner key={`${user.id}:${user.companyId}:${id}`} id={id}
           scope={countIntentKey(user.id,user.companyId,id)} disabled={data.status!=="in_progress"||!data.canCount}
           onConfirmed={()=>{void qc.invalidateQueries({queryKey:[`/inventory/stock-takes/${id}`]});}} />}
@@ -218,7 +202,7 @@ function StockTakeDetail({ id, onClose }: { id: number; onClose: () => void }) {
             <TableRow>
               <TableHead>المنتج</TableHead>
               <TableHead>SKU</TableHead>
-              <TableHead>المتوقع</TableHead>
+              <TableHead>المتوقع عند العد</TableHead>
               <TableHead>المعدود</TableHead>
               <TableHead>الفرق</TableHead>
             </TableRow>
@@ -232,8 +216,11 @@ function StockTakeDetail({ id, onClose }: { id: number; onClose: () => void }) {
                   <TableCell className="font-mono text-xs">{l.sku}</TableCell>
                   <TableCell>{l.expectedQty}</TableCell>
                   <TableCell>
-                    <CountQuantityInput line={l} disabled={data.status!=="in_progress"||!data.canCount||updateLine.isPending}
-                      save={(countedQty,expectedRevision)=>updateLine.mutate({lineId:l.id,countedQty,expectedRevision})} />
+                    {user?.companyId&&<StocktakeLineCounter key={`${user.id}:${user.companyId}:${id}:${l.id}`}
+                      takeId={id} line={l} scope={countIntentKey(user.id,user.companyId,id)}
+                      disabled={data.status!=="in_progress"||!data.canCount}
+                      onConfirmed={()=>void qc.invalidateQueries({queryKey:[`/inventory/stock-takes/${id}`]})}/>}
+                    {l.countedQty!==null&&!l.observationConfirmed&&<p className="text-amber-700">عدد قديم يحتاج نقطة عد جديدة</p>}
                   </TableCell>
                   <TableCell className={variance == null ? "" : variance === 0 ? "text-muted-foreground" : variance > 0 ? "text-green-600" : "text-red-600"}>
                     {variance == null ? "—" : variance > 0 ? `+${variance}` : variance}
@@ -248,18 +235,3 @@ function StockTakeDetail({ id, onClose }: { id: number; onClose: () => void }) {
   );
 }
 
-function CountQuantityInput({line,disabled,save}:{line:StockTakeLine;disabled:boolean;save:(n:number,revision:string)=>void}) {
-  const [value,setValue]=useState(line.countedQty==null?"":String(line.countedQty));
-  const editing=useRef(false),revision=useRef(line.countRevision);
-  useEffect(()=>{
-    if(!editing.current){setValue(line.countedQty==null?"":String(line.countedQty));revision.current=line.countRevision;}
-  },[line.countedQty,line.countRevision]);
-  return <Input aria-label={`العدد المطلق — ${line.productName}`} type="number" min="0" step="any"
-    value={value} className="w-24" disabled={disabled}
-    onFocus={()=>{editing.current=true;revision.current=line.countRevision;}}
-    onChange={e=>setValue(e.target.value)} onBlur={()=>{
-      editing.current=false;
-      if(value.trim() && Number.isFinite(Number(value)) && Number(value)>=0 &&
-        (line.countedQty===null||Number(value)!==line.countedQty))save(Number(value),revision.current);
-    }} />;
-}

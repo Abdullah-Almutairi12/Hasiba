@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { apiGet } from "@/hooks/use-api";
+import { apiGet,apiPost } from "@/hooks/use-api";
 import { useToast } from "@/hooks/use-toast";
 import { CountRequestError, countHeaders, loadCountIntent, sendCountIntent, type CountIntent } from "@/lib/stocktake-intent";
 
@@ -16,6 +16,7 @@ export function StocktakeScanner({id,scope,onConfirmed,disabled=false}:{
   const [message,setMessage]=useState("");
   const [busy,setBusy]=useState(false);
   const [storageError,setStorageError]=useState(false);
+  const [active,setActive]=useState<{code:string;productId:number;checkpointId:string}|null>(null);
   const lock=useRef(false);
   const {toast}=useToast();
   useEffect(()=>{
@@ -43,12 +44,19 @@ export function StocktakeScanner({id,scope,onConfirmed,disabled=false}:{
       // Re-read under the origin-wide lock; another tab may hold recovery evidence.
       intent=loadCountIntent(localStorage,scope);setPending(intent);
       if(!intent) {
-        setMessage("جارٍ البحث عن الباركود…");
-        // Only the lookup's actual 404 is an unknown code. Auth/network errors are not.
-        const lookup=await apiGet<{productId:number}>(`/inventory/stock-takes/${id}/lookup?code=${encodeURIComponent(code.trim())}`,countHeaders());
+        if(!active||active.code!==code.trim()){
+          setMessage("جارٍ تحديد الصنف وبدء نقطة العد…");
+          // The first scan selects, NOT counts: physical counting must start
+          // AFTER the server cutoff, never infer its time after a unit was counted.
+          const lookup=await apiGet<{productId:number}>(`/inventory/stock-takes/${id}/lookup?code=${encodeURIComponent(code.trim())}`,countHeaders());
+          const checkpoint=await apiPost<{checkpointId:string}>(`/inventory/stock-takes/${id}/checkpoint`,{productId:lookup.productId});
+          setActive({code:code.trim(),productId:lookup.productId,checkpointId:checkpoint.checkpointId});
+          setCode("");setMessage("تم بدء نقطة العد؛ لم تُسجّل وحدة. ابدأ الآن مسح وحدات الصنف الفعلية للعد. عند حركة متداخلة يلزم إعادة عد كامل.");
+          return;
+        }
         // Mark in-flight evidence uncertain BEFORE the request: a reload/crash
         // after commit but before the response must not clear it on later 403.
-        intent={key:crypto.randomUUID(),code:code.trim(),productId:lookup.productId,countedQty:1};
+        intent={key:crypto.randomUUID(),code:code.trim(),productId:active.productId,countedQty:1,checkpointId:active.checkpointId};
         persist(intent); // Must succeed BEFORE sending anything.
       }
       localStorage.setItem(scope,JSON.stringify({...intent,uncertain:true}));
@@ -65,6 +73,7 @@ export function StocktakeScanner({id,scope,onConfirmed,disabled=false}:{
         const uncertain=error.uncertain||intent.uncertain===true;
         try {persist(uncertain?{...intent,uncertain:true}:null);}
         catch {setStorageError(true);}
+        if(!uncertain)setActive(null);
         setMessage(uncertain?`نتيجة غير مؤكدة — ${detail}. المحاولة محفوظة ولا يسمح بمسحة جديدة`:`رفض مؤكد — ${detail}`);
       } else {
         setMessage(detail);

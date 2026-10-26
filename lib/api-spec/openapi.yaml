@@ -562,6 +562,9 @@ paths:
                         expectedQty: {type: number}
                         countedQty: {type: [number, "null"]}
                         countRevision: {type: string, pattern: '^\d{1,30}$'}
+                        observationConfirmed: {type: boolean}
+                        observedAt: {type: [string, "null"]}
+                        openingQty: {type: number}
         "403": {description: Outside current branch/warehouse or current membership denied}
         "404": {description: Not owned or missing}
   /inventory/stock-takes/{id}/lookup:
@@ -583,6 +586,34 @@ paths:
                 properties: {productId: {type: integer}}
         "403": {description: "Access denied, not an unknown barcode"}
         "404": {description: Base barcode not found}
+  /inventory/stock-takes/{id}/checkpoint:
+    parameters:
+      - {name: id, in: path, required: true, schema: {type: integer}}
+    post:
+      operationId: prepareCountCheckpoint
+      tags: [Inventory]
+      description: Start a 15 minute physical count interval. No stock, cost or journal changes. Ordinary products only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/CountCheckpointInput"}
+      responses:
+        "200":
+          description: Cost-blind server checkpoint bound to user, source and line
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [checkpointId,lineId,expectedRevision,expectedQty,expiresAt]
+                properties:
+                  checkpointId: {type: string, format: uuid}
+                  lineId: {type: integer}
+                  expectedRevision: {type: string}
+                  expectedQty: {type: number}
+                  expiresAt: {type: string}
+        "403": {description: Counting authority denied}
+        "409": {description: Session closed}
   /inventory/stock-takes/{id}/lines:
     parameters:
       - {name: id, in: path, required: true, schema: {type: integer}}
@@ -596,14 +627,7 @@ paths:
         required: true
         content:
           application/json:
-            schema:
-              type: object
-              additionalProperties: false
-              required: [productId]
-              properties:
-                productId: {type: integer}
-                lotId: {type: integer}
-                countedQty: {type: number, minimum: 0, default: 1}
+            schema: {$ref: "#/components/schemas/CountScanInput"}
       responses:
         "201":
           description: Committed or same-identity replay; no inventory or journal effect
@@ -630,13 +654,7 @@ paths:
         required: true
         content:
           application/json:
-            schema:
-              type: object
-              additionalProperties: false
-              required: [countedQty, expectedRevision]
-              properties:
-                countedQty: {type: number, minimum: 0}
-                expectedRevision: {type: string, pattern: '^\d{1,30}$'}
+            schema: {$ref: "#/components/schemas/CountReplacementInput"}
       responses:
         "200":
           description: Committed or same-identity replay
@@ -5036,6 +5054,29 @@ paths:
 
 components:
   schemas:
+    CountCheckpointInput:
+      type: object
+      additionalProperties: false
+      required: [productId]
+      properties:
+        productId: {type: integer}
+    CountScanInput:
+      type: object
+      additionalProperties: false
+      required: [productId,checkpointId]
+      properties:
+        productId: {type: integer}
+        lotId: {type: integer}
+        countedQty: {type: number, minimum: 0, default: 1}
+        checkpointId: {type: string, format: uuid}
+    CountReplacementInput:
+      type: object
+      additionalProperties: false
+      required: [countedQty,expectedRevision,checkpointId]
+      properties:
+        countedQty: {type: number, minimum: 0}
+        expectedRevision: {type: string, pattern: '^\d{1,30}$'}
+        checkpointId: {type: string, format: uuid}
     AccountSecurityProof:
       type: object
       required: [currentPassword]

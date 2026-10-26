@@ -24,6 +24,7 @@ export const SCOPED_ROUTES = [
   ["GET", "/inventory/stock-takes/:id/lookup", "inventory.read"],
   ["POST", "/inventory/stock-takes/:id/lines", "inventory.read"],
   ["PATCH", "/inventory/stock-takes/:id/lines/:lineId", "inventory.read"],
+  ["POST", "/inventory/stock-takes/:id/checkpoint", "inventory.read"],
   ["GET", "/users/permissions", "self"],
   ["GET", "/companies", "self"],
   ["GET", "/branches", "metadata"],

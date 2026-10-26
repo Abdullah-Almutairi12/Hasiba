@@ -7,7 +7,7 @@ export const countHeaders = ():Record<string,string> => {
   const selected=getSelectedResponsibility();
   return selected?{"X-Workspace-Responsibility":String(selected.id)}:{};
 };
-export type CountIntent = { key: string; code: string; productId: number; countedQty: 1; uncertain?: boolean };
+export type CountIntent = { key: string; code: string; productId: number; countedQty: 1; checkpointId?:string; uncertain?: boolean };
 export const countIntentKey = (userId: number, companyId: number, takeId: number) =>
   `hasiba:stocktake-scan:v1:${userId}:${companyId}:${takeId}`;
 
@@ -31,7 +31,7 @@ export async function sendCountIntent(base: string,takeId: number,intent: CountI
   try {
     response=await fetch(`${base}/inventory/stock-takes/${takeId}/lines`,{
       method:"POST",credentials:"include",headers:{"Content-Type":"application/json","Idempotency-Key":intent.key,...countHeaders()},
-      body:JSON.stringify({productId:intent.productId,countedQty:intent.countedQty}),
+      body:JSON.stringify({productId:intent.productId,countedQty:intent.countedQty,checkpointId:intent.checkpointId}),
     });
   } catch {throw new CountRequestError("انقطع الاتصال؛ نتيجة المسحة غير مؤكدة. أعد المحاولة بنفس المعرف",true);}
   // Even a proxy 502/408 can follow a committed operation.

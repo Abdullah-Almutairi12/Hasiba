@@ -3,7 +3,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { StocktakeScanner } from "./stocktake-scanner";
 import { countIntentKey } from "@/lib/stocktake-intent";
 const mock=vi.hoisted(()=>({toast:vi.fn(),lookup:vi.fn()}));
-vi.mock("@/hooks/use-api",()=>({apiGet:mock.lookup}));
+vi.mock("@/hooks/use-api",()=>({apiGet:mock.lookup,apiPost:async()=>({checkpointId:"00000000-0000-4000-8000-000000000001"})}));
 vi.mock("@/hooks/use-toast",()=>({useToast:()=>({toast:mock.toast})}));
 const scope=countIntentKey(11,12,13),done=vi.fn();
 const response=(status:number,body:unknown)=>new Response(JSON.stringify(body),{status,headers:{"Content-Type":"application/json"}});
@@ -19,12 +19,14 @@ const scan=()=>{
   fireEvent.change(screen.getByLabelText(/مسح الباركود/),{target:{value:"SKU-SYNTHETIC"}});
   fireEvent.click(screen.getByRole("button",{name:"عدّ"}));
 };
+const begin=async()=>{scan();await screen.findByText(/لم تُسجّل وحدة/);};
 it("does not read cached quantity or announce success before a confirmed POST; a fresh scan has a fresh identity",async()=>{
   let resolve!:(r:Response)=>void;
   const fetcher=vi.fn().mockImplementationOnce(()=>new Promise<Response>(r=>{resolve=r;}))
     .mockResolvedValueOnce(response(201,{countedQty:102}));
   vi.stubGlobal("fetch",fetcher);
   render(<StocktakeScanner id={13} scope={scope} onConfirmed={done}/>);
+  await begin();expect(fetcher).not.toHaveBeenCalled();
   scan();
   await waitFor(()=>expect(fetcher).toHaveBeenCalledTimes(1));
   expect(mock.toast).not.toHaveBeenCalled();expect(done).not.toHaveBeenCalled();
@@ -33,7 +35,7 @@ it("does not read cached quantity or announce success before a confirmed POST; a
   await waitFor(()=>expect(done).toHaveBeenCalledTimes(1));
   scan();await waitFor(()=>expect(done).toHaveBeenCalledTimes(2));
   const [first,second]=fetcher.mock.calls.map(c=>c[1]);
-  expect(first.method).toBe("POST");expect(JSON.parse(first.body)).toEqual({productId:14,countedQty:1});
+  expect(first.method).toBe("POST");expect(JSON.parse(first.body)).toEqual({productId:14,countedQty:1,checkpointId:"00000000-0000-4000-8000-000000000001"});
   expect(first.headers["Idempotency-Key"]).not.toBe(second.headers["Idempotency-Key"]);
 });
 it("preserves unknown commit across a real unmount/reload and reuses the exact request; later permission denial does not discard evidence",async()=>{
@@ -42,6 +44,7 @@ it("preserves unknown commit across a real unmount/reload and reuses the exact r
     .mockResolvedValueOnce(response(201,{countedQty:1}));
   vi.stubGlobal("fetch",fetcher);
   const view=render(<StocktakeScanner id={13} scope={scope} onConfirmed={done}/>);
+  await begin();
   scan();await screen.findByText(/نتيجة غير مؤكدة/);
   const saved=localStorage.getItem(scope);expect(saved).not.toBeNull();
   view.unmount();
@@ -77,6 +80,7 @@ it("does not send or change another user/company/count's saved attempt",async()=
   const saved=localStorage.getItem(other),fetcher=vi.fn().mockResolvedValue(response(201,{countedQty:1}));
   vi.stubGlobal("fetch",fetcher);
   render(<StocktakeScanner id={13} scope={scope} onConfirmed={done}/>);
+  await begin();
   scan();await waitFor(()=>expect(done).toHaveBeenCalled());
   expect(localStorage.getItem(other)).toBe(saved);
 });
@@ -84,6 +88,7 @@ it("rejects a proxy error without inventing success and restores the persisted i
   const fetcher=vi.fn().mockResolvedValueOnce(response(502,{error:"proxy lost response"}));
   vi.stubGlobal("fetch",fetcher);
   render(<StocktakeScanner id={13} scope={scope} onConfirmed={done}/>);
+  await begin();
   scan();await screen.findByText(/نتيجة غير مؤكدة/);
   expect(done).not.toHaveBeenCalled();expect(mock.toast).not.toHaveBeenCalled();
   expect(JSON.parse(localStorage.getItem(scope)!)).toMatchObject({uncertain:true,countedQty:1});

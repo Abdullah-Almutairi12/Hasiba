@@ -5,6 +5,26 @@
  * حاسبة.AI - ERP System API
  * OpenAPI spec version: 0.1.0
  */
+export interface CountCheckpointInput {
+  productId: number;
+}
+
+export interface CountScanInput {
+  productId: number;
+  lotId?: number;
+  /** @minimum 0 */
+  countedQty?: number;
+  checkpointId: string;
+}
+
+export interface CountReplacementInput {
+  /** @minimum 0 */
+  countedQty: number;
+  /** @pattern ^\d{1,30}$ */
+  expectedRevision: string;
+  checkpointId: string;
+}
+
 export interface AccountSecurityProof {
   /**
      * @minLength 1
@@ -3375,6 +3395,10 @@ export type GetCountSession200LinesItem = {
   countedQty: number | null;
   /** @pattern ^\d{1,30}$ */
   countRevision: string;
+  observationConfirmed?: boolean;
+  /** @nullable */
+  observedAt?: string | null;
+  openingQty?: number;
 };
 
 export type GetCountSession200 = {
@@ -3394,23 +3418,17 @@ export type LookupCountProduct200 = {
   productId: number;
 };
 
-export type IncrementCountObservationBody = {
-  productId: number;
-  lotId?: number;
-  /** @minimum 0 */
-  countedQty?: number;
+export type PrepareCountCheckpoint200 = {
+  checkpointId: string;
+  lineId: number;
+  expectedRevision: string;
+  expectedQty: number;
+  expiresAt: string;
 };
 
 export type IncrementCountObservation201 = {
   lineId: number;
   countedQty: number;
-};
-
-export type ReplaceCountObservationBody = {
-  /** @minimum 0 */
-  countedQty: number;
-  /** @pattern ^\d{1,30}$ */
-  expectedRevision: string;
 };
 
 export type ReplaceCountObservation200 = {

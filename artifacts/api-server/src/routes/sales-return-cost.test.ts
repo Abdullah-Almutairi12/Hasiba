@@ -218,6 +218,7 @@ describe("original POS invoice: independent linked return lifecycle", () => {
       "0058_supplier_invoice_currency_fence.sql",
       "0059_supplier_invoice_identity_scope.sql",
       "0060_scoped_app_settings.sql",
+      "0061_stocktake_observation_cutoff.sql",
     ]);
     expect(first.skipped).toHaveLength(26);
     // Upgrade is additive: a legacy company neither opts into self receiving
@@ -230,6 +231,9 @@ describe("original POS invoice: independent linked return lifecycle", () => {
     expect(await rows("SELECT id,expected_qty::text,counted_qty::text,unit_cost::text FROM stock_take_lines WHERE id=$1",[oldCount.id]))
       .toEqual([oldCount]);
     expect(await rows("SELECT count_revision::text FROM stock_take_lines WHERE id=$1",[oldCount.id])).toEqual([{count_revision:"0"}]);
+    expect(await rows("SELECT count_checkpoint FROM stock_take_lines WHERE id=$1",[oldCount.id])).toEqual([{count_checkpoint:null}]);
+    expect(await rows("SELECT closure_result FROM stock_takes WHERE id=$1",[oldTake.id])).toEqual([{closure_result:null}]);
+    expect(await rows("SELECT count(*)::int AS n FROM stocktake_product_fences")).toEqual([{n:0}]);
     expect(await rows("SELECT id,role,action_key,max_value,description,updated_at FROM financial_limits ORDER BY id")).toEqual(oldLimits);
     expect(await rows("SELECT count(*)::int AS n FROM financial_limits WHERE company_id IS NOT NULL")).toEqual([{ n: 0 }]);
     expect(await rows("SELECT count(*)::int AS n FROM document_issuer_snapshots WHERE company_id=$1", [f.companyId])).toEqual([{ n: 0 }]);
