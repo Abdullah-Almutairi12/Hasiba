@@ -812,3 +812,31 @@ mtime_ms = 1793046111526
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/8ef44554-d3cc-4a47-9178-0d05c22cbb51/98dc200d-aa45-4696-b881-18b6c6b72807"
 storage_version_token = "1793046136715378"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "tOtvqguRdwBZOEDuCwvqd"
+uri = "file://generated-artifacts/stocktake-review/delivery.html"
+type = "html"
+title = "تقرير اعتماد فروق الجرد والترحيل والاستثناء"
+description = "جدول حالة الأجزاء الثلاثة، 15 بوابة ناجحة، المصدر المختبر، وحدود المتصفح والمصالحة ونقطة الاستئناف. يحتوي صورًا مضمّنة ويعمل دون ملفات خارجية."
+logical_id = "d329f41d-8769-4552-b017-6a3941fd0aa5"
+content_hash = "sha256:db5f5112a891bd7f9ae5807299de06b012e18bb616e9c2cf3dc8e8c0cfeb3bbf"
+size = 910553
+mtime_ms = 1793051025966
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/d329f41d-8769-4552-b017-6a3941fd0aa5/e64243ab-3e44-4f5c-a65a-e48d74509ec9"
+storage_version_token = "1793051039972454"
+content_type = "text/html"
+
+[[outputs]]
+id = "SW-BVgSeXH2k09wcyJZ6P"
+uri = "file://generated-artifacts/stocktake-review/evidence.zip"
+type = "unspecified"
+title = "أدلة تسليم اعتماد فروق الجرد"
+description = "نتائج 898 اختبار API و240 اختبار واجهة، أدلة الرحلتين، إسقاط الرد بعد الحفظ، المصالحة المستقلة وإيصال GitHub وقت تجهيز الحزمة، دون بيانات دخول."
+logical_id = "f57b5fa4-b2cf-42a7-9baa-c512339047b8"
+content_hash = "sha256:90fff7ae9a24c9b3133c22779f8ba1e898e2e6388d2bbb1e1ae92f1ed26b8850"
+size = 269525
+mtime_ms = 1793051026011
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/f57b5fa4-b2cf-42a7-9baa-c512339047b8/0df52fdd-e108-4ff5-bc48-f33140848c19"
+storage_version_token = "1793051042720985"
+content_type = "application/octet-stream"
