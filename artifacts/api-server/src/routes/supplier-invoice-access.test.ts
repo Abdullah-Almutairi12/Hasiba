@@ -84,6 +84,23 @@ describe("supplier invoice read and advisory comparison boundaries", () => {
     expect((await f.request("post", "/invoices/match-preview").send({ poId: f.po.id, items: [] })).status).toBe(403);
   });
 
+  it("supports an explicit print grant and an independent export-only grant without implicit powers", async () => {
+    const f = await fixture();
+    const grant = { resource: "procurement", branchId: f.branches[0].id,
+      warehouseIds: [f.warehouses[0].id], amountLimit: null, startsAt: null, endsAt: null };
+    await f.change({ grants: [{ ...grant, actions: ["procurement.read", "procurement.invoices.read", "procurement.invoices.print"] }] });
+    const printed = await f.request("get", `/invoices/${f.invoice.id}/pdf`);
+    expect(printed.status).toBe(200);
+    expect(printed.headers["content-type"]).toContain("application/pdf");
+    expect((await f.request("get", `/invoices/${f.invoice.id}/pdf?download=1`)).status).toBe(403);
+    await f.change({ grants: [{ ...grant, actions: ["procurement.read", "procurement.invoices.read", "procurement.invoices.export"] }] });
+    expect((await f.request("get", `/invoices/${f.invoice.id}/pdf`)).status).toBe(403);
+    const exported = await f.request("get", `/invoices/${f.invoice.id}/pdf?download=1`);
+    expect(exported.status).toBe(200);
+    expect(exported.headers["content-type"]).toContain("application/pdf");
+    expect((await f.request("post", "/invoices/from-scan").send({})).status).toBe(403);
+  });
+
   it("rechecks monetary limits and an upper denial in the same open session", async () => {
     const f = await fixture();
     const grant = { resource: "procurement", branchId: f.branches[0].id,

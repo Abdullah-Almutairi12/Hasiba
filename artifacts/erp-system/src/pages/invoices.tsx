@@ -111,6 +111,21 @@ export default function Invoices() {
   const canExportInvoice = selectedGrant?.resource !== "procurement" || selectedGrant.actions.includes("procurement.invoices.export");
   const canScanInvoice = selectedGrant?.resource !== "procurement" || canManageFinance;
   const [detailsId, setDetailsId] = useState<number | null>(null);
+  async function downloadInvoice(id: number) {
+    try {
+      const response = await fetch(`${API_BASE}/invoices/${id}/pdf?download=1`, { credentials: "include" });
+      if (!response.ok || !response.headers.get("content-type")?.includes("application/pdf")) {
+        throw new Error("تعذر تنزيل الفاتورة؛ تحقق من صلاحية التصدير الحالية");
+      }
+      const url = URL.createObjectURL(await response.blob());
+      const link = document.createElement("a");
+      link.href = url; link.download = `supplier-invoice-${id}.pdf`;
+      document.body.appendChild(link); link.click(); link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "تعذر تنزيل الفاتورة");
+    }
+  }
   const vatEnabled = useVatEnabled();
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [scanOpen, setScanOpen] = useState(false);
@@ -536,6 +551,7 @@ export default function Invoices() {
                       <TableCell className="text-left">
                         <div className="flex items-center gap-1.5 flex-wrap justify-end">
                           <Button size="sm" variant="outline" onClick={() => setDetailsId(invoice.id)}>التفاصيل</Button>
+                          {canExportInvoice && <Button size="sm" variant="outline" onClick={() => void downloadInvoice(invoice.id)}>تنزيل PDF</Button>}
                           {canPrintInvoice && <Button
                             size="sm"
                             variant="outline"
