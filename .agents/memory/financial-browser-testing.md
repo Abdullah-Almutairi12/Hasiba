@@ -121,3 +121,15 @@ fixture helper to a stopped PostgreSQL port rather than the new clone.
 **How to apply:** Match readiness to the current run before loading its private
 state, keep those credentials out of reports, and verify the normal API is
 restored after every disposable server is shut down.
+
+Keep disposable financial fixtures alive until independent reconciliation of
+that same database is finished, and take multi-table evidence in one read-only
+consistent snapshot. Explicitly stop the fixture after evidence is saved.
+
+**Why:** UI proof cannot replace reconciliation of the committed database.
+Fixture expiry loses that evidence; separate reads can mix pre-commit and
+post-commit states and falsely report a financial mismatch.
+
+**How to apply:** Give the fixture an explicit evidence lifetime rather than
+assuming a fixed browser timeout covers reconciliation, and use a repeatable
+read-only snapshot for the stock, document and ledger comparison.
