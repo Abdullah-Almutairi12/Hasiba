@@ -700,3 +700,31 @@ mtime_ms = 1792997673935
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/fd73708b-fda8-4cc2-826a-5587bb68985e/286b07dd-13e7-405b-b4f5-636cfb7ecc54"
 storage_version_token = "1792997753368978"
 content_type = "text/html"
+
+[[outputs]]
+id = "0nTnalecPl-iOBzNW_Yui"
+uri = "file://generated-artifacts/batch-one-closure/delivery-report-ar.html"
+type = "html"
+title = "حاسبة — تقرير الشريحة والحالات الـ22"
+description = "المنفذ والاختبارات والمتبقي المحدد ونقطة الاستئناف، مع تسع لقطات لرحلة الإعدادات."
+logical_id = "feba23f2-b38b-4477-8a88-a900faed4e63"
+content_hash = "sha256:80d2a87fab627849eeaf16b704de0a36d598ba9efa981ce03864634c423e6b3a"
+size = 1976564
+mtime_ms = 1793003368913
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/feba23f2-b38b-4477-8a88-a900faed4e63/775c884f-3150-4ee7-98f2-50d226a29b91"
+storage_version_token = "1793003397922652"
+content_type = "text/html"
+
+[[outputs]]
+id = "XYgM91AASar-DHH8MRtdG"
+uri = "file://generated-artifacts/batch-one-closure/review-evidence.zip"
+type = "unspecified"
+title = "حزمة أدلة التحقق والمزامنة"
+description = "نتائج منقحة، ومصالحة SQL، وأدلة المتصفح، وإيصال Git؛ دون أسرار أو بيانات عملاء."
+logical_id = "893c47c5-f235-4c8d-b41c-3487595e88f3"
+content_hash = "sha256:2f4973a92863c99dceca7fff20b313fabe63e09d80a25f0bde3aa7183f254a19"
+size = 879349
+mtime_ms = 1793003368965
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/893c47c5-f235-4c8d-b41c-3487595e88f3/4054ce5a-5673-4427-91a7-e8d4e5fbd2a1"
+storage_version_token = "1793003400949153"
+content_type = "application/octet-stream"
