@@ -33,7 +33,7 @@ import { supplyScope, supplyParam, supplyReferencesGuard } from "../lib/supply-c
 import { lockApprovalAuthority } from "../lib/approval-authority";
 import { inventoryTransferReadGuard, transferAuthority, transferReceiptReference, auditTransferReceipt } from "../lib/scoped-inventory-receipts";
 import { lockStocktakeForCount, auditCountObservation, stocktakeReadAuthority } from "../lib/stocktake-count";
-import { inventoryActor } from "../lib/scoped-inventory-actor";
+import { inventoryActor,auditInventoryMutation } from "../lib/scoped-inventory-actor";
 
 const router = Router();
 router.use("/inventory", supplyReferencesGuard);
@@ -204,6 +204,11 @@ router.post("/inventory/moves", inventoryGuard, async (req, res) => {
   try {
     const body = ManualMoveBody.parse(req.body);
     const result = await financialTransaction(req, async (tx) => {
+      // Legacy compatibility only: managed-access still refuses unsupported
+      // inventory.write routes. Enabling a catalog action requires source,
+      // warehouse, amount and period enforcement, not just this role recheck.
+      await lockApprovalAuthority(tx);
+      await inventoryActor(tx,req,"inventory.write");
       let lotId: number | undefined;
       if (body.lotNumber) {
         lotId = await getOrCreateLot(tx, body.productId, body.lotNumber, body.expiryDate ?? null);
@@ -231,7 +236,7 @@ router.post("/inventory/moves", inventoryGuard, async (req, res) => {
         notes: body.notes,
         createdBy: req.session?.userId ?? null,
       });
-    });
+    },async tx=>{await lockApprovalAuthority(tx);await inventoryActor(tx,req,"inventory.write");});
 
     // Anomaly hook: only manual *adjustments* (not receipts/issues from
     // POs / sales) feed the unusual_stock_adjust rule. This is the
@@ -282,7 +287,9 @@ router.post("/inventory/transfers", inventoryGuard, async (req, res) => {
     if (body.fromWarehouseId === body.toWarehouseId) {
       return res.status(400).json({ error: "المصدر والوجهة لا يمكن أن يكونا نفس المستودع" });
     }
-    const result = await db.transaction(async (tx) => {
+    const result = await financialTransaction(req,async (tx) => {
+      await lockApprovalAuthority(tx);
+      await inventoryActor(tx,req,"inventory.write");
       // Phase 1: outbound (in_transit)
       const out = await recordStockMove(tx, {
         companyId: getCompanyId(req),
@@ -299,12 +306,12 @@ router.post("/inventory/transfers", inventoryGuard, async (req, res) => {
         createdBy: req.session?.userId ?? null,
       });
       return out;
-    });
+    },async tx=>{await lockApprovalAuthority(tx);await inventoryActor(tx,req,"inventory.write");});
     return res.status(201).json(result);
   } catch (err) {
     const msg = err instanceof Error ? err.message : "تعذر إنشاء التحويل";
     req.log.error({ err }, "transfer create failed");
-    return res.status(400).json({ error: msg });
+    return res.status(err instanceof FinancialRequestError?err.status:400).json({ error: msg });
   }
 });
 
@@ -395,13 +402,17 @@ router.post("/inventory/lots", inventoryGuard, async (req, res) => {
       expiryDate: z.string().optional(),
       supplierRef: z.string().optional(),
     }).parse(req.body);
-    const id = await db.transaction((tx) =>
-      getOrCreateLot(tx, body.productId, body.lotNumber, body.expiryDate ?? null, body.supplierRef ?? null),
-    );
+    const id = await db.transaction(async tx=>{
+      await lockApprovalAuthority(tx);
+      const actor=await inventoryActor(tx,req,"inventory.write");
+      const id=await getOrCreateLot(tx,body.productId,body.lotNumber,body.expiryDate??null,body.supplierRef??null);
+      await auditInventoryMutation(tx,actor,"inventory.lot.saved","stock_lot",id);
+      return id;
+    });
     res.status(201).json({ id });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "تعذر إنشاء التشغيلة";
-    res.status(400).json({ error: msg });
+    res.status(err instanceof FinancialRequestError?err.status:400).json({ error: msg });
   }
 });
 
@@ -428,18 +439,23 @@ router.post("/inventory/serials", inventoryGuard, async (req, res) => {
       serialNumber: z.string().min(1),
       currentWarehouseId: z.coerce.number().int().optional(),
     }).parse(req.body);
-    const [created] = await db
-      .insert(stockSerialsTable)
+    const [created] = await db.transaction(async tx=>{
+      await lockApprovalAuthority(tx);
+      const actor=await inventoryActor(tx,req,"inventory.write");
+      const rows=await tx.insert(stockSerialsTable)
       .values({
         productId: body.productId,
         serialNumber: body.serialNumber,
         currentWarehouseId: body.currentWarehouseId ?? null,
       })
       .returning();
+      await auditInventoryMutation(tx,actor,"inventory.serial.created","stock_serial",rows[0]!.id);
+      return rows;
+    });
     res.status(201).json(created);
   } catch (err) {
     const msg = err instanceof Error ? err.message : "تعذر إنشاء الرقم التسلسلي";
-    res.status(400).json({ error: msg });
+    res.status(err instanceof FinancialRequestError?err.status:400).json({ error: msg });
   }
 });
 
@@ -492,7 +508,10 @@ router.post("/inventory/reorder-rules", inventoryGuard, async (req, res) => {
     if (body.maxQty > 0 && body.maxQty < body.minQty) {
       return res.status(400).json({ error: "الحد الأقصى يجب أن يكون أكبر من الحد الأدنى" });
     }
-    const r = await db.execute(sql`
+    const r = await db.transaction(async tx=>{
+     await lockApprovalAuthority(tx);
+     const actor=await inventoryActor(tx,req,"inventory.write");
+     const result=await tx.execute(sql`
       INSERT INTO reorder_rules (product_id, warehouse_id, min_qty, max_qty, eoq, is_active)
       VALUES (${body.productId}, ${body.warehouseId}, ${body.minQty}, ${body.maxQty}, ${body.eoq}, ${body.isActive})
       ON CONFLICT (product_id, warehouse_id)
@@ -502,11 +521,15 @@ router.post("/inventory/reorder-rules", inventoryGuard, async (req, res) => {
                     is_active = EXCLUDED.is_active
       RETURNING id
     `);
+     const id=Number(result.rows[0]?.id);
+     await auditInventoryMutation(tx,actor,"inventory.reorder.saved","reorder_rule",id);
+     return result;
+    });
     const rows = (r as unknown as { rows?: Array<{ id: number }> }).rows ?? [];
     return res.status(201).json({ id: rows[0]?.id });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "تعذر حفظ القاعدة";
-    return res.status(400).json({ error: msg });
+    return res.status(err instanceof FinancialRequestError?err.status:400).json({ error: msg });
   }
 });
 
@@ -553,6 +576,8 @@ router.post("/inventory/stock-takes", inventoryGuard, async (req, res) => {
       notes: z.string().optional(),
     }).parse(req.body);
     const result = await db.transaction(async (tx) => {
+      await lockApprovalAuthority(tx);
+      await inventoryActor(tx,req,"inventory.write");
       const ref = `ST-${Date.now()}`;
       const [take] = await tx
         .insert(stockTakesTable)
@@ -590,7 +615,7 @@ router.post("/inventory/stock-takes", inventoryGuard, async (req, res) => {
     res.status(201).json(result);
   } catch (err) {
     const msg = err instanceof Error ? err.message : "تعذر بدء الجرد";
-    res.status(400).json({ error: msg });
+    res.status(err instanceof FinancialRequestError?err.status:400).json({ error: msg });
   }
 });
 
@@ -788,6 +813,8 @@ router.post("/inventory/stock-takes/:id/complete", inventoryGuard, async (req, r
   try {
     const id = Number(req.params.id);
     const result = await db.transaction(async (tx) => {
+      await lockApprovalAuthority(tx);
+      await inventoryActor(tx,req,"inventory.write");
       // Atomic state transition: only the caller that successfully flips
       // the take from in_progress -> done proceeds to post adjustments.
       // A second concurrent /complete sees no row returned and aborts,
@@ -830,7 +857,7 @@ router.post("/inventory/stock-takes/:id/complete", inventoryGuard, async (req, r
   } catch (err) {
     const msg = err instanceof Error ? err.message : "تعذر إقفال الجرد";
     req.log.error({ err }, "stocktake complete failed");
-    res.status(400).json({ error: msg });
+    res.status(err instanceof FinancialRequestError?err.status:400).json({ error: msg });
   }
 });
 
@@ -857,8 +884,10 @@ router.post("/inventory/variants", inventoryGuard, async (req, res) => {
       price: z.coerce.number().nonnegative().optional(),
       costPrice: z.coerce.number().nonnegative().optional(),
     }).parse(req.body);
-    const [created] = await db
-      .insert(productVariantsTable)
+    const created = await db.transaction(async tx=>{
+      await lockApprovalAuthority(tx);
+      const actor=await inventoryActor(tx,req,"inventory.write");
+      const [created]=await tx.insert(productVariantsTable)
       .values({
         productId: body.productId,
         sku: body.sku,
@@ -868,11 +897,14 @@ router.post("/inventory/variants", inventoryGuard, async (req, res) => {
         costPrice: body.costPrice != null ? String(body.costPrice) : null,
       })
       .returning();
-    // Mark parent as variant parent.
-    await db.update(productsTable).set({ isVariantParent: true }).where(eq(productsTable.id, body.productId));
+      // Variant and parent flag are one operation; audit failure rolls both back.
+      await tx.update(productsTable).set({isVariantParent:true}).where(eq(productsTable.id,body.productId));
+      await auditInventoryMutation(tx,actor,"inventory.variant.created","product_variant",created!.id);
+      return created;
+    });
     res.status(201).json(created);
   } catch (err) {
-    res.status(400).json({ error: err instanceof Error ? err.message : "Bad request" });
+    res.status(err instanceof FinancialRequestError?err.status:400).json({ error: err instanceof Error ? err.message : "Bad request" });
   }
 });
 

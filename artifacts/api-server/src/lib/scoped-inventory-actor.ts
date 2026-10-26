@@ -25,3 +25,11 @@ export async function inventoryActor(connection:InventoryConnection,req:Request,
   if(action&&!grant&&!["owner","manager","inventory"].includes(actor.role))throw denied();
   return {userId,companyId,name:actor.name,role:actor.role,grant};
 }
+
+/** Record identity/source only; never copy an arbitrary request body into audit. */
+export async function auditInventoryMutation(connection:InventoryConnection,actor:InventoryActor,action:string,entity:string,id:number){
+ await connection.execute(sql`INSERT INTO audit_logs(user_id,user_name,company_id,action,entity,details)
+  VALUES(${actor.userId},${actor.name},${actor.companyId},${action},${entity},
+   jsonb_build_object('id',${id}::integer,'membershipRole',${actor.role}::text,
+    'responsibilityId',${actor.grant?.id??null}::integer)::text)`);
+}
