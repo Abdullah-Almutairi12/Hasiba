@@ -658,3 +658,31 @@ mtime_ms = 1792969673456
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/e0ff4ea6-a048-4270-b024-d14a18f2eea3/bd047756-ed24-490b-a432-a2c0845498fe"
 storage_version_token = "1792969702671954"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "SJrm8NaasvrmZDF6joo6-"
+uri = "file://generated-artifacts/supplier-invoices-read/report.html"
+type = "html"
+title = "حاسبة — تقرير نقطة تقدم فواتير الموردين"
+description = "المنفذ والمتبقي بدقة، نتائج المصدر 09fa371، وحدود الاختبار وصور الرحلة الأصلية. ليست شهادة اكتمال الشريحة المالية."
+logical_id = "ef6089de-8e36-4e3e-99f0-0d49bc7dabd9"
+content_hash = "sha256:fb5b4a59c6c278fc05134214ffce0b7e2663a34c18b94f0d89844e5a4c62dc43"
+size = 265641
+mtime_ms = 1792973635952
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/ef6089de-8e36-4e3e-99f0-0d49bc7dabd9/f7adc600-fb41-487e-9dc0-5c017e3c3698"
+storage_version_token = "1792973650222739"
+content_type = "text/html"
+
+[[outputs]]
+id = "xImRf5NAsceaHeyMqOrCy"
+uri = "file://generated-artifacts/supplier-invoices-read/evidence.zip"
+type = "unspecified"
+title = "أدلة تحقق فواتير الموردين"
+description = "نتائج البوابات والاختبارات وبصمة المصدر وصور الواجهة؛ لا تتضمن قاعدة بيانات أو بيانات اعتماد."
+logical_id = "60089ea3-8402-447c-994f-c9785ab77aae"
+content_hash = "sha256:feaa961ba78d4be8656570e848c217a77bc6ad267c74914e49cf21e796bbf2fe"
+size = 237111
+mtime_ms = 1792973636164
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/60089ea3-8402-447c-994f-c9785ab77aae/f89f6aed-53e0-425f-812c-989a34f843fb"
+storage_version_token = "1792973652607100"
+content_type = "application/octet-stream"
