@@ -127,6 +127,9 @@ afterAll(async () => {
     await db.delete(table).where(inArray(table.productId, ids("product")));
   }
   await db.delete(stockTakesTable).where(inArray(stockTakesTable.warehouseId, ids("warehouse")));
+  // Disposable fixture teardown only; retain the production FK protection.
+  await db.execute(sql`DELETE FROM stocktake_product_fences WHERE warehouse_id IN
+    (${sql.join(ids("warehouse").map(id=>sql`${id}`),sql`, `)})`);
   await db.delete(productsTable).where(inArray(productsTable.id, ids("product")));
   await db.delete(warehousesTable).where(inArray(warehousesTable.companyId, companyIds));
   await db.delete(branchesTable).where(inArray(branchesTable.id, ids("branch")));
@@ -322,7 +325,11 @@ describe("supply-chain tenant boundaries", () => {
     await agents[0].post(`/api/manufacturing/work-orders/${a.wo}/consume`).send({}).expect(200);
     await agents[0].post(`/api/manufacturing/work-orders/${a.wo}/produce`).send({ quantity: 1 }).expect(200);
     await agents[0].post(`/api/manufacturing/work-orders/${a.wo}/complete`).send({}).expect(200);
-    await agents[0].patch(`/api/inventory/stock-takes/${a.take}/lines/${a.takeLine}`).send({ countedQty: 9, expectedRevision:"0" }).expect(200);
+    const point=await agents[0].post(`/api/inventory/stock-takes/${a.take}/checkpoint`).send({productId:a.product}).expect(200);
+    expect(point.body.lineId).toBe(a.takeLine);
+    await agents[0].patch(`/api/inventory/stock-takes/${a.take}/lines/${a.takeLine}`).send({
+      countedQty: 9, expectedRevision:point.body.expectedRevision,checkpointId:point.body.checkpointId,
+    }).expect(200);
     await agents[0].post(`/api/inventory/stock-takes/${a.take}/complete`).send({}).expect(200);
     await agents[0].post("/api/inventory/moves").send({ productId: a.product, warehouseId: a.warehouse, quantity: 1, kind: "receipt", unitCost: 0 }).expect(201);
     await agents[0].get(`/api/procurement/purchase-orders/${a.po}/pdf`).expect(200);
