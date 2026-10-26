@@ -60,6 +60,9 @@ export async function managedAccessGate(req: Request, res: Response, next: NextF
     // Administrative endpoints enforce their own live company-local rights.
     // Never bypass the financial/operational route gate for administrators.
     if (/^\/administration(?:\/|$)/.test(req.path)) return next();
+    // Read is field-redacted by the original settings service; writes require
+    // its live company-local administrative responsibility, never a role alias.
+    if(req.path==="/settings"&&(req.method==="GET"||(await administrativeRights(companyId,userId)).includes("settings")))return next();
     if (/^\/team(?:\/|$)/.test(req.path) && (await administrativeRights(companyId,userId)).length) return next();
     const profile = await managedProfile(userId, companyId);
     if (!profile) return next();

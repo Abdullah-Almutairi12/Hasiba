@@ -1287,6 +1287,7 @@ router.get(
       const settingsRow = await db
         .select({ system: appSettingsTable.system })
         .from(appSettingsTable)
+        .where(eq(appSettingsTable.id,1))
         .limit(1);
       const cfg = readCleanupReportConfig(settingsRow[0]?.system);
 

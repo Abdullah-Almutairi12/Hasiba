@@ -122,9 +122,9 @@ router.use(posDeviceAdminRouter);
 router.use(managedAccessGate);
 
 // Cross-tenant routes — auth only, no company scope:
-//   /companies (Phase 3), /app-settings, /admin/*, /storage
-// These manage data that is either global (app-settings) or that
-// itself selects/joins on companies (admin panel for the tenant).
+//   /companies (Phase 3), /admin/*, /storage.
+// /settings now resolves company/branch ownership itself; its historic
+// unassigned/platform row is never exposed as a tenant's defaults.
 // Users are global identities, but their administration is tenant-scoped
 // inside this router using the active company's membership roster.
 router.use(usersRouter);

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import {SettingsScopeProvider,SettingsScopeBar,useSettingsScope} from "@/components/settings-scope";
 import { useLocation } from "wouter";
 import { useIsMobile } from "@/hooks/use-mobile";
 import {
@@ -62,15 +63,22 @@ import {
 type SectionPayload = Record<string, unknown>;
 
 function useSettingsSection<T extends SectionPayload>(section: keyof PatchableSections, initial: T) {
-  const { data } = useGetAppSettings();
+  const {branchId,baseline,generation}=useSettingsScope();
+  const { data } = useGetAppSettings(branchId?{branchId}:undefined);
   const [draft, setDraft] = useState<T>(initial);
   useEffect(() => {
     if (data && data[section]) {
-      setDraft({ ...initial, ...(data[section] as T) });
+      const old=baseline.current[section];
+      if(old?.dirty&&old.companyId===data.scope?.companyId&&old.scopeKey===(branchId??0)&&data.scope?.canManage)return;
+      const values={ ...initial, ...(data[section] as T) };
+      setDraft(values);
+      baseline.current[section]={values,companyId:data.scope?.companyId??0,scopeKey:branchId??0,revision:data.scope?.revision??0,
+        parentRevision:data.scope?.parentRevision??0,dirty:false};
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data]);
-  return [draft, setDraft] as const;
+  }, [data,generation,branchId]);
+  const update:typeof setDraft=value=>{if(baseline.current[section])baseline.current[section].dirty=true;setDraft(value);};
+  return [draft, update] as const;
 }
 
 type PatchableSections = {
@@ -90,13 +98,30 @@ type PatchableSections = {
 };
 
 function useSavePatch() {
+  const {branchId,baseline}=useSettingsScope();
+  const params=branchId?{branchId}:undefined;
+  const current=useGetAppSettings(params);
   const patchMut = usePatchAppSettings();
   const queryClient = useQueryClient();
   const { toast } = useToast();
   return async (data: Partial<PatchableSections>) => {
-    await patchMut.mutateAsync({ data });
-    queryClient.invalidateQueries({ queryKey: getGetAppSettingsQueryKey() });
-    toast({ title: "تم حفظ الإعدادات" });
+    const scope=current.data?.scope;
+    if(!scope?.canManage){toast({title:"يلزم تحميل نسخة مخولة قبل الحفظ",variant:"destructive"});return;}
+    if(branchId&&data.company)data={...data,company:Object.fromEntries(Object.entries(data.company).filter(([k])=>["currency","timezone","language"].includes(k)))};
+    const sections=Object.keys(data) as (keyof PatchableSections)[];
+    const original=baseline.current[sections[0]!];
+    if(!original||original.scopeKey!==(branchId??0)){toast({title:"أعد تحميل نسخة النموذج قبل الحفظ",variant:"destructive"});return;}
+    if(branchId){
+      data=Object.fromEntries(sections.map(s=>[s,Object.fromEntries(Object.entries(data[s]??{})
+        .filter(([k,v])=>JSON.stringify(v)!==JSON.stringify(baseline.current[s]?.values[k])))]).filter(([,v])=>Object.keys(v).length)) as Partial<PatchableSections>;
+      if(!Object.keys(data).length){toast({title:"لا توجد تغييرات لحفظها"});return;}
+    }
+    try{
+      await patchMut.mutateAsync({params,data:{...data,expectedCompanyId:original.companyId,expectedRevision:original.revision,expectedParentRevision:original.parentRevision}});
+      for(const s of sections)if(baseline.current[s])baseline.current[s].dirty=false;
+      await queryClient.invalidateQueries({ queryKey: getGetAppSettingsQueryKey() });
+      toast({ title: "تم حفظ نسخة الإعدادات" });
+    }catch(error){toast({title:"تعذر تأكيد الحفظ؛ تعديلات النموذج باقية",description:error instanceof Error?error.message:"أعد تحميل النسخة قبل المحاولة",variant:"destructive"});}
   };
 }
 
@@ -1413,11 +1438,16 @@ const SETTINGS_NAV: Array<{
 
 // ====================== PAGE SHELL ======================
 export default function SettingsPage() {
+  return <SettingsScopeProvider><SettingsContent /></SettingsScopeProvider>;
+}
+function SettingsContent() {
+  const {branchId}=useSettingsScope();
+  const scopedSettings=useGetAppSettings(branchId?{branchId}:undefined);
   const { t } = useLanguage();
   const { user } = useAuth();
   const { isAdmin } = usePermissions();
   const { activeCompany, canSwitch } = useCurrentCompany();
-  const readOnly = !isAdmin;
+  const readOnly = !scopedSettings.data?.scope?.canManage || (!!activeCompany&&scopedSettings.data?.scope?.companyId!==activeCompany.id);
   const isMobile = useIsMobile();
   const { isRTL } = useLanguage();
   return (
@@ -1451,6 +1481,7 @@ export default function SettingsPage() {
       )}
 
       <Tabs
+        key={branchId??"company"}
         defaultValue="company"
         className={`lg:flex lg:gap-6 ${isRTL ? "lg:flex-row-reverse" : "lg:flex-row"}`}
         orientation={isMobile ? "horizontal" : "vertical"}
@@ -1470,7 +1501,7 @@ export default function SettingsPage() {
                   {group.label}
                 </div>
               )}
-              {group.items.filter(it => isAdmin || !["workflow", "seller-policy"].includes(it.value)).map((it) => (
+              {group.items.filter(it => (isAdmin || !["workflow", "seller-policy"].includes(it.value))&&(!branchId||["company","pos","localization","numbering","appearance","templates"].includes(it.value))).map((it) => (
                 <TabsTrigger
                   key={it.value}
                   value={it.value}
@@ -1490,13 +1521,14 @@ export default function SettingsPage() {
         </TabsList>
 
         <div className="min-w-0 flex-1 space-y-4">
+        <SettingsScopeBar />
         <TabsContent value="company" className="mt-0 space-y-4">
-          <section aria-labelledby="settings-print-identity" data-testid="settings-company-print-profile">
+          {!branchId&&<section aria-labelledby="settings-print-identity" data-testid="settings-company-print-profile">
             <h2 id="settings-print-identity" className="mb-2 text-lg font-bold">الهوية القانونية والطباعة (الإيصالات 58/80 مم)</h2>
             <CompanySettingsTab />
-          </section>
+          </section>}
           <CompanyTab readOnly={readOnly} />
-          <ProcurementReceivingPolicy />
+          {!branchId&&<ProcurementReceivingPolicy />}
         </TabsContent>
         <TabsContent value="tax"><TaxTab readOnly={readOnly} /></TabsContent>
         <TabsContent value="branches"><BranchesTab readOnly={readOnly} /></TabsContent>

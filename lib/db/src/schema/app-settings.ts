@@ -1,11 +1,16 @@
-import { pgTable, serial, jsonb, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, serial, integer, jsonb, timestamp } from "drizzle-orm/pg-core";
+import { companiesTable } from "./companies";
+import { branchesTable } from "./branches";
+import { usersTable } from "./users";
 
-// Singleton row (id = 1) holding the entire system-wide configuration
-// surfaced in the /settings page. We keep each tab's payload in its own
-// jsonb column so the API can patch one section without touching others
-// and so we don't have to migrate the schema every time we add a field.
+// Tenant/branch sections. Unassigned historic rows (including the platform
+// system singleton id=1) are retained, never inherited by a company.
 export const appSettingsTable = pgTable("app_settings", {
   id: serial("id").primaryKey(),
+  // NULL ownership is retained legacy/platform history, never a tenant default.
+  companyId: integer("company_id").references(() => companiesTable.id),
+  branchId: integer("branch_id").references(() => branchesTable.id),
+  revision: integer("revision").notNull().default(0),
   company: jsonb("company").notNull().default({}),
   tax: jsonb("tax").notNull().default({}),
   branches: jsonb("branches").notNull().default({}),
@@ -28,3 +33,14 @@ export const appSettingsTable = pgTable("app_settings", {
 });
 
 export type AppSettings = typeof appSettingsTable.$inferSelect;
+
+export const appSettingsVersionsTable=pgTable("app_settings_versions",{
+ id:serial("id").primaryKey(),
+ companyId:integer("company_id").notNull().references(()=>companiesTable.id),
+ branchId:integer("branch_id").references(()=>branchesTable.id),
+ revision:integer("revision").notNull(),
+ parentRevision:integer("parent_revision").notNull(),
+ changedSections:jsonb("changed_sections").notNull(),
+ createdBy:integer("created_by").notNull().references(()=>usersTable.id),
+ createdAt:timestamp("created_at",{withTimezone:true}).notNull().defaultNow(),
+});

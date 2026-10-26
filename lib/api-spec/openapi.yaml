@@ -3921,6 +3921,8 @@ paths:
       tags: [settings]
       summary: Get app settings (any authenticated user; sensitive fields redacted for non-admins)
       operationId: getAppSettings
+      parameters:
+        - {name: branchId, in: query, schema: {type: integer, minimum: 1}}
       responses:
         "200":
           description: Settings payload
@@ -3932,6 +3934,8 @@ paths:
       tags: [settings]
       summary: Patch app settings (admin only)
       operationId: patchAppSettings
+      parameters:
+        - {name: branchId, in: query, schema: {type: integer, minimum: 1}}
       requestBody:
         required: true
         content:
@@ -7707,6 +7711,27 @@ components:
     AppSettings:
       type: object
       properties:
+        scope:
+          type: object
+          required: [companyId, branchId, revision, parentRevision, canManage, overrides, historyPolicy]
+          properties:
+            companyId: {type: integer}
+            branchId: {type: integer, nullable: true}
+            revision: {type: integer}
+            parentRevision: {type: integer}
+            canManage: {type: boolean}
+            overrides: {type: object, additionalProperties: {type: array, items: {type: string}}}
+            historyPolicy: {type: string}
+            history: {type: array, items: {type: object, additionalProperties: true}}
+            availableBranches:
+              type: array
+              items:
+                type: object
+                required: [id, name]
+                properties:
+                  id: {type: integer}
+                  name: {type: string}
+                  nameAr: {type: string, nullable: true}
         company: { type: object, additionalProperties: true }
         tax: { type: object, additionalProperties: true }
         branches: { type: object, additionalProperties: true }
@@ -7742,7 +7767,12 @@ components:
     AppSettingsPatch:
       type: object
       additionalProperties: false
+      required: [expectedRevision, expectedCompanyId]
       properties:
+        expectedRevision: {type: integer, minimum: 0}
+        expectedCompanyId: {type: integer, minimum: 1}
+        expectedParentRevision: {type: integer, minimum: 0}
+        reset: {type: object, additionalProperties: {type: array, items: {type: string}}}
         company: { type: object, additionalProperties: true }
         tax: { type: object, additionalProperties: true }
         branches: { type: object, additionalProperties: true }

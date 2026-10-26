@@ -4649,7 +4649,29 @@ export const UploadCompanyLogoResponse = zod.object({
 /**
  * @summary Get app settings (any authenticated user; sensitive fields redacted for non-admins)
  */
+
+
+
+export const GetAppSettingsQueryParams = zod.object({
+  "branchId": zod.coerce.number().int().min(1).optional()
+})
+
 export const GetAppSettingsResponse = zod.object({
+  "scope": zod.object({
+  "companyId": zod.number().int(),
+  "branchId": zod.number().int().nullable(),
+  "revision": zod.number().int(),
+  "parentRevision": zod.number().int(),
+  "canManage": zod.boolean(),
+  "overrides": zod.record(zod.string(), zod.array(zod.string())),
+  "historyPolicy": zod.string(),
+  "history": zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+  "availableBranches": zod.array(zod.object({
+  "id": zod.number().int(),
+  "name": zod.string(),
+  "nameAr": zod.string().nullish()
+})).optional()
+}).optional(),
   "company": zod.record(zod.string(), zod.unknown()),
   "tax": zod.record(zod.string(), zod.unknown()),
   "branches": zod.record(zod.string(), zod.unknown()),
@@ -4670,7 +4692,25 @@ export const GetAppSettingsResponse = zod.object({
 /**
  * @summary Patch app settings (admin only)
  */
+
+
+
+export const PatchAppSettingsQueryParams = zod.object({
+  "branchId": zod.coerce.number().int().min(1).optional()
+})
+
+export const patchAppSettingsBodyExpectedRevisionMin = 0;
+
+
+export const patchAppSettingsBodyExpectedParentRevisionMin = 0;
+
+
+
 export const PatchAppSettingsBody = zod.object({
+  "expectedRevision": zod.number().int().min(patchAppSettingsBodyExpectedRevisionMin),
+  "expectedCompanyId": zod.number().int().min(1),
+  "expectedParentRevision": zod.number().int().min(patchAppSettingsBodyExpectedParentRevisionMin).optional(),
+  "reset": zod.record(zod.string(), zod.array(zod.string())).optional(),
   "company": zod.record(zod.string(), zod.unknown()).optional(),
   "tax": zod.record(zod.string(), zod.unknown()).optional(),
   "branches": zod.record(zod.string(), zod.unknown()).optional(),
@@ -4687,6 +4727,21 @@ export const PatchAppSettingsBody = zod.object({
 })
 
 export const PatchAppSettingsResponse = zod.object({
+  "scope": zod.object({
+  "companyId": zod.number().int(),
+  "branchId": zod.number().int().nullable(),
+  "revision": zod.number().int(),
+  "parentRevision": zod.number().int(),
+  "canManage": zod.boolean(),
+  "overrides": zod.record(zod.string(), zod.array(zod.string())),
+  "historyPolicy": zod.string(),
+  "history": zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+  "availableBranches": zod.array(zod.object({
+  "id": zod.number().int(),
+  "name": zod.string(),
+  "nameAr": zod.string().nullish()
+})).optional()
+}).optional(),
   "company": zod.record(zod.string(), zod.unknown()),
   "tax": zod.record(zod.string(), zod.unknown()),
   "branches": zod.record(zod.string(), zod.unknown()),

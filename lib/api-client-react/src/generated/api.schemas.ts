@@ -2806,6 +2806,30 @@ export interface CompanySettingsPatch {
   logoObjectKey?: string | null;
 }
 
+export type AppSettingsScopeOverrides = {[key: string]: string[]};
+
+export type AppSettingsScopeHistoryItem = { [key: string]: unknown };
+
+export type AppSettingsScopeAvailableBranchesItem = {
+  id: number;
+  name: string;
+  /** @nullable */
+  nameAr?: string | null;
+};
+
+export type AppSettingsScope = {
+  companyId: number;
+  /** @nullable */
+  branchId: number | null;
+  revision: number;
+  parentRevision: number;
+  canManage: boolean;
+  overrides: AppSettingsScopeOverrides;
+  historyPolicy: string;
+  history?: AppSettingsScopeHistoryItem[];
+  availableBranches?: AppSettingsScopeAvailableBranchesItem[];
+};
+
 export type AppSettingsCompany = { [key: string]: unknown };
 
 export type AppSettingsTax = { [key: string]: unknown };
@@ -2833,6 +2857,7 @@ export type AppSettingsBackup = { [key: string]: unknown };
 export type AppSettingsTemplates = { [key: string]: unknown };
 
 export interface AppSettings {
+  scope?: AppSettingsScope;
   company: AppSettingsCompany;
   tax: AppSettingsTax;
   branches: AppSettingsBranches;
@@ -2848,6 +2873,8 @@ export interface AppSettings {
   templates: AppSettingsTemplates;
   updatedAt: string;
 }
+
+export type AppSettingsPatchReset = {[key: string]: string[]};
 
 export type AppSettingsPatchCompany = { [key: string]: unknown };
 
@@ -2876,6 +2903,13 @@ export type AppSettingsPatchBackup = { [key: string]: unknown };
 export type AppSettingsPatchTemplates = { [key: string]: unknown };
 
 export interface AppSettingsPatch {
+  /** @minimum 0 */
+  expectedRevision: number;
+  /** @minimum 1 */
+  expectedCompanyId: number;
+  /** @minimum 0 */
+  expectedParentRevision?: number;
+  reset?: AppSettingsPatchReset;
   company?: AppSettingsPatchCompany;
   tax?: AppSettingsPatchTax;
   branches?: AppSettingsPatchBranches;
@@ -4356,6 +4390,20 @@ export type UploadCompanyLogoBody = {
   /** base64 (with or without data URL prefix) */
   image: string;
   contentType: UploadCompanyLogoBodyContentType;
+};
+
+export type GetAppSettingsParams = {
+/**
+ * @minimum 1
+ */
+branchId?: number;
+};
+
+export type PatchAppSettingsParams = {
+/**
+ * @minimum 1
+ */
+branchId?: number;
 };
 
 export type SetPermissionCellBody = {

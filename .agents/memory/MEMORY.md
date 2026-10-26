@@ -20,3 +20,4 @@
 - [Credential lock ordering](account-credential-locking.md) — password/MFA-policy writers take the authority writer fence before user rows; shared-to-writer upgrades deadlock concurrent login/reset.
 - [Recovery mail evidence](recovery-mail-evidence.md) — SMTP acceptance is not mailbox receipt; retry the same expiring token, never create new recovery authority.
 - [Procurement authorization](procurement-authorization.md) — directory/order grants do not imply finance or linked-workflow authority; monetary caps cannot trust client FX.
+- [Settings ownership](settings-ownership-policy.md) — never guess the owner of shared legacy preferences or treat a stored toggle as operating-service activation.

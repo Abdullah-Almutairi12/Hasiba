@@ -143,6 +143,7 @@ import type {
   FiscalYear,
   FraudAlert,
   GeneralLedger,
+  GetAppSettingsParams,
   GetAtRiskCustomers200,
   GetAtRiskCustomersParams,
   GetBalanceSheetParams,
@@ -217,6 +218,7 @@ import type {
   MarkInboxRead200,
   MatchBankStatementLineBody,
   MeResponse,
+  PatchAppSettingsParams,
   PermissionMatrix,
   PermissionTemplate,
   PermissionTemplateApply,
@@ -18561,20 +18563,27 @@ export const useUploadCompanyLogo = <TError = ErrorType<unknown>,
       return useMutation(getUploadCompanyLogoMutationOptions(options), queryClient);
     }
 
-export const getGetAppSettingsUrl = () => {
+export const getGetAppSettingsUrl = (params?: GetAppSettingsParams,) => {
+  const normalizedParams = new URLSearchParams();
 
+  Object.entries(params || {}).forEach(([key, value]) => {
 
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
 
+  const stringifiedParams = normalizedParams.toString();
 
-  return `/api/settings`
+  return stringifiedParams.length > 0 ? `/api/settings?${stringifiedParams}` : `/api/settings`
 }
 
 /**
  * @summary Get app settings (any authenticated user; sensitive fields redacted for non-admins)
  */
-export const getAppSettings = async ( options?: Parameters<typeof customFetch>[1]): Promise<AppSettings> => {
+export const getAppSettings = async (params?: GetAppSettingsParams, options?: Parameters<typeof customFetch>[1]): Promise<AppSettings> => {
 
-  return customFetch<AppSettings>(getGetAppSettingsUrl(),
+  return customFetch<AppSettings>(getGetAppSettingsUrl(params),
   {
     ...options,
     method: 'GET'
@@ -18587,23 +18596,23 @@ export const getAppSettings = async ( options?: Parameters<typeof customFetch>[1
 
 
 
-export const getGetAppSettingsQueryKey = () => {
+export const getGetAppSettingsQueryKey = (params?: GetAppSettingsParams,) => {
     return [
-    `/api/settings`
+    `/api/settings`, ...(params ? [params] : [])
     ] as const;
     }
 
 
-export const getGetAppSettingsQueryOptions = <TData = Awaited<ReturnType<typeof getAppSettings>>, TError = ErrorType<unknown>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getAppSettings>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+export const getGetAppSettingsQueryOptions = <TData = Awaited<ReturnType<typeof getAppSettings>>, TError = ErrorType<unknown>>(params?: GetAppSettingsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getAppSettings>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
 
-  const queryKey =  queryOptions?.queryKey ?? getGetAppSettingsQueryKey();
+  const queryKey =  queryOptions?.queryKey ?? getGetAppSettingsQueryKey(params);
 
 
 
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof getAppSettings>>> = ({ signal }) => getAppSettings({ signal, ...requestOptions });
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getAppSettings>>> = ({ signal }) => getAppSettings(params, { signal, ...requestOptions });
 
 
 
@@ -18617,7 +18626,7 @@ export type GetAppSettingsQueryError = ErrorType<unknown>
 
 
 export function useGetAppSettings<TData = Awaited<ReturnType<typeof getAppSettings>>, TError = ErrorType<unknown>>(
-  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getAppSettings>>, TError, TData>> & Pick<
+ params: undefined |  GetAppSettingsParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getAppSettings>>, TError, TData>> & Pick<
         DefinedInitialDataOptions<
           Awaited<ReturnType<typeof getAppSettings>>,
           TError,
@@ -18627,7 +18636,7 @@ export function useGetAppSettings<TData = Awaited<ReturnType<typeof getAppSettin
  , queryClient?: QueryClient
   ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 export function useGetAppSettings<TData = Awaited<ReturnType<typeof getAppSettings>>, TError = ErrorType<unknown>>(
-  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getAppSettings>>, TError, TData>> & Pick<
+ params?: GetAppSettingsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getAppSettings>>, TError, TData>> & Pick<
         UndefinedInitialDataOptions<
           Awaited<ReturnType<typeof getAppSettings>>,
           TError,
@@ -18637,7 +18646,7 @@ export function useGetAppSettings<TData = Awaited<ReturnType<typeof getAppSettin
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 export function useGetAppSettings<TData = Awaited<ReturnType<typeof getAppSettings>>, TError = ErrorType<unknown>>(
-  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getAppSettings>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ params?: GetAppSettingsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getAppSettings>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 /**
@@ -18645,11 +18654,11 @@ export function useGetAppSettings<TData = Awaited<ReturnType<typeof getAppSettin
  */
 
 export function useGetAppSettings<TData = Awaited<ReturnType<typeof getAppSettings>>, TError = ErrorType<unknown>>(
-  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getAppSettings>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ params?: GetAppSettingsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getAppSettings>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
  , queryClient?: QueryClient
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
-  const queryOptions = getGetAppSettingsQueryOptions(options)
+  const queryOptions = getGetAppSettingsQueryOptions(params,options)
 
   const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 
@@ -18662,18 +18671,26 @@ export function useGetAppSettings<TData = Awaited<ReturnType<typeof getAppSettin
 
 
 
-export const getPatchAppSettingsUrl = () => {
+export const getPatchAppSettingsUrl = (params?: PatchAppSettingsParams,) => {
+  const normalizedParams = new URLSearchParams();
 
+  Object.entries(params || {}).forEach(([key, value]) => {
 
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
 
+  const stringifiedParams = normalizedParams.toString();
 
-  return `/api/settings`
+  return stringifiedParams.length > 0 ? `/api/settings?${stringifiedParams}` : `/api/settings`
 }
 
 /**
  * @summary Patch app settings (admin only)
  */
-export const patchAppSettings = async (appSettingsPatch: AppSettingsPatch, options?: Parameters<typeof customFetch>[1]): Promise<AppSettings> => {
+export const patchAppSettings = async (appSettingsPatch: AppSettingsPatch,
+    params?: PatchAppSettingsParams, options?: Parameters<typeof customFetch>[1]): Promise<AppSettings> => {
 
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
@@ -18689,7 +18706,7 @@ export const patchAppSettings = async (appSettingsPatch: AppSettingsPatch, optio
     }
     return headers;
   };
-return customFetch<AppSettings>(getPatchAppSettingsUrl(),
+return customFetch<AppSettings>(getPatchAppSettingsUrl(params),
   {
     ...options,
     method: 'PATCH',
@@ -18719,9 +18736,9 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof patchAppSettings>>, PatchAppSettingsMutationVariables> = (props) => {
-          const {data} = props ?? {};
+          const {data,params} = props ?? {};
 
-          return  patchAppSettings(data,requestOptions)
+          return  patchAppSettings(data,params,requestOptions)
         }
 
 
@@ -18734,7 +18751,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type PatchAppSettingsMutationResult = NonNullable<Awaited<ReturnType<typeof patchAppSettings>>>
     export type PatchAppSettingsMutationBody = BodyType<AppSettingsPatch>
     export type PatchAppSettingsMutationError = ErrorType<unknown>
-    export type PatchAppSettingsMutationVariables = {data: BodyType<AppSettingsPatch>}
+    export type PatchAppSettingsMutationVariables = {data: BodyType<AppSettingsPatch>;params?: PatchAppSettingsParams}
 
     /**
  * @summary Patch app settings (admin only)
