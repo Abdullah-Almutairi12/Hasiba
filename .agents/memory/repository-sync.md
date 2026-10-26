@@ -39,6 +39,12 @@ Treat Hasiba as the existing repository for the existing Replit project, not as 
 
 **How to apply:** Audit all remote branches and available reflogs before inferring the previous synchronization path. Distinguish a safety branch created by the agent from an established historical branch. If older pushes or remote-URL changes cannot be established from retained evidence, state that limitation rather than denying the user's account. Preserve main and its files; do not propose archiving based solely on unrelated branch histories, commit age, or a different directory layout.
 
+Validate the configured canonical repository separately from Git's expanded transport URL.
+
+**Why:** In this workspace, `git remote get-url` expanded an `insteadOf` rewrite to Replit's internal GitHub transport, while `remote.<name>.url` retained the intended GitHub repository. Treating the internal hostname as a wrong repository would unnecessarily replace working authorization.
+
+**How to apply:** Validate the canonical host/path from the configured remote using redacted processing; preserve the managed rewrite for fetch/push. Confirm remote refs rather than rewriting the transport merely to make its hostname look public.
+
 Inspect remote URLs only through redacted output; do not print raw `git remote -v` or the complete Git configuration.
 
 **Why:** The retained legacy source-control remote contained an embedded credential. Keeping the previous repository location must not expose or preserve that credential in reports or command output.
