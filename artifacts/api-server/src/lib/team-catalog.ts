@@ -75,7 +75,7 @@ export const GrantInput = z.object({
   if(g.templateId ? !g.templateRevision || !g.templateMode : g.templateRevision || g.templateMode)
     ctx.addIssue({code:"custom",message:"ربط القالب يحتاج المصدر والإصدار ونمط الوراثة معًا"});
   if (g.resource === "inventory" && g.amountLimit !== null &&
-    !g.actions.some(a=>["inventory.move.receipt","inventory.move.issue","inventory.transfer.send",
+    !g.actions.some(a=>["inventory.move.receipt","inventory.move.issue","inventory.transfer.send","inventory.transfer.receive",
       "inventory.stocktake.approve","inventory.stocktake.post"].includes(a))) {
     ctx.addIssue({ code: "custom", message: "سقف قيمة المخزون يحتاج إذن حركة صريحًا؛ لا يخص القراءة وحدها" });
   }

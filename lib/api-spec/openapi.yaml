@@ -1145,7 +1145,7 @@ paths:
         - { name: X-Workspace-Responsibility, in: header, required: true, schema: { type: integer } }
       responses:
         "200":
-          description: Live movement actions and explicitly assigned source/destination warehouses; no cost. First 1000 ordinary products only.
+          description: Live movement actions and explicitly assigned warehouses; no cost. First 1000 untracked products with active variants.
           content:
             application/json:
               schema:
@@ -1175,6 +1175,17 @@ paths:
                         id: { type: integer }
                         name: { type: string }
                         sku: { type: string }
+                        unit: { type: string }
+                        requiresVariant: { type: boolean }
+                        variants:
+                          type: array
+                          items:
+                            type: object
+                            required: [id, sku, attributes]
+                            properties:
+                              id: { type: integer }
+                              sku: { type: string }
+                              attributes: { type: object, additionalProperties: true }
                   recent:
                     type: array
                     items:
@@ -1186,6 +1197,11 @@ paths:
                         state: { type: string }
                         quantity: { type: string }
                         productName: { type: string }
+                        variantId: { type: integer, nullable: true }
+                        variantSku: { type: string, nullable: true }
+                        unit: { type: string }
+                        sourceWarehouse: { type: string, nullable: true }
+                        destinationWarehouse: { type: string, nullable: true }
         "403":
           description: No live inventory read responsibility
   /workspace/inventory/transfers:
@@ -1218,6 +1234,77 @@ paths:
                         productName: { type: string }
                         sourceWarehouse: { type: string }
                         destinationWarehouse: { type: string }
+                        variantId: { type: integer, nullable: true }
+                        variantSku: { type: string, nullable: true }
+                        unit: { type: string }
+  /inventory/moves:
+    post:
+      operationId: createScopedInventoryMovement
+      tags: [Inventory]
+      description: Responsibility-bound manual receipt or issue. Server owns valuation; no tracking, adjustment or variant maintenance grants.
+      parameters:
+        - { name: X-Workspace-Responsibility, in: header, required: true, schema: { type: integer } }
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [productId, warehouseId, kind, quantity, notes]
+              properties:
+                productId: { type: integer, minimum: 1 }
+                variantId: { type: integer, minimum: 1 }
+                warehouseId: { type: integer, minimum: 1 }
+                kind: { type: string, enum: [receipt, issue] }
+                quantity: { type: number, minimum: 0.0001, maximum: 999999999, multipleOf: 0.0001 }
+                notes: { type: string, minLength: 3, maxLength: 500 }
+      responses:
+        "201":
+          description: Cost-free committed movement receipt, also returned on an authorized replay
+          content:
+            application/json:
+              schema: &movementReceipt
+                type: object
+                required: [moveId, moveIds]
+                properties:
+                  moveId: { type: integer }
+                  moveIds: { type: array, items: { type: integer } }
+        "403": { description: "Current permission, scope or monetary cap refused" }
+        "409": { description: Invalid product/variant mode or conflicting retry identity }
+  /inventory/transfers:
+    post:
+      operationId: createScopedInventoryTransfer
+      tags: [Inventory]
+      description: Dispatch under explicit source and destination send grants. Arrival requires an independent receive action.
+      parameters:
+        - { name: X-Workspace-Responsibility, in: header, required: true, schema: { type: integer } }
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [productId, fromWarehouseId, toWarehouseId, quantity, notes]
+              properties:
+                productId: { type: integer, minimum: 1 }
+                variantId: { type: integer, minimum: 1 }
+                fromWarehouseId: { type: integer, minimum: 1 }
+                toWarehouseId: { type: integer, minimum: 1 }
+                destinationResponsibilityId: { type: integer, minimum: 1 }
+                quantity: { type: number, minimum: 0.0001, maximum: 999999999, multipleOf: 0.0001 }
+                notes: { type: string, minLength: 3, maxLength: 500 }
+      responses:
+        "201":
+          description: Dispatched once, or confirmed receipt replay
+          content:
+            application/json:
+              schema: *movementReceipt
+        "403": { description: No current source/destination authority }
+        "409": { description: Invalid product/variant mode or conflicting retry identity }
   /inventory/transfers/{id}/receive:
     post:
       operationId: receiveInventoryTransfer
@@ -5686,6 +5773,10 @@ components:
       type: object
       required: [productId, productName, warehouseId, warehouseName, quantity]
       properties:
+        quantId: { type: integer }
+        variantId: { type: integer, nullable: true }
+        variantSku: { type: string, nullable: true }
+        unit: { type: string }
         productId: { type: integer }
         productName: { type: string }
         warehouseId: { type: integer }

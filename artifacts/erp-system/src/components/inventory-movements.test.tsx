@@ -57,3 +57,21 @@ it("rejects subprecision quantities before persisting or sending any intent",asy
  fireEvent.click(screen.getByRole("button",{name:"تأكيد الحركة"}));
  await screen.findByText(/أربع منازل/);expect(mock.fetch).not.toHaveBeenCalled();expect(localStorage.length).toBe(0);
 });
+it("requires an active variant, displays its unit, and resets the selection on product change",async()=>{
+ mock.options.mockResolvedValue({...options,products:[{...options.products[0],unit:"قطعة",requiresVariant:true,
+  variants:[{id:33,sku:"BLUE-L",attributes:{color:"أزرق",size:"L"}}]},{id:10,name:"صنف آخر",sku:"OTHER"}]});
+ mock.fetch.mockResolvedValue({ok:true,json:async()=>({moveId:14,moveIds:[14]})});mount();await fill();
+ expect(screen.getByText("وحدة القياس: قطعة")).toBeTruthy();
+ fireEvent.click(screen.getByRole("button",{name:"تأكيد الحركة"}));
+ await screen.findByText(/اختر متغيرًا متاحًا/);expect(mock.fetch).not.toHaveBeenCalled();
+ fireEvent.change(screen.getByLabelText("المتغير"),{target:{value:"33"}});
+ fireEvent.change(screen.getByLabelText("الصنف"),{target:{value:"10"}});
+ expect(screen.queryByLabelText("المتغير")).toBeNull();
+ fireEvent.change(screen.getByLabelText("الصنف"),{target:{value:"9"}});
+ expect((screen.getByLabelText("المتغير") as HTMLSelectElement).value).toBe("");
+ fireEvent.change(screen.getByLabelText("المتغير"),{target:{value:"33"}});
+ fireEvent.click(screen.getByRole("button",{name:"تأكيد الحركة"}));
+ await screen.findByText(/حركة مؤكدة #14/);
+ expect(JSON.parse(mock.fetch.mock.calls[0][1].body)).toMatchObject({productId:9,variantId:33,kind:"issue"});
+ expect(mock.fetch.mock.calls[0][1].body).not.toMatch(/cost/i);
+});

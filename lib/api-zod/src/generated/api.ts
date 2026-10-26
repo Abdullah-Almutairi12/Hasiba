@@ -1596,6 +1596,10 @@ export const GetWorkspaceInventoryHeader = zod.object({
 })
 
 export const GetWorkspaceInventoryResponseItem = zod.object({
+  "quantId": zod.number().int().optional(),
+  "variantId": zod.number().int().nullish(),
+  "variantSku": zod.string().nullish(),
+  "unit": zod.string().optional(),
   "productId": zod.number().int(),
   "productName": zod.string(),
   "warehouseId": zod.number().int(),
@@ -1627,14 +1631,26 @@ export const GetWorkspaceInventoryMovementOptionsResponse = zod.object({
   "products": zod.array(zod.object({
   "id": zod.number().int(),
   "name": zod.string(),
-  "sku": zod.string()
+  "sku": zod.string(),
+  "unit": zod.string().optional(),
+  "requiresVariant": zod.boolean().optional(),
+  "variants": zod.array(zod.object({
+  "id": zod.number().int(),
+  "sku": zod.string(),
+  "attributes": zod.record(zod.string(), zod.unknown())
+})).optional()
 })),
   "recent": zod.array(zod.object({
   "id": zod.number().int(),
   "kind": zod.string(),
   "state": zod.string(),
   "quantity": zod.string(),
-  "productName": zod.string()
+  "productName": zod.string(),
+  "variantId": zod.number().int().nullish(),
+  "variantSku": zod.string().nullish(),
+  "unit": zod.string().optional(),
+  "sourceWarehouse": zod.string().nullish(),
+  "destinationWarehouse": zod.string().nullish()
 }))
 })
 
@@ -1653,8 +1669,84 @@ export const GetWorkspaceInventoryTransfersResponse = zod.object({
   "createdAt": zod.coerce.date(),
   "productName": zod.string(),
   "sourceWarehouse": zod.string(),
-  "destinationWarehouse": zod.string()
+  "destinationWarehouse": zod.string(),
+  "variantId": zod.number().int().nullish(),
+  "variantSku": zod.string().nullish(),
+  "unit": zod.string().optional()
 }))
+})
+
+
+/**
+ * Responsibility-bound manual receipt or issue. Server owns valuation; no tracking, adjustment or variant maintenance grants.
+ */
+export const CreateScopedInventoryMovementHeader = zod.object({
+  "X-Workspace-Responsibility": zod.number().int(),
+  "Idempotency-Key": zod.string()
+})
+
+
+
+
+export const createScopedInventoryMovementBodyQuantityMin = 0.0001;
+export const createScopedInventoryMovementBodyQuantityMax = 999999999;
+export const createScopedInventoryMovementBodyQuantityMultipleOf = 0.0001;
+
+export const createScopedInventoryMovementBodyNotesMin = 3;
+export const createScopedInventoryMovementBodyNotesMax = 500;
+
+
+
+export const CreateScopedInventoryMovementBody = zod.object({
+  "productId": zod.number().int().min(1),
+  "variantId": zod.number().int().min(1).optional(),
+  "warehouseId": zod.number().int().min(1),
+  "kind": zod.enum(['receipt', 'issue']),
+  "quantity": zod.number().min(createScopedInventoryMovementBodyQuantityMin).max(createScopedInventoryMovementBodyQuantityMax).multipleOf(createScopedInventoryMovementBodyQuantityMultipleOf),
+  "notes": zod.string().min(createScopedInventoryMovementBodyNotesMin).max(createScopedInventoryMovementBodyNotesMax)
+})
+
+export const CreateScopedInventoryMovementResponse = zod.object({
+  "moveId": zod.number().int(),
+  "moveIds": zod.array(zod.number().int())
+})
+
+
+/**
+ * Dispatch under explicit source and destination send grants. Arrival requires an independent receive action.
+ */
+export const CreateScopedInventoryTransferHeader = zod.object({
+  "X-Workspace-Responsibility": zod.number().int(),
+  "Idempotency-Key": zod.string()
+})
+
+
+
+
+
+
+export const createScopedInventoryTransferBodyQuantityMin = 0.0001;
+export const createScopedInventoryTransferBodyQuantityMax = 999999999;
+export const createScopedInventoryTransferBodyQuantityMultipleOf = 0.0001;
+
+export const createScopedInventoryTransferBodyNotesMin = 3;
+export const createScopedInventoryTransferBodyNotesMax = 500;
+
+
+
+export const CreateScopedInventoryTransferBody = zod.object({
+  "productId": zod.number().int().min(1),
+  "variantId": zod.number().int().min(1).optional(),
+  "fromWarehouseId": zod.number().int().min(1),
+  "toWarehouseId": zod.number().int().min(1),
+  "destinationResponsibilityId": zod.number().int().min(1).optional(),
+  "quantity": zod.number().min(createScopedInventoryTransferBodyQuantityMin).max(createScopedInventoryTransferBodyQuantityMax).multipleOf(createScopedInventoryTransferBodyQuantityMultipleOf),
+  "notes": zod.string().min(createScopedInventoryTransferBodyNotesMin).max(createScopedInventoryTransferBodyNotesMax)
+})
+
+export const CreateScopedInventoryTransferResponse = zod.object({
+  "moveId": zod.number().int(),
+  "moveIds": zod.array(zod.number().int())
 })
 
 

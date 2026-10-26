@@ -370,6 +370,13 @@ export async function recordStockMove(
       .where(and(eq(table.id, id), eq(table.productId, input.productId))).limit(1);
     if (!owned) throw new Error("Stock tracking reference does not match product");
   }
+  // The variant catalog supplies prospective receipt/default cost. Historical
+  // outbound quantities still use their own native quant/FIFO carrying value.
+  if (input.variantId != null && product.tracking === "none") {
+    const [variant] = await tx.select({ costPrice: productVariantsTable.costPrice })
+      .from(productVariantsTable).where(eq(productVariantsTable.id, input.variantId));
+    if (variant?.costPrice != null) product.costPrice = Number(variant.costPrice);
+  }
 
   // Serial enforcement.
   if (product.tracking === "serial") {
@@ -434,7 +441,7 @@ export async function recordStockMove(
   // The FIFO-derived cost is used when the caller did not provide one.
   if (isOutbound && (state === "done" || state === "in_transit")) {
     if (input.fromWarehouseId == null) throw new Error("issue/transfer/return_out يتطلب fromWarehouseId");
-    if (product.costingMethod === "standard" && input.kind === "issue") {
+    if (product.costingMethod === "standard" && (input.kind === "issue" || input.kind === "transfer" && input.variantId != null && product.tracking === "none")) {
       // Prospective standard / realized-variance policy: editing the standard
       // is not an inventory revaluation. Expense the source quant's carrying
       // value (standard cost plus its realized difference, net in COGS).

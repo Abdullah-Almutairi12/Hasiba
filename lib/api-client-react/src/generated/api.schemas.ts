@@ -659,6 +659,12 @@ export interface WorkspaceAccess {
 }
 
 export interface WorkspaceStock {
+  quantId?: number;
+  /** @nullable */
+  variantId?: number | null;
+  /** @nullable */
+  variantSku?: string | null;
+  unit?: string;
   productId: number;
   productName: string;
   warehouseId: number;
@@ -3571,10 +3577,21 @@ export type GetWorkspaceInventoryMovementOptions200DestinationsItem = {
   responsibilityId: number;
 };
 
+export type GetWorkspaceInventoryMovementOptions200ProductsItemVariantsItemAttributes = { [key: string]: unknown };
+
+export type GetWorkspaceInventoryMovementOptions200ProductsItemVariantsItem = {
+  id: number;
+  sku: string;
+  attributes: GetWorkspaceInventoryMovementOptions200ProductsItemVariantsItemAttributes;
+};
+
 export type GetWorkspaceInventoryMovementOptions200ProductsItem = {
   id: number;
   name: string;
   sku: string;
+  unit?: string;
+  requiresVariant?: boolean;
+  variants?: GetWorkspaceInventoryMovementOptions200ProductsItemVariantsItem[];
 };
 
 export type GetWorkspaceInventoryMovementOptions200RecentItem = {
@@ -3583,6 +3600,15 @@ export type GetWorkspaceInventoryMovementOptions200RecentItem = {
   state: string;
   quantity: string;
   productName: string;
+  /** @nullable */
+  variantId?: number | null;
+  /** @nullable */
+  variantSku?: string | null;
+  unit?: string;
+  /** @nullable */
+  sourceWarehouse?: string | null;
+  /** @nullable */
+  destinationWarehouse?: string | null;
 };
 
 export type GetWorkspaceInventoryMovementOptions200 = {
@@ -3611,11 +3637,77 @@ export type GetWorkspaceInventoryTransfers200TransfersItem = {
   productName: string;
   sourceWarehouse: string;
   destinationWarehouse: string;
+  /** @nullable */
+  variantId?: number | null;
+  /** @nullable */
+  variantSku?: string | null;
+  unit?: string;
 };
 
 export type GetWorkspaceInventoryTransfers200 = {
   canReceive: boolean;
   transfers: GetWorkspaceInventoryTransfers200TransfersItem[];
+};
+
+export type CreateScopedInventoryMovementBodyKind = typeof CreateScopedInventoryMovementBodyKind[keyof typeof CreateScopedInventoryMovementBodyKind];
+
+
+export const CreateScopedInventoryMovementBodyKind = {
+  receipt: 'receipt',
+  issue: 'issue',
+} as const;
+
+export type CreateScopedInventoryMovementBody = {
+  /** @minimum 1 */
+  productId: number;
+  /** @minimum 1 */
+  variantId?: number;
+  /** @minimum 1 */
+  warehouseId: number;
+  kind: CreateScopedInventoryMovementBodyKind;
+  /**
+     * @minimum 0.0001
+     * @maximum 999999999
+     */
+  quantity: number;
+  /**
+     * @minLength 3
+     * @maxLength 500
+     */
+  notes: string;
+};
+
+export type CreateScopedInventoryMovement201 = {
+  moveId: number;
+  moveIds: number[];
+};
+
+export type CreateScopedInventoryTransferBody = {
+  /** @minimum 1 */
+  productId: number;
+  /** @minimum 1 */
+  variantId?: number;
+  /** @minimum 1 */
+  fromWarehouseId: number;
+  /** @minimum 1 */
+  toWarehouseId: number;
+  /** @minimum 1 */
+  destinationResponsibilityId?: number;
+  /**
+     * @minimum 0.0001
+     * @maximum 999999999
+     */
+  quantity: number;
+  /**
+     * @minLength 3
+     * @maxLength 500
+     */
+  notes: string;
+};
+
+export type CreateScopedInventoryTransfer201 = {
+  moveId: number;
+  moveIds: number[];
 };
 
 export type ReceiveInventoryTransferBody = {

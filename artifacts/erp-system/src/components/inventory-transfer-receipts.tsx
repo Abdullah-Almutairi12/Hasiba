@@ -78,7 +78,7 @@ export function InventoryTransferReceipts({grantId}:{grantId:number}) {
     <p className="text-xs text-muted-foreground">حتى100حركة، بالأولوية للأقدم قيد الاستلام. استلام بضائع في الطريق فقط؛ لا إرسال أو تعديل كمية أو تكلفة أو تسوية.</p>
     {query.isLoading?<p role="status">جارٍ تحميل التحويلات…</p>:query.error?<p role="alert">{errorText(query.error)}</p>:
       query.data?.transfers.length?query.data.transfers.map(t=><article key={t.id} className="rounded-lg border p-3" data-testid={`incoming-transfer-${t.id}`}>
-        <p className="text-sm font-medium">{t.productName} · <bdi>{t.quantity}</bdi></p>
+        <p className="text-sm font-medium">{t.productName}{t.variantId?` · ${t.variantSku??`متغير#${t.variantId}`}`:""} · <bdi>{t.quantity}</bdi> {t.unit??""}</p>
         <p className="text-xs text-muted-foreground">{t.sourceWarehouse} ← {t.destinationWarehouse} · <bdi>{t.reference||"بدون مرجع"}</bdi> · حركة#<bdi>{t.id}</bdi></p>
         <TransferReceiptRow transfer={t} grantId={grantId} canReceive={query.data!.canReceive} onReceived={refresh}/>
       </article>):<p className="text-sm text-muted-foreground">لا تحويلات واردة ضمن هذه المستودعات.</p>}

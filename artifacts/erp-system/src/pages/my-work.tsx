@@ -216,7 +216,7 @@ function InventoryView({ grantId, branch }: { grantId: number; branch: string })
   const rows = useMemo(() => {
     const all = invQ.data ?? [];
     const s = q.trim();
-    return s ? all.filter((r) => r.productName.includes(s) || r.warehouseName.includes(s)) : all;
+    return s ? all.filter((r) => r.productName.includes(s) || r.warehouseName.includes(s) || r.variantSku?.includes(s)) : all;
   }, [invQ.data, q]);
   const showCost = (invQ.data ?? []).some((r) => r.cost != null);
 
@@ -256,10 +256,10 @@ function InventoryView({ grantId, branch }: { grantId: number; branch: string })
             </thead>
             <tbody className="divide-y">
               {rows.map((r) => (
-                <tr key={`${r.productId}-${r.warehouseId}`} data-testid={`row-stock-${r.productId}-${r.warehouseId}`}>
-                  <td className="p-3 font-medium">{r.productName}</td>
+                <tr key={r.quantId??`${r.productId}-${r.warehouseId}-${r.variantId??0}`} data-testid={`row-stock-${r.productId}-${r.warehouseId}`}>
+                  <td className="p-3 font-medium">{r.productName}{r.variantId?` · ${r.variantSku??`متغير#${r.variantId}`}`:""}</td>
                   <td className="p-3 text-muted-foreground">{r.warehouseName}</td>
-                  <td className={cn("p-3 text-end tabular-nums", Number(r.quantity) <= 0 && "text-destructive")}>{fmtQty(r.quantity)}</td>
+                  <td className={cn("p-3 text-end tabular-nums", Number(r.quantity) <= 0 && "text-destructive")}>{fmtQty(r.quantity)} {r.unit??""}</td>
                   {showCost && <td className="p-3 text-end tabular-nums">{r.cost ?? "—"}</td>}
                 </tr>
               ))}

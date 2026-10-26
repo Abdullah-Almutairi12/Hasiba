@@ -910,7 +910,7 @@ function GrantCard({ index, grant, catalog, branches, warehouses, issues, onChan
       </div>
 
       <div className="mt-4 grid gap-3 sm:grid-cols-3">
-        {(grant.resource !== "inventory" || grant.actions.some(a=>["inventory.move.receipt","inventory.move.issue","inventory.transfer.send"].includes(a))) && (
+        {(grant.resource !== "inventory" || grant.actions.some(a=>["inventory.move.receipt","inventory.move.issue","inventory.transfer.send","inventory.transfer.receive"].includes(a))) && (
           <div>
             <Label className="text-xs">{grant.resource==="inventory"?"سقف قيمة حركة المخزون المحسوبة خادميًا":grant.resource==="procurement"?"سقف قيمة أمر الشراء":"سقف قيمة البيع الواحد"} (ر.س)</Label>
             <Input dir="ltr" inputMode="decimal" placeholder="بلا سقف" value={grant.amountLimit ?? ""} onChange={(e) => onChange({ amountLimit: e.target.value || null })} data-testid={`input-grant-limit-${index}`} />

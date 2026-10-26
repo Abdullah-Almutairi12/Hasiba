@@ -36,7 +36,7 @@ import { inventoryTransferReadGuard, transferAuthority, transferReceiptReference
 import { lockStocktakeForCount, auditCountObservation, stocktakeReadAuthority } from "../lib/stocktake-count";
 import { inventoryActor,auditInventoryMutation } from "../lib/scoped-inventory-actor";
 import { managedProfile } from "../lib/responsibility-context";
-import { executeScopedInventoryMovement, inventoryMovementOptions } from "../lib/scoped-inventory-movements";
+import { executeScopedInventoryMovement, inventoryMovementOptions, rejectLegacyVariantMovement } from "../lib/scoped-inventory-movements";
 import { countPoint, preparePoint, verifyPoint, advanceCountGeneration, type CountPoint } from "../lib/stocktake-cutoff";
 import { stocktakeSeparation,stocktakeUnknownParticipantBlock } from "../lib/stocktake-separation";
 import {approveStocktake,StocktakeApproval,stocktakeAction,stocktakePolicy,authorizeStocktakePosting,recheckStocktakePosting,stocktakeVarianceValue} from "../lib/stocktake-review";
@@ -223,6 +223,7 @@ router.post("/inventory/moves", inventoryTransferReadGuard, async (req, res) => 
       // warehouse, amount and period enforcement, not just this role recheck.
       await lockApprovalAuthority(tx);
       await inventoryActor(tx,req,"inventory.write");
+      await rejectLegacyVariantMovement(tx,getCompanyId(req),body.productId,req.body?.variantId);
       let lotId: number | undefined;
       if (body.lotNumber) {
         lotId = await getOrCreateLot(tx, body.productId, body.lotNumber, body.expiryDate ?? null);
@@ -308,6 +309,7 @@ router.post("/inventory/transfers", inventoryTransferReadGuard, async (req, res)
       await lockApprovalAuthority(tx);
       await inventoryActor(tx,req,"inventory.write");
       // Phase 1: outbound (in_transit)
+      await rejectLegacyVariantMovement(tx,getCompanyId(req),body.productId,req.body?.variantId);
       const out = await recordStockMove(tx, {
         companyId: getCompanyId(req),
         productId: body.productId,
@@ -341,6 +343,7 @@ router.post("/inventory/transfers/:id/receive", inventoryTransferReadGuard, asyn
       const authority=await transferAuthority(tx,req,id,true);
       const reference=transferReceiptReference(req,authority);
       await completeTransfer(tx,id,req.session.userId!,getCompanyId(req));
+      await transferAuthority(tx,req,id,true,true);
       await auditTransferReceipt(tx,authority,reference);
       return {ok:true,id};
     });
