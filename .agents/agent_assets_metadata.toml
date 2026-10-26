@@ -686,3 +686,17 @@ mtime_ms = 1792973636164
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/60089ea3-8402-447c-994f-c9785ab77aae/f89f6aed-53e0-425f-812c-989a34f843fb"
 storage_version_token = "1792973652607100"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "PEtOUKOmhx3XVBZF5wdAM"
+uri = "file://generated-artifacts/supplier-invoice-lifecycle/delivery-report-ar.html"
+type = "html"
+title = "حاسبة — تقرير التسليم وأدلة فواتير الموردين"
+description = "تقرير عربي قابل للتنزيل: معايير القبول، نتائج التحقق، المصالحة المستقلة، وحدود التسليم، مع25 صورة من الرحلة الأصلية ببيانات مصطنعة."
+logical_id = "fd73708b-fda8-4cc2-826a-5587bb68985e"
+content_hash = "sha256:e27c360d7cf4c7c4cebf292e00286b87e088ac649532b179d71250e545464ce2"
+size = 3874011
+mtime_ms = 1792997673935
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/fd73708b-fda8-4cc2-826a-5587bb68985e/286b07dd-13e7-405b-b4f5-636cfb7ecc54"
+storage_version_token = "1792997753368978"
+content_type = "text/html"
