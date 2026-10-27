@@ -924,3 +924,31 @@ mtime_ms = 1793063477336
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/c8bb73bf-f18c-4fe9-aa3f-7a5642f127b7/39e0e7f4-b935-4fc1-b33e-603f8809e2f1"
 storage_version_token = "1793063539113923"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "4yKkqAkX8TZeuzaYLEjTv"
+uri = "file://generated-artifacts/lot-movements/hasiba-lot-movements-report-ar.html"
+type = "html"
+title = "تقرير حركات الدفعات والصلاحية"
+description = "تقرير عربي يتضمن نطاق التسليم، 15 بوابة ناجحة، صور الواجهة والمصالحة المستقلة وحدود القبول."
+logical_id = "292575aa-1496-4767-9ae5-6b086c8cd8bb"
+content_hash = "sha256:fbcce8bdad1734a7b03870c73f27d570e59fa6804a1a60481d645bbd39674b0b"
+size = 1841624
+mtime_ms = 1793071564694
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/292575aa-1496-4767-9ae5-6b086c8cd8bb/baf14058-d793-47c9-b5fb-f18424fddaf9"
+storage_version_token = "1793071579778770"
+content_type = "text/html"
+
+[[outputs]]
+id = "3uHpR6I9NbQQ0hUKsMQG0"
+uri = "file://generated-artifacts/lot-movements/hasiba-lot-movements-evidence.zip"
+type = "unspecified"
+title = "حزمة أدلة الاختبارات والمصالحة"
+description = "43 ملفًا: نتائج المصدر المثبت، صور الرحلتين، إثبات فقد الرد بعد الالتزام، مصالحة المخزون والأستاذ وإيصال GitHub؛ دون ملفات الدخول أو البيئة."
+logical_id = "b6fd9cd1-26b8-4d2d-b939-fd3551bdca1f"
+content_hash = "sha256:251d2411970ec42ecce8c9895f728a7fa5191c73619a23146e2ec88bdcdfd074"
+size = 2313284
+mtime_ms = 1793071564966
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/b6fd9cd1-26b8-4d2d-b939-fd3551bdca1f/2b59d636-fa66-4bc9-a839-f146cff80000"
+storage_version_token = "1793071583724675"
+content_type = "application/octet-stream"
