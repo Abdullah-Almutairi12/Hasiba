@@ -316,6 +316,33 @@ describe("employee seller attribution independent of collector",()=>{
  });
 });
 describe("branch-authorized return / approval / refund / till lifecycle", () => {
+  it("filters invoice lists by live branch/read authority before pagination and send metadata",async()=>{
+    const f=await fixture(),foreign=await fixture();
+    const other=ok(await f.owner.agent.post("/api/sales/invoices").set("Idempotency-Key",randomUUID()).send({
+      customerId:f.invoice.customer_id,branchId:f.otherBranch.id,
+      lines:[{description:"خدمة فرع آخر",quantity:1,unitPrice:10,taxRate:0}],
+    }),201);
+    const branchless=ok(await f.owner.agent.post("/api/sales/invoices").set("Idempotency-Key",randomUUID()).send({
+      customerId:f.invoice.customer_id,branchId:f.branch.id,
+      lines:[{description:"مستند قديم بلا دليل فرع",quantity:1,unitPrice:10,taxRate:0}],
+    }),201);
+    // Deliberate legacy ambiguity in the isolated fixture only; production must not infer ownership.
+    await pool.query("UPDATE customer_invoices SET branch_id=NULL WHERE id=$1",[branchless.id]);
+    // Old POS documents retain an evidenced source even without a direct branch field.
+    await pool.query("UPDATE customer_invoices SET branch_id=NULL WHERE id=$1",[f.invoice.id]);
+    const listed=ok(await f.cashier.agent.get("/api/sales/invoices"));
+    expect(listed.map((v:any)=>v.id)).toContain(f.invoice.id);
+    expect(listed.map((v:any)=>v.id)).not.toContain(other.id);
+    expect(listed.map((v:any)=>v.id)).not.toContain(branchless.id);
+    expect(listed.map((v:any)=>v.id)).not.toContain(foreign.invoice.id);
+    expect(ok(await f.cashier.agent.get("/api/sales/invoices?limit=1"))).toHaveLength(1);
+    expect(ok(await f.owner.agent.get("/api/sales/invoices")).map((v:any)=>v.id)).toEqual(expect.arrayContaining([other.id,branchless.id,f.invoice.id]));
+    await pool.query("UPDATE users SET branch_id=$1 WHERE id=$2",[f.otherBranch.id,f.cashier.user.id]);
+    expect(ok(await f.cashier.agent.get("/api/sales/invoices")).map((v:any)=>v.id)).toEqual([other.id]);
+    await pool.query(`INSERT INTO return_access(company_id,user_id,template,capabilities,branches,updated_by)
+      VALUES($1,$2,'cashier','[]'::jsonb,$3::jsonb,$4)`,[f.company.id,f.cashier.user.id,JSON.stringify([f.otherBranch.id]),f.owner.user.id]);
+    expect((await f.cashier.agent.get("/api/sales/invoices")).status).toBe(403);
+  });
   it("print links keep company/branch boundaries and never turn fetch failures into zero PDFs",async()=>{
     const f=await fixture(),other=await fixture();
     const pdf=await f.owner.agent.get(`/api/sales/invoices/${f.invoice.id}/pdf`);

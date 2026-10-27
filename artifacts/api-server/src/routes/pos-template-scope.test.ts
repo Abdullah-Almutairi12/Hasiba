@@ -29,6 +29,15 @@ async function refresh(f: PosTemplateFixture) {
   });
 }
 describe("positive POS shared templates with independent live scope", () => {
+  it("does not open the legacy sales invoice directory to scoped POS or inventory responsibilities",async()=>{
+    const f=await posTemplateFixture(),session=await open(f);
+    ok(await post(f,"/pos/orders",bodyFor(f,session.id)),201);
+    expect(ok(await f.owner.get("/api/sales/invoices"))).toHaveLength(1);
+    expect((await selected(f.actors[0],"get","/sales/invoices",f.people[0].grants[0].id)).status).toBe(403);
+    expect((await selected(f.actors[0],"get","/sales/invoices",f.people[0].grants[1].id)).status).toBe(403);
+    await rows("UPDATE responsibility_grants SET ends_at=now()-interval '1 second',starts_at=now()-interval '1 hour' WHERE id=$1",[f.people[0].grants[0].id]);
+    expect((await selected(f.actors[0],"get","/sales/invoices",f.people[0].grants[0].id)).status).toBe(403);
+  });
   it("sells below and exactly at the server-calculated limit, rejects forged over-limit, other branch/warehouse and inactive periods atomically", async () => {
     const f = await posTemplateFixture(), session = await open(f);
     const below = ok(await post(f, "/pos/orders", bodyFor(f, session.id, 0.9)), 201);

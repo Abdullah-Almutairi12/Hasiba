@@ -1691,6 +1691,20 @@ router.get("/sales/invoices", customerReadGuard, async (req, res) => {
   try {
     const { status, customerId } = req.query;
     const companyId = getCompanyId(req);
+    const actor = await returnActor(req.session.userId!, companyId);
+    if (actor.custom && !actor.capabilities.includes("view"))
+      throw new FinancialRequestError("ليست لديك صلاحية عرض الفواتير", 403);
+    // Apply the same live source scope as detail/PDF before pagination or
+    // collecting send metadata. Missing historical scope is not inferred.
+    const invoiceBranch = sql`coalesce(${customerInvoicesTable.branchId}, (
+      SELECT b.id FROM sales_orders so
+      JOIN pos_orders o ON so.notes='POS '||o.order_number AND o.company_id=so.company_id
+      JOIN pos_sessions s ON s.id=o.session_id
+      JOIN branches b ON b.id=s.branch_id AND b.company_id=so.company_id
+      WHERE so.id=${customerInvoicesTable.soId} AND so.company_id=${companyId} AND so.source='pos'
+    ))`;
+    const branchScope = actor.branches === null ? sql`true` : actor.branches.length
+      ? sql`${invoiceBranch} IN (${sql.join(actor.branches.map(id=>sql`${id}`),sql`, `)})` : sql`false`;
     // Tenant scope via customers.companyId — see GET /sales/orders.
     const joined = await db
       .select({ inv: customerInvoicesTable })
@@ -1700,6 +1714,7 @@ router.get("/sales/invoices", customerReadGuard, async (req, res) => {
         and(
           eq(customersTable.companyId, companyId),
           eq(customerInvoicesTable.companyId, companyId),
+          branchScope,
           status ? eq(customerInvoicesTable.status, String(status)) : sql`true`,
           customerId ? eq(customerInvoicesTable.customerId, Number(customerId)) : sql`true`,
         ),
