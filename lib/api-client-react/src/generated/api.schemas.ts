@@ -3613,6 +3613,7 @@ export type GetWorkspaceInventoryMovementOptions200ProductsItemTracking = typeof
 export const GetWorkspaceInventoryMovementOptions200ProductsItemTracking = {
   none: 'none',
   lot: 'lot',
+  serial: 'serial',
 } as const;
 
 export type GetWorkspaceInventoryMovementOptions200ProductsItemVariantsItemAttributes = { [key: string]: unknown };
@@ -3631,6 +3632,15 @@ export type GetWorkspaceInventoryMovementOptions200ProductsItem = {
   requiresVariant?: boolean;
   tracking?: GetWorkspaceInventoryMovementOptions200ProductsItemTracking;
   variants?: GetWorkspaceInventoryMovementOptions200ProductsItemVariantsItem[];
+};
+
+export type GetWorkspaceInventoryMovementOptions200SerialsItem = {
+  id: number;
+  productId: number;
+  serialNumber: string;
+  state: string;
+  /** @nullable */
+  warehouseId: number | null;
 };
 
 export type GetWorkspaceInventoryMovementOptions200LotsItemBalancesItem = {
@@ -3655,6 +3665,10 @@ export type GetWorkspaceInventoryMovementOptions200RecentItem = {
   quantity: string;
   productName: string;
   /** @nullable */
+  serialId?: number | null;
+  /** @nullable */
+  serialNumber?: string | null;
+  /** @nullable */
   lotId?: number | null;
   /** @nullable */
   lotNumber?: string | null;
@@ -3676,6 +3690,7 @@ export type GetWorkspaceInventoryMovementOptions200 = {
   sources: GetWorkspaceInventoryMovementOptions200SourcesItem[];
   destinations: GetWorkspaceInventoryMovementOptions200DestinationsItem[];
   products: GetWorkspaceInventoryMovementOptions200ProductsItem[];
+  serials?: GetWorkspaceInventoryMovementOptions200SerialsItem[];
   lots?: GetWorkspaceInventoryMovementOptions200LotsItem[];
   recent: GetWorkspaceInventoryMovementOptions200RecentItem[];
 };
@@ -3692,6 +3707,10 @@ export type GetWorkspaceInventoryTransfers200TransfersItem = {
   id: number;
   /** @nullable */
   reference: string | null;
+  /** @nullable */
+  serialId?: number | null;
+  /** @nullable */
+  serialNumber?: string | null;
   /** @nullable */
   lotId?: number | null;
   /** @nullable */
@@ -3733,6 +3752,13 @@ export type CreateScopedInventoryMovementBody = {
   /** @minimum 1 */
   variantId?: number;
   /** @minimum 1 */
+  serialId?: number;
+  /**
+     * @minLength 1
+     * @maxLength 120
+     */
+  serialNumber?: string;
+  /** @minimum 1 */
   warehouseId: number;
   /** @minimum 1 */
   lotId?: number;
@@ -3768,6 +3794,13 @@ export type CreateScopedInventoryTransferBody = {
   variantId?: number;
   /** @minimum 1 */
   fromWarehouseId: number;
+  /** @minimum 1 */
+  serialId?: number;
+  /**
+     * @minLength 1
+     * @maxLength 120
+     */
+  serialNumber?: string;
   /** @minimum 1 */
   lotId?: number;
   /**

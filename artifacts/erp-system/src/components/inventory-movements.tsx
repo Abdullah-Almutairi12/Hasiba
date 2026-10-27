@@ -22,6 +22,7 @@ function MovementForm({grantId,storageKey,onlyTransfer}:{grantId:number;storageK
   [destination,setDestination]=useState(""),[quantity,setQuantity]=useState("1"),[notes,setNotes]=useState(""),
   [pending,setPending]=useState(false),[message,setMessage]=useState("");
  const [lot,setLot]=useState(""),[lotNumber,setLotNumber]=useState(""),[expiry,setExpiry]=useState("");
+ const [serial,setSerial]=useState(""),[serialNumber,setSerialNumber]=useState("");
  const busy=useRef(false);
  function clearSaved(next:Intent){
   const stored=localStorage.getItem(storageKey);
@@ -36,6 +37,7 @@ function MovementForm({grantId,storageKey,onlyTransfer}:{grantId:number;storageK
   setDestination(next.transfer?`${b.destinationResponsibilityId}:${b.toWarehouseId}`:"");
   setQuantity(String(b.quantity));setNotes(String(b.notes));setLot(b.lotId?String(b.lotId):"");
   setLotNumber(String(b.lotNumber??""));setExpiry(String(b.expiryDate??""));
+  setSerial(b.serialId?String(b.serialId):"");setSerialNumber(String(b.serialNumber??""));
  }
  async function closeAttempt(){
   if(busy.current||!intent)return;
@@ -64,6 +66,11 @@ function MovementForm({grantId,storageKey,onlyTransfer}:{grantId:number;storageK
  const selectedProduct=options?.products.find(p=>p.id===Number(product));
  const lots=options?.lots?.filter(l=>l.productId===Number(product))??[];
  const lotMode=selectedProduct?.tracking==="lot";
+ const serialMode=selectedProduct?.tracking==="serial";
+ const serials=options?.serials?.filter(s=>s.productId===Number(product)&&
+  (effective==="receipt"?s.warehouseId===null:s.state==="in_stock"&&s.warehouseId===Number(warehouse)))??[];
+ const serialUnavailable=serialMode&&(Number(quantity)!==1||
+  (effective==="receipt"?(serial?!serials.some(s=>s.id===Number(serial)):!serialNumber.trim()||serialNumber.trim().length>120):!serials.some(s=>s.id===Number(serial))));
  const balances=lots.map(l=>({...l,balance:l.balances.find(b=>b.warehouseId===Number(warehouse))}));
  let remaining=Number(quantity);
  const allocation=balances.flatMap(l=>{const take=Math.min(Math.max(0,remaining),Number(l.balance?.availableQuantity??0));
@@ -88,6 +95,7 @@ function MovementForm({grantId,storageKey,onlyTransfer}:{grantId:number;storageK
      throw new Error("اختر متغيرًا متاحًا للصنف المحدد");
     if(effective==="transfer"&&(!target||target.id===Number(warehouse)))throw new Error("اختر وجهة مختلفة مصرحًا بها صراحةً");
     if(lotMode&&effective==="receipt"&&!lot&&!lotNumber.trim())throw new Error("اختر الدفعة أو أدخل رقم الدفعة الجديدة");
+    if(serialUnavailable)throw new Error("اختر رقمًا تسلسليًا متاحًا أو أدخل رقم الاستلام، والكمية قطعة واحدة");
     const existing=lots.find(l=>l.lotNumber===lotNumber.trim());
     if(lotMode&&effective==="receipt"&&!lot&&existing&&(existing.expiryDate??null)!==(expiry||null))
       throw new Error("رقم الدفعة موجود بصلاحية مختلفة؛ اختر السجل الأصلي ولا تغير تاريخه");
@@ -96,6 +104,7 @@ function MovementForm({grantId,storageKey,onlyTransfer}:{grantId:number;storageK
       else if(remaining>1e-9)throw new Error("الرصيد المتاح للدفعات غير المنتهية غير كافٍ");
     }
     next={key:crypto.randomUUID(),transfer:effective==="transfer",body:{productId:Number(product),...(variant?{variantId:Number(variant)}:{}),
+     ...(serialMode?(serial?{serialId:Number(serial)}:{serialNumber:serialNumber.trim()}):{}),
      ...(lotMode?(lot?{lotId:Number(lot)}:effective==="receipt"?{lotNumber:lotNumber.trim(),expiryDate:expiry||null}:{}):{}),quantity:Number(quantity),notes:notes.trim(),
      ...(effective==="transfer"?{fromWarehouseId:Number(warehouse),toWarehouseId:target!.id,destinationResponsibilityId:target!.responsibilityId}:
       {warehouseId:Number(warehouse),kind:effective})}};
@@ -118,12 +127,20 @@ function MovementForm({grantId,storageKey,onlyTransfer}:{grantId:number;storageK
  return <section className="space-y-3 border-t p-4" data-testid="inventory-movements">
   <h3 className="font-semibold">حركات المخزون المصرح بها</h3>
   {!onlyTransfer&&<Link className="text-sm underline" href="/inventory/transfers">فتح صفحة التحويلات الأصلية</Link>}
-   <p className="text-xs text-muted-foreground">للأصناف والمتغيرات غير المتتبعة وللدفعات العادية، دون جمع المتغير والدفعة أو تعديل تكلفة أو تسوية جرد أو قيود يدوية. يحافظ الجرد المتحرك على نقطة العد والمصالحة. القائمة حتى1000صنف.</p>
+   <p className="text-xs text-muted-foreground">للأصناف والمتغيرات غير المتتبعة وللدفعات العادية والتسلسل بقطعة واحدة، دون جمع أنواع التتبع أو تعديل تكلفة أو تسوية جرد أو قيود يدوية. القائمة حتى1000صنف.</p>
   {query.isLoading?<p role="status">جارٍ تحميل الأذونات…</p>:query.error?<p role="alert">تعذر تحميل الأذونات الحالية؛ حدّث الصفحة.</p>:null}
   {!actions.length&&!intent?<p>لا تملك إذن حركة هنا.</p>:<>
    {intent?<p role="alert">محاولة محفوظة: {JSON.stringify(intent.body)}. أعد تأكيد نتيجتها قبل أي حركة جديدة.</p>:<fieldset disabled={pending} className="grid gap-3 sm:grid-cols-2">
     <label>الفعل<select className="block w-full rounded border bg-background p-2" value={effective} onChange={e=>setKind(e.target.value)}>{actions.map(k=><option key={k} value={k}>{labels[k]}</option>)}</select></label>
-    <label>الصنف<select className="block w-full rounded border bg-background p-2" value={product} onChange={e=>{setProduct(e.target.value);setVariant("");setLot("");setLotNumber("");setExpiry("");}}><option value="">اختر الصنف</option>{options?.products.map(p=><option key={p.id} value={p.id}>{p.name} · {p.sku}</option>)}</select></label>
+    <label>الصنف<select className="block w-full rounded border bg-background p-2" value={product} onChange={e=>{setProduct(e.target.value);setVariant("");setLot("");setLotNumber("");setExpiry("");setSerial("");setSerialNumber("");setQuantity("1");}}><option value="">اختر الصنف</option>{options?.products.map(p=><option key={p.id} value={p.id}>{p.name} · {p.sku}</option>)}</select></label>
+    {serialMode&&<>
+     <label>الرقم التسلسلي<select className="block w-full rounded border bg-background p-2" value={serial} onChange={e=>setSerial(e.target.value)}>
+      <option value="">{effective==="receipt"?"إدخال رقم جديد":"اختر قطعة متاحة من مستودع المصدر"}</option>
+      {serials.map(s=><option key={s.id} value={s.id}>{s.serialNumber} · {s.warehouseId===null?"هوية بلا استلام":`في المخزون · مستودع#${s.warehouseId}`}</option>)}
+     </select></label>
+     {effective==="receipt"&&!serial&&<label>رقم القطعة الجديدة<Input maxLength={120} value={serialNumber} onChange={e=>setSerialNumber(e.target.value)}/></label>}
+     <p>قطعة واحدة لكل رقم. الصرف والتحويل لا يغيّران الرقم التاريخي؛ القطعة بالطريق غير متاحة للصرف.</p>
+    </>}
     {lotMode&&<>
       <label>الدفعة<select className="block w-full rounded border bg-background p-2" value={lot} onChange={e=>setLot(e.target.value)}>
         <option value="">{effective==="receipt"?"دفعة جديدة":"تخصيص FEFO — الأقرب انتهاءً أولًا"}</option>
@@ -137,11 +154,11 @@ function MovementForm({grantId,storageKey,onlyTransfer}:{grantId:number;storageK
     {selectedProduct&&<p className="text-sm">وحدة القياس: {selectedProduct.unit??"—"}</p>}
     <label>{effective==="transfer"?"مستودع المصدر":"المستودع"}<select className="block w-full rounded border bg-background p-2" value={warehouse} onChange={e=>setWarehouse(e.target.value)}><option value="">اختر المستودع</option>{options?.sources.map(w=><option key={w.id} value={w.id}>{w.name}</option>)}</select></label>
     {effective==="transfer"&&<label>مستودع الوجهة المصرح به<select className="block w-full rounded border bg-background p-2" value={destination} onChange={e=>setDestination(e.target.value)}><option value="">اختر الوجهة</option>{options?.destinations.map(w=><option key={`${w.responsibilityId}:${w.id}`} value={`${w.responsibilityId}:${w.id}`}>{w.name} · مسؤولية#{w.responsibilityId}</option>)}</select></label>}
-    <label>الكمية<Input inputMode="decimal" value={quantity} onChange={e=>setQuantity(e.target.value)}/></label>
+    <label>الكمية<Input inputMode="decimal" disabled={serialMode} value={quantity} onChange={e=>setQuantity(e.target.value)}/></label>
     <label>السبب / مرجع المصدر<Input value={notes} onChange={e=>setNotes(e.target.value)}/></label>
    </fieldset>}
     {!intent&&lotUnavailable&&<p role="alert">{lot?"الدفعة غير متاحة أو منتهية أو رصيدها غير كافٍ":"الرصيد المتاح للدفعات غير المنتهية غير كافٍ"}</p>}
-    <Button disabled={pending||(!intent&&(!actions.length||lotUnavailable))} onClick={()=>void run()}>{pending?"جارٍ انتظار التأكيد…":intent?"استعادة نتيجة المحاولة المحفوظة":"تأكيد الحركة"}</Button>
+    <Button disabled={pending||(!intent&&(!actions.length||lotUnavailable||serialUnavailable))} onClick={()=>void run()}>{pending?"جارٍ انتظار التأكيد…":intent?"استعادة نتيجة المحاولة المحفوظة":"تأكيد الحركة"}</Button>
   </>}
   {message&&<p role="status">{message}</p>}
   {intent&&<div className="space-y-2">
@@ -149,6 +166,6 @@ function MovementForm({grantId,storageKey,onlyTransfer}:{grantId:number;storageK
    <Button variant="outline" disabled={pending} onClick={closeAttempt}>التحقق من المحاولة وتصحيحها أو إنهاؤها</Button>
   </div>}
   {!!options?.recent?.length&&<div className="space-y-1 text-sm" data-testid="recent-inventory-movements"><h4 className="font-semibold">آخر40حركة مفوضة ضمن مستودعات المسؤولية</h4>
-   {options.recent.map(m=><p key={m.id}>حركة#{m.id} · {m.productName}{m.variantId?` · ${m.variantSku??`متغير#${m.variantId}`}`:""}{m.lotId?` · دفعة ${m.lotNumber} · صلاحية ${m.expiryDate??"غير محددة"}`:""} · {m.quantity} {m.unit??""} · {m.sourceWarehouse??"—"} ← {m.destinationWarehouse??"—"} · {m.kind==="transfer"?"تحويل":m.kind==="receipt"?"استلام":"صرف"} · {m.state==="in_transit"?"في الطريق":m.state==="done"?"مكتملة":m.state}</p>)}</div>}
+   {options.recent.map(m=><p key={m.id}>حركة#{m.id} · {m.productName}{m.serialId?` · تسلسلي ${m.serialNumber}`:""}{m.variantId?` · ${m.variantSku??`متغير#${m.variantId}`}`:""}{m.lotId?` · دفعة ${m.lotNumber} · صلاحية ${m.expiryDate??"غير محددة"}`:""} · {m.quantity} {m.unit??""} · {m.sourceWarehouse??"—"} ← {m.destinationWarehouse??"—"} · {m.kind==="transfer"?"تحويل":m.kind==="receipt"?"استلام":"صرف"} · {m.state==="in_transit"?"في الطريق":m.state==="done"?"مكتملة":m.state}</p>)}</div>}
  </section>;
 }

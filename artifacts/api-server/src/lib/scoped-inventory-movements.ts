@@ -11,18 +11,20 @@ import { teamRows } from "./team-store";
 import { recordStockMove,getOrCreateLot } from "./stock-engine";
 import { lockInventoryQuantKeys } from "./inventory-resource-locks";
 import {lockLotMovementKeys} from "./lot-movement-locks";
+import {lockSerialMovements} from "./serial-movement-integrity";
 import type {DbOrTx} from "./journal-posting";
 
 const invalid=()=>new FinancialRequestError("الحركة أو أحد مستودعاتها خارج الصلاحية الحالية",403);
 const quantity=z.coerce.number().min(0.0001).max(999999999).refine(v=>Number.isFinite(v)&&Number(v.toFixed(4))===v,"الكمية حتى أربع منازل عشرية");
 const expiry=z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(s=>!Number.isNaN(Date.parse(s))&&new Date(s).toISOString().slice(0,10)===s);
 const common={productId:z.coerce.number().int().positive(),variantId:z.number().int().positive().optional(),
+ serialId:z.number().int().positive().optional(),serialNumber:z.string().trim().min(1).max(120).optional(),
  lotId:z.number().int().positive().optional(),lotNumber:z.string().trim().min(1).max(120).optional(),
  expiryDate:expiry.nullable().optional(),quantity,notes:z.string().trim().min(3).max(500)};
 const manual=z.object({...common,warehouseId:z.coerce.number().int().positive(),kind:z.enum(["receipt","issue"])}).strict();
 const transfer=z.object({...common,fromWarehouseId:z.coerce.number().int().positive(),toWarehouseId:z.coerce.number().int().positive(),
  destinationResponsibilityId:z.number().int().positive().optional()}).strict();
-type Movement={productId:number;variantId?:number;lotId?:number;lotNumber?:string;expiryDate?:string|null;lotCandidates?:number[];expectedTracking?:string;
+type Movement={productId:number;variantId?:number;serialId?:number;serialNumber?:string;lotId?:number;lotNumber?:string;expiryDate?:string|null;lotCandidates?:number[];expectedTracking?:string;
  quantity:number;notes:string;from:number|null;to:number|null;action:string;destinationGrantId?:number;kind:"transfer"|"receipt"|"issue"};
 
 /** Exact existing financial lock and fingerprint, never a status-code inference.
@@ -112,6 +114,7 @@ async function authority(connection:DbOrTx,req:Request,m:Movement,execute:boolea
    FROM products WHERE id=${m.productId} AND company_id=${actor.companyId} AND is_active`);
   if(!mode)throw invalid();
   m.expectedTracking??=mode.tracking;
+   if(mode.tracking==="serial")await lockSerialMovements(connection,m.productId);
   if(mode.tracking==="lot"&&!mode.variant&&!m.variantId){
    if(m.kind!=="receipt"&&(m.lotNumber!==undefined||m.expiryDate!==undefined))
     throw new FinancialRequestError("اختر دفعة موجودة أو التخصيص FEFO؛ لا إنشاء أو تغيير تاريخ دفعة عند الصرف والتحويل",400);
@@ -141,7 +144,7 @@ async function authority(connection:DbOrTx,req:Request,m:Movement,execute:boolea
  if(!product)throw invalid();
  if(execute){
   if(product.tracking!==m.expectedTracking)throw new FinancialRequestError("تغيرت طريقة التتبع أثناء انتظار التنفيذ؛ أعد مراجعة الصنف",409);
-  if(product.tracking!=="none"&&!(product.tracking==="lot"&&!product.variant&&!product.hasVariants&&!m.variantId))
+   if(product.tracking!=="none"&&!((product.tracking==="lot"||product.tracking==="serial")&&!product.variant&&!product.hasVariants&&!m.variantId))
    throw new FinancialRequestError("التسلسل والجمع بين المتغيرات والدفعات خارج هذا المسار",409);
   if((product.variant||product.hasVariants)&&!m.variantId)
    throw new FinancialRequestError("اختر متغيرًا محددًا؛ لا يسمح بحركة مجمعة على الصنف الأب",409);
@@ -150,6 +153,22 @@ async function authority(connection:DbOrTx,req:Request,m:Movement,execute:boolea
     WHERE id=${m.variantId} AND product_id=${m.productId} AND is_active FOR SHARE`);
    if(!variant)throw new FinancialRequestError("المتغير غير متاح أو لا يتبع الصنف والشركة الحاليين",403);
   }
+   if(product.tracking==="serial"){
+    if(m.quantity!==1||m.lotId!==undefined||m.lotNumber!==undefined||m.expiryDate!==undefined)
+     throw new FinancialRequestError("اختر قطعة تسلسلية واحدة دون دفعات أو متغيرات",400);
+    if(!m.serialId&&m.kind==="receipt"&&m.serialNumber){
+     const [s]=await teamRows<{id:number}>(connection,sql`
+      INSERT INTO stock_serials(product_id,serial_number) VALUES(${m.productId},${m.serialNumber})
+      ON CONFLICT(product_id,serial_number) DO UPDATE SET serial_number=stock_serials.serial_number RETURNING id`);
+     m.serialId=s.id;
+    }
+    if(!m.serialId)throw new FinancialRequestError("اختر الرقم التسلسلي أو أدخله عند الاستلام",400);
+    const [s]=await teamRows<{number:string}>(connection,sql`SELECT serial_number AS number FROM stock_serials
+     WHERE id=${m.serialId} AND product_id=${m.productId} FOR SHARE`);
+    if(!s||(m.serialNumber!==undefined&&m.serialNumber!==s.number))
+     throw new FinancialRequestError("الرقم التسلسلي لا يتبع الصنف أو يختلف عن هويته المحفوظة",403);
+   }else if(m.serialId!==undefined||m.serialNumber!==undefined)
+    throw new FinancialRequestError("حقول التسلسل تخص صنفًا تسلسليًا غير مرتبط بمتغير أو دفعة",409);
  }
  // The approved moving-count policy reconciles each observed product at close.
  // Do not impose the former narrow warehouse freeze on delegated actors.
@@ -174,7 +193,7 @@ export async function executeScopedInventoryMovement(req:Request,isTransfer:bool
   await lockApprovalAuthority(tx);
   await authority(tx,req,m,true);
   // All quantities still pass through the shared stock-engine key locks.
-  const out=await recordStockMove(tx,{companyId:req.session.companyId!,productId:m.productId,variantId:m.variantId,lotId:m.lotId,
+   const out=await recordStockMove(tx,{companyId:req.session.companyId!,productId:m.productId,variantId:m.variantId,lotId:m.lotId,serialId:m.serialId,
    lotCandidates:m.lotCandidates,quantity:m.quantity,
    kind:m.kind,state:m.kind==="transfer"?"in_transit":"done",fromWarehouseId:m.from,toWarehouseId:m.to,
    sourceType:m.kind==="transfer"?"transfer":"manual",sourceRef:`SCOPED-${req.get("Idempotency-Key")}`,
@@ -189,7 +208,7 @@ export async function executeScopedInventoryMovement(req:Request,isTransfer:bool
   }
   await tx.execute(sql`INSERT INTO audit_logs(user_id,user_name,company_id,action,entity,details)
    VALUES(${fresh.actor.userId},${fresh.actor.name},${fresh.actor.companyId},${m.action},'stock_move',
-    ${JSON.stringify({moveIds:out.moveIds,productId:m.productId,variantId:m.variantId??null,lotId:m.lotId??null,quantity:m.quantity,fromWarehouseId:m.from,
+     ${JSON.stringify({moveIds:out.moveIds,productId:m.productId,serialId:m.serialId??null,variantId:m.variantId??null,lotId:m.lotId??null,quantity:m.quantity,fromWarehouseId:m.from,
      toWarehouseId:m.to,reason:m.notes,responsibilities:fresh.grants})}::text)`);
   return {moveId:out.moveId,moveIds:out.moveIds};
  },async tx=>{await lockApprovalAuthority(tx);await authority(tx,req,m,false);});
@@ -212,7 +231,7 @@ export async function inventoryMovementOptions(req:Request){
   coalesce((SELECT jsonb_agg(jsonb_build_object('id',v.id,'sku',v.sku,'attributes',v.attributes) ORDER BY v.id)
    FROM product_variants v WHERE v.product_id=p.id AND v.is_active),'[]'::jsonb) AS variants
   FROM products p WHERE p.company_id=${actor.companyId} AND p.is_active AND (p.tracking_mode='none' OR
-   p.tracking_mode='lot' AND NOT p.is_variant_parent AND NOT EXISTS(SELECT 1 FROM product_variants v WHERE v.product_id=p.id))
+   p.tracking_mode IN('lot','serial') AND NOT p.is_variant_parent AND NOT EXISTS(SELECT 1 FROM product_variants v WHERE v.product_id=p.id))
    ORDER BY p.id LIMIT 1000`);
  const lots=await teamRows(db,sql`SELECT l.id,l.product_id AS "productId",l.lot_number AS "lotNumber",l.expiry_date::text AS "expiryDate",
   coalesce(jsonb_agg(jsonb_build_object('warehouseId',q.warehouse_id,'quantity',q.quantity::text,
@@ -223,13 +242,22 @@ export async function inventoryMovementOptions(req:Request){
    AND q.warehouse_id=ANY(${sql.param(actor.grant.warehouseIds)}::integer[])
   WHERE p.tracking_mode='lot' AND NOT p.is_variant_parent AND NOT EXISTS(SELECT 1 FROM product_variants v WHERE v.product_id=p.id)
   GROUP BY l.id ORDER BY l.expiry_date NULLS LAST,l.id`);
+ const serials=await teamRows(db,sql`SELECT s.id,s.product_id AS "productId",s.serial_number AS "serialNumber",
+  s.state,s.current_warehouse_id AS "warehouseId" FROM stock_serials s JOIN products p ON p.id=s.product_id
+  WHERE p.company_id=${actor.companyId} AND p.tracking_mode='serial' AND NOT p.is_variant_parent
+  AND NOT EXISTS(SELECT 1 FROM product_variants v WHERE v.product_id=p.id)
+  AND (s.current_warehouse_id=ANY(${sql.param(actor.grant.warehouseIds)}::integer[])
+   OR s.current_warehouse_id IS NULL AND NOT EXISTS(SELECT 1 FROM stock_moves m WHERE m.serial_id=s.id))
+  ORDER BY s.id`);
  const recent=await teamRows(db,sql`SELECT m.id,m.kind,m.state,m.quantity::text,
    coalesce(p.name_ar,p.name) AS "productName",m.variant_id AS "variantId",v.sku AS "variantSku",p.unit,
+   m.serial_id AS "serialId",s.serial_number AS "serialNumber",
    m.lot_id AS "lotId",l.lot_number AS "lotNumber",l.expiry_date::text AS "expiryDate",
    coalesce(f.name_ar,f.name) AS "sourceWarehouse",coalesce(t.name_ar,t.name) AS "destinationWarehouse"
    FROM stock_moves m JOIN products p ON p.id=m.product_id AND p.company_id=${actor.companyId}
    LEFT JOIN product_variants v ON v.id=m.variant_id AND v.product_id=p.id
    LEFT JOIN stock_lots l ON l.id=m.lot_id AND l.product_id=p.id
+   LEFT JOIN stock_serials s ON s.id=m.serial_id AND s.product_id=p.id
    LEFT JOIN warehouses f ON f.id=m.from_warehouse_id AND f.company_id=p.company_id
    LEFT JOIN warehouses t ON t.id=m.to_warehouse_id AND t.company_id=p.company_id
    WHERE m.source_ref LIKE 'SCOPED-%' AND
@@ -237,5 +265,5 @@ export async function inventoryMovementOptions(req:Request){
     (t.branch_id=${actor.grant.branchId} AND t.id=ANY(${sql.param(actor.grant.warehouseIds)}::integer[])))
    ORDER BY m.id DESC LIMIT 40`);
  return {actions:actor.grant.actions.filter(a=>["inventory.move.receipt","inventory.move.issue","inventory.transfer.send"].includes(a)),
-  sources:project(actor.grant),destinations:grants.filter(g=>g.resource==="inventory"&&g.actions.includes("inventory.transfer.send")).flatMap(project),products,lots,recent};
+  sources:project(actor.grant),destinations:grants.filter(g=>g.resource==="inventory"&&g.actions.includes("inventory.transfer.send")).flatMap(project),products,lots,serials,recent};
 }

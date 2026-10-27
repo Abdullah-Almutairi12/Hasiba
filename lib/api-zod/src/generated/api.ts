@@ -1659,13 +1659,20 @@ export const GetWorkspaceInventoryMovementOptionsResponse = zod.object({
   "sku": zod.string(),
   "unit": zod.string().optional(),
   "requiresVariant": zod.boolean().optional(),
-  "tracking": zod.enum(['none', 'lot']).optional(),
+  "tracking": zod.enum(['none', 'lot', 'serial']).optional(),
   "variants": zod.array(zod.object({
   "id": zod.number().int(),
   "sku": zod.string(),
   "attributes": zod.record(zod.string(), zod.unknown())
 })).optional()
 })),
+  "serials": zod.array(zod.object({
+  "id": zod.number().int(),
+  "productId": zod.number().int(),
+  "serialNumber": zod.string(),
+  "state": zod.string(),
+  "warehouseId": zod.number().int().nullable()
+})).optional(),
   "lots": zod.array(zod.object({
   "id": zod.number().int(),
   "productId": zod.number().int(),
@@ -1683,6 +1690,8 @@ export const GetWorkspaceInventoryMovementOptionsResponse = zod.object({
   "state": zod.string(),
   "quantity": zod.string(),
   "productName": zod.string(),
+  "serialId": zod.number().int().nullish(),
+  "serialNumber": zod.string().nullish(),
   "lotId": zod.number().int().nullish(),
   "lotNumber": zod.string().nullish(),
   "expiryDate": zod.string().nullish(),
@@ -1704,6 +1713,8 @@ export const GetWorkspaceInventoryTransfersResponse = zod.object({
   "transfers": zod.array(zod.object({
   "id": zod.number().int(),
   "reference": zod.string().nullable(),
+  "serialId": zod.number().int().nullish(),
+  "serialNumber": zod.string().nullish(),
   "lotId": zod.number().int().nullish(),
   "lotNumber": zod.string().nullish(),
   "expiryDate": zod.string().nullish(),
@@ -1724,7 +1735,7 @@ export const GetWorkspaceInventoryTransfersResponse = zod.object({
 
 
 /**
- * Responsibility-bound manual receipt or issue. Server owns valuation; no tracking, adjustment or variant maintenance grants.
+ * Responsibility-bound manual receipt or issue. Server owns valuation. Serial receipt may create its inventory identity, not edit existing identities or product data.
  */
 export const CreateScopedInventoryMovementHeader = zod.object({
   "X-Workspace-Responsibility": zod.number().int(),
@@ -1732,6 +1743,9 @@ export const CreateScopedInventoryMovementHeader = zod.object({
 })
 
 
+
+
+export const createScopedInventoryMovementBodySerialNumberMax = 120;
 
 
 
@@ -1749,6 +1763,8 @@ export const createScopedInventoryMovementBodyNotesMax = 500;
 export const CreateScopedInventoryMovementBody = zod.object({
   "productId": zod.number().int().min(1),
   "variantId": zod.number().int().min(1).optional(),
+  "serialId": zod.number().int().min(1).optional(),
+  "serialNumber": zod.string().min(1).max(createScopedInventoryMovementBodySerialNumberMax).optional(),
   "warehouseId": zod.number().int().min(1),
   "lotId": zod.number().int().min(1).optional(),
   "lotNumber": zod.string().min(1).max(createScopedInventoryMovementBodyLotNumberMax).optional(),
@@ -1776,6 +1792,9 @@ export const CreateScopedInventoryTransferHeader = zod.object({
 
 
 
+export const createScopedInventoryTransferBodySerialNumberMax = 120;
+
+
 export const createScopedInventoryTransferBodyLotNumberMax = 120;
 
 
@@ -1793,6 +1812,8 @@ export const CreateScopedInventoryTransferBody = zod.object({
   "productId": zod.number().int().min(1),
   "variantId": zod.number().int().min(1).optional(),
   "fromWarehouseId": zod.number().int().min(1),
+  "serialId": zod.number().int().min(1).optional(),
+  "serialNumber": zod.string().min(1).max(createScopedInventoryTransferBodySerialNumberMax).optional(),
   "lotId": zod.number().int().min(1).optional(),
   "lotNumber": zod.string().min(1).max(createScopedInventoryTransferBodyLotNumberMax).optional(),
   "expiryDate": zod.coerce.date().nullish(),

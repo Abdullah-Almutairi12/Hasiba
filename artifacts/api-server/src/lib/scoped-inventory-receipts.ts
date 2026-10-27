@@ -8,9 +8,10 @@ import { managedProfile, requireResponsibility, responsibilityContext, type Resp
 import { teamRows } from "./team-store";
 import { inventoryActor } from "./scoped-inventory-actor";
 import { lockInventoryQuantKeys } from "./inventory-resource-locks";
+import {lockSerialMovements} from "./serial-movement-integrity";
 
 type Connection = Pick<typeof db, "execute">;
-type Transfer = { id:number; state:string; destinationId:number; branchId:number; quantity:string; value:string; variantId:number|null; productId:number;lotId:number|null };
+type Transfer = { id:number; state:string; destinationId:number; branchId:number; quantity:string; value:string; variantId:number|null; productId:number;lotId:number|null;serialId:number|null };
 type Authority = { userId:number; companyId:number; name:string; role:string; grant:Responsibility|null; transfer:Transfer };
 const denied = () => new FinancialRequestError("التحويل خارج مستودعات الوجهة المسموح بها أو الأهلية الحالية",403);
 
@@ -34,7 +35,7 @@ export async function transferAuthority(connection:Connection,req:Request,id:num
   const {companyId,grant}=actor;
   const [transfer]=await teamRows<Transfer>(connection,sql`
     SELECT m.id,m.state,m.to_warehouse_id AS "destinationId",t.branch_id AS "branchId",m.quantity::text,
-      (m.quantity*m.unit_cost)::text AS value,m.variant_id AS "variantId",m.product_id AS "productId",m.lot_id AS "lotId"
+      (m.quantity*m.unit_cost)::text AS value,m.variant_id AS "variantId",m.product_id AS "productId",m.lot_id AS "lotId",m.serial_id AS "serialId"
     FROM stock_moves m
     JOIN warehouses f ON f.id=m.from_warehouse_id AND f.company_id=${companyId}
     JOIN warehouses t ON t.id=m.to_warehouse_id AND t.company_id=f.company_id
@@ -47,6 +48,16 @@ export async function transferAuthority(connection:Connection,req:Request,id:num
   if(execute&&grant?.amountLimit!=null){
     const [limit]=await teamRows<{over:boolean}>(connection,sql`SELECT ${transfer.value}::numeric>${grant.amountLimit}::numeric AS over`);
     if(limit!.over)throw new FinancialRequestError("قيمة التحويل المحسوبة من الخادم تتجاوز حد الاستلام",403);
+  }
+  if(execute&&transfer.serialId!==null){
+   await lockSerialMovements(connection,transfer.productId);
+   await lockInventoryQuantKeys(connection,[{productId:transfer.productId,warehouseId:transfer.destinationId}]);
+   const [valid]=await teamRows(connection,sql`SELECT p.id FROM products p JOIN stock_serials s ON s.product_id=p.id
+    WHERE p.id=${transfer.productId} AND p.company_id=${companyId} AND p.is_active AND p.tracking_mode='serial'
+    AND s.id=${transfer.serialId} AND NOT p.is_variant_parent
+    AND NOT EXISTS(SELECT 1 FROM product_variants v WHERE v.product_id=p.id)
+    FOR NO KEY UPDATE OF p`);
+   if(!valid)throw denied();
   }
    if(execute&&grant&&transfer.lotId!==null){
      await lockInventoryQuantKeys(connection,[{productId:transfer.productId,warehouseId:transfer.destinationId,lotId:transfer.lotId}]);
@@ -124,6 +135,7 @@ export async function scopedIncomingTransfers() {
     SELECT m.id,m.source_ref AS reference,m.quantity::text,m.state,m.created_at AS "createdAt",
       coalesce(p.name_ar,p.name) AS "productName",coalesce(f.name_ar,f.name) AS "sourceWarehouse",
        coalesce(t.name_ar,t.name) AS "destinationWarehouse",m.variant_id AS "variantId",v.sku AS "variantSku",p.unit,
+       m.serial_id AS "serialId",s.serial_number AS "serialNumber",
        m.lot_id AS "lotId",l.lot_number AS "lotNumber",l.expiry_date::text AS "expiryDate",
        coalesce(l.expiry_date<${new Date().toISOString().slice(0,10)}::date,false) AS expired
        ,CASE WHEN m.lot_id IS NOT NULL AND m.source_ref LIKE 'SCOPED-%' THEN count(*) OVER lot_group ELSE 1 END::integer AS "groupCount"
@@ -133,6 +145,7 @@ export async function scopedIncomingTransfers() {
     JOIN products p ON p.id=m.product_id AND p.company_id=t.company_id
     LEFT JOIN product_variants v ON v.id=m.variant_id AND v.product_id=p.id
      LEFT JOIN stock_lots l ON l.id=m.lot_id AND l.product_id=p.id
+     LEFT JOIN stock_serials s ON s.id=m.serial_id AND s.product_id=p.id
     WHERE m.kind='transfer' AND m.state IN ('in_transit','done')
       AND t.branch_id=${grant.branchId} AND t.id=ANY(${sql.param(grant.warehouseIds)}::integer[])
      WINDOW lot_group AS(PARTITION BY m.source_ref,m.product_id,m.from_warehouse_id,m.to_warehouse_id)

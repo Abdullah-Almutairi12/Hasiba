@@ -81,6 +81,7 @@ export function InventoryTransferReceipts({grantId}:{grantId:number}) {
       query.data?.transfers.length?query.data.transfers.map(t=><article key={t.id} className="rounded-lg border p-3" data-testid={`incoming-transfer-${t.id}`}>
         <p className="text-sm font-medium">{t.productName}{t.variantId?` · ${t.variantSku??`متغير#${t.variantId}`}`:""} · <bdi>{t.quantity}</bdi> {t.unit??""}</p>
         {t.lotId&&<p>الدفعة: {t.lotNumber} · الصلاحية: {t.expiryDate??"غير محددة"}</p>}
+        {t.serialId&&<p>الرقم التسلسلي: <bdi>{t.serialNumber}</bdi> · {t.state==="in_transit"?"بالطريق — غير متاح للصرف":"وصل إلى الوجهة"}</p>}
         {(t.groupCount??1)>1&&<p role="note">تحويل واحد موزع على {t.groupCount} دفعات، إجمالي {t.groupQuantity} {t.unit}. تأكيد أي صف يستلم جميع دفعات العملية معًا، وليس هذا الصف وحده.</p>}
         {t.expired&&<p role="alert" className="text-red-700">دفعة منتهية: يُسجل الوصول الفعلي فقط. محجوبة من البيع والصرف والاستهلاك والتخصيص، ولا تدخل في المتاح. لا إتلاف أو شطب تلقائي.</p>}
         <p className="text-xs text-muted-foreground">{t.sourceWarehouse} ← {t.destinationWarehouse} · <bdi>{t.reference||"بدون مرجع"}</bdi> · حركة#<bdi>{t.id}</bdi></p>

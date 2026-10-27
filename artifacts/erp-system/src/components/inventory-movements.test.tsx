@@ -24,6 +24,42 @@ it("does not offer a movement to a read-only grant",async()=>{
  mock.options.mockResolvedValue({...options,actions:[],destinations:[]});mount();
  await screen.findByText("لا تملك إذن حركة هنا.");expect(screen.queryByRole("button")).toBeNull();expect(mock.fetch).not.toHaveBeenCalled();
 });
+it("receives one serial locally in the native form and sends no catalog or cost fields",async()=>{
+ mock.options.mockResolvedValue({...options,products:[{...options.products[0],tracking:"serial"}],serials:[]});
+ mock.fetch.mockResolvedValue({ok:true,json:async()=>({moveId:12,moveIds:[12]})});
+ mount();await screen.findByRole("option",{name:"صنف مصطنع · SKU-FAKE"});
+ fireEvent.change(screen.getByLabelText("الفعل"),{target:{value:"receipt"}});
+ fireEvent.change(screen.getByLabelText("الصنف"),{target:{value:"9"}});
+ fireEvent.change(screen.getByLabelText("المستودع"),{target:{value:"7"}});
+ expect((screen.getByLabelText("الكمية") as HTMLInputElement).disabled).toBe(true);
+ expect((screen.getByRole("button",{name:"تأكيد الحركة"}) as HTMLButtonElement).disabled).toBe(true);
+ fireEvent.change(screen.getByLabelText("رقم القطعة الجديدة"),{target:{value:"SN-123"}});
+ fireEvent.change(screen.getByLabelText("السبب / مرجع المصدر"),{target:{value:"استلام مصطنع"}});
+ fireEvent.click(screen.getByRole("button",{name:"تأكيد الحركة"}));await screen.findByText(/حركة مؤكدة #12/);
+ expect(JSON.parse(mock.fetch.mock.calls[0][1].body)).toEqual({productId:9,warehouseId:7,kind:"receipt",quantity:1,serialNumber:"SN-123",notes:"استلام مصطنع"});
+});
+it("offers only available source serials and recovers a missing response unchanged after remount",async()=>{
+ mock.options.mockResolvedValue({...options,products:[{...options.products[0],tracking:"serial"}],serials:[
+  {id:31,productId:9,serialNumber:"SN-AVAILABLE",state:"in_stock",warehouseId:7},
+  {id:32,productId:9,serialNumber:"SN-OTHER",state:"in_stock",warehouseId:8},
+  {id:33,productId:9,serialNumber:"SN-TRANSIT",state:"in_transit",warehouseId:null}]});
+ mock.fetch.mockRejectedValueOnce(new Error("lost after commit")).mockResolvedValueOnce({ok:true,json:async()=>({moveId:44,moveIds:[44]})});
+ const view=mount();await screen.findByRole("option",{name:"صنف مصطنع · SKU-FAKE"});
+ fireEvent.change(screen.getByLabelText("الصنف"),{target:{value:"9"}});
+ fireEvent.change(screen.getByLabelText("المستودع"),{target:{value:"7"}});
+ fireEvent.change(screen.getByLabelText("الفعل"),{target:{value:"issue"}});
+ expect(screen.queryByRole("option",{name:/SN-OTHER|SN-TRANSIT/})).toBeNull();
+ fireEvent.change(screen.getByLabelText("الرقم التسلسلي"),{target:{value:"31"}});
+ fireEvent.change(screen.getByLabelText("السبب / مرجع المصدر"),{target:{value:"صرف مصطنع"}});
+ fireEvent.click(screen.getByRole("button",{name:"تأكيد الحركة"}));
+ await screen.findByText(/النتيجة غير مؤكدة/);
+ const saved=localStorage.getItem("hasiba.inventory.movement:11:22:90");expect(saved).toBeTruthy();
+ view.unmount();mount();fireEvent.click(await screen.findByRole("button",{name:"استعادة نتيجة المحاولة المحفوظة"}));
+ await screen.findByText(/حركة مؤكدة #44/);
+ expect(mock.fetch.mock.calls[1][1].body).toBe(mock.fetch.mock.calls[0][1].body);
+ expect(mock.fetch.mock.calls[1][1].headers["Idempotency-Key"]).toBe(JSON.parse(saved!).key);
+ expect(localStorage.getItem("hasiba.inventory.movement:11:22:90")).toBeNull();
+});
 it("creates a lot with its expiry without accepting or sending a cost",async()=>{
  mock.options.mockResolvedValue({...options,products:[{...options.products[0],tracking:"lot",unit:"pcs"}],lots:[]});
  mock.fetch.mockResolvedValue({ok:true,json:async()=>({moveId:12,moveIds:[12]})});

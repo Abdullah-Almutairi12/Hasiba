@@ -1,3 +1,5 @@
+import {lockSerialMovements,checkSerialMovement} from "./serial-movement-integrity";
+import {lockInventoryQuantKeys} from "./inventory-resource-locks";
 import {
   productsTable,
   stockMovesTable,
@@ -406,6 +408,13 @@ export async function recordStockMove(
   if (product.tracking === "serial") {
     if (!input.serialId) throw new Error("هذا المنتج يتطلب رقم تسلسلي (Serial)");
     if (qty !== 1) throw new Error("المنتجات التسلسلية لا تسمح بكمية غير 1");
+    if(["receipt","issue","transfer"].includes(input.kind)){
+    if(input.variantId!=null||input.lotId!=null)throw new Error("الجمع بين التسلسل والمتغيرات أو الدفعات غير مدعوم في هذا المسار");
+    await lockSerialMovements(tx,input.productId);
+    await lockInventoryQuantKeys(tx,[input.fromWarehouseId,input.toWarehouseId]
+      .filter((w):w is number=>w!=null).map(warehouseId=>({productId:input.productId,warehouseId})));
+    await checkSerialMovement(tx,{...input,serialId:input.serialId});
+    }
   }
 
   // Lot enforcement on receipts.
@@ -477,7 +486,7 @@ export async function recordStockMove(
   // The FIFO-derived cost is used when the caller did not provide one.
   if (costOutbound && (state === "done" || state === "in_transit")) {
     if (input.fromWarehouseId == null) throw new Error("issue/transfer/return_out يتطلب fromWarehouseId");
-    if (product.costingMethod === "standard" && (input.kind === "issue" || input.kind === "transfer" && input.variantId != null && product.tracking === "none")) {
+    if (product.costingMethod === "standard" && (input.kind === "issue" || input.kind === "transfer" && (product.tracking==="serial" || input.variantId != null && product.tracking === "none"))) {
       // Prospective standard / realized-variance policy: editing the standard
       // is not an inventory revaluation. Expense the source quant's carrying
       // value (standard cost plus its realized difference, net in COGS).
@@ -614,6 +623,8 @@ export async function recordStockMove(
       -qty,
       unitCost,
     );
+    if(input.serialId)await tx.update(stockSerialsTable).set({state:"in_transit",currentWarehouseId:null})
+      .where(eq(stockSerialsTable.id,input.serialId));
   }
 
   // Refresh products.stock cache. Scrap warehouses (is_scrap=true) hold
@@ -761,6 +772,15 @@ export async function completeTransfer(
   completedBy: number | null,
   companyId: number,
 ): Promise<void> {
+  const [serialMove]=rowsOf<{product_id:number;serial_id:number|null;to_warehouse_id:number}>(
+    await tx.execute(sql`SELECT product_id,serial_id,to_warehouse_id FROM stock_moves
+     WHERE id=${moveId} AND ${supplyScope("move",sql`stock_moves.id`,companyId)}`));
+  if(serialMove?.serial_id){
+    await lockSerialMovements(tx,serialMove.product_id);
+    await lockInventoryQuantKeys(tx,[{productId:serialMove.product_id,warehouseId:serialMove.to_warehouse_id}]);
+    await checkSerialMovement(tx,{productId:serialMove.product_id,serialId:serialMove.serial_id,kind:"transfer",
+      toWarehouseId:serialMove.to_warehouse_id,receivingTransferId:moveId});
+  }
   // Atomic state transition: only the caller that succeeds in flipping
   // the move from in_transit -> done proceeds to credit the destination.
   // A second concurrent /transfers/:id/receive sees no row returned and
@@ -771,6 +791,7 @@ export async function completeTransfer(
     variant_id: number | null;
     to_warehouse_id: number | null;
     lot_id: number | null;
+    serial_id: number | null;
     quantity: string;
     unit_cost: string;
     notes: string | null;
@@ -785,7 +806,7 @@ export async function completeTransfer(
          AND kind = 'transfer'
          AND state = 'in_transit'
          AND to_warehouse_id IS NOT NULL
-   RETURNING id, product_id, variant_id, to_warehouse_id, lot_id,
+   RETURNING id, product_id, variant_id, to_warehouse_id, lot_id, serial_id,
              quantity::text, unit_cost::text, notes
     `),
   );
@@ -797,6 +818,8 @@ export async function completeTransfer(
   const toWarehouseId = m.to_warehouse_id as number;
 
   await applyQuantDelta(tx, m.product_id, toWarehouseId, m.variant_id, m.lot_id, qty, cost);
+  if(m.serial_id)await tx.update(stockSerialsTable).set({state:"in_stock",currentWarehouseId:toWarehouseId})
+    .where(eq(stockSerialsTable.id,m.serial_id));
 
   // For FIFO-costed products, open a layer at the destination so subsequent
   // issues there can consume it. Cost is preserved from the source layer

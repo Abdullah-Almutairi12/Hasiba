@@ -6162,7 +6162,7 @@ export const getCreateScopedInventoryMovementUrl = () => {
 }
 
 /**
- * Responsibility-bound manual receipt or issue. Server owns valuation; no tracking, adjustment or variant maintenance grants.
+ * Responsibility-bound manual receipt or issue. Server owns valuation. Serial receipt may create its inventory identity, not edit existing identities or product data.
  */
 export const createScopedInventoryMovement = async (createScopedInventoryMovementBody: CreateScopedInventoryMovementBody, options?: Parameters<typeof customFetch>[1]): Promise<CreateScopedInventoryMovement201> => {
 

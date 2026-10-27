@@ -1167,7 +1167,7 @@ paths:
         - { name: X-Workspace-Responsibility, in: header, required: true, schema: { type: integer } }
       responses:
         "200":
-          description: Live movement actions and explicitly assigned warehouses; no cost. First 1000 untracked products with active variants.
+          description: Live movement actions and assigned warehouses; no cost. First 1000 supported products; serial tracking is one piece, without variants or lots.
           content:
             application/json:
               schema:
@@ -1199,7 +1199,7 @@ paths:
                         sku: { type: string }
                         unit: { type: string }
                         requiresVariant: { type: boolean }
-                        tracking: { type: string, enum: [none, lot] }
+                        tracking: { type: string, enum: [none, lot, serial] }
                         variants:
                           type: array
                           items:
@@ -1209,6 +1209,17 @@ paths:
                               id: { type: integer }
                               sku: { type: string }
                               attributes: { type: object, additionalProperties: true }
+                  serials:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, productId, serialNumber, state, warehouseId]
+                      properties:
+                        id: { type: integer }
+                        productId: { type: integer }
+                        serialNumber: { type: string }
+                        state: { type: string }
+                        warehouseId: { type: integer, nullable: true }
                   lots:
                     type: array
                     items:
@@ -1239,6 +1250,8 @@ paths:
                         state: { type: string }
                         quantity: { type: string }
                         productName: { type: string }
+                        serialId: { type: integer, nullable: true }
+                        serialNumber: { type: string, nullable: true }
                         lotId: { type: integer, nullable: true }
                         lotNumber: { type: string, nullable: true }
                         expiryDate: { type: string, nullable: true }
@@ -1273,6 +1286,8 @@ paths:
                       properties:
                         id: { type: integer }
                         reference: { type: [string, "null"] }
+                        serialId: { type: integer, nullable: true }
+                        serialNumber: { type: string, nullable: true }
                         lotId: { type: integer, nullable: true }
                         lotNumber: { type: string, nullable: true }
                         expiryDate: { type: string, nullable: true }
@@ -1292,7 +1307,7 @@ paths:
     post:
       operationId: createScopedInventoryMovement
       tags: [Inventory]
-      description: Responsibility-bound manual receipt or issue. Server owns valuation; no tracking, adjustment or variant maintenance grants.
+      description: Responsibility-bound manual receipt or issue. Server owns valuation. Serial receipt may create its inventory identity, not edit existing identities or product data.
       parameters:
         - { name: X-Workspace-Responsibility, in: header, required: true, schema: { type: integer } }
         - { name: Idempotency-Key, in: header, required: true, schema: { type: string } }
@@ -1307,6 +1322,8 @@ paths:
               properties:
                 productId: { type: integer, minimum: 1 }
                 variantId: { type: integer, minimum: 1 }
+                serialId: { type: integer, minimum: 1 }
+                serialNumber: { type: string, minLength: 1, maxLength: 120 }
                 warehouseId: { type: integer, minimum: 1 }
                 lotId: { type: integer, minimum: 1 }
                 lotNumber: { type: string, minLength: 1, maxLength: 120 }
@@ -1347,6 +1364,8 @@ paths:
                 productId: { type: integer, minimum: 1 }
                 variantId: { type: integer, minimum: 1 }
                 fromWarehouseId: { type: integer, minimum: 1 }
+                serialId: { type: integer, minimum: 1 }
+                serialNumber: { type: string, minLength: 1, maxLength: 120 }
                 lotId: { type: integer, minimum: 1 }
                 lotNumber: { type: string, minLength: 1, maxLength: 120 }
                 expiryDate: { type: string, format: date, nullable: true }
