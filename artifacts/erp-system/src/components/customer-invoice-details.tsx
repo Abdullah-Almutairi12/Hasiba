@@ -5,6 +5,7 @@ type Detail={reference:string;customerName:string;invoiceDate:string;dueDate:str
 /** Read-only native details: never fetches a PDF or adds print/export rights. */
 export function CustomerInvoiceDetails({id,onClose}:{id:number|null;onClose:()=>void}){
   const {data,isLoading,error}=useApiQuery<Detail>(id?`/sales/invoices/${id}`:"/sales/invoices/0",{enabled:id!==null});
+  if(id===null)return null;
   const money=(v:number)=>`${Number(v).toLocaleString("ar-SA",{minimumFractionDigits:2,maximumFractionDigits:2})} ${data?.currencyCode??""}`;
   return <Dialog open={id!==null} onOpenChange={open=>{if(!open)onClose();}}>
     <DialogContent className="max-w-3xl max-h-[85vh] overflow-auto" data-testid="customer-invoice-details">

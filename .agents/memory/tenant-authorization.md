@@ -45,6 +45,18 @@ Legacy access adoption must narrow into one live policy, never combine the old r
 
 **How to apply:** Keep unsupported roles/custom legacy policies blocked from automatic conversion. End compatibility per resource only after its mapping, UI and scope/concurrency tests are complete; do not claim global unification from one pilot.
 
+Established legacy customer-invoice PDF access is deliberately retained while separate view/print/export grants apply to explicit responsibilities. This compatibility is not a new grant inferred from view, or evidence that all legacy users have been converted.
+
+**Why:** The approved invoice slice forbids both silently widening existing access and suddenly revoking established legacy rights. Deleting compatibility merely to make every account use the new grants would violate that boundary.
+
+**How to apply:** Keep new responsibility actions independent and scoped. End legacy compatibility only through a reviewed resource mapping and explicit conversion; leave unsupported legacy roles/custom policies unconverted rather than guessing their replacement.
+
+Document-output authorization must distinguish the requested document from source evidence validated internally. A POS credit-note print must not acquire, or require, the separate right to print its source customer invoice merely because both validate the same invoice record.
+
+**Why:** Reusing a source-validation guard during the invoice permission split unintentionally blocked an already accepted POS document lifecycle. Internal evidence validation is not an implicit request for another document's output.
+
+**How to apply:** Preserve each document's own source/scope/lifecycle checks, bind read/print/export permissions to the actual requested output, and retain the native linked-document regression tests when splitting permissions.
+
 Quarantining an unowned policy must not turn a previously required approval or financial restriction into automatic approval or unlimited authority.
 
 **Why:** The user explicitly required preserving legacy restrictions without guessing their company; merely excluding an unknown policy from a query can otherwise remove its protection.

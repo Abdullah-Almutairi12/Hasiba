@@ -1,6 +1,7 @@
 import {describe,it,expect} from "vitest";
 import {randomUUID,createHash} from "node:crypto";
 import {posTemplateFixture,accepted as ok,personInput,fixtureRows as rows,testActor} from "../test/pos-template-fixture";
+import {customerInvoiceAction} from "../lib/customer-invoice-access";
 const base=["sales.read"],print="sales.invoices.print",exp="sales.invoices.export";
 async function fixture(){
   const f=await posTemplateFixture(),people:any[]=[],actors=[...f.actors];
@@ -49,6 +50,13 @@ async function snapshot(){
   return result;
 }
 describe("customer invoice native read/print/PDF-export permissions",()=>{
+  it("does not confuse checking a credit note's source invoice with printing that invoice",()=>{
+    expect(customerInvoiceAction("GET","/sales/invoices/1")).toBe("sales.read");
+    expect(customerInvoiceAction("GET","/sales/invoices/1/pdf")).toBe(print);
+    expect(customerInvoiceAction("GET","/sales/invoices/1/pdf","1")).toBe(exp);
+    expect(customerInvoiceAction("GET","/sales/credit-notes/1/pdf")).toBeNull();
+    expect(customerInvoiceAction("POST","/sales/invoices")).toBeNull();
+  });
   it("separates all four combinations using existing templates, without changing any financial document",async()=>{
     const f=await fixture(),before=await snapshot();
     for(let i=0;i<4;i++){

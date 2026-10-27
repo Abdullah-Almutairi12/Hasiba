@@ -5,7 +5,7 @@ import { getCompanyId } from "./scoped-db";
 import { managedProfile, selectedResponsibility } from "./responsibility-context";
 import { requestProcurementActor, assertProcurementOrder } from "./procurement-authority";
 import { assertSupplierInvoice } from "./supplier-invoice-access";
-import { assertCustomerInvoice } from "./customer-invoice-access";
+import { assertCustomerInvoice,customerInvoiceAction } from "./customer-invoice-access";
 /** Company aggregates cannot safely allocate branchless ledger rows. Fail closed. */
 export const aggregatePrintGuard:RequestHandler=async(req,res,next)=>{
   try {
@@ -28,9 +28,12 @@ export async function checkDocumentPrint(req:Request, kind:"invoice"|"supplier"|
   const {FinancialRequestError}=await import("./financial-transaction");
   if(!Number.isSafeInteger(id)||id<1)throw new FinancialRequestError("معرف مستند غير صالح",400);
   const companyId=getCompanyId(req);
-  if(kind==="invoice"&&await managedProfile(req.session.userId!,companyId)){
-    await assertCustomerInvoice(req,id,req.path.endsWith("/pdf")?
-      (req.query.download==="1"?"sales.invoices.export":"sales.invoices.print"):"sales.read");
+  const invoiceAction=customerInvoiceAction(req.method,req.originalUrl.split("?")[0].replace(/^\/api/,""),req.query.download);
+  // A credit-note PDF also checks its source invoice internally. That is not
+  // a request to print/export the source invoice: retain its existing POS
+  // lifecycle/scope rules rather than requiring an unrelated sales grant.
+  if(kind==="invoice"&&invoiceAction&&await managedProfile(req.session.userId!,companyId)){
+    await assertCustomerInvoice(req,id,invoiceAction);
     return;
   }
   if(kind==="supplier"){

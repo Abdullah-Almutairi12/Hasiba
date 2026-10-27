@@ -6,7 +6,7 @@ import SalesPage from "./sales";
 import { Toaster } from "@/components/ui/toaster";
 
 vi.mock("@/hooks/use-permissions", () => ({
-  usePermissions: () => ({ canManageFinance: true, canReadReports: false }),
+  usePermissions: () => ({ canManageFinance: true, canReadReports: false,isScoped:false,canCustomerInvoice:()=>true }),
 }));
 vi.mock("@/hooks/use-vat-status", () => ({
   useVatEnabled: () => true,

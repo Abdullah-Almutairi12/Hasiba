@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import SalesPage from "./sales";
 import { Toaster } from "@/components/ui/toaster";
 
-vi.mock("@/hooks/use-permissions", () => ({ usePermissions: () => ({ canManageFinance: true, canReadReports: false }) }));
+vi.mock("@/hooks/use-permissions", () => ({ usePermissions: () => ({ canManageFinance: true, canReadReports: false,isScoped:false,canCustomerInvoice:()=>true }) }));
 vi.mock("@/hooks/use-vat-status", () => ({ useVatEnabled: () => false }));
 afterEach(() => vi.unstubAllGlobals());
 
