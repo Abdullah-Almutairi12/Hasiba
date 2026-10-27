@@ -34,6 +34,26 @@ it("native engine rejects a second receipt of an already received serial without
  await expect(db.transaction(tx=>recordStockMove(tx,{companyId:f.companies[0].id,productId:product,serialId:s.id,quantity:1,kind:"receipt",toWarehouseId:wh}))).rejects.toThrow();
  expect((await rows("SELECT quantity::text AS q FROM stock_quants WHERE product_id=$1 AND warehouse_id=$2",[product,wh]))[0].q).toBe("1.0000");
 });
+it.each(["average","standard"])("keeps native %s valuation when selecting a newer serial and preserves transfer carrying value",async(method)=>{
+ const [r]=await db.insert(productsTable).values({companyId:f.companies[0].id,categoryId:f.products[0].categoryId,
+  name:`serial-${method}`,nameAr:"قطعة تقييم معزولة",sku:randomUUID(),trackingMode:"serial",costingMethod:method,costPrice:"3",price:"20"}).returning();
+ const serialIds:number[]=[];
+ for(const cost of [3,7]){
+  const [s]=await rows("INSERT INTO stock_serials(product_id,serial_number) VALUES($1,$2) RETURNING id",[r.id,randomUUID()]);serialIds.push(s.id);
+  await db.transaction(tx=>recordStockMove(tx,{companyId:f.companies[0].id,productId:r.id,serialId:s.id,quantity:1,unitCost:cost,kind:"receipt",toWarehouseId:wh}));
+ }
+ await rows("UPDATE products SET cost_price=99 WHERE id=$1",[r.id]);
+ const issued=await db.transaction(tx=>recordStockMove(tx,{companyId:f.companies[0].id,productId:r.id,
+  serialId:serialIds[1],quantity:1,kind:"issue",fromWarehouseId:wh}));
+ expect(issued.unitCost).toBe(5);
+ const transferred=await db.transaction(tx=>recordStockMove(tx,{companyId:f.companies[0].id,productId:r.id,
+  serialId:serialIds[0],quantity:1,kind:"transfer",state:"in_transit",fromWarehouseId:wh,toWarehouseId:f.warehouses[0].id}));
+ expect(transferred.unitCost).toBe(5);
+ const {completeTransfer}=await import("../lib/stock-engine");
+ await db.transaction(tx=>completeTransfer(tx,transferred.moveId,p.userId,f.companies[0].id));
+ const [balance]=await rows("SELECT quantity::text AS q,avg_cost::text AS cost FROM stock_quants WHERE product_id=$1 AND warehouse_id=$2",[r.id,f.warehouses[0].id]);
+ expect(Number(balance.q)).toBe(1);expect(Number(balance.cost)).toBe(5);
+});
 it("receives two distinct pieces, uses FIFO rather than serial purchase identity, and recovers the exact committed result",async()=>{
  const a=randomUUID(),b=randomUUID();
  ok(await send(body(a)),201);
