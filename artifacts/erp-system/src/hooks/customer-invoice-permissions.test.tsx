@@ -8,7 +8,7 @@ vi.mock("@workspace/api-client-react",()=>({useListPermissionMatrix:()=>({data:u
 describe("customer-invoice independent UI permissions",()=>{
   beforeEach(()=>{state.role="scoped";state.selected=null;});
   it.each([[],["sales.read"],["sales.read","sales.invoices.print"],["sales.read","sales.invoices.export"],
-    ["sales.read","sales.invoices.print","sales.invoices.export"]])("requires explicit read and each separate action: %j",(...actions)=>{
+    ["sales.read","sales.invoices.print","sales.invoices.export"]])("requires explicit read and each separate action: %j",(...actions:string[])=>{
     state.selected={resource:"sales",actions};
     const {result}=renderHook(()=>usePermissions());
     expect(result.current.canSee("sales")).toBe(actions.includes("sales.read"));
