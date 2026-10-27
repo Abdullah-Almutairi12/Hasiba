@@ -52,6 +52,11 @@ describe("native FIFO stocktake financial facts without historical revaluation",
   expect(after.moves.slice(0,2)).toEqual(before.moves);
   const copy=await Promise.all([close(s.take),close(s.take)]);copy.forEach(r=>ok(r));
   expect(await proof(s.product,16,2)).toEqual(after);
+  await rows("UPDATE products SET cost_price=999 WHERE id=$1",[s.product]);
+  const issued=ok(await f.actors[1].get(`/api/inventory/stock-takes/${s.take}`)
+   .set("X-Workspace-Responsibility",String(people[1].grants[0].id)));
+  expect(issued.varianceValue).toEqual({amount:"12",currency:"SAR"});
+  expect(await proof(s.product,16,2)).toEqual(after);
  });
  it("invalidates approval when FIFO changes at unchanged quantity and average, and enforces the new 18 cap",async()=>{
   await configure(1,"100");await configure(2,"100");

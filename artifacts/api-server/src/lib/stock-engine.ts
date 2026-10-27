@@ -260,7 +260,9 @@ async function getProductInfo(tx: DbOrTx, productId: number): Promise<ProductInf
  * remaining_qty and computing the weighted unit cost for the consumed slice.
  * Returns null when the product has no layers (caller should fall back).
  */
-async function consumeFifoLayers(
+/** The same numeric allocation is used by native consumption and stocktake
+ * approval previews. Preview never changes layers or reserves financial stock. */
+export async function previewFifoLayers(
   tx: DbOrTx,
   productId: number,
   warehouseId: number,
@@ -268,11 +270,13 @@ async function consumeFifoLayers(
   lotId: number | null,
   companyId: number,
   variantId: number | null,
-): Promise<number | null> {
+  lock = false,
+) {
   const lotFilter = lotId == null ? sql`AND lot_id IS NULL` : sql`AND lot_id = ${lotId}`;
-  const layers = rowsOf<{ id: number; remaining: number; unit_cost: number }>(
+  const [plan] = rowsOf<{quantity:string;value:string;covered:string;amount:string;unitCost:string|null;
+    layers:{id:number;remaining:string;unitCost:string;taken:string}[]}>(
     await tx.execute(sql`
-      SELECT id, remaining_qty::float8 AS remaining, unit_cost::float8 AS unit_cost
+      WITH locked AS MATERIALIZED (SELECT id, remaining_qty, unit_cost, created_at
         FROM stock_layers
        WHERE product_id = ${productId}
          AND warehouse_id = ${warehouseId}
@@ -281,24 +285,30 @@ async function consumeFifoLayers(
          AND ${supplyScope("move", sql`receipt_move_id`, companyId)}
          ${lotFilter}
        ORDER BY created_at ASC, id ASC
-       FOR UPDATE
+        ${lock?sql`FOR UPDATE`:sql``}
+      ), allocated AS (
+        SELECT *,least(remaining_qty,greatest(${qty}::numeric-coalesce(
+          sum(remaining_qty) OVER(ORDER BY created_at,id ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING),0),0)) AS taken
+        FROM locked
+      ) SELECT coalesce(sum(remaining_qty),0)::text AS quantity,coalesce(sum(remaining_qty*unit_cost),0)::text AS value,
+        coalesce(sum(taken),0)::text AS covered,coalesce(sum(taken*unit_cost),0)::text AS amount,
+        (sum(taken*unit_cost)/nullif(${qty}::numeric,0))::text AS "unitCost",
+        coalesce(jsonb_agg(jsonb_build_object('id',id,'remaining',remaining_qty::text,
+          'unitCost',unit_cost::text,'taken',taken::text) ORDER BY created_at,id),'[]'::jsonb) AS layers
+        FROM allocated
     `),
   );
-  if (layers.length === 0) return null;
-  let remaining = qty;
-  let totalCost = 0;
-  for (const layer of layers) {
-    if (remaining <= EPSILON) break;
-    const take = Math.min(remaining, layer.remaining);
-    totalCost += take * layer.unit_cost;
-    remaining -= take;
-    const newRem = layer.remaining - take;
-    await tx.execute(sql`UPDATE stock_layers SET remaining_qty = ${newRem} WHERE id = ${layer.id}`);
-  }
-  if (remaining > EPSILON) {
-    throw new Error(`المخزون غير كافٍ في الطبقات (FIFO)، مطلوب إضافي ${remaining}`);
-  }
-  return totalCost / qty;
+  return plan;
+}
+async function consumeFifoLayers(tx:DbOrTx,productId:number,warehouseId:number,qty:number,
+  lotId:number|null,companyId:number,variantId:number|null):Promise<number|null>{
+  const plan=await previewFifoLayers(tx,productId,warehouseId,qty,lotId,companyId,variantId,true);
+  if(!plan.layers.length)return null; // Preserve the original legacy caller contract.
+  if(qty-Number(plan.covered)>EPSILON)
+    throw new Error(`المخزون غير كافٍ في الطبقات (FIFO)، مطلوب إضافي ${qty-Number(plan.covered)}`);
+  for(const layer of plan.layers)if(Number(layer.taken)>0)
+    await tx.execute(sql`UPDATE stock_layers SET remaining_qty=remaining_qty-${layer.taken}::numeric WHERE id=${layer.id}`);
+  return Number(plan.unitCost);
 }
 
 /**
@@ -388,6 +398,12 @@ export async function recordStockMove(
   const isInbound = input.kind === "receipt" || input.kind === "return_in";
   const isOutbound =
     input.kind === "issue" || input.kind === "return_out" || input.kind === "transfer";
+  // This repair is deliberately limited to native ordinary stocktakes, not a
+  // new tracking/variant/manual-adjustment policy.
+  const stocktakeOutbound=input.kind==="adjustment"&&input.sourceType==="stocktake"&&
+    product.tracking==="none"&&input.variantId==null&&input.lotId==null&&
+    input.fromWarehouseId!=null&&input.toWarehouseId==null;
+  const costOutbound=isOutbound||stocktakeOutbound;
   if (product.tracking === "lot" && isInbound && !input.lotId) {
     throw new Error("هذا المنتج يتطلب رقم تشغيلة (Lot) عند الاستلام");
   }
@@ -429,7 +445,7 @@ export async function recordStockMove(
   // Take the quant lock before reading cost / consuming FIFO, not only
   // when applying the delta: concurrent average issues must value the
   // same committed stock state that they subsequently remove.
-  if (isOutbound && input.fromWarehouseId != null) {
+  if (costOutbound && input.fromWarehouseId != null) {
     const key = `${input.productId}-${input.fromWarehouseId}-${input.variantId ?? 0}-${input.lotId ?? 0}`;
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${key}, 0))`);
   }
@@ -439,7 +455,7 @@ export async function recordStockMove(
   // regardless of whether the caller supplied unitCost — otherwise stocktake
   // adjustments and manual issues would leave layers and on-hand out of sync.
   // The FIFO-derived cost is used when the caller did not provide one.
-  if (isOutbound && (state === "done" || state === "in_transit")) {
+  if (costOutbound && (state === "done" || state === "in_transit")) {
     if (input.fromWarehouseId == null) throw new Error("issue/transfer/return_out يتطلب fromWarehouseId");
     if (product.costingMethod === "standard" && (input.kind === "issue" || input.kind === "transfer" && input.variantId != null && product.tracking === "none")) {
       // Prospective standard / realized-variance policy: editing the standard
@@ -471,7 +487,8 @@ export async function recordStockMove(
         product.companyId,
         input.variantId ?? null,
       );
-      if (input.unitCost == null) unitCost = fifoCost ?? product.costPrice;
+      if(stocktakeOutbound&&fifoCost===null)throw new Error("لا توجد طبقات FIFO موثقة لتسوية الجرد؛ يلزم مصالحة مستقلة");
+      if (input.unitCost == null || stocktakeOutbound) unitCost = fifoCost ?? product.costPrice;
     } else if (input.unitCost == null) {
       if (product.costingMethod === "standard") {
         unitCost = product.costPrice;

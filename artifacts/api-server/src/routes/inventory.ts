@@ -927,11 +927,8 @@ router.post("/inventory/stock-takes/:id/complete", inventoryTransferReadGuard, a
           FROM users WHERE id=${req.session.userId!}`);
         if (Math.abs(variance) < 0.0001) continue;
         const qty = Math.abs(variance);
-        const [{cost}]=await tx.execute(sql`SELECT COALESCE(
-          (SELECT avg_cost FROM stock_quants WHERE product_id=${l.productId} AND warehouse_id=${take.warehouseId}
-           AND variant_id IS NULL AND lot_id IS NULL LIMIT 1),
-          (SELECT cost_price FROM products WHERE id=${l.productId}))::float8 AS cost`)
-          .then(r=>(r as unknown as {rows:{cost:number}[]}).rows);
+        const valuation=separation.facts.valuation.lines.find(line=>line.id===l.id)!;
+        const cost=valuation.unitCost;
         await recordStockMove(tx, {
           companyId: getCompanyId(req),
           productId: l.productId,
@@ -940,7 +937,9 @@ router.post("/inventory/stock-takes/:id/complete", inventoryTransferReadGuard, a
           fromWarehouseId: variance < 0 ? take.warehouseId : null,
           toWarehouseId: variance > 0 ? take.warehouseId : null,
           lotId: l.lotId ?? null,
-          unitCost: cost,
+          // FIFO shortage consumes the native allocation, never the mean
+          // carrying price passed by the old close path.
+          unitCost: valuation.method==="fifo"&&variance<0?undefined:cost,
           sourceType: "stocktake",
           sourceId: id,
           sourceRef: take.reference,

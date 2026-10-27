@@ -33,3 +33,18 @@ count-point evidence for legacy observations. The movement decision alone does
 not authorize delegated approval, tracked/variant counts or a global ERP claim.
 For the later explicit approval-independence policy, see
 `stocktake-approval-separation.md`.
+
+### Financial approval while movements remain allowed
+
+An approval fingerprint must bind the actual cost allocation of the variance,
+not unrelated remaining layer balances or current on-hand alone. A later
+same-cost movement may still reconcile without another approval; a changed
+FIFO allocation cost at unchanged quantity/average must require renewed approval.
+
+**Why:** The approved moving-count policy deliberately separates the observed
+variance from later movements. Including all current layer balances invalidates
+legitimate same-cost movement; checking only the mean misses heterogeneous FIFO.
+
+**How to apply:** Preview and posting must share native cost allocation and
+gross financial limits. Never repair missing historical layer evidence as a
+side effect of counting or approval.

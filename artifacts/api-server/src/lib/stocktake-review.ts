@@ -13,6 +13,7 @@ import {inventoryActor} from "./scoped-inventory-actor";
 import {currentResponsibilities,responsibilityContext} from "./responsibility-context";
 import {stocktakeSeparation,stocktakeUnknownParticipantBlock} from "./stocktake-separation";
 import {countPoint,type CountPoint} from "./stocktake-cutoff";
+import {stocktakeValuation} from "./stocktake-valuation";
 
 const deny=(s:string,status=403):never=>{throw new FinancialRequestError(s,status);};
 export const StocktakeProof=z.object({currentPassword:z.string().min(1).max(1024),
@@ -84,18 +85,16 @@ export async function stocktakeFacts(tx:DbOrTx,req:Request,id:number){
   const separation=await stocktakeSeparation(tx,id,actor.userId);
   if(separation.unknownCount)deny(stocktakeUnknownParticipantBlock);
   const policy=await stocktakePolicy(actor.companyId,tx);
-  const [r]=await teamRows<{facts:string;amount:string}>(tx,sql`SELECT
-    jsonb_agg(jsonb_build_object('id',l.id,'product',l.product_id,'count',l.counted_qty,
-      'revision',l.count_revision,'checkpoint',l.count_checkpoint,'cost',
-      coalesce(q.avg_cost,p.cost_price)) ORDER BY l.product_id,l.id)::text AS facts,
-    coalesce(sum(abs(l.counted_qty-(l.count_checkpoint->>'quantity')::numeric)*
-      coalesce(q.avg_cost,p.cost_price)),0)::text AS amount
-    FROM stock_take_lines l JOIN products p ON p.id=l.product_id AND p.company_id=${actor.companyId}
-    LEFT JOIN stock_quants q ON q.product_id=l.product_id AND q.warehouse_id=${take.warehouseId}
-      AND q.variant_id IS NULL AND q.lot_id IS NULL WHERE l.stock_take_id=${id}`);
-  return {actor,take,review:locked.review,separation,policy,hasCount:lines.some(l=>l.counted_qty!==null),amount:r.amount,
+  const valuation=await stocktakeValuation(tx,id,actor.companyId,take.warehouseId,true);
+  // Under the accepted moving-count policy, a later movement is not itself a
+  // changed variance. Bind the allocation actually priced, not unused layer
+  // balances/current on-hand. Same-cost movement must remain reconcilable.
+  const financialLines=valuation.lines.map(({quantity,fifo,...line})=>({...line,
+    fifo:fifo&&Number(line.delta)<0?{amount:fifo.amount,unitCost:fifo.unitCost,
+      allocation:fifo.layers.filter(l=>Number(l.taken)>0).map(({id,unitCost,taken})=>({id,unitCost,taken}))}:null}));
+  return {actor,take,review:locked.review,separation,policy,valuation,hasCount:lines.some(l=>l.counted_qty!==null),amount:valuation.amount,
     fingerprint:authorityFingerprint({id,company:actor.companyId,warehouse:take.warehouseId,branch:take.branchId,
-      lines:r.facts,participants:separation.participantIds,policy})};
+      lines:financialLines,participants:separation.participantIds,policy})};
 }
 export async function stocktakeLimit(tx:DbOrTx,actor:Awaited<ReturnType<typeof stocktakeAction>>,amount:string){
   if(actor.grant?.amountLimit!==null&&actor.grant?.amountLimit!==undefined){
@@ -104,13 +103,18 @@ export async function stocktakeLimit(tx:DbOrTx,actor:Awaited<ReturnType<typeof s
   }
 }
 export async function stocktakeVarianceValue(tx:DbOrTx,id:number,companyId:number,warehouseId:number){
+  const [take]=await teamRows<{status:string}>(tx,sql`SELECT status FROM stock_takes WHERE id=${id}`);
+  if(take?.status!=="in_progress"){
+    const [issued]=await teamRows<{amount:string;currency:string}>(tx,sql`SELECT
+      trim_scale(coalesce((SELECT sum(quantity*unit_cost) FROM stock_moves
+        WHERE source_type='stocktake' AND source_id=${id} AND
+        product_id IN(SELECT id FROM products WHERE company_id=${companyId})),0))::text AS amount,
+      base_currency AS currency FROM companies WHERE id=${companyId}`);
+    return issued;
+  }
+  const valuation=await stocktakeValuation(tx,id,companyId,warehouseId);
   const [r]=await teamRows<{amount:string;currency:string}>(tx,sql`SELECT
-    trim_scale(coalesce(sum(abs(l.counted_qty-(l.count_checkpoint->>'quantity')::numeric)*
-      coalesce(q.avg_cost,p.cost_price)),0))::text AS amount,
-    (SELECT base_currency FROM companies WHERE id=${companyId}) AS currency
-    FROM stock_take_lines l JOIN products p ON p.id=l.product_id AND p.company_id=${companyId}
-    LEFT JOIN stock_quants q ON q.product_id=l.product_id AND q.warehouse_id=${warehouseId}
-      AND q.variant_id IS NULL AND q.lot_id IS NULL WHERE l.stock_take_id=${id}`);
+    trim_scale(${valuation.amount}::numeric)::text AS amount,base_currency AS currency FROM companies WHERE id=${companyId}`);
   return r;
 }
 type Review={userId:number;grantId:number|null;fingerprint:string;amount:string;reason:string;
