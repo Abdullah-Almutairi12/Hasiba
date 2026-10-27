@@ -868,3 +868,31 @@ mtime_ms = 1793058435732
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/4d48b44a-035e-43fc-8d17-87a55b80f18c/78b4db1b-47db-4b78-847c-806b6cd15e43"
 storage_version_token = "1793058461363822"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "Y0GIiaPu0CdZs-cwQ6hGO"
+uri = "file://generated-artifacts/inventory-lock-order/checkpoint-report-ar.html"
+type = "html"
+title = "تقرير مرحلي — إصلاح الأقفال ومانع FIFO"
+description = "المصدر المختبر والنتائج الفعلية والمتبقي؛ المهمة غير مكتملة والمرشح لم يرفع."
+logical_id = "8b9a5e55-710e-4db1-bfdd-eab2e9297db8"
+content_hash = "sha256:015cd258092755dd4b35e8339b244c830dd8b11f81fa4e05d1dc1f750bb3e991"
+size = 15030
+mtime_ms = 1793060525913
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/8b9a5e55-710e-4db1-bfdd-eab2e9297db8/279b3c02-f5d2-478f-ad58-634ebc36a4c4"
+storage_version_token = "1793060533115000"
+content_type = "text/html"
+
+[[outputs]]
+id = "bgwlZFbJjgEK_fLv2zjJq"
+uri = "file://generated-artifacts/inventory-lock-order/inventory-lock-checkpoint-evidence.zip"
+type = "unspecified"
+title = "أدلة الفحص المرحلي"
+description = "نتائج JSON وسجلات الاختبارات ورسوم انتظار PostgreSQL والمصالحات وبصمات الملفات، ببيانات مصطنعة دون بيانات الدخول."
+logical_id = "34ed1691-0b3b-4bf7-a469-72c0641d50fb"
+content_hash = "sha256:b8242f3216e00fa4dab3740869727d7550c8fe161ed92ac48b24da57ad94e5da"
+size = 40482
+mtime_ms = 1793060525916
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/34ed1691-0b3b-4bf7-a469-72c0641d50fb/b7744772-2bd7-4742-bd4d-faba484f8f03"
+storage_version_token = "1793060534454054"
+content_type = "application/octet-stream"
