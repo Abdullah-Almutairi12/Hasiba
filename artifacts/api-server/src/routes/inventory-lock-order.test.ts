@@ -51,7 +51,7 @@ beforeAll(async()=>{
   const input=personInput(f.people[i]);input.deniedActions=[];
   input.grants=[0,1].map(n=>({resource:"inventory",branchId:f.branches[n].id,warehouseIds:[f.warehouses[n].id],
    actions:i===0?inventoryActions:["inventory.read","inventory.transfer.receive"],amountLimit:"500",startsAt:null,endsAt:null}));
-  accepted(await f.owner.put(`/api/team/people/${f.people[i].personId}/access`).send({...input,expectedRevision:f.people[i].revision}));
+  accepted(await f.owner.put(`/api/team/people/${f.people[i].personId}/access`).send({person:input,expectedRevision:f.people[i].revision,suspended:false}));
   f.people[i]=accepted(await f.owner.get("/api/team/people")).find((p:any)=>p.personId===f.people[i].personId);
  }
  const [u]=await db.insert(usersTable).values({name:"معتمد جرد مستقل لاختبار الأقفال",email:`lock-review-${randomUUID()}@example.invalid`,
