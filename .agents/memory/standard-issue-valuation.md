@@ -19,3 +19,15 @@ change stock value without a corresponding inventory revaluation.
 
 **How to apply:** Keep this addition limited to untracked variants; it does not
 change the previously excluded ordinary-product transfer or stocktake policy.
+
+Selecting a physical serial does not select its original purchase cost as the
+accounting issue cost. Keep the company's existing FIFO/average/standard
+valuation; a transfer retains the value resolved at dispatch through arrival.
+
+**Why:** The user explicitly required serial movement integrity without changing
+the approved valuation method or revaluing historical transactions.
+
+**How to apply:** Test pieces purchased at different costs and issue a named
+newer piece under FIFO. Reconcile native layers, aggregate carrying value and
+GL separately from the physical serial's state. Do not introduce specific-
+identification costing merely because a serial is selected.
