@@ -1008,3 +1008,31 @@ mtime_ms = 1793085297640
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/38a128a3-7099-42d7-a35f-c613cc87f7c8/4a0ef719-9f98-44c7-8e81-fdf735c78e93"
 storage_version_token = "1793085316997638"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "m8i6f9mgMINnEItqCS-cg"
+uri = "file://generated-artifacts/serial-movements/hasiba-serial-movements-evidence.zip"
+type = "unspecified"
+title = "حزمة أدلة حركات الأرقام التسلسلية"
+description = "ZIP فعلية: نتائج 15 بوابة، الاختبارات الخام المنقحة، حواجز PostgreSQL، المصالحات، 10 صور للرحلة الأصلية، وإيصال GitHub وبصمات الملفات."
+logical_id = "0c82fddb-9f59-4bc9-bb0f-2ab3791f2084"
+content_hash = "sha256:7b1b4e00e678af0ea6710d2d6c460c7109092be787a79ffa9b4e972dc2f5d200"
+size = 1732355
+mtime_ms = 1793090408103
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/0c82fddb-9f59-4bc9-bb0f-2ab3791f2084/a2d0e7a7-4e63-4b05-80b5-a9f9c2afd735"
+storage_version_token = "1793090430698298"
+content_type = "application/octet-stream"
+
+[[outputs]]
+id = "RM1L8vwTRuAJlsfdWQIbY"
+uri = "file://generated-artifacts/serial-movements/hasiba-serial-movements-report-ar.html"
+type = "html"
+title = "التقرير العربي — حركات الأرقام التسلسلية"
+description = "تقرير قابل للتنزيل يتضمن المكتمل والمتبقي، نطاق القبول، نتائج الاختبارات، الأخطاء المصححة وحدود التجربة وصورها."
+logical_id = "cee69455-59e3-47a6-a153-a0eccf7bb7bf"
+content_hash = "sha256:c5659c8ec37fef432a9aa75b59d757a09cafa4192c771afa6de0019a94b27161"
+size = 1468154
+mtime_ms = 1793090407503
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/cee69455-59e3-47a6-a153-a0eccf7bb7bf/834d89fc-643a-4867-972f-6c81a8af7c9a"
+storage_version_token = "1793090433913083"
+content_type = "text/html"
