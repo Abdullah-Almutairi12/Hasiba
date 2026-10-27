@@ -4,6 +4,18 @@
 
 Full-stack ERP system targeting Arabic/Saudi businesses, inspired by Odoo. Built as a pnpm workspace monorepo using TypeScript with a dark glassmorphism dashboard and clean light-mode internal pages.
 
+## Mandatory task acceptance
+
+Writing code, building successfully, or increasing test counts does not complete
+a task. For each assigned task: define its scope and acceptance criteria; review
+the change and its dependencies; execute the changed behavior; test relevant
+allowed, denied and error paths; check related-function regressions; fix discovered
+defects and rerun affected checks; save a specific tested version and deliver
+evidence tied to it. Distinguish browser evidence predating a later runtime change.
+Skipped checks are not successes. State what was and was not tested; never promise
+that the entire program is free of errors. These rules apply to future assigned
+tasks without automatically opening new scope.
+
 ## Stack
 
 - **Monorepo tool**: pnpm workspaces
