@@ -32,6 +32,7 @@ import {
 import { and, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { handleRouteError } from "../lib/handle-error";
 import { parsePagination } from "../lib/pagination";
+import { customerInvoiceGrant,customerInvoiceScope } from "../lib/customer-invoice-access";
 import { recordAudit } from "../lib/audit";
 import {
   adminGuard,
@@ -1691,6 +1692,7 @@ router.get("/sales/invoices", customerReadGuard, async (req, res) => {
   try {
     const { status, customerId } = req.query;
     const companyId = getCompanyId(req);
+    const invoiceGrant=await customerInvoiceGrant(req);
     const actor = await returnActor(req.session.userId!, companyId);
     if (actor.custom && !actor.capabilities.includes("view"))
       throw new FinancialRequestError("ليست لديك صلاحية عرض الفواتير", 403);
@@ -1714,6 +1716,7 @@ router.get("/sales/invoices", customerReadGuard, async (req, res) => {
         and(
           eq(customersTable.companyId, companyId),
           eq(customerInvoicesTable.companyId, companyId),
+          invoiceGrant?customerInvoiceScope(invoiceGrant,companyId):sql`true`,
           branchScope,
           status ? eq(customerInvoicesTable.status, String(status)) : sql`true`,
           customerId ? eq(customerInvoicesTable.customerId, Number(customerId)) : sql`true`,

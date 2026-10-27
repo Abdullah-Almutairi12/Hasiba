@@ -1023,7 +1023,7 @@ export const PreviewLegacyTeamConversionBody = zod.object({
   "email": zod.string().nullable(),
   "loginKinds": zod.array(zod.enum(['platform', 'pos'])),
   "grants": zod.array(zod.object({
-  "resource": zod.enum(['inventory', 'pos', 'procurement']),
+  "resource": zod.enum(['inventory', 'pos', 'procurement', 'sales']),
   "templateId": zod.number().int().nullish(),
   "templateRevision": zod.number().int().nullish(),
   "templateMode": zod.union([zod.literal('inherit'),zod.literal('override'),zod.literal(null)]).nullish(),
@@ -1049,7 +1049,7 @@ export const PreviewLegacyTeamConversionResponse = zod.object({
   "email": zod.string().nullable(),
   "loginKinds": zod.array(zod.enum(['platform', 'pos'])),
   "grants": zod.array(zod.object({
-  "resource": zod.enum(['inventory', 'pos', 'procurement']),
+  "resource": zod.enum(['inventory', 'pos', 'procurement', 'sales']),
   "templateId": zod.number().int().nullish(),
   "templateRevision": zod.number().int().nullish(),
   "templateMode": zod.union([zod.literal('inherit'),zod.literal('override'),zod.literal(null)]).nullish(),
@@ -1073,7 +1073,7 @@ export const ApplyLegacyTeamConversionBody = zod.object({
   "email": zod.string().nullable(),
   "loginKinds": zod.array(zod.enum(['platform', 'pos'])),
   "grants": zod.array(zod.object({
-  "resource": zod.enum(['inventory', 'pos', 'procurement']),
+  "resource": zod.enum(['inventory', 'pos', 'procurement', 'sales']),
   "templateId": zod.number().int().nullish(),
   "templateRevision": zod.number().int().nullish(),
   "templateMode": zod.union([zod.literal('inherit'),zod.literal('override'),zod.literal(null)]).nullish(),
@@ -1096,7 +1096,7 @@ export const ApplyLegacyTeamConversionResponse = zod.object({
   "email": zod.string().nullable(),
   "loginKinds": zod.array(zod.enum(['platform', 'pos'])),
   "grants": zod.array(zod.object({
-  "resource": zod.enum(['inventory', 'pos', 'procurement']),
+  "resource": zod.enum(['inventory', 'pos', 'procurement', 'sales']),
   "templateId": zod.number().int().nullish(),
   "templateRevision": zod.number().int().nullish(),
   "templateMode": zod.union([zod.literal('inherit'),zod.literal('override'),zod.literal(null)]).nullish(),
@@ -1115,7 +1115,7 @@ export const ApplyLegacyTeamConversionResponse = zod.object({
   "revision": zod.number().int(),
   "membershipDeparture": zod.union([zod.literal('suspend'),zod.literal('terminate'),zod.literal(null)]).nullish(),
   "grants": zod.array(zod.object({
-  "resource": zod.enum(['inventory', 'pos', 'procurement']),
+  "resource": zod.enum(['inventory', 'pos', 'procurement', 'sales']),
   "templateId": zod.number().int().nullish(),
   "templateRevision": zod.number().int().nullish(),
   "templateMode": zod.union([zod.literal('inherit'),zod.literal('override'),zod.literal(null)]).nullish(),
@@ -1146,7 +1146,7 @@ export const PreviewLegacyTeamRollbackResponse = zod.object({
   "email": zod.string().nullable(),
   "loginKinds": zod.array(zod.enum(['platform', 'pos'])),
   "grants": zod.array(zod.object({
-  "resource": zod.enum(['inventory', 'pos', 'procurement']),
+  "resource": zod.enum(['inventory', 'pos', 'procurement', 'sales']),
   "templateId": zod.number().int().nullish(),
   "templateRevision": zod.number().int().nullish(),
   "templateMode": zod.union([zod.literal('inherit'),zod.literal('override'),zod.literal(null)]).nullish(),
@@ -1232,7 +1232,7 @@ export const SaveTeamPolicyResponse = zod.object({
 
 export const ListPermissionTemplatesResponseItem = zod.object({
   "name": zod.string(),
-  "resource": zod.enum(['inventory', 'pos', 'procurement']),
+  "resource": zod.enum(['inventory', 'pos', 'procurement', 'sales']),
   "actions": zod.array(zod.string())
 }).and(zod.object({
   "id": zod.number().int(),
@@ -1243,13 +1243,13 @@ export const ListPermissionTemplatesResponse = zod.array(ListPermissionTemplates
 
 export const CreatePermissionTemplateBody = zod.object({
   "name": zod.string(),
-  "resource": zod.enum(['inventory', 'pos', 'procurement']),
+  "resource": zod.enum(['inventory', 'pos', 'procurement', 'sales']),
   "actions": zod.array(zod.string())
 })
 
 export const CreatePermissionTemplateResponse = zod.object({
   "name": zod.string(),
-  "resource": zod.enum(['inventory', 'pos', 'procurement']),
+  "resource": zod.enum(['inventory', 'pos', 'procurement', 'sales']),
   "actions": zod.array(zod.string())
 }).and(zod.object({
   "id": zod.number().int(),
@@ -1304,7 +1304,7 @@ export const ApplyPermissionTemplateBody = zod.object({
 
 export const ApplyPermissionTemplateResponse = zod.object({
   "name": zod.string(),
-  "resource": zod.enum(['inventory', 'pos', 'procurement']),
+  "resource": zod.enum(['inventory', 'pos', 'procurement', 'sales']),
   "actions": zod.array(zod.string())
 }).and(zod.object({
   "id": zod.number().int(),
@@ -1318,7 +1318,7 @@ export const ListTeamPeopleResponseItem = zod.object({
   "email": zod.string().nullable(),
   "loginKinds": zod.array(zod.enum(['platform', 'pos'])),
   "grants": zod.array(zod.object({
-  "resource": zod.enum(['inventory', 'pos', 'procurement']),
+  "resource": zod.enum(['inventory', 'pos', 'procurement', 'sales']),
   "templateId": zod.number().int().nullish(),
   "templateRevision": zod.number().int().nullish(),
   "templateMode": zod.union([zod.literal('inherit'),zod.literal('override'),zod.literal(null)]).nullish(),
@@ -1337,7 +1337,7 @@ export const ListTeamPeopleResponseItem = zod.object({
   "revision": zod.number().int(),
   "membershipDeparture": zod.union([zod.literal('suspend'),zod.literal('terminate'),zod.literal(null)]).nullish(),
   "grants": zod.array(zod.object({
-  "resource": zod.enum(['inventory', 'pos', 'procurement']),
+  "resource": zod.enum(['inventory', 'pos', 'procurement', 'sales']),
   "templateId": zod.number().int().nullish(),
   "templateRevision": zod.number().int().nullish(),
   "templateMode": zod.union([zod.literal('inherit'),zod.literal('override'),zod.literal(null)]).nullish(),
@@ -1360,7 +1360,7 @@ export const CreateTeamPersonBody = zod.object({
   "email": zod.string().nullable(),
   "loginKinds": zod.array(zod.enum(['platform', 'pos'])),
   "grants": zod.array(zod.object({
-  "resource": zod.enum(['inventory', 'pos', 'procurement']),
+  "resource": zod.enum(['inventory', 'pos', 'procurement', 'sales']),
   "templateId": zod.number().int().nullish(),
   "templateRevision": zod.number().int().nullish(),
   "templateMode": zod.union([zod.literal('inherit'),zod.literal('override'),zod.literal(null)]).nullish(),
@@ -1380,7 +1380,7 @@ export const CreateTeamPersonResponse = zod.object({
   "email": zod.string().nullable(),
   "loginKinds": zod.array(zod.enum(['platform', 'pos'])),
   "grants": zod.array(zod.object({
-  "resource": zod.enum(['inventory', 'pos', 'procurement']),
+  "resource": zod.enum(['inventory', 'pos', 'procurement', 'sales']),
   "templateId": zod.number().int().nullish(),
   "templateRevision": zod.number().int().nullish(),
   "templateMode": zod.union([zod.literal('inherit'),zod.literal('override'),zod.literal(null)]).nullish(),
@@ -1399,7 +1399,7 @@ export const CreateTeamPersonResponse = zod.object({
   "revision": zod.number().int(),
   "membershipDeparture": zod.union([zod.literal('suspend'),zod.literal('terminate'),zod.literal(null)]).nullish(),
   "grants": zod.array(zod.object({
-  "resource": zod.enum(['inventory', 'pos', 'procurement']),
+  "resource": zod.enum(['inventory', 'pos', 'procurement', 'sales']),
   "templateId": zod.number().int().nullish(),
   "templateRevision": zod.number().int().nullish(),
   "templateMode": zod.union([zod.literal('inherit'),zod.literal('override'),zod.literal(null)]).nullish(),
@@ -1421,7 +1421,7 @@ export const PreviewTeamPersonBody = zod.object({
   "email": zod.string().nullable(),
   "loginKinds": zod.array(zod.enum(['platform', 'pos'])),
   "grants": zod.array(zod.object({
-  "resource": zod.enum(['inventory', 'pos', 'procurement']),
+  "resource": zod.enum(['inventory', 'pos', 'procurement', 'sales']),
   "templateId": zod.number().int().nullish(),
   "templateRevision": zod.number().int().nullish(),
   "templateMode": zod.union([zod.literal('inherit'),zod.literal('override'),zod.literal(null)]).nullish(),
@@ -1437,7 +1437,7 @@ export const PreviewTeamPersonBody = zod.object({
 
 export const PreviewTeamPersonResponse = zod.object({
   "grants": zod.array(zod.object({
-  "resource": zod.enum(['inventory', 'pos', 'procurement']),
+  "resource": zod.enum(['inventory', 'pos', 'procurement', 'sales']),
   "templateId": zod.number().int().nullish(),
   "templateRevision": zod.number().int().nullish(),
   "templateMode": zod.union([zod.literal('inherit'),zod.literal('override'),zod.literal(null)]).nullish(),
@@ -1465,7 +1465,7 @@ export const UpdateTeamAccessBody = zod.object({
   "email": zod.string().nullable(),
   "loginKinds": zod.array(zod.enum(['platform', 'pos'])),
   "grants": zod.array(zod.object({
-  "resource": zod.enum(['inventory', 'pos', 'procurement']),
+  "resource": zod.enum(['inventory', 'pos', 'procurement', 'sales']),
   "templateId": zod.number().int().nullish(),
   "templateRevision": zod.number().int().nullish(),
   "templateMode": zod.union([zod.literal('inherit'),zod.literal('override'),zod.literal(null)]).nullish(),
@@ -1487,7 +1487,7 @@ export const UpdateTeamAccessResponse = zod.object({
   "email": zod.string().nullable(),
   "loginKinds": zod.array(zod.enum(['platform', 'pos'])),
   "grants": zod.array(zod.object({
-  "resource": zod.enum(['inventory', 'pos', 'procurement']),
+  "resource": zod.enum(['inventory', 'pos', 'procurement', 'sales']),
   "templateId": zod.number().int().nullish(),
   "templateRevision": zod.number().int().nullish(),
   "templateMode": zod.union([zod.literal('inherit'),zod.literal('override'),zod.literal(null)]).nullish(),
@@ -1506,7 +1506,7 @@ export const UpdateTeamAccessResponse = zod.object({
   "revision": zod.number().int(),
   "membershipDeparture": zod.union([zod.literal('suspend'),zod.literal('terminate'),zod.literal(null)]).nullish(),
   "grants": zod.array(zod.object({
-  "resource": zod.enum(['inventory', 'pos', 'procurement']),
+  "resource": zod.enum(['inventory', 'pos', 'procurement', 'sales']),
   "templateId": zod.number().int().nullish(),
   "templateRevision": zod.number().int().nullish(),
   "templateMode": zod.union([zod.literal('inherit'),zod.literal('override'),zod.literal(null)]).nullish(),
@@ -1572,7 +1572,7 @@ export const GetWorkspaceAccessResponse = zod.object({
   "managed": zod.boolean(),
   "status": zod.string(),
   "grants": zod.array(zod.object({
-  "resource": zod.enum(['inventory', 'pos', 'procurement']),
+  "resource": zod.enum(['inventory', 'pos', 'procurement', 'sales']),
   "templateId": zod.number().int().nullish(),
   "templateRevision": zod.number().int().nullish(),
   "templateMode": zod.union([zod.literal('inherit'),zod.literal('override'),zod.literal(null)]).nullish(),

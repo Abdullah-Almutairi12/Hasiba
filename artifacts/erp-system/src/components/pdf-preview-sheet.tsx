@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from "react";
+import { getWorkspaceResponsibility } from "@workspace/api-client-react";
+import { useSelectedResponsibility } from "@/lib/workspace-responsibility";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Printer, Download, Loader2 } from "lucide-react";
@@ -10,6 +12,8 @@ interface PdfPreviewSheetProps {
   title: string;
   downloadName: string;
   allowDownload?: boolean;
+  allowPrint?: boolean;
+  printUrl?: string | null;
   downloadUrl?: string;
 }
 
@@ -20,8 +24,13 @@ export function PdfPreviewSheet({
   title,
   downloadName,
   allowDownload = true,
+  allowPrint = true,
+  printUrl,
   downloadUrl,
 }: PdfPreviewSheetProps) {
+  const selection=useSelectedResponsibility();
+  const requestOptions=()=>({credentials:"include" as const,headers:getWorkspaceResponsibility()?
+    {"X-Workspace-Responsibility":getWorkspaceResponsibility()!}:undefined});
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -38,7 +47,7 @@ export function PdfPreviewSheet({
     setLoading(true);
     setError(null);
     setBlobUrl(null);
-    fetch(pdfUrl, { credentials: "include" })
+    fetch(pdfUrl, requestOptions())
       .then(async (r) => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         const blob = await r.blob();
@@ -56,9 +65,17 @@ export function PdfPreviewSheet({
       cancelled = true;
       if (createdUrl) URL.revokeObjectURL(createdUrl);
     };
-  }, [open, pdfUrl]);
+  }, [open, pdfUrl,selection?.id,allowPrint,allowDownload]);
 
-  function handlePrint() {
+  async function handlePrint() {
+    if(!allowPrint)return;
+    if(printUrl){
+      try{
+        const response=await fetch(printUrl,requestOptions());
+        if(!response.ok)throw new Error("تعذرت الطباعة؛ تحقق من صلاحية الطباعة الحالية");
+        await response.arrayBuffer();
+      }catch(e){setError(e instanceof Error?e.message:"تعذرت الطباعة");return;}
+    }
     const win = iframeRef.current?.contentWindow;
     if (win) {
       try {
@@ -78,7 +95,7 @@ export function PdfPreviewSheet({
     let downloadBlobUrl: string | null = null;
     if (downloadUrl) {
       try {
-        const response = await fetch(downloadUrl, { credentials: "include" });
+        const response = await fetch(downloadUrl, requestOptions());
         if (!response.ok) throw new Error("تعذر التنزيل؛ تحقق من صلاحية التصدير الحالية");
         downloadBlobUrl = URL.createObjectURL(await response.blob());
       } catch (e) {
@@ -115,7 +132,7 @@ export function PdfPreviewSheet({
             >
               <Download className="size-3.5" /> تحميل
             </Button>}
-            <Button
+            {allowPrint && <Button
               size="sm"
               className="gap-1.5"
               onClick={handlePrint}
@@ -123,7 +140,7 @@ export function PdfPreviewSheet({
               data-testid="button-pdf-preview-print"
             >
               <Printer className="size-3.5" /> طباعة
-            </Button>
+            </Button>}
           </div>
         </div>
         <div className="flex-1 min-h-0 rounded-md border bg-muted overflow-hidden">

@@ -837,12 +837,13 @@ function GrantCard({ index, grant, catalog, branches, warehouses, issues, onChan
         <span className="grid size-8 place-items-center rounded-lg bg-primary/10 text-primary">
           {grant.resource === "pos" ? <ShoppingCart className="size-4" /> : <Package className="size-4" />}
         </span>
-        <Select value={grant.resource} onValueChange={(v) => onChange({ resource: v as GrantResource, actions: [], amountLimit: null, ...toManual() })}>
+        <Select value={grant.resource} onValueChange={(v) => onChange({ resource: v as GrantResource, actions: [], warehouseIds:[], amountLimit: null, ...toManual() })}>
           <SelectTrigger className="w-36" data-testid={`select-grant-resource-${index}`}><SelectValue /></SelectTrigger>
           <SelectContent>
             <SelectItem value="inventory">المخزون</SelectItem>
             <SelectItem value="pos">نقطة البيع</SelectItem>
             <SelectItem value="procurement">الموردون وأوامر الشراء</SelectItem>
+            <SelectItem value="sales">فواتير العملاء — عرض وطباعة وتصدير مستقل</SelectItem>
           </SelectContent>
         </Select>
         <Select value={grant.branchId ? String(grant.branchId) : ""} onValueChange={(v) => onChange({ branchId: Number(v), warehouseIds: [] })}>
@@ -857,6 +858,11 @@ function GrantCard({ index, grant, catalog, branches, warehouses, issues, onChan
       </div>
 
       <GrantSourceSelector index={index} grant={grant} templates={templates} available={available} onChange={onChange} />
+      {grant.resource==="sales"&&<p className="mt-3 text-sm text-muted-foreground">
+        العرض شرط مستقل للطباعة والتصدير، ولا يمنحهما ضمنيًا. الفرع والفترة والمنع الفردي تطبق على كل إجراء.
+        المستودع اختياري؛ تركه فارغًا يعني الفواتير ذات الفرع المثبت، لا كل الشركات.
+        الحساب القديم يحتفظ بمساره حتى تحويل صريح ومعاينة معتمدة؛ لا تحويل تلقائي للأدوار غير المغطاة.
+      </p>}
 
       <div className="mt-4 grid gap-4 md:grid-cols-2">
         <div>
@@ -912,7 +918,7 @@ function GrantCard({ index, grant, catalog, branches, warehouses, issues, onChan
       <div className="mt-4 grid gap-3 sm:grid-cols-3">
         {(grant.resource !== "inventory" || grant.actions.some(a=>["inventory.move.receipt","inventory.move.issue","inventory.transfer.send","inventory.transfer.receive"].includes(a))) && (
           <div>
-            <Label className="text-xs">{grant.resource==="inventory"?"سقف قيمة حركة المخزون المحسوبة خادميًا":grant.resource==="procurement"?"سقف قيمة أمر الشراء":"سقف قيمة البيع الواحد"} (ر.س)</Label>
+            <Label className="text-xs">{grant.resource==="inventory"?"سقف قيمة حركة المخزون المحسوبة خادميًا":grant.resource==="procurement"?"سقف قيمة أمر الشراء":grant.resource==="sales"?"سقف قيمة الفاتورة المعروضة (بالريال فقط)":"سقف قيمة البيع الواحد"} (ر.س)</Label>
             <Input dir="ltr" inputMode="decimal" placeholder="بلا سقف" value={grant.amountLimit ?? ""} onChange={(e) => onChange({ amountLimit: e.target.value || null })} data-testid={`input-grant-limit-${index}`} />
           </div>
         )}

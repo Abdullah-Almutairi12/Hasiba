@@ -31,7 +31,7 @@ export async function returnActor(userId: number, companyId: number, connection?
     const grant = await selectedResponsibility(userId, companyId, connection);
     return {
       userId, companyId, role: "scoped", custom: true,
-      capabilities: grant?.resource === "pos" ? [
+      capabilities: grant?.resource === "sales" ? (grant.actions.includes("sales.read") ? ["view"] : []) : grant?.resource === "pos" ? [
         ...(grant.actions.includes("pos.read") ? ["view"] : []),
         ...(grant.actions.includes("pos.sell") ? ["sell"] : []),
         ...Object.entries({

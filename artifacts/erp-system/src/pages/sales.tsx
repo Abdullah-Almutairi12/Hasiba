@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from "react";
+import { CustomerInvoiceDetails } from "@/components/customer-invoice-details";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -182,7 +183,7 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 export default function SalesPage() {
-  const { canReadReports } = usePermissions();
+  const { canReadReports,isScoped } = usePermissions();
   // The /sales/reports/* endpoints are guarded server-side by reportReadGuard
   // (owner/manager/accountant/auditor). Skipping the query for non-report
   // roles avoids a 403 + misleading zero-state on the summary cards and
@@ -201,23 +202,23 @@ export default function SalesPage() {
         </p>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+      {!isScoped && <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <SummaryCard title="عروض الأسعار" value={summary?.quotations.value ?? 0} subtitle={`${summary?.quotations.count ?? 0} عرض، ${summary?.quotations.accepted ?? 0} مقبول`} icon={FileText} />
         <SummaryCard title="أوامر البيع" value={summary?.salesOrders.value ?? 0} subtitle={`${summary?.salesOrders.count ?? 0} أمر هذا الشهر`} icon={Truck} />
         <SummaryCard title="فواتير الشهر" value={summary?.invoices.thisMonth ?? 0} subtitle="الفواتير المُصدرة" icon={Receipt} />
         <SummaryCard title="ذمم مدينة قائمة" value={summary?.invoices.outstanding ?? 0} subtitle="غير مُحصّلة بعد" icon={AlertCircle} />
-      </div>
+      </div>}
 
-      <Tabs defaultValue="quotations" className="space-y-4">
+      <Tabs defaultValue={isScoped?"invoices":"quotations"} className="space-y-4">
         <TabsList className="flex w-full flex-wrap justify-start">
-          <TabsTrigger value="quotations">عروض الأسعار</TabsTrigger>
-          <TabsTrigger value="orders">أوامر البيع</TabsTrigger>
-          <TabsTrigger value="deliveries">إذونات التسليم</TabsTrigger>
+          {!isScoped && <TabsTrigger value="quotations">عروض الأسعار</TabsTrigger>}
+          {!isScoped && <TabsTrigger value="orders">أوامر البيع</TabsTrigger>}
+          {!isScoped && <TabsTrigger value="deliveries">إذونات التسليم</TabsTrigger>}
           <TabsTrigger value="invoices">فواتير العملاء</TabsTrigger>
-          <TabsTrigger value="receipts">سندات القبض</TabsTrigger>
-          <TabsTrigger value="credit-notes">إشعارات دائنة</TabsTrigger>
-          <TabsTrigger value="pricelists">قوائم الأسعار</TabsTrigger>
-          <TabsTrigger value="commissions">العمولات</TabsTrigger>
+          {!isScoped && <TabsTrigger value="receipts">سندات القبض</TabsTrigger>}
+          {!isScoped && <TabsTrigger value="credit-notes">إشعارات دائنة</TabsTrigger>}
+          {!isScoped && <TabsTrigger value="pricelists">قوائم الأسعار</TabsTrigger>}
+          {!isScoped && <TabsTrigger value="commissions">العمولات</TabsTrigger>}
           {canReadReports && <TabsTrigger value="aging">تقادم الذمم</TabsTrigger>}
           {canReadReports && <TabsTrigger value="by-rep">المبيعات حسب المندوب</TabsTrigger>}
           {canReadReports && <TabsTrigger value="by-customer">حسب العميل</TabsTrigger>}
@@ -726,14 +727,15 @@ function InvoicesTab() {
   const { data: failureKpi, refetch: refetchKpi } = useApiQuery<{
     exhaustedCount: number;
     maxAttempts: number;
-  }>("/sales/invoices/email-failure-count", { refetchInterval: 60_000 });
+  }>("/sales/invoices/email-failure-count", { refetchInterval: 60_000, enabled:usePermissions().canManageFinance });
   const [open, setOpen] = useState(false);
-  const { canManageFinance } = usePermissions();
+  const { canManageFinance,canCustomerInvoice } = usePermissions();
   const { toast } = useToast();
   const [reverseTarget, setReverseTarget] = useState<Invoice | null>(null);
   const [reverseReason, setReverseReason] = useState("");
   const [reversing, setReversing] = useState(false);
   const [previewInvoice, setPreviewInvoice] = useState<Invoice | null>(null);
+  const [detailInvoice,setDetailInvoice]=useState<Invoice|null>(null);
   const apiBase = (import.meta.env.BASE_URL || "/").replace(/\/$/, "") + "/api";
   const [sendTarget, setSendTarget] = useState<Invoice | null>(null);
   const [sendChannel, setSendChannel] = useState<"email" | "whatsapp">("email");
@@ -871,15 +873,16 @@ function InvoicesTab() {
               return (
                 <div className="flex flex-col items-start gap-1">
                   <div className="flex flex-wrap items-center gap-1.5">
-                    <Button
+                    <Button size="sm" variant="outline" data-testid={`button-view-invoice-${r.id}`} onClick={()=>setDetailInvoice(r)}>عرض الفاتورة</Button>
+                    {(canCustomerInvoice("print")||canCustomerInvoice("export")) && <Button
                       size="sm"
                       variant="outline"
                       className="gap-1.5"
                       data-testid={`button-print-invoice-${r.id}`}
                       onClick={() => setPreviewInvoice(r)}
                     >
-                      <Printer className="size-3.5" /> طباعة
-                    </Button>
+                      <Printer className="size-3.5" /> {canCustomerInvoice("print")?"طباعة":"تصدير PDF"}
+                    </Button>}
                     {canSend && (
                       <Button
                         size="sm"
@@ -968,7 +971,11 @@ function InvoicesTab() {
       <PdfPreviewSheet
         open={!!previewInvoice}
         onOpenChange={(o) => { if (!o) setPreviewInvoice(null); }}
-        pdfUrl={previewInvoice ? `${apiBase}/sales/invoices/${previewInvoice.id}/pdf` : null}
+        pdfUrl={previewInvoice ? `${apiBase}/sales/invoices/${previewInvoice.id}/pdf${canCustomerInvoice("print")?"":"?download=1"}` : null}
+        allowPrint={canCustomerInvoice("print")}
+        allowDownload={canCustomerInvoice("export")}
+        printUrl={previewInvoice?`${apiBase}/sales/invoices/${previewInvoice.id}/pdf`:null}
+        downloadUrl={previewInvoice?`${apiBase}/sales/invoices/${previewInvoice.id}/pdf?download=1`:undefined}
         title={previewInvoice ? `فاتورة ${previewInvoice.reference}` : "معاينة الفاتورة"}
         downloadName={previewInvoice ? `${previewInvoice.reference}.pdf` : "invoice.pdf"}
       />
@@ -977,6 +984,7 @@ function InvoicesTab() {
         onClose={() => setHistoryTarget(null)}
         onAfterRetry={async () => { await refetch(); await refetchKpi(); }}
       />
+      <CustomerInvoiceDetails id={detailInvoice?.id??null} onClose={()=>setDetailInvoice(null)} />
       <Dialog open={!!sendTarget} onOpenChange={(o) => { if (!o) { setSendTarget(null); setSendTo(""); } }}>
         <DialogContent>
           <DialogHeader>

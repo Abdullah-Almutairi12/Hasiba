@@ -184,6 +184,7 @@ export function AppSidebar() {
             ...scopedNavItems,
             // POS appears only while a POS responsibility is selected.
             ...(selected?.resource === "pos" ? [{ key: "pos", url: "/pos", icon: ShoppingCart }] : []),
+            ...(selected?.resource==="sales"&&selected.actions.includes("sales.read")?[{key:"sales",url:"/sales",icon:FileText}]:[]),
           ], true)
         ) : (
           <>

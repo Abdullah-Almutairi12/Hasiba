@@ -118,7 +118,9 @@ function ScopedGate({ children, pos = false }: { children: React.ReactNode; pos?
   useEffect(() => {
     if (enrollOnly && location !== "/account/security") setLocation("/account/security", { replace: true });
   }, [enrollOnly, location, setLocation]);
-  const allowed = !scoped || (pos ? posView : SCOPED_PATHS.has(location) || inventoryCountView || canReachProcurement(selected,location) || (location === SCOPED_RETURNS_PATH && canReachReturns(selected)));
+  const allowed = !scoped || (pos ? posView : SCOPED_PATHS.has(location) || inventoryCountView || canReachProcurement(selected,location) ||
+    (location==="/sales"&&selected?.resource==="sales"&&selected.actions.includes("sales.read")) ||
+    (location === SCOPED_RETURNS_PATH && canReachReturns(selected)));
   useEffect(() => {
     if (!allowed && !enrollOnly) setLocation("/my-work", { replace: true });
   }, [allowed, enrollOnly, setLocation]);

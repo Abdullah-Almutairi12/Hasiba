@@ -401,6 +401,7 @@ export const PermissionTemplateInputResource = {
   inventory: 'inventory',
   pos: 'pos',
   procurement: 'procurement',
+  sales: 'sales',
 } as const;
 
 export interface PermissionTemplateInput {
@@ -458,6 +459,7 @@ export const TeamGrantInputResource = {
   inventory: 'inventory',
   pos: 'pos',
   procurement: 'procurement',
+  sales: 'sales',
 } as const;
 
 /**

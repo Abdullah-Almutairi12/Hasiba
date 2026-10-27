@@ -9,6 +9,9 @@ import { assertSupplierInvoice } from "../lib/supplier-invoice-access";
 import { FinancialRequestError } from "../lib/financial-transaction";
 
 export const SCOPED_ROUTES = [
+  ["GET", "/sales/invoices", "sales.read"],
+  ["GET", "/sales/invoices/:id", "sales.read"],
+  ["GET", "/sales/invoices/:id/pdf", "sales.invoices.print"],
   ["GET", "/workspace/access", "self"],
   ["GET", "/workspace/inventory", "inventory.read"],
   ["GET", "/workspace/inventory/transfers", "inventory.read"],
@@ -78,6 +81,7 @@ export async function managedAccessGate(req: Request, res: Response, next: NextF
     if(!action&&approvalPath&&(req.method==="GET"||req.method==="POST"&&approvalPath[2]==="act"))action="approval.workspace";
     if (action === "procurement.orders.print" && req.query.download === "1") action = "procurement.orders.export";
     if (action === "procurement.invoices.print" && req.query.download === "1") action = "procurement.invoices.export";
+    if (action === "sales.invoices.print" && req.query.download === "1") action = "sales.invoices.export";
     if (action === "pos.operation") {
       action = ({
         request: "pos.return.request", re_review: "pos.return.request", approve: "pos.return.approve", receive: "pos.return.receive", payout: "pos.return.payout",

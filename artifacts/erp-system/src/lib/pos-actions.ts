@@ -5,6 +5,9 @@
  * (including unavailable catalogue items and legacy previews).
  */
 export const ACTION_LABEL: Record<string, string> = {
+  "sales.read":"عرض فواتير العملاء — لا طباعة أو PDF ضمني",
+  "sales.invoices.print":"معاينة وطباعة فاتورة عميل",
+  "sales.invoices.export":"تصدير PDF لفاتورة عميل",
   "procurement.invoices.read":"عرض فواتير الموردين وتفاصيلها ومرفقاتها ضمن النطاق",
   "procurement.invoices.compare":"معاينة مطابقة فاتورة المورد دون قرار مراجعة أو اعتماد أو ترحيل",
   "procurement.invoices.print":"طباعة فاتورة المورد",

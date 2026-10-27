@@ -163,6 +163,13 @@ export function usePermissions() {
   const scopedRead = scopedActs.includes("pos.read");
   const scopedSell = scopedRead && scopedActs.includes("pos.sell");
   const scopedShiftOpen = scopedRead && scopedActs.includes("pos.shift.open");
+  const scopedSales=isScoped&&selected?.resource==="sales"&&selected.actions.includes("sales.read");
+  function canCustomerInvoice(action:"read"|"print"|"export"):boolean{
+    if(isScoped)return !!scopedSales&&(action==="read"||selected!.actions.includes(`sales.invoices.${action}`));
+    // Explicit compatibility with existing customer-invoice roles until the
+    // preview/apply legacy conversion is chosen; no new grant is synthesized.
+    return !!role&&NAV_PERMISSIONS.sales.includes(role);
+  }
   function canProcurement(action: string): boolean {
     if(isScoped)return selected?.resource==="procurement" &&
       selected.actions.includes("procurement.read") && selected.actions.includes(`procurement.${action}`) &&
@@ -182,7 +189,8 @@ export function usePermissions() {
     if (isScoped) return navKey === "my_work" || (navKey === "pos" && scopedRead) ||
       (navKey==="suppliers"&&canProcurement("suppliers.read")) ||
       (navKey==="procurement"&&(canProcurement("orders.read")||canProcurement("receipts.read"))) ||
-      (navKey==="stocktake"&&selected?.resource==="inventory"&&selected.actions.includes("inventory.read"));
+      (navKey==="stocktake"&&selected?.resource==="inventory"&&selected.actions.includes("inventory.read")) ||
+      (navKey==="sales"&&!!scopedSales);
     // Honour the admin-defined override matrix when available. The matrix
     // is the union of static defaults + per-cell overrides; an explicit
     // `false` override removes nav access for that role × module pair, and
@@ -201,6 +209,7 @@ export function usePermissions() {
   return {
     role,
     canProcurement,
+    canCustomerInvoice,
     isOwner: role === "owner",
     isScoped,
     isAdmin: has("admin"),

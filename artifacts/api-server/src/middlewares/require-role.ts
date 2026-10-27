@@ -4,6 +4,7 @@ import { and, eq } from "drizzle-orm";
 import { returnActor } from "../lib/return-access";
 import { managedProfile, selectedResponsibility } from "../lib/responsibility-context";
 import { procurementAction, requestProcurementActor } from "../lib/procurement-authority";
+import { customerInvoiceAction,customerInvoiceGrant } from "../lib/customer-invoice-access";
 
 export const ALL_ROLES = [
   "owner",
@@ -50,6 +51,12 @@ export function requireRole(...roles: Role[]) {
     req.session.role = userRole;
     let effectiveRole: Role = userRole;
     if (await managedProfile(req.session.userId, req.session.companyId ?? -1)) {
+      const invoiceAction=customerInvoiceAction(req.method,req.originalUrl.split("?")[0].replace(/^\/api/,""),req.query.download);
+      if(invoiceAction){
+        try{await customerInvoiceGrant(req,invoiceAction);next();}
+        catch{res.status(403).json({error:"إجراء فاتورة العميل غير ممنوح في المسؤولية الحالية"});}
+        return;
+      }
       // Native PO/supplier handlers still enforce their own source and write
       // transaction checks. Do not impersonate a broad purchasing role.
       let action = procurementAction(req.method, req.originalUrl.split("?")[0].replace(/^\/api/, ""));

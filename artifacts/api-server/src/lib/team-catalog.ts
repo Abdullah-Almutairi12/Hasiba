@@ -1,6 +1,9 @@
 import { z } from "zod";
 
 export const TEAM_ACTIONS = [
+  {key:"sales.read",label:"عرض فواتير العملاء وتفاصيلها ضمن الفرع — لا PDF أو طباعة أو تصدير ضمني",resource:"sales",available:true},
+  {key:"sales.invoices.print",label:"معاينة PDF للطباعة وطباعة فاتورة عميل — يحتاج عرض الفواتير، لا تصدير ضمني",resource:"sales",available:true},
+  {key:"sales.invoices.export",label:"تصدير PDF لفاتورة عميل — يحتاج عرض الفواتير، لا طباعة ضمنية",resource:"sales",available:true},
   ...["create","edit","review","submit","approve","post","cancel","reverse"].map((action,i)=>({
     key:`procurement.invoices.${action}`,label:["إنشاء مسودة فاتورة مورد","تعديل مسودة فاتورة مورد","مراجعة مطابقة فاتورة مورد","تقديم فاتورة مورد للاعتماد","اعتماد فاتورة مورد","ترحيل فاتورة مورد","إلغاء مسودة فاتورة مورد","عكس فاتورة مورد مرحلة"][i]!,
     resource:"procurement" as const,available:true,
@@ -62,7 +65,7 @@ export const GrantInput = z.object({
   templateId:z.number().int().positive().nullable().optional(),
   templateRevision:z.number().int().positive().nullable().optional(),
   templateMode:z.enum(["inherit","override"]).nullable().optional(),
-  resource: z.enum(["inventory", "pos", "procurement"]),
+  resource: z.enum(["inventory", "pos", "procurement", "sales"]),
   branchId: z.number().int().positive(),
   warehouseIds: z.array(z.number().int().positive()).max(100),
   actions: z.array(z.string()).min(1).max(20),
@@ -70,7 +73,7 @@ export const GrantInput = z.object({
   startsAt: z.string().datetime({ offset: true }).nullable(),
   endsAt: z.string().datetime({ offset: true }).nullable(),
 }).strict().superRefine((g, ctx) => {
-  if (g.resource !== "procurement" && !g.warehouseIds.length)
+  if (!["procurement","sales"].includes(g.resource) && !g.warehouseIds.length)
     ctx.addIssue({code:"custom",message:"هذه المسؤولية تحتاج مستودعًا واحدًا على الأقل"});
   if(g.templateId ? !g.templateRevision || !g.templateMode : g.templateRevision || g.templateMode)
     ctx.addIssue({code:"custom",message:"ربط القالب يحتاج المصدر والإصدار ونمط الوراثة معًا"});
@@ -112,7 +115,7 @@ export const TeamPersonInput = z.object({
 });
 export type TeamGrant = z.infer<typeof GrantInput>;
 export type TeamPerson = z.infer<typeof TeamPersonInput>;
-export const TEAM_MODULES = ["inventory","pos","procurement","finance","hr","payroll","crm","reports","ai","team"];
+export const TEAM_MODULES = ["inventory","pos","procurement","sales","finance","hr","payroll","crm","reports","ai","team"];
 export const TEAM_TEMPLATES = [
   { key: "inventory_reader", label: "موظف مخزون — قراءة", resource: "inventory", actions: ["inventory.read"] },
   { key: "cashier", label: "كاشير — بيع مباشر بلا تجاوز", resource: "pos", actions: ["pos.read","pos.sell","pos.shift.open"] },

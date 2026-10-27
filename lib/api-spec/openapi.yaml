@@ -5646,7 +5646,7 @@ components:
       required: [name, resource, actions]
       properties:
         name: {type: string}
-        resource: {type: string, enum: [inventory, pos, procurement]}
+        resource: {type: string, enum: [inventory, pos, procurement, sales]}
         actions: {type: array, items: {type: string}}
     PermissionTemplateEdit:
       type: object
@@ -5700,7 +5700,7 @@ components:
       type: object
       required: [resource, branchId, warehouseIds, actions, amountLimit, startsAt, endsAt]
       properties:
-        resource: { type: string, enum: [inventory, pos, procurement] }
+        resource: { type: string, enum: [inventory, pos, procurement, sales] }
         templateId: {type: [integer, "null"]}
         templateRevision: {type: [integer, "null"]}
         templateMode: {type: [string, "null"], enum: [inherit, override, null]}
