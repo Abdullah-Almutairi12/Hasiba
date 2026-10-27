@@ -221,8 +221,13 @@ describe("original POS invoice: independent linked return lifecycle", () => {
       "0061_stocktake_observation_cutoff.sql",
       "0062_stocktake_count_participants.sql",
       "0063_stocktake_variance_review.sql",
+      "0064_customer_invoice_permissions.sql",
     ]);
     expect(first.skipped).toHaveLength(26);
+    // Admission of a resource is not a backfill of authority. The pinned
+    // installation must gain no customer-invoice grant or template.
+    expect(await rows("SELECT count(*)::int AS n FROM responsibility_grants WHERE resource='sales'")).toEqual([{n:0}]);
+    expect(await rows("SELECT count(*)::int AS n FROM team_permission_templates WHERE resource='sales'")).toEqual([{n:0}]);
     // Upgrade is additive: a legacy company neither opts into self receiving
     // nor gains its independent permission merely by installing the new code.
     expect(await (await import("../lib/procurement-receiving-policy")).receivingPolicy(f.companyId))
