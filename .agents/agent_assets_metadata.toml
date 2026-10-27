@@ -980,3 +980,31 @@ mtime_ms = 1793083250492
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/fa3ead24-fe51-4fca-a1a9-6de19c776aa9/c802b265-b039-46fb-9653-0e3fe6c67b52"
 storage_version_token = "1793083262491186"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "Vp2B0Crma3cJr0g4-fTkR"
+uri = "file://generated-artifacts/inventory-reverification/hasiba-inventory-reverification-ar.html"
+type = "html"
+title = "تقرير إعادة التحقق من محاولات المخزون"
+description = "جدول البنود الستة، ما شُغّل وما أُعيد استخدامه، وحدود المتصفح ونتائج المصالحة المستقلة."
+logical_id = "73265707-48dc-4eb8-9b10-9e93ae64e910"
+content_hash = "sha256:ca85b68e19944fdba3f3757a3c50a89c783786b0f64f15a7d43e93c40b07f6ca"
+size = 1781389
+mtime_ms = 1793085297580
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/73265707-48dc-4eb8-9b10-9e93ae64e910/f12e8ed2-b99f-415c-899e-81cf6cd17e0a"
+storage_version_token = "1793085313147151"
+content_type = "text/html"
+
+[[outputs]]
+id = "C64ymFTyKevOH4QLlX62n"
+uri = "file://generated-artifacts/inventory-reverification/hasiba-inventory-reverification-evidence.zip"
+type = "unspecified"
+title = "حزمة ZIP — أدلة إعادة التحقق الفعلية"
+description = "40 ملفًا تشمل9صور، وحواجز PostgreSQL، وسحب الصلاحيات، والمصالحة والنتائج الخام السابقة موسومة، مع بصمات SHA256."
+logical_id = "38a128a3-7099-42d7-a35f-c613cc87f7c8"
+content_hash = "sha256:600d3dd827fb78f58b5cdf2d7e63f1396c2a5f39f33d73c5470819636f6eeba0"
+size = 2031958
+mtime_ms = 1793085297640
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/38a128a3-7099-42d7-a35f-c613cc87f7c8/4a0ef719-9f98-44c7-8e81-fdf735c78e93"
+storage_version_token = "1793085316997638"
+content_type = "application/octet-stream"
