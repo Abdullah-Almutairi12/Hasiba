@@ -10,7 +10,7 @@ async function configure(i:number,cap:string){
  people[i]=ok(await f.owner.put(`/api/team/people/${p.personId}/access`).send({expectedRevision:p.revision,suspended:false,
   person:{...personInput(p),deniedActions:[],grants:[{resource:"inventory",branchId:f.branches[1].id,
    warehouseIds:[f.warehouses[1].id],actions:["inventory.read",i===0?"inventory.stocktake.count":i===1?"inventory.stocktake.approve":"inventory.stocktake.post"],
-   amountLimit:cap,startsAt:null,endsAt:null}]}}));
+   amountLimit:i===0?null:cap,startsAt:null,endsAt:null}]}}));
 }
 const call=(i:number,path:string)=>f.actors[i].post(`/api/inventory/stock-takes/${path}`)
  .set("X-Workspace-Responsibility",String(people[i].grants[0].id));
