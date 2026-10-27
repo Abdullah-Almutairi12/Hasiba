@@ -100,6 +100,17 @@ and the replay response can finish first too.
 identify original/replay by their headers, requiring exactly one of each with
 the same key and document. Do not require the first arrival to be the original.
 
+A replay can retain the original HTTP201 status. Make committed-response fault
+injection one-shot per original intent, not conditional on status201 alone.
+
+**Why:** A transport harness matched a successful replay as if it were another
+new execution and dropped its response too, obscuring an otherwise correct
+native recovery. That is a harness failure, not proof of a business duplicate.
+
+**How to apply:** Pair the response with the durable receipt and replay evidence,
+disarm the fault after its intended drop, and preserve unexpected harness errors
+in the report instead of attributing them to the application.
+
 Compare timing evidence only within its clock domain. Do not infer an offset
 from response timestamps merely to make cross-process ordering assertions pass.
 
