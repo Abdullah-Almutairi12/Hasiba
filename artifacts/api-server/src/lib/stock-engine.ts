@@ -7,6 +7,7 @@ import {
   productVariantsTable,
 } from "@workspace/db";
 import { and, eq, sql } from "drizzle-orm";
+import {lockLotMovementKeys} from "./lot-movement-locks";
 import { postJournalEntry, type DbOrTx } from "./journal-posting";
 import { db, alertsTable, usersTable, userCompaniesTable } from "@workspace/db";
 import {
@@ -94,6 +95,8 @@ export type StockMoveKind =
   | "return_out";
 
 export interface RecordMoveInput {
+  /** Internal prelocked FEFO candidate set; never accepted from HTTP input. */
+  lotCandidates?: number[];
   companyId?: number;
   productId: number;
   variantId?: number | null;
@@ -119,6 +122,9 @@ export interface RecordMoveInput {
 }
 
 const EPSILON = 0.0001;
+export class StockAvailabilityError extends Error {
+  constructor(message:string){super(message);this.name="StockAvailabilityError";}
+}
 
 function rowsOf<T>(result: unknown): T[] {
   if (Array.isArray(result)) return result as T[];
@@ -145,12 +151,17 @@ export async function getOrCreateLot(
   expiryDate?: string | null,
   supplierRef?: string | null,
 ): Promise<number> {
+  await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${`lot-name:${productId}:${lotNumber}`},0))`);
   const [existing] = await tx
     .select()
     .from(stockLotsTable)
     .where(and(eq(stockLotsTable.productId, productId), eq(stockLotsTable.lotNumber, lotNumber)))
     .limit(1);
-  if (existing) return existing.id;
+  if (existing) {
+    if(expiryDate!==undefined && existing.expiryDate!==(expiryDate??null))
+      throw new Error("رقم الدفعة موجود بتاريخ صلاحية مختلف؛ لا يمكن تغيير تاريخها ضمن الحركة");
+    return existing.id;
+  }
   const [created] = await tx
     .insert(stockLotsTable)
     .values({
@@ -192,20 +203,21 @@ async function applyQuantDelta(
 
   if (existing) {
     const newQty = existing.quantity + qtyDelta;
-    if (newQty < -EPSILON) {
+    const tolerance=lotId==null?EPSILON:1e-9;
+    if (newQty < -tolerance) {
       throw new Error(`رصيد المخزون غير كافٍ (متاح ${existing.quantity}، مطلوب ${-qtyDelta})`);
     }
     // avg_cost is the carrying value per remaining unit, including FIFO.
     // Removing units at FIFO cost must remove that value, not the old average.
     const totalValue = existing.quantity * existing.avg_cost + qtyDelta * unitCost;
-    const newAvg = newQty > EPSILON ? totalValue / newQty : 0;
+    const newAvg = newQty > tolerance ? totalValue / newQty : 0;
     await tx.execute(sql`
       UPDATE stock_quants
          SET quantity = ${newQty}, avg_cost = ${newAvg}, updated_at = now()
        WHERE id = ${existing.id}
     `);
   } else {
-    if (qtyDelta < -EPSILON) {
+    if (qtyDelta < -(lotId==null?EPSILON:1e-9)) {
       throw new Error("لا يمكن إصدار مخزون من موقع لا يحتوي على رصيد");
     }
     // Advisory lock above already guarantees no concurrent insert for the
@@ -320,6 +332,7 @@ export async function allocateLotsFEFO(
   productId: number,
   warehouseId: number,
   qtyNeeded: number,
+  candidateIds?:number[],
 ): Promise<Array<{ lotId: number; qty: number }>> {
   const product = await getProductInfo(tx, productId);
   if (product.companyId == null) throw new Error("Stock resource not found");
@@ -334,6 +347,7 @@ export async function allocateLotsFEFO(
          AND ${supplyScope("quant", sql`q.id`, product.companyId)}
          AND q.quantity > 0
          AND q.lot_id IS NOT NULL
+         ${candidateIds?sql`AND q.lot_id=ANY(${sql.param(candidateIds)}::integer[])`:sql``}
          AND (l.expiry_date IS NULL OR l.expiry_date >= ${today})
        ORDER BY l.expiry_date NULLS LAST, q.lot_id ASC
     `),
@@ -341,13 +355,13 @@ export async function allocateLotsFEFO(
   const out: Array<{ lotId: number; qty: number }> = [];
   let remaining = qtyNeeded;
   for (const r of rows) {
-    if (remaining <= EPSILON) break;
+    if (remaining <= 1e-9) break;
     const take = Math.min(remaining, r.quantity);
     out.push({ lotId: r.lot_id, qty: take });
     remaining -= take;
   }
-  if (remaining > EPSILON) {
-    throw new Error(`المخزون اللوتي غير كافٍ (نقص ${remaining})`);
+  if (remaining > 1e-9) {
+    throw new StockAvailabilityError(`المخزون المتاح من الدفعات غير المنتهية غير كافٍ (نقص ${remaining})`);
   }
   return out;
 }
@@ -404,9 +418,14 @@ export async function recordStockMove(
     product.tracking==="none"&&input.variantId==null&&input.lotId==null&&
     input.fromWarehouseId!=null&&input.toWarehouseId==null;
   const costOutbound=isOutbound||stocktakeOutbound;
+  const candidates=product.tracking==="lot"
+    ?await lockLotMovementKeys(tx,input.productId,input.fromWarehouseId??null,input.toWarehouseId??null,
+      input.lotId,input.lotCandidates):undefined;
   if (product.tracking === "lot" && isInbound && !input.lotId) {
     throw new Error("هذا المنتج يتطلب رقم تشغيلة (Lot) عند الاستلام");
   }
+  if(product.tracking==="lot"&&input.fromWarehouseId!=null&&!input.lotId&&!isOutbound)
+    throw new Error("يلزم تحديد الدفعة قبل أي إخراج أو استهلاك للمخزون");
 
   // Auto-FEFO for outbound lot-tracked products without an explicit lot.
   if (
@@ -414,14 +433,14 @@ export async function recordStockMove(
     isOutbound &&
     !input.lotId &&
     input.fromWarehouseId != null &&
-    (input.state ?? "done") === "done"
+    ((input.state ?? "done")==="done"||input.state==="in_transit")
   ) {
-    const slices = await allocateLotsFEFO(tx, input.productId, input.fromWarehouseId, qty);
+    const slices = await allocateLotsFEFO(tx, input.productId, input.fromWarehouseId, qty,candidates);
     let firstMoveId = 0;
     const moveIds: number[] = [];
     let weightedCost = 0;
     for (const slice of slices) {
-      const r = await recordStockMove(tx, { ...input, quantity: slice.qty, lotId: slice.lotId });
+      const r = await recordStockMove(tx, { ...input, quantity: slice.qty, lotId: slice.lotId,lotCandidates:candidates });
       if (!firstMoveId) firstMoveId = r.moveId;
       moveIds.push(...r.moveIds);
       weightedCost += r.unitCost * slice.qty;
@@ -430,11 +449,12 @@ export async function recordStockMove(
   }
 
   // Block expired lots from being issued.
-  if (input.lotId && isOutbound) {
+  if (input.lotId && input.fromWarehouseId!=null) {
     const [lot] = await tx
       .select({ expiryDate: stockLotsTable.expiryDate })
       .from(stockLotsTable)
       .where(eq(stockLotsTable.id, input.lotId))
+      .for("share")
       .limit(1);
     if (lot?.expiryDate && lot.expiryDate < new Date().toISOString().slice(0, 10)) {
       throw new Error("لا يمكن إصدار تشغيلة منتهية الصلاحية");
@@ -721,6 +741,12 @@ export async function recordStockMove(
     // are reversed by the related sale/purchase journal).
   }
 
+  if(input.lotId&&input.fromWarehouseId!=null){
+    const [lot]=await tx.select({expiry:stockLotsTable.expiryDate}).from(stockLotsTable)
+      .where(eq(stockLotsTable.id,input.lotId));
+    if(lot?.expiry&&lot.expiry<new Date().toISOString().slice(0,10))
+      throw new StockAvailabilityError("لا يمكن إصدار أو استهلاك دفعة منتهية الصلاحية");
+  }
   return { moveId: move.id, moveIds: [move.id], unitCost };
 }
 

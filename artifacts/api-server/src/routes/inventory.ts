@@ -32,7 +32,7 @@ import { getCompanyId } from "../lib/scoped-db";
 import { financialTransaction, FinancialRequestError } from "../lib/financial-transaction";
 import { supplyScope, supplyParam, supplyReferencesGuard } from "../lib/supply-chain-scope";
 import { lockApprovalAuthority } from "../lib/approval-authority";
-import { inventoryTransferReadGuard, transferAuthority, transferReceiptReference, auditTransferReceipt } from "../lib/scoped-inventory-receipts";
+import { inventoryTransferReadGuard, transferAuthority, transferReceiptReference, auditTransferReceipt,transferReceiptGroup } from "../lib/scoped-inventory-receipts";
 import { lockStocktakeForCount, auditCountObservation, stocktakeReadAuthority } from "../lib/stocktake-count";
 import { inventoryActor,auditInventoryMutation } from "../lib/scoped-inventory-actor";
 import { managedProfile } from "../lib/responsibility-context";
@@ -340,11 +340,14 @@ router.post("/inventory/transfers/:id/receive", inventoryTransferReadGuard, asyn
     await transferAuthority(db,req,id);
     const result=await financialTransaction(req,async tx=>{
       await lockApprovalAuthority(tx);
-      const authority=await transferAuthority(tx,req,id,true);
-      const reference=transferReceiptReference(req,authority);
-      await completeTransfer(tx,id,req.session.userId!,getCompanyId(req));
-      await transferAuthority(tx,req,id,true,true);
-      await auditTransferReceipt(tx,authority,reference);
+      const ids=await transferReceiptGroup(tx,req,id);
+      for(const moveId of ids){
+        const authority=await transferAuthority(tx,req,moveId,true);
+        const reference=transferReceiptReference(req,authority);
+        await completeTransfer(tx,moveId,req.session.userId!,getCompanyId(req));
+        await transferAuthority(tx,req,moveId,true,true);
+        await auditTransferReceipt(tx,authority,reference);
+      }
       return {ok:true,id};
     });
     return res.json(result);

@@ -1,22 +1,36 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { TransferReceiptRow } from "./inventory-transfer-receipts";
+import { InventoryTransferReceipts, TransferReceiptRow } from "./inventory-transfer-receipts";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
-const mock=vi.hoisted(()=>({receive:vi.fn()}));
+const mock=vi.hoisted(()=>({receive:vi.fn(),transfers:vi.fn()}));
 vi.mock("@workspace/api-client-react",()=>({
   receiveInventoryTransfer:mock.receive,
   getGetWorkspaceInventoryTransfersQueryKey:()=>["transfers"],
   getGetWorkspaceInventoryQueryKey:()=>["stock"],
-  useGetWorkspaceInventoryTransfers:vi.fn(),
+  useGetWorkspaceInventoryTransfers:mock.transfers,
 }));
 const transfer={id:7,reference:"TRF-SYNTHETIC",quantity:"3.0000",state:"in_transit" as const,
   productName:"منتج مصطنع",sourceWarehouse:"المصدر",destinationWarehouse:"الوجهة",createdAt:"2026-10-25T00:00:00Z"};
 afterEach(cleanup);
-beforeEach(()=>mock.receive.mockReset());
+beforeEach(()=>{mock.receive.mockReset();mock.transfers.mockReset();});
 const prepare=()=>{
   fireEvent.change(screen.getByLabelText("مرجع إثبات الاستلام الكامل"),{target:{value:" SYN-RECEIPT-7 "}});
   fireEvent.click(screen.getByRole("checkbox"));
 };
+it("refreshes incoming state, stock and recent movement state after receipt and manual refresh",async()=>{
+ mock.transfers.mockReturnValue({data:{transfers:[transfer],canReceive:true},isLoading:false,isFetching:false,error:null});
+ mock.receive.mockResolvedValue({ok:true,id:7});
+ const client=new QueryClient(),invalidate=vi.spyOn(client,"invalidateQueries").mockResolvedValue(undefined);
+ render(<QueryClientProvider client={client}><InventoryTransferReceipts grantId={90}/></QueryClientProvider>);
+ prepare();fireEvent.click(screen.getByRole("button",{name:"تأكيد استلام حركة التحويل كاملة"}));
+ await waitFor(()=>expect(invalidate).toHaveBeenCalledWith({queryKey:["inventory-movement-options"]}));
+ expect(invalidate).toHaveBeenCalledWith({queryKey:["transfers",90]});
+ expect(invalidate).toHaveBeenCalledWith({queryKey:["stock",90]});
+ invalidate.mockClear();fireEvent.click(screen.getByRole("button",{name:"تحديث حالة التحويلات"}));
+ await waitFor(()=>expect(invalidate).toHaveBeenCalledWith({queryKey:["inventory-movement-options"]}));
+ expect(invalidate).toHaveBeenCalledWith({queryKey:["stock",90]});invalidate.mockRestore();
+});
 
 it("does not offer an execution control for a read-only destination responsibility",()=>{
   render(<TransferReceiptRow transfer={transfer} grantId={90} canReceive={false} onReceived={vi.fn()}/>);

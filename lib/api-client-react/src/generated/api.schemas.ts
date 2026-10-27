@@ -661,6 +661,13 @@ export interface WorkspaceAccess {
 export interface WorkspaceStock {
   quantId?: number;
   /** @nullable */
+  lotId?: number | null;
+  /** @nullable */
+  lotNumber?: string | null;
+  /** @nullable */
+  expiryDate?: string | null;
+  availableQuantity?: string;
+  /** @nullable */
   variantId?: number | null;
   /** @nullable */
   variantSku?: string | null;
@@ -1412,6 +1419,7 @@ export interface Product {
   price: number;
   costPrice?: number;
   stock: number;
+  availableQuantity?: string;
   minStock: number;
   unit: string;
   /** @nullable */
@@ -3577,6 +3585,14 @@ export type GetWorkspaceInventoryMovementOptions200DestinationsItem = {
   responsibilityId: number;
 };
 
+export type GetWorkspaceInventoryMovementOptions200ProductsItemTracking = typeof GetWorkspaceInventoryMovementOptions200ProductsItemTracking[keyof typeof GetWorkspaceInventoryMovementOptions200ProductsItemTracking];
+
+
+export const GetWorkspaceInventoryMovementOptions200ProductsItemTracking = {
+  none: 'none',
+  lot: 'lot',
+} as const;
+
 export type GetWorkspaceInventoryMovementOptions200ProductsItemVariantsItemAttributes = { [key: string]: unknown };
 
 export type GetWorkspaceInventoryMovementOptions200ProductsItemVariantsItem = {
@@ -3591,7 +3607,23 @@ export type GetWorkspaceInventoryMovementOptions200ProductsItem = {
   sku: string;
   unit?: string;
   requiresVariant?: boolean;
+  tracking?: GetWorkspaceInventoryMovementOptions200ProductsItemTracking;
   variants?: GetWorkspaceInventoryMovementOptions200ProductsItemVariantsItem[];
+};
+
+export type GetWorkspaceInventoryMovementOptions200LotsItemBalancesItem = {
+  warehouseId: number;
+  quantity: string;
+  availableQuantity: string;
+};
+
+export type GetWorkspaceInventoryMovementOptions200LotsItem = {
+  id: number;
+  productId: number;
+  lotNumber: string;
+  /** @nullable */
+  expiryDate?: string | null;
+  balances: GetWorkspaceInventoryMovementOptions200LotsItemBalancesItem[];
 };
 
 export type GetWorkspaceInventoryMovementOptions200RecentItem = {
@@ -3600,6 +3632,12 @@ export type GetWorkspaceInventoryMovementOptions200RecentItem = {
   state: string;
   quantity: string;
   productName: string;
+  /** @nullable */
+  lotId?: number | null;
+  /** @nullable */
+  lotNumber?: string | null;
+  /** @nullable */
+  expiryDate?: string | null;
   /** @nullable */
   variantId?: number | null;
   /** @nullable */
@@ -3616,6 +3654,7 @@ export type GetWorkspaceInventoryMovementOptions200 = {
   sources: GetWorkspaceInventoryMovementOptions200SourcesItem[];
   destinations: GetWorkspaceInventoryMovementOptions200DestinationsItem[];
   products: GetWorkspaceInventoryMovementOptions200ProductsItem[];
+  lots?: GetWorkspaceInventoryMovementOptions200LotsItem[];
   recent: GetWorkspaceInventoryMovementOptions200RecentItem[];
 };
 
@@ -3631,6 +3670,15 @@ export type GetWorkspaceInventoryTransfers200TransfersItem = {
   id: number;
   /** @nullable */
   reference: string | null;
+  /** @nullable */
+  lotId?: number | null;
+  /** @nullable */
+  lotNumber?: string | null;
+  /** @nullable */
+  expiryDate?: string | null;
+  expired?: boolean;
+  groupCount?: number;
+  groupQuantity?: string;
   quantity: string;
   state: GetWorkspaceInventoryTransfers200TransfersItemState;
   createdAt: string;
@@ -3664,6 +3712,15 @@ export type CreateScopedInventoryMovementBody = {
   variantId?: number;
   /** @minimum 1 */
   warehouseId: number;
+  /** @minimum 1 */
+  lotId?: number;
+  /**
+     * @minLength 1
+     * @maxLength 120
+     */
+  lotNumber?: string;
+  /** @nullable */
+  expiryDate?: string | null;
   kind: CreateScopedInventoryMovementBodyKind;
   /**
      * @minimum 0.0001
@@ -3689,6 +3746,15 @@ export type CreateScopedInventoryTransferBody = {
   variantId?: number;
   /** @minimum 1 */
   fromWarehouseId: number;
+  /** @minimum 1 */
+  lotId?: number;
+  /**
+     * @minLength 1
+     * @maxLength 120
+     */
+  lotNumber?: string;
+  /** @nullable */
+  expiryDate?: string | null;
   /** @minimum 1 */
   toWarehouseId: number;
   /** @minimum 1 */

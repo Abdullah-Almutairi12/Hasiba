@@ -206,11 +206,13 @@ export function makeTeamRouter(getStack: () => unknown[]) {
     const context = (await import("../lib/responsibility-context")).responsibilityContext.getStore()!;
     res.json(await teamRows(db, sql`SELECT q.id AS "quantId",p.id AS "productId",p.name_ar AS "productName",w.id AS "warehouseId",
       coalesce(w.name_ar,w.name) AS "warehouseName",q.quantity::text AS quantity,q.variant_id AS "variantId",
-      v.sku AS "variantSku",p.unit,
+      v.sku AS "variantSku",p.unit,q.lot_id AS "lotId",l.lot_number AS "lotNumber",l.expiry_date::text AS "expiryDate",
+      CASE WHEN l.expiry_date<${new Date().toISOString().slice(0,10)}::date THEN '0' ELSE q.quantity::text END AS "availableQuantity",
       CASE WHEN ${grant.actions.includes("inventory.cost.read")} THEN q.avg_cost::text ELSE NULL END AS cost
       FROM stock_quants q JOIN warehouses w ON w.id=q.warehouse_id AND w.company_id=${context.companyId}
       JOIN products p ON p.id=q.product_id AND p.company_id=w.company_id
       LEFT JOIN product_variants v ON v.id=q.variant_id AND v.product_id=p.id
+      LEFT JOIN stock_lots l ON l.id=q.lot_id AND l.product_id=p.id
       WHERE w.branch_id=${grant.branchId} AND w.id=ANY(${sql.param(grant.warehouseIds)}::integer[])
       ORDER BY p.id,w.id LIMIT 1000`));
   }));

@@ -26,6 +26,12 @@ router.get("/products", async (req, res) => {
         price: productsTable.price,
         costPrice: productsTable.costPrice,
         stock: productsTable.stock,
+        availableQuantity: sql<string>`CASE WHEN ${productsTable.trackingMode}='lot' THEN
+          coalesce((SELECT sum(q.quantity) FROM stock_quants q JOIN warehouses w ON w.id=q.warehouse_id
+           JOIN stock_lots l ON l.id=q.lot_id AND l.product_id=q.product_id
+           WHERE q.product_id=${productsTable.id} AND w.company_id=${productsTable.companyId} AND NOT w.is_scrap
+            AND (l.expiry_date IS NULL OR l.expiry_date>=${new Date().toISOString().slice(0,10)}::date)),0)
+          ELSE ${productsTable.stock} END::text`,
         minStock: productsTable.minStock,
         unit: productsTable.unit,
         imageUrl: productsTable.imageUrl,

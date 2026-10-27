@@ -985,7 +985,7 @@ export function startMarketplaceWorker(): void {
  * value pushed upstream matches the actual fulfilment location — never
  * the global `products.stock` cache.
  */
-async function getOnHandForConnector(
+export async function getOnHandForConnector(
   productId: number,
   warehouseId: number | null,
   companyId: number,
@@ -1000,6 +1000,8 @@ async function getOnHandForConnector(
           eq(stockQuantsTable.productId, productId),
           eq(stockQuantsTable.warehouseId, warehouseId),
           eq(warehousesTable.companyId, companyId),
+          sql`NOT EXISTS(SELECT 1 FROM stock_lots l WHERE l.id=${stockQuantsTable.lotId}
+            AND l.product_id=${stockQuantsTable.productId} AND l.expiry_date<${new Date().toISOString().slice(0,10)}::date)`,
         ),
       );
     return Math.max(0, Number(row?.q ?? 0));
@@ -1011,6 +1013,8 @@ async function getOnHandForConnector(
      WHERE q.product_id = ${productId}
        AND w.is_scrap = false
        AND w.company_id = ${companyId}
+        AND NOT EXISTS(SELECT 1 FROM stock_lots l WHERE l.id=q.lot_id AND l.product_id=q.product_id
+          AND l.expiry_date<${new Date().toISOString().slice(0,10)}::date)
   `);
   const row = result.rows[0];
   return Math.max(0, Number(row?.q ?? 0));

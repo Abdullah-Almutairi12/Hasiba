@@ -24,6 +24,46 @@ it("does not offer a movement to a read-only grant",async()=>{
  mock.options.mockResolvedValue({...options,actions:[],destinations:[]});mount();
  await screen.findByText("لا تملك إذن حركة هنا.");expect(screen.queryByRole("button")).toBeNull();expect(mock.fetch).not.toHaveBeenCalled();
 });
+it("creates a lot with its expiry without accepting or sending a cost",async()=>{
+ mock.options.mockResolvedValue({...options,products:[{...options.products[0],tracking:"lot",unit:"pcs"}],lots:[]});
+ mock.fetch.mockResolvedValue({ok:true,json:async()=>({moveId:12,moveIds:[12]})});
+ mount();await fill("receipt");
+ fireEvent.change(screen.getByLabelText("رقم الدفعة"),{target:{value:"LOT-AR-١"}});
+ fireEvent.change(screen.getByLabelText(/تاريخ الصلاحية/),{target:{value:"2027-01-31"}});
+ fireEvent.click(screen.getByRole("button",{name:"تأكيد الحركة"}));
+ await screen.findByText(/حركة مؤكدة #12/);
+ expect(JSON.parse(mock.fetch.mock.calls[0][1].body)).toEqual({productId:9,warehouseId:7,kind:"receipt",quantity:2,
+  notes:"دليل مصطنع",lotNumber:"LOT-AR-١",expiryDate:"2027-01-31"});
+});
+it("shows FEFO allocation and prevents consuming the physical balance of an expired lot",async()=>{
+ mock.options.mockResolvedValue({...options,products:[{...options.products[0],tracking:"lot",unit:"pcs"}],lots:[
+  {id:61,productId:9,lotNumber:"منتهية",expiryDate:"2020-01-01",balances:[{warehouseId:7,quantity:"8",availableQuantity:"0"}]},
+  {id:62,productId:9,lotNumber:"صالحة",expiryDate:"2030-01-01",balances:[{warehouseId:7,quantity:"3",availableQuantity:"3"}]},
+ ]});
+ mount();await fill("issue");expect(screen.getByText(/التخصيص المتوقع/).textContent).toContain("صالحة: 2");
+ fireEvent.change(screen.getByLabelText("الدفعة"),{target:{value:"61"}});
+ fireEvent.click(screen.getByRole("button",{name:"تأكيد الحركة"}));
+ await screen.findByText(/الدفعة غير متاحة أو منتهية/);expect(mock.fetch).not.toHaveBeenCalled();expect(localStorage.length).toBe(0);
+ expect((screen.getByRole("button",{name:"تأكيد الحركة"}) as HTMLButtonElement).disabled).toBe(true);
+});
+it("disables a FEFO transfer with no usable balance before submitting",async()=>{
+ mock.options.mockResolvedValue({...options,products:[{...options.products[0],tracking:"lot"}],lots:[
+  {id:61,productId:9,lotNumber:"منتهية",expiryDate:"2020-01-01",balances:[{warehouseId:7,quantity:"2",availableQuantity:"0"}]},
+ ]});mount();await fill("transfer");
+ fireEvent.change(screen.getByLabelText("مستودع الوجهة المصرح به"),{target:{value:"91:8"}});
+ expect((screen.getByRole("button",{name:"تأكيد الحركة"}) as HTMLButtonElement).disabled).toBe(true);
+ expect(screen.getByText("الرصيد المتاح للدفعات غير المنتهية غير كافٍ")).toBeTruthy();
+ expect(mock.fetch).not.toHaveBeenCalled();expect(localStorage.length).toBe(0);
+});
+it("never blocks recovery of a saved confirmed lot intent when usable stock is now zero",async()=>{
+ mock.options.mockResolvedValue({...options,products:[{...options.products[0],tracking:"lot"}],lots:[]});
+ localStorage.setItem("hasiba.inventory.movement:11:22:90",JSON.stringify({key:"saved-lot-intent",transfer:false,
+  body:{productId:9,warehouseId:7,kind:"issue",quantity:2,notes:"دليل محفوظ",lotId:61}}));
+ mock.fetch.mockResolvedValue({ok:true,json:async()=>({moveId:12,moveIds:[12]})});mount();
+ const button=await screen.findByRole("button",{name:"استعادة نتيجة المحاولة المحفوظة"});
+ expect((button as HTMLButtonElement).disabled).toBe(false);fireEvent.click(button);await screen.findByText(/حركة مؤكدة #12/);
+ expect(mock.fetch.mock.calls[0][1].headers["Idempotency-Key"]).toBe("saved-lot-intent");expect(localStorage.length).toBe(0);
+});
 it("sends no cost and uses the explicit destination grant for a cross-branch transfer",async()=>{
  mock.fetch.mockResolvedValue({ok:true,json:async()=>({moveId:12,moveIds:[12]})});mount();await fill("transfer");
  fireEvent.change(screen.getByLabelText("مستودع الوجهة المصرح به"),{target:{value:"91:8"}});

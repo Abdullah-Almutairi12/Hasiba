@@ -26,7 +26,7 @@ import { recordSaleSellers } from "../lib/seller-ledger";
 import { getCompanyInfo } from "../lib/pdf/purchase-order";
 import { parsePagination } from "../lib/pagination";
 import { processInvoiceForZatca } from "../lib/integrations/zatca-phase2";
-import { recordStockMove } from "../lib/stock-engine";
+import { recordStockMove,StockAvailabilityError } from "../lib/stock-engine";
 import { stockMovesTable } from "@workspace/db";
 import { eq, gte, sql, desc, inArray, and, isNull } from "drizzle-orm";
 import { CreatePosSessionBody, CreatePosOrderBody } from "@workspace/api-zod";
@@ -1574,7 +1574,7 @@ router.post(
       });
       return;
     }
-    if (err instanceof ValidationError) {
+    if (err instanceof ValidationError || err instanceof StockAvailabilityError) {
       req.log.warn({ err }, "POS order validation failed");
       res.status(400).json({ error: err.message });
       return;

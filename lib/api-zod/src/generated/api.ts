@@ -1597,6 +1597,10 @@ export const GetWorkspaceInventoryHeader = zod.object({
 
 export const GetWorkspaceInventoryResponseItem = zod.object({
   "quantId": zod.number().int().optional(),
+  "lotId": zod.number().int().nullish(),
+  "lotNumber": zod.string().nullish(),
+  "expiryDate": zod.string().nullish(),
+  "availableQuantity": zod.string().optional(),
   "variantId": zod.number().int().nullish(),
   "variantSku": zod.string().nullish(),
   "unit": zod.string().optional(),
@@ -1634,18 +1638,33 @@ export const GetWorkspaceInventoryMovementOptionsResponse = zod.object({
   "sku": zod.string(),
   "unit": zod.string().optional(),
   "requiresVariant": zod.boolean().optional(),
+  "tracking": zod.enum(['none', 'lot']).optional(),
   "variants": zod.array(zod.object({
   "id": zod.number().int(),
   "sku": zod.string(),
   "attributes": zod.record(zod.string(), zod.unknown())
 })).optional()
 })),
+  "lots": zod.array(zod.object({
+  "id": zod.number().int(),
+  "productId": zod.number().int(),
+  "lotNumber": zod.string(),
+  "expiryDate": zod.string().nullish(),
+  "balances": zod.array(zod.object({
+  "warehouseId": zod.number().int(),
+  "quantity": zod.string(),
+  "availableQuantity": zod.string()
+}))
+})).optional(),
   "recent": zod.array(zod.object({
   "id": zod.number().int(),
   "kind": zod.string(),
   "state": zod.string(),
   "quantity": zod.string(),
   "productName": zod.string(),
+  "lotId": zod.number().int().nullish(),
+  "lotNumber": zod.string().nullish(),
+  "expiryDate": zod.string().nullish(),
   "variantId": zod.number().int().nullish(),
   "variantSku": zod.string().nullish(),
   "unit": zod.string().optional(),
@@ -1664,6 +1683,12 @@ export const GetWorkspaceInventoryTransfersResponse = zod.object({
   "transfers": zod.array(zod.object({
   "id": zod.number().int(),
   "reference": zod.string().nullable(),
+  "lotId": zod.number().int().nullish(),
+  "lotNumber": zod.string().nullish(),
+  "expiryDate": zod.string().nullish(),
+  "expired": zod.boolean().optional(),
+  "groupCount": zod.number().int().optional(),
+  "groupQuantity": zod.string().optional(),
   "quantity": zod.string(),
   "state": zod.enum(['in_transit', 'done']),
   "createdAt": zod.coerce.date(),
@@ -1688,6 +1713,9 @@ export const CreateScopedInventoryMovementHeader = zod.object({
 
 
 
+
+export const createScopedInventoryMovementBodyLotNumberMax = 120;
+
 export const createScopedInventoryMovementBodyQuantityMin = 0.0001;
 export const createScopedInventoryMovementBodyQuantityMax = 999999999;
 export const createScopedInventoryMovementBodyQuantityMultipleOf = 0.0001;
@@ -1701,6 +1729,9 @@ export const CreateScopedInventoryMovementBody = zod.object({
   "productId": zod.number().int().min(1),
   "variantId": zod.number().int().min(1).optional(),
   "warehouseId": zod.number().int().min(1),
+  "lotId": zod.number().int().min(1).optional(),
+  "lotNumber": zod.string().min(1).max(createScopedInventoryMovementBodyLotNumberMax).optional(),
+  "expiryDate": zod.coerce.date().nullish(),
   "kind": zod.enum(['receipt', 'issue']),
   "quantity": zod.number().min(createScopedInventoryMovementBodyQuantityMin).max(createScopedInventoryMovementBodyQuantityMax).multipleOf(createScopedInventoryMovementBodyQuantityMultipleOf),
   "notes": zod.string().min(createScopedInventoryMovementBodyNotesMin).max(createScopedInventoryMovementBodyNotesMax)
@@ -1724,6 +1755,9 @@ export const CreateScopedInventoryTransferHeader = zod.object({
 
 
 
+export const createScopedInventoryTransferBodyLotNumberMax = 120;
+
+
 
 export const createScopedInventoryTransferBodyQuantityMin = 0.0001;
 export const createScopedInventoryTransferBodyQuantityMax = 999999999;
@@ -1738,6 +1772,9 @@ export const CreateScopedInventoryTransferBody = zod.object({
   "productId": zod.number().int().min(1),
   "variantId": zod.number().int().min(1).optional(),
   "fromWarehouseId": zod.number().int().min(1),
+  "lotId": zod.number().int().min(1).optional(),
+  "lotNumber": zod.string().min(1).max(createScopedInventoryTransferBodyLotNumberMax).optional(),
+  "expiryDate": zod.coerce.date().nullish(),
   "toWarehouseId": zod.number().int().min(1),
   "destinationResponsibilityId": zod.number().int().min(1).optional(),
   "quantity": zod.number().min(createScopedInventoryTransferBodyQuantityMin).max(createScopedInventoryTransferBodyQuantityMax).multipleOf(createScopedInventoryTransferBodyQuantityMultipleOf),
@@ -2302,6 +2339,7 @@ export const ListProductsResponseItem = zod.object({
   "price": zod.number(),
   "costPrice": zod.number().optional(),
   "stock": zod.number().int(),
+  "availableQuantity": zod.string().optional(),
   "minStock": zod.number().int(),
   "unit": zod.string(),
   "imageUrl": zod.string().nullish(),
@@ -2343,6 +2381,7 @@ export const CreateProductResponse = zod.object({
   "price": zod.number(),
   "costPrice": zod.number().optional(),
   "stock": zod.number().int(),
+  "availableQuantity": zod.string().optional(),
   "minStock": zod.number().int(),
   "unit": zod.string(),
   "imageUrl": zod.string().nullish(),
@@ -2368,6 +2407,7 @@ export const GetProductResponse = zod.object({
   "price": zod.number(),
   "costPrice": zod.number().optional(),
   "stock": zod.number().int(),
+  "availableQuantity": zod.string().optional(),
   "minStock": zod.number().int(),
   "unit": zod.string(),
   "imageUrl": zod.string().nullish(),
@@ -2406,6 +2446,7 @@ export const UpdateProductResponse = zod.object({
   "price": zod.number(),
   "costPrice": zod.number().optional(),
   "stock": zod.number().int(),
+  "availableQuantity": zod.string().optional(),
   "minStock": zod.number().int(),
   "unit": zod.string(),
   "imageUrl": zod.string().nullish(),

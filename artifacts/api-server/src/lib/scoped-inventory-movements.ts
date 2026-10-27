@@ -7,16 +7,22 @@ import { lockApprovalAuthority } from "./approval-authority";
 import { inventoryActor } from "./scoped-inventory-actor";
 import { currentResponsibilities, responsibilityContext, type Responsibility } from "./responsibility-context";
 import { teamRows } from "./team-store";
-import { recordStockMove } from "./stock-engine";
+import { recordStockMove,getOrCreateLot } from "./stock-engine";
 import { lockInventoryQuantKeys } from "./inventory-resource-locks";
+import {lockLotMovementKeys} from "./lot-movement-locks";
+import type {DbOrTx} from "./journal-posting";
 
 const invalid=()=>new FinancialRequestError("الحركة أو أحد مستودعاتها خارج الصلاحية الحالية",403);
 const quantity=z.coerce.number().min(0.0001).max(999999999).refine(v=>Number.isFinite(v)&&Number(v.toFixed(4))===v,"الكمية حتى أربع منازل عشرية");
-const common={productId:z.coerce.number().int().positive(),variantId:z.number().int().positive().optional(),quantity,notes:z.string().trim().min(3).max(500)};
+const expiry=z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(s=>!Number.isNaN(Date.parse(s))&&new Date(s).toISOString().slice(0,10)===s);
+const common={productId:z.coerce.number().int().positive(),variantId:z.number().int().positive().optional(),
+ lotId:z.number().int().positive().optional(),lotNumber:z.string().trim().min(1).max(120).optional(),
+ expiryDate:expiry.nullable().optional(),quantity,notes:z.string().trim().min(3).max(500)};
 const manual=z.object({...common,warehouseId:z.coerce.number().int().positive(),kind:z.enum(["receipt","issue"])}).strict();
 const transfer=z.object({...common,fromWarehouseId:z.coerce.number().int().positive(),toWarehouseId:z.coerce.number().int().positive(),
  destinationResponsibilityId:z.number().int().positive().optional()}).strict();
-type Movement={productId:number;variantId?:number;quantity:number;notes:string;from:number|null;to:number|null;action:string;destinationGrantId?:number;kind:"transfer"|"receipt"|"issue"};
+type Movement={productId:number;variantId?:number;lotId?:number;lotNumber?:string;expiryDate?:string|null;lotCandidates?:number[];expectedTracking?:string;
+ quantity:number;notes:string;from:number|null;to:number|null;action:string;destinationGrantId?:number;kind:"transfer"|"receipt"|"issue"};
 
 /** Legacy bodies historically stripped variantId. Never silently turn such a
  * request into a parent-level quantity; explicit responsibility grants own
@@ -38,7 +44,7 @@ export async function rejectLegacyVariantMovement(connection:Pick<typeof db,"exe
  if(parent?.variant)reject();
 }
 
-async function authority(connection:Pick<typeof db,"execute">,req:Request,m:Movement,execute:boolean){
+async function authority(connection:DbOrTx,req:Request,m:Movement,execute:boolean){
  const actor=await inventoryActor(connection,req,execute?m.action:"inventory.read");
  if(!actor.grant)throw invalid();
  const grants=await currentResponsibilities(actor.userId,actor.companyId,connection);
@@ -54,8 +60,33 @@ async function authority(connection:Pick<typeof db,"execute">,req:Request,m:Move
   (m.to!==null&&!covered(m.to,destination)))throw invalid();
  // Warehouse SHARE protects ownership/state while allowing the engine's FK
  // KEY SHARE. UPDATE here can deadlock a stocktake holding the quant key.
- if(execute)await lockInventoryQuantKeys(connection,ids.map(warehouseId=>({
-  productId:m.productId,warehouseId,variantId:m.variantId})));
+ if(execute){
+  const [mode]=await teamRows<{tracking:string;variant:boolean}>(connection,sql`
+   SELECT tracking_mode AS tracking,(is_variant_parent OR EXISTS(SELECT 1 FROM product_variants v WHERE v.product_id=products.id)) AS variant
+   FROM products WHERE id=${m.productId} AND company_id=${actor.companyId} AND is_active`);
+  if(!mode)throw invalid();
+  m.expectedTracking??=mode.tracking;
+  if(mode.tracking==="lot"&&!mode.variant&&!m.variantId){
+   if(m.kind!=="receipt"&&(m.lotNumber!==undefined||m.expiryDate!==undefined))
+    throw new FinancialRequestError("اختر دفعة موجودة أو التخصيص FEFO؛ لا إنشاء أو تغيير تاريخ دفعة عند الصرف والتحويل",400);
+   if(m.kind==="receipt"&&!m.lotId){
+    if(!m.lotNumber||m.expiryDate===undefined)throw new FinancialRequestError("أدخل رقم الدفعة وصلاحيتها أو اختر دفعة موجودة",400);
+    m.lotId=await getOrCreateLot(connection,m.productId,m.lotNumber,m.expiryDate);
+   }
+   if(m.lotId){
+    const [lot]=await teamRows<{number:string;expiry:string|null}>(connection,sql`
+     SELECT lot_number AS number,expiry_date::text AS expiry FROM stock_lots WHERE id=${m.lotId} AND product_id=${m.productId}`);
+    if(!lot)throw invalid();
+    if((m.lotNumber!==undefined&&m.lotNumber!==lot.number)||(m.expiryDate!==undefined&&m.expiryDate!==lot.expiry))
+     throw new FinancialRequestError("رقم الدفعة أو صلاحيتها يتعارض مع سجلها؛ لا تعديل تاريخي ضمن الحركة",409);
+   }
+   m.lotCandidates=await lockLotMovementKeys(connection,m.productId,m.from,m.to,m.lotId,m.lotCandidates);
+  }else{
+   if(m.lotId!==undefined||m.lotNumber!==undefined||m.expiryDate!==undefined)
+    throw new FinancialRequestError("حقول الدفعة تخص صنف دفعات غير مرتبط بمتغير",409);
+   await lockInventoryQuantKeys(connection,ids.map(warehouseId=>({productId:m.productId,warehouseId,variantId:m.variantId})));
+  }
+ }
  const [product]=await teamRows<{tracking:string;variant:boolean;hasVariants:boolean}>(connection,sql`
   SELECT tracking_mode AS tracking,is_variant_parent AS variant,
    EXISTS(SELECT 1 FROM product_variants v WHERE v.product_id=products.id) AS "hasVariants" FROM products
@@ -63,7 +94,9 @@ async function authority(connection:Pick<typeof db,"execute">,req:Request,m:Move
   ${execute?sql`FOR NO KEY UPDATE`:sql``}`);
  if(!product)throw invalid();
  if(execute){
-  if(product.tracking!=="none")throw new FinancialRequestError("التشغيلة والتسلسل خارج مسار الحركات غير المتتبعة",409);
+  if(product.tracking!==m.expectedTracking)throw new FinancialRequestError("تغيرت طريقة التتبع أثناء انتظار التنفيذ؛ أعد مراجعة الصنف",409);
+  if(product.tracking!=="none"&&!(product.tracking==="lot"&&!product.variant&&!product.hasVariants&&!m.variantId))
+   throw new FinancialRequestError("التسلسل والجمع بين المتغيرات والدفعات خارج هذا المسار",409);
   if((product.variant||product.hasVariants)&&!m.variantId)
    throw new FinancialRequestError("اختر متغيرًا محددًا؛ لا يسمح بحركة مجمعة على الصنف الأب",409);
   if(m.variantId){
@@ -95,7 +128,8 @@ export async function executeScopedInventoryMovement(req:Request,isTransfer:bool
   await lockApprovalAuthority(tx);
   await authority(tx,req,m,true);
   // All quantities still pass through the shared stock-engine key locks.
-  const out=await recordStockMove(tx,{companyId:req.session.companyId!,productId:m.productId,variantId:m.variantId,quantity:m.quantity,
+  const out=await recordStockMove(tx,{companyId:req.session.companyId!,productId:m.productId,variantId:m.variantId,lotId:m.lotId,
+   lotCandidates:m.lotCandidates,quantity:m.quantity,
    kind:m.kind,state:m.kind==="transfer"?"in_transit":"done",fromWarehouseId:m.from,toWarehouseId:m.to,
    sourceType:m.kind==="transfer"?"transfer":"manual",sourceRef:`SCOPED-${req.get("Idempotency-Key")}`,
    notes:m.notes,createdBy:req.session.userId!});
@@ -109,7 +143,7 @@ export async function executeScopedInventoryMovement(req:Request,isTransfer:bool
   }
   await tx.execute(sql`INSERT INTO audit_logs(user_id,user_name,company_id,action,entity,details)
    VALUES(${fresh.actor.userId},${fresh.actor.name},${fresh.actor.companyId},${m.action},'stock_move',
-    ${JSON.stringify({moveIds:out.moveIds,productId:m.productId,variantId:m.variantId??null,quantity:m.quantity,fromWarehouseId:m.from,
+    ${JSON.stringify({moveIds:out.moveIds,productId:m.productId,variantId:m.variantId??null,lotId:m.lotId??null,quantity:m.quantity,fromWarehouseId:m.from,
      toWarehouseId:m.to,reason:m.notes,responsibilities:fresh.grants})}::text)`);
   return {moveId:out.moveId,moveIds:out.moveIds};
  },async tx=>{await lockApprovalAuthority(tx);await authority(tx,req,m,false);});
@@ -127,16 +161,29 @@ export async function inventoryMovementOptions(req:Request){
   WHERE w.company_id=${actor.companyId} ORDER BY w.id`);
  const project=(g:Responsibility)=>warehouses.filter(w=>w.branchId===g.branchId&&g.warehouseIds.includes(w.id))
   .map(w=>({...w,responsibilityId:g.id}));
- const products=await teamRows(db,sql`SELECT p.id,coalesce(p.name_ar,p.name) AS name,p.sku,p.unit,
+ const products=await teamRows(db,sql`SELECT p.id,coalesce(p.name_ar,p.name) AS name,p.sku,p.unit,p.tracking_mode AS tracking,
   (p.is_variant_parent OR EXISTS(SELECT 1 FROM product_variants v WHERE v.product_id=p.id)) AS "requiresVariant",
   coalesce((SELECT jsonb_agg(jsonb_build_object('id',v.id,'sku',v.sku,'attributes',v.attributes) ORDER BY v.id)
    FROM product_variants v WHERE v.product_id=p.id AND v.is_active),'[]'::jsonb) AS variants
-  FROM products p WHERE p.company_id=${actor.companyId} AND p.is_active AND p.tracking_mode='none' ORDER BY p.id LIMIT 1000`);
+  FROM products p WHERE p.company_id=${actor.companyId} AND p.is_active AND (p.tracking_mode='none' OR
+   p.tracking_mode='lot' AND NOT p.is_variant_parent AND NOT EXISTS(SELECT 1 FROM product_variants v WHERE v.product_id=p.id))
+   ORDER BY p.id LIMIT 1000`);
+ const lots=await teamRows(db,sql`SELECT l.id,l.product_id AS "productId",l.lot_number AS "lotNumber",l.expiry_date::text AS "expiryDate",
+  coalesce(jsonb_agg(jsonb_build_object('warehouseId',q.warehouse_id,'quantity',q.quantity::text,
+   'availableQuantity',CASE WHEN l.expiry_date<${new Date().toISOString().slice(0,10)}::date THEN '0' ELSE q.quantity::text END))
+   FILTER(WHERE q.id IS NOT NULL),'[]'::jsonb) AS balances
+  FROM stock_lots l JOIN products p ON p.id=l.product_id AND p.company_id=${actor.companyId}
+  LEFT JOIN stock_quants q ON q.lot_id=l.id AND q.product_id=p.id AND q.variant_id IS NULL
+   AND q.warehouse_id=ANY(${sql.param(actor.grant.warehouseIds)}::integer[])
+  WHERE p.tracking_mode='lot' AND NOT p.is_variant_parent AND NOT EXISTS(SELECT 1 FROM product_variants v WHERE v.product_id=p.id)
+  GROUP BY l.id ORDER BY l.expiry_date NULLS LAST,l.id`);
  const recent=await teamRows(db,sql`SELECT m.id,m.kind,m.state,m.quantity::text,
    coalesce(p.name_ar,p.name) AS "productName",m.variant_id AS "variantId",v.sku AS "variantSku",p.unit,
+   m.lot_id AS "lotId",l.lot_number AS "lotNumber",l.expiry_date::text AS "expiryDate",
    coalesce(f.name_ar,f.name) AS "sourceWarehouse",coalesce(t.name_ar,t.name) AS "destinationWarehouse"
    FROM stock_moves m JOIN products p ON p.id=m.product_id AND p.company_id=${actor.companyId}
    LEFT JOIN product_variants v ON v.id=m.variant_id AND v.product_id=p.id
+   LEFT JOIN stock_lots l ON l.id=m.lot_id AND l.product_id=p.id
    LEFT JOIN warehouses f ON f.id=m.from_warehouse_id AND f.company_id=p.company_id
    LEFT JOIN warehouses t ON t.id=m.to_warehouse_id AND t.company_id=p.company_id
    WHERE m.source_ref LIKE 'SCOPED-%' AND
@@ -144,5 +191,5 @@ export async function inventoryMovementOptions(req:Request){
     (t.branch_id=${actor.grant.branchId} AND t.id=ANY(${sql.param(actor.grant.warehouseIds)}::integer[])))
    ORDER BY m.id DESC LIMIT 40`);
  return {actions:actor.grant.actions.filter(a=>["inventory.move.receipt","inventory.move.issue","inventory.transfer.send"].includes(a)),
-  sources:project(actor.grant),destinations:grants.filter(g=>g.resource==="inventory"&&g.actions.includes("inventory.transfer.send")).flatMap(project),products,recent};
+  sources:project(actor.grant),destinations:grants.filter(g=>g.resource==="inventory"&&g.actions.includes("inventory.transfer.send")).flatMap(project),products,lots,recent};
 }

@@ -837,8 +837,8 @@ export default function POS() {
                       <Skeleton key={i} className="h-[180px] w-full rounded-2xl" />
                     ))
                   : products?.map((product: any) => {
-                      const stock = product.stockQuantity ?? 0;
-                      const outOfStock = stock <= 0 && product.stockQuantity != null;
+                      const stock = Number(product.availableQuantity ?? product.stockQuantity ?? product.stock ?? 0);
+                      const outOfStock = stock <= 0 && (product.availableQuantity!=null||product.stockQuantity!=null||product.stock!=null);
                       return (
                         <motion.button
                           key={product.id}

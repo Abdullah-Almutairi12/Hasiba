@@ -1177,6 +1177,7 @@ paths:
                         sku: { type: string }
                         unit: { type: string }
                         requiresVariant: { type: boolean }
+                        tracking: { type: string, enum: [none, lot] }
                         variants:
                           type: array
                           items:
@@ -1186,6 +1187,25 @@ paths:
                               id: { type: integer }
                               sku: { type: string }
                               attributes: { type: object, additionalProperties: true }
+                  lots:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, productId, lotNumber, balances]
+                      properties:
+                        id: { type: integer }
+                        productId: { type: integer }
+                        lotNumber: { type: string }
+                        expiryDate: { type: string, nullable: true }
+                        balances:
+                          type: array
+                          items:
+                            type: object
+                            required: [warehouseId, quantity, availableQuantity]
+                            properties:
+                              warehouseId: { type: integer }
+                              quantity: { type: string }
+                              availableQuantity: { type: string }
                   recent:
                     type: array
                     items:
@@ -1197,6 +1217,9 @@ paths:
                         state: { type: string }
                         quantity: { type: string }
                         productName: { type: string }
+                        lotId: { type: integer, nullable: true }
+                        lotNumber: { type: string, nullable: true }
+                        expiryDate: { type: string, nullable: true }
                         variantId: { type: integer, nullable: true }
                         variantSku: { type: string, nullable: true }
                         unit: { type: string }
@@ -1228,6 +1251,12 @@ paths:
                       properties:
                         id: { type: integer }
                         reference: { type: [string, "null"] }
+                        lotId: { type: integer, nullable: true }
+                        lotNumber: { type: string, nullable: true }
+                        expiryDate: { type: string, nullable: true }
+                        expired: { type: boolean }
+                        groupCount: { type: integer }
+                        groupQuantity: { type: string }
                         quantity: { type: string }
                         state: { type: string, enum: [in_transit, done] }
                         createdAt: { type: string, format: date-time }
@@ -1257,6 +1286,9 @@ paths:
                 productId: { type: integer, minimum: 1 }
                 variantId: { type: integer, minimum: 1 }
                 warehouseId: { type: integer, minimum: 1 }
+                lotId: { type: integer, minimum: 1 }
+                lotNumber: { type: string, minLength: 1, maxLength: 120 }
+                expiryDate: { type: string, format: date, nullable: true }
                 kind: { type: string, enum: [receipt, issue] }
                 quantity: { type: number, minimum: 0.0001, maximum: 999999999, multipleOf: 0.0001 }
                 notes: { type: string, minLength: 3, maxLength: 500 }
@@ -1293,6 +1325,9 @@ paths:
                 productId: { type: integer, minimum: 1 }
                 variantId: { type: integer, minimum: 1 }
                 fromWarehouseId: { type: integer, minimum: 1 }
+                lotId: { type: integer, minimum: 1 }
+                lotNumber: { type: string, minLength: 1, maxLength: 120 }
+                expiryDate: { type: string, format: date, nullable: true }
                 toWarehouseId: { type: integer, minimum: 1 }
                 destinationResponsibilityId: { type: integer, minimum: 1 }
                 quantity: { type: number, minimum: 0.0001, maximum: 999999999, multipleOf: 0.0001 }
@@ -5774,6 +5809,10 @@ components:
       required: [productId, productName, warehouseId, warehouseName, quantity]
       properties:
         quantId: { type: integer }
+        lotId: { type: integer, nullable: true }
+        lotNumber: { type: string, nullable: true }
+        expiryDate: { type: string, nullable: true }
+        availableQuantity: { type: string }
         variantId: { type: integer, nullable: true }
         variantSku: { type: string, nullable: true }
         unit: { type: string }
@@ -6392,6 +6431,8 @@ components:
           type: number
         stock:
           type: integer
+        availableQuantity:
+          type: string
         minStock:
           type: integer
         unit:

@@ -69,16 +69,20 @@ export function InventoryTransferReceipts({grantId}:{grantId:number}) {
   const refresh=async()=>Promise.all([
     client.invalidateQueries({queryKey:key}),
     client.invalidateQueries({queryKey:[...getGetWorkspaceInventoryQueryKey(),grantId]}),
+    client.invalidateQueries({queryKey:["inventory-movement-options"]}),
   ]);
   return <section className="space-y-3 border-t p-4" data-testid="panel-incoming-transfers">
     <div className="flex items-center justify-between gap-2">
       <h3 className="font-semibold">التحويلات الواردة إلى مستودعات مسؤوليتك</h3>
-      <Button size="sm" variant="outline" disabled={query.isFetching} onClick={()=>void query.refetch()}>تحديث حالة التحويلات</Button>
+      <Button size="sm" variant="outline" disabled={query.isFetching} onClick={()=>void refresh()}>تحديث حالة التحويلات</Button>
     </div>
     <p className="text-xs text-muted-foreground">حتى100حركة، بالأولوية للأقدم قيد الاستلام. استلام بضائع في الطريق فقط؛ لا إرسال أو تعديل كمية أو تكلفة أو تسوية.</p>
     {query.isLoading?<p role="status">جارٍ تحميل التحويلات…</p>:query.error?<p role="alert">{errorText(query.error)}</p>:
       query.data?.transfers.length?query.data.transfers.map(t=><article key={t.id} className="rounded-lg border p-3" data-testid={`incoming-transfer-${t.id}`}>
         <p className="text-sm font-medium">{t.productName}{t.variantId?` · ${t.variantSku??`متغير#${t.variantId}`}`:""} · <bdi>{t.quantity}</bdi> {t.unit??""}</p>
+        {t.lotId&&<p>الدفعة: {t.lotNumber} · الصلاحية: {t.expiryDate??"غير محددة"}</p>}
+        {(t.groupCount??1)>1&&<p role="note">تحويل واحد موزع على {t.groupCount} دفعات، إجمالي {t.groupQuantity} {t.unit}. تأكيد أي صف يستلم جميع دفعات العملية معًا، وليس هذا الصف وحده.</p>}
+        {t.expired&&<p role="alert" className="text-red-700">دفعة منتهية: يُسجل الوصول الفعلي فقط. محجوبة من البيع والصرف والاستهلاك والتخصيص، ولا تدخل في المتاح. لا إتلاف أو شطب تلقائي.</p>}
         <p className="text-xs text-muted-foreground">{t.sourceWarehouse} ← {t.destinationWarehouse} · <bdi>{t.reference||"بدون مرجع"}</bdi> · حركة#<bdi>{t.id}</bdi></p>
         <TransferReceiptRow transfer={t} grantId={grantId} canReceive={query.data!.canReceive} onReceived={refresh}/>
       </article>):<p className="text-sm text-muted-foreground">لا تحويلات واردة ضمن هذه المستودعات.</p>}

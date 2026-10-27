@@ -250,16 +250,18 @@ function InventoryView({ grantId, branch }: { grantId: number; branch: string })
               <tr>
                 <th className="p-3 text-start font-medium">الصنف</th>
                 <th className="p-3 text-start font-medium">المستودع</th>
-                <th className="p-3 text-end font-medium">الكمية</th>
+                <th className="p-3 text-end font-medium">الكمية الفعلية</th>
+                <th className="p-3 text-end font-medium">المتاح للاستخدام</th>
                 {showCost && <th className="p-3 text-end font-medium">التكلفة</th>}
               </tr>
             </thead>
             <tbody className="divide-y">
               {rows.map((r) => (
                 <tr key={r.quantId??`${r.productId}-${r.warehouseId}-${r.variantId??0}`} data-testid={`row-stock-${r.productId}-${r.warehouseId}`}>
-                  <td className="p-3 font-medium">{r.productName}{r.variantId?` · ${r.variantSku??`متغير#${r.variantId}`}`:""}</td>
+                  <td className="p-3 font-medium">{r.productName}{r.variantId?` · ${r.variantSku??`متغير#${r.variantId}`}`:""}{r.lotId?` · دفعة ${r.lotNumber} · صلاحية ${r.expiryDate??"غير محددة"}`:""}</td>
                   <td className="p-3 text-muted-foreground">{r.warehouseName}</td>
                   <td className={cn("p-3 text-end tabular-nums", Number(r.quantity) <= 0 && "text-destructive")}>{fmtQty(r.quantity)} {r.unit??""}</td>
+                  <td className="p-3 text-end tabular-nums">{fmtQty(r.availableQuantity??r.quantity)} {r.unit??""}</td>
                   {showCost && <td className="p-3 text-end tabular-nums">{r.cost ?? "—"}</td>}
                 </tr>
               ))}
