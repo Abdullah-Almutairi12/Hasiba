@@ -952,3 +952,31 @@ mtime_ms = 1793071564966
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/b6fd9cd1-26b8-4d2d-b939-fd3551bdca1f/2b59d636-fa66-4bc9-a839-f146cff80000"
 storage_version_token = "1793071583724675"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "ZrzAiYSco9QXhwZmWZnA2"
+uri = "file://generated-artifacts/inventory-attempts/hasiba-inventory-attempts-report-ar.html"
+type = "html"
+title = "تقرير إصلاح محاولات حركات المخزون"
+description = "المنفذ ونتائج 15 بوابة، وحدود رحلة المتصفح، والمصالحة المستقلة وإيصال GitHub."
+logical_id = "3223d447-3bdb-4b12-a2e5-167a37b3bc36"
+content_hash = "sha256:5e5707946a31380aaefb91bf4f533f426970dccc2974d444c3abdecf40148a57"
+size = 2932594
+mtime_ms = 1793083250336
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/3223d447-3bdb-4b12-a2e5-167a37b3bc36/a5b7ebdc-5678-4605-b754-c15cba14e1ed"
+storage_version_token = "1793083259372841"
+content_type = "text/html"
+
+[[outputs]]
+id = "hCSkb05BCDLyy6E1c3A7v"
+uri = "file://generated-artifacts/inventory-attempts/hasiba-inventory-attempts-evidence.zip"
+type = "unspecified"
+title = "حزمة أدلة الاختبارات والمصالحة"
+description = "46 ملفًا تشمل نتائج الفحص والصور وإثبات الحفظ قبل فقد الرد وبصمات الملفات."
+logical_id = "fa3ead24-fe51-4fca-a1a9-6de19c776aa9"
+content_hash = "sha256:5b60bc2bb9b5aed8f4c3c2f962d96f88272e9043775a5bf569ba5dba3488e646"
+size = 1225133
+mtime_ms = 1793083250492
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/fa3ead24-fe51-4fca-a1a9-6de19c776aa9/c802b265-b039-46fb-9653-0e3fe6c67b52"
+storage_version_token = "1793083262491186"
+content_type = "application/octet-stream"
