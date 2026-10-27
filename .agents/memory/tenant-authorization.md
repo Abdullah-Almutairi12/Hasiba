@@ -15,6 +15,12 @@ Company ownership is not platform-wide authority. Managing another legal company
 
 **How to apply:** Keep target-company authorization on every administration API and list, not just in navigation. Preserve this rule when adding group/headquarters supervision: organizational proximity alone is not a membership grant.
 
+Document directories must enforce live source scope before pagination and before fetching related delivery metadata, not only when a user opens a document.
+
+**Why:** An invoice acceptance check proved that protected detail and PDF endpoints could coexist with a directory exposing another branch's invoice summaries.
+
+**How to apply:** Compare list, detail, print and export scopes together. Preserve evidenced legacy source links, quarantine genuinely unknown scope, and do not open a previously blocked scoped route merely to simplify testing.
+
 Missing company-specific print identity must not fall back to global legacy branding, even if this means omitting bank, logo, or legal profile details until ownership is established.
 
 **Why:** A global configuration can describe another legal entity. A polished invoice with the wrong issuer or bank is worse than an explicitly incomplete profile.
