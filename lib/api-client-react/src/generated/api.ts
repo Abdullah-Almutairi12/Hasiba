@@ -191,6 +191,8 @@ import type {
   IncrementCountObservation201,
   InspectInvoiceIdentity200,
   InspectTeamActivation200,
+  InventoryAttemptClosureInput,
+  InventoryAttemptClosureOutcome,
   InventoryRevaluation,
   InventoryRevaluationInput,
   InviteTeamPerson201,
@@ -5872,6 +5874,94 @@ export function useGetWorkspaceInventory<TData = Awaited<ReturnType<typeof getWo
 
 
 
+
+export const getCloseInventoryMovementAttemptUrl = () => {
+
+
+
+
+  return `/api/workspace/inventory/movement-attempts/close`
+}
+
+/**
+ * @summary Recover a completed exact intent or durably seal nonexecution under its original financial lock
+ */
+export const closeInventoryMovementAttempt = async (inventoryAttemptClosureInput: InventoryAttemptClosureInput, options?: Parameters<typeof customFetch>[1]): Promise<InventoryAttemptClosureOutcome> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<InventoryAttemptClosureOutcome>(getCloseInventoryMovementAttemptUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(inventoryAttemptClosureInput)
+  }
+);}
+
+
+
+
+
+export const getCloseInventoryMovementAttemptMutationKey = () => ['closeInventoryMovementAttempt'] as const;
+
+export const getCloseInventoryMovementAttemptMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof closeInventoryMovementAttempt>>, TError,CloseInventoryMovementAttemptMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof closeInventoryMovementAttempt>>, TError,CloseInventoryMovementAttemptMutationVariables, TContext> => {
+
+const mutationKey = getCloseInventoryMovementAttemptMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof closeInventoryMovementAttempt>>, CloseInventoryMovementAttemptMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  closeInventoryMovementAttempt(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CloseInventoryMovementAttemptMutationResult = NonNullable<Awaited<ReturnType<typeof closeInventoryMovementAttempt>>>
+    export type CloseInventoryMovementAttemptMutationBody = BodyType<InventoryAttemptClosureInput>
+    export type CloseInventoryMovementAttemptMutationError = ErrorType<void>
+    export type CloseInventoryMovementAttemptMutationVariables = {data: BodyType<InventoryAttemptClosureInput>}
+
+    /**
+ * @summary Recover a completed exact intent or durably seal nonexecution under its original financial lock
+ */
+export const useCloseInventoryMovementAttempt = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof closeInventoryMovementAttempt>>, TError,CloseInventoryMovementAttemptMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof closeInventoryMovementAttempt>>,
+        TError,
+        CloseInventoryMovementAttemptMutationVariables,
+        TContext
+      > => {
+      return useMutation(getCloseInventoryMovementAttemptMutationOptions(options), queryClient);
+    }
 
 export const getGetWorkspaceInventoryMovementOptionsUrl = () => {
 

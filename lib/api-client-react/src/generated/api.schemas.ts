@@ -5,6 +5,28 @@
  * حاسبة.AI - ERP System API
  * OpenAPI spec version: 0.1.0
  */
+export type InventoryAttemptClosureInputBody = { [key: string]: unknown };
+
+export interface InventoryAttemptClosureInput {
+  transfer: boolean;
+  body: InventoryAttemptClosureInputBody;
+}
+
+export type InventoryAttemptClosureOutcomeState = typeof InventoryAttemptClosureOutcomeState[keyof typeof InventoryAttemptClosureOutcomeState];
+
+
+export const InventoryAttemptClosureOutcomeState = {
+  completed: 'completed',
+  closed_without_execution: 'closed_without_execution',
+} as const;
+
+export interface InventoryAttemptClosureOutcome {
+  state: InventoryAttemptClosureOutcomeState;
+  requestKey: string;
+  moveId?: number;
+  moveIds?: number[];
+}
+
 export interface CountCheckpointInput {
   productId: number;
 }

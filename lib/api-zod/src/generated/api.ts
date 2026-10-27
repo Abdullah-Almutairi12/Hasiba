@@ -1614,6 +1614,27 @@ export const GetWorkspaceInventoryResponseItem = zod.object({
 export const GetWorkspaceInventoryResponse = zod.array(GetWorkspaceInventoryResponseItem)
 
 
+/**
+ * @summary Recover a completed exact intent or durably seal nonexecution under its original financial lock
+ */
+export const CloseInventoryMovementAttemptHeader = zod.object({
+  "X-Workspace-Responsibility": zod.number().int(),
+  "Idempotency-Key": zod.string()
+})
+
+export const CloseInventoryMovementAttemptBody = zod.object({
+  "transfer": zod.boolean(),
+  "body": zod.record(zod.string(), zod.unknown())
+})
+
+export const CloseInventoryMovementAttemptResponse = zod.object({
+  "state": zod.enum(['completed', 'closed_without_execution']),
+  "requestKey": zod.string(),
+  "moveId": zod.number().int().optional(),
+  "moveIds": zod.array(zod.number().int()).optional()
+})
+
+
 export const GetWorkspaceInventoryMovementOptionsHeader = zod.object({
   "X-Workspace-Responsibility": zod.number().int()
 })

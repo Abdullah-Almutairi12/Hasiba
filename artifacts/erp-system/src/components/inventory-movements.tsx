@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState,useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getWorkspaceInventoryMovementOptions } from "@workspace/api-client-react";
 import { useAuth } from "@/hooks/use-auth";
@@ -22,6 +22,42 @@ function MovementForm({grantId,storageKey,onlyTransfer}:{grantId:number;storageK
   [destination,setDestination]=useState(""),[quantity,setQuantity]=useState("1"),[notes,setNotes]=useState(""),
   [pending,setPending]=useState(false),[message,setMessage]=useState("");
  const [lot,setLot]=useState(""),[lotNumber,setLotNumber]=useState(""),[expiry,setExpiry]=useState("");
+ const busy=useRef(false);
+ function clearSaved(next:Intent){
+  const stored=localStorage.getItem(storageKey);
+  if(stored&&stored!==JSON.stringify(next))throw new Error("تغيرت المحاولة المحفوظة في نافذة أخرى؛ أعد التحميل دون حذفها");
+  localStorage.removeItem(storageKey);setIntent(null);
+ }
+ const validResult=(result:any)=>Number.isInteger(result?.moveId)&&result.moveId>0&&Array.isArray(result.moveIds)&&
+  result.moveIds.length>0&&result.moveIds.every((id:unknown)=>Number.isInteger(id)&&Number(id)>0)&&result.moveIds.includes(result.moveId);
+ function hydrate(next:Intent){
+  const b=next.body;setKind(next.transfer?"transfer":String(b.kind));setProduct(String(b.productId));
+  setVariant(b.variantId?String(b.variantId):"");setWarehouse(String(b.warehouseId??b.fromWarehouseId));
+  setDestination(next.transfer?`${b.destinationResponsibilityId}:${b.toWarehouseId}`:"");
+  setQuantity(String(b.quantity));setNotes(String(b.notes));setLot(b.lotId?String(b.lotId):"");
+  setLotNumber(String(b.lotNumber??""));setExpiry(String(b.expiryDate??""));
+ }
+ async function closeAttempt(){
+  if(busy.current||!intent)return;
+  busy.current=true;setPending(true);const next=intent;let terminal="";
+  try{
+   setMessage("جارٍ انتظار نتيجة المحاولة الأصلية والتحقق منها؛ لن يُحذف المعرف بناءً على رمز رفض.");
+   const response=await fetch(`${import.meta.env.BASE_URL.replace(/\/$/,"")}/api/workspace/inventory/movement-attempts/close`,{
+    method:"POST",credentials:"include",headers:{...headers,"Content-Type":"application/json","Idempotency-Key":next.key},
+    body:JSON.stringify({transfer:next.transfer,body:next.body})});
+   const result=await response.json();
+   if(!response.ok)throw new Error(result.error||"تعذر التحقق من المحاولة");
+   if(result.requestKey!==next.key)throw new Error("لا يطابق الإثبات معرف المحاولة");
+   if(result.state==="completed"&&validResult(result))terminal=`التنفيذ مؤكد #${result.moveId}`;
+   else if(result.state==="closed_without_execution")terminal="إغلاق مؤكد دون تنفيذ";
+   else throw new Error("لم يصل إثبات نهائي صالح");
+   clearSaved(next);
+   if(result.state==="closed_without_execution"){hydrate(next);setMessage("أُغلقت المحاولة دون تنفيذ بسجل دائم؛ يمكنك تصحيح الطلب أو تركه. التأكيد التالي يستخدم معرفًا جديدًا.");}
+   else{setNotes("");setQuantity("1");setMessage(`حركة مؤكدة #${result.moveId}؛ استُعيدت دون تنفيذ آخر.`);}
+   await client.invalidateQueries().catch(()=>{});
+  }catch(error){setMessage(`${terminal?`${terminal}؛ تعذر إنهاء الحفظ المحلي`:"لم يثبت الإغلاق أو عدم التنفيذ"}: ${error instanceof Error?error.message:"تعذر التحقق"}. احتُفظ بالمعرف والجسم؛ استعد المحاولة نفسها.`);}
+  finally{busy.current=false;setPending(false);}
+ }
  const options=query.data,action=(v:string)=>v==="transfer"?"inventory.transfer.send":`inventory.move.${v}`;
  const actions=Object.keys(labels).filter(v=>(!onlyTransfer||v==="transfer")&&options?.actions.includes(action(v)));
  const effective=actions.includes(kind)?kind:actions[0]??kind;
@@ -35,10 +71,14 @@ function MovementForm({grantId,storageKey,onlyTransfer}:{grantId:number;storageK
   const lotUnavailable=!!(lotMode&&effective!=="receipt"&&warehouse&&Number(quantity)>0&&
    (lot?Number(balances.find(l=>l.id===Number(lot))?.balance?.availableQuantity??0)<Number(quantity):remaining>1e-9));
  async function run(){
-  if(pending)return;
+  if(busy.current)return;
+  busy.current=true;
   let next=intent;
+  let confirmed=false;
   try{
    if(!next){
+    const saved=localStorage.getItem(storageKey);
+    if(saved){setIntent(JSON.parse(saved));throw new Error("توجد محاولة محفوظة في نافذة أخرى؛ تحقق منها أولًا");}
     const qty=Number(quantity);
     if(!options?.actions.includes(action(effective))||!product||!warehouse||!Number.isFinite(qty)||qty<0.0001||qty>999999999||
       Number(qty.toFixed(4))!==qty||notes.trim().length<3||notes.trim().length>500)
@@ -67,13 +107,13 @@ function MovementForm({grantId,storageKey,onlyTransfer}:{grantId:number;storageK
     method:"POST",credentials:"include",headers:{...headers,"Content-Type":"application/json","Idempotency-Key":next.key},body:JSON.stringify(next.body)});
    const result=await response.json();
    if(!response.ok){setMessage(`رفض الخادم هذا الطلب: ${result.error||response.status}. احتفظ بمعرف المحاولة وتحقق من السجل أو استعد النتيجة؛ الرفض لا يلغي نتيجة قديمة مؤكدة.`);return;}
-   if(!Number.isInteger(result.moveId)||!Array.isArray(result.moveIds))throw new Error("لم يصل إثبات كامل لنتيجة الحركة");
-   localStorage.removeItem(storageKey);setIntent(null);
+   if(!validResult(result))throw new Error("لم يصل إثبات كامل لنتيجة الحركة");
+   confirmed=true;clearSaved(next);
    setMessage(`حركة مؤكدة #${result.moveId}؛ ${next.transfer?"البضاعة في الطريق ولم تستلم بعد.":"اكتملت الحركة وأثرها الآلي."}`);
    setNotes("");setQuantity("1");
-   await client.invalidateQueries();
-  }catch(error){setMessage(`${error instanceof Error?error.message:"تعذر تأكيد الحركة"}. ${next?"النتيجة غير مؤكدة؛ استعد المحاولة المحفوظة بنفس المعرف ولا تنشئ حركة بديلة.":"لم ترسل حركة جديدة."}`);}
-  finally{setPending(false);}
+   await client.invalidateQueries().catch(()=>{});
+  }catch(error){setMessage(`${error instanceof Error?error.message:"تعذر تأكيد الحركة"}. ${confirmed?"التنفيذ مؤكد؛ تعذر إنهاء الحفظ المحلي. استعد نتيجته بنفس المعرف.":next?"النتيجة غير مؤكدة؛ استعد المحاولة المحفوظة بنفس المعرف ولا تنشئ حركة بديلة.":"لم ترسل حركة جديدة."}`);}
+  finally{busy.current=false;setPending(false);}
  }
  return <section className="space-y-3 border-t p-4" data-testid="inventory-movements">
   <h3 className="font-semibold">حركات المخزون المصرح بها</h3>
@@ -104,6 +144,10 @@ function MovementForm({grantId,storageKey,onlyTransfer}:{grantId:number;storageK
     <Button disabled={pending||(!intent&&(!actions.length||lotUnavailable))} onClick={()=>void run()}>{pending?"جارٍ انتظار التأكيد…":intent?"استعادة نتيجة المحاولة المحفوظة":"تأكيد الحركة"}</Button>
   </>}
   {message&&<p role="status">{message}</p>}
+  {intent&&<div className="space-y-2">
+   <p className="text-sm">الرفض وحده لا يثبت عدم التنفيذ. يتحقق الخادم بالمعرف والجسم نفسيهما: يستعيد الحركة المكتملة أو يغلق المحاولة بلا أثر ويحميها من التنفيذ المتأخر. تعذر التحقق يبقيها محفوظة.</p>
+   <Button variant="outline" disabled={pending} onClick={closeAttempt}>التحقق من المحاولة وتصحيحها أو إنهاؤها</Button>
+  </div>}
   {!!options?.recent?.length&&<div className="space-y-1 text-sm" data-testid="recent-inventory-movements"><h4 className="font-semibold">آخر40حركة مفوضة ضمن مستودعات المسؤولية</h4>
    {options.recent.map(m=><p key={m.id}>حركة#{m.id} · {m.productName}{m.variantId?` · ${m.variantSku??`متغير#${m.variantId}`}`:""}{m.lotId?` · دفعة ${m.lotNumber} · صلاحية ${m.expiryDate??"غير محددة"}`:""} · {m.quantity} {m.unit??""} · {m.sourceWarehouse??"—"} ← {m.destinationWarehouse??"—"} · {m.kind==="transfer"?"تحويل":m.kind==="receipt"?"استلام":"صرف"} · {m.state==="in_transit"?"في الطريق":m.state==="done"?"مكتملة":m.state}</p>)}</div>}
  </section>;

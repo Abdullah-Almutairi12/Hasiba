@@ -36,7 +36,7 @@ import { inventoryTransferReadGuard, transferAuthority, transferReceiptReference
 import { lockStocktakeForCount, auditCountObservation, stocktakeReadAuthority } from "../lib/stocktake-count";
 import { inventoryActor,auditInventoryMutation } from "../lib/scoped-inventory-actor";
 import { managedProfile } from "../lib/responsibility-context";
-import { executeScopedInventoryMovement, inventoryMovementOptions, rejectLegacyVariantMovement } from "../lib/scoped-inventory-movements";
+import { executeScopedInventoryMovement, inventoryMovementOptions, rejectLegacyVariantMovement,closeScopedInventoryAttempt } from "../lib/scoped-inventory-movements";
 import { countPoint, preparePoint, verifyPoint, advanceCountGeneration, type CountPoint } from "../lib/stocktake-cutoff";
 import { stocktakeSeparation,stocktakeUnknownParticipantBlock } from "../lib/stocktake-separation";
 import {approveStocktake,StocktakeApproval,stocktakeAction,stocktakePolicy,authorizeStocktakePosting,recheckStocktakePosting,stocktakeVarianceValue} from "../lib/stocktake-review";
@@ -210,6 +210,10 @@ const ManualMoveBody = z.object({
 router.get("/workspace/inventory/movement-options",inventoryTransferReadGuard,async(req,res)=>{
  try{res.json(await inventoryMovementOptions(req));}
  catch(error){res.status(error instanceof FinancialRequestError?error.status:400).json({error:error instanceof Error?error.message:"تعذر تحميل نطاق الحركة"});}
+});
+router.post("/workspace/inventory/movement-attempts/close",inventoryTransferReadGuard,async(req,res)=>{
+ try{res.json(await closeScopedInventoryAttempt(req));}
+ catch(error){res.status(error instanceof FinancialRequestError?error.status:400).json({error:error instanceof Error?error.message:"تعذر التحقق من المحاولة؛ احتفظ بمعرفها"});}
 });
 router.post("/inventory/moves", inventoryTransferReadGuard, async (req, res) => {
   try {

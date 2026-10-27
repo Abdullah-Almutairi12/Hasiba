@@ -92,6 +92,64 @@ it("does not send if it cannot persist the intent before the request",async()=>{
  fireEvent.click(screen.getByRole("button",{name:"تأكيد الحركة"}));
  await screen.findByText(/التخزين غير متاح/);expect(mock.fetch).not.toHaveBeenCalled();
 });
+it("keeps HTTP refusal until a scoped durable closure, then prefills correction with a NEW identity",async()=>{
+ mock.fetch.mockResolvedValueOnce({ok:false,status:409,json:async()=>({error:"تغير رصيد المخزون"})});
+ mount();await fill();fireEvent.click(screen.getByRole("button",{name:"تأكيد الحركة"}));
+ await screen.findByText(/رفض الخادم/);const original=mock.fetch.mock.calls[0][1],key=original.headers["Idempotency-Key"];
+ expect(screen.queryByLabelText("الكمية")).toBeNull();expect(localStorage.length).toBe(1);
+ mock.fetch.mockResolvedValueOnce({ok:true,json:async()=>({state:"closed_without_execution",requestKey:key})});
+ fireEvent.click(screen.getByRole("button",{name:"التحقق من المحاولة وتصحيحها أو إنهاؤها"}));
+ await screen.findByText(/أُغلقت المحاولة دون تنفيذ/);
+ expect((screen.getByLabelText("الكمية") as HTMLInputElement).value).toBe("2");expect(localStorage.length).toBe(0);
+ expect(JSON.parse(mock.fetch.mock.calls[1][1].body)).toEqual({transfer:false,body:JSON.parse(original.body)});
+ fireEvent.change(screen.getByLabelText("الكمية"),{target:{value:"1"}});
+ mock.fetch.mockResolvedValueOnce({ok:true,json:async()=>({moveId:19,moveIds:[19]})});
+ fireEvent.click(screen.getByRole("button",{name:"تأكيد الحركة"}));await screen.findByText(/حركة مؤكدة #19/);
+ expect(mock.fetch.mock.calls[2][1].headers["Idempotency-Key"]).not.toBe(key);
+ expect(JSON.parse(mock.fetch.mock.calls[2][1].body).quantity).toBe(1);
+});
+it("recovers a completed outcome instead of abandoning it after response loss and reload",async()=>{
+ mock.fetch.mockRejectedValueOnce(Error("فقد الرد"));const first=mount();await fill();
+ fireEvent.click(screen.getByRole("button",{name:"تأكيد الحركة"}));await screen.findByText(/النتيجة غير مؤكدة/);
+ const original=mock.fetch.mock.calls[0][1],key=original.headers["Idempotency-Key"];first.unmount();mount();
+ mock.fetch.mockResolvedValueOnce({ok:true,json:async()=>({state:"completed",requestKey:key,moveId:20,moveIds:[20]})});
+ fireEvent.click(await screen.findByRole("button",{name:"التحقق من المحاولة وتصحيحها أو إنهاؤها"}));
+ await screen.findByText(/حركة مؤكدة #20/);expect(localStorage.length).toBe(0);expect(mock.fetch).toHaveBeenCalledTimes(2);
+ expect(mock.fetch.mock.calls[1][0]).toMatch(/movement-attempts\/close$/);
+ expect(JSON.parse(mock.fetch.mock.calls[1][1].body).body).toEqual(JSON.parse(original.body));
+});
+it("retains exact evidence when closure is unauthorized or not a matching trusted terminal response",async()=>{
+ const saved={key:"saved-attempt-test",transfer:false,body:{productId:9,warehouseId:7,quantity:2,kind:"issue",notes:"محاولة محفوظة"}};
+ const text=JSON.stringify(saved);localStorage.setItem("hasiba.inventory.movement:11:22:90",text);mount();
+ for(const response of [
+  {ok:false,json:async()=>({error:"سحبت الصلاحية"})},
+  {ok:true,json:async()=>({state:"closed_without_execution",requestKey:"wrong-key"})},
+  {ok:true,json:async()=>({state:"completed",requestKey:saved.key,moveId:2,moveIds:[]})},
+ ]){
+  mock.fetch.mockResolvedValueOnce(response);
+  fireEvent.click(await screen.findByRole("button",{name:"التحقق من المحاولة وتصحيحها أو إنهاؤها"}));
+  await waitFor(()=>expect((screen.getByRole("button",{name:"التحقق من المحاولة وتصحيحها أو إنهاؤها"}) as HTMLButtonElement).disabled).toBe(false));
+  expect(localStorage.getItem("hasiba.inventory.movement:11:22:90")).toBe(text);
+  expect(screen.queryByLabelText("الكمية")).toBeNull();
+ }
+});
+it("does not erase a newer saved intent from another tab while recovering the old result",async()=>{
+ const saved={key:"saved-attempt-test",transfer:false,body:{productId:9,warehouseId:7,quantity:2,kind:"issue",notes:"محاولة محفوظة"}};
+ localStorage.setItem("hasiba.inventory.movement:11:22:90",JSON.stringify(saved));mount();
+ const other=JSON.stringify({...saved,key:"newer-attempt-test"});
+ localStorage.setItem("hasiba.inventory.movement:11:22:90",other);
+ mock.fetch.mockResolvedValueOnce({ok:true,json:async()=>({state:"completed",requestKey:saved.key,moveId:2,moveIds:[2]})});
+ fireEvent.click(await screen.findByRole("button",{name:"التحقق من المحاولة وتصحيحها أو إنهاؤها"}));
+ await screen.findByText(/تغيرت المحاولة المحفوظة في نافذة أخرى/);
+ expect(localStorage.getItem("hasiba.inventory.movement:11:22:90")).toBe(other);
+});
+it("reports a proven execution distinctly when local cleanup fails and blocks new intent creation",async()=>{
+ mock.fetch.mockResolvedValueOnce({ok:true,json:async()=>({moveId:21,moveIds:[21]})});mount();await fill();
+ vi.spyOn(Storage.prototype,"removeItem").mockImplementation(()=>{throw Error("تعذر الحذف");});
+ fireEvent.click(screen.getByRole("button",{name:"تأكيد الحركة"}));
+ await screen.findByText(/التنفيذ مؤكد؛ تعذر إنهاء الحفظ المحلي/);
+ expect(localStorage.length).toBe(1);expect(screen.queryByLabelText("الكمية")).toBeNull();
+});
 it("rejects subprecision quantities before persisting or sending any intent",async()=>{
  mount();await fill();fireEvent.change(screen.getByLabelText("الكمية"),{target:{value:"0.00000001"}});
  fireEvent.click(screen.getByRole("button",{name:"تأكيد الحركة"}));

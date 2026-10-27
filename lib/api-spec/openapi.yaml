@@ -1137,6 +1137,28 @@ paths:
               schema:
                 type: array
                 items: { $ref: "#/components/schemas/WorkspaceStock" }
+  /workspace/inventory/movement-attempts/close:
+    post:
+      operationId: closeInventoryMovementAttempt
+      tags: [inventory]
+      summary: Recover a completed exact intent or durably seal nonexecution under its original financial lock
+      parameters:
+        - { name: X-Workspace-Responsibility, in: header, required: true, schema: { type: integer } }
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/InventoryAttemptClosureInput" }
+      responses:
+        "200":
+          description: Scoped and serialized terminal outcome, not inferred from HTTP rejection
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/InventoryAttemptClosureOutcome" }
+        "400": { description: Invalid original intent }
+        "403": { description: Current source reading is not authorized; retain saved intent }
+        "409": { description: Original key does not match the body; retain saved intent }
   /workspace/inventory/movement-options:
     get:
       operationId: getWorkspaceInventoryMovementOptions
@@ -5301,6 +5323,21 @@ paths:
 
 components:
   schemas:
+    InventoryAttemptClosureInput:
+      type: object
+      required: [transfer, body]
+      additionalProperties: false
+      properties:
+        transfer: { type: boolean }
+        body: { type: object, additionalProperties: true }
+    InventoryAttemptClosureOutcome:
+      type: object
+      required: [state, requestKey]
+      properties:
+        state: { type: string, enum: [completed, closed_without_execution] }
+        requestKey: { type: string }
+        moveId: { type: integer }
+        moveIds: { type: array, items: { type: integer } }
     CountCheckpointInput:
       type: object
       additionalProperties: false

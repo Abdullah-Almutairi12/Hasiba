@@ -50,6 +50,21 @@ An open shift or a matching document in a branch does not confirm a particular s
 
 **How to apply:** Resolve the exact saved key/body/authorization selector through its receipt or explicit reconciliation. Keep that recovery available even when another open shift appears.
 
+## Closing an unexecuted intent needs a durable fence
+
+An absence check is not sufficient permission to erase an uncertain intent.
+Serialize with the original execution and persist terminal nonexecution before
+allowing correction under a new identity. Never recycle the old identity.
+
+**Why:** The original request may still be delayed before its transaction lock.
+Deleting local evidence after a read-only absence check lets that delayed request
+commit after the employee starts a replacement, duplicating stock or money.
+
+**How to apply:** Under the original identity's lock, recover an existing committed
+result or record a permanent closure that later original requests cannot execute.
+Recheck present source-read authority after waiting. A denial keeps the local
+evidence; a completed result is recovery, not cancellation.
+
 ## Current cashier work is not a branch activity report
 
 An open shift returned for a branch is not automatically the current employee's shift. Clearing client caches cannot repair a server response that selects a peer's work.

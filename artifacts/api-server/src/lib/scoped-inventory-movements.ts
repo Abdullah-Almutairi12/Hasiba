@@ -1,8 +1,9 @@
 import type { Request } from "express";
-import { db } from "@workspace/db";
-import { sql } from "drizzle-orm";
+import { db,financialRequestsTable } from "@workspace/db";
+import { sql,and,eq } from "drizzle-orm";
+import {createHash} from "node:crypto";
 import { z } from "zod/v4";
-import { financialTransaction, FinancialRequestError } from "./financial-transaction";
+import { financialTransaction, FinancialRequestError,canonical,closedFinancialIntent,isClosedFinancialIntent } from "./financial-transaction";
 import { lockApprovalAuthority } from "./approval-authority";
 import { inventoryActor } from "./scoped-inventory-actor";
 import { currentResponsibilities, responsibilityContext, type Responsibility } from "./responsibility-context";
@@ -23,6 +24,51 @@ const transfer=z.object({...common,fromWarehouseId:z.coerce.number().int().posit
  destinationResponsibilityId:z.number().int().positive().optional()}).strict();
 type Movement={productId:number;variantId?:number;lotId?:number;lotNumber?:string;expiryDate?:string|null;lotCandidates?:number[];expectedTracking?:string;
  quantity:number;notes:string;from:number|null;to:number|null;action:string;destinationGrantId?:number;kind:"transfer"|"receipt"|"issue"};
+
+/** Exact existing financial lock and fingerprint, never a status-code inference.
+ * Sealing absence also fences an original POST still delayed before that lock. */
+export async function closeScopedInventoryAttempt(req:Request){
+ const input=z.object({transfer:z.boolean(),body:z.record(z.string(),z.unknown())}).strict().parse(req.body);
+ const parsed=input.transfer?transfer.parse(input.body):manual.parse(input.body);
+ const m:Movement="kind" in parsed?{...parsed,from:parsed.kind==="issue"?parsed.warehouseId:null,
+  to:parsed.kind==="receipt"?parsed.warehouseId:null,action:`inventory.move.${parsed.kind}`}:
+  {...parsed,kind:"transfer",from:parsed.fromWarehouseId,to:parsed.toWarehouseId,action:"inventory.transfer.send",
+   destinationGrantId:parsed.destinationResponsibilityId};
+ const actor=await inventoryActor(db,req,"inventory.read");
+ if(!actor.grant)throw invalid();
+ const key=req.get("Idempotency-Key");
+ if(!key||!/^[A-Za-z0-9][A-Za-z0-9_.:-]{7,127}$/.test(key))
+  throw new FinancialRequestError("يلزم معرف المحاولة الأصلية",400);
+ const operation=`POST:${req.baseUrl}:/inventory/${input.transfer?"transfers":"moves"}`;
+ const requestHash=createHash("sha256").update(canonical({params:{},body:input.body,query:{}})).digest("hex");
+ return db.transaction(async tx=>{
+  const lock=JSON.stringify([actor.companyId,actor.userId,operation,key]);
+  await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${lock},0))`);
+  await lockApprovalAuthority(tx);
+  // Permission may have changed while waiting for the original transaction.
+  const fresh=await authority(tx,req,m,false);
+  const [previous]=await tx.select().from(financialRequestsTable).where(and(
+   eq(financialRequestsTable.companyId,actor.companyId),eq(financialRequestsTable.userId,actor.userId),
+   eq(financialRequestsTable.operation,operation),eq(financialRequestsTable.requestKey,key)));
+  if(previous){
+   if(previous.requestHash!==requestHash)throw new FinancialRequestError("لا يطابق الجسم المحاولة الأصلية؛ لا تغير بيانات المعرف المحفوظ",409);
+   const result=(previous.result as {value:unknown}).value;
+   if(!isClosedFinancialIntent(result)){
+    const out=z.object({moveId:z.number().int().positive(),moveIds:z.array(z.number().int().positive()).min(1)}).parse(result);
+    if(!out.moveIds.includes(out.moveId))throw new Error("نتيجة الحركة المحفوظة غير مكتملة");
+    return {state:"completed" as const,requestKey:key,...out};
+   }
+   return {state:"closed_without_execution" as const,requestKey:key};
+  }
+  await tx.insert(financialRequestsTable).values({companyId:actor.companyId,userId:actor.userId,operation,
+   requestKey:key,requestHash,result:{value:closedFinancialIntent,dates:[]}});
+  await tx.execute(sql`INSERT INTO audit_logs(user_id,user_name,company_id,action,entity,details)
+   VALUES(${actor.userId},${fresh.actor.name},${actor.companyId},'inventory.movement.attempt.closed','financial_request',
+   ${JSON.stringify({requestKey:key,operation,requestHash,productId:m.productId,fromWarehouseId:m.from,
+    toWarehouseId:m.to,reason:m.notes,outcome:"closed_without_execution"})})`);
+  return {state:"closed_without_execution" as const,requestKey:key};
+ },{isolationLevel:"read committed"});
+}
 
 /** Legacy bodies historically stripped variantId. Never silently turn such a
  * request into a parent-level quantity; explicit responsibility grants own

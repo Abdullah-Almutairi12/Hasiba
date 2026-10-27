@@ -13,6 +13,7 @@ export const SCOPED_ROUTES = [
   ["GET", "/workspace/inventory", "inventory.read"],
   ["GET", "/workspace/inventory/transfers", "inventory.read"],
   ["GET", "/workspace/inventory/movement-options", "inventory.read"],
+  ["POST", "/workspace/inventory/movement-attempts/close", "inventory.read"],
   ["POST", "/inventory/moves", "inventory.read"],
   ["POST", "/inventory/transfers", "inventory.read"],
   // Execution is rechecked inside the fresh stock transaction; committed replays require destination read.

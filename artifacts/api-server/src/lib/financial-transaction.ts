@@ -41,6 +41,14 @@ function restore<T>(saved: Snapshot): T {
   return value as T;
 }
 
+// A narrow reconciliation may seal an absent intent under its original lock.
+// Keep this receipt forever: a delayed original POST must not execute afterward.
+export const closedFinancialIntent = { $financialRequest: "closed-without-execution:v1" } as const;
+export function isClosedFinancialIntent(value: unknown): boolean {
+  return !!value && typeof value === "object" &&
+    (value as Record<string, unknown>).$financialRequest === closedFinancialIntent.$financialRequest;
+}
+
 /**
  * Same company + actor + endpoint + key means ONE financial intent.
  * Equal payloads with different keys remain legitimate separate transactions.
@@ -76,6 +84,9 @@ export async function financialTransaction<T>(
       // Routes that distinguish source reading from fresh execution must
       // authorize the persisted source before disclosing a committed receipt.
       await authorizeReplay?.(tx, result);
+      if (isClosedFinancialIntent(result)) {
+        throw new FinancialRequestError("أُغلقت هذه المحاولة دون تنفيذ؛ لا يُعاد استخدام معرفها. تحقق من الإغلاق ثم ابدأ طلبًا جديدًا.", 409);
+      }
       req.res?.setHeader("Idempotency-Replayed", "true");
       return result;
     }
