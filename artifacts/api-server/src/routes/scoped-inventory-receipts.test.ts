@@ -94,8 +94,8 @@ describe("destination-scoped full transfer receipt",()=>{
     expect(view.transfers.some((t:{id:number})=>t.id===foreign.id)).toBe(false);
     const item=view.transfers.find((t:{id:number})=>t.id===move.id);
     expect(Object.keys(item).sort()).toEqual(["createdAt","destinationWarehouse","id","productName","quantity","reference","sourceWarehouse","state","unit","variantId","variantSku",
-      "lotId","lotNumber","expiryDate","expired","groupCount","groupQuantity"].sort());
-    expect(item).toMatchObject({lotId:null,lotNumber:null,expiryDate:null,expired:false,groupCount:1});
+      "lotId","lotNumber","expiryDate","expired","groupCount","groupQuantity","serialId","serialNumber"].sort());
+    expect(item).toMatchObject({lotId:null,lotNumber:null,serialId:null,serialNumber:null,expiryDate:null,expired:false,groupCount:1});
     expect(Number(item.groupQuantity)).toBe(Number(item.quantity));
     await pool.query("UPDATE products SET cost_price=999 WHERE id=$1",[product]);
     const before=await evidence(move.id);
