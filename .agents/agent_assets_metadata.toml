@@ -896,3 +896,31 @@ mtime_ms = 1793060525916
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/34ed1691-0b3b-4bf7-a469-72c0641d50fb/b7744772-2bd7-4742-bd4d-faba484f8f03"
 storage_version_token = "1793060534454054"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "UTbULsaoerwC6wLfmHOPi"
+uri = "file://generated-artifacts/inventory-lock-order/final-report-ar.html"
+type = "html"
+title = "تقرير سلامة الجرد واتساق FIFO — التسليم النهائي"
+description = "نتائج المصدر 492f853: الإصلاحات، 15 بوابة ناجحة، رحلة الواجهة، المصالحة وحدود القبول."
+logical_id = "538af664-0972-4317-b5e3-15c2d516a768"
+content_hash = "sha256:cd826b570bbe9f4897ee50862b89c141c330e0fafb1abb5fe001c1fd1805a786"
+size = 1184130
+mtime_ms = 1793063476684
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/538af664-0972-4317-b5e3-15c2d516a768/bd522d73-92e4-49d8-8a7e-9227413904ea"
+storage_version_token = "1793063535800882"
+content_type = "text/html"
+
+[[outputs]]
+id = "PshmiHzb_F7yCjs6VGdgS"
+uri = "file://generated-artifacts/inventory-lock-order/fifo-lock-final-evidence.zip"
+type = "unspecified"
+title = "حزمة الأدلة — الاختبارات والمصالحة والمزامنة"
+description = "48 ملفًا: النتائج الخام المنقحة، صور الرحلة، الحواجز، إثبات فقد الرد، مصالحة SQL، إيصال GitHub وبصمات SHA256. بيانات مصطنعة فقط، دون بيانات الدخول الخاصة."
+logical_id = "c8bb73bf-f18c-4fe9-aa3f-7a5642f127b7"
+content_hash = "sha256:38135deafffaeeb0ea9ab7f0d95fc5a991e0327d8f2f73323e483f1e7233dd1c"
+size = 962671
+mtime_ms = 1793063477336
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/c8bb73bf-f18c-4fe9-aa3f-7a5642f127b7/39e0e7f4-b935-4fc1-b33e-603f8809e2f1"
+storage_version_token = "1793063539113923"
+content_type = "application/octet-stream"
