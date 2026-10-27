@@ -1036,3 +1036,31 @@ mtime_ms = 1793090407503
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/cee69455-59e3-47a6-a153-a0eccf7bb7bf/834d89fc-643a-4867-972f-6c81a8af7c9a"
 storage_version_token = "1793090433913083"
 content_type = "text/html"
+
+[[outputs]]
+id = "Cus8G8cC1TjoLoKUCYXiw"
+uri = "file://generated-artifacts/hasiba-pre2a-report-ar.html"
+type = "html"
+title = "تقرير قبول الفواتير قبل 2أ"
+description = "النتائج، العيب المصحح، مانع فصل الصلاحيات، وحدود التنزيل والطباعة والتخزين."
+logical_id = "f291b965-f2ba-4b49-8ffc-9c93ec816f49"
+content_hash = "sha256:88b7041cd002405dd865dac5b167fd719b4ba5f3cfffbd34261a2e3e32034c44"
+size = 546508
+mtime_ms = 1793097150067
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/f291b965-f2ba-4b49-8ffc-9c93ec816f49/6394f90f-5aec-425f-80df-8f6774141921"
+storage_version_token = "1793097176358427"
+content_type = "text/html"
+
+[[outputs]]
+id = "9qPFJBK-zSaszwiNkq7ZW"
+uri = "file://generated-artifacts/hasiba-pre2a-acceptance-evidence.zip"
+type = "unspecified"
+title = "حزمة أدلة الفحص — ZIP"
+description = "119 ملفًا: السجلات المنقحة، PDF الفعلية، لقطات المتصفح، المصالحات وQR، وبصمات الملفات وإيصال GitHub."
+logical_id = "d13b92f4-eea2-4251-884d-e165942c7b9c"
+content_hash = "sha256:e142e6c76062a12bdfb8558f9d1cf72d7d5e7fea1cfec42284544b51a5232541"
+size = 2543733
+mtime_ms = 1793097150525
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/d13b92f4-eea2-4251-884d-e165942c7b9c/92e0671d-1363-400f-bbd4-b8f096e9330b"
+storage_version_token = "1793097180470753"
+content_type = "application/octet-stream"
