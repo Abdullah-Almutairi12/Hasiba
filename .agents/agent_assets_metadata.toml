@@ -1064,3 +1064,31 @@ mtime_ms = 1793097150525
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/d13b92f4-eea2-4251-884d-e165942c7b9c/92e0671d-1363-400f-bbd4-b8f096e9330b"
 storage_version_token = "1793097180470753"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "CtI2PZexxkHJU1o-xHDaq"
+uri = "file://generated-artifacts/invoice-access/report-ar.html"
+type = "html"
+title = "تقرير فصل صلاحيات فواتير العملاء"
+description = "تقرير عربي بالمصدر المختبر، ونتائج البوابات الخمس عشرة، وحدود تجربة المتصفح والتوافق مع الحسابات القديمة."
+logical_id = "dd6bc352-c37f-4209-b797-664702dfe7e1"
+content_hash = "sha256:fae02a915068acad244190cce575116a54a1ad15463b44328c3e94ec5ba4578e"
+size = 23376
+mtime_ms = 1793103849403
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/dd6bc352-c37f-4209-b797-664702dfe7e1/50dd1d27-f540-4f5b-ba0e-460e0b455707"
+storage_version_token = "1793103917645810"
+content_type = "text/html"
+
+[[outputs]]
+id = "ke1UpOa1Z5EORRCdEIaaJ"
+uri = "file://generated-artifacts/hasiba-customer-invoice-permissions-evidence.zip"
+type = "unspecified"
+title = "حزمة أدلة التحقق — ZIP"
+description = "67 ملفًا تشمل النتائج الخام المنقحة، ومصالحة SQL، وأدلة المتصفح وPDF الفعلي، وبصمات الملفات وإيصال GitHub."
+logical_id = "9c332092-4c78-4922-8a07-e9cbbb6f4e77"
+content_hash = "sha256:bd2877ed6df87ab457162df57192e50f6ed120100b339d693cb386ed6a213f9e"
+size = 380502
+mtime_ms = 1793103849451
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/9c332092-4c78-4922-8a07-e9cbbb6f4e77/83687338-a6ec-44a3-bc23-5b95cfe4a4d2"
+storage_version_token = "1793103920738092"
+content_type = "application/octet-stream"
