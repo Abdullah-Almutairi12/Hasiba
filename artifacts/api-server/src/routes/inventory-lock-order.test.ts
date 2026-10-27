@@ -73,6 +73,12 @@ function responses(r:Awaited<ReturnType<typeof orderedRace>>,name:string){
  expect(r.cycle,JSON.stringify(r.cycle)).toEqual([]);
  return replies;
 }
+async function proof(id:number){
+ const result=await reconcile(id,f.companies[0].id);
+ evidence.push({name:"independent-reconciliation",productId:id,proof:result});
+ expect(result.checks).toEqual({balanced:true,valueMatches:true,layersMatch:true,noOpenTransactions:true});
+ return result;
+}
 describe("native stock/count resource lock order with deterministic PostgreSQL barriers",()=>{
  for(const movementFirst of [false,true])for(const kind of ["issue","receipt"]){
   it(`${kind}: delegated movement ${movementFirst?"before":"after"} a real variance close`,async()=>{
@@ -80,34 +86,56 @@ describe("native stock/count resource lock order with deterministic PostgreSQL b
    const movement=()=>move(p.id,kind,warehouse(),undefined,intent),closing=()=>close(take);
    const r=await orderedRace(key(p.id),movementFirst?movement:closing,movementFirst?closing:movement);
    const replies=responses(r,`${kind}-close-${movementFirst}`);accepted(replies[movementFirst?0:1],201);accepted(replies[movementFirst?1:0]);
-   const proof=await reconcile(p.id,f.companies[0].id);
-   expect(Number(proof.quants.find(q=>q.warehouse_id===warehouse()).quantity)).toBe(kind==="issue"?17:21);
-   expect(proof.moves.length).toBe(4);expect(proof.journals.length).toBe(4);
+   const reconciled=await proof(p.id);
+   expect(Number(reconciled.quants.find(q=>q.warehouse_id===warehouse()).quantity)).toBe(kind==="issue"?17:21);
+   expect(reconciled.moves.length).toBe(4);expect(reconciled.journals.length).toBe(4);
    expect(Object.keys(replies[movementFirst?0:1].body).sort()).toEqual(["moveId","moveIds"]);
    accepted(await movement(),201);accepted(await closing());
-   expect(await reconcile(p.id,f.companies[0].id)).toEqual(proof);
-   evidence.push({name:`${kind}-close-${movementFirst}-reconciliation`,proof});
+   expect(await proof(p.id)).toEqual(reconciled);
   });
  }
  for(const movementFirst of [false,true]){
+  for(const scoped of [false,true]){
+   it(`native inbound ${movementFirst?"after":"before"} ${scoped?"delegated":"legacy"} issue keeps FK locks compatible`,async()=>{
+    const p=await product(),a=()=>scoped?move(p.id):legacy(p.id);
+    const b=()=>db.transaction(tx=>recordStockMove(tx,{companyId:f.companies[0].id,productId:p.id,toWarehouseId:warehouse(),
+     kind:"receipt",quantity:2,unitCost:3,sourceType:"lock_native_receipt",createdBy:f.ownerUser.id})).then(body=>({status:201,body}));
+    const r=await orderedRace(key(p.id),movementFirst?a:b,movementFirst?b:a);
+    for(const reply of responses(r,`native-inbound-${scoped}-${movementFirst}`))accepted(reply,201);
+    const reconciled=await proof(p.id);
+    expect(Number(reconciled.quants.find(q=>q.warehouse_id===warehouse()).quantity)).toBe(20);
+    expect(reconciled.moves.length).toBe(4);
+   });
+  }
+  it(`opposite warehouse dispatches ${movementFirst?"high":"low"} first use one resource order`,async()=>{
+   const p=await product();
+   const dispatch=(from:number,to:number)=>f.actors[0].post("/api/inventory/transfers")
+    .set("X-Workspace-Responsibility",String(grantId(0,from))).set("Idempotency-Key",randomUUID())
+    .send({productId:p.id,fromWarehouseId:from,toWarehouseId:to,quantity:2,
+     destinationResponsibilityId:grantId(0,to),notes:"اختبار تحويلين باتجاهين"}).then(r=>r);
+   const a=()=>dispatch(warehouse(),destination()),b=()=>dispatch(destination(),warehouse());
+   const r=await orderedRace(key(p.id,Math.min(warehouse(),destination())),movementFirst?a:b,movementFirst?b:a);
+   for(const reply of responses(r,`opposite-dispatch-${movementFirst}`))accepted(reply,201);
+   const reconciled=await proof(p.id);
+   expect(reconciled.quants.every(q=>Number(q.quantity)===18)).toBe(true);
+   expect(reconciled.moves.filter(m=>m.state==="in_transit").length).toBe(2);
+  });
   it(`delegated issue ${movementFirst?"before":"after"} legacy ordinary issue`,async()=>{
    const p=await product(),a=()=>move(p.id),b=()=>legacy(p.id);
    const r=await orderedRace(key(p.id),movementFirst?a:b,movementFirst?b:a);
    for(const reply of responses(r,`legacy-${movementFirst}`))accepted(reply,201);
-   const proof=await reconcile(p.id,f.companies[0].id);
-   expect(Number(proof.quants.find(q=>q.warehouse_id===warehouse()).quantity)).toBe(16);expect(proof.moves.length).toBe(4);
-   evidence.push({name:`legacy-${movementFirst}-reconciliation`,proof});
+   const reconciled=await proof(p.id);
+   expect(Number(reconciled.quants.find(q=>q.warehouse_id===warehouse()).quantity)).toBe(16);expect(reconciled.moves.length).toBe(4);
   });
   it(`transfer arrival ${movementFirst?"before":"after"} real variance close`,async()=>{
    const p=await product(),take=await counted(p.id),t=await incoming(p),intent=randomUUID();
    const a=()=>receive(t.moveId,warehouse(),intent),b=()=>close(take);
    const r=await orderedRace(key(p.id),movementFirst?a:b,movementFirst?b:a);
    for(const reply of responses(r,`arrival-close-${movementFirst}`))accepted(reply);
-   const proof=await reconcile(p.id,f.companies[0].id);
-   expect(Number(proof.quants.find(q=>q.warehouse_id===warehouse()).quantity)).toBe(21);expect(proof.moves.length).toBe(4);
-   expect(proof.moves.find(m=>m.id===t.moveId).state).toBe("done");
-   accepted(await a());accepted(await b());expect(await reconcile(p.id,f.companies[0].id)).toEqual(proof);
-   evidence.push({name:`arrival-close-${movementFirst}-reconciliation`,proof});
+   const reconciled=await proof(p.id);
+   expect(Number(reconciled.quants.find(q=>q.warehouse_id===warehouse()).quantity)).toBe(21);expect(reconciled.moves.length).toBe(4);
+   expect(reconciled.moves.find(m=>m.id===t.moveId).state).toBe("done");
+   accepted(await a());accepted(await b());expect(await proof(p.id)).toEqual(reconciled);
   });
   it(`variant arrival ${movementFirst?"before":"after"} native variant issue without counting variants`,async()=>{
    const p=await product(true),t=await incoming(p,destination());
@@ -116,9 +144,8 @@ describe("native stock/count resource lock order with deterministic PostgreSQL b
     createdBy:f.ownerUser.id,sourceType:"lock_native_issue"})).then(body=>({status:201,body}));
    const r=await orderedRace(key(p.id,destination(),p.variantId),movementFirst?a:b,movementFirst?b:a);
    const replies=responses(r,`variant-arrival-${movementFirst}`);accepted(replies[movementFirst?0:1]);accepted(replies[movementFirst?1:0],201);
-   const proof=await reconcile(p.id,f.companies[0].id);
-   expect(Number(proof.quants.find(q=>q.warehouse_id===destination()).quantity)).toBe(20);expect(proof.moves.length).toBe(4);
-   evidence.push({name:`variant-arrival-${movementFirst}-reconciliation`,proof});
+   const reconciled=await proof(p.id);
+   expect(Number(reconciled.quants.find(q=>q.warehouse_id===destination()).quantity)).toBe(20);expect(reconciled.moves.length).toBe(4);
   });
  }
 });

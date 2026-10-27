@@ -7,9 +7,10 @@ import { getCompanyId } from "./scoped-db";
 import { managedProfile, requireResponsibility, responsibilityContext, type Responsibility } from "./responsibility-context";
 import { teamRows } from "./team-store";
 import { inventoryActor } from "./scoped-inventory-actor";
+import { lockInventoryQuantKeys } from "./inventory-resource-locks";
 
 type Connection = Pick<typeof db, "execute">;
-type Transfer = { id:number; state:string; destinationId:number; branchId:number; quantity:string; value:string; variantId:number|null };
+type Transfer = { id:number; state:string; destinationId:number; branchId:number; quantity:string; value:string; variantId:number|null; productId:number;lotId:number|null };
 type Authority = { userId:number; companyId:number; name:string; role:string; grant:Responsibility|null; transfer:Transfer };
 const denied = () => new FinancialRequestError("التحويل خارج مستودعات الوجهة المسموح بها أو الأهلية الحالية",403);
 
@@ -33,7 +34,7 @@ export async function transferAuthority(connection:Connection,req:Request,id:num
   const {companyId,grant}=actor;
   const [transfer]=await teamRows<Transfer>(connection,sql`
     SELECT m.id,m.state,m.to_warehouse_id AS "destinationId",t.branch_id AS "branchId",m.quantity::text,
-     (m.quantity*m.unit_cost)::text AS value,m.variant_id AS "variantId"
+      (m.quantity*m.unit_cost)::text AS value,m.variant_id AS "variantId",m.product_id AS "productId",m.lot_id AS "lotId"
     FROM stock_moves m
     JOIN warehouses f ON f.id=m.from_warehouse_id AND f.company_id=${companyId}
     JOIN warehouses t ON t.id=m.to_warehouse_id AND t.company_id=f.company_id
@@ -48,10 +49,12 @@ export async function transferAuthority(connection:Connection,req:Request,id:num
     if(limit!.over)throw new FinancialRequestError("قيمة التحويل المحسوبة من الخادم تتجاوز حد الاستلام",403);
   }
   if(execute&&grant&&transfer.variantId!==null){
+    await lockInventoryQuantKeys(connection,[{productId:transfer.productId,warehouseId:transfer.destinationId,
+      variantId:transfer.variantId,lotId:transfer.lotId}]);
     const [usable]=await teamRows(connection,sql`SELECT v.id FROM product_variants v JOIN stock_moves m
       ON m.variant_id=v.id AND m.product_id=v.product_id JOIN products p ON p.id=v.product_id
       WHERE m.id=${id} AND p.company_id=${companyId} AND p.is_active AND p.tracking_mode='none' AND v.is_active
-      FOR SHARE OF p,v`);
+       FOR NO KEY UPDATE OF p FOR SHARE OF v`);
     if(!usable)throw denied();
   }
   return {...actor,transfer};

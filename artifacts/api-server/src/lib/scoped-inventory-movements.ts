@@ -8,6 +8,7 @@ import { inventoryActor } from "./scoped-inventory-actor";
 import { currentResponsibilities, responsibilityContext, type Responsibility } from "./responsibility-context";
 import { teamRows } from "./team-store";
 import { recordStockMove } from "./stock-engine";
+import { lockInventoryQuantKeys } from "./inventory-resource-locks";
 
 const invalid=()=>new FinancialRequestError("الحركة أو أحد مستودعاتها خارج الصلاحية الحالية",403);
 const quantity=z.coerce.number().min(0.0001).max(999999999).refine(v=>Number.isFinite(v)&&Number(v.toFixed(4))===v,"الكمية حتى أربع منازل عشرية");
@@ -32,9 +33,8 @@ export async function rejectLegacyVariantMovement(connection:Pick<typeof db,"exe
  // Take the native ordinary quant advisory keys BEFORE the product row.
  // A count close already holds these keys before updating the product total.
  // The opposite order would introduce a deadlock into accepted ordinary moves.
- for(const warehouseId of [...new Set(warehouseIds)].sort((a,b)=>a-b))
-  await connection.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${`${productId}-${warehouseId}-0-0`},0))`);
- const [parent]=await teamRows<{variant:boolean}>(connection,sql`${query} FOR UPDATE`);
+ await lockInventoryQuantKeys(connection,warehouseIds.map(warehouseId=>({productId,warehouseId})));
+ const [parent]=await teamRows<{variant:boolean}>(connection,sql`${query} FOR NO KEY UPDATE`);
  if(parent?.variant)reject();
 }
 
@@ -48,15 +48,19 @@ async function authority(connection:Pick<typeof db,"execute">,req:Request,m:Move
  const warehouses=await teamRows<{id:number;branchId:number}>(connection,sql`
   SELECT w.id,w.branch_id AS "branchId" FROM warehouses w JOIN branches b ON b.id=w.branch_id
   AND b.company_id=w.company_id AND b.is_active WHERE w.company_id=${actor.companyId}
-  AND w.id=ANY(${sql.param(ids)}::integer[]) ORDER BY w.id ${execute?sql`FOR UPDATE OF w FOR SHARE OF b`:sql``}`);
+  AND w.id=ANY(${sql.param(ids)}::integer[]) ORDER BY w.id ${execute?sql`FOR SHARE OF w,b`:sql``}`);
  const covered=(id:number,g:Responsibility)=>warehouses.some(w=>w.id===id&&w.branchId===g.branchId)&&g.warehouseIds.includes(id);
  if(warehouses.length!==ids.length||(m.from!==null&&!covered(m.from,actor.grant))||
   (m.to!==null&&!covered(m.to,destination)))throw invalid();
+ // Warehouse SHARE protects ownership/state while allowing the engine's FK
+ // KEY SHARE. UPDATE here can deadlock a stocktake holding the quant key.
+ if(execute)await lockInventoryQuantKeys(connection,ids.map(warehouseId=>({
+  productId:m.productId,warehouseId,variantId:m.variantId})));
  const [product]=await teamRows<{tracking:string;variant:boolean;hasVariants:boolean}>(connection,sql`
   SELECT tracking_mode AS tracking,is_variant_parent AS variant,
    EXISTS(SELECT 1 FROM product_variants v WHERE v.product_id=products.id) AS "hasVariants" FROM products
   WHERE id=${m.productId} AND company_id=${actor.companyId} AND is_active
-  ${execute?sql`FOR UPDATE`:sql``}`);
+  ${execute?sql`FOR NO KEY UPDATE`:sql``}`);
  if(!product)throw invalid();
  if(execute){
   if(product.tracking!=="none")throw new FinancialRequestError("التشغيلة والتسلسل خارج مسار الحركات غير المتتبعة",409);

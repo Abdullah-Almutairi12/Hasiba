@@ -1,7 +1,6 @@
 // Disposable PostgreSQL only. No timers decide operation order: the second
 // request starts only after PostgreSQL proves the first is behind our barrier.
 import {pool} from "@workspace/db";
-import {expect} from "vitest";
 export type LockEdge={pid:number;blockers:number[];query:string};
 export const lockRows=async(q:string,v:unknown[]=[])=> (await pool.query(q,v)).rows;
 export async function graph():Promise<LockEdge[]>{
@@ -67,10 +66,9 @@ export async function reconcile(product:number,company:number){
   const openTransactions=await read(`SELECT pid FROM pg_stat_activity WHERE datname=current_database()
    AND pid<>pg_backend_pid() AND state='idle in transaction'`);
   await c.query("COMMIT");
-  expect(journals.every(j=>Number(j.debit)===Number(j.credit))).toBe(true);
-  expect(Number(values.stock)+Number(values.transit)).toBe(Number(values.ledger));
-  expect(Number(values.layers)).toBe(Number(values.stock));
-  expect(openTransactions).toEqual([]);
-  return {quants,moves,journals,values,audits,openTransactions};
+  const checks={balanced:journals.every(j=>Number(j.debit)===Number(j.credit)),
+   valueMatches:Number(values.stock)+Number(values.transit)===Number(values.ledger),
+   layersMatch:Number(values.layers)===Number(values.stock),noOpenTransactions:openTransactions.length===0};
+  return {quants,moves,journals,values,audits,openTransactions,checks};
  }finally{await c.query("ROLLBACK").catch(()=>undefined);c.release();}
 }
