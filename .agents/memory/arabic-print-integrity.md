@@ -32,3 +32,9 @@ Continuous DOM measurements do not prove Chromium's named-page print fragmentati
 **Why:** Even a measured sheet with apparent free space pushed its QR and note onto another full-height page; adding a small height allowance or inheriting the named page did not resolve it.
 
 **How to apply:** Verify actual PDF page counts, content bounds and QR placement. For variable thermal lengths, isolate each bounded sheet in the native renderer and preserve its vector pages when assembling; fail on an unexpected extra page instead of cropping or accepting blank paper.
+
+Grouping an A4 summary alone does not ensure a useful final page.
+
+**Why:** Chromium can fill the preceding item-table page exactly and then move a correctly grouped summary onto a mostly empty page. Keeping totals, QR and notes together addressed splitting, but did not address that separate pagination failure.
+
+**How to apply:** When a table is immediately followed by the ending group, keep a small tail of original rows with it, moving rather than copying rows. Verify exact row multiplicity and actual PDF whitespace; do not relax the tail assertion to hide the failure. Do not change accepted historical renderers.
