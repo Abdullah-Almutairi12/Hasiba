@@ -58,6 +58,7 @@ const Branches = lazy(() => import("@/pages/branches"));
 const UsersPage = lazy(() => import("@/pages/users"));
 const HrPage = lazy(() => import("@/pages/hr"));
 const Settings = lazy(() => import("@/pages/settings"));
+const InvoiceTemplatesPage = lazy(() => import("@/pages/invoice-templates"));
 const ProjectsPage = lazy(() => import("@/pages/projects"));
 const MarketingPage = lazy(() => import("@/pages/marketing"));
 const AdminPage = lazy(() => import("@/pages/admin"));
@@ -96,7 +97,7 @@ const AccountSecurityPage = lazy(() => import("@/pages/account-security"));
 const AccountPasswordPage = lazy(() => import("@/pages/account-password"));
 
 /** Paths a scoped (responsibility-bound) member may open. */
-const SCOPED_PATHS = new Set(["/my-work", "/administration", "/settings/users", "/account/membership", "/account/security", "/team-setup"]);
+const SCOPED_PATHS = new Set(["/my-work", "/administration", "/settings/users", "/settings/invoice-templates", "/account/membership", "/account/security", "/team-setup"]);
 const SCOPED_RETURNS_PATH = "/returns";
 
 /**
@@ -306,6 +307,9 @@ function Router() {
         </Route>
         <Route path="/settings">
           <Protected><Settings /></Protected>
+        </Route>
+        <Route path="/settings/invoice-templates">
+          <Protected><InvoiceTemplatesPage /></Protected>
         </Route>
         <Route path="/team-setup">
           <Protected><TeamSetupPage /></Protected>

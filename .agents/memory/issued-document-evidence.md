@@ -26,3 +26,9 @@ Printer configuration is not tax registration. An unregistered company must be a
 **Why:** Unconditional identity-field requirements blocked 58mm setup for an explicitly unregistered test company and encouraged fabricated identifiers.
 
 **How to apply:** Use authoritative company registration status for conditional VAT validation; editing a number must not activate registration. Preserve original document evidence after any profile edit.
+
+Invoice design is issuance evidence, not a reference to today's company or branch default.
+
+**Why:** A later preset, logo or branch-inheritance edit must not change an already issued invoice. A reversal of a legacy document must not manufacture a historical design that was never captured.
+
+**How to apply:** Retain the captured design schema and immutable asset references with the original transaction. Preserve the old renderer/assets when introducing a future schema version; do not silently reinterpret saved presets. Keep legacy reprints explicit rather than applying today's default retrospectively.

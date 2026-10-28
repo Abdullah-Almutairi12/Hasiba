@@ -138,6 +138,7 @@ export default function AdministrationPage({ variant = "legacy" }: { variant?: V
       {!membership && ws.rights.includes("settings") && <ProcurementReceivingPolicy kind="stocktake" />}
       {!membership && isAdmin && <PrimaryOwnerPanel ws={ws} onChanged={() => void invalidate()} onTransfer={() => !openOutgoing && setComposer({ handover: null, ownerTransfer: true })} />}
       {membership&&<MembershipDeparture primary={ws.isPrimaryOwner===true}/>}
+      {!membership && ws.rights.includes("settings")&&<Link href="/settings/invoice-templates"><Button variant="outline" data-testid="link-invoice-templates">قوالب الفواتير</Button></Link>}
       {!membership && (ws.rights.includes("settings")||ws.rights.includes("subscription"))&&<AdministrationSetupControls rights={ws.rights}/>}
 
       {ws.notifications.length > 0 && (
