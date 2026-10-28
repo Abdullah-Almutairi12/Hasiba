@@ -63,6 +63,22 @@ describe("invoice design 2a using existing settings, issuance and native rendere
     ok(await f.owner.get(`/api/settings?branchId=${f.branches[2].id}`),404);
     ok(await f.owner.post("/api/print/templates/preview").send({expectedCompanyId:f.companies[1].id,branchId:null,
       design:design(),sample:"short",width:"a4"}),409);
+    const delegate=f.actors[0],person=(await rows("SELECT id FROM users WHERE email=$1",[f.people[0].email]))[0];
+    await rows("INSERT INTO company_administrators(company_id,user_id,responsibilities,active) VALUES($1,$2,ARRAY['settings']::text[],true)",
+      [f.companies[0].id,person.id]);
+    expect(ok(await delegate.get("/api/settings")).scope.canManage).toBe(true);
+    ok(await delegate.get("/api/print/templates"));
+    const delegatedPreview=await delegate.post("/api/print/templates/preview").send({expectedCompanyId:f.companies[0].id,
+      branchId:null,design:design(),sample:"short",width:"a4"});
+    ok(delegatedPreview);expect(delegatedPreview.body.subarray(0,5).toString()).toBe("%PDF-");
+    ok(await delegate.post("/api/print/templates/preview").send({expectedCompanyId:f.companies[0].id,
+      branchId:f.branches[2].id,design:design(),sample:"short",width:"a4"}),404);
+    ok(await delegate.get("/api/sales/invoices/987654/print.pdf"),403);
+    await rows("UPDATE company_administrators SET responsibilities=ARRAY[]::text[] WHERE company_id=$1 AND user_id=$2",
+      [f.companies[0].id,person.id]);
+    ok(await delegate.get("/api/print/templates"),403);
+    ok(await delegate.post("/api/print/templates/preview").send({expectedCompanyId:f.companies[0].id,
+      branchId:null,design:design(),sample:"short",width:"a4"}),403);
     // Revoke the explicit settings responsibility, not merely a job/role label.
     await rows("UPDATE company_administrators SET responsibilities=array_remove(responsibilities,'settings') WHERE company_id=$1 AND user_id=$2",
       [f.companies[0].id,f.ownerUser.id]);

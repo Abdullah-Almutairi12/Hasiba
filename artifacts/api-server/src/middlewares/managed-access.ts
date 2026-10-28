@@ -73,6 +73,12 @@ export async function managedAccessGate(req: Request, res: Response, next: NextF
     // Read is field-redacted by the original settings service; writes require
     // its live company-local administrative responsibility, never a role alias.
     if(req.path==="/settings"&&(req.method==="GET"||(await administrativeRights(companyId,userId)).includes("settings")))return next();
+    // Configuration-only routes, never invoice viewing/printing/export.
+    // The original settings authorizer rechecks authority and ownership again
+    // under its fence; no job title or POS responsibility grants this access.
+    const invoiceDesignRequest=(req.method==="GET"&&req.path==="/print/templates")||
+      (req.method==="POST"&&["/print/templates/preview","/print/templates/logo"].includes(req.path));
+    if(invoiceDesignRequest&&(await administrativeRights(companyId,userId)).includes("settings"))return next();
     if (/^\/team(?:\/|$)/.test(req.path) && (await administrativeRights(companyId,userId)).length) return next();
     const profile = await managedProfile(userId, companyId);
     if (!profile) return next();
