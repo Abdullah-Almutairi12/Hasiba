@@ -1,3 +1,16 @@
+---
+name: Financial browser fault injection
+description: Verify a genuinely lost committed response through the preview proxy without relying on browser request routing
+---
+
+## Bind browser proof to the loaded runtime
+
+A clean working-tree fingerprint and passing gates do not prove a long-running browser server loaded that build.
+
+**Why:** A native invoice captured new metadata while its receipt route still used an older in-memory bundle. The final source and direct rendering tests were correct, but those first browser PDFs were not final-source evidence.
+
+**How to apply:** After the coherent source batch, restart the relevant test service from the verified build before native acceptance. Bind its loaded artifact digest to the source receipt. Preserve stale-run results separately; reprint the same confirmed documents, without creating replacement sales, then reconcile.
+
 ## Evidence database lifetime
 
 Keep the isolated browser database alive until independent financial reconciliation has been captured, then stop it explicitly.
@@ -5,10 +18,6 @@ Keep the isolated browser database alive until independent financial reconciliat
 **Why:** A fixed fixture timeout previously removed the synthetic database after UI evidence but before SQL reconciliation. Screenshots alone cannot replace that missing evidence.
 
 **How to apply:** Check the fixture lifetime before long multi-actor journeys; arrange an explicit monitored stop and cleanup rather than depending on a short expiry. Never fall back to customer data to recover missing test evidence.
----
-name: Financial browser fault injection
-description: Verify a genuinely lost committed response through the preview proxy without relying on browser request routing
----
 Keep the full PDF-heavy verification run separate from deliberate service
 rebuilds and additional preview/browser workloads on the shared workspace.
 

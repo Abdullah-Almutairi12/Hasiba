@@ -3,7 +3,7 @@
 - [Tenant authorization](tenant-authorization.md) — bind actions to their responsibility scope; shared identities and legacy integrations must not inherit company-local authority.
 - [Financial retry retention](financial-retry-policy.md) — retry receipts are commit evidence, not an expiring cache; late retries must not create new invoices.
 - [Historical upgrade evidence](historical-upgrade-evidence.md) — seed with a coherent pinned previous application, not new handlers that already require new tables.
-- [Financial browser faults](financial-browser-testing.md) — prove commit before dropping a response; the preview proxy may turn the dropped connection into HTTP 502.
+- [Financial browser faults](financial-browser-testing.md) — prove commit before dropping a response; bind native evidence to the loaded build, not only the working-tree hash.
 - [Sales return costs](sales-return-cost-policy.md) — restore evidenced historical sale cost, not today's price/FX; reconcile inventory value and profit without repairing history.
 - [Standard issue valuation](standard-issue-valuation.md) — standard price edits are prospective; ordinary issues realize carrying-cost differences net in COGS, not by automatic revaluation.
 - [Inventory revaluation](inventory-revaluation-policy.md) — independent approval covers both valuation and variance account; corrections must preserve stock/GL agreement.
