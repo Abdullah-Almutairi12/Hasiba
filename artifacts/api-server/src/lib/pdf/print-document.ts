@@ -9,11 +9,14 @@ import type { CompanyInfo } from "./purchase-order";
 import type { InvoiceDesign } from "../invoice-design";
 import { invoiceDesignStyle } from "./invoice-design-style";
 import { invoiceLayoutV2, renderThermalV2 } from "./invoice-layout-v2";
+import { invoiceLayoutV3 } from "./invoice-layout-v3";
+import type { EditorSnapshot } from "../invoice-editor-schema";
 
 export type PrintCell = string | number | null | undefined;
 export interface PrintDocument {
   /** Only server-captured issuance evidence selects prospective rendering. */
-  layoutVersion?: 2;
+  layoutVersion?: 2 | 3;
+  editor?: EditorSnapshot;
   invoiceDesign?: InvoiceDesign;
   title: string;
   subtitle?: string | null;
@@ -78,8 +81,13 @@ export function printHtml(input: PrintDocument): string {
   ${image(input.qr)}${(input.notes??[]).map(n=>`<p class="note">${cell(n)}</p>`).join("")}
   ${(input.sections??[]).map(s=>`<section><h2>${cell(s.title)}</h2>${image(s.image,"illustration")}<p>${cell(s.body)}</p></section>`).join("")}
   ${design?.note?`<p class="note">${cell(design.note)}</p>`:""}${design?.footer?`<p class="design-footer">${cell(design.footer)}</p>`:""}</body></html>`;
-  return input.layoutVersion === 2 ? invoiceLayoutV2(html, input)
-    .replace('<body data-invoice-preset=', `<body data-thermal-width="${input.thermalWidth ?? ""}" data-invoice-preset=`) : html;
+  if (input.layoutVersion === 3 && !input.editor) throw new Error("INVOICE_EDITOR_SNAPSHOT_MISSING");
+  if (input.layoutVersion === 2 || input.layoutVersion === 3) {
+    const v2 = invoiceLayoutV2(html, input)
+      .replace('<body data-invoice-preset=', `<body data-thermal-width="${input.thermalWidth ?? ""}" data-invoice-preset=`);
+    return input.layoutVersion === 3 ? invoiceLayoutV3(v2, input, input.editor!.design) : v2;
+  }
+  return html;
 }
 export async function buildPrintPdf(input: PrintDocument): Promise<Buffer> {
   if (active >= 2) throw new Error("PRINT_BUSY_RETRY");
@@ -101,8 +109,9 @@ export async function buildPrintPdf(input: PrintDocument): Promise<Buffer> {
     try{
       await page.evaluate(`(async()=>{await document.fonts.load("12px Tajawal");await document.fonts.load("700 12px Tajawal");await document.fonts.ready;if(!document.fonts.check("12px Tajawal")||!document.fonts.check("700 12px Tajawal"))throw new Error("PRINT_FONTS_NOT_LOADED");})()`);
       const options={format:"A4" as const,landscape:input.landscape,preferCSSPageSize:true,printBackground:true,tagged:true,displayHeaderFooter:true,headerTemplate:"<span></span>",footerTemplate:'<div style="font:9px sans-serif;width:100%;text-align:center;color:#516071"><span class="pageNumber"></span> / <span class="totalPages"></span></div>'};
-      if(input.thermalWidth && input.layoutVersion === 2) {
-        return await renderThermalV2(page,input.thermalWidth,options);
+      if(input.thermalWidth && (input.layoutVersion === 2 || input.layoutVersion === 3)) {
+        return await renderThermalV2(page,input.thermalWidth,options,
+          input.layoutVersion===3 && input.thermalWidth===80 ? input.editor!.design.thermal80.margin : undefined);
       } else if(input.thermalWidth){
         const pixels=await page.evaluate("document.body.getBoundingClientRect().height") as number;
         const height=Math.max(60,Math.min(3000,Math.ceil(pixels*25.4/96+12)));

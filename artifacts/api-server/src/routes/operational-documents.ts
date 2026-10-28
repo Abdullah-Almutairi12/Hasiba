@@ -21,6 +21,7 @@ function missing(): never { throw new FinancialRequestError("المستند غي
 async function print(req: Request, kind: DocumentKind, id: number, doc: PrintDocument) {
   const issuer = await documentIssuer(req.session.companyId!,kind,id);
   return { ...doc, layoutVersion:kind==="pos"?issuer.invoiceDesign?.layoutVersion:undefined,
+    editor:kind==="pos"?issuer.invoiceDesign?.editor:undefined,
     invoiceDesign:kind==="pos"?issuer.invoiceDesign?.design:undefined, company:await printableIssuer(issuer), notes:[
     ...(!issuer.verifiedSnapshot?["لا تتوافر هوية الإصدار التاريخية لهذا المستند؛ لا تستخدم بيانات الشركة الحالية لإثبات هويته."]:[]),
     ...(!issuer.vatNumber && issuer.vatEnabled?["الرقم الضريبي للمصدر غير متاح."]:[]),

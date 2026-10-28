@@ -3348,6 +3348,251 @@ export interface CreateSupplierBody {
   notes?: string | null;
 }
 
+export interface EditorScope {
+  /** @minimum 1 */
+  expectedCompanyId: number;
+  /**
+     * @minimum 1
+     * @nullable
+     */
+  branchId: number | null;
+}
+
+export type EditorLayoutOrderItem = typeof EditorLayoutOrderItem[keyof typeof EditorLayoutOrderItem];
+
+
+export const EditorLayoutOrderItem = {
+  identity: 'identity',
+  customer: 'customer',
+  references: 'references',
+  items: 'items',
+  totals: 'totals',
+  qr: 'qr',
+  notes: 'notes',
+  footer: 'footer',
+} as const;
+
+export type EditorLayoutAlign = typeof EditorLayoutAlign[keyof typeof EditorLayoutAlign];
+
+
+export const EditorLayoutAlign = {
+  start: 'start',
+  center: 'center',
+  end: 'end',
+} as const;
+
+export interface EditorLayout {
+  /**
+     * @minItems 8
+     * @maxItems 8
+     */
+  order: EditorLayoutOrderItem[];
+  /**
+     * @minimum 0
+     * @maximum 8
+     */
+  gap: number;
+  /**
+     * @minimum 3
+     * @maximum 18
+     */
+  margin: number;
+  align: EditorLayoutAlign;
+  /**
+     * @minimum 1
+     * @maximum 2
+     */
+  metadataColumns: number;
+  /**
+     * @minimum 0
+     * @maximum 8
+     */
+  logoGap: number;
+  /**
+     * @minItems 5
+     * @maxItems 5
+     * @items.minimum 8
+     * @items.maximum 55
+     */
+  widths: number[];
+  showSequence: boolean;
+}
+
+export type EditorDesignSchemaVersion = typeof EditorDesignSchemaVersion[keyof typeof EditorDesignSchemaVersion];
+
+
+export const EditorDesignSchemaVersion = {
+  NUMBER_1: 1,
+} as const;
+
+export type EditorDesignBaseVersion = typeof EditorDesignBaseVersion[keyof typeof EditorDesignBaseVersion];
+
+
+export const EditorDesignBaseVersion = {
+  NUMBER_1: 1,
+} as const;
+
+export type EditorDesignBasePreset = typeof EditorDesignBasePreset[keyof typeof EditorDesignBasePreset];
+
+
+export const EditorDesignBasePreset = {
+  formal: 'formal',
+  simple: 'simple',
+  commercial: 'commercial',
+  modern: 'modern',
+  ink: 'ink',
+} as const;
+
+export type EditorDesignBaseFont = typeof EditorDesignBaseFont[keyof typeof EditorDesignBaseFont];
+
+
+export const EditorDesignBaseFont = {
+  Tajawal: 'Tajawal',
+  'sans-serif': 'sans-serif',
+} as const;
+
+export type EditorDesignBaseLogoMode = typeof EditorDesignBaseLogoMode[keyof typeof EditorDesignBaseLogoMode];
+
+
+export const EditorDesignBaseLogoMode = {
+  identity: 'identity',
+  custom: 'custom',
+  none: 'none',
+} as const;
+
+export type EditorDesignBaseLogoPosition = typeof EditorDesignBaseLogoPosition[keyof typeof EditorDesignBaseLogoPosition];
+
+
+export const EditorDesignBaseLogoPosition = {
+  start: 'start',
+  center: 'center',
+  end: 'end',
+} as const;
+
+export type EditorDesignBase = {
+  version: EditorDesignBaseVersion;
+  preset: EditorDesignBasePreset;
+  /** @pattern ^#[0-9a-fA-F]{6}$ */
+  accent: string;
+  font: EditorDesignBaseFont;
+  /**
+     * @minimum 11
+     * @maximum 16
+     */
+  fontSize: number;
+  logoMode: EditorDesignBaseLogoMode;
+  /**
+     * @maxLength 300
+     * @nullable
+     */
+  logoObjectKey: string | null;
+  logoPosition: EditorDesignBaseLogoPosition;
+  /**
+     * @minimum 18
+     * @maximum 48
+     */
+  logoWidth: number;
+  /** @maxLength 250 */
+  header: string;
+  /** @maxLength 500 */
+  footer: string;
+  /** @maxLength 1000 */
+  note: string;
+  showContact: boolean;
+  showBank: boolean;
+};
+
+export interface EditorDesign {
+  schemaVersion: EditorDesignSchemaVersion;
+  /**
+     * @minLength 1
+     * @maxLength 80
+     */
+  name: string;
+  base: EditorDesignBase;
+  a4: EditorLayout;
+  thermal80: EditorLayout;
+}
+
+export interface EditorDraft {
+  id: string;
+  revision: number;
+  design: EditorDesign;
+}
+
+export interface EditorRelease {
+  id: string;
+  draftId: string;
+  draftRevision: number;
+  design: EditorDesign;
+  revision: number;
+}
+
+export type EditorStateSource = typeof EditorStateSource[keyof typeof EditorStateSource];
+
+
+export const EditorStateSource = {
+  branch: 'branch',
+  company: 'company',
+  legacy: 'legacy',
+} as const;
+
+export interface EditorState {
+  drafts: EditorDraft[];
+  releases: EditorRelease[];
+  revision: number;
+  parentRevision: number;
+  /** @nullable */
+  activeId: string | null;
+  source: EditorStateSource;
+}
+
+export type EditorDraftInput = EditorScope & {
+  id: string;
+  /** @minimum 0 */
+  expectedRevision: number;
+  requestId: string;
+  design: EditorDesign;
+};
+
+export type EditorPublishInput = EditorScope & {
+  id: string;
+  expectedRevision: number;
+  expectedActiveRevision: number;
+  expectedParentRevision: number;
+  requestId: string;
+};
+
+export type EditorActivationInput = EditorScope & ({
+  /** @nullable */
+  releaseId: string | null;
+  expectedActiveRevision: number;
+  expectedParentRevision: number;
+  requestId: string;
+});
+
+export type EditorPreviewInputSample = typeof EditorPreviewInputSample[keyof typeof EditorPreviewInputSample];
+
+
+export const EditorPreviewInputSample = {
+  short: 'short',
+  long: 'long',
+} as const;
+
+export type EditorPreviewInputWidth = typeof EditorPreviewInputWidth[keyof typeof EditorPreviewInputWidth];
+
+
+export const EditorPreviewInputWidth = {
+  a4: 'a4',
+  NUMBER_80: '80',
+} as const;
+
+export type EditorPreviewInput = EditorScope & {
+  design: EditorDesign;
+  sample: EditorPreviewInputSample;
+  width: EditorPreviewInputWidth;
+};
+
 export type GetProcurementReceivingPolicy200 = {
   allowCreator: boolean;
   revision: number;
@@ -4112,6 +4357,10 @@ export type GetInvoiceTemplateCatalog200 = {
   canManage: boolean;
   presets: GetInvoiceTemplateCatalog200PresetsItem[];
   defaultDesign: GetInvoiceTemplateCatalog200DefaultDesign;
+};
+
+export type ActivateInvoiceEditorRelease200 = {
+  revision: number;
 };
 
 export type PreviewInvoiceTemplateBodyDesignVersion = typeof PreviewInvoiceTemplateBodyDesignVersion[keyof typeof PreviewInvoiceTemplateBodyDesignVersion];

@@ -105,13 +105,13 @@ export const paginateThermalV2 = String.raw`(() => {
  * orphaning a QR despite apparent available space. Render each bounded sheet
  * through the SAME native renderer, then assemble its original vector pages.
  * pdf-lib never lays out text, changes financial data or crops PDF content. */
-export async function renderThermalV2(page: Page, width: 58 | 80, options: NonNullable<Parameters<Page["pdf"]>[0]>): Promise<Buffer> {
+export async function renderThermalV2(page: Page, width: 58 | 80, options: NonNullable<Parameters<Page["pdf"]>[0]>, editorMargin?: number): Promise<Buffer> {
   const heights = await page.evaluate(paginateThermalV2) as number[];
   const merged = await PDFDocument.create();
   for (let i = 0; i < heights.length; i++) {
     await page.evaluate(`(() => {
       document.body.replaceChildren(window.__thermalSheets[${i}]);
-      document.styleSheets[0].insertRule("@page{size:${width}mm ${heights[i]}mm;margin:4mm 3mm 8mm}",document.styleSheets[0].cssRules.length);
+      document.styleSheets[0].insertRule("@page{size:${width}mm ${heights[i]}mm;margin:${editorMargin ?? 4}mm ${editorMargin ?? 3}mm 8mm}",document.styleSheets[0].cssRules.length);
     })()`);
     const bytes = await page.pdf({...options, footerTemplate:
       `<div style="font:9px sans-serif;width:100%;text-align:center;color:#516071">${i+1} / ${heights.length}</div>`});

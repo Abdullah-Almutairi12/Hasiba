@@ -32,6 +32,7 @@ import type {
   AccountSecurityState,
   AccountingSummary,
   ActOnApprovalRequest200,
+  ActivateInvoiceEditorRelease200,
   AdminStats,
   AdminSystemHealth,
   AdministrationAcknowledgement,
@@ -143,6 +144,14 @@ import type {
   DismissDashboardAlert200,
   DismissDashboardAlertBody,
   DismissedAlert,
+  EditorActivationInput,
+  EditorDraft,
+  EditorDraftInput,
+  EditorPreviewInput,
+  EditorPublishInput,
+  EditorRelease,
+  EditorScope,
+  EditorState,
   ExchangeRate,
   ExportAlertsCleanupRunsPdfParams,
   FeatureFlag,
@@ -7218,6 +7227,416 @@ export function useGetInvoiceTemplateCatalog<TData = Awaited<ReturnType<typeof g
 
 
 
+
+export const getGetInvoiceEditorStateUrl = () => {
+
+
+
+
+  return `/api/print/editor/state`
+}
+
+export const getInvoiceEditorState = async (editorScope: EditorScope, options?: Parameters<typeof customFetch>[1]): Promise<EditorState> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<EditorState>(getGetInvoiceEditorStateUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(editorScope)
+  }
+);}
+
+
+
+
+
+export const getGetInvoiceEditorStateMutationKey = () => ['getInvoiceEditorState'] as const;
+
+export const getGetInvoiceEditorStateMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof getInvoiceEditorState>>, TError,GetInvoiceEditorStateMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof getInvoiceEditorState>>, TError,GetInvoiceEditorStateMutationVariables, TContext> => {
+
+const mutationKey = getGetInvoiceEditorStateMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof getInvoiceEditorState>>, GetInvoiceEditorStateMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  getInvoiceEditorState(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type GetInvoiceEditorStateMutationResult = NonNullable<Awaited<ReturnType<typeof getInvoiceEditorState>>>
+    export type GetInvoiceEditorStateMutationBody = BodyType<EditorScope>
+    export type GetInvoiceEditorStateMutationError = ErrorType<unknown>
+    export type GetInvoiceEditorStateMutationVariables = {data: BodyType<EditorScope>}
+
+    export const useGetInvoiceEditorState = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof getInvoiceEditorState>>, TError,GetInvoiceEditorStateMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof getInvoiceEditorState>>,
+        TError,
+        GetInvoiceEditorStateMutationVariables,
+        TContext
+      > => {
+      return useMutation(getGetInvoiceEditorStateMutationOptions(options), queryClient);
+    }
+
+export const getSaveInvoiceEditorDraftUrl = () => {
+
+
+
+
+  return `/api/print/editor/draft`
+}
+
+export const saveInvoiceEditorDraft = async (editorDraftInput: EditorDraftInput, options?: Parameters<typeof customFetch>[1]): Promise<EditorDraft> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<EditorDraft>(getSaveInvoiceEditorDraftUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(editorDraftInput)
+  }
+);}
+
+
+
+
+
+export const getSaveInvoiceEditorDraftMutationKey = () => ['saveInvoiceEditorDraft'] as const;
+
+export const getSaveInvoiceEditorDraftMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof saveInvoiceEditorDraft>>, TError,SaveInvoiceEditorDraftMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof saveInvoiceEditorDraft>>, TError,SaveInvoiceEditorDraftMutationVariables, TContext> => {
+
+const mutationKey = getSaveInvoiceEditorDraftMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof saveInvoiceEditorDraft>>, SaveInvoiceEditorDraftMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  saveInvoiceEditorDraft(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SaveInvoiceEditorDraftMutationResult = NonNullable<Awaited<ReturnType<typeof saveInvoiceEditorDraft>>>
+    export type SaveInvoiceEditorDraftMutationBody = BodyType<EditorDraftInput>
+    export type SaveInvoiceEditorDraftMutationError = ErrorType<unknown>
+    export type SaveInvoiceEditorDraftMutationVariables = {data: BodyType<EditorDraftInput>}
+
+    export const useSaveInvoiceEditorDraft = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof saveInvoiceEditorDraft>>, TError,SaveInvoiceEditorDraftMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof saveInvoiceEditorDraft>>,
+        TError,
+        SaveInvoiceEditorDraftMutationVariables,
+        TContext
+      > => {
+      return useMutation(getSaveInvoiceEditorDraftMutationOptions(options), queryClient);
+    }
+
+export const getPublishInvoiceEditorDraftUrl = () => {
+
+
+
+
+  return `/api/print/editor/publish`
+}
+
+export const publishInvoiceEditorDraft = async (editorPublishInput: EditorPublishInput, options?: Parameters<typeof customFetch>[1]): Promise<EditorRelease> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<EditorRelease>(getPublishInvoiceEditorDraftUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(editorPublishInput)
+  }
+);}
+
+
+
+
+
+export const getPublishInvoiceEditorDraftMutationKey = () => ['publishInvoiceEditorDraft'] as const;
+
+export const getPublishInvoiceEditorDraftMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof publishInvoiceEditorDraft>>, TError,PublishInvoiceEditorDraftMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof publishInvoiceEditorDraft>>, TError,PublishInvoiceEditorDraftMutationVariables, TContext> => {
+
+const mutationKey = getPublishInvoiceEditorDraftMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof publishInvoiceEditorDraft>>, PublishInvoiceEditorDraftMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  publishInvoiceEditorDraft(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PublishInvoiceEditorDraftMutationResult = NonNullable<Awaited<ReturnType<typeof publishInvoiceEditorDraft>>>
+    export type PublishInvoiceEditorDraftMutationBody = BodyType<EditorPublishInput>
+    export type PublishInvoiceEditorDraftMutationError = ErrorType<unknown>
+    export type PublishInvoiceEditorDraftMutationVariables = {data: BodyType<EditorPublishInput>}
+
+    export const usePublishInvoiceEditorDraft = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof publishInvoiceEditorDraft>>, TError,PublishInvoiceEditorDraftMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof publishInvoiceEditorDraft>>,
+        TError,
+        PublishInvoiceEditorDraftMutationVariables,
+        TContext
+      > => {
+      return useMutation(getPublishInvoiceEditorDraftMutationOptions(options), queryClient);
+    }
+
+export const getActivateInvoiceEditorReleaseUrl = () => {
+
+
+
+
+  return `/api/print/editor/activate`
+}
+
+export const activateInvoiceEditorRelease = async (editorActivationInput: EditorActivationInput, options?: Parameters<typeof customFetch>[1]): Promise<ActivateInvoiceEditorRelease200> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<ActivateInvoiceEditorRelease200>(getActivateInvoiceEditorReleaseUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(editorActivationInput)
+  }
+);}
+
+
+
+
+
+export const getActivateInvoiceEditorReleaseMutationKey = () => ['activateInvoiceEditorRelease'] as const;
+
+export const getActivateInvoiceEditorReleaseMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof activateInvoiceEditorRelease>>, TError,ActivateInvoiceEditorReleaseMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof activateInvoiceEditorRelease>>, TError,ActivateInvoiceEditorReleaseMutationVariables, TContext> => {
+
+const mutationKey = getActivateInvoiceEditorReleaseMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof activateInvoiceEditorRelease>>, ActivateInvoiceEditorReleaseMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  activateInvoiceEditorRelease(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ActivateInvoiceEditorReleaseMutationResult = NonNullable<Awaited<ReturnType<typeof activateInvoiceEditorRelease>>>
+    export type ActivateInvoiceEditorReleaseMutationBody = BodyType<EditorActivationInput>
+    export type ActivateInvoiceEditorReleaseMutationError = ErrorType<unknown>
+    export type ActivateInvoiceEditorReleaseMutationVariables = {data: BodyType<EditorActivationInput>}
+
+    export const useActivateInvoiceEditorRelease = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof activateInvoiceEditorRelease>>, TError,ActivateInvoiceEditorReleaseMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof activateInvoiceEditorRelease>>,
+        TError,
+        ActivateInvoiceEditorReleaseMutationVariables,
+        TContext
+      > => {
+      return useMutation(getActivateInvoiceEditorReleaseMutationOptions(options), queryClient);
+    }
+
+export const getPreviewInvoiceEditorDraftUrl = () => {
+
+
+
+
+  return `/api/print/editor/preview`
+}
+
+export const previewInvoiceEditorDraft = async (editorPreviewInput: EditorPreviewInput, options?: Parameters<typeof customFetch>[1]): Promise<Blob> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<Blob>(getPreviewInvoiceEditorDraftUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(editorPreviewInput)
+  }
+);}
+
+
+
+
+
+export const getPreviewInvoiceEditorDraftMutationKey = () => ['previewInvoiceEditorDraft'] as const;
+
+export const getPreviewInvoiceEditorDraftMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof previewInvoiceEditorDraft>>, TError,PreviewInvoiceEditorDraftMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof previewInvoiceEditorDraft>>, TError,PreviewInvoiceEditorDraftMutationVariables, TContext> => {
+
+const mutationKey = getPreviewInvoiceEditorDraftMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof previewInvoiceEditorDraft>>, PreviewInvoiceEditorDraftMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  previewInvoiceEditorDraft(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PreviewInvoiceEditorDraftMutationResult = NonNullable<Awaited<ReturnType<typeof previewInvoiceEditorDraft>>>
+    export type PreviewInvoiceEditorDraftMutationBody = BodyType<EditorPreviewInput>
+    export type PreviewInvoiceEditorDraftMutationError = ErrorType<unknown>
+    export type PreviewInvoiceEditorDraftMutationVariables = {data: BodyType<EditorPreviewInput>}
+
+    export const usePreviewInvoiceEditorDraft = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof previewInvoiceEditorDraft>>, TError,PreviewInvoiceEditorDraftMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof previewInvoiceEditorDraft>>,
+        TError,
+        PreviewInvoiceEditorDraftMutationVariables,
+        TContext
+      > => {
+      return useMutation(getPreviewInvoiceEditorDraftMutationOptions(options), queryClient);
+    }
 
 export const getPreviewInvoiceTemplateUrl = () => {
 

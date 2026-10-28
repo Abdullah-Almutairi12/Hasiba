@@ -11,6 +11,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useSettingsScope } from "@/components/settings-scope";
 import { useToast } from "@/hooks/use-toast";
 import { withBase } from "@/lib/print-docs";
+import { InvoiceEditor } from "@/components/invoice-editor";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -275,6 +276,7 @@ export function InvoiceTemplatesTab() {
   const sourceLabel = branchId ? (branchOverrides ? "مخصص لهذا الفرع" : "موروث من المنشأة") : "إعداد المنشأة";
 
   return (
+    <div className="space-y-6">
     <Card className="overflow-hidden" data-testid="invoice-templates">
       <AlertDialog open={!!confirm} onOpenChange={o => { if (!o) setConfirm(null); }}>
         <AlertDialogContent dir="rtl"><AlertDialogHeader>
@@ -429,5 +431,7 @@ export function InvoiceTemplatesTab() {
         </aside>
       </CardContent>
     </Card>
+    <InvoiceEditor companyId={b.companyId} branchId={branchId ?? null} generation={generation} />
+    </div>
   );
 }

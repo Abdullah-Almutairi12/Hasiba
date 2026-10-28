@@ -15,9 +15,10 @@ import { buildPrintPdf, type PrintDocument } from "../lib/pdf/print-document";
 import { defaultInvoiceDesign, invoicePresets, InvoiceDesignSchema, validateDesignAssets, type InvoiceDesign } from "../lib/invoice-design";
 import { uploadBufferToPrivateObject } from "./storage";
 import { normalizePrintLogo } from "../lib/print-logo-validation";
+import type { EditorDesign } from "../lib/invoice-editor-schema";
 const router=Router();
 const scopeSchema=z.object({expectedCompanyId:z.number().int().positive(),branchId:z.number().int().positive().nullable()});
-async function authorized<T>(req:Request,branchId:number|null,expected:number|undefined,operation:(tx:IdentityTx,companyId:number)=>Promise<T>) {
+export async function authorized<T>(req:Request,branchId:number|null,expected:number|undefined,operation:(tx:IdentityTx,companyId:number)=>Promise<T>) {
   return db.transaction(async tx=>{
     await lockApprovalAuthority(tx);
     const actor=await authorizeSettingsScope(req,tx,branchId,true);
@@ -27,9 +28,10 @@ async function authorized<T>(req:Request,branchId:number|null,expected:number|un
     return operation(tx,actor.companyId);
   });
 }
-export async function demoInvoicePdf(tx:IdentityTx,companyId:number,design:InvoiceDesign,sample:"short"|"long",width:"a4"|"80") {
+export async function demoInvoicePdf(tx:IdentityTx,companyId:number,design:InvoiceDesign,sample:"short"|"long",width:"a4"|"80",editor?:EditorDesign) {
   const issuer=await captureIssuer(tx,companyId);
   issuer.invoiceDesign={schemaVersion:1,layoutVersion:2,design,source:"default",companyRevision:0,branchRevision:0,branchId:null};
+  if(editor) issuer.invoiceDesign={...issuer.invoiceDesign,layoutVersion:3,editor:{rendererVersion:3,releaseId:"preview",design:editor}};
   const company=await printableIssuer(issuer);
   const lines=Array.from({length:sample==="long"?80:3},(_,i)=>({
     description:`${i+1} — منتج تجريبي سلام الإقرار / Coffee ABC-2026 — اسم عربي طويل لاختبار التفاف الوصف دون قص`,
@@ -39,7 +41,7 @@ export async function demoInvoicePdf(tx:IdentityTx,companyId:number,design:Invoi
   const subtotal=lines.length*200,discount=20,vat=issuer.vatEnabled?(subtotal-discount)*0.15:0,total=subtotal-discount+vat;
   const qr=await QRCode.toDataURL("HASIBA-SYNTHETIC-PREVIEW-NOT-A-TAX-INVOICE",{margin:1,width:220});
   if(width==="80") {
-    const doc:PrintDocument={title:"معاينة إيصال — بيانات تجريبية",company,invoiceDesign:design,layoutVersion:2,thermalWidth:80,
+    const doc:PrintDocument={title:"معاينة إيصال — بيانات تجريبية",company,invoiceDesign:design,layoutVersion:editor?3:2,editor:issuer.invoiceDesign.editor,thermalWidth:80,
       metadata:[["المرجع","DEMO — ليس رقم فاتورة"],["العميل","عميل تجريبي / Demo"],["التاريخ","28/10/2026"]],
       headers:["الصنف","العدد","السعر","الإجمالي"],rows:lines.map(l=>[l.description,l.quantity,l.unitPrice,l.lineTotal]),
       totals:[["قبل الضريبة",subtotal],["الخصم",discount],["الضريبة",vat],["الإجمالي",total]],

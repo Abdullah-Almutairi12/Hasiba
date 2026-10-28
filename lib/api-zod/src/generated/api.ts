@@ -2063,6 +2063,699 @@ export const GetInvoiceTemplateCatalogResponse = zod.object({
 
 
 
+
+
+
+export const GetInvoiceEditorStateBody = zod.object({
+  "expectedCompanyId": zod.number().int().min(1),
+  "branchId": zod.number().int().min(1).nullable()
+})
+
+export const getInvoiceEditorStateResponseDraftsItemDesignNameMax = 80;
+
+export const getInvoiceEditorStateResponseDraftsItemDesignBaseAccentRegExp = new RegExp('^#[0-9a-fA-F]{6}$');
+export const getInvoiceEditorStateResponseDraftsItemDesignBaseFontSizeMin = 11;
+export const getInvoiceEditorStateResponseDraftsItemDesignBaseFontSizeMax = 16;
+
+export const getInvoiceEditorStateResponseDraftsItemDesignBaseLogoObjectKeyMax = 300;
+
+export const getInvoiceEditorStateResponseDraftsItemDesignBaseLogoWidthMin = 18;
+export const getInvoiceEditorStateResponseDraftsItemDesignBaseLogoWidthMax = 48;
+
+export const getInvoiceEditorStateResponseDraftsItemDesignBaseHeaderMax = 250;
+
+export const getInvoiceEditorStateResponseDraftsItemDesignBaseFooterMax = 500;
+
+export const getInvoiceEditorStateResponseDraftsItemDesignBaseNoteMax = 1000;
+
+export const getInvoiceEditorStateResponseDraftsItemDesignA4OrderMin = 8;
+export const getInvoiceEditorStateResponseDraftsItemDesignA4OrderMax = 8;
+
+export const getInvoiceEditorStateResponseDraftsItemDesignA4GapMin = 0;
+export const getInvoiceEditorStateResponseDraftsItemDesignA4GapMax = 8;
+
+export const getInvoiceEditorStateResponseDraftsItemDesignA4MarginMin = 3;
+export const getInvoiceEditorStateResponseDraftsItemDesignA4MarginMax = 18;
+
+export const getInvoiceEditorStateResponseDraftsItemDesignA4MetadataColumnsMax = 2;
+
+export const getInvoiceEditorStateResponseDraftsItemDesignA4LogoGapMin = 0;
+export const getInvoiceEditorStateResponseDraftsItemDesignA4LogoGapMax = 8;
+
+export const getInvoiceEditorStateResponseDraftsItemDesignA4WidthsItemMin = 8;
+export const getInvoiceEditorStateResponseDraftsItemDesignA4WidthsItemMax = 55;
+
+export const getInvoiceEditorStateResponseDraftsItemDesignA4WidthsMin = 5;
+export const getInvoiceEditorStateResponseDraftsItemDesignA4WidthsMax = 5;
+
+export const getInvoiceEditorStateResponseDraftsItemDesignThermal80OrderMin = 8;
+export const getInvoiceEditorStateResponseDraftsItemDesignThermal80OrderMax = 8;
+
+export const getInvoiceEditorStateResponseDraftsItemDesignThermal80GapMin = 0;
+export const getInvoiceEditorStateResponseDraftsItemDesignThermal80GapMax = 8;
+
+export const getInvoiceEditorStateResponseDraftsItemDesignThermal80MarginMin = 3;
+export const getInvoiceEditorStateResponseDraftsItemDesignThermal80MarginMax = 18;
+
+export const getInvoiceEditorStateResponseDraftsItemDesignThermal80MetadataColumnsMax = 2;
+
+export const getInvoiceEditorStateResponseDraftsItemDesignThermal80LogoGapMin = 0;
+export const getInvoiceEditorStateResponseDraftsItemDesignThermal80LogoGapMax = 8;
+
+export const getInvoiceEditorStateResponseDraftsItemDesignThermal80WidthsItemMin = 8;
+export const getInvoiceEditorStateResponseDraftsItemDesignThermal80WidthsItemMax = 55;
+
+export const getInvoiceEditorStateResponseDraftsItemDesignThermal80WidthsMin = 5;
+export const getInvoiceEditorStateResponseDraftsItemDesignThermal80WidthsMax = 5;
+
+export const getInvoiceEditorStateResponseReleasesItemDesignNameMax = 80;
+
+export const getInvoiceEditorStateResponseReleasesItemDesignBaseAccentRegExp = new RegExp('^#[0-9a-fA-F]{6}$');
+export const getInvoiceEditorStateResponseReleasesItemDesignBaseFontSizeMin = 11;
+export const getInvoiceEditorStateResponseReleasesItemDesignBaseFontSizeMax = 16;
+
+export const getInvoiceEditorStateResponseReleasesItemDesignBaseLogoObjectKeyMax = 300;
+
+export const getInvoiceEditorStateResponseReleasesItemDesignBaseLogoWidthMin = 18;
+export const getInvoiceEditorStateResponseReleasesItemDesignBaseLogoWidthMax = 48;
+
+export const getInvoiceEditorStateResponseReleasesItemDesignBaseHeaderMax = 250;
+
+export const getInvoiceEditorStateResponseReleasesItemDesignBaseFooterMax = 500;
+
+export const getInvoiceEditorStateResponseReleasesItemDesignBaseNoteMax = 1000;
+
+export const getInvoiceEditorStateResponseReleasesItemDesignA4OrderMin = 8;
+export const getInvoiceEditorStateResponseReleasesItemDesignA4OrderMax = 8;
+
+export const getInvoiceEditorStateResponseReleasesItemDesignA4GapMin = 0;
+export const getInvoiceEditorStateResponseReleasesItemDesignA4GapMax = 8;
+
+export const getInvoiceEditorStateResponseReleasesItemDesignA4MarginMin = 3;
+export const getInvoiceEditorStateResponseReleasesItemDesignA4MarginMax = 18;
+
+export const getInvoiceEditorStateResponseReleasesItemDesignA4MetadataColumnsMax = 2;
+
+export const getInvoiceEditorStateResponseReleasesItemDesignA4LogoGapMin = 0;
+export const getInvoiceEditorStateResponseReleasesItemDesignA4LogoGapMax = 8;
+
+export const getInvoiceEditorStateResponseReleasesItemDesignA4WidthsItemMin = 8;
+export const getInvoiceEditorStateResponseReleasesItemDesignA4WidthsItemMax = 55;
+
+export const getInvoiceEditorStateResponseReleasesItemDesignA4WidthsMin = 5;
+export const getInvoiceEditorStateResponseReleasesItemDesignA4WidthsMax = 5;
+
+export const getInvoiceEditorStateResponseReleasesItemDesignThermal80OrderMin = 8;
+export const getInvoiceEditorStateResponseReleasesItemDesignThermal80OrderMax = 8;
+
+export const getInvoiceEditorStateResponseReleasesItemDesignThermal80GapMin = 0;
+export const getInvoiceEditorStateResponseReleasesItemDesignThermal80GapMax = 8;
+
+export const getInvoiceEditorStateResponseReleasesItemDesignThermal80MarginMin = 3;
+export const getInvoiceEditorStateResponseReleasesItemDesignThermal80MarginMax = 18;
+
+export const getInvoiceEditorStateResponseReleasesItemDesignThermal80MetadataColumnsMax = 2;
+
+export const getInvoiceEditorStateResponseReleasesItemDesignThermal80LogoGapMin = 0;
+export const getInvoiceEditorStateResponseReleasesItemDesignThermal80LogoGapMax = 8;
+
+export const getInvoiceEditorStateResponseReleasesItemDesignThermal80WidthsItemMin = 8;
+export const getInvoiceEditorStateResponseReleasesItemDesignThermal80WidthsItemMax = 55;
+
+export const getInvoiceEditorStateResponseReleasesItemDesignThermal80WidthsMin = 5;
+export const getInvoiceEditorStateResponseReleasesItemDesignThermal80WidthsMax = 5;
+
+
+
+export const GetInvoiceEditorStateResponse = zod.object({
+  "drafts": zod.array(zod.object({
+  "id": zod.string(),
+  "revision": zod.number().int(),
+  "design": zod.object({
+  "schemaVersion": zod.literal(1),
+  "name": zod.string().min(1).max(getInvoiceEditorStateResponseDraftsItemDesignNameMax),
+  "base": zod.object({
+  "version": zod.literal(1),
+  "preset": zod.enum(['formal', 'simple', 'commercial', 'modern', 'ink']),
+  "accent": zod.string().regex(getInvoiceEditorStateResponseDraftsItemDesignBaseAccentRegExp),
+  "font": zod.enum(['Tajawal', 'sans-serif']),
+  "fontSize": zod.number().int().min(getInvoiceEditorStateResponseDraftsItemDesignBaseFontSizeMin).max(getInvoiceEditorStateResponseDraftsItemDesignBaseFontSizeMax),
+  "logoMode": zod.enum(['identity', 'custom', 'none']),
+  "logoObjectKey": zod.string().max(getInvoiceEditorStateResponseDraftsItemDesignBaseLogoObjectKeyMax).nullable(),
+  "logoPosition": zod.enum(['start', 'center', 'end']),
+  "logoWidth": zod.number().int().min(getInvoiceEditorStateResponseDraftsItemDesignBaseLogoWidthMin).max(getInvoiceEditorStateResponseDraftsItemDesignBaseLogoWidthMax),
+  "header": zod.string().max(getInvoiceEditorStateResponseDraftsItemDesignBaseHeaderMax),
+  "footer": zod.string().max(getInvoiceEditorStateResponseDraftsItemDesignBaseFooterMax),
+  "note": zod.string().max(getInvoiceEditorStateResponseDraftsItemDesignBaseNoteMax),
+  "showContact": zod.boolean(),
+  "showBank": zod.boolean()
+}),
+  "a4": zod.object({
+  "order": zod.array(zod.enum(['identity', 'customer', 'references', 'items', 'totals', 'qr', 'notes', 'footer'])).min(getInvoiceEditorStateResponseDraftsItemDesignA4OrderMin).max(getInvoiceEditorStateResponseDraftsItemDesignA4OrderMax),
+  "gap": zod.number().int().min(getInvoiceEditorStateResponseDraftsItemDesignA4GapMin).max(getInvoiceEditorStateResponseDraftsItemDesignA4GapMax),
+  "margin": zod.number().int().min(getInvoiceEditorStateResponseDraftsItemDesignA4MarginMin).max(getInvoiceEditorStateResponseDraftsItemDesignA4MarginMax),
+  "align": zod.enum(['start', 'center', 'end']),
+  "metadataColumns": zod.number().int().min(1).max(getInvoiceEditorStateResponseDraftsItemDesignA4MetadataColumnsMax),
+  "logoGap": zod.number().int().min(getInvoiceEditorStateResponseDraftsItemDesignA4LogoGapMin).max(getInvoiceEditorStateResponseDraftsItemDesignA4LogoGapMax),
+  "widths": zod.array(zod.number().int().min(getInvoiceEditorStateResponseDraftsItemDesignA4WidthsItemMin).max(getInvoiceEditorStateResponseDraftsItemDesignA4WidthsItemMax)).min(getInvoiceEditorStateResponseDraftsItemDesignA4WidthsMin).max(getInvoiceEditorStateResponseDraftsItemDesignA4WidthsMax),
+  "showSequence": zod.boolean()
+}),
+  "thermal80": zod.object({
+  "order": zod.array(zod.enum(['identity', 'customer', 'references', 'items', 'totals', 'qr', 'notes', 'footer'])).min(getInvoiceEditorStateResponseDraftsItemDesignThermal80OrderMin).max(getInvoiceEditorStateResponseDraftsItemDesignThermal80OrderMax),
+  "gap": zod.number().int().min(getInvoiceEditorStateResponseDraftsItemDesignThermal80GapMin).max(getInvoiceEditorStateResponseDraftsItemDesignThermal80GapMax),
+  "margin": zod.number().int().min(getInvoiceEditorStateResponseDraftsItemDesignThermal80MarginMin).max(getInvoiceEditorStateResponseDraftsItemDesignThermal80MarginMax),
+  "align": zod.enum(['start', 'center', 'end']),
+  "metadataColumns": zod.number().int().min(1).max(getInvoiceEditorStateResponseDraftsItemDesignThermal80MetadataColumnsMax),
+  "logoGap": zod.number().int().min(getInvoiceEditorStateResponseDraftsItemDesignThermal80LogoGapMin).max(getInvoiceEditorStateResponseDraftsItemDesignThermal80LogoGapMax),
+  "widths": zod.array(zod.number().int().min(getInvoiceEditorStateResponseDraftsItemDesignThermal80WidthsItemMin).max(getInvoiceEditorStateResponseDraftsItemDesignThermal80WidthsItemMax)).min(getInvoiceEditorStateResponseDraftsItemDesignThermal80WidthsMin).max(getInvoiceEditorStateResponseDraftsItemDesignThermal80WidthsMax),
+  "showSequence": zod.boolean()
+})
+})
+})),
+  "releases": zod.array(zod.object({
+  "id": zod.string(),
+  "draftId": zod.string(),
+  "draftRevision": zod.number().int(),
+  "design": zod.object({
+  "schemaVersion": zod.literal(1),
+  "name": zod.string().min(1).max(getInvoiceEditorStateResponseReleasesItemDesignNameMax),
+  "base": zod.object({
+  "version": zod.literal(1),
+  "preset": zod.enum(['formal', 'simple', 'commercial', 'modern', 'ink']),
+  "accent": zod.string().regex(getInvoiceEditorStateResponseReleasesItemDesignBaseAccentRegExp),
+  "font": zod.enum(['Tajawal', 'sans-serif']),
+  "fontSize": zod.number().int().min(getInvoiceEditorStateResponseReleasesItemDesignBaseFontSizeMin).max(getInvoiceEditorStateResponseReleasesItemDesignBaseFontSizeMax),
+  "logoMode": zod.enum(['identity', 'custom', 'none']),
+  "logoObjectKey": zod.string().max(getInvoiceEditorStateResponseReleasesItemDesignBaseLogoObjectKeyMax).nullable(),
+  "logoPosition": zod.enum(['start', 'center', 'end']),
+  "logoWidth": zod.number().int().min(getInvoiceEditorStateResponseReleasesItemDesignBaseLogoWidthMin).max(getInvoiceEditorStateResponseReleasesItemDesignBaseLogoWidthMax),
+  "header": zod.string().max(getInvoiceEditorStateResponseReleasesItemDesignBaseHeaderMax),
+  "footer": zod.string().max(getInvoiceEditorStateResponseReleasesItemDesignBaseFooterMax),
+  "note": zod.string().max(getInvoiceEditorStateResponseReleasesItemDesignBaseNoteMax),
+  "showContact": zod.boolean(),
+  "showBank": zod.boolean()
+}),
+  "a4": zod.object({
+  "order": zod.array(zod.enum(['identity', 'customer', 'references', 'items', 'totals', 'qr', 'notes', 'footer'])).min(getInvoiceEditorStateResponseReleasesItemDesignA4OrderMin).max(getInvoiceEditorStateResponseReleasesItemDesignA4OrderMax),
+  "gap": zod.number().int().min(getInvoiceEditorStateResponseReleasesItemDesignA4GapMin).max(getInvoiceEditorStateResponseReleasesItemDesignA4GapMax),
+  "margin": zod.number().int().min(getInvoiceEditorStateResponseReleasesItemDesignA4MarginMin).max(getInvoiceEditorStateResponseReleasesItemDesignA4MarginMax),
+  "align": zod.enum(['start', 'center', 'end']),
+  "metadataColumns": zod.number().int().min(1).max(getInvoiceEditorStateResponseReleasesItemDesignA4MetadataColumnsMax),
+  "logoGap": zod.number().int().min(getInvoiceEditorStateResponseReleasesItemDesignA4LogoGapMin).max(getInvoiceEditorStateResponseReleasesItemDesignA4LogoGapMax),
+  "widths": zod.array(zod.number().int().min(getInvoiceEditorStateResponseReleasesItemDesignA4WidthsItemMin).max(getInvoiceEditorStateResponseReleasesItemDesignA4WidthsItemMax)).min(getInvoiceEditorStateResponseReleasesItemDesignA4WidthsMin).max(getInvoiceEditorStateResponseReleasesItemDesignA4WidthsMax),
+  "showSequence": zod.boolean()
+}),
+  "thermal80": zod.object({
+  "order": zod.array(zod.enum(['identity', 'customer', 'references', 'items', 'totals', 'qr', 'notes', 'footer'])).min(getInvoiceEditorStateResponseReleasesItemDesignThermal80OrderMin).max(getInvoiceEditorStateResponseReleasesItemDesignThermal80OrderMax),
+  "gap": zod.number().int().min(getInvoiceEditorStateResponseReleasesItemDesignThermal80GapMin).max(getInvoiceEditorStateResponseReleasesItemDesignThermal80GapMax),
+  "margin": zod.number().int().min(getInvoiceEditorStateResponseReleasesItemDesignThermal80MarginMin).max(getInvoiceEditorStateResponseReleasesItemDesignThermal80MarginMax),
+  "align": zod.enum(['start', 'center', 'end']),
+  "metadataColumns": zod.number().int().min(1).max(getInvoiceEditorStateResponseReleasesItemDesignThermal80MetadataColumnsMax),
+  "logoGap": zod.number().int().min(getInvoiceEditorStateResponseReleasesItemDesignThermal80LogoGapMin).max(getInvoiceEditorStateResponseReleasesItemDesignThermal80LogoGapMax),
+  "widths": zod.array(zod.number().int().min(getInvoiceEditorStateResponseReleasesItemDesignThermal80WidthsItemMin).max(getInvoiceEditorStateResponseReleasesItemDesignThermal80WidthsItemMax)).min(getInvoiceEditorStateResponseReleasesItemDesignThermal80WidthsMin).max(getInvoiceEditorStateResponseReleasesItemDesignThermal80WidthsMax),
+  "showSequence": zod.boolean()
+})
+}),
+  "revision": zod.number().int()
+})),
+  "revision": zod.number().int(),
+  "parentRevision": zod.number().int(),
+  "activeId": zod.string().nullable(),
+  "source": zod.enum(['branch', 'company', 'legacy'])
+})
+
+
+
+
+export const saveInvoiceEditorDraftBodyTwoExpectedRevisionMin = 0;
+
+export const saveInvoiceEditorDraftBodyTwoDesignNameMax = 80;
+
+export const saveInvoiceEditorDraftBodyTwoDesignBaseAccentRegExp = new RegExp('^#[0-9a-fA-F]{6}$');
+export const saveInvoiceEditorDraftBodyTwoDesignBaseFontSizeMin = 11;
+export const saveInvoiceEditorDraftBodyTwoDesignBaseFontSizeMax = 16;
+
+export const saveInvoiceEditorDraftBodyTwoDesignBaseLogoObjectKeyMax = 300;
+
+export const saveInvoiceEditorDraftBodyTwoDesignBaseLogoWidthMin = 18;
+export const saveInvoiceEditorDraftBodyTwoDesignBaseLogoWidthMax = 48;
+
+export const saveInvoiceEditorDraftBodyTwoDesignBaseHeaderMax = 250;
+
+export const saveInvoiceEditorDraftBodyTwoDesignBaseFooterMax = 500;
+
+export const saveInvoiceEditorDraftBodyTwoDesignBaseNoteMax = 1000;
+
+export const saveInvoiceEditorDraftBodyTwoDesignA4OrderMin = 8;
+export const saveInvoiceEditorDraftBodyTwoDesignA4OrderMax = 8;
+
+export const saveInvoiceEditorDraftBodyTwoDesignA4GapMin = 0;
+export const saveInvoiceEditorDraftBodyTwoDesignA4GapMax = 8;
+
+export const saveInvoiceEditorDraftBodyTwoDesignA4MarginMin = 3;
+export const saveInvoiceEditorDraftBodyTwoDesignA4MarginMax = 18;
+
+export const saveInvoiceEditorDraftBodyTwoDesignA4MetadataColumnsMax = 2;
+
+export const saveInvoiceEditorDraftBodyTwoDesignA4LogoGapMin = 0;
+export const saveInvoiceEditorDraftBodyTwoDesignA4LogoGapMax = 8;
+
+export const saveInvoiceEditorDraftBodyTwoDesignA4WidthsItemMin = 8;
+export const saveInvoiceEditorDraftBodyTwoDesignA4WidthsItemMax = 55;
+
+export const saveInvoiceEditorDraftBodyTwoDesignA4WidthsMin = 5;
+export const saveInvoiceEditorDraftBodyTwoDesignA4WidthsMax = 5;
+
+export const saveInvoiceEditorDraftBodyTwoDesignThermal80OrderMin = 8;
+export const saveInvoiceEditorDraftBodyTwoDesignThermal80OrderMax = 8;
+
+export const saveInvoiceEditorDraftBodyTwoDesignThermal80GapMin = 0;
+export const saveInvoiceEditorDraftBodyTwoDesignThermal80GapMax = 8;
+
+export const saveInvoiceEditorDraftBodyTwoDesignThermal80MarginMin = 3;
+export const saveInvoiceEditorDraftBodyTwoDesignThermal80MarginMax = 18;
+
+export const saveInvoiceEditorDraftBodyTwoDesignThermal80MetadataColumnsMax = 2;
+
+export const saveInvoiceEditorDraftBodyTwoDesignThermal80LogoGapMin = 0;
+export const saveInvoiceEditorDraftBodyTwoDesignThermal80LogoGapMax = 8;
+
+export const saveInvoiceEditorDraftBodyTwoDesignThermal80WidthsItemMin = 8;
+export const saveInvoiceEditorDraftBodyTwoDesignThermal80WidthsItemMax = 55;
+
+export const saveInvoiceEditorDraftBodyTwoDesignThermal80WidthsMin = 5;
+export const saveInvoiceEditorDraftBodyTwoDesignThermal80WidthsMax = 5;
+
+
+
+export const SaveInvoiceEditorDraftBody = zod.object({
+  "expectedCompanyId": zod.number().int().min(1),
+  "branchId": zod.number().int().min(1).nullable()
+}).and(zod.object({
+  "id": zod.string(),
+  "expectedRevision": zod.number().int().min(saveInvoiceEditorDraftBodyTwoExpectedRevisionMin),
+  "requestId": zod.string(),
+  "design": zod.object({
+  "schemaVersion": zod.literal(1),
+  "name": zod.string().min(1).max(saveInvoiceEditorDraftBodyTwoDesignNameMax),
+  "base": zod.object({
+  "version": zod.literal(1),
+  "preset": zod.enum(['formal', 'simple', 'commercial', 'modern', 'ink']),
+  "accent": zod.string().regex(saveInvoiceEditorDraftBodyTwoDesignBaseAccentRegExp),
+  "font": zod.enum(['Tajawal', 'sans-serif']),
+  "fontSize": zod.number().int().min(saveInvoiceEditorDraftBodyTwoDesignBaseFontSizeMin).max(saveInvoiceEditorDraftBodyTwoDesignBaseFontSizeMax),
+  "logoMode": zod.enum(['identity', 'custom', 'none']),
+  "logoObjectKey": zod.string().max(saveInvoiceEditorDraftBodyTwoDesignBaseLogoObjectKeyMax).nullable(),
+  "logoPosition": zod.enum(['start', 'center', 'end']),
+  "logoWidth": zod.number().int().min(saveInvoiceEditorDraftBodyTwoDesignBaseLogoWidthMin).max(saveInvoiceEditorDraftBodyTwoDesignBaseLogoWidthMax),
+  "header": zod.string().max(saveInvoiceEditorDraftBodyTwoDesignBaseHeaderMax),
+  "footer": zod.string().max(saveInvoiceEditorDraftBodyTwoDesignBaseFooterMax),
+  "note": zod.string().max(saveInvoiceEditorDraftBodyTwoDesignBaseNoteMax),
+  "showContact": zod.boolean(),
+  "showBank": zod.boolean()
+}),
+  "a4": zod.object({
+  "order": zod.array(zod.enum(['identity', 'customer', 'references', 'items', 'totals', 'qr', 'notes', 'footer'])).min(saveInvoiceEditorDraftBodyTwoDesignA4OrderMin).max(saveInvoiceEditorDraftBodyTwoDesignA4OrderMax),
+  "gap": zod.number().int().min(saveInvoiceEditorDraftBodyTwoDesignA4GapMin).max(saveInvoiceEditorDraftBodyTwoDesignA4GapMax),
+  "margin": zod.number().int().min(saveInvoiceEditorDraftBodyTwoDesignA4MarginMin).max(saveInvoiceEditorDraftBodyTwoDesignA4MarginMax),
+  "align": zod.enum(['start', 'center', 'end']),
+  "metadataColumns": zod.number().int().min(1).max(saveInvoiceEditorDraftBodyTwoDesignA4MetadataColumnsMax),
+  "logoGap": zod.number().int().min(saveInvoiceEditorDraftBodyTwoDesignA4LogoGapMin).max(saveInvoiceEditorDraftBodyTwoDesignA4LogoGapMax),
+  "widths": zod.array(zod.number().int().min(saveInvoiceEditorDraftBodyTwoDesignA4WidthsItemMin).max(saveInvoiceEditorDraftBodyTwoDesignA4WidthsItemMax)).min(saveInvoiceEditorDraftBodyTwoDesignA4WidthsMin).max(saveInvoiceEditorDraftBodyTwoDesignA4WidthsMax),
+  "showSequence": zod.boolean()
+}),
+  "thermal80": zod.object({
+  "order": zod.array(zod.enum(['identity', 'customer', 'references', 'items', 'totals', 'qr', 'notes', 'footer'])).min(saveInvoiceEditorDraftBodyTwoDesignThermal80OrderMin).max(saveInvoiceEditorDraftBodyTwoDesignThermal80OrderMax),
+  "gap": zod.number().int().min(saveInvoiceEditorDraftBodyTwoDesignThermal80GapMin).max(saveInvoiceEditorDraftBodyTwoDesignThermal80GapMax),
+  "margin": zod.number().int().min(saveInvoiceEditorDraftBodyTwoDesignThermal80MarginMin).max(saveInvoiceEditorDraftBodyTwoDesignThermal80MarginMax),
+  "align": zod.enum(['start', 'center', 'end']),
+  "metadataColumns": zod.number().int().min(1).max(saveInvoiceEditorDraftBodyTwoDesignThermal80MetadataColumnsMax),
+  "logoGap": zod.number().int().min(saveInvoiceEditorDraftBodyTwoDesignThermal80LogoGapMin).max(saveInvoiceEditorDraftBodyTwoDesignThermal80LogoGapMax),
+  "widths": zod.array(zod.number().int().min(saveInvoiceEditorDraftBodyTwoDesignThermal80WidthsItemMin).max(saveInvoiceEditorDraftBodyTwoDesignThermal80WidthsItemMax)).min(saveInvoiceEditorDraftBodyTwoDesignThermal80WidthsMin).max(saveInvoiceEditorDraftBodyTwoDesignThermal80WidthsMax),
+  "showSequence": zod.boolean()
+})
+})
+}))
+
+export const saveInvoiceEditorDraftResponseDesignNameMax = 80;
+
+export const saveInvoiceEditorDraftResponseDesignBaseAccentRegExp = new RegExp('^#[0-9a-fA-F]{6}$');
+export const saveInvoiceEditorDraftResponseDesignBaseFontSizeMin = 11;
+export const saveInvoiceEditorDraftResponseDesignBaseFontSizeMax = 16;
+
+export const saveInvoiceEditorDraftResponseDesignBaseLogoObjectKeyMax = 300;
+
+export const saveInvoiceEditorDraftResponseDesignBaseLogoWidthMin = 18;
+export const saveInvoiceEditorDraftResponseDesignBaseLogoWidthMax = 48;
+
+export const saveInvoiceEditorDraftResponseDesignBaseHeaderMax = 250;
+
+export const saveInvoiceEditorDraftResponseDesignBaseFooterMax = 500;
+
+export const saveInvoiceEditorDraftResponseDesignBaseNoteMax = 1000;
+
+export const saveInvoiceEditorDraftResponseDesignA4OrderMin = 8;
+export const saveInvoiceEditorDraftResponseDesignA4OrderMax = 8;
+
+export const saveInvoiceEditorDraftResponseDesignA4GapMin = 0;
+export const saveInvoiceEditorDraftResponseDesignA4GapMax = 8;
+
+export const saveInvoiceEditorDraftResponseDesignA4MarginMin = 3;
+export const saveInvoiceEditorDraftResponseDesignA4MarginMax = 18;
+
+export const saveInvoiceEditorDraftResponseDesignA4MetadataColumnsMax = 2;
+
+export const saveInvoiceEditorDraftResponseDesignA4LogoGapMin = 0;
+export const saveInvoiceEditorDraftResponseDesignA4LogoGapMax = 8;
+
+export const saveInvoiceEditorDraftResponseDesignA4WidthsItemMin = 8;
+export const saveInvoiceEditorDraftResponseDesignA4WidthsItemMax = 55;
+
+export const saveInvoiceEditorDraftResponseDesignA4WidthsMin = 5;
+export const saveInvoiceEditorDraftResponseDesignA4WidthsMax = 5;
+
+export const saveInvoiceEditorDraftResponseDesignThermal80OrderMin = 8;
+export const saveInvoiceEditorDraftResponseDesignThermal80OrderMax = 8;
+
+export const saveInvoiceEditorDraftResponseDesignThermal80GapMin = 0;
+export const saveInvoiceEditorDraftResponseDesignThermal80GapMax = 8;
+
+export const saveInvoiceEditorDraftResponseDesignThermal80MarginMin = 3;
+export const saveInvoiceEditorDraftResponseDesignThermal80MarginMax = 18;
+
+export const saveInvoiceEditorDraftResponseDesignThermal80MetadataColumnsMax = 2;
+
+export const saveInvoiceEditorDraftResponseDesignThermal80LogoGapMin = 0;
+export const saveInvoiceEditorDraftResponseDesignThermal80LogoGapMax = 8;
+
+export const saveInvoiceEditorDraftResponseDesignThermal80WidthsItemMin = 8;
+export const saveInvoiceEditorDraftResponseDesignThermal80WidthsItemMax = 55;
+
+export const saveInvoiceEditorDraftResponseDesignThermal80WidthsMin = 5;
+export const saveInvoiceEditorDraftResponseDesignThermal80WidthsMax = 5;
+
+
+
+export const SaveInvoiceEditorDraftResponse = zod.object({
+  "id": zod.string(),
+  "revision": zod.number().int(),
+  "design": zod.object({
+  "schemaVersion": zod.literal(1),
+  "name": zod.string().min(1).max(saveInvoiceEditorDraftResponseDesignNameMax),
+  "base": zod.object({
+  "version": zod.literal(1),
+  "preset": zod.enum(['formal', 'simple', 'commercial', 'modern', 'ink']),
+  "accent": zod.string().regex(saveInvoiceEditorDraftResponseDesignBaseAccentRegExp),
+  "font": zod.enum(['Tajawal', 'sans-serif']),
+  "fontSize": zod.number().int().min(saveInvoiceEditorDraftResponseDesignBaseFontSizeMin).max(saveInvoiceEditorDraftResponseDesignBaseFontSizeMax),
+  "logoMode": zod.enum(['identity', 'custom', 'none']),
+  "logoObjectKey": zod.string().max(saveInvoiceEditorDraftResponseDesignBaseLogoObjectKeyMax).nullable(),
+  "logoPosition": zod.enum(['start', 'center', 'end']),
+  "logoWidth": zod.number().int().min(saveInvoiceEditorDraftResponseDesignBaseLogoWidthMin).max(saveInvoiceEditorDraftResponseDesignBaseLogoWidthMax),
+  "header": zod.string().max(saveInvoiceEditorDraftResponseDesignBaseHeaderMax),
+  "footer": zod.string().max(saveInvoiceEditorDraftResponseDesignBaseFooterMax),
+  "note": zod.string().max(saveInvoiceEditorDraftResponseDesignBaseNoteMax),
+  "showContact": zod.boolean(),
+  "showBank": zod.boolean()
+}),
+  "a4": zod.object({
+  "order": zod.array(zod.enum(['identity', 'customer', 'references', 'items', 'totals', 'qr', 'notes', 'footer'])).min(saveInvoiceEditorDraftResponseDesignA4OrderMin).max(saveInvoiceEditorDraftResponseDesignA4OrderMax),
+  "gap": zod.number().int().min(saveInvoiceEditorDraftResponseDesignA4GapMin).max(saveInvoiceEditorDraftResponseDesignA4GapMax),
+  "margin": zod.number().int().min(saveInvoiceEditorDraftResponseDesignA4MarginMin).max(saveInvoiceEditorDraftResponseDesignA4MarginMax),
+  "align": zod.enum(['start', 'center', 'end']),
+  "metadataColumns": zod.number().int().min(1).max(saveInvoiceEditorDraftResponseDesignA4MetadataColumnsMax),
+  "logoGap": zod.number().int().min(saveInvoiceEditorDraftResponseDesignA4LogoGapMin).max(saveInvoiceEditorDraftResponseDesignA4LogoGapMax),
+  "widths": zod.array(zod.number().int().min(saveInvoiceEditorDraftResponseDesignA4WidthsItemMin).max(saveInvoiceEditorDraftResponseDesignA4WidthsItemMax)).min(saveInvoiceEditorDraftResponseDesignA4WidthsMin).max(saveInvoiceEditorDraftResponseDesignA4WidthsMax),
+  "showSequence": zod.boolean()
+}),
+  "thermal80": zod.object({
+  "order": zod.array(zod.enum(['identity', 'customer', 'references', 'items', 'totals', 'qr', 'notes', 'footer'])).min(saveInvoiceEditorDraftResponseDesignThermal80OrderMin).max(saveInvoiceEditorDraftResponseDesignThermal80OrderMax),
+  "gap": zod.number().int().min(saveInvoiceEditorDraftResponseDesignThermal80GapMin).max(saveInvoiceEditorDraftResponseDesignThermal80GapMax),
+  "margin": zod.number().int().min(saveInvoiceEditorDraftResponseDesignThermal80MarginMin).max(saveInvoiceEditorDraftResponseDesignThermal80MarginMax),
+  "align": zod.enum(['start', 'center', 'end']),
+  "metadataColumns": zod.number().int().min(1).max(saveInvoiceEditorDraftResponseDesignThermal80MetadataColumnsMax),
+  "logoGap": zod.number().int().min(saveInvoiceEditorDraftResponseDesignThermal80LogoGapMin).max(saveInvoiceEditorDraftResponseDesignThermal80LogoGapMax),
+  "widths": zod.array(zod.number().int().min(saveInvoiceEditorDraftResponseDesignThermal80WidthsItemMin).max(saveInvoiceEditorDraftResponseDesignThermal80WidthsItemMax)).min(saveInvoiceEditorDraftResponseDesignThermal80WidthsMin).max(saveInvoiceEditorDraftResponseDesignThermal80WidthsMax),
+  "showSequence": zod.boolean()
+})
+})
+})
+
+
+
+
+
+
+export const PublishInvoiceEditorDraftBody = zod.object({
+  "expectedCompanyId": zod.number().int().min(1),
+  "branchId": zod.number().int().min(1).nullable()
+}).and(zod.object({
+  "id": zod.string(),
+  "expectedRevision": zod.number().int(),
+  "expectedActiveRevision": zod.number().int(),
+  "expectedParentRevision": zod.number().int(),
+  "requestId": zod.string()
+}))
+
+export const publishInvoiceEditorDraftResponseDesignNameMax = 80;
+
+export const publishInvoiceEditorDraftResponseDesignBaseAccentRegExp = new RegExp('^#[0-9a-fA-F]{6}$');
+export const publishInvoiceEditorDraftResponseDesignBaseFontSizeMin = 11;
+export const publishInvoiceEditorDraftResponseDesignBaseFontSizeMax = 16;
+
+export const publishInvoiceEditorDraftResponseDesignBaseLogoObjectKeyMax = 300;
+
+export const publishInvoiceEditorDraftResponseDesignBaseLogoWidthMin = 18;
+export const publishInvoiceEditorDraftResponseDesignBaseLogoWidthMax = 48;
+
+export const publishInvoiceEditorDraftResponseDesignBaseHeaderMax = 250;
+
+export const publishInvoiceEditorDraftResponseDesignBaseFooterMax = 500;
+
+export const publishInvoiceEditorDraftResponseDesignBaseNoteMax = 1000;
+
+export const publishInvoiceEditorDraftResponseDesignA4OrderMin = 8;
+export const publishInvoiceEditorDraftResponseDesignA4OrderMax = 8;
+
+export const publishInvoiceEditorDraftResponseDesignA4GapMin = 0;
+export const publishInvoiceEditorDraftResponseDesignA4GapMax = 8;
+
+export const publishInvoiceEditorDraftResponseDesignA4MarginMin = 3;
+export const publishInvoiceEditorDraftResponseDesignA4MarginMax = 18;
+
+export const publishInvoiceEditorDraftResponseDesignA4MetadataColumnsMax = 2;
+
+export const publishInvoiceEditorDraftResponseDesignA4LogoGapMin = 0;
+export const publishInvoiceEditorDraftResponseDesignA4LogoGapMax = 8;
+
+export const publishInvoiceEditorDraftResponseDesignA4WidthsItemMin = 8;
+export const publishInvoiceEditorDraftResponseDesignA4WidthsItemMax = 55;
+
+export const publishInvoiceEditorDraftResponseDesignA4WidthsMin = 5;
+export const publishInvoiceEditorDraftResponseDesignA4WidthsMax = 5;
+
+export const publishInvoiceEditorDraftResponseDesignThermal80OrderMin = 8;
+export const publishInvoiceEditorDraftResponseDesignThermal80OrderMax = 8;
+
+export const publishInvoiceEditorDraftResponseDesignThermal80GapMin = 0;
+export const publishInvoiceEditorDraftResponseDesignThermal80GapMax = 8;
+
+export const publishInvoiceEditorDraftResponseDesignThermal80MarginMin = 3;
+export const publishInvoiceEditorDraftResponseDesignThermal80MarginMax = 18;
+
+export const publishInvoiceEditorDraftResponseDesignThermal80MetadataColumnsMax = 2;
+
+export const publishInvoiceEditorDraftResponseDesignThermal80LogoGapMin = 0;
+export const publishInvoiceEditorDraftResponseDesignThermal80LogoGapMax = 8;
+
+export const publishInvoiceEditorDraftResponseDesignThermal80WidthsItemMin = 8;
+export const publishInvoiceEditorDraftResponseDesignThermal80WidthsItemMax = 55;
+
+export const publishInvoiceEditorDraftResponseDesignThermal80WidthsMin = 5;
+export const publishInvoiceEditorDraftResponseDesignThermal80WidthsMax = 5;
+
+
+
+export const PublishInvoiceEditorDraftResponse = zod.object({
+  "id": zod.string(),
+  "draftId": zod.string(),
+  "draftRevision": zod.number().int(),
+  "design": zod.object({
+  "schemaVersion": zod.literal(1),
+  "name": zod.string().min(1).max(publishInvoiceEditorDraftResponseDesignNameMax),
+  "base": zod.object({
+  "version": zod.literal(1),
+  "preset": zod.enum(['formal', 'simple', 'commercial', 'modern', 'ink']),
+  "accent": zod.string().regex(publishInvoiceEditorDraftResponseDesignBaseAccentRegExp),
+  "font": zod.enum(['Tajawal', 'sans-serif']),
+  "fontSize": zod.number().int().min(publishInvoiceEditorDraftResponseDesignBaseFontSizeMin).max(publishInvoiceEditorDraftResponseDesignBaseFontSizeMax),
+  "logoMode": zod.enum(['identity', 'custom', 'none']),
+  "logoObjectKey": zod.string().max(publishInvoiceEditorDraftResponseDesignBaseLogoObjectKeyMax).nullable(),
+  "logoPosition": zod.enum(['start', 'center', 'end']),
+  "logoWidth": zod.number().int().min(publishInvoiceEditorDraftResponseDesignBaseLogoWidthMin).max(publishInvoiceEditorDraftResponseDesignBaseLogoWidthMax),
+  "header": zod.string().max(publishInvoiceEditorDraftResponseDesignBaseHeaderMax),
+  "footer": zod.string().max(publishInvoiceEditorDraftResponseDesignBaseFooterMax),
+  "note": zod.string().max(publishInvoiceEditorDraftResponseDesignBaseNoteMax),
+  "showContact": zod.boolean(),
+  "showBank": zod.boolean()
+}),
+  "a4": zod.object({
+  "order": zod.array(zod.enum(['identity', 'customer', 'references', 'items', 'totals', 'qr', 'notes', 'footer'])).min(publishInvoiceEditorDraftResponseDesignA4OrderMin).max(publishInvoiceEditorDraftResponseDesignA4OrderMax),
+  "gap": zod.number().int().min(publishInvoiceEditorDraftResponseDesignA4GapMin).max(publishInvoiceEditorDraftResponseDesignA4GapMax),
+  "margin": zod.number().int().min(publishInvoiceEditorDraftResponseDesignA4MarginMin).max(publishInvoiceEditorDraftResponseDesignA4MarginMax),
+  "align": zod.enum(['start', 'center', 'end']),
+  "metadataColumns": zod.number().int().min(1).max(publishInvoiceEditorDraftResponseDesignA4MetadataColumnsMax),
+  "logoGap": zod.number().int().min(publishInvoiceEditorDraftResponseDesignA4LogoGapMin).max(publishInvoiceEditorDraftResponseDesignA4LogoGapMax),
+  "widths": zod.array(zod.number().int().min(publishInvoiceEditorDraftResponseDesignA4WidthsItemMin).max(publishInvoiceEditorDraftResponseDesignA4WidthsItemMax)).min(publishInvoiceEditorDraftResponseDesignA4WidthsMin).max(publishInvoiceEditorDraftResponseDesignA4WidthsMax),
+  "showSequence": zod.boolean()
+}),
+  "thermal80": zod.object({
+  "order": zod.array(zod.enum(['identity', 'customer', 'references', 'items', 'totals', 'qr', 'notes', 'footer'])).min(publishInvoiceEditorDraftResponseDesignThermal80OrderMin).max(publishInvoiceEditorDraftResponseDesignThermal80OrderMax),
+  "gap": zod.number().int().min(publishInvoiceEditorDraftResponseDesignThermal80GapMin).max(publishInvoiceEditorDraftResponseDesignThermal80GapMax),
+  "margin": zod.number().int().min(publishInvoiceEditorDraftResponseDesignThermal80MarginMin).max(publishInvoiceEditorDraftResponseDesignThermal80MarginMax),
+  "align": zod.enum(['start', 'center', 'end']),
+  "metadataColumns": zod.number().int().min(1).max(publishInvoiceEditorDraftResponseDesignThermal80MetadataColumnsMax),
+  "logoGap": zod.number().int().min(publishInvoiceEditorDraftResponseDesignThermal80LogoGapMin).max(publishInvoiceEditorDraftResponseDesignThermal80LogoGapMax),
+  "widths": zod.array(zod.number().int().min(publishInvoiceEditorDraftResponseDesignThermal80WidthsItemMin).max(publishInvoiceEditorDraftResponseDesignThermal80WidthsItemMax)).min(publishInvoiceEditorDraftResponseDesignThermal80WidthsMin).max(publishInvoiceEditorDraftResponseDesignThermal80WidthsMax),
+  "showSequence": zod.boolean()
+})
+}),
+  "revision": zod.number().int()
+})
+
+
+
+
+
+
+export const ActivateInvoiceEditorReleaseBody = zod.object({
+  "expectedCompanyId": zod.number().int().min(1),
+  "branchId": zod.number().int().min(1).nullable()
+}).and(zod.object({
+  "releaseId": zod.string().nullable(),
+  "expectedActiveRevision": zod.number().int(),
+  "expectedParentRevision": zod.number().int(),
+  "requestId": zod.string()
+}))
+
+export const ActivateInvoiceEditorReleaseResponse = zod.object({
+  "revision": zod.number().int()
+})
+
+
+
+
+export const previewInvoiceEditorDraftBodyTwoDesignNameMax = 80;
+
+export const previewInvoiceEditorDraftBodyTwoDesignBaseAccentRegExp = new RegExp('^#[0-9a-fA-F]{6}$');
+export const previewInvoiceEditorDraftBodyTwoDesignBaseFontSizeMin = 11;
+export const previewInvoiceEditorDraftBodyTwoDesignBaseFontSizeMax = 16;
+
+export const previewInvoiceEditorDraftBodyTwoDesignBaseLogoObjectKeyMax = 300;
+
+export const previewInvoiceEditorDraftBodyTwoDesignBaseLogoWidthMin = 18;
+export const previewInvoiceEditorDraftBodyTwoDesignBaseLogoWidthMax = 48;
+
+export const previewInvoiceEditorDraftBodyTwoDesignBaseHeaderMax = 250;
+
+export const previewInvoiceEditorDraftBodyTwoDesignBaseFooterMax = 500;
+
+export const previewInvoiceEditorDraftBodyTwoDesignBaseNoteMax = 1000;
+
+export const previewInvoiceEditorDraftBodyTwoDesignA4OrderMin = 8;
+export const previewInvoiceEditorDraftBodyTwoDesignA4OrderMax = 8;
+
+export const previewInvoiceEditorDraftBodyTwoDesignA4GapMin = 0;
+export const previewInvoiceEditorDraftBodyTwoDesignA4GapMax = 8;
+
+export const previewInvoiceEditorDraftBodyTwoDesignA4MarginMin = 3;
+export const previewInvoiceEditorDraftBodyTwoDesignA4MarginMax = 18;
+
+export const previewInvoiceEditorDraftBodyTwoDesignA4MetadataColumnsMax = 2;
+
+export const previewInvoiceEditorDraftBodyTwoDesignA4LogoGapMin = 0;
+export const previewInvoiceEditorDraftBodyTwoDesignA4LogoGapMax = 8;
+
+export const previewInvoiceEditorDraftBodyTwoDesignA4WidthsItemMin = 8;
+export const previewInvoiceEditorDraftBodyTwoDesignA4WidthsItemMax = 55;
+
+export const previewInvoiceEditorDraftBodyTwoDesignA4WidthsMin = 5;
+export const previewInvoiceEditorDraftBodyTwoDesignA4WidthsMax = 5;
+
+export const previewInvoiceEditorDraftBodyTwoDesignThermal80OrderMin = 8;
+export const previewInvoiceEditorDraftBodyTwoDesignThermal80OrderMax = 8;
+
+export const previewInvoiceEditorDraftBodyTwoDesignThermal80GapMin = 0;
+export const previewInvoiceEditorDraftBodyTwoDesignThermal80GapMax = 8;
+
+export const previewInvoiceEditorDraftBodyTwoDesignThermal80MarginMin = 3;
+export const previewInvoiceEditorDraftBodyTwoDesignThermal80MarginMax = 18;
+
+export const previewInvoiceEditorDraftBodyTwoDesignThermal80MetadataColumnsMax = 2;
+
+export const previewInvoiceEditorDraftBodyTwoDesignThermal80LogoGapMin = 0;
+export const previewInvoiceEditorDraftBodyTwoDesignThermal80LogoGapMax = 8;
+
+export const previewInvoiceEditorDraftBodyTwoDesignThermal80WidthsItemMin = 8;
+export const previewInvoiceEditorDraftBodyTwoDesignThermal80WidthsItemMax = 55;
+
+export const previewInvoiceEditorDraftBodyTwoDesignThermal80WidthsMin = 5;
+export const previewInvoiceEditorDraftBodyTwoDesignThermal80WidthsMax = 5;
+
+
+
+export const PreviewInvoiceEditorDraftBody = zod.object({
+  "expectedCompanyId": zod.number().int().min(1),
+  "branchId": zod.number().int().min(1).nullable()
+}).and(zod.object({
+  "design": zod.object({
+  "schemaVersion": zod.literal(1),
+  "name": zod.string().min(1).max(previewInvoiceEditorDraftBodyTwoDesignNameMax),
+  "base": zod.object({
+  "version": zod.literal(1),
+  "preset": zod.enum(['formal', 'simple', 'commercial', 'modern', 'ink']),
+  "accent": zod.string().regex(previewInvoiceEditorDraftBodyTwoDesignBaseAccentRegExp),
+  "font": zod.enum(['Tajawal', 'sans-serif']),
+  "fontSize": zod.number().int().min(previewInvoiceEditorDraftBodyTwoDesignBaseFontSizeMin).max(previewInvoiceEditorDraftBodyTwoDesignBaseFontSizeMax),
+  "logoMode": zod.enum(['identity', 'custom', 'none']),
+  "logoObjectKey": zod.string().max(previewInvoiceEditorDraftBodyTwoDesignBaseLogoObjectKeyMax).nullable(),
+  "logoPosition": zod.enum(['start', 'center', 'end']),
+  "logoWidth": zod.number().int().min(previewInvoiceEditorDraftBodyTwoDesignBaseLogoWidthMin).max(previewInvoiceEditorDraftBodyTwoDesignBaseLogoWidthMax),
+  "header": zod.string().max(previewInvoiceEditorDraftBodyTwoDesignBaseHeaderMax),
+  "footer": zod.string().max(previewInvoiceEditorDraftBodyTwoDesignBaseFooterMax),
+  "note": zod.string().max(previewInvoiceEditorDraftBodyTwoDesignBaseNoteMax),
+  "showContact": zod.boolean(),
+  "showBank": zod.boolean()
+}),
+  "a4": zod.object({
+  "order": zod.array(zod.enum(['identity', 'customer', 'references', 'items', 'totals', 'qr', 'notes', 'footer'])).min(previewInvoiceEditorDraftBodyTwoDesignA4OrderMin).max(previewInvoiceEditorDraftBodyTwoDesignA4OrderMax),
+  "gap": zod.number().int().min(previewInvoiceEditorDraftBodyTwoDesignA4GapMin).max(previewInvoiceEditorDraftBodyTwoDesignA4GapMax),
+  "margin": zod.number().int().min(previewInvoiceEditorDraftBodyTwoDesignA4MarginMin).max(previewInvoiceEditorDraftBodyTwoDesignA4MarginMax),
+  "align": zod.enum(['start', 'center', 'end']),
+  "metadataColumns": zod.number().int().min(1).max(previewInvoiceEditorDraftBodyTwoDesignA4MetadataColumnsMax),
+  "logoGap": zod.number().int().min(previewInvoiceEditorDraftBodyTwoDesignA4LogoGapMin).max(previewInvoiceEditorDraftBodyTwoDesignA4LogoGapMax),
+  "widths": zod.array(zod.number().int().min(previewInvoiceEditorDraftBodyTwoDesignA4WidthsItemMin).max(previewInvoiceEditorDraftBodyTwoDesignA4WidthsItemMax)).min(previewInvoiceEditorDraftBodyTwoDesignA4WidthsMin).max(previewInvoiceEditorDraftBodyTwoDesignA4WidthsMax),
+  "showSequence": zod.boolean()
+}),
+  "thermal80": zod.object({
+  "order": zod.array(zod.enum(['identity', 'customer', 'references', 'items', 'totals', 'qr', 'notes', 'footer'])).min(previewInvoiceEditorDraftBodyTwoDesignThermal80OrderMin).max(previewInvoiceEditorDraftBodyTwoDesignThermal80OrderMax),
+  "gap": zod.number().int().min(previewInvoiceEditorDraftBodyTwoDesignThermal80GapMin).max(previewInvoiceEditorDraftBodyTwoDesignThermal80GapMax),
+  "margin": zod.number().int().min(previewInvoiceEditorDraftBodyTwoDesignThermal80MarginMin).max(previewInvoiceEditorDraftBodyTwoDesignThermal80MarginMax),
+  "align": zod.enum(['start', 'center', 'end']),
+  "metadataColumns": zod.number().int().min(1).max(previewInvoiceEditorDraftBodyTwoDesignThermal80MetadataColumnsMax),
+  "logoGap": zod.number().int().min(previewInvoiceEditorDraftBodyTwoDesignThermal80LogoGapMin).max(previewInvoiceEditorDraftBodyTwoDesignThermal80LogoGapMax),
+  "widths": zod.array(zod.number().int().min(previewInvoiceEditorDraftBodyTwoDesignThermal80WidthsItemMin).max(previewInvoiceEditorDraftBodyTwoDesignThermal80WidthsItemMax)).min(previewInvoiceEditorDraftBodyTwoDesignThermal80WidthsMin).max(previewInvoiceEditorDraftBodyTwoDesignThermal80WidthsMax),
+  "showSequence": zod.boolean()
+})
+}),
+  "sample": zod.enum(['short', 'long']),
+  "width": zod.enum(['a4', '80'])
+}))
+
+export const PreviewInvoiceEditorDraftResponse = zod.unknown()
+
+
+
 export const previewInvoiceTemplateBodyDesignAccentRegExp = new RegExp('^#[0-9a-fA-F]{6}$');
 export const previewInvoiceTemplateBodyDesignFontSizeMin = 11;
 export const previewInvoiceTemplateBodyDesignFontSizeMax = 16;

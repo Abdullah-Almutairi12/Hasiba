@@ -1,0 +1,175 @@
+state:
+  post:
+    operationId: getInvoiceEditorState
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/EditorScope" }
+    responses:
+      "200":
+        description: Authorized drafts, immutable releases and effective scope
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EditorState" }
+draft:
+  post:
+    operationId: saveInvoiceEditorDraft
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/EditorDraftInput" }
+    responses:
+      "200":
+        description: Idempotent saved draft receipt
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EditorDraft" }
+publish:
+  post:
+    operationId: publishInvoiceEditorDraft
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/EditorPublishInput" }
+    responses:
+      "200":
+        description: Immutable release and activation receipt
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EditorRelease" }
+activate:
+  post:
+    operationId: activateInvoiceEditorRelease
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/EditorActivationInput" }
+    responses:
+      "200":
+        description: Future document selection only
+        content:
+          application/json:
+            schema: { type: object, required: [revision], properties: { revision: { type: integer } } }
+preview:
+  post:
+    operationId: previewInvoiceEditorDraft
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/EditorPreviewInput" }
+    responses:
+      "200":
+        description: Synthetic PDF and persisted preview validation
+        content:
+          application/pdf:
+            schema: { type: string, format: binary }
+components:
+  schemas:
+    EditorScope:
+      type: object
+      required: [expectedCompanyId, branchId]
+      properties:
+        expectedCompanyId: { type: integer, minimum: 1 }
+        branchId: { type: [integer, "null"], minimum: 1 }
+    EditorLayout:
+      type: object
+      additionalProperties: false
+      required: [order, gap, margin, align, metadataColumns, logoGap, widths, showSequence]
+      properties:
+        order:
+          type: array
+          minItems: 8
+          maxItems: 8
+          items: { type: string, enum: [identity, customer, references, items, totals, qr, notes, footer] }
+        gap: { type: integer, minimum: 0, maximum: 8 }
+        margin: { type: integer, minimum: 3, maximum: 18 }
+        align: { type: string, enum: [start, center, end] }
+        metadataColumns: { type: integer, minimum: 1, maximum: 2 }
+        logoGap: { type: integer, minimum: 0, maximum: 8 }
+        widths:
+          type: array
+          minItems: 5
+          maxItems: 5
+          items: { type: integer, minimum: 8, maximum: 55 }
+        showSequence: { type: boolean }
+    EditorDesign:
+      type: object
+      additionalProperties: false
+      required: [schemaVersion, name, base, a4, thermal80]
+      properties:
+        schemaVersion: { type: integer, enum: [1] }
+        name: { type: string, minLength: 1, maxLength: 80 }
+        base: { $ref: "./invoice-template-paths.yaml#/schemas/InvoiceDesign" }
+        a4: { $ref: "#/components/schemas/EditorLayout" }
+        thermal80: { $ref: "#/components/schemas/EditorLayout" }
+    EditorDraft:
+      type: object
+      required: [id, revision, design]
+      properties:
+        id: { type: string }
+        revision: { type: integer }
+        design: { $ref: "#/components/schemas/EditorDesign" }
+    EditorRelease:
+      type: object
+      required: [id, draftId, draftRevision, design, revision]
+      properties:
+        id: { type: string }
+        draftId: { type: string }
+        draftRevision: { type: integer }
+        design: { $ref: "#/components/schemas/EditorDesign" }
+        revision: { type: integer }
+    EditorState:
+      type: object
+      required: [drafts, releases, revision, parentRevision, activeId, source]
+      properties:
+        drafts: { type: array, items: { $ref: "#/components/schemas/EditorDraft" } }
+        releases: { type: array, items: { $ref: "#/components/schemas/EditorRelease" } }
+        revision: { type: integer }
+        parentRevision: { type: integer }
+        activeId: { type: [string, "null"] }
+        source: { type: string, enum: [branch, company, legacy] }
+    EditorDraftInput:
+      allOf:
+        - { $ref: "#/components/schemas/EditorScope" }
+        - type: object
+          required: [id, expectedRevision, requestId, design]
+          properties:
+            id: { type: string }
+            expectedRevision: { type: integer, minimum: 0 }
+            requestId: { type: string }
+            design: { $ref: "#/components/schemas/EditorDesign" }
+    EditorPublishInput:
+      allOf:
+        - { $ref: "#/components/schemas/EditorScope" }
+        - type: object
+          required: [id, expectedRevision, expectedActiveRevision, expectedParentRevision, requestId]
+          properties:
+            id: { type: string }
+            expectedRevision: { type: integer }
+            expectedActiveRevision: { type: integer }
+            expectedParentRevision: { type: integer }
+            requestId: { type: string }
+    EditorActivationInput:
+      allOf:
+        - { $ref: "#/components/schemas/EditorScope" }
+        - type: object
+          required: [releaseId, expectedActiveRevision, expectedParentRevision, requestId]
+          properties:
+            releaseId: { type: [string, "null"] }
+            expectedActiveRevision: { type: integer }
+            expectedParentRevision: { type: integer }
+            requestId: { type: string }
+    EditorPreviewInput:
+      allOf:
+        - { $ref: "#/components/schemas/EditorScope" }
+        - type: object
+          required: [design, sample, width]
+          properties:
+            design: { $ref: "#/components/schemas/EditorDesign" }
+            sample: { type: string, enum: [short, long] }
+            width: { type: string, enum: [a4, "80"] }

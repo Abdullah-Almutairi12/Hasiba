@@ -11,6 +11,7 @@ const m = vi.hoisted(() => ({
   settings: null as unknown, catalog: null as unknown, catalogError: null as unknown,
   patch: vi.fn(), upload: vi.fn(), toast: vi.fn(),
 }));
+vi.mock("@/components/invoice-editor", () => ({ InvoiceEditor: () => null }));
 vi.mock("@/hooks/use-toast", () => ({ useToast: () => ({ toast: m.toast }) }));
 vi.mock("@/components/settings-scope", () => ({ useSettingsScope: () => ({ ...m.scope, baseline: { current: {} }, setBranchId: () => {}, reload: () => {} }) }));
 vi.mock("@workspace/api-client-react", async (original) => ({

@@ -2,6 +2,7 @@ import { z } from "zod/v4";
 import { sql } from "drizzle-orm";
 import type { IdentityTx } from "./document-identity";
 import { FinancialRequestError } from "./financial-transaction";
+import type { EditorSnapshot } from "./invoice-editor-schema";
 
 export const invoicePresets = [
   { id: "formal", name: "رسمي", description: "رأس رسمي وجدول محدد وحدود واضحة" },
@@ -39,7 +40,8 @@ export const defaultInvoiceDesign: InvoiceDesign = {
 export interface InvoiceDesignSnapshot {
   schemaVersion: 1;
   /** Absent means the original renderer; never infer from current settings. */
-  layoutVersion?: 2;
+  layoutVersion?: 2 | 3;
+  editor?: EditorSnapshot;
   design: InvoiceDesign;
   source: "company" | "branch" | "default";
   companyRevision: number;
@@ -63,7 +65,27 @@ export async function captureInvoiceDesign(tx: IdentityTx, companyId: number, br
   const root = rows.find(r => r.branch_id == null), branch = rows.find(r => r.branch_id === branchId && branchId != null);
   const child = (branch?.templates as Record<string, unknown> | undefined)?.invoiceDesign;
   const parent = (root?.templates as Record<string, unknown> | undefined)?.invoiceDesign;
-  const design = await validateDesignAssets(tx, companyId, child ?? parent ?? defaultInvoiceDesign);
-  return { schemaVersion: 1, layoutVersion: 2, design, source: child ? "branch" : parent ? "company" : "default",
+  const activations = (await tx.execute(sql`SELECT a.scope_key,a.release_id,r.id,r.design FROM invoice_editor_activation a
+    LEFT JOIN invoice_editor_releases r ON r.id=a.release_id AND r.company_id=a.company_id
+    WHERE a.company_id=${companyId} AND (a.scope_key=0 OR a.scope_key=${branchId ?? 0})
+    ORDER BY a.scope_key DESC`)).rows;
+  const branchActivation = branchId == null ? undefined : activations.find(a => Number(a.scope_key) === branchId);
+  const rootActivation = activations.find(a => Number(a.scope_key) === 0);
+  // An existing 2a branch customization is not silently replaced by publishing
+  // a company editor default. An explicit branch inherit action supersedes it.
+  const selected = branchActivation?.release_id ? branchActivation :
+    (!child || branchActivation) && rootActivation?.release_id ? rootActivation : undefined;
+  if (selected) {
+    const { EditorDesignSchema } = await import("./invoice-editor-schema");
+    const published = EditorDesignSchema.parse(selected.design);
+    await validateDesignAssets(tx, companyId, published.base);
+    return { schemaVersion: 1, layoutVersion: 3, design: published.base,
+      editor: { rendererVersion: 3, releaseId: String(selected.id), design: published },
+      source: Number(selected.scope_key) === 0 ? "company" : "branch",
+      companyRevision: Number(root?.revision ?? 0), branchRevision: Number(branch?.revision ?? 0), branchId };
+  }
+  const inherited = branchActivation && !branchActivation.release_id;
+  const design = await validateDesignAssets(tx, companyId, inherited ? parent ?? defaultInvoiceDesign : child ?? parent ?? defaultInvoiceDesign);
+  return { schemaVersion: 1, layoutVersion: 2, design, source: child && !inherited ? "branch" : parent ? "company" : "default",
     companyRevision: Number(root?.revision ?? 0), branchRevision: Number(branch?.revision ?? 0), branchId };
 }
