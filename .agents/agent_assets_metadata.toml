@@ -1148,3 +1148,59 @@ mtime_ms = 1793182386815
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/b854fe4d-eaf4-498c-86a8-d7787706d048/cb91a333-170b-4b97-88f6-21fa4f566e24"
 storage_version_token = "1793182431191064"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "RHyMDsVFxD2UdNwbpzDkn"
+uri = "file://generated-artifacts/invoice-editor-2b/hasiba-invoice-editor-2b-evidence.zip"
+type = "unspecified"
+title = "حاسبة — حزمة أدلة محرر الفواتير 2ب"
+description = "ZIP فعلية: 190 ملفًا، منها 35 PDF و37 لقطة، مع نتائج الفحص والمصالحة وإثبات Git. بيانات اختبار مصطنعة فقط."
+logical_id = "d820a013-5ac7-45bb-b89a-feb5a3be678e"
+content_hash = "sha256:7c57655bbc5750c406f39bc977072022c558b0b9874ed80a29a9027534875ea8"
+size = 5652713
+mtime_ms = 1793197984518
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/d820a013-5ac7-45bb-b89a-feb5a3be678e/42a1bad5-f55a-4c23-bda6-457a67d0cda7"
+storage_version_token = "1793198021609589"
+content_type = "application/octet-stream"
+
+[[outputs]]
+id = "MRlpng12sHWBsKN4aJ9wb"
+uri = "file://generated-artifacts/invoice-editor-2b/hasiba-invoice-editor-2b-report.html"
+type = "html"
+title = "تقرير تسليم وفحص محرر الفواتير 2ب"
+description = "تقرير عربي مستقل يتضمن المنجز والاختبارات والمقارنات التاريخية وحدود الدليل وصور الواجهة."
+logical_id = "6ffeb90f-2a5f-430d-9559-558c9e300655"
+content_hash = "sha256:196150cce204cc4c04bc1048c30f44c1bd4df63943c2e9d778c26ef991d24604"
+size = 1265662
+mtime_ms = 1793197983654
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/6ffeb90f-2a5f-430d-9559-558c9e300655/49f42017-6223-4348-9861-7dcbd98e456e"
+storage_version_token = "1793198025289385"
+content_type = "text/html"
+
+[[outputs]]
+id = "DZk_WDo2k6hRs6YcyoZzA"
+uri = "file://generated-artifacts/invoice-editor-2b/hasiba-invoice-editor-2b-guide.html"
+type = "html"
+title = "دليل استخدام محرر الفواتير المتقدم"
+description = "خطوات النسخ والتعديل والمعاينة والنشر، والتعامل مع التعارض وفقد الرد وإعداد الفرع."
+logical_id = "a32891e9-9c9e-42b6-b47c-1ceefec8ac55"
+content_hash = "sha256:35021a81766c2ce36a3d74ff54edf005b1f16e21b55ffa126735f118c8025059"
+size = 88290
+mtime_ms = 1793197983665
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/a32891e9-9c9e-42b6-b47c-1ceefec8ac55/b6ba6e7d-9c8f-42bc-95df-f23b09db076f"
+storage_version_token = "1793198026813554"
+content_type = "text/html"
+
+[[outputs]]
+id = "6cAkI1-OKcX8dB8Xyk-_h"
+uri = "file://generated-artifacts/invoice-editor-2b/native/issued-v3-5-final.pdf"
+type = "pdf"
+title = "نموذج PDF فعلي — التصميم المخصص"
+description = "فاتورة مصطنعة بقيمة20 وشعارB، لا تمثل معاملة عميل أو قبولًا رسميًا لزاتكا."
+logical_id = "c8fd38b7-762d-498a-827d-e50f55bb5207"
+content_hash = "sha256:d1926a16cdd3ac21e6398924738a1a78275f891ee368eabe4eb2cdb2d9f54eb5"
+size = 37105
+mtime_ms = 1793196804310
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/c8fd38b7-762d-498a-827d-e50f55bb5207/c582c56a-31c6-42dc-a272-1982228069f4"
+storage_version_token = "1793198028056720"
+content_type = "application/pdf"
