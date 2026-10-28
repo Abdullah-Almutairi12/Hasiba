@@ -1120,3 +1120,31 @@ mtime_ms = 1793174463461
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/a33b08fa-6c21-4341-9055-43403ac31ed7/f2c28f75-bcd1-44c1-98c4-e9b6fe0b28bd"
 storage_version_token = "1793174486440652"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "57sHx2dfLOkfVZ5OZUl6b"
+uri = "file://generated-artifacts/invoice-pagination-2a/Hasiba-Invoice-Pagination-2A-Report.html"
+type = "html"
+title = "حاسبة — تقرير تصحيح صفحات الفواتير 2أ"
+description = "تقرير عربي مستقل، مع مقارنة قبل/بعد، نتائج التحقق، أدلة الواجهة، وحدود الاختبار. المصدر المختبر968dd14، ورفع الشيفرة والتوثيق0cebf80."
+logical_id = "dad27a64-8424-42c9-b6f9-8e93b421d4ef"
+content_hash = "sha256:e7e3f85c9096000c1494af1234aa8ccc5469b0a046c3b28091fa3df2b4325b99"
+size = 794843
+mtime_ms = 1793182384806
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/dad27a64-8424-42c9-b6f9-8e93b421d4ef/72aedfa8-dd4c-455d-8a7c-fc5d7d7c87cf"
+storage_version_token = "1793182426758494"
+content_type = "text/html"
+
+[[outputs]]
+id = "L37CNvFgxe2EBZty3Mzyz"
+uri = "file://generated-artifacts/invoice-pagination-2a/Hasiba-Invoice-Pagination-2A-Evidence.zip"
+type = "unspecified"
+title = "حاسبة — حزمة ZIP للأدلة والملفات المعدلة"
+description = "337 ملفًا، نحو10.1MB: نتائج خام منقحة، PDFs وصور قبل/بعد، أدلة تاريخ المستندات وQR والمصالحة، وثماني صور فعلية للواجهة النهائية. المخرجات المولدة منفصلة عن Git."
+logical_id = "b854fe4d-eaf4-498c-86a8-d7787706d048"
+content_hash = "sha256:8953be23f46cbc27e7529f540867be70527ba857fce24534ac7bf420a1e85b45"
+size = 10123136
+mtime_ms = 1793182386815
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/b854fe4d-eaf4-498c-86a8-d7787706d048/cb91a333-170b-4b97-88f6-21fa4f566e24"
+storage_version_token = "1793182431191064"
+content_type = "application/octet-stream"
