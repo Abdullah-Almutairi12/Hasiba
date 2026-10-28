@@ -3002,7 +3002,7 @@ router.post("/sales/invoices/:id/reverse", financeGuard, async (req, res) => {
         })
         .where(and(eq(customerInvoicesTable.id, orig.id), eq(customerInvoicesTable.companyId, reverseCompanyId)));
       await cancelSellerInvoice(tx,reverseCompanyId,orig.id,req.session.userId!);
-      await saveIssuer(tx,"invoice",reverse.id,await documentIssuer(reverseCompanyId,"invoice",orig.id));
+      await saveIssuer(tx,"invoice",reverse.id,await documentIssuer(reverseCompanyId,"invoice",orig.id),true);
 
       // Roll back customer aggregates.
       await tx

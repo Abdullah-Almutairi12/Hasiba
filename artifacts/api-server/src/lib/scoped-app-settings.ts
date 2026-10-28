@@ -7,6 +7,7 @@ import {lockApprovalAuthority} from "./approval-authority";
 import {FinancialRequestError} from "./financial-transaction";
 import {currentResponsibilities,managedProfile} from "./responsibility-context";
 import type {DbOrTx} from "./journal-posting";
+import {validateDesignAssets} from "./invoice-design";
 
 export const settingSections=["company","tax","branches","pos","permissions","accounting","integrations","notifications",
  "localization","numbering","appearance","backup","templates"] as const;
@@ -55,6 +56,7 @@ async function access(req:Request,tx:DbOrTx,branchId:number|null,write:boolean){
  }
  return {companyId,userId,canManage};
 }
+export {access as authorizeSettingsScope};
 async function ensureCompany(tx:DbOrTx,companyId:number){
  await tx.insert(appSettingsTable).values({companyId}).onConflictDoNothing();
  return (await tx.select().from(appSettingsTable).where(own(companyId,null)))[0]!;
@@ -120,6 +122,8 @@ export async function patchScopedSettings(req:Request){
   if(body.expectedCompanyId!==actor.companyId)throw new FinancialRequestError("تغيرت المنشأة النشطة؛ أعد فتح إعدادات المنشأة المطلوبة قبل الحفظ",409);
   await tx.execute(sql`SELECT id FROM companies WHERE id=${actor.companyId} FOR UPDATE`);
   await access(req,tx,branchId,true);
+  if (body.templates && Object.hasOwn(body.templates,"invoiceDesign"))
+   body.templates.invoiceDesign=await validateDesignAssets(tx,actor.companyId,body.templates.invoiceDesign);
   const root=await ensureCompany(tx,actor.companyId);
   let current=root;
   if(branchId!=null){

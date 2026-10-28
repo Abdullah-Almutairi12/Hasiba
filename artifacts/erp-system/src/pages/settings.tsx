@@ -24,6 +24,7 @@ import { useCurrentCompany } from "@/hooks/use-current-company";
 import { usePermissions } from "@/hooks/use-permissions";
 import { useToast } from "@/hooks/use-toast";
 import { CompanySettingsTab } from "@/components/company-settings-tab";
+import { InvoiceTemplatesTab } from "@/components/invoice-templates-tab";
 import {ProcurementReceivingPolicy} from "@/components/procurement-receiving-policy";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -1544,7 +1545,7 @@ function SettingsContent() {
         <TabsContent value="numbering"><NumberingTab readOnly={readOnly} /></TabsContent>
         <TabsContent value="appearance"><AppearanceTab readOnly={readOnly} /></TabsContent>
         <TabsContent value="backup"><BackupTab readOnly={readOnly} /></TabsContent>
-        <TabsContent value="templates"><TemplatesTab readOnly={readOnly} /></TabsContent>
+        <TabsContent value="templates"><div className="space-y-4">{!readOnly&&<InvoiceTemplatesTab />}<TemplatesTab readOnly={readOnly} /></div></TabsContent>
         <TabsContent value="security"><SecurityTab /></TabsContent>
         <TabsContent value="privacy"><PrivacyConsentTab /></TabsContent>
         </div>

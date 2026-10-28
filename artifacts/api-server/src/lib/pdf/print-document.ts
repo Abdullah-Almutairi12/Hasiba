@@ -6,9 +6,12 @@ import { fileURLToPath } from "node:url";
 import {createHash} from "node:crypto";
 import type { Response } from "express";
 import type { CompanyInfo } from "./purchase-order";
+import type { InvoiceDesign } from "../invoice-design";
+import { invoiceDesignStyle } from "./invoice-design-style";
 
 export type PrintCell = string | number | null | undefined;
 export interface PrintDocument {
+  invoiceDesign?: InvoiceDesign;
   title: string;
   subtitle?: string | null;
   language?: "ar" | "en";
@@ -44,6 +47,7 @@ const cell = (v: PrintCell) => `<bdi dir="auto">${escapePrint(v).replace(/(?<![A
 export function printHtml(input: PrintDocument): string {
   const lang = input.language ?? "ar";
   const c=input.company;
+  const design = input.invoiceDesign;
   const image = (url: string | null | undefined,className="qr") => url && /^data:image\/(?:png|jpeg);base64,[a-zA-Z0-9+/=\s]+$/.test(url) ? `<img class="${className}" src="${url}" alt="">` : "";
   return `<!doctype html><html lang="${lang}" dir="${lang==="ar"?"rtl":"ltr"}"><head><meta charset="utf-8">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; font-src data:; img-src data:">
@@ -62,13 +66,15 @@ export function printHtml(input: PrintDocument): string {
    dl{display:grid;grid-template-columns:1fr 2fr;gap:5px 12px;margin:12px 0}dt{font-weight:700}dd{margin:0}
    .brand-logo{max-width:40mm;max-height:18mm;object-fit:contain}
    ${input.thermalWidth?`body{width:calc(${input.thermalWidth}mm - 6mm);font-size:${input.thermalWidth===58?9:11}px;overflow-wrap:anywhere}h1{font-size:16px}h2{font-size:13px}th,td{padding:4px 2px}.totals{width:100%}dl{grid-template-columns:1fr;gap:1px}.qr{width:27mm;height:27mm}`:""}
-   </style></head><body><header>${c?`${c.logo?image(`data:${c.logo.contentType};base64,${c.logo.data.toString("base64")}`,"brand-logo"):""}<h2>${cell(lang==="ar"?c.nameAr:c.nameEn)}</h2><p>${cell(c.address)}</p><p class="muted">${cell(c.vatNumber)} · ${cell(c.phone)} · ${cell(c.email)}</p>`:""}<h1>${cell(input.title)}</h1></header>
+   ${design ? invoiceDesignStyle(design,!!input.thermalWidth) : ""}
+   </style></head><body data-invoice-preset="${design?.preset ?? "legacy"}"><header>${c?`${c.logo&&design?.logoMode!=="none"?image(`data:${c.logo.contentType};base64,${c.logo.data.toString("base64")}`,"brand-logo"):""}<h2>${cell(lang==="ar"?c.nameAr:c.nameEn)}</h2><p>${cell(c.address)}</p><p class="muted">${cell(c.vatNumber)}${design?.showContact===false?"":` · ${cell(c.phone)} · ${cell(c.email)}`}</p>`:""}<h1>${cell(input.title)}</h1>${design?.header?`<p class="design-header">${cell(design.header)}</p>`:""}</header>
   ${input.subtitle?`<p class="subtitle">${cell(input.subtitle)}</p>`:""}
   ${input.metadata?.length?`<dl>${input.metadata.map(([label,value])=>`<dt>${cell(label)}</dt><dd>${cell(value)}</dd>`).join("")}</dl>`:""}
   ${input.headers.length?`<table><thead><tr>${input.headers.map(h=>`<th>${cell(h)}</th>`).join("")}</tr></thead><tbody>${input.rows.length?input.rows.map(r=>`<tr>${r.map(v=>`<td>${cell(v)}</td>`).join("")}</tr>`).join(""):`<tr><td colspan="${Math.max(1,input.headers.length)}">${lang==="ar"?"لا توجد عمليات مؤهلة في النطاق المختار":"No eligible transactions in the selected scope"}</td></tr>`}</tbody></table>`:""}
   ${input.totals?.length?`<table class="totals"><tbody>${input.totals.map(r=>`<tr><td>${cell(r[0])}</td><td>${cell(r[1])}</td></tr>`).join("")}</tbody></table>`:""}
   ${image(input.qr)}${(input.notes??[]).map(n=>`<p class="note">${cell(n)}</p>`).join("")}
-  ${(input.sections??[]).map(s=>`<section><h2>${cell(s.title)}</h2>${image(s.image,"illustration")}<p>${cell(s.body)}</p></section>`).join("")}</body></html>`;
+  ${(input.sections??[]).map(s=>`<section><h2>${cell(s.title)}</h2>${image(s.image,"illustration")}<p>${cell(s.body)}</p></section>`).join("")}
+  ${design?.note?`<p class="note">${cell(design.note)}</p>`:""}${design?.footer?`<p class="design-footer">${cell(design.footer)}</p>`:""}</body></html>`;
 }
 export async function buildPrintPdf(input: PrintDocument): Promise<Buffer> {
   if (active >= 2) throw new Error("PRINT_BUSY_RETRY");

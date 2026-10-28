@@ -6,6 +6,8 @@ export async function getPrintCompany(companyId: number): Promise<CompanyInfo & 
   return printableIssuer(await captureIssuer(db,companyId));
 }
 export async function printableIssuer(issuer: IssuerSnapshot) {
-  const url = await issuerLogo(issuer);
+  const design=issuer.invoiceDesign?.design;
+  const selected=design?.logoMode==="none"?null:design?.logoMode==="custom"?design.logoObjectKey:issuer.logoObjectKey;
+  const url = await issuerLogo({...issuer,logoObjectKey:selected});
   return { ...issuer, logo: url ? { data:Buffer.from(url.split(",")[1]!, "base64"),contentType:url.startsWith("data:image/png")?"image/png":"image/jpeg" } : null };
 }

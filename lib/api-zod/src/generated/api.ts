@@ -2019,6 +2019,109 @@ export const UpdatePrintProfileResponse = zod.object({
 })
 
 
+export const getInvoiceTemplateCatalogResponseDefaultDesignAccentRegExp = new RegExp('^#[0-9a-fA-F]{6}$');
+export const getInvoiceTemplateCatalogResponseDefaultDesignFontSizeMin = 11;
+export const getInvoiceTemplateCatalogResponseDefaultDesignFontSizeMax = 16;
+
+export const getInvoiceTemplateCatalogResponseDefaultDesignLogoObjectKeyMax = 300;
+
+export const getInvoiceTemplateCatalogResponseDefaultDesignLogoWidthMin = 18;
+export const getInvoiceTemplateCatalogResponseDefaultDesignLogoWidthMax = 48;
+
+export const getInvoiceTemplateCatalogResponseDefaultDesignHeaderMax = 250;
+
+export const getInvoiceTemplateCatalogResponseDefaultDesignFooterMax = 500;
+
+export const getInvoiceTemplateCatalogResponseDefaultDesignNoteMax = 1000;
+
+
+
+export const GetInvoiceTemplateCatalogResponse = zod.object({
+  "canManage": zod.boolean(),
+  "presets": zod.array(zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "description": zod.string()
+})),
+  "defaultDesign": zod.object({
+  "version": zod.literal(1),
+  "preset": zod.enum(['formal', 'simple', 'commercial', 'modern', 'ink']),
+  "accent": zod.string().regex(getInvoiceTemplateCatalogResponseDefaultDesignAccentRegExp),
+  "font": zod.enum(['Tajawal', 'sans-serif']),
+  "fontSize": zod.number().int().min(getInvoiceTemplateCatalogResponseDefaultDesignFontSizeMin).max(getInvoiceTemplateCatalogResponseDefaultDesignFontSizeMax),
+  "logoMode": zod.enum(['identity', 'custom', 'none']),
+  "logoObjectKey": zod.string().max(getInvoiceTemplateCatalogResponseDefaultDesignLogoObjectKeyMax).nullable(),
+  "logoPosition": zod.enum(['start', 'center', 'end']),
+  "logoWidth": zod.number().int().min(getInvoiceTemplateCatalogResponseDefaultDesignLogoWidthMin).max(getInvoiceTemplateCatalogResponseDefaultDesignLogoWidthMax),
+  "header": zod.string().max(getInvoiceTemplateCatalogResponseDefaultDesignHeaderMax),
+  "footer": zod.string().max(getInvoiceTemplateCatalogResponseDefaultDesignFooterMax),
+  "note": zod.string().max(getInvoiceTemplateCatalogResponseDefaultDesignNoteMax),
+  "showContact": zod.boolean(),
+  "showBank": zod.boolean()
+})
+})
+
+
+
+export const previewInvoiceTemplateBodyDesignAccentRegExp = new RegExp('^#[0-9a-fA-F]{6}$');
+export const previewInvoiceTemplateBodyDesignFontSizeMin = 11;
+export const previewInvoiceTemplateBodyDesignFontSizeMax = 16;
+
+export const previewInvoiceTemplateBodyDesignLogoObjectKeyMax = 300;
+
+export const previewInvoiceTemplateBodyDesignLogoWidthMin = 18;
+export const previewInvoiceTemplateBodyDesignLogoWidthMax = 48;
+
+export const previewInvoiceTemplateBodyDesignHeaderMax = 250;
+
+export const previewInvoiceTemplateBodyDesignFooterMax = 500;
+
+export const previewInvoiceTemplateBodyDesignNoteMax = 1000;
+
+
+
+export const PreviewInvoiceTemplateBody = zod.object({
+  "expectedCompanyId": zod.number().int().min(1),
+  "branchId": zod.number().int().nullable(),
+  "design": zod.object({
+  "version": zod.literal(1),
+  "preset": zod.enum(['formal', 'simple', 'commercial', 'modern', 'ink']),
+  "accent": zod.string().regex(previewInvoiceTemplateBodyDesignAccentRegExp),
+  "font": zod.enum(['Tajawal', 'sans-serif']),
+  "fontSize": zod.number().int().min(previewInvoiceTemplateBodyDesignFontSizeMin).max(previewInvoiceTemplateBodyDesignFontSizeMax),
+  "logoMode": zod.enum(['identity', 'custom', 'none']),
+  "logoObjectKey": zod.string().max(previewInvoiceTemplateBodyDesignLogoObjectKeyMax).nullable(),
+  "logoPosition": zod.enum(['start', 'center', 'end']),
+  "logoWidth": zod.number().int().min(previewInvoiceTemplateBodyDesignLogoWidthMin).max(previewInvoiceTemplateBodyDesignLogoWidthMax),
+  "header": zod.string().max(previewInvoiceTemplateBodyDesignHeaderMax),
+  "footer": zod.string().max(previewInvoiceTemplateBodyDesignFooterMax),
+  "note": zod.string().max(previewInvoiceTemplateBodyDesignNoteMax),
+  "showContact": zod.boolean(),
+  "showBank": zod.boolean()
+}),
+  "sample": zod.enum(['short', 'long']),
+  "width": zod.enum(['a4', '80'])
+})
+
+export const PreviewInvoiceTemplateResponse = zod.unknown()
+
+
+export const uploadInvoiceTemplateLogoBodyContentBase64Max = 2800000;
+
+
+
+
+export const UploadInvoiceTemplateLogoBody = zod.object({
+  "contentBase64": zod.string().max(uploadInvoiceTemplateLogoBodyContentBase64Max),
+  "expectedCompanyId": zod.number().int().min(1),
+  "branchId": zod.number().int().nullable()
+})
+
+export const UploadInvoiceTemplateLogoResponse = zod.object({
+  "objectKey": zod.string()
+})
+
+
 export const uploadPrintLogoBodyContentBase64Max = 2800000;
 
 

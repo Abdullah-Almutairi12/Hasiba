@@ -4025,6 +4025,211 @@ export type UpdatePrintProfile200 = {
   receiptWidths: number[];
 };
 
+export type GetInvoiceTemplateCatalog200PresetsItem = {
+  id: string;
+  name: string;
+  description: string;
+};
+
+export type GetInvoiceTemplateCatalog200DefaultDesignVersion = typeof GetInvoiceTemplateCatalog200DefaultDesignVersion[keyof typeof GetInvoiceTemplateCatalog200DefaultDesignVersion];
+
+
+export const GetInvoiceTemplateCatalog200DefaultDesignVersion = {
+  NUMBER_1: 1,
+} as const;
+
+export type GetInvoiceTemplateCatalog200DefaultDesignPreset = typeof GetInvoiceTemplateCatalog200DefaultDesignPreset[keyof typeof GetInvoiceTemplateCatalog200DefaultDesignPreset];
+
+
+export const GetInvoiceTemplateCatalog200DefaultDesignPreset = {
+  formal: 'formal',
+  simple: 'simple',
+  commercial: 'commercial',
+  modern: 'modern',
+  ink: 'ink',
+} as const;
+
+export type GetInvoiceTemplateCatalog200DefaultDesignFont = typeof GetInvoiceTemplateCatalog200DefaultDesignFont[keyof typeof GetInvoiceTemplateCatalog200DefaultDesignFont];
+
+
+export const GetInvoiceTemplateCatalog200DefaultDesignFont = {
+  Tajawal: 'Tajawal',
+  'sans-serif': 'sans-serif',
+} as const;
+
+export type GetInvoiceTemplateCatalog200DefaultDesignLogoMode = typeof GetInvoiceTemplateCatalog200DefaultDesignLogoMode[keyof typeof GetInvoiceTemplateCatalog200DefaultDesignLogoMode];
+
+
+export const GetInvoiceTemplateCatalog200DefaultDesignLogoMode = {
+  identity: 'identity',
+  custom: 'custom',
+  none: 'none',
+} as const;
+
+export type GetInvoiceTemplateCatalog200DefaultDesignLogoPosition = typeof GetInvoiceTemplateCatalog200DefaultDesignLogoPosition[keyof typeof GetInvoiceTemplateCatalog200DefaultDesignLogoPosition];
+
+
+export const GetInvoiceTemplateCatalog200DefaultDesignLogoPosition = {
+  start: 'start',
+  center: 'center',
+  end: 'end',
+} as const;
+
+export type GetInvoiceTemplateCatalog200DefaultDesign = {
+  version: GetInvoiceTemplateCatalog200DefaultDesignVersion;
+  preset: GetInvoiceTemplateCatalog200DefaultDesignPreset;
+  /** @pattern ^#[0-9a-fA-F]{6}$ */
+  accent: string;
+  font: GetInvoiceTemplateCatalog200DefaultDesignFont;
+  /**
+     * @minimum 11
+     * @maximum 16
+     */
+  fontSize: number;
+  logoMode: GetInvoiceTemplateCatalog200DefaultDesignLogoMode;
+  /**
+     * @maxLength 300
+     * @nullable
+     */
+  logoObjectKey: string | null;
+  logoPosition: GetInvoiceTemplateCatalog200DefaultDesignLogoPosition;
+  /**
+     * @minimum 18
+     * @maximum 48
+     */
+  logoWidth: number;
+  /** @maxLength 250 */
+  header: string;
+  /** @maxLength 500 */
+  footer: string;
+  /** @maxLength 1000 */
+  note: string;
+  showContact: boolean;
+  showBank: boolean;
+};
+
+export type GetInvoiceTemplateCatalog200 = {
+  canManage: boolean;
+  presets: GetInvoiceTemplateCatalog200PresetsItem[];
+  defaultDesign: GetInvoiceTemplateCatalog200DefaultDesign;
+};
+
+export type PreviewInvoiceTemplateBodyDesignVersion = typeof PreviewInvoiceTemplateBodyDesignVersion[keyof typeof PreviewInvoiceTemplateBodyDesignVersion];
+
+
+export const PreviewInvoiceTemplateBodyDesignVersion = {
+  NUMBER_1: 1,
+} as const;
+
+export type PreviewInvoiceTemplateBodyDesignPreset = typeof PreviewInvoiceTemplateBodyDesignPreset[keyof typeof PreviewInvoiceTemplateBodyDesignPreset];
+
+
+export const PreviewInvoiceTemplateBodyDesignPreset = {
+  formal: 'formal',
+  simple: 'simple',
+  commercial: 'commercial',
+  modern: 'modern',
+  ink: 'ink',
+} as const;
+
+export type PreviewInvoiceTemplateBodyDesignFont = typeof PreviewInvoiceTemplateBodyDesignFont[keyof typeof PreviewInvoiceTemplateBodyDesignFont];
+
+
+export const PreviewInvoiceTemplateBodyDesignFont = {
+  Tajawal: 'Tajawal',
+  'sans-serif': 'sans-serif',
+} as const;
+
+export type PreviewInvoiceTemplateBodyDesignLogoMode = typeof PreviewInvoiceTemplateBodyDesignLogoMode[keyof typeof PreviewInvoiceTemplateBodyDesignLogoMode];
+
+
+export const PreviewInvoiceTemplateBodyDesignLogoMode = {
+  identity: 'identity',
+  custom: 'custom',
+  none: 'none',
+} as const;
+
+export type PreviewInvoiceTemplateBodyDesignLogoPosition = typeof PreviewInvoiceTemplateBodyDesignLogoPosition[keyof typeof PreviewInvoiceTemplateBodyDesignLogoPosition];
+
+
+export const PreviewInvoiceTemplateBodyDesignLogoPosition = {
+  start: 'start',
+  center: 'center',
+  end: 'end',
+} as const;
+
+export type PreviewInvoiceTemplateBodyDesign = {
+  version: PreviewInvoiceTemplateBodyDesignVersion;
+  preset: PreviewInvoiceTemplateBodyDesignPreset;
+  /** @pattern ^#[0-9a-fA-F]{6}$ */
+  accent: string;
+  font: PreviewInvoiceTemplateBodyDesignFont;
+  /**
+     * @minimum 11
+     * @maximum 16
+     */
+  fontSize: number;
+  logoMode: PreviewInvoiceTemplateBodyDesignLogoMode;
+  /**
+     * @maxLength 300
+     * @nullable
+     */
+  logoObjectKey: string | null;
+  logoPosition: PreviewInvoiceTemplateBodyDesignLogoPosition;
+  /**
+     * @minimum 18
+     * @maximum 48
+     */
+  logoWidth: number;
+  /** @maxLength 250 */
+  header: string;
+  /** @maxLength 500 */
+  footer: string;
+  /** @maxLength 1000 */
+  note: string;
+  showContact: boolean;
+  showBank: boolean;
+};
+
+export type PreviewInvoiceTemplateBodySample = typeof PreviewInvoiceTemplateBodySample[keyof typeof PreviewInvoiceTemplateBodySample];
+
+
+export const PreviewInvoiceTemplateBodySample = {
+  short: 'short',
+  long: 'long',
+} as const;
+
+export type PreviewInvoiceTemplateBodyWidth = typeof PreviewInvoiceTemplateBodyWidth[keyof typeof PreviewInvoiceTemplateBodyWidth];
+
+
+export const PreviewInvoiceTemplateBodyWidth = {
+  a4: 'a4',
+  NUMBER_80: '80',
+} as const;
+
+export type PreviewInvoiceTemplateBody = {
+  /** @minimum 1 */
+  expectedCompanyId: number;
+  /** @nullable */
+  branchId: number | null;
+  design: PreviewInvoiceTemplateBodyDesign;
+  sample: PreviewInvoiceTemplateBodySample;
+  width: PreviewInvoiceTemplateBodyWidth;
+};
+
+export type UploadInvoiceTemplateLogoBody = {
+  /** @maxLength 2800000 */
+  contentBase64: string;
+  /** @minimum 1 */
+  expectedCompanyId: number;
+  /** @nullable */
+  branchId: number | null;
+};
+
+export type UploadInvoiceTemplateLogo201 = {
+  objectKey: string;
+};
+
 export type UploadPrintLogoBody = {
   /** @maxLength 2800000 */
   contentBase64: string;

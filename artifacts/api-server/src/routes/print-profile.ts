@@ -8,6 +8,7 @@ import { FinancialRequestError } from "../lib/financial-transaction";
 import { handleRouteError } from "../lib/handle-error";
 import { uploadBufferToPrivateObject } from "./storage";
 import { returnActor } from "../lib/return-access";
+import { normalizePrintLogo } from "../lib/print-logo-validation";
 const router = Router();
 const text = z.string().trim().max(2000);
 export const PrintProfilePatch = z.object({
@@ -78,12 +79,9 @@ router.post("/print/profile/logo", async (req, res) => {
   try {
     const actor = await authorize(req, true);
     const { contentBase64 } = z.object({ contentBase64: z.string().min(4).max(2800000) }).parse(req.body);
-    const buffer = Buffer.from(contentBase64, "base64");
-    const png = buffer.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10]));
-    const jpeg = buffer[0]===255 && buffer[1]===216 && buffer[2]===255;
-    if ((!png && !jpeg) || buffer.length > 2*1024*1024) throw new FinancialRequestError("الشعار PNG أو JPEG حتى 2MB", 400);
-    const contentType = png ? "image/png" : "image/jpeg";
-    const { objectKey } = await uploadBufferToPrivateObject({ buffer, contentType, ext: png ? "png" : "jpg", folder: `company-print/${actor.companyId}` });
+    const buffer = await normalizePrintLogo(contentBase64);
+    const contentType = "image/png";
+    const { objectKey } = await uploadBufferToPrivateObject({ buffer, contentType, ext: "png", folder: `company-print/${actor.companyId}` });
     await db.execute(sql`INSERT INTO company_print_logos(object_key,company_id,digest,content_type)
       VALUES(${objectKey},${actor.companyId},${createHash("sha256").update(buffer).digest("hex")},${contentType})`);
     res.status(201).json({ objectKey });

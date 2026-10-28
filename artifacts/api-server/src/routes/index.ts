@@ -56,6 +56,7 @@ import { administrationReceiptRouter, administrationRouter } from "./administrat
 import permissionTemplatesRouter from "./permission-templates";
 import { requireCompanyContext } from "../middlewares/require-company-context";
 import printProfileRouter from "./print-profile";
+import invoiceTemplatesRouter from "./invoice-templates";
 import operationalDocumentsRouter from "./operational-documents";
 import sellersRouter from "./sellers";
 import { requireSameOrigin } from "../middlewares/require-same-origin";
@@ -140,6 +141,7 @@ router.use(administrationRouter);
 router.use(permissionTemplatesRouter);
 router.use(makeTeamRouter(() => router.stack));
 router.use(printProfileRouter);
+router.use(invoiceTemplatesRouter);
 router.use(operationalDocumentsRouter);
 router.use(sellersRouter);
 router.use("/exports",aggregatePrintGuard);

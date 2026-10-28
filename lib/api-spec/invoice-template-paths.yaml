@@ -1,0 +1,99 @@
+catalog:
+  get:
+    operationId: getInvoiceTemplateCatalog
+    tags: [companies]
+    responses:
+      "200":
+        description: Settings-authorized synthetic design catalog
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [canManage, presets, defaultDesign]
+              properties:
+                canManage: {type: boolean}
+                presets:
+                  type: array
+                  items:
+                    type: object
+                    required: [id, name, description]
+                    properties:
+                      id: {type: string}
+                      name: {type: string}
+                      description: {type: string}
+                defaultDesign:
+                  $ref: "#/schemas/InvoiceDesign"
+preview:
+  post:
+    operationId: previewInvoiceTemplate
+    tags: [companies]
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/schemas/TemplatePreviewInput"
+    responses:
+      "200":
+        description: Synthetic sample from the same native print renderer, no invoice issued
+        content:
+          application/pdf:
+            schema: {type: string, format: binary}
+logo:
+  post:
+    operationId: uploadInvoiceTemplateLogo
+    tags: [companies]
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/schemas/TemplateLogoInput"
+    responses:
+      "201":
+        description: Immutable company-owned logo object
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [objectKey]
+              properties:
+                objectKey: {type: string}
+schemas:
+  InvoiceDesign:
+    type: object
+    additionalProperties: false
+    required: [version, preset, accent, font, fontSize, logoMode, logoObjectKey, logoPosition, logoWidth, header, footer, note, showContact, showBank]
+    properties:
+      version: {type: integer, enum: [1]}
+      preset: {type: string, enum: [formal, simple, commercial, modern, ink]}
+      accent: {type: string, pattern: "^#[0-9a-fA-F]{6}$"}
+      font: {type: string, enum: [Tajawal, sans-serif]}
+      fontSize: {type: integer, minimum: 11, maximum: 16}
+      logoMode: {type: string, enum: [identity, custom, none]}
+      logoObjectKey: {type: [string, "null"], maxLength: 300}
+      logoPosition: {type: string, enum: [start, center, end]}
+      logoWidth: {type: integer, minimum: 18, maximum: 48}
+      header: {type: string, maxLength: 250}
+      footer: {type: string, maxLength: 500}
+      note: {type: string, maxLength: 1000}
+      showContact: {type: boolean}
+      showBank: {type: boolean}
+  TemplatePreviewInput:
+    type: object
+    additionalProperties: false
+    required: [expectedCompanyId, branchId, design, sample, width]
+    properties:
+      expectedCompanyId: {type: integer, minimum: 1}
+      branchId: {type: [integer, "null"]}
+      design: {$ref: "#/schemas/InvoiceDesign"}
+      sample: {type: string, enum: [short, long]}
+      width: {type: string, enum: [a4, "80"]}
+  TemplateLogoInput:
+    type: object
+    additionalProperties: false
+    required: [contentBase64, expectedCompanyId, branchId]
+    properties:
+      contentBase64: {type: string, maxLength: 2800000}
+      expectedCompanyId: {type: integer, minimum: 1}
+      branchId: {type: [integer, "null"]}

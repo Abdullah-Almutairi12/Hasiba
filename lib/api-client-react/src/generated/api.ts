@@ -165,6 +165,7 @@ import type {
   GetFraudAnomalies200,
   GetFraudAnomaliesParams,
   GetGeneralLedgerParams,
+  GetInvoiceTemplateCatalog200,
   GetPosReceiptPdfParams,
   GetPrintProfile200,
   GetProcurementReceivingPolicy200,
@@ -251,6 +252,7 @@ import type {
   PostJournalEntry200,
   PostStocktakeVariance200,
   PrepareCountCheckpoint200,
+  PreviewInvoiceTemplateBody,
   PrimaryOwnerAppointmentInput,
   Product,
   ProductStats,
@@ -350,6 +352,8 @@ import type {
   UpdateVatRegistration200,
   UpdateVatRegistrationRequest,
   UploadCompanyLogoBody,
+  UploadInvoiceTemplateLogo201,
+  UploadInvoiceTemplateLogoBody,
   UploadPrintLogo201,
   UploadPrintLogoBody,
   UploadStorageAttachment200,
@@ -7118,6 +7122,265 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
         TContext
       > => {
       return useMutation(getUpdatePrintProfileMutationOptions(options), queryClient);
+    }
+
+export const getGetInvoiceTemplateCatalogUrl = () => {
+
+
+
+
+  return `/api/print/templates`
+}
+
+export const getInvoiceTemplateCatalog = async ( options?: Parameters<typeof customFetch>[1]): Promise<GetInvoiceTemplateCatalog200> => {
+
+  return customFetch<GetInvoiceTemplateCatalog200>(getGetInvoiceTemplateCatalogUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetInvoiceTemplateCatalogQueryKey = () => {
+    return [
+    `/api/print/templates`
+    ] as const;
+    }
+
+
+export const getGetInvoiceTemplateCatalogQueryOptions = <TData = Awaited<ReturnType<typeof getInvoiceTemplateCatalog>>, TError = ErrorType<unknown>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getInvoiceTemplateCatalog>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetInvoiceTemplateCatalogQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getInvoiceTemplateCatalog>>> = ({ signal }) => getInvoiceTemplateCatalog({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getInvoiceTemplateCatalog>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetInvoiceTemplateCatalogQueryResult = NonNullable<Awaited<ReturnType<typeof getInvoiceTemplateCatalog>>>
+export type GetInvoiceTemplateCatalogQueryError = ErrorType<unknown>
+
+
+export function useGetInvoiceTemplateCatalog<TData = Awaited<ReturnType<typeof getInvoiceTemplateCatalog>>, TError = ErrorType<unknown>>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getInvoiceTemplateCatalog>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getInvoiceTemplateCatalog>>,
+          TError,
+          Awaited<ReturnType<typeof getInvoiceTemplateCatalog>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetInvoiceTemplateCatalog<TData = Awaited<ReturnType<typeof getInvoiceTemplateCatalog>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getInvoiceTemplateCatalog>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getInvoiceTemplateCatalog>>,
+          TError,
+          Awaited<ReturnType<typeof getInvoiceTemplateCatalog>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetInvoiceTemplateCatalog<TData = Awaited<ReturnType<typeof getInvoiceTemplateCatalog>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getInvoiceTemplateCatalog>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useGetInvoiceTemplateCatalog<TData = Awaited<ReturnType<typeof getInvoiceTemplateCatalog>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getInvoiceTemplateCatalog>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetInvoiceTemplateCatalogQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getPreviewInvoiceTemplateUrl = () => {
+
+
+
+
+  return `/api/print/templates/preview`
+}
+
+export const previewInvoiceTemplate = async (previewInvoiceTemplateBody: PreviewInvoiceTemplateBody, options?: Parameters<typeof customFetch>[1]): Promise<Blob> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<Blob>(getPreviewInvoiceTemplateUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(previewInvoiceTemplateBody)
+  }
+);}
+
+
+
+
+
+export const getPreviewInvoiceTemplateMutationKey = () => ['previewInvoiceTemplate'] as const;
+
+export const getPreviewInvoiceTemplateMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof previewInvoiceTemplate>>, TError,PreviewInvoiceTemplateMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof previewInvoiceTemplate>>, TError,PreviewInvoiceTemplateMutationVariables, TContext> => {
+
+const mutationKey = getPreviewInvoiceTemplateMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof previewInvoiceTemplate>>, PreviewInvoiceTemplateMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  previewInvoiceTemplate(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PreviewInvoiceTemplateMutationResult = NonNullable<Awaited<ReturnType<typeof previewInvoiceTemplate>>>
+    export type PreviewInvoiceTemplateMutationBody = BodyType<PreviewInvoiceTemplateBody>
+    export type PreviewInvoiceTemplateMutationError = ErrorType<unknown>
+    export type PreviewInvoiceTemplateMutationVariables = {data: BodyType<PreviewInvoiceTemplateBody>}
+
+    export const usePreviewInvoiceTemplate = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof previewInvoiceTemplate>>, TError,PreviewInvoiceTemplateMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof previewInvoiceTemplate>>,
+        TError,
+        PreviewInvoiceTemplateMutationVariables,
+        TContext
+      > => {
+      return useMutation(getPreviewInvoiceTemplateMutationOptions(options), queryClient);
+    }
+
+export const getUploadInvoiceTemplateLogoUrl = () => {
+
+
+
+
+  return `/api/print/templates/logo`
+}
+
+export const uploadInvoiceTemplateLogo = async (uploadInvoiceTemplateLogoBody: UploadInvoiceTemplateLogoBody, options?: Parameters<typeof customFetch>[1]): Promise<UploadInvoiceTemplateLogo201> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<UploadInvoiceTemplateLogo201>(getUploadInvoiceTemplateLogoUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(uploadInvoiceTemplateLogoBody)
+  }
+);}
+
+
+
+
+
+export const getUploadInvoiceTemplateLogoMutationKey = () => ['uploadInvoiceTemplateLogo'] as const;
+
+export const getUploadInvoiceTemplateLogoMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof uploadInvoiceTemplateLogo>>, TError,UploadInvoiceTemplateLogoMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof uploadInvoiceTemplateLogo>>, TError,UploadInvoiceTemplateLogoMutationVariables, TContext> => {
+
+const mutationKey = getUploadInvoiceTemplateLogoMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof uploadInvoiceTemplateLogo>>, UploadInvoiceTemplateLogoMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  uploadInvoiceTemplateLogo(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UploadInvoiceTemplateLogoMutationResult = NonNullable<Awaited<ReturnType<typeof uploadInvoiceTemplateLogo>>>
+    export type UploadInvoiceTemplateLogoMutationBody = BodyType<UploadInvoiceTemplateLogoBody>
+    export type UploadInvoiceTemplateLogoMutationError = ErrorType<unknown>
+    export type UploadInvoiceTemplateLogoMutationVariables = {data: BodyType<UploadInvoiceTemplateLogoBody>}
+
+    export const useUploadInvoiceTemplateLogo = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof uploadInvoiceTemplateLogo>>, TError,UploadInvoiceTemplateLogoMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof uploadInvoiceTemplateLogo>>,
+        TError,
+        UploadInvoiceTemplateLogoMutationVariables,
+        TContext
+      > => {
+      return useMutation(getUploadInvoiceTemplateLogoMutationOptions(options), queryClient);
     }
 
 export const getUploadPrintLogoUrl = () => {

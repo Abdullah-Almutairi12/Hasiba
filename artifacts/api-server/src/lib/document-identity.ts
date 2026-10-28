@@ -4,10 +4,12 @@ import { createHash } from "node:crypto";
 import type { CompanyInfo } from "./pdf/purchase-order";
 import { FinancialRequestError } from "./financial-transaction";
 import { objectStorageClient } from "./objectStorage";
+import { captureInvoiceDesign, type InvoiceDesignSnapshot } from "./invoice-design";
 
 export type IdentityTx = Pick<typeof db, "execute">;
 export type DocumentKind = "invoice" | "pos" | "credit" | "refund" | "closing";
 export interface IssuerSnapshot extends CompanyInfo {
+  invoiceDesign?: InvoiceDesignSnapshot;
   companyId: number;
   revision: number;
   vatEnabled: boolean;
@@ -48,7 +50,16 @@ export async function captureIssuer(tx: IdentityTx, companyId: number): Promise<
     capturedAt: new Date().toISOString(), verifiedSnapshot: true,
   };
 }
-export async function saveIssuer(tx: IdentityTx, kind: DocumentKind, documentId: number, issuer: IssuerSnapshot) {
+export async function saveIssuer(tx: IdentityTx, kind: DocumentKind, documentId: number, issuer: IssuerSnapshot, preserveDesign = false) {
+  if (!preserveDesign && (kind === "invoice" || kind === "pos")) {
+    const source = kind === "invoice"
+      ? await tx.execute(sql`SELECT branch_id FROM customer_invoices WHERE id=${documentId} AND company_id=${issuer.companyId}`)
+      : await tx.execute(sql`SELECT s.branch_id FROM pos_orders o JOIN pos_sessions s ON s.id=o.session_id
+          WHERE o.id=${documentId} AND o.company_id=${issuer.companyId}`);
+    // Reversal/copy paths preserve an already captured design.
+    if (!issuer.invoiceDesign) issuer = { ...issuer,
+      invoiceDesign: await captureInvoiceDesign(tx, issuer.companyId, source.rows[0]?.branch_id == null ? null : Number(source.rows[0].branch_id)) };
+  }
   await tx.execute(sql`INSERT INTO document_issuer_snapshots(company_id,document_kind,document_id,issuer)
     VALUES(${issuer.companyId},${kind},${documentId},${JSON.stringify(issuer)}::jsonb) ON CONFLICT DO NOTHING`);
 }

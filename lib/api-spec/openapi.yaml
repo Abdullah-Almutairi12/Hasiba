@@ -1426,6 +1426,12 @@ paths:
     $ref: "./seller-paths.yaml#/commissionState"
   /print/profile:
     $ref: "./print-paths.yaml#/profile"
+  /print/templates:
+    $ref: "./invoice-template-paths.yaml#/catalog"
+  /print/templates/preview:
+    $ref: "./invoice-template-paths.yaml#/preview"
+  /print/templates/logo:
+    $ref: "./invoice-template-paths.yaml#/logo"
   /print/profile/logo:
     $ref: "./print-paths.yaml#/logo"
   /pos/orders/{id}/receipt.pdf:
