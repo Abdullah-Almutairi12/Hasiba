@@ -21,6 +21,12 @@ Do not infer a historical commission entitlement from an assignment that does no
 
 **How to apply:** Keep the legacy calculation conservative and the new snapshot-based seller ledger separate. Use fixtures with genuinely applicable dates rather than relaxing ownership or period checks to make old expected amounts pass.
 
+Historical reprint evidence must compare a freshly requested PDF's logical text and rendered pages, not require binary equality.
+
+**Why:** Regenerated PDFs legitimately change creation/modification metadata. Conversely, a browser may reuse an already-generated preview blob, so identical downloaded bytes alone do not prove that the current server preserved history.
+
+**How to apply:** Identify the actual print endpoint, obtain a fresh server response after the configuration change, compare text and page pixels, and reconcile financial evidence separately. Distinguish cached-browser evidence from fresh re-render evidence in acceptance reports.
+
 Printer configuration is not tax registration. An unregistered company must be able to choose paper widths and save its profile without inventing a VAT number or commercial registration.
 
 **Why:** Unconditional identity-field requirements blocked 58mm setup for an explicitly unregistered test company and encouraged fabricated identifiers.
