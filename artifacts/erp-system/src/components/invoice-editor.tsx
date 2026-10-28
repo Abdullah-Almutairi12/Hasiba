@@ -780,7 +780,7 @@ export function InvoiceEditor({ companyId, branchId, generation }: { companyId: 
         <section className="rounded-lg border p-3" data-testid="section-editor-releases">
           <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
             <Label className="flex items-center gap-2 font-semibold"><History className="size-4" />الإصدارات المنشورة للمنشأة</Label>
-            {state.source !== "legacy" && (
+            {(state.source !== "legacy" || (!!branchId && state.parentRevision > 0)) && (
               <Button size="sm" variant="outline" disabled={locked} data-testid="button-editor-inherit"
                 onClick={() => setConfirm({
                   title: branchId ? "العودة لوراثة تصميم المنشأة" : "العودة للتصميم الكلاسيكي",

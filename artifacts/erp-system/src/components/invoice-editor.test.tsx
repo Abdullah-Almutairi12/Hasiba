@@ -114,4 +114,16 @@ describe("InvoiceEditor", () => {
     expect(confirm).toHaveBeenCalled();
     confirm.mockRestore();
   });
+  it("offers explicit inheritance for a legacy customized branch after company editor publication", async () => {
+    m.getState.mockResolvedValue({ drafts: [], releases: [], revision: 0, parentRevision: 2, activeId: null, source: "legacy" });
+    m.activate.mockResolvedValue({ revision: 1 });
+    render(<InvoiceEditor companyId={5} branchId={2} generation={0} />);
+    const u = userEvent.setup();
+    await u.click(await screen.findByTestId("button-editor-inherit"));
+    await u.click(screen.getByTestId("button-editor-confirm"));
+    await waitFor(() => expect(m.activate).toHaveBeenCalledTimes(1));
+    expect(m.activate.mock.calls[0][0].data).toMatchObject({
+      expectedCompanyId: 5, branchId: 2, releaseId: null, expectedActiveRevision: 0, expectedParentRevision: 2,
+    });
+  });
 });

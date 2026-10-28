@@ -222,8 +222,13 @@ describe("original POS invoice: independent linked return lifecycle", () => {
       "0062_stocktake_count_participants.sql",
       "0063_stocktake_variance_review.sql",
       "0064_customer_invoice_permissions.sql",
+      "0065_invoice_editor.sql",
     ]);
     expect(first.skipped).toHaveLength(26);
+    // The editor migration is prospective: an old install must not acquire
+    // a published design or have issued-document evidence rewritten.
+    expect(await rows("SELECT count(*)::int AS n FROM invoice_editor_releases")).toEqual([{n:0}]);
+    expect(await rows("SELECT count(*)::int AS n FROM invoice_editor_activation")).toEqual([{n:0}]);
     // Admission of a resource is not a backfill of authority. The pinned
     // installation must gain no customer-invoice grant or template.
     expect(await rows("SELECT count(*)::int AS n FROM responsibility_grants WHERE resource='sales'")).toEqual([{n:0}]);
