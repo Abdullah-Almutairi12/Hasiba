@@ -41,7 +41,7 @@ export function CompanySwitcher() {
 
   const handleSwitch = async (id: number) => {
     try {
-      await switchCompany(id);
+      if (await switchCompany(id) === false) return;
       const next = companies.find((c) => c.id === id);
       toast({
         title: "تم تبديل الشركة",

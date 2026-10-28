@@ -29,11 +29,11 @@ export function useCurrentCompany() {
 
   const switchCompany = useCallback(
     async (companyId: number) => {
-      if (companyId === activeCompanyId) return;
+      if (companyId === activeCompanyId) return false;
       // Editors may guard unsaved work before the server's tenant switch.
       const leaving = new Event("hasiba:before-company-switch", { cancelable: true });
       window.dispatchEvent(leaving);
-      if (leaving.defaultPrevented) return;
+      if (leaving.defaultPrevented) return false;
       // Cancel any in-flight requests so a slow response from the OLD
       // tenant cannot land into the new tenant's cache after the swap.
       await qc.cancelQueries({
@@ -56,6 +56,7 @@ export function useCurrentCompany() {
       });
       // Refetch /auth/me so the rest of the app sees the new active id.
       await qc.invalidateQueries({ queryKey: ME_KEY });
+      return true;
     },
     [activeCompanyId, qc, switchMut],
   );
