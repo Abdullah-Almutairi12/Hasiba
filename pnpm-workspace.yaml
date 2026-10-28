@@ -119,7 +119,7 @@ overrides:
   picomatch@2: 2.3.2
   picomatch@4: 4.0.5
   postcss@8: 8.5.26
-  qs@6: 6.16.0
+  qs@6: 6.16.1
   rollup>@rollup/rollup-android-arm-eabi: '-'
   rollup>@rollup/rollup-android-arm64: '-'
   rollup>@rollup/rollup-darwin-arm64: '-'

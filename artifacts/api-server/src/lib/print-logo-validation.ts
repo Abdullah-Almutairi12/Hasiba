@@ -23,7 +23,8 @@ export async function normalizePrintLogo(encoded: string): Promise<Buffer> {
       await Promise.race([i.decode(),new Promise((_,reject)=>setTimeout(()=>reject(new Error("timeout")),5000))]);
       if(i.width<1||i.height<1||i.width>4096||i.height>4096||i.width*i.height>8000000)throw new Error("dimensions");
       const canvas=document.createElement("canvas");canvas.width=i.width;canvas.height=i.height;
-      canvas.getContext("2d")!.drawImage(i,0,0);return canvas.toDataURL("image/png").split(",")[1]!;
+      const ctx=canvas.getContext("2d");if(!ctx)throw new Error("canvas");
+      ctx.drawImage(i,0,0);return canvas.toDataURL("image/png").split(",")[1];
     })()`);
     const normalized=Buffer.from(result,"base64");
     if(normalized.length>2*1024*1024)throw new Error("size");

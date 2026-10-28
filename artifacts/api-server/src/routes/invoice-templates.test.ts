@@ -10,6 +10,7 @@ import { captureIssuer,saveIssuer,documentIssuer,issuerLogo } from "../lib/docum
 import { printHtml } from "../lib/pdf/print-document";
 import { normalizePrintLogo } from "../lib/print-logo-validation";
 import { objectStorageClient } from "../lib/objectStorage";
+import QRCode from "qrcode";
 const out=resolve(process.cwd(),"../../generated-artifacts/invoice-templates-2a");
 const design=(preset=defaultInvoiceDesign.preset)=>({...defaultInvoiceDesign,preset});
 const payload=(s:any,value:unknown)=>({expectedCompanyId:s.scope.companyId,expectedRevision:s.scope.revision,
@@ -72,6 +73,10 @@ describe("invoice design 2a using existing settings, issuance and native rendere
       design:design(),sample:"short",width:"a4"}),403);
   },60000);
   it("rejects foreign logos and malformed image files without external requests",async()=>{
+    const valid=await QRCode.toBuffer("SYNTHETIC-LOCAL-LOGO",{type:"png"});
+    const normalized=await normalizePrintLogo(valid.toString("base64"));
+    expect(normalized.subarray(0,8)).toEqual(Buffer.from([137,80,78,71,13,10,26,10]));
+    expect(normalized.length).toBeGreaterThan(30);
     const f=await posTemplateFixture();
     await rows("INSERT INTO company_print_logos(object_key,company_id,digest,content_type) VALUES($1,$2,$3,'image/png')",
       [`other-${randomUUID()}`,f.companies[1].id,"synthetic"]);
