@@ -1092,3 +1092,31 @@ mtime_ms = 1793103849451
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/9c332092-4c78-4922-8a07-e9cbbb6f4e77/83687338-a6ec-44a3-bc23-5b95cfe4a4d2"
 storage_version_token = "1793103920738092"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "9tDX1CyvQ0m_aEqnYl4A9"
+uri = "file://generated-artifacts/invoice-templates-2a/Hasiba-Invoice-Templates-2A-Report.html"
+type = "html"
+title = "تقرير تسليم قوالب الفواتير 2أ"
+description = "المنفذ ونتائج التحقق وحدود القبول وصور القوالب الخمسة، مع المصدر المختبر وآخر رفع مؤكد."
+logical_id = "e4c9f287-8325-468b-b6b2-26f51c40672a"
+content_hash = "sha256:6d2762ecd41f1b7ab3ed80304e201f0973a1d9ca6da370279b9df8fee400ac24"
+size = 438150
+mtime_ms = 1793174459007
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/e4c9f287-8325-468b-b6b2-26f51c40672a/33a3b6a0-6b8a-4fc8-8d86-16c94fb95e86"
+storage_version_token = "1793174482374778"
+content_type = "text/html"
+
+[[outputs]]
+id = "fVtNObZpuD1-uAZuAvuyj"
+uri = "file://generated-artifacts/invoice-templates-2a/Hasiba-Invoice-Templates-2A-Evidence.zip"
+type = "unspecified"
+title = "حزمة أدلة قوالب الفواتير 2أ — ZIP"
+description = "138 ملفًا بحجم 3.6 MB: عينات PDF وصور القوالب، نتائج الاختبارات المنقحة، أدلة المتصفح والمصالحة والمزامنة وبصمات الملفات."
+logical_id = "a33b08fa-6c21-4341-9055-43403ac31ed7"
+content_hash = "sha256:ee1402edb2f6ab045a1b2e5aee1d29126647166e0a617ffc61e6ab1ebb46399a"
+size = 3626128
+mtime_ms = 1793174463461
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/a33b08fa-6c21-4341-9055-43403ac31ed7/f2c28f75-bcd1-44c1-98c4-e9b6fe0b28bd"
+storage_version_token = "1793174486440652"
+content_type = "application/octet-stream"
