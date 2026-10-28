@@ -20,7 +20,8 @@ const idOf = (req: Request) => z.coerce.number().int().positive().parse(req.para
 function missing(): never { throw new FinancialRequestError("المستند غير موجود في الشركة النشطة",404); }
 async function print(req: Request, kind: DocumentKind, id: number, doc: PrintDocument) {
   const issuer = await documentIssuer(req.session.companyId!,kind,id);
-  return { ...doc, invoiceDesign:kind==="pos"?issuer.invoiceDesign?.design:undefined, company:await printableIssuer(issuer), notes:[
+  return { ...doc, layoutVersion:kind==="pos"?issuer.invoiceDesign?.layoutVersion:undefined,
+    invoiceDesign:kind==="pos"?issuer.invoiceDesign?.design:undefined, company:await printableIssuer(issuer), notes:[
     ...(!issuer.verifiedSnapshot?["لا تتوافر هوية الإصدار التاريخية لهذا المستند؛ لا تستخدم بيانات الشركة الحالية لإثبات هويته."]:[]),
     ...(!issuer.vatNumber && issuer.vatEnabled?["الرقم الضريبي للمصدر غير متاح."]:[]),
     ...(!issuer.bankName&&!issuer.bankIban?["بيانات البنك غير متاحة."]:[]),

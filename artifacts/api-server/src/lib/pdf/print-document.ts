@@ -8,9 +8,12 @@ import type { Response } from "express";
 import type { CompanyInfo } from "./purchase-order";
 import type { InvoiceDesign } from "../invoice-design";
 import { invoiceDesignStyle } from "./invoice-design-style";
+import { invoiceLayoutV2, renderThermalV2 } from "./invoice-layout-v2";
 
 export type PrintCell = string | number | null | undefined;
 export interface PrintDocument {
+  /** Only server-captured issuance evidence selects prospective rendering. */
+  layoutVersion?: 2;
   invoiceDesign?: InvoiceDesign;
   title: string;
   subtitle?: string | null;
@@ -49,7 +52,7 @@ export function printHtml(input: PrintDocument): string {
   const c=input.company;
   const design = input.invoiceDesign;
   const image = (url: string | null | undefined,className="qr") => url && /^data:image\/(?:png|jpeg);base64,[a-zA-Z0-9+/=\s]+$/.test(url) ? `<img class="${className}" src="${url}" alt="">` : "";
-  return `<!doctype html><html lang="${lang}" dir="${lang==="ar"?"rtl":"ltr"}"><head><meta charset="utf-8">
+  const html = `<!doctype html><html lang="${lang}" dir="${lang==="ar"?"rtl":"ltr"}"><head><meta charset="utf-8">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; font-src data:; img-src data:">
   <title>${escapePrint(input.title)}</title><style>${printFonts()}
    @page{size:${input.thermalWidth?`${input.thermalWidth}mm 297mm`:`A4 ${input.landscape?"landscape":"portrait"}`};margin:${input.thermalWidth?"4mm 3mm 8mm":"15mm 12mm 18mm"}}
@@ -75,6 +78,8 @@ export function printHtml(input: PrintDocument): string {
   ${image(input.qr)}${(input.notes??[]).map(n=>`<p class="note">${cell(n)}</p>`).join("")}
   ${(input.sections??[]).map(s=>`<section><h2>${cell(s.title)}</h2>${image(s.image,"illustration")}<p>${cell(s.body)}</p></section>`).join("")}
   ${design?.note?`<p class="note">${cell(design.note)}</p>`:""}${design?.footer?`<p class="design-footer">${cell(design.footer)}</p>`:""}</body></html>`;
+  return input.layoutVersion === 2 ? invoiceLayoutV2(html, input)
+    .replace('<body data-invoice-preset=', `<body data-thermal-width="${input.thermalWidth ?? ""}" data-invoice-preset=`) : html;
 }
 export async function buildPrintPdf(input: PrintDocument): Promise<Buffer> {
   if (active >= 2) throw new Error("PRINT_BUSY_RETRY");
@@ -95,12 +100,15 @@ export async function buildPrintPdf(input: PrintDocument): Promise<Buffer> {
     const deadline=setTimeout(()=>{void browser?.close().catch(()=>{});},30000);
     try{
       await page.evaluate(`(async()=>{await document.fonts.load("12px Tajawal");await document.fonts.load("700 12px Tajawal");await document.fonts.ready;if(!document.fonts.check("12px Tajawal")||!document.fonts.check("700 12px Tajawal"))throw new Error("PRINT_FONTS_NOT_LOADED");})()`);
-      if(input.thermalWidth){
+      const options={format:"A4" as const,landscape:input.landscape,preferCSSPageSize:true,printBackground:true,tagged:true,displayHeaderFooter:true,headerTemplate:"<span></span>",footerTemplate:'<div style="font:9px sans-serif;width:100%;text-align:center;color:#516071"><span class="pageNumber"></span> / <span class="totalPages"></span></div>'};
+      if(input.thermalWidth && input.layoutVersion === 2) {
+        return await renderThermalV2(page,input.thermalWidth,options);
+      } else if(input.thermalWidth){
         const pixels=await page.evaluate("document.body.getBoundingClientRect().height") as number;
         const height=Math.max(60,Math.min(3000,Math.ceil(pixels*25.4/96+12)));
         await page.evaluate(`document.styleSheets[0].insertRule(${JSON.stringify(`@page{size:${input.thermalWidth}mm ${height}mm}`)},document.styleSheets[0].cssRules.length)`);
       }
-      return await page.pdf({format:"A4",landscape:input.landscape,preferCSSPageSize:true,printBackground:true,tagged:true,displayHeaderFooter:true,headerTemplate:"<span></span>",footerTemplate:'<div style="font:9px sans-serif;width:100%;text-align:center;color:#516071"><span class="pageNumber"></span> / <span class="totalPages"></span></div>'});
+      return await page.pdf(options);
     }finally{clearTimeout(deadline);}
   } finally {
     try { await browser?.close(); } finally { active--; }

@@ -38,6 +38,8 @@ export const defaultInvoiceDesign: InvoiceDesign = {
 };
 export interface InvoiceDesignSnapshot {
   schemaVersion: 1;
+  /** Absent means the original renderer; never infer from current settings. */
+  layoutVersion?: 2;
   design: InvoiceDesign;
   source: "company" | "branch" | "default";
   companyRevision: number;
@@ -62,6 +64,6 @@ export async function captureInvoiceDesign(tx: IdentityTx, companyId: number, br
   const child = (branch?.templates as Record<string, unknown> | undefined)?.invoiceDesign;
   const parent = (root?.templates as Record<string, unknown> | undefined)?.invoiceDesign;
   const design = await validateDesignAssets(tx, companyId, child ?? parent ?? defaultInvoiceDesign);
-  return { schemaVersion: 1, design, source: child ? "branch" : parent ? "company" : "default",
+  return { schemaVersion: 1, layoutVersion: 2, design, source: child ? "branch" : parent ? "company" : "default",
     companyRevision: Number(root?.revision ?? 0), branchRevision: Number(branch?.revision ?? 0), branchId };
 }

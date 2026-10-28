@@ -109,6 +109,7 @@ describe("invoice design 2a using existing settings, issuance and native rendere
     const inv=ok(await f.owner.post("/api/sales/invoices").set("Idempotency-Key",randomUUID())
       .send({customerId:customer.id,branchId:branch,lines:[{description:"سلام ABC",quantity:2,unitPrice:100,taxRate:0}]}),201);
     const issuer=await documentIssuer(f.companies[0].id,"invoice",inv.id);
+    expect(issuer.invoiceDesign?.layoutVersion).toBe(2);
     expect(issuer.invoiceDesign?.source).toBe("branch");expect(issuer.invoiceDesign?.design.preset).toBe("modern");
     const before=await invariantSnapshot();
     await save(f,{...design("ink"),footer:"تذييل جديد"},branch);

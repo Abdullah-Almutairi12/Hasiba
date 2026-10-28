@@ -26,3 +26,9 @@ Distinguish cold Chromium startup failures from Arabic shaping, PDF generation a
 **Why:** Under the full verification load, the first receipt launch exceeded its startup budget although later receipts and financial assertions succeeded. Raising only a test's deadline could not fix the real HTTP 500.
 
 **How to apply:** Diagnose the failing stage from the native renderer log. Keep a bounded startup allowance separate from content/output deadlines, preserve concurrency and network restrictions, and retain real PDF assertions rather than skipping printing.
+
+Continuous DOM measurements do not prove Chromium's named-page print fragmentation will preserve a thermal tail.
+
+**Why:** Even a measured sheet with apparent free space pushed its QR and note onto another full-height page; adding a small height allowance or inheriting the named page did not resolve it.
+
+**How to apply:** Verify actual PDF page counts, content bounds and QR placement. For variable thermal lengths, isolate each bounded sheet in the native renderer and preserve its vector pages when assembling; fail on an unexpected extra page instead of cropping or accepting blank paper.

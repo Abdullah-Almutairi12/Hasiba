@@ -34,6 +34,7 @@
     "nodemailer": "^10.1.7",
     "openai": "^6.34.0",
     "otpauth": "9.5.2",
+    "pdf-lib": "1.17.1",
     "pdfkit": "^0.18.0",
     "pino": "^9",
     "pino-http": "^10",
