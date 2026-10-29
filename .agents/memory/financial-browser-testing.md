@@ -172,3 +172,13 @@ still hide a missing entry control for an existing account type.
 for the affected legacy or responsibility-based account. Reuse the existing
 safe shift intent and server authorization instead of creating shifts by API
 to bypass a native UI blocker.
+
+A successful replay after reload does not prove the initial submit-to-pending
+transition worked.
+
+**Why:** A native picker can be reparented by browser integration and crash
+the client when it freezes, while the server commit and later replay remain valid.
+
+**How to apply:** Observe both the initial unknown-result state and same-tab
+recovery. Reproduce the observed DOM ownership condition, and keep the failed
+native trace separate from acceptance evidence for the corrected source.
