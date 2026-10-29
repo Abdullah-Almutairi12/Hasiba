@@ -232,8 +232,8 @@ describe("sales order fixed commercial basis, trusted partial invoice",()=>{
     const r=await f.a.post("/api/sales/invoices").set("Idempotency-Key",randomUUID()).send(v.body);
     expect(r.status,JSON.stringify(r.body)).toBe(403);expect(await state(f)).toEqual(before);
   });
-  it("a material source change invalidates the old order approval instead of reusing it",async()=>{
-    const f=await fixture(false),tag=randomUUID();
+  it.each([false,true])("a material source/tax change invalidates old approval (inclusive=%s)",async(inclusive)=>{
+    const f=await fixture(inclusive),tag=randomUUID();
     const [reviewer]=await db.insert(usersTable).values({name:"مراجع مصطنع",email:`material-${tag}@example.invalid`,
       passwordHash:await bcrypt.hash(`Synthetic-${tag}`,4),role:"manager",isActive:true}).returning();
     await db.insert(userCompaniesTable).values({companyId:f.c.id,userId:reviewer.id,role:"manager"});

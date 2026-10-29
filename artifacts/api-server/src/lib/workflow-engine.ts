@@ -691,7 +691,7 @@ export async function assertDeferredInvoiceApproval(companyId:number,id:number,c
  * executor's authority. Source fingerprints deliberately exclude fulfilment
  * counters, but include the agreed pricing evidence and all material inputs. */
 export async function assertDeferredSalesOrderApproval(companyId:number,id:number,amount:number,
-  branchId:number|null,connection:DbOrTx,currentFinancialTotal=amount){
+  branchId:number|null,connection:DbOrTx,currentFinancialTotal=amount,financialFactsChanged=false){
   const [request]=await connection.select().from(approvalRequestsTable).where(and(
     eq(approvalRequestsTable.companyId,companyId),eq(approvalRequestsTable.docType,"sales_order"),
     eq(approvalRequestsTable.recordId,id))).orderBy(desc(approvalRequestsTable.id)).limit(1).for("update");
@@ -701,7 +701,7 @@ export async function assertDeferredSalesOrderApproval(companyId:number,id:numbe
       throw new FinancialRequestError("أمر البيع يحتاج اعتمادًا؛ لا تكفي حالته لتجاوز مسار الموافقات",409);
     return;
   }
-  if(Math.abs(currentFinancialTotal-amount)>.011)
+  if(financialFactsChanged||Math.round(currentFinancialTotal*100)!==Math.round(amount*100))
     throw new FinancialRequestError("تغيرت الحقائق المالية الضريبية عن مبلغ اعتماد الأمر؛ يلزم مراجعة واعتماد جديدان",409);
   if(request.status!=="approved"||request.reviewInvalidatedAt||!await approvalSourceMatches(request,connection))
     throw new FinancialRequestError("اعتماد أمر البيع لا يطابق حقائقه الحالية",409);

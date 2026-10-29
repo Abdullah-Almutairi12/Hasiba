@@ -135,9 +135,11 @@ export async function prepareOrderInvoice(tx:DbOrTx,req:Request,so:Order,lines:L
     applied.push({...budgets[i]!,amount:money(next-previous)});previous=next;
   }
   const fullPolicy=await calculatePolicySale(tx,cid,at,basis.lines,basis.orderDiscount,basis);
-  const fullTotal=fullPolicy?.totals.total??computeTotals(basis.lines.map(l=>({...l,taxRate:context.registered?l.taxRate:0})),
-    basis.orderDiscount,basis).total;
-  await assertDeferredSalesOrderApproval(cid,so.id,Number(so.total),so.branchId,tx,fullTotal);
+  const fullTotals=fullPolicy?.totals??computeTotals(basis.lines.map(l=>({...l,taxRate:context.registered?l.taxRate:0})),
+    basis.orderDiscount,basis);
+  const financialFactsChanged=(["subtotal","discount","vat","total"] as const).some(
+    key=>Math.round(fullTotals[key]*100)!==Math.round(Number(so[key])*100));
+  await assertDeferredSalesOrderApproval(cid,so.id,Number(so.total),so.branchId,tx,fullTotals.total,financialFactsChanged);
   const [credit]=(await tx.execute(sql`SELECT c.credit_limit,
     (SELECT coalesce(sum(i.total-i.amount_paid),0) FROM customer_invoices i WHERE i.company_id=${cid}
       AND i.customer_id=c.id AND i.status IN ('open','partially_paid')) AS outstanding,
