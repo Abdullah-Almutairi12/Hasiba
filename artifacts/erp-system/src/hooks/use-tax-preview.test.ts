@@ -12,6 +12,44 @@ beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(new Date("2030-01-01T00:
 afterEach(() => vi.useRealTimers());
 
 describe("useTaxPreview", () => {
+  it("requires a fresh explicit review after a resolved attempt even when all facts are unchanged", async () => {
+    const fetcher=vi.fn().mockResolvedValue(mk());
+    const {result,rerender}=renderHook(({frozen})=>useTaxPreview<B>({
+      body:{items:1},fetcher,frozen,debounceMs:10,
+    }),{initialProps:{frozen:false}});
+    await flush(10);
+    act(()=>result.current.confirm());
+    expect(result.current.confirmed).toBe(true);
+    rerender({frozen:true});
+    await flush(10);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    rerender({frozen:false});
+    expect(result.current.confirmed).toBe(false);
+    expect(result.current.tokens()).toEqual({});
+    await flush(10);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(result.current.confirmed).toBe(false);
+    expect(result.current.previousReviewed).not.toBeNull();
+    act(()=>result.current.confirm());
+    expect(result.current.confirmed).toBe(true);
+  });
+
+  it("does not revive an old confirmation when the cart changes away and back",async()=>{
+    const fetcher=vi.fn().mockImplementation((b:B)=>Promise.resolve(mk({total:115*b.items})));
+    const {result,rerender}=renderHook(({body})=>useTaxPreview<B>({body,fetcher,debounceMs:10}),{initialProps:{body:{items:1}}});
+    await flush(10);
+    act(()=>result.current.confirm());
+    rerender({body:{items:2}});
+    await flush(10);
+    rerender({body:{items:1}});
+    await flush(10);
+    expect(result.current.confirmed).toBe(false);
+    expect(result.current.tokens()).toEqual({});
+    expect(result.current.previousReviewed).not.toBeNull();
+    act(()=>result.current.confirm());
+    expect(result.current.confirmed).toBe(true);
+  });
+
   it("ignores an out-of-order stale response and requires explicit review", async () => {
     const d1 = deferred(), d2 = deferred();
     const fetcher = vi.fn().mockReturnValueOnce(d1.p).mockReturnValueOnce(d2.p);

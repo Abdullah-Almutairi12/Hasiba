@@ -5,9 +5,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import PosIconic from "./pos-iconic";
 import { beforeEach } from "vitest";
 
-const sessionMock = vi.hoisted(() => ({ status: "open", refetch: vi.fn(),branchId:null as number|null }));
+const sessionMock = vi.hoisted(() => ({ id:9,status: "open", refetch: vi.fn(),branchId:null as number|null }));
 beforeEach(() => {
   sessionMock.status = "open";
+  sessionMock.id=9;
   sessionMock.branchId=null;
   sessionMock.refetch.mockClear();
 });
@@ -30,7 +31,7 @@ vi.mock("@workspace/api-client-react", async (original) => ({
   ...await original<typeof import("@workspace/api-client-react")>(),
   useListProducts: () => ({ data: [{ id: 5, name: "منتج تجريبي", nameAr: "منتج تجريبي", price: 100, stock: 20 }] }),
   useListProductCategories: () => ({ data: [] }),
-  useListPosSessions: () => ({ data: [{ id: 9, status: sessionMock.status }], refetch: sessionMock.refetch }),
+  useListPosSessions: () => ({ data: [{ id: sessionMock.id, status: sessionMock.status }], refetch: sessionMock.refetch }),
 }));
 
 const storageKey = "hasba:pos-checkout:11:21";
@@ -46,7 +47,18 @@ function mount() {
 function saleTransport(fault?: "lost" | "502" | "malformed" | "incomplete" | "reject") {
   const attempts: Array<{ key: string; body: string }> = [];
   const committed = new Map<string, { id: number; orderNumber: string; total: number }>();
+  const seals:Array<{requestKey:string;body:unknown}>=[];
+  const closed=new Set<string>();
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    if(String(input).split("?")[0].endsWith("/api/pos/tax-preview/close-intent")&&init?.method==="POST"){
+      const seal=JSON.parse(String(init.body));
+      expect(seal.body).toEqual(JSON.parse(attempts.find(a=>a.key===seal.requestKey)!.body));
+      seals.push(seal);
+      const saved=committed.get(seal.requestKey);
+      if(saved)return Response.json({state:"completed",result:{order:saved}});
+      closed.add(seal.requestKey);
+      return Response.json({state:"closed_without_execution"});
+    }
     const preview = posPreviewServer(input, init, { prices: { 5: 100 }, token: `sale-${previews.length}`, log: previews });
     if (preview) return preview;
     if (!String(input).split("?")[0].endsWith("/api/pos/orders") || init?.method !== "POST") {
@@ -56,6 +68,7 @@ function saleTransport(fault?: "lost" | "502" | "malformed" | "incomplete" | "re
     expect(key).toBeTruthy();
     const body = String(init.body);
     attempts.push({ key: key!, body });
+    if(closed.has(key!))return Response.json({error:"sealed identity"},{status:409});
     if (attempts.length === 1 && fault === "reject") {
       sessionMock.status = "closed";
       return Response.json({ error: "الوردية مغلقة. افتح وردية جديدة قبل إتمام البيع." }, { status: 409 });
@@ -73,7 +86,7 @@ function saleTransport(fault?: "lost" | "502" | "malformed" | "incomplete" | "re
     }
     return Response.json(row, { status: 201 });
   }));
-  return { attempts, committed };
+  return { attempts, committed,seals };
 }
 
 describe("POS inline tender and durable checkout recovery", () => {
@@ -138,7 +151,7 @@ describe("POS inline tender and durable checkout recovery", () => {
     },
   );
 
-  it("shows a confirmed rejection, keeps the cart and allows corrections", async () => {
+  it("retains a quoted rejection until server sealing, then permits a new shift and identity", async () => {
     const transport = saleTransport("reject");
     const user = userEvent.setup();
     const view = mount();
@@ -146,19 +159,26 @@ describe("POS inline tender and durable checkout recovery", () => {
     await review(user);
     await user.click(screen.getByTestId("button-pay-rail"));
     expect((await screen.findByRole("alert")).textContent).toContain("الوردية مغلقة");
-    expect(screen.getByTestId("button-pay-cash").matches(":disabled")).toBe(false);
-    expect(sessionStorage.getItem(storageKey)).toBeNull();
+    expect(screen.getByTestId("button-pay-cash").matches(":disabled")).toBe(true);
+    expect(JSON.parse(sessionStorage.getItem(storageKey)!).key).toBe(transport.attempts[0].key);
     expect(screen.queryByText(ar.pos_iconic.cart_empty)).toBeNull();
     expect(screen.getByText(ar.pos_iconic.session_closed).isConnected).toBe(true);
     expect(sessionMock.refetch).toHaveBeenCalled();
+    await user.click(screen.getByTestId("button-pos-close-intent"));
+    await waitFor(()=>expect(sessionStorage.getItem(storageKey)).toBeNull());
+    expect(transport.seals).toHaveLength(1);
+    expect(transport.committed.size).toBe(0);
     view.unmount();
     sessionMock.status = "open";
+    sessionMock.id=10;
     mount();
     await user.click(await screen.findByTestId("product-icon-5"));
     await review(user);
     await user.click(screen.getByTestId("button-pay-rail"));
     expect((await screen.findByText("ORD-TEST-1")).isConnected).toBe(true);
     expect(transport.committed.size).toBe(1);
+    expect(transport.attempts[1].key).not.toBe(transport.attempts[0].key);
+    expect(JSON.parse(transport.attempts[1].body).sessionId).toBe(10);
   });
 
   it("keeps confirmed success recoverable if storage cleanup fails", async () => {

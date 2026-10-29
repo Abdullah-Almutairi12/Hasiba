@@ -63,11 +63,18 @@ export function useTaxPreview<B>({ body, fetcher, frozen = false, knownMode = nu
   // Body change: invalidate immediately, then debounce a fresh quote.
   const stateRef = useRef(state);
   stateRef.current = state;
+  const frozenBeforeEffect=useRef(frozen);
+  const [reviewRequired,setReviewRequired]=useState(false);
   useEffect(() => {
+    const resumed=frozenBeforeEffect.current&&!frozen;
+    frozenBeforeEffect.current=frozen;
     if (frozen) return;
-    // Unfreezing with an unchanged body keeps the still-valid quote (and review).
     const cur = stateRef.current;
-    if (key && cur.key === key && cur.preview && !isExpired(cur.preview, Date.now())) return;
+    // Resolving an intent permits a NEW identity, not reuse of its old review.
+    // Keep the prior snapshot for differences, but require explicit review
+    // even when facts are unchanged or the cart returns to an earlier body.
+    if(resumed||cur.key!==key)setReviewRequired(true);
+    if (!resumed && key && cur.key === key && cur.preview && !isExpired(cur.preview, Date.now())) return;
     seq.current++;
     if (!key) { setState({ key: null, preview: null, status: "idle", error: "", expired: false }); return; }
     setState({ key, preview: null, status: "loading", error: "", expired: false });
@@ -92,7 +99,7 @@ export function useTaxPreview<B>({ body, fetcher, frozen = false, knownMode = nu
   const mode = preview?.context.mode ?? modeRef.current;
   const unified = mode === "unified";
   const expired = !!preview && (current.expired || isExpired(preview, Date.now()));
-  const confirmed = !!preview && !!reviewed && reviewed.bodyKey === key && reviewed.facts === factsKey(preview);
+  const confirmed = !!preview && !!reviewed && !reviewRequired && reviewed.bodyKey === key && reviewed.facts === factsKey(preview);
   const diffs: PreviewDiff[] = preview && reviewed && !confirmed ? diffPreviews(reviewed.preview, preview) : [];
 
   // Authoritative review is required for every NEW attempt, legacy and
@@ -115,7 +122,7 @@ export function useTaxPreview<B>({ body, fetcher, frozen = false, knownMode = nu
     diffs,
     previousReviewed: reviewed?.preview ?? null,
     freshBlock,
-    confirm: () => { if (preview && key && !expired) setReviewed({ bodyKey: key, facts: factsKey(preview), preview }); },
+    confirm: () => { if (preview && key && !expired) { setReviewRequired(false); setReviewed({ bodyKey: key, facts: factsKey(preview), preview }); } },
     retry: run,
     /** Tokens for a fresh reviewed submission (taxContextToken only when unified). */
     tokens: () => (confirmed && !expired ? submitTokens(preview) : {}),

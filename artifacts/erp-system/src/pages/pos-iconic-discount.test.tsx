@@ -36,10 +36,17 @@ let previews: Array<{ discount?: number }> = [];
 const review = async (u: { click: (el: Element) => Promise<void> }) => u.click(await screen.findByTestId("button-tax-preview-confirm"));
 let serverPrice = 100;
 let replies: Array<() => Response | Promise<Response>> = [];
+let seals: Array<{ requestKey: string; body: Record<string, unknown> }> = [];
 const storageKey = "hasba:pos-checkout:11:21";
 beforeEach(() => {
-  serverPrice = 100; sent = []; previews = []; replies = []; m.reviewStatus = "pending"; sessionStorage.clear();
+  serverPrice = 100; sent = []; previews = []; replies = []; seals = []; m.reviewStatus = "pending"; sessionStorage.clear();
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (String(input).split("?")[0].endsWith("/api/pos/tax-preview/close-intent") && init?.method === "POST") {
+      const seal=JSON.parse(String(init.body));
+      expect(seal.body).toEqual(sent.find(s=>s.key===seal.requestKey)?.body);
+      seals.push(seal);
+      return Response.json({state:"closed_without_execution"});
+    }
     const preview = posPreviewServer(input, init, { prices: { 5: serverPrice }, token: "disc", log: previews });
     if (preview) return preview;
     if (String(input).split("?")[0].endsWith("/api/pos/orders") && init?.method === "POST") {
@@ -62,6 +69,10 @@ async function setup() {
   return u;
 }
 const pay = () => screen.getByTestId("button-pay-rail") as HTMLButtonElement;
+const seal = async (u: {click:(el:Element)=>Promise<void>}) => {
+  await u.click(screen.getByTestId("button-pos-close-intent"));
+  await waitFor(()=>expect(sessionStorage.getItem(storageKey)).toBeNull());
+};
 
 describe("legacy cashier discount and over-limit review", () => {
   it("validates 0..100, shows 100 less 10% = 90, and a limit of 0 opens a server review (never auto-authorized)", async () => {
@@ -86,18 +97,24 @@ describe("legacy cashier discount and over-limit review", () => {
     expect(screen.getByTestId("text-review-id").textContent).toContain("#41");
     expect(screen.getByTestId("text-review-id").textContent).toContain("بانتظار الاعتماد");
     expect(screen.queryByTestId("button-review-resume")).toBeNull();
-    expect(sessionStorage.getItem(storageKey)).toBeNull();
+    expect(JSON.parse(sessionStorage.getItem(storageKey)!).key).toBe(sent[0].key);
+    expect((screen.getByTestId("input-discount-pct") as HTMLInputElement).disabled).toBe(true);
+    await seal(u);
+    expect(seals).toHaveLength(1);
+    expect(screen.getByTestId("text-discount-net").textContent).toContain("90.00");
   });
 
-  it("resumes an approved review; a known 403 after approver revocation keeps the basket and allows a fresh review", async () => {
+  it("seals each quoted rejection before resuming or replacing an approval, preserving the basket", async () => {
     const u = await setup();
     await u.type(screen.getByTestId("input-discount-pct"), "10");
     replies.push(overLimit(41));
     await review(u);
     await u.click(pay());
     await screen.findByTestId("text-review-id");
+    await seal(u);
     m.reviewStatus = "approved";
     await u.click(screen.getByTestId("button-review-refresh"));
+    await review(u);
     replies.push(() => Response.json({ error: "صلاحية المعتمِد لم تعد سارية" }, { status: 403 }));
     await u.click(await screen.findByTestId("button-review-resume"));
     expect(await screen.findByTestId("text-review-stale")).toBeTruthy();
@@ -106,11 +123,16 @@ describe("legacy cashier discount and over-limit review", () => {
     expect(sent[1].key).not.toBe(sent[0].key);
     expect(screen.getByTestId("rail-pos-cart").textContent).toContain("سلة");
     expect(screen.getByTestId("text-discount-net").textContent).toContain("90.00");
+    expect(JSON.parse(sessionStorage.getItem(storageKey)!).key).toBe(sent[1].key);
+    await seal(u);
+    await review(u);
     replies.push(overLimit(42));
     await u.click(screen.getByTestId("button-review-fresh"));
     await waitFor(() => expect(screen.getByTestId("text-review-id").textContent).toContain("#42"));
     expect(sent[2].body.approvalRequestId).toBeUndefined();
     expect(sent[2].body.discount).toBe(10);
+    expect(sent[2].key).not.toBe(sent[1].key);
+    expect(seals).toHaveLength(2);
     expect(screen.getByTestId("text-review-previous").textContent).toContain("#41");
   });
 
