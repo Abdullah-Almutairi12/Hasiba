@@ -1316,3 +1316,31 @@ mtime_ms = 1793302815295
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/a5e902f8-dca1-4762-ac30-53111e5a8b13/d2493649-9db2-4813-8556-7bb2fa188dcd"
 storage_version_token = "1793302884861359"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "RqnjUASr8DSNIIKC-5UCS"
+uri = "file://generated-artifacts/sales-order-pricing/Hasiba-sales-order-pricing-report-AR-EN.docx"
+type = "word_document"
+title = "تقرير أوامر البيع والفوترة — Word عربي وإنجليزي"
+description = "المنفذ، ونتائج القبول، والإخفاقات وإصلاحاتها، والحدود المتبقية، والمصدر المختبر وآخر Commit المرفوع."
+logical_id = "01a887c0-10e9-4512-bde5-723a3b91e2db"
+content_hash = "sha256:fb8832bd01b1e841c716874e2a31cd03cb0f78d57e7ce73d66bc4f6e18ef6b79"
+size = 10986
+mtime_ms = 1793312277423
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/01a887c0-10e9-4512-bde5-723a3b91e2db/b5042cfd-9efd-483b-8e31-2fc530673b3a"
+storage_version_token = "1793312308344130"
+content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
+[[outputs]]
+id = "4FHMDCxssEHFM-q0HaA6b"
+uri = "file://generated-artifacts/sales-order-pricing/Hasiba-sales-order-pricing-evidence.zip"
+type = "unspecified"
+title = "حزمة أدلة أوامر البيع والفوترة — ZIP"
+description = "123 ملفًا: نتائج خام منقحة، وحواجز PostgreSQL، ورحلة المتصفح، ومصالحة المخزون والقيود، وبصمات الملفات وحالة GitHub. الحجم نحو 2.9 MB."
+logical_id = "4f4dc0c7-4ef0-47fa-9a92-b15a7f3498ee"
+content_hash = "sha256:21e10c11e4b438630455b20b6f2598d355b57f4407d039a2376a3cd9fe5ec1d2"
+size = 2913424
+mtime_ms = 1793312277907
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/4f4dc0c7-4ef0-47fa-9a92-b15a7f3498ee/73901807-aa46-4d8b-938e-12e270726159"
+storage_version_token = "1793312312165990"
+content_type = "application/octet-stream"
