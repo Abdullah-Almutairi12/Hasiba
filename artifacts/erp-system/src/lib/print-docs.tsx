@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef, type MouseEvent } from "react";
 import { Printer, Loader2, Download, ExternalLink } from "lucide-react";
 import {
   getGetPosReceiptPdfUrl,
@@ -45,21 +45,45 @@ export function fmtDate(v: unknown): string {
 }
 
 export function PrintDocButton({
-  id, url, filename, label, testId, size = "sm", variant = "outline",
+  id, url, filename, label, testId, size = "sm", variant = "outline",allowPrint=true,allowDownload=true,
 }: {
   id: unknown; url: (id: number) => string; filename: string; label: string; testId?: string;
   size?: "sm" | "default"; variant?: "outline" | "ghost" | "default";
+  allowPrint?:boolean;allowDownload?:boolean;
 }) {
   const { toast } = useToast();
   const [busy, setBusy] = useState(false);
   const [ready, setReady] = useState<{ href: string; filename: string } | null>(null);
+  const eventIds=useRef<Record<string,string>>({});
+  const tracked=validId(id)&&/\/pos\/orders\/\d+\/receipt\.pdf/.test(url(id));
+  async function requestOutput(event:MouseEvent<HTMLAnchorElement>,action:"print_requested"|"export_requested"){
+    if((action==="print_requested"&&!allowPrint)||(action==="export_requested"&&!allowDownload)){event.preventDefault();return;}
+    if(!tracked||!validId(id))return;
+    event.preventDefault();
+    if(busy)return;
+    setBusy(true);
+    try{
+      const base=url(id),key=`${base}|${action}`,eventId=eventIds.current[key]??(eventIds.current[key]=crypto.randomUUID());
+      const file=await fetchPdf(`${base}${base.includes("?")?"&":"?"}intent=${action}&eventId=${eventId}`,filename);
+      if(!file)return;
+      const href=URL.createObjectURL(file.blob);
+      const link=document.createElement("a");link.href=href;
+      if(action==="export_requested")link.download=file.filename;
+      else {link.target="_blank";link.rel="noopener noreferrer";}
+      document.body.appendChild(link);link.click();link.remove();
+      setTimeout(()=>URL.revokeObjectURL(href),60_000);
+    }catch(e){toast({title:"تعذر تجهيز المستند؛ تحقق من الصلاحية الحالية",description:e instanceof Error?e.message:"أعد المحاولة بنفس الطلب",variant:"destructive"});}
+    finally{setBusy(false);}
+  }
   // This component owns the blob URL: revoke when replaced, closed or unmounted.
   useEffect(() => () => { if (ready) URL.revokeObjectURL(ready.href); }, [ready]);
   if (!validId(id)) return null;
   const run = async () => {
     setBusy(true);
     try {
-      const got = await fetchPdf(url(id), filename);
+      const original=url(id);
+      const got = await fetchPdf(tracked&&!allowPrint&&allowDownload?
+        `${original}${original.includes("?")?"&":"?"}intent=export_requested&eventId=${eventIds.current.preview??(eventIds.current.preview=crypto.randomUUID())}`:original, filename);
       if (got) setReady({ href: URL.createObjectURL(got.blob), filename: got.filename });
     } catch (e) {
       const ref = e instanceof DownloadError ? e.diagnosticRef : "";
@@ -82,8 +106,9 @@ export function PrintDocButton({
         </DialogHeader>
         <DialogFooter className="gap-2 sm:justify-start">
           {ready && <>
-            <Button asChild><a href={ready.href} download={ready.filename} data-testid="link-pdf-download"><Download className="me-1 size-4" />تنزيل PDF</a></Button>
-            <Button asChild variant="outline"><a href={ready.href} target="_blank" rel="noopener" data-testid="link-pdf-open"><ExternalLink className="me-1 size-4" />فتح PDF</a></Button>
+            {allowDownload&&<Button asChild disabled={busy}><a href={ready.href} download={ready.filename} onClick={e=>void requestOutput(e,"export_requested")} data-testid="link-pdf-download"><Download className="me-1 size-4" />تنزيل PDF</a></Button>}
+            {allowPrint&&<Button asChild variant="outline" disabled={busy}><a href={ready.href} target="_blank" rel="noopener" onClick={e=>void requestOutput(e,"print_requested")} data-testid="link-pdf-open"><ExternalLink className="me-1 size-4" />فتح PDF</a></Button>}
+            {tracked&&<p className="text-xs text-muted-foreground">فتح الملف طلب للطباعة وليس تأكيدًا بخروج الورق؛ لا يتتبع النظام الطباعة خارج التطبيق.</p>}
           </>}
           <Button variant="ghost" onClick={() => setReady(null)} data-testid="button-pdf-ready-close">إغلاق</Button>
         </DialogFooter>

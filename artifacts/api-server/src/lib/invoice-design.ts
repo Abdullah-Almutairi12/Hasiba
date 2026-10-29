@@ -27,6 +27,9 @@ export const InvoiceDesignSchema = z.object({
   note: z.string().trim().max(1000),
   showContact: z.boolean(),
   showBank: z.boolean(),
+  // Optional for historical schemas: absence preserves their original output.
+  showSeller: z.boolean().optional(),
+  showCashier: z.boolean().optional(),
 }).strict().superRefine((d, ctx) => {
   if (d.logoMode === "custom" && !d.logoObjectKey)
     ctx.addIssue({ code: "custom", message: "اختر شعارًا مملوكًا للمنشأة", path: ["logoObjectKey"] });
@@ -79,13 +82,13 @@ export async function captureInvoiceDesign(tx: IdentityTx, companyId: number, br
     const { EditorDesignSchema } = await import("./invoice-editor-schema");
     const published = EditorDesignSchema.parse(selected.design);
     await validateDesignAssets(tx, companyId, published.base);
-    return { schemaVersion: 1, layoutVersion: 3, design: published.base,
+    return { schemaVersion: 1, layoutVersion: 3, design: {showSeller:true,showCashier:true,...published.base},
       editor: { rendererVersion: 3, releaseId: String(selected.id), design: published },
       source: Number(selected.scope_key) === 0 ? "company" : "branch",
       companyRevision: Number(root?.revision ?? 0), branchRevision: Number(branch?.revision ?? 0), branchId };
   }
   const inherited = branchActivation && !branchActivation.release_id;
   const design = await validateDesignAssets(tx, companyId, inherited ? parent ?? defaultInvoiceDesign : child ?? parent ?? defaultInvoiceDesign);
-  return { schemaVersion: 1, layoutVersion: 2, design, source: child && !inherited ? "branch" : parent ? "company" : "default",
+  return { schemaVersion: 1, layoutVersion: 2, design:{showSeller:true,showCashier:true,...design}, source: child && !inherited ? "branch" : parent ? "company" : "default",
     companyRevision: Number(root?.revision ?? 0), branchRevision: Number(branch?.revision ?? 0), branchId };
 }

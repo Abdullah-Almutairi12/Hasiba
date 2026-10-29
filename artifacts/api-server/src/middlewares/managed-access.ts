@@ -11,6 +11,7 @@ import { FinancialRequestError } from "../lib/financial-transaction";
 export const SCOPED_ROUTES = [
   ["GET", "/sales/invoices", "sales.read"],
   ["GET", "/sales/invoices/:id", "sales.read"],
+  ["GET", "/sales/invoices/:id/history", "sales.read"],
   ["GET", "/sales/invoices/:id/pdf", "sales.invoices.print"],
   ["GET", "/workspace/access", "self"],
   ["GET", "/workspace/inventory", "inventory.read"],

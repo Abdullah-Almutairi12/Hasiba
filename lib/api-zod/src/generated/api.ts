@@ -2057,7 +2057,9 @@ export const GetInvoiceTemplateCatalogResponse = zod.object({
   "footer": zod.string().max(getInvoiceTemplateCatalogResponseDefaultDesignFooterMax),
   "note": zod.string().max(getInvoiceTemplateCatalogResponseDefaultDesignNoteMax),
   "showContact": zod.boolean(),
-  "showBank": zod.boolean()
+  "showBank": zod.boolean(),
+  "showSeller": zod.boolean().optional(),
+  "showCashier": zod.boolean().optional()
 })
 })
 
@@ -2208,7 +2210,9 @@ export const GetInvoiceEditorStateResponse = zod.object({
   "footer": zod.string().max(getInvoiceEditorStateResponseDraftsItemDesignBaseFooterMax),
   "note": zod.string().max(getInvoiceEditorStateResponseDraftsItemDesignBaseNoteMax),
   "showContact": zod.boolean(),
-  "showBank": zod.boolean()
+  "showBank": zod.boolean(),
+  "showSeller": zod.boolean().optional(),
+  "showCashier": zod.boolean().optional()
 }),
   "a4": zod.object({
   "order": zod.array(zod.enum(['identity', 'customer', 'references', 'items', 'totals', 'qr', 'notes', 'footer'])).min(getInvoiceEditorStateResponseDraftsItemDesignA4OrderMin).max(getInvoiceEditorStateResponseDraftsItemDesignA4OrderMax),
@@ -2253,7 +2257,9 @@ export const GetInvoiceEditorStateResponse = zod.object({
   "footer": zod.string().max(getInvoiceEditorStateResponseReleasesItemDesignBaseFooterMax),
   "note": zod.string().max(getInvoiceEditorStateResponseReleasesItemDesignBaseNoteMax),
   "showContact": zod.boolean(),
-  "showBank": zod.boolean()
+  "showBank": zod.boolean(),
+  "showSeller": zod.boolean().optional(),
+  "showCashier": zod.boolean().optional()
 }),
   "a4": zod.object({
   "order": zod.array(zod.enum(['identity', 'customer', 'references', 'items', 'totals', 'qr', 'notes', 'footer'])).min(getInvoiceEditorStateResponseReleasesItemDesignA4OrderMin).max(getInvoiceEditorStateResponseReleasesItemDesignA4OrderMax),
@@ -2372,7 +2378,9 @@ export const SaveInvoiceEditorDraftBody = zod.object({
   "footer": zod.string().max(saveInvoiceEditorDraftBodyTwoDesignBaseFooterMax),
   "note": zod.string().max(saveInvoiceEditorDraftBodyTwoDesignBaseNoteMax),
   "showContact": zod.boolean(),
-  "showBank": zod.boolean()
+  "showBank": zod.boolean(),
+  "showSeller": zod.boolean().optional(),
+  "showCashier": zod.boolean().optional()
 }),
   "a4": zod.object({
   "order": zod.array(zod.enum(['identity', 'customer', 'references', 'items', 'totals', 'qr', 'notes', 'footer'])).min(saveInvoiceEditorDraftBodyTwoDesignA4OrderMin).max(saveInvoiceEditorDraftBodyTwoDesignA4OrderMax),
@@ -2476,7 +2484,9 @@ export const SaveInvoiceEditorDraftResponse = zod.object({
   "footer": zod.string().max(saveInvoiceEditorDraftResponseDesignBaseFooterMax),
   "note": zod.string().max(saveInvoiceEditorDraftResponseDesignBaseNoteMax),
   "showContact": zod.boolean(),
-  "showBank": zod.boolean()
+  "showBank": zod.boolean(),
+  "showSeller": zod.boolean().optional(),
+  "showCashier": zod.boolean().optional()
 }),
   "a4": zod.object({
   "order": zod.array(zod.enum(['identity', 'customer', 'references', 'items', 'totals', 'qr', 'notes', 'footer'])).min(saveInvoiceEditorDraftResponseDesignA4OrderMin).max(saveInvoiceEditorDraftResponseDesignA4OrderMax),
@@ -2597,7 +2607,9 @@ export const PublishInvoiceEditorDraftResponse = zod.object({
   "footer": zod.string().max(publishInvoiceEditorDraftResponseDesignBaseFooterMax),
   "note": zod.string().max(publishInvoiceEditorDraftResponseDesignBaseNoteMax),
   "showContact": zod.boolean(),
-  "showBank": zod.boolean()
+  "showBank": zod.boolean(),
+  "showSeller": zod.boolean().optional(),
+  "showCashier": zod.boolean().optional()
 }),
   "a4": zod.object({
   "order": zod.array(zod.enum(['identity', 'customer', 'references', 'items', 'totals', 'qr', 'notes', 'footer'])).min(publishInvoiceEditorDraftResponseDesignA4OrderMin).max(publishInvoiceEditorDraftResponseDesignA4OrderMax),
@@ -2725,7 +2737,9 @@ export const PreviewInvoiceEditorDraftBody = zod.object({
   "footer": zod.string().max(previewInvoiceEditorDraftBodyTwoDesignBaseFooterMax),
   "note": zod.string().max(previewInvoiceEditorDraftBodyTwoDesignBaseNoteMax),
   "showContact": zod.boolean(),
-  "showBank": zod.boolean()
+  "showBank": zod.boolean(),
+  "showSeller": zod.boolean().optional(),
+  "showCashier": zod.boolean().optional()
 }),
   "a4": zod.object({
   "order": zod.array(zod.enum(['identity', 'customer', 'references', 'items', 'totals', 'qr', 'notes', 'footer'])).min(previewInvoiceEditorDraftBodyTwoDesignA4OrderMin).max(previewInvoiceEditorDraftBodyTwoDesignA4OrderMax),
@@ -2790,7 +2804,9 @@ export const PreviewInvoiceTemplateBody = zod.object({
   "footer": zod.string().max(previewInvoiceTemplateBodyDesignFooterMax),
   "note": zod.string().max(previewInvoiceTemplateBodyDesignNoteMax),
   "showContact": zod.boolean(),
-  "showBank": zod.boolean()
+  "showBank": zod.boolean(),
+  "showSeller": zod.boolean().optional(),
+  "showCashier": zod.boolean().optional()
 }),
   "sample": zod.enum(['short', 'long']),
   "width": zod.enum(['a4', '80'])
@@ -2872,6 +2888,20 @@ export const GetShiftClosingPdfParams = zod.object({
 })
 
 export const GetShiftClosingPdfResponse = zod.unknown()
+
+
+
+
+
+export const GetSaleDocumentHistoryParams = zod.object({
+  "id": zod.coerce.number().int().min(1)
+})
+
+export const GetSaleDocumentHistoryResponse = zod.object({
+  "historicalIdentityAvailable": zod.boolean(),
+  "identity": zod.record(zod.string(), zod.unknown()).nullable(),
+  "events": zod.array(zod.record(zod.string(), zod.unknown()))
+})
 
 
 

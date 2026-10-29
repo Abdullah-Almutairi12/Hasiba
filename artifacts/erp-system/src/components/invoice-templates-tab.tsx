@@ -30,7 +30,7 @@ export type Preset = "formal" | "simple" | "commercial" | "modern" | "ink";
 export type InvoiceDesign = {
   version: 1; preset: Preset; accent: string; font: "Tajawal" | "sans-serif"; fontSize: number;
   logoMode: "identity" | "custom" | "none"; logoObjectKey: string | null; logoPosition: "start" | "center" | "end";
-  logoWidth: number; header: string; footer: string; note: string; showContact: boolean; showBank: boolean;
+  logoWidth: number; header: string; footer: string; note: string; showContact: boolean; showBank: boolean; showSeller?: boolean; showCashier?: boolean;
 };
 
 const PRESETS: Preset[] = ["formal", "simple", "commercial", "modern", "ink"];
@@ -61,6 +61,8 @@ export function normalizeDesign(raw: unknown, base: InvoiceDesign): InvoiceDesig
     note: typeof r.note === "string" ? r.note.slice(0, 1000) : base.note,
     showContact: typeof r.showContact === "boolean" ? r.showContact : base.showContact,
     showBank: typeof r.showBank === "boolean" ? r.showBank : base.showBank,
+    ...(typeof r.showSeller==="boolean"?{showSeller:r.showSeller}:{}),
+    ...(typeof r.showCashier==="boolean"?{showCashier:r.showCashier}:{}),
   };
 }
 
@@ -385,6 +387,10 @@ export function InvoiceTemplatesTab() {
                 <Switch checked={draft.showContact} onCheckedChange={v => set("showContact", v)} data-testid="switch-show-contact" /></label>
               <label className="flex items-center justify-between rounded-lg border p-3 text-sm">إظهار البيانات البنكية
                 <Switch checked={draft.showBank} onCheckedChange={v => set("showBank", v)} data-testid="switch-show-bank" /></label>
+              <label className="flex items-center justify-between gap-3">اسم البائع في المستندات الجديدة
+                <Switch checked={draft.showSeller!==false} onCheckedChange={v=>set("showSeller",v)} data-testid="switch-show-seller" /></label>
+              <label className="flex items-center justify-between gap-3">اسم المحصل في المستندات الجديدة
+                <Switch checked={draft.showCashier!==false} onCheckedChange={v=>set("showCashier",v)} data-testid="switch-show-cashier" /></label>
             </div>
           </section>
 

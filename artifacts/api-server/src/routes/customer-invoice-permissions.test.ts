@@ -63,13 +63,14 @@ describe("customer invoice native read/print/PDF-export permissions",()=>{
       const list=ok(await f.selected(i,"/sales/invoices?limit=1"));
       expect(list.map((x:any)=>x.id)).toEqual([f.invoice.id]);
       ok(await f.selected(i,`/sales/invoices/${f.invoice.id}`));
+      ok(await f.selected(i,`/sales/invoices/${f.invoice.id}/history`));
       const pr=await f.selected(i,`/sales/invoices/${f.invoice.id}/pdf`);
       ok(pr,f.combinations[i].includes(print)?200:403);
       const ex=await f.selected(i,`/sales/invoices/${f.invoice.id}/pdf?download=1`);
       ok(ex,f.combinations[i].includes(exp)?200:403);
       if(pr.status===200)expect(pr.body.subarray(0,5).toString()).toBe("%PDF-");
       if(ex.status===200)expect(ex.body.subarray(0,5).toString()).toBe("%PDF-");
-      for(const suffix of ["","/pdf","/pdf?download=1"])
+      for(const suffix of ["","/history","/pdf","/pdf?download=1"])
         expect([403,404]).toContain((await f.selected(i,`/sales/invoices/${f.otherBranch.id}${suffix}`)).status);
       for(const suffix of ["","/pdf","/pdf?download=1"])
         expect([403,404]).toContain((await f.selected(i,`/sales/invoices/${f.foreignInvoice.id}${suffix}`)).status);
@@ -95,7 +96,7 @@ describe("customer invoice native read/print/PDF-export permissions",()=>{
     ok(await f.selected(3,`/sales/invoices/${id}/pdf`),403);
     ok(await f.selected(3,`/sales/invoices/${id}/pdf?download=1`));
     await f.update(3,{deniedActions:["sales.read"]});
-    for(const path of ["/sales/invoices",`/sales/invoices/${id}`,`/sales/invoices/${id}/pdf?download=1`])
+    for(const path of ["/sales/invoices",`/sales/invoices/${id}`,`/sales/invoices/${id}/history`,`/sales/invoices/${id}/pdf?download=1`])
       ok(await f.selected(3,path),403);
     const p=f.people[2];
     await f.update(2,{grants:[{...personInput(p).grants[0],templateMode:"override",amountLimit:"199"}]});

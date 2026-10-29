@@ -223,6 +223,7 @@ describe("original POS invoice: independent linked return lifecycle", () => {
       "0063_stocktake_variance_review.sql",
       "0064_customer_invoice_permissions.sql",
       "0065_invoice_editor.sql",
+      "0066_sale_document_audit.sql",
     ]);
     expect(first.skipped).toHaveLength(26);
     // The editor migration is prospective: an old install must not acquire

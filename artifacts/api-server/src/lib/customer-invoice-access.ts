@@ -6,7 +6,7 @@ import { managedProfile, selectedResponsibility, type Responsibility } from "./r
 import { getCompanyId } from "./scoped-db";
 
 export function customerInvoiceAction(method:string,path:string,download:unknown) {
-  if(method!=="GET"||!/^\/sales\/invoices(?:\/\d+(?:\/pdf)?)?$/.test(path))return null;
+  if(method!=="GET"||!/^\/sales\/invoices(?:\/\d+(?:\/(?:pdf|history))?)?$/.test(path))return null;
   return path.endsWith("/pdf")?(download==="1"?"sales.invoices.export":"sales.invoices.print"):"sales.read";
 }
 /** Existing accounts keep their established legacy access until an explicitly

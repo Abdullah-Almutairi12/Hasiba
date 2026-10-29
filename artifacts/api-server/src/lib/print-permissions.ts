@@ -67,6 +67,11 @@ export async function checkDocumentPrint(req:Request, kind:"invoice"|"supplier"|
       !grant.warehouseIds.includes(Number(rows[0].warehouse_id))) {
       throw new FinancialRequestError("المستند خارج مستودعات مسؤولية نقطة البيع",403);
     }
+    if(kind==="pos"){
+      const action=req.query.intent==="export_requested"?"pos.receipts.export":"pos.receipts.print";
+      if(!grant.actions.includes(action))
+        throw new FinancialRequestError("عرض نقطة البيع لا يمنح طباعة الإيصال أو تصديره؛ يلزم منح مستقل",403);
+    }
   }
   if(a.branches!==null && (rows[0].branch_id==null||!a.branches.includes(rows[0].branch_id))) {
     throw new FinancialRequestError("المستند خارج نطاق الفروع المسموح",403);

@@ -123,8 +123,9 @@ export async function buildPrintPdf(input: PrintDocument): Promise<Buffer> {
     try { await browser?.close(); } finally { active--; }
   }
 }
-export async function sendPrintPdf(res: Response, slug: string, input: PrintDocument) {
+export async function sendPrintPdf(res: Response, slug: string, input: PrintDocument, beforeSend?:()=>Promise<void>) {
   const pdf=await buildPrintPdf(input);
+  if(beforeSend)await beforeSend();
   res.setHeader("Content-Type","application/pdf");
   res.setHeader("Cache-Control","private, no-store");
   res.setHeader("X-Content-Type-Options","nosniff");

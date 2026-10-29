@@ -29,6 +29,29 @@ async function refresh(f: PosTemplateFixture) {
   });
 }
 describe("positive POS shared templates with independent live scope", () => {
+  it("separates receipt read, print and export with explicit live grants and no financial effect",async()=>{
+    const f=await posTemplateFixture(),session=await open(f);
+    const sale=ok(await post(f,"/pos/orders",bodyFor(f,session.id)),201);
+    const before=await evidence(f),path=`/pos/orders/${sale.id}/receipt.pdf`;
+    const receipt=(suffix="")=>selected(f.actors[0],"get",path+suffix,f.people[0].grants[0].id);
+    ok(await receipt(),403);
+    const update=async(actions:string[])=>{
+      const current=ok(await f.owner.get("/api/team/people")).find((p:any)=>p.personId===f.people[0].personId);
+      const input=personInput(current);
+      f.people[0]=ok(await f.owner.put(`/api/team/people/${current.personId}/access`).send({
+        expectedRevision:current.revision,suspended:false,person:{...input,grants:input.grants.map((g:any)=>g.resource==="pos"?
+          {...g,templateMode:"override",actions:[...new Set([...g.actions.filter((a:string)=>!a.startsWith("pos.receipts.")),...actions])]}:g)}}));
+    };
+    await update(["pos.receipts.print"]);
+    ok(await receipt());
+    ok(await receipt("?intent=export_requested"),403);
+    await update(["pos.receipts.export"]);
+    ok(await receipt(),403);
+    ok(await receipt("?intent=export_requested"));
+    await update([]);
+    ok(await receipt("?intent=export_requested"),403);
+    expect(await evidence(f)).toEqual(before);
+  },90000);
   it("does not open the legacy sales invoice directory to scoped POS or inventory responsibilities",async()=>{
     const f=await posTemplateFixture(),session=await open(f);
     ok(await post(f,"/pos/orders",bodyFor(f,session.id)),201);

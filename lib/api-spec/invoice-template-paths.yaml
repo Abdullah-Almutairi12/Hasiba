@@ -79,6 +79,8 @@ schemas:
       note: {type: string, maxLength: 1000}
       showContact: {type: boolean}
       showBank: {type: boolean}
+      showSeller: {type: boolean}
+      showCashier: {type: boolean}
   TemplatePreviewInput:
     type: object
     additionalProperties: false

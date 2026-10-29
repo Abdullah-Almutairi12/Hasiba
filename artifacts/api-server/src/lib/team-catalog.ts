@@ -42,6 +42,8 @@ export const TEAM_ACTIONS = [
   { key: "inventory.stocktake.post", label: "ترحيل فروق الجرد المعتمدة بالخدمات الأصلية — دون عد أو اعتماد ضمني", resource: "inventory", available: true },
   { key: "inventory.stocktake.approve_self", label: "استثناء صريح لاعتماد جلسة شاركت في عدها — يحتاج سياسة وتأكيد هوية وسبب وحد مالي صريح", resource: "inventory", available: true },
   { key: "pos.read", label: "عرض نقطة البيع المحددة", resource: "pos", available: true },
+  { key: "pos.receipts.print", label: "إنشاء ومعاينة وطباعة إيصالات البيع", resource: "pos", available: true },
+  { key: "pos.receipts.export", label: "تصدير ملفات إيصالات البيع", resource: "pos", available: true },
   { key: "pos.sell", label: "تنفيذ بيع ضمن النطاق والحد المالي", resource: "pos", available: true },
   { key: "pos.shift.open", label: "فتح وردية", resource: "pos", available: true },
   { key: "pos.payment.record", label: "تسجيل تحصيل غير نقدي أو آجل — ليس تنفيذ دفع شبكي", resource: "pos", available: true },

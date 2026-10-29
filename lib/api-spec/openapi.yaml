@@ -1452,6 +1452,29 @@ paths:
     $ref: "./print-paths.yaml#/refund"
   /pos/sessions/{id}/closing.pdf:
     $ref: "./print-paths.yaml#/closing"
+  /sales/invoices/{id}/history:
+    get:
+      operationId: getSaleDocumentHistory
+      tags: [Sales]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: {type: integer, minimum: 1}
+      responses:
+        "200":
+          description: Scoped historical identities and allowlisted document events; no cost or commission payloads.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [historicalIdentityAvailable, identity, events]
+                properties:
+                  historicalIdentityAvailable: {type: boolean}
+                  identity: {type: [object, "null"], additionalProperties: true}
+                  events: {type: array, items: {type: object, additionalProperties: true}}
+        "403": {description: Current reader authority denied}
+        "404": {description: Invoice outside company or responsibility scope}
   /sales/invoices/{id}/identity-check:
     $ref: "./print-paths.yaml#/identityCheck"
   /pos/returns/workspace:

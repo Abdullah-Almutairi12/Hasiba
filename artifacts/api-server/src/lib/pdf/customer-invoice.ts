@@ -36,6 +36,7 @@ export type CustomerInvoicePdfInput = {
   /** Optional ZATCA QR data URL (data:image/png;base64,...) drawn in
    *  the footer so the customer can scan it from the printed copy. */
   zatcaQrDataUrl?: string | null;
+  saleMetadata?: Array<[string,string]>;
 };
 
 const fmtMoney = (n: number, currency: string) =>

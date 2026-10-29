@@ -215,6 +215,41 @@ describe("persisted issuer and operational print documents",()=>{
   },60000);
 });
 describe("employee seller attribution independent of collector",()=>{
+ it("retains original seller/collector evidence after correction and rename; output retries are append-only and nonfinancial",async()=>{
+  const f=await sellerFixture(),[a,b]=f.sellers;
+  const sale=ok(await f.sell(f.body({sellerEmployeeId:a!.id})),201);
+  const invoice=(await pool.query("SELECT id FROM customer_invoices WHERE company_id=$1 AND source_ref=$2",[f.company.id,sale.orderNumber])).rows[0]!;
+  const url=`/api/sales/invoices/${invoice.id}`;
+  const history=ok(await f.owner.agent.get(`${url}/history`));
+  expect(history.identity.creator.id).toBe(f.cashier.user.id);
+  expect(history.identity.cashier.id).toBe(f.cashier.user.id);
+  expect(history.identity.sellers[0].employeeId).toBe(a!.id);
+  const original=(await pool.query("SELECT issuer FROM document_issuer_snapshots WHERE company_id=$1 AND document_kind='invoice' AND document_id=$2",[f.company.id,invoice.id])).rows[0]!.issuer;
+  const financial=async()=> (await pool.query(`SELECT
+    (SELECT jsonb_agg(to_jsonb(i) ORDER BY i.id) FROM customer_invoices i WHERE company_id=$1) invoices,
+    (SELECT jsonb_agg(to_jsonb(j) ORDER BY j.id) FROM journal_entries j WHERE company_id=$1) journals,
+    (SELECT jsonb_agg(to_jsonb(m) ORDER BY m.id) FROM stock_moves m JOIN products p ON p.id=m.product_id WHERE p.company_id=$1) moves,
+    (SELECT jsonb_agg(to_jsonb(q) ORDER BY q.id) FROM stock_quants q WHERE q.product_id=$2) quants`,
+    [f.company.id,f.product.id])).rows[0];
+  const before=await financial(),eventId=randomUUID();
+  const responses=await Promise.all([f.owner.agent.get(`${url}/pdf?intent=print_requested&eventId=${eventId}`),
+    f.owner.agent.get(`${url}/pdf?intent=print_requested&eventId=${eventId}`)]);
+  responses.forEach(r=>expect(r.status).toBe(200));
+  expect((await pool.query("SELECT count(*)::int n FROM audit_logs WHERE company_id=$1 AND document_event_id=$2",[f.company.id,eventId])).rows[0]!.n).toBe(1);
+  expect((await f.owner.agent.get(`${url}/pdf?download=1&intent=export_requested&eventId=${eventId}`)).status).toBe(409);
+  expect(await financial()).toEqual(before);
+  await pool.query("UPDATE employees SET name_ar='اسم تغير بعد البيع',status='suspended' WHERE id=$1",[a!.id]);
+  ok(await f.owner.agent.post(`${url}/attribution`).send({reason:"تصحيح مسند موثق ضمن اختبار معزول",sellerEmployeeId:b!.id,lineSellers:[]}));
+  const after=ok(await f.owner.agent.get(`${url}/history`));
+  expect(after.identity).toEqual(history.identity);
+  expect(after.events.some((e:{action:string})=>e.action==="seller_corrected")).toBe(true);
+  expect(JSON.stringify(after)).not.toContain("commission_cents");
+  expect(JSON.stringify(after)).not.toContain("unit_cost");
+  expect((await pool.query("SELECT issuer FROM document_issuer_snapshots WHERE company_id=$1 AND document_kind='invoice' AND document_id=$2",[f.company.id,invoice.id])).rows[0]!.issuer).toEqual(original);
+  await expect(pool.query("DELETE FROM audit_logs WHERE company_id=$1 AND document_event_id=$2",[f.company.id,eventId])).rejects.toThrow(/append-only/);
+  const other=await sellerFixture();
+  expect((await other.owner.agent.get(`${url}/history`)).status).toBe(404);
+ });
  it("enforces hidden/optional/required and branch inheritance; freezes seller and retries across disable/policy changes",async()=>{
   const f=await sellerFixture(),[a,b]=f.sellers;
   await f.configure("hidden");

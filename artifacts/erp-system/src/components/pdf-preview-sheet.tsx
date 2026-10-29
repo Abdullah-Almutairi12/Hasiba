@@ -35,9 +35,19 @@ export function PdfPreviewSheet({
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const eventIds=useRef<Record<string,string>>({});
+  const generation=useRef(0);
+  function outputUrl(url:string,action:"file_generated"|"print_requested"|"export_requested"){
+    if(!/\/sales\/invoices\/\d+\/pdf(?:\?|$)/.test(url))return url;
+    const key=`${url}|${action}`;
+    const eventId=eventIds.current[key]??(eventIds.current[key]=crypto.randomUUID());
+    return `${url}${url.includes("?")?"&":"?"}intent=${action}&eventId=${eventId}`;
+  }
 
   useEffect(() => {
+    generation.current++;
     if (!open || !pdfUrl) {
+      eventIds.current={};
       setBlobUrl(null);
       setError(null);
       return;
@@ -47,7 +57,7 @@ export function PdfPreviewSheet({
     setLoading(true);
     setError(null);
     setBlobUrl(null);
-    fetch(pdfUrl, requestOptions())
+    fetch(outputUrl(pdfUrl,pdfUrl.includes("download=1")?"export_requested":"file_generated"), requestOptions())
       .then(async (r) => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         const blob = await r.blob();
@@ -62,6 +72,7 @@ export function PdfPreviewSheet({
         if (!cancelled) setLoading(false);
       });
     return () => {
+      generation.current++;
       cancelled = true;
       if (createdUrl) URL.revokeObjectURL(createdUrl);
     };
@@ -69,11 +80,14 @@ export function PdfPreviewSheet({
 
   async function handlePrint() {
     if(!allowPrint)return;
+    const captured=generation.current;
     if(printUrl){
       try{
-        const response=await fetch(printUrl,requestOptions());
+        const response=await fetch(outputUrl(printUrl,"print_requested"),requestOptions());
         if(!response.ok)throw new Error("تعذرت الطباعة؛ تحقق من صلاحية الطباعة الحالية");
         await response.arrayBuffer();
+        if(captured!==generation.current)return;
+        setError(null);
       }catch(e){setError(e instanceof Error?e.message:"تعذرت الطباعة");return;}
     }
     const win = iframeRef.current?.contentWindow;
@@ -93,11 +107,15 @@ export function PdfPreviewSheet({
     if (!allowDownload) return;
     if (!blobUrl) return;
     let downloadBlobUrl: string | null = null;
+    const captured=generation.current;
     if (downloadUrl) {
       try {
-        const response = await fetch(downloadUrl, requestOptions());
+        const response = await fetch(outputUrl(downloadUrl,"export_requested"), requestOptions());
         if (!response.ok) throw new Error("تعذر التنزيل؛ تحقق من صلاحية التصدير الحالية");
-        downloadBlobUrl = URL.createObjectURL(await response.blob());
+        const blob=await response.blob();
+        if(captured!==generation.current)return;
+        downloadBlobUrl = URL.createObjectURL(blob);
+        setError(null);
       } catch (e) {
         setError(e instanceof Error ? e.message : "تعذر تنزيل الملف");
         return;
@@ -143,6 +161,7 @@ export function PdfPreviewSheet({
             </Button>}
           </div>
         </div>
+        {/\/sales\/invoices\/\d+\/pdf/.test(pdfUrl??"")&&<p className="text-xs text-muted-foreground">يسجل النظام إنشاء الملف وطلب الطباعة أو التصدير، ولا يؤكد خروج الورق أو يتتبع طباعة الملف خارج التطبيق.</p>}
         <div className="flex-1 min-h-0 rounded-md border bg-muted overflow-hidden">
           {loading && (
             <div className="flex h-full items-center justify-center text-muted-foreground">

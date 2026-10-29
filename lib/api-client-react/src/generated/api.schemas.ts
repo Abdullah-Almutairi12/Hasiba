@@ -3500,6 +3500,8 @@ export type EditorDesignBase = {
   note: string;
   showContact: boolean;
   showBank: boolean;
+  showSeller?: boolean;
+  showCashier?: boolean;
 };
 
 export interface EditorDesign {
@@ -4351,6 +4353,8 @@ export type GetInvoiceTemplateCatalog200DefaultDesign = {
   note: string;
   showContact: boolean;
   showBank: boolean;
+  showSeller?: boolean;
+  showCashier?: boolean;
 };
 
 export type GetInvoiceTemplateCatalog200 = {
@@ -4438,6 +4442,8 @@ export type PreviewInvoiceTemplateBodyDesign = {
   note: string;
   showContact: boolean;
   showBank: boolean;
+  showSeller?: boolean;
+  showCashier?: boolean;
 };
 
 export type PreviewInvoiceTemplateBodySample = typeof PreviewInvoiceTemplateBodySample[keyof typeof PreviewInvoiceTemplateBodySample];
@@ -4499,6 +4505,20 @@ export const GetPosReceiptPdfWidth = {
   NUMBER_58: 58,
   NUMBER_80: 80,
 } as const;
+
+/**
+ * @nullable
+ */
+export type GetSaleDocumentHistory200Identity = { [key: string]: unknown } | null;
+
+export type GetSaleDocumentHistory200EventsItem = { [key: string]: unknown };
+
+export type GetSaleDocumentHistory200 = {
+  historicalIdentityAvailable: boolean;
+  /** @nullable */
+  identity: GetSaleDocumentHistory200Identity;
+  events: GetSaleDocumentHistory200EventsItem[];
+};
 
 export type InspectInvoiceIdentity200 = { [key: string]: unknown };
 

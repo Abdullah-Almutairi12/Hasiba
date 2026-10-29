@@ -182,6 +182,7 @@ import type {
   GetProductRecommendationsParams,
   GetProfitLossParams,
   GetReturnWorkspace200,
+  GetSaleDocumentHistory200,
   GetSalesForecast200,
   GetSalesReportParams,
   GetSellerReport200,
@@ -8267,6 +8268,101 @@ export function useGetShiftClosingPdf<TData = Awaited<ReturnType<typeof getShift
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getGetShiftClosingPdfQueryOptions(id,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetSaleDocumentHistoryUrl = (id: number,) => {
+
+
+
+
+  return `/api/sales/invoices/${id}/history`
+}
+
+export const getSaleDocumentHistory = async (id: number, options?: Parameters<typeof customFetch>[1]): Promise<GetSaleDocumentHistory200> => {
+
+  return customFetch<GetSaleDocumentHistory200>(getGetSaleDocumentHistoryUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetSaleDocumentHistoryQueryKey = (id: number,) => {
+    return [
+    `/api/sales/invoices/${id}/history`
+    ] as const;
+    }
+
+
+export const getGetSaleDocumentHistoryQueryOptions = <TData = Awaited<ReturnType<typeof getSaleDocumentHistory>>, TError = ErrorType<void>>(id: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getSaleDocumentHistory>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetSaleDocumentHistoryQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getSaleDocumentHistory>>> = ({ signal }) => getSaleDocumentHistory(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: id !== null && id !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getSaleDocumentHistory>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetSaleDocumentHistoryQueryResult = NonNullable<Awaited<ReturnType<typeof getSaleDocumentHistory>>>
+export type GetSaleDocumentHistoryQueryError = ErrorType<void>
+
+
+export function useGetSaleDocumentHistory<TData = Awaited<ReturnType<typeof getSaleDocumentHistory>>, TError = ErrorType<void>>(
+ id: number, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getSaleDocumentHistory>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getSaleDocumentHistory>>,
+          TError,
+          Awaited<ReturnType<typeof getSaleDocumentHistory>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetSaleDocumentHistory<TData = Awaited<ReturnType<typeof getSaleDocumentHistory>>, TError = ErrorType<void>>(
+ id: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getSaleDocumentHistory>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getSaleDocumentHistory>>,
+          TError,
+          Awaited<ReturnType<typeof getSaleDocumentHistory>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetSaleDocumentHistory<TData = Awaited<ReturnType<typeof getSaleDocumentHistory>>, TError = ErrorType<void>>(
+ id: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getSaleDocumentHistory>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useGetSaleDocumentHistory<TData = Awaited<ReturnType<typeof getSaleDocumentHistory>>, TError = ErrorType<void>>(
+ id: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getSaleDocumentHistory>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetSaleDocumentHistoryQueryOptions(id,options)
 
   const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 

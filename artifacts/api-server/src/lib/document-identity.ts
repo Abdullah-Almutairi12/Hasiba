@@ -9,6 +9,12 @@ import { captureInvoiceDesign, type InvoiceDesignSnapshot } from "./invoice-desi
 export type IdentityTx = Pick<typeof db, "execute">;
 export type DocumentKind = "invoice" | "pos" | "credit" | "refund" | "closing";
 export interface IssuerSnapshot extends CompanyInfo {
+  saleIdentity?: {
+    version: 1;
+    creator: { id: number | null; name: string | null };
+    cashier: { id: number; name: string } | null;
+    sellers: Array<{ invoiceLineId: number; employeeId: number | null; name: string; visible: boolean }>;
+  };
   invoiceDesign?: InvoiceDesignSnapshot;
   companyId: number;
   revision: number;

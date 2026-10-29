@@ -11,6 +11,10 @@ import { printableIssuer } from "../lib/pdf/print-company";
 import { sendPrintPdf, type PrintDocument } from "../lib/pdf/print-document";
 import { sessionCash } from "./return-settlement";
 import { savedSellerLines,sellerLineDescription } from "../lib/seller-ledger";
+import { salePrintDescription } from "../lib/sale-print-identity";
+import { randomUUID } from "node:crypto";
+import { recordDocumentOutput } from "../lib/audit";
+import { lockApprovalAuthority } from "../lib/approval-authority";
 const router = Router();
 const methods: Record<string,string> = { cash:"نقدي",card:"بطاقة",transfer:"تحويل",stc:"STC Pay",credit:"رصيد العميل",mixed:"دفع متعدد",deferred:"آجل" };
 const states: Record<string,string> = { paid:"مدفوعة",partially_paid:"مدفوعة جزئيا",open:"غير مسددة",draft:"مسودة",issued:"صادر",cancelled:"ملغى",pending:"قيد اعتماد الفرق",approved:"معتمد",requested:"طلب استرداد — لم يرسل إلى مزود",confirmed:"تسليم نقدي مؤكد",external_confirmed:"استرداد خارجي مسجل يدويا" };
@@ -47,16 +51,33 @@ router.get("/pos/orders/:id/receipt.pdf", async(req,res)=>{
     if(!layout.receiptWidths.includes(width)) throw new FinancialRequestError("عرض الإيصال غير مفعل في إعدادات الطباعة",400);
     const payments=(await pool.query("SELECT method,amount FROM pos_order_payments WHERE order_id=$1 ORDER BY id",[id])).rows;
     const sellers=await savedSellerLines(companyId,Number(o.invoice_id));
+    const savedIdentity=await documentIssuer(companyId,"pos",id);
+    const cashier = savedIdentity.saleIdentity?.cashier?.name ?? o.cashier_name;
     const qr=o.zatca_qr?await QRCode.toDataURL(o.zatca_qr,{margin:1,width:220}):null;
     const doc=await print(req,"pos",id,{title:"إيصال بيع",thermalWidth:width,
-      metadata:[["الإيصال",o.order_number],["الفاتورة",o.invoice_reference],["الحالة",states[o.invoice_status]??o.invoice_status],["الفرع",o.branch_name],["التاريخ",date(o.created_at)],["المحصل",o.cashier_name]],
+      metadata:[["الإيصال",o.order_number],["الفاتورة",o.invoice_reference],["الحالة",states[o.invoice_status]??o.invoice_status],["الفرع",o.branch_name],["التاريخ",date(o.created_at)],...(savedIdentity.invoiceDesign?.design.showCashier===false?[]:[["المحصل",cashier] as [string,string]])],
       headers:["الصنف","العدد","السعر","الإجمالي"],
-      rows:(o.items as Array<Record<string,unknown>>).map((l,index)=>[sellerLineDescription(String(l.productName??l.name??""),sellers[index]),Number(l.quantity),money(l.unitPrice),money(l.lineTotal??Number(l.quantity)*Number(l.unitPrice))]),
+      rows:(o.items as Array<Record<string,unknown>>).map((l,index)=>[salePrintDescription(String(l.productName??l.name??""),sellers[index]?.invoice_line_id??0,savedIdentity,sellers[index]),Number(l.quantity),money(l.unitPrice),money(l.lineTotal??Number(l.quantity)*Number(l.unitPrice))]),
       totals:[["قبل الضريبة",money(o.subtotal)],["الخصم",money(o.discount)],["الضريبة",money(o.tax)],
         ...payments.map(p=>[methods[p.method]??p.method,money(p.amount)] as [string,string]),
         ["المدفوع",money(o.invoice_amount_paid)],["المتبقي",money(Math.max(0,Number(o.total)-Number(o.invoice_amount_paid)))],["الإجمالي",money(o.total)]],
       notes:["إعادة الطباعة لا تنشئ بيعًا أو حركة مالية جديدة.","مطابقة الرمز ليست اعتمادًا رسميًا للمرحلة الثانية."],qr});
-    await sendPrintPdf(res,`receipt-${o.order_number}-${width}mm`,doc);
+    const intent=z.enum(["file_generated","print_requested","export_requested"]).parse(req.query.intent??"file_generated");
+    const eventId=z.string().uuid().parse(req.query.eventId??randomUUID());
+    await sendPrintPdf(res,`receipt-${o.order_number}-${width}mm`,doc,async()=>{
+      await db.transaction(async tx=>{
+        await lockApprovalAuthority(tx);
+        await checkDocumentPrint(req,"pos",id);
+        await recordDocumentOutput(tx,req,Number(o.invoice_id),eventId,intent,{
+          branchId:Number(o.branch_id),reference:o.invoice_reference,posOrderId:id,width,
+          layoutVersion:savedIdentity.invoiceDesign?.layoutVersion??null,
+          releaseId:savedIdentity.invoiceDesign?.editor?.releaseId??null,
+          companyRevision:savedIdentity.invoiceDesign?.companyRevision??null,
+          branchRevision:savedIdentity.invoiceDesign?.branchRevision??null,
+          generated:true,deviceConfirmed:false,
+        });
+      });
+    });
   }catch(error){handleRouteError(error,res);}
 });
 router.get("/sales/credit-notes/:id/pdf",async(req,res)=>{

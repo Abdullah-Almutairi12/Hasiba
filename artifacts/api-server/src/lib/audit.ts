@@ -1,5 +1,8 @@
 import type { Request } from "express";
 import { db, auditLogsTable } from "@workspace/db";
+import { sql } from "drizzle-orm";
+import { FinancialRequestError } from "./financial-transaction";
+import type { IdentityTx } from "./document-identity";
 
 /**
  * Centralized audit-logging helper. Fire-and-forget — failures must never break
@@ -51,4 +54,22 @@ export async function recordAudit(req: Request, entry: AuditEntry): Promise<void
   } catch (err) {
     req.log?.warn?.({ err, entry }, "audit log failed");
   }
+}
+
+/** Document evidence must commit before releasing a generated file. Unlike
+ * ordinary diagnostic audit this intentionally fails closed on persistence. */
+export async function recordDocumentOutput(tx: IdentityTx, req: Request, invoiceId: number,
+  eventId: string, action: "file_generated"|"print_requested"|"export_requested", facts: Record<string,unknown>) {
+  const companyId=req.session.companyId!, userId=req.session.userId!;
+  const actor=(await tx.execute(sql`SELECT name FROM users WHERE id=${userId}`)).rows[0];
+  const details=JSON.stringify(facts);
+  await tx.execute(sql`INSERT INTO audit_logs(company_id,user_id,user_name,action,entity,details,severity,
+    document_id,document_event_id,document_facts)
+    VALUES(${companyId},${userId},${String(actor?.name??"غير متاح")},${action},'customer_invoice',NULL,'info',
+      ${invoiceId},${eventId}::uuid,${details}::jsonb)
+    ON CONFLICT(company_id,user_id,document_event_id) WHERE document_event_id IS NOT NULL DO NOTHING`);
+  const same=await tx.execute(sql`SELECT 1 FROM audit_logs WHERE company_id=${companyId} AND user_id=${userId}
+    AND document_event_id=${eventId}::uuid AND action=${action} AND document_id=${invoiceId}
+    AND document_facts=${details}::jsonb`);
+  if(!same.rows.length)throw new FinancialRequestError("معرّف طلب المستند مستخدم لغرض مختلف",409);
 }

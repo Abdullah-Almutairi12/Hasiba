@@ -600,8 +600,10 @@ export default function PosIconic({
               </div>
               {lastReceipt.seller && <div className="mb-2 text-neutral-600 dark:text-neutral-300" data-testid="last-receipt-seller">{`البائع: ${lastReceipt.seller}`}</div>}
               <div className="flex flex-wrap gap-2">
-                {(receiptWidths.length ? receiptWidths : [undefined]).map((w) => (
+                {(!isScoped||selectedResp?.actions.some(a=>a==="pos.receipts.print"||a==="pos.receipts.export"))&&(receiptWidths.length ? receiptWidths : [undefined]).map((w) => (
                   <PrintDocButton key={w ?? "default"} id={lastReceipt.id} url={(id) => docUrls.receipt(id, w)}
+                    allowPrint={!isScoped||!!selectedResp?.actions.includes("pos.receipts.print")}
+                    allowDownload={!isScoped||!!selectedResp?.actions.includes("pos.receipts.export")}
                     filename={`receipt-${lastReceipt.orderNumber}${w ? `-${w}mm` : ""}.pdf`}
                     label={w ? `طباعة الإيصال ${w} مم` : "طباعة الإيصال"} testId={`button-print-receipt${w ? `-${w}` : ""}`} />
                 ))}

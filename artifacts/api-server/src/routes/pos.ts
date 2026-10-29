@@ -1389,7 +1389,7 @@ router.post(
         );
       }
 
-      const attribution=await recordSaleSellers(tx,companyId,posInvoice.id,req.session.userId!,req.body);
+      const attribution=await recordSaleSellers(tx,companyId,posInvoice.id,req.session.userId!,req.body,created.id);
       const sellerAttribution=attribution.map(l=>({invoiceLineId:l.invoice_line_id,employeeId:l.employee_id,sellerName:l.seller_name,revision:l.revision}));
       await recordPosResponsibility(tx, req.session.userId!, companyId, created.id);
       return {

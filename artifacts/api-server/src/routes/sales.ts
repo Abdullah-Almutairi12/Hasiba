@@ -33,7 +33,11 @@ import { and, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { handleRouteError } from "../lib/handle-error";
 import { parsePagination } from "../lib/pagination";
 import { customerInvoiceGrant,customerInvoiceScope } from "../lib/customer-invoice-access";
-import { recordAudit } from "../lib/audit";
+import { recordAudit, recordDocumentOutput } from "../lib/audit";
+import { saleDocumentHistory } from "../lib/sale-document-history";
+import { checkDocumentPrint } from "../lib/print-permissions";
+import { randomUUID } from "node:crypto";
+import { salePrintDescription, saleCashierMetadata } from "../lib/sale-print-identity";
 import {
   adminGuard,
   financeGuard,
@@ -2018,6 +2022,7 @@ export async function renderCustomerInvoicePdfById(id: number, companyId: number
     .from(customerInvoiceLinesTable)
     .where(eq(customerInvoiceLinesTable.invoiceId, id));
   const company = await printableIssuer(await documentIssuer(companyId, "invoice", id));
+  const savedIssuer = await documentIssuer(companyId, "invoice", id);
   const sellers=new Map((await savedSellerLines(companyId,id)).map(l=>[l.invoice_line_id,l]));
   let qrDataUrl: string | null = null;
   if (head.zatcaQr) {
@@ -2044,6 +2049,7 @@ export async function renderCustomerInvoicePdfById(id: number, companyId: number
       amountPaid: Number(head.amountPaid),
       status: head.status,
       notes: head.notes,
+      saleMetadata: saleCashierMetadata(savedIssuer),
       customer: {
         name: head.customerName,
         email: customer?.email ?? null,
@@ -2052,7 +2058,7 @@ export async function renderCustomerInvoicePdfById(id: number, companyId: number
         vatNumber: customer?.taxNumber === "POS-WALKIN" ? "غير متاح" : customer?.taxNumber ?? null,
       },
       lines: lines.map((l) => ({
-        description: sellerLineDescription(l.description,sellers.get(l.id)),
+        description: salePrintDescription(l.description,l.id,savedIssuer,sellers.get(l.id)),
         quantity: Number(l.quantity),
         unitPrice: Number(l.unitPrice),
         taxRate: Number(l.taxRate),
@@ -2068,11 +2074,30 @@ export async function renderCustomerInvoicePdfById(id: number, companyId: number
 router.get("/sales/invoices/:id/pdf", invoiceViewGuard, async (req, res) => {
   try {
     const id = Number(req.params.id);
+    const intent=z.enum(["file_generated","print_requested","export_requested"]).parse(req.query.intent??(req.query.download==="1"?"export_requested":"file_generated"));
+    if((req.query.download==="1") !== (intent==="export_requested"))
+      throw new FinancialRequestError("غرض التصدير لا يطابق الطلب",400);
+    const eventId=z.string().uuid().parse(req.query.eventId??randomUUID());
     const rendered = await renderCustomerInvoicePdfById(id, getCompanyId(req));
     if (!rendered.ok) {
       res.status(rendered.status).json({ error: rendered.error });
       return;
     }
+    await db.transaction(async tx=>{
+      await lockApprovalAuthority(tx);
+      // Render may have waited for Chromium: recheck the current authority
+      // under the established fence before recording/releasing the file.
+      await checkDocumentPrint(req,"invoice",id);
+      const issuer=await documentIssuer(getCompanyId(req),"invoice",id);
+      await recordDocumentOutput(tx,req,id,eventId,intent,{
+        branchId:rendered.head.branchId,reference:rendered.head.reference,
+        layoutVersion:issuer.invoiceDesign?.layoutVersion??null,
+        releaseId:issuer.invoiceDesign?.editor?.releaseId??null,
+        companyRevision:issuer.invoiceDesign?.companyRevision??null,
+        branchRevision:issuer.invoiceDesign?.branchRevision??null,
+        generated:true,deviceConfirmed:false,
+      });
+    });
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader(
       "Content-Disposition",
@@ -2083,6 +2108,21 @@ router.get("/sales/invoices/:id/pdf", invoiceViewGuard, async (req, res) => {
     req.log.error({ err }, "render customer invoice PDF");
     handleRouteError(err, res);
   }
+});
+
+router.get("/sales/invoices/:id/history", invoiceViewGuard, async(req,res)=>{
+  try{
+    const id=z.coerce.number().int().positive().parse(req.params.id);
+    await db.transaction(async tx=>{
+      await lockApprovalAuthority(tx);
+      await checkDocumentPrint(req,"invoice",id);
+      // Same scoped reader, not print/export permission. Verify existence
+      // even for legacy unbounded accounts before querying evidence.
+      const row=await tx.execute(sql`SELECT id FROM customer_invoices WHERE id=${id} AND company_id=${getCompanyId(req)}`);
+      if(!row.rows.length)throw new FinancialRequestError("الفاتورة غير متاحة",404);
+      res.json(await saleDocumentHistory(getCompanyId(req),id));
+    });
+  }catch(error){handleRouteError(error,res);}
 });
 
 // Send the customer invoice PDF to the customer over email (attachment) or

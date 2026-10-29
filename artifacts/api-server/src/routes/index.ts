@@ -150,7 +150,7 @@ router.use("/exports",aggregatePrintGuard);
 router.use(async(req,res,next)=>{
   if(req.method!=="GET")return next();
   const documents:Array<[RegExp,"invoice"|"supplier"|"po"|"pos"]>=[
-    [/^\/sales\/invoices\/(\d+)(?:\/pdf)?$/,"invoice"],
+    [/^\/sales\/invoices\/(\d+)(?:\/(?:pdf|history))?$/,"invoice"],
     [/^\/invoices\/(\d+)(?:\/pdf)?$/,"supplier"],
     [/^\/procurement\/purchase-orders\/(\d+)\/pdf$/,"po"],
     [/^\/pos\/orders\/(\d+)\/receipt$/,"pos"],

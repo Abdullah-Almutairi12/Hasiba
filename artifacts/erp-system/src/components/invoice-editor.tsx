@@ -692,6 +692,8 @@ export function InvoiceEditor({ companyId, branchId, generation }: { companyId: 
                   <div className="grid gap-2 sm:grid-cols-2">
                     <label className="flex items-center justify-between rounded-md border p-2.5 text-sm">بيانات التواصل<Switch checked={d.base.showContact} onCheckedChange={v => setBase("showContact", v)} data-testid="switch-editor-contact" /></label>
                     <label className="flex items-center justify-between rounded-md border p-2.5 text-sm">البيانات البنكية<Switch checked={d.base.showBank} onCheckedChange={v => setBase("showBank", v)} data-testid="switch-editor-bank" /></label>
+                    <label className="flex items-center justify-between rounded-md border p-2.5 text-sm">اسم البائع<Switch checked={d.base.showSeller!==false} onCheckedChange={v => setBase("showSeller", v)} data-testid="switch-editor-seller" /></label>
+                    <label className="flex items-center justify-between rounded-md border p-2.5 text-sm">اسم المحصل<Switch checked={d.base.showCashier!==false} onCheckedChange={v => setBase("showCashier", v)} data-testid="switch-editor-cashier" /></label>
                   </div>
                 </div>
               </section>

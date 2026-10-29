@@ -23,7 +23,7 @@ export async function appendSellerEvent(tx:SellerTx,line:SellerLine,userId:numbe
    ${line.currency_code},${event.key},${event.kind},${event.date},${event.net},${event.discount??0},${commission},${JSON.stringify(p)}::jsonb,${userId})
    ON CONFLICT(company_id,event_key) DO NOTHING`);
 }
-export async function recordSaleSellers(tx:SellerTx,companyId:number,invoiceId:number,userId:number,selection:unknown){
+export async function recordSaleSellers(tx:SellerTx,companyId:number,invoiceId:number,userId:number,selection:unknown,posOrderId?:number){
  const result=await tx.execute(sql`SELECT * FROM customer_invoices WHERE id=${invoiceId} AND company_id=${companyId} FOR UPDATE`);
  const i=result.rows[0];if(!i)throw new FinancialRequestError("الفاتورة غير متاحة",404);
  const branchId=i.branch_id==null?null:Number(i.branch_id);
@@ -44,7 +44,20 @@ export async function recordSaleSellers(tx:SellerTx,companyId:number,invoiceId:n
   const line=result.rows[0] as unknown as SellerLine|undefined;
   if(line)await appendSellerEvent(tx,line,userId,{kind:"sale",key:`sale:${l.id}`,date:String(i.invoice_date),net:net[n]!,discount:gross-net[n]!});
  }
- return savedSellerLines(companyId,invoiceId,tx);
+ const saved = await savedSellerLines(companyId,invoiceId,tx);
+ // Capture only in the original issuance transaction. Corrections keep this
+ // evidence intact; no backfill from today's employee names for old invoices.
+ const actors=(await tx.execute(sql`SELECT id,name FROM users WHERE id=${userId} OR id=${i.created_by == null ? userId : Number(i.created_by)}`)).rows;
+ const creator=actors.find(a=>Number(a.id)===Number(i.created_by));
+ const collector=actors.find(a=>Number(a.id)===userId);
+ const identity={version:1,creator:{id:i.created_by==null?null:Number(i.created_by),name:creator?String(creator.name):null},
+   cashier:i.source==="pos"&&collector?{id:userId,name:String(collector.name)}:null,
+   sellers:saved.map(l=>({invoiceLineId:l.invoice_line_id,employeeId:l.employee_id,name:l.seller_name,visible:l.policy.mode!=="hidden"}))};
+ await tx.execute(sql`UPDATE document_issuer_snapshots SET issuer=jsonb_set(issuer,'{saleIdentity}',${JSON.stringify(identity)}::jsonb)
+   WHERE company_id=${companyId} AND ((document_kind='invoice' AND document_id=${invoiceId})
+     OR (document_kind='pos' AND document_id=${posOrderId??null}))
+   AND NOT issuer ? 'saleIdentity'`);
+ return saved;
 }
 async function lineBalance(tx:SellerTx,companyId:number,lineId:number){
  const r=(await tx.execute(sql`SELECT coalesce(sum(net_cents),0) net,coalesce(sum(commission_cents),0) commission
