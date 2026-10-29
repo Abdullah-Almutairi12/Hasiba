@@ -5,11 +5,9 @@ import bcrypt from "bcryptjs";
 import { db, pool, companiesTable, usersTable, userCompaniesTable, customersTable, fiscalYearsTable, fiscalPeriodsTable, categoriesTable, productsTable, customerInvoicesTable, customerInvoiceLinesTable } from "@workspace/db";
 import { branchesTable, warehousesTable } from "@workspace/db";
 import { posSessionsTable } from "@workspace/db";
-import { accountsTable } from "@workspace/db";
 import { eq,sql } from "drizzle-orm";
 import { employeesTable,commissionPlansTable } from "@workspace/db";
 import { recordStockMove } from "../lib/stock-engine";
-import {postJournalEntry} from "../lib/journal-posting";
 import {taxPolicySchema,riyadhDate} from "../lib/vat-policy";
 
 if (process.env.NODE_ENV!=="test"||process.env.ACCOUNT_ISOLATED_TEST!=="true") {
@@ -65,6 +63,21 @@ for (const role of ["owner", "sales"] as const) {
     }).returning();
     posSession = { id: session.id, branchId: branch.id, warehouseId: warehouse.id };
     if(process.env.HASBA_BROWSER_TAX_PREVIEW==="true"){
+      // recordStockMove already posted the receipt. Never add a second opening
+      // journal to make synthetic stock appear funded twice.
+      const opening=(await db.execute(sql`SELECT
+        (SELECT sum(quantity) FROM stock_quants WHERE product_id=${product.id}) AS quantity,
+        (SELECT sum(quantity*avg_cost) FROM stock_quants WHERE product_id=${product.id}) AS value,
+        (SELECT sum(remaining_qty) FROM stock_layers WHERE product_id=${product.id}) AS layer_quantity,
+        (SELECT sum(remaining_qty*unit_cost) FROM stock_layers WHERE product_id=${product.id}) AS layer_value,
+        (SELECT sum(l.debit-l.credit) FROM journal_entries e
+          JOIN journal_entry_lines l ON l.entry_id=e.id JOIN accounts a ON a.id=l.account_id
+          WHERE e.company_id=${company.id} AND a.system_key='inventory') AS ledger_value`)).rows[0];
+      const expected={quantity:20,value:1000,layer_quantity:20,layer_value:1000,ledger_value:1000};
+      for(const [key,value] of Object.entries(expected)){
+        if(Number(opening?.[key])!==value)throw new Error(`Synthetic opening ${key} is inconsistent`);
+      }
+      console.log("[browser-tax-preview] Opening quantities, FIFO, carrying value and original receipt GL verified:20 /1000.");
       // Explicit synthetic fixture only. The real activation route stays blocked.
       const input=taxPolicySchema.parse({revision:0,requestId:randomUUID(),effectiveFrom:riyadhDate(),
         status:"registered",vatNumber:"300000000000003",priceIncludesVat:true,
@@ -79,12 +92,6 @@ for (const role of ["owner", "sales"] as const) {
           ${input.effectiveFrom},${input.status},${input.vatNumber},${input.priceIncludesVat},
           ${JSON.stringify(input.productRules)}::jsonb,${JSON.stringify(input.serviceRule)}::jsonb,
           '{}'::jsonb,${input.reason},${user.id})`);
-      const [equity]=await db.insert(accountsTable).values({code:`TEST-OPEN-${tag}`,
-        name:"Synthetic opening equity",nameAr:"رصيد افتتاحي اختباري",type:"equity"}).returning();
-      await db.transaction(tx=>postJournalEntry(tx,{companyId:company.id,source:"system",
-        entryDate:new Date().toISOString().slice(0,10),reference:`TEST-OPEN-${tag}`,
-        description:"Synthetic FIFO opening stock only",createdBy:user.id,status:"posted"},
-        [{systemKey:"inventory",debit:1000},{accountId:equity.id,credit:1000}]));
     }
     // Explicit synthetic-owner test configuration, NOT a product default.
     const sellerIds:number[]=[];
