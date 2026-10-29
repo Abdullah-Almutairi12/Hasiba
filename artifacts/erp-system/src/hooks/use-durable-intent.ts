@@ -38,8 +38,9 @@ const SECRET_TEXT = "تتطلب هذه العملية بيانات اعتماد 
 /**
  * Durable, user+company+endpoint scoped financial intent. The exact body is
  * saved BEFORE sending; unknown outcomes survive reloads and are only resolved
- * by an exact replay or the server close-intent check. HTTP status alone never
- * discards an unresolved intent.
+ * by an exact replay or the server close-intent check. Quote-bound attempts
+ * also require that check after fresh 4xx responses; the accepted unquoted
+ * legacy rejection classification remains unchanged.
  */
 export function useDurableIntent<B extends Record<string, unknown>, R, M = unknown>(o: Options<B, R>) {
   const storageKey = o.userId != null && o.companyId != null ? intentStorageKey(o.endpoint, o.userId, o.companyId) : null;
@@ -89,7 +90,10 @@ export function useDurableIntent<B extends Record<string, unknown>, R, M = unkno
       res = await optsRef.current.send(body, a.key);
     } catch (e) {
       const status = (e as { status?: unknown } | null)?.status;
-      if (isConfirmedFreshRejection(status) && !recovering) {
+      // Preserve accepted unquoted legacy behaviour, but a quoted financial
+      // attempt must be sealed on the server before its identity is replaced.
+      // A 4xx response is not a durable nonexecution receipt.
+      if (isConfirmedFreshRejection(status) && !recovering && !a.body.taxPreviewToken) {
         if (!cleanup(sk, a.key)) { update(sk, { error: "رفض الخادم العملية، لكن تعذر تنظيفها من التخزين. استعد التخزين ثم أعد الطلب نفسه." }); return { kind: "unknown" }; }
         secrets.current = null;
         const message = e instanceof Error ? e.message : "رفض الخادم العملية";
