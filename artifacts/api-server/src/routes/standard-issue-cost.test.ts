@@ -1,4 +1,5 @@
 import { beforeAll, describe, expect, it } from "vitest";
+import {reviewedSalesInvoice} from "../test/reviewed-sales-invoice";
 import request from "supertest";
 import bcrypt from "bcryptjs";
 import { randomUUID } from "node:crypto";
@@ -177,7 +178,7 @@ describe("prospective standard cost with realized differences net in COGS", () =
       // A later standard edit cannot change either shipment evidence or invoice allocation.
       await setStandard(f, 99);
       expect(await stockEvidence(f)).toEqual(shipped);
-      const invoice = ok(await f.agent.post("/api/sales/invoices").send({ soId: order.id }));
+      const invoice = ok(await reviewedSalesInvoice(f.agent,{ soId: order.id }));
       expect(await allocations(invoice.id)).toEqual([{
         issue_move_id: issues[0].id, quantity: 6, cost: 10, value: 60,
         so_line_id: order.lineId, product_id: f.productId,
@@ -226,7 +227,7 @@ describe("prospective standard cost with realized differences net in COGS", () =
     expect(await stockEvidence(f)).toEqual(shipped);
     // The first invoice crosses the delivery boundary (2 + 1); the second
     // consumes only the remaining three units, not either whole issue again.
-    const invoice1 = ok(await f.agent.post("/api/sales/invoices").send({
+    const invoice1 = ok(await reviewedSalesInvoice(f.agent,{
       soId: order.id,
       lines: [{ productId: f.productId, description: "First half", quantity: 3, unitPrice: 100, taxRate: 0 }],
     }));
@@ -238,7 +239,7 @@ describe("prospective standard cost with realized differences net in COGS", () =
     ]);
     await fulfilment(order, "fully_delivered", 6, 3);
     await reconcile(f, { quantity: 0, inventory: 0, cogs: 96, profit: 204 });
-    const invoice2 = ok(await f.agent.post("/api/sales/invoices").send({ soId: order.id }));
+    const invoice2 = ok(await reviewedSalesInvoice(f.agent,{ soId: order.id }));
     const secondAllocations = await allocations(invoice2.id);
     expect(secondAllocations).toEqual([
       { ...linked, issue_move_id: issues[1].id, quantity: 3, value: 48 },

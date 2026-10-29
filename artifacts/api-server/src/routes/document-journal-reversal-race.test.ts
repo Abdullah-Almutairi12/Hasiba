@@ -1,4 +1,5 @@
 import { beforeAll, describe, expect, it } from "vitest";
+import {reviewedSalesInvoice} from "../test/reviewed-sales-invoice";
 import request from "supertest";
 import bcrypt from "bcryptjs";
 import { randomUUID } from "node:crypto";
@@ -80,7 +81,7 @@ async function fixture(kind: Kind) {
     lines: [{ productId: product.id, description: tag, quantity: 4, unitPrice: 100, taxRate: 0 }],
   }));
   ok(await agent.post("/api/sales/deliveries").send({ soId: order.id }));
-  const invoice = ok(await agent.post("/api/sales/invoices").send({ soId: order.id }));
+  const invoice = ok(await reviewedSalesInvoice(agent,{ soId: order.id }));
   if (kind === "sales invoice") {
     const [journal] = await rows(`SELECT id FROM journal_entries
       WHERE company_id=$1 AND source='manual' AND source_ref=$2 AND status='posted'`,

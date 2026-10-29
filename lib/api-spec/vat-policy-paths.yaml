@@ -67,6 +67,37 @@ posPreview:
         content:
           application/json:
             schema: {$ref: "#/previewResponse"}
+orderPriceReview:
+  post:
+    operationId: reviewLegacySalesOrderPriceBasis
+    tags: [sales]
+    parameters:
+      - {name: id, in: path, required: true, schema: {type: integer}}
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [priceIncludesVat, currencyCode, orderDiscount, reason, proof]
+            properties:
+              priceIncludesVat: {type: boolean}
+              currencyCode: {type: string, enum: [SAR]}
+              orderDiscount: {type: number, minimum: 0}
+              reason: {type: string, minLength: 10, maxLength: 1000}
+              proof:
+                type: object
+                required: [currentPassword]
+                properties:
+                  currentPassword: {type: string}
+                  token: {type: string}
+                  recoveryCode: {type: string}
+    responses:
+      "200":
+        description: Audited pricing declaration only; historical totals are unchanged and any former approval is invalidated
+        content:
+          application/json:
+            schema: {type: object, required: [ok], properties: {ok: {type: boolean}}}
 invoicePreview:
   post:
     operationId: previewDirectInvoiceTax
@@ -80,7 +111,7 @@ invoicePreview:
             additionalProperties: true
     responses:
       "200":
-        description: Direct invoice preview only; sales-order conversion remains guarded
+        description: Trusted direct or sales-order invoice preview. Sales orders require explicit pricing evidence and delivered remaining quantities; unsupported discount-rule or mixed-tax-period evidence is rejected.
         content:
           application/json:
             schema: {$ref: "#/previewResponse"}

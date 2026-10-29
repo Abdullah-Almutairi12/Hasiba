@@ -226,7 +226,8 @@ export async function closeTaxPolicyRequest(req:Request,id:string,facts:unknown,
     return {status:"closed" as const,revision:null};
   },true);
 }
-export async function calculatePolicySale(tx:DbOrTx,companyId:number,at:string,lines:SalesLineInput[],discount:number){
+export async function calculatePolicySale(tx:DbOrTx,companyId:number,at:string,lines:SalesLineInput[],discount:number,
+  agreedBasis?:{priceIncludesVat:boolean}){
   const context=await taxContext(companyId,at,tx);
   if(context.status==="unresolved")throw new FinancialRequestError("حالة الضريبة غير محسومة؛ أكمل إعداد المنشأة قبل الإصدار",422);
   if(context.mode==="legacy")return null;
@@ -236,8 +237,8 @@ export async function calculatePolicySale(tx:DbOrTx,companyId:number,at:string,l
     const category:NonNullable<SalesLineInput["taxCategory"]>=context.registered?rule!.category:"not_registered";
     return {...line,taxRate:category==="standard"?15:0,taxCategory:category,taxReason:rule?.reason??null};
   });
-  const totals=computeTotals(classified,discount,{priceIncludesVat:context.priceIncludesVat});
+  const totals=computeTotals(classified,discount,{priceIncludesVat:agreedBasis?.priceIncludesVat??context.priceIncludesVat});
   return {context:publicTaxContext(context),totals,
-    snapshot:{context:publicTaxContext(context),lines:totals.lines.map((line,i)=>({...line,
+    snapshot:{context:publicTaxContext(context),...(agreedBasis?{agreedBasis}:{}),lines:totals.lines.map((line,i)=>({...line,
       taxCategory:classified[i]!.taxCategory,taxReason:classified[i]!.taxReason})),totals:{subtotal:totals.subtotal,discount:totals.discount,vat:totals.vat,total:totals.total}}};
 }

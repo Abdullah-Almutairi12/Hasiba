@@ -45,6 +45,7 @@ import { InvoiceSellerFields, useInvoiceSellers } from "@/components/sellers/inv
 import { useTaxPreview } from "@/hooks/use-tax-preview";
 import { previewDirectInvoiceTax, type DirectInvoicePreviewBody } from "@/lib/tax-preview";
 import { TaxPreviewPanel } from "@/components/tax-preview-panel";
+import {OrderInvoiceDialog} from "@/components/sales/order-invoice-dialog";
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
@@ -401,6 +402,7 @@ function SalesOrdersTab() {
 }
 
 function SoActions({ so, onChange }: { so: SalesOrder; onChange: () => void }) {
+  const [invoiceOpen,setInvoiceOpen]=useState(false);
   const { toast } = useToast();
   const { canManageFinance, canManageInventory } = usePermissions();
   async function deliver() {
@@ -413,13 +415,7 @@ function SoActions({ so, onChange }: { so: SalesOrder; onChange: () => void }) {
     }
   }
   async function invoice() {
-    try {
-      await apiPost(`/sales/invoices`, { soId: so.id });
-      toast({ title: "تم إنشاء الفاتورة" });
-      onChange();
-    } catch (e) {
-      toast({ title: "تعذر التفويتر", description: errMsg(e), variant: "destructive" });
-    }
+    setInvoiceOpen(true);
   }
   async function transition(to: string) {
     try {
@@ -442,6 +438,7 @@ function SoActions({ so, onChange }: { so: SalesOrder; onChange: () => void }) {
       {canManageFinance && !["draft", "cancelled"].includes(so.status) && (
         <Button size="sm" variant="outline" onClick={invoice}>تفويتر</Button>
       )}
+      {invoiceOpen&&<OrderInvoiceDialog id={so.id} open={invoiceOpen} onOpenChange={setInvoiceOpen} onSaved={onChange}/>}
       {so.status === "invoiced" && (
         <Button size="sm" variant="outline" onClick={() => transition("done")}>إنهاء</Button>
       )}
@@ -1490,10 +1487,12 @@ function DocumentFormDialog({
   const [customerId, setCustomerId] = useState<number | null>(null);
   const [notes, setNotes] = useState("");
   const [validUntil, setValidUntil] = useState("");
+  const [orderPriceIncludesVat,setOrderPriceIncludesVat]=useState(false);
   const [lines, setLines] = useState<Array<{ productId: number | null; description: string; quantity: number; unitPrice: number; discountPct: number; taxRate: number }>>([
     { productId: null, description: "", quantity: 1, unitPrice: 0, discountPct: 0, taxRate: defaultTaxRate },
   ]);
-  const total = useMemo(() => lines.reduce((a, l) => a + (l.quantity * l.unitPrice * (1 - l.discountPct / 100) * (1 + (vatEnabled ? l.taxRate : 0) / 100)), 0), [lines, vatEnabled]);
+  const total = useMemo(() => lines.reduce((a, l) => a + (l.quantity * l.unitPrice * (1 - l.discountPct / 100) *
+    (kind==="order"&&orderPriceIncludesVat?1:1 + (vatEnabled ? l.taxRate : 0) / 100)), 0), [lines, vatEnabled,kind,orderPriceIncludesVat]);
   const sellers = useInvoiceSellers(kind === "invoice");
   // Direct invoice only: durable user+company scoped intent with the exact
   // body, a caller-owned Idempotency-Key and the original responsibility.
@@ -1557,6 +1556,7 @@ function DocumentFormDialog({
     try {
       const path = kind === "quotation" ? "/sales/quotations" : kind === "order" ? "/sales/orders" : "/sales/invoices";
       const body: { customerId: number; lines: typeof cleanLines; notes: string; validUntil?: string } & Record<string, unknown> = { customerId, lines: cleanLines, notes, ...sellerFields };
+      if(kind==="order"){body.priceIncludesVat=orderPriceIncludesVat;body.currencyCode="SAR";}
       if (kind === "quotation" && validUntil) body.validUntil = validUntil;
       await apiPost(path, body);
       toast({ title: kind === "quotation" ? "تم إنشاء عرض السعر" : kind === "order" ? "تم إنشاء أمر البيع" : "تم إنشاء الفاتورة" });
@@ -1629,6 +1629,8 @@ function DocumentFormDialog({
           </div>
         </div>
 
+        {kind==="order"&&<label className="flex gap-2"><input type="checkbox" checked={orderPriceIncludesVat}
+          onChange={e=>setOrderPriceIncludesVat(e.target.checked)}/>أسعار الاتفاق شاملة الضريبة (SAR) — تُحفظ ولا تتغير بتغيير أسعار الأصناف أو إعدادات المنشأة</label>}
         {kind === "invoice" && <InvoiceSellerFields state={sellers} lines={lines.map((l, i) => l.description || `بند ${i + 1}`)} />}
 
         <div>

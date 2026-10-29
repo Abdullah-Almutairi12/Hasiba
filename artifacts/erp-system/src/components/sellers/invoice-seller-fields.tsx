@@ -26,11 +26,11 @@ export function useInvoiceSellers(enabled: boolean) {
   return { ws, error: q.isError, retry: () => void q.refetch(), branchId, setBranchId, sel, setSel, build };
 }
 
-export function InvoiceSellerFields({ state, lines }: { state: ReturnType<typeof useInvoiceSellers>; lines: string[] }) {
+export function InvoiceSellerFields({ state, lines, hideBranch=false }: { state: ReturnType<typeof useInvoiceSellers>; lines: string[];hideBranch?:boolean }) {
   const { ws, error, retry, branchId, setBranchId, sel, setSel } = state;
   if (error && !ws) return <p role="alert" className="text-xs text-destructive" data-testid="invoice-seller-unavailable">تعذر تحميل سياسة البائعين؛ لا يمكن حفظ الفاتورة حتى تُحمَّل. <button type="button" className="underline" onClick={retry} data-testid="button-retry-invoice-seller">إعادة المحاولة</button></p>;
   if (!ws) return <p className="text-xs text-muted-foreground" data-testid="invoice-seller-loading">جارٍ تحميل سياسة البائعين…</p>;
-  const branchPicker = ws.branches.length > 1 && (
+  const branchPicker = !hideBranch && ws.branches.length > 1 && (
     <div>
       <Label className="text-xs">الفرع</Label>
       <select data-testid="select-invoice-branch" className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"

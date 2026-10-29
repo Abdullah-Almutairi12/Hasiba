@@ -687,6 +687,37 @@ export async function assertDeferredInvoiceApproval(companyId:number,id:number,c
   return true;
 }
 
+/** Sales conversion consumes the existing order decision, not the invoice
+ * executor's authority. Source fingerprints deliberately exclude fulfilment
+ * counters, but include the agreed pricing evidence and all material inputs. */
+export async function assertDeferredSalesOrderApproval(companyId:number,id:number,amount:number,
+  branchId:number|null,connection:DbOrTx,currentFinancialTotal=amount){
+  const [request]=await connection.select().from(approvalRequestsTable).where(and(
+    eq(approvalRequestsTable.companyId,companyId),eq(approvalRequestsTable.docType,"sales_order"),
+    eq(approvalRequestsTable.recordId,id))).orderBy(desc(approvalRequestsTable.id)).limit(1).for("update");
+  if(!request){
+    const rules=await approvalCandidates({companyId,docType:"sales_order",amount:currentFinancialTotal},connection);
+    if(rules.some(r=>r.branchId==null||r.branchId===branchId))
+      throw new FinancialRequestError("أمر البيع يحتاج اعتمادًا؛ لا تكفي حالته لتجاوز مسار الموافقات",409);
+    return;
+  }
+  if(Math.abs(currentFinancialTotal-amount)>.011)
+    throw new FinancialRequestError("تغيرت الحقائق المالية الضريبية عن مبلغ اعتماد الأمر؛ يلزم مراجعة واعتماد جديدان",409);
+  if(request.status!=="approved"||request.reviewInvalidatedAt||!await approvalSourceMatches(request,connection))
+    throw new FinancialRequestError("اعتماد أمر البيع لا يطابق حقائقه الحالية",409);
+  const policy=frozenApprovalPolicy(request);
+  const actions=await connection.select().from(approvalActionsTable).where(and(
+    eq(approvalActionsTable.requestId,request.id),eq(approvalActionsTable.action,"approve")));
+  if(!policy||actions.length!==policy.steps.length)
+    throw new FinancialRequestError("سلسلة اعتماد أمر البيع غير مكتملة",403);
+  for(const step of policy.steps){
+    const matches=actions.filter(a=>a.stepSequence===step.sequence),action=matches[0];
+    if(matches.length!==1||!action?.approverUserId||
+      !(await resolveApprovers(step.approverRole,step.approverUserId,request.branchId,companyId,connection,request)).includes(action.approverUserId))
+      throw new FinancialRequestError("تغيرت أهلية معتمد أمر البيع؛ يلزم اعتماد صالح عند التنفيذ",403);
+  }
+}
+
 async function actOnApprovalTransaction(
   requestId: number, userId: number | null, userName: string | null, action: ActionKind,
   companyId: number, comment: string | undefined, db: DbOrTx, effects: ApprovalEffect[],

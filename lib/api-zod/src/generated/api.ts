@@ -134,6 +134,34 @@ export const PreviewDirectInvoiceTaxResponse = zod.object({
 })
 
 
+export const ReviewLegacySalesOrderPriceBasisParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const reviewLegacySalesOrderPriceBasisBodyOrderDiscountMin = 0;
+
+export const reviewLegacySalesOrderPriceBasisBodyReasonMin = 10;
+export const reviewLegacySalesOrderPriceBasisBodyReasonMax = 1000;
+
+
+
+export const ReviewLegacySalesOrderPriceBasisBody = zod.object({
+  "priceIncludesVat": zod.boolean(),
+  "currencyCode": zod.enum(['SAR']),
+  "orderDiscount": zod.number().min(reviewLegacySalesOrderPriceBasisBodyOrderDiscountMin),
+  "reason": zod.string().min(reviewLegacySalesOrderPriceBasisBodyReasonMin).max(reviewLegacySalesOrderPriceBasisBodyReasonMax),
+  "proof": zod.object({
+  "currentPassword": zod.string(),
+  "token": zod.string().optional(),
+  "recoveryCode": zod.string().optional()
+})
+})
+
+export const ReviewLegacySalesOrderPriceBasisResponse = zod.object({
+  "ok": zod.boolean()
+})
+
+
 export const ClosePosTaxPreviewIntentBody = zod.object({
   "requestKey": zod.string(),
   "body": zod.record(zod.string(), zod.unknown())

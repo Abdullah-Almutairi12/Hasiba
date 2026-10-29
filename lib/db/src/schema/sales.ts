@@ -210,6 +210,9 @@ export const salesOrdersTable = pgTable("sales_orders", {
   // SO-creation time when no quote exists) and consumed by the invoice JE
   // so per-rule discount accounts survive the Quote→SO→Invoice lifecycle.
   appliedDiscounts: jsonb("applied_discounts"),
+  /** Agreed commercial inputs, independent of later tax-policy revisions. NULL
+   * is unproven legacy evidence, never an implicit tax-exclusive declaration. */
+  pricingBasis: jsonb("pricing_basis"),
   createdBy: integer("created_by").references(() => usersTable.id),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });

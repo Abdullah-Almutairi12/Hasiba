@@ -13,6 +13,7 @@ import {
 } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { recordStockMove } from "../lib/stock-engine";
+import {reviewedSalesInvoice} from "../test/reviewed-sales-invoice";
 import { postJournalEntry } from "../lib/journal-posting";
 import { actOnApproval } from "../lib/workflow-engine";
 
@@ -720,7 +721,7 @@ describe("original sales cost, inventory carrying value and profit", () => {
     let revenue = 0;
     let restored = 0;
     for (const quantity of [800_000, 1_200_000]) {
-      const invoice = ok(await f.agent.post("/api/sales/invoices").send({
+      const invoice = ok(await reviewedSalesInvoice(f.agent,{
         soId: order.id,
         lines: [{ productId: f.productId, description: f.tag, quantity, unitPrice: 20, taxRate: 0 }],
       }));
@@ -792,7 +793,7 @@ describe("original sales cost, inventory carrying value and profit", () => {
       ok(await f.agent.post(`/api/sales/deliveries/${delivery.id}/transition`).send({ to: "delivered" }), 200);
     }
     await reconcile(f, { inventory: 40, cogs: 60, profit: -60 });
-    const invoice = ok(await f.agent.post("/api/sales/invoices").send({ customerId: f.customerId, soId: order.id }));
+    const invoice = ok(await reviewedSalesInvoice(f.agent,{ customerId: f.customerId, soId: order.id }));
     const [line] = await rows("SELECT id FROM customer_invoice_lines WHERE invoice_id=$1", [invoice.id]);
     await reconcile(f, { inventory: 40, cogs: 60, profit: 340 });
     await db.update(productsTable).set({ costPrice: "99" }).where(eq(productsTable.id, f.productId));
@@ -814,7 +815,7 @@ describe("original sales cost, inventory carrying value and profit", () => {
       ok(await f.agent.post("/api/sales/deliveries").send({
         soId: order.id, lines: [{ soLineId: soLine.id, quantity: 2 }],
       }));
-      const invoice = ok(await f.agent.post("/api/sales/invoices").send({
+      const invoice = ok(await reviewedSalesInvoice(f.agent,{
         soId: order.id,
         lines: [{ productId: f.productId, description: f.tag, quantity: 2, unitPrice: 100, taxRate: 0 }],
       }));
@@ -849,7 +850,7 @@ describe("original sales cost, inventory carrying value and profit", () => {
     ok(await f.agent.post("/api/sales/deliveries").send({ soId: order.id }));
     const invoices = [];
     for (let installment = 0; installment < 2; installment++) {
-      const invoice = ok(await f.agent.post("/api/sales/invoices").send({
+      const invoice = ok(await reviewedSalesInvoice(f.agent,{
         soId: order.id,
         lines: [{ productId: f.productId, description: f.tag, quantity: 2, unitPrice: 100, taxRate: 0 }],
       }));
@@ -875,11 +876,11 @@ describe("original sales cost, inventory carrying value and profit", () => {
       lines: [{ productId: f.productId, description: f.tag, quantity: 4, unitPrice: 100, taxRate: 0 }],
     }));
     ok(await f.agent.post("/api/sales/deliveries").send({ soId: order.id }));
-    const original = ok(await f.agent.post("/api/sales/invoices").send({ soId: order.id }));
+    const original = ok(await reviewedSalesInvoice(f.agent,{ soId: order.id }));
     const [originalLine] = await rows("SELECT id FROM customer_invoice_lines WHERE invoice_id=$1", [original.id]);
     const allocationBefore = await rows("SELECT * FROM sales_issue_allocations WHERE invoice_line_id=$1", [originalLine.id]);
     ok(await f.agent.post(`/api/sales/invoices/${original.id}/reverse`).send({ reason: "Synthetic re-billing" }), 200);
-    const replacement = ok(await f.agent.post("/api/sales/invoices").send({ soId: order.id }));
+    const replacement = ok(await reviewedSalesInvoice(f.agent,{ soId: order.id }));
     const [replacementLine] = await rows("SELECT id FROM customer_invoice_lines WHERE invoice_id=$1", [replacement.id]);
     const allocationAfter = await rows("SELECT * FROM sales_issue_allocations WHERE invoice_line_id=$1", [originalLine.id]);
     expect(allocationAfter).toEqual(allocationBefore);
@@ -1154,7 +1155,7 @@ describe("credit-note cancellation reconciles actual depletion, not only journal
       lines: [{ productId: f.productId, description: f.tag, quantity: 4, unitPrice: 100, taxRate: 0 }],
     }));
     ok(await f.agent.post("/api/sales/deliveries").send({ soId: order.id }));
-    const invoice = ok(await f.agent.post("/api/sales/invoices").send({ soId: order.id }));
+    const invoice = ok(await reviewedSalesInvoice(f.agent,{ soId: order.id }));
     const [line] = await rows("SELECT id FROM customer_invoice_lines WHERE invoice_id=$1", [invoice.id]);
     const credits = [];
     for (let n = 0; n < 2; n++) credits.push(ok(await f.agent.post("/api/sales/credit-notes").send(returnBody(f, invoice.id, line.id, 1))));

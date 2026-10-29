@@ -38,6 +38,8 @@ import { saleDocumentHistory } from "../lib/sale-document-history";
 import { checkDocumentPrint } from "../lib/print-permissions";
 import { randomUUID } from "node:crypto";
 import {directInvoiceTaxAuthority,prepareDirectInvoiceTax} from "../lib/direct-invoice-tax";
+import {prepareOrderInvoice,type OrderPriceBasis} from "../lib/sales-order-pricing";
+import {withAccountProof} from "../lib/account-security";
 import {issueTaxPreview,verifyTaxPreview} from "../lib/tax-preview";
 import {closeSaleIntent} from "../lib/close-sale-intent";
 import { salePrintDescription, saleCashierMetadata } from "../lib/sale-print-identity";
@@ -63,7 +65,7 @@ import { invoiceReturnBudgets, operationalReturnTotals, returnCents, returnMoney
 import { assertSavedReturnValue } from "../lib/sales-return-value-guard";
 import { buildZatcaQrBase64 } from "../lib/zatca-qr";
 import { captureIssuer, saveIssuer, documentIssuer } from "../lib/document-identity";
-import {calculatePolicySale,riyadhDate} from "../lib/vat-policy";
+import {calculatePolicySale,riyadhDate,taxContext} from "../lib/vat-policy";
 import { recordSaleSellers, recordReturnSellers, cancelSellerInvoice,savedSellerLines,sellerLineDescription } from "../lib/seller-ledger";
 import { resolveSellerBranch } from "../lib/seller-policy";
 import { returnActor } from "../lib/return-access";
@@ -1122,6 +1124,8 @@ router.post("/sales/quotations/:id/convert", salesWriteGuard, async (req, res) =
 // Sales Orders
 // ===================================================================
 const SoBody = z.object({
+  priceIncludesVat:z.boolean().optional(),
+  currencyCode:z.literal("SAR").default("SAR"),
   customerId: z.number().int(),
   pricelistId: z.number().int().nullable().optional(),
   salesRepId: z.number().int().nullable().optional(),
@@ -1139,6 +1143,7 @@ router.get("/sales/orders", customerReadGuard, async (req, res) => {
   try {
     const { status, customerId } = req.query;
     const companyId = getCompanyId(req);
+    const orderReader=await returnActor(req.session.userId!,companyId);
     // Tenant scope via customers.companyId (customerId is NOT NULL on
     // salesOrders). Until salesOrders gains its own company_id column we
     // join through customers to keep cross-tenant rows out of the list.
@@ -1150,6 +1155,7 @@ router.get("/sales/orders", customerReadGuard, async (req, res) => {
         and(
           eq(customersTable.companyId, companyId),
           eq(salesOrdersTable.companyId, companyId),
+          orderReader.branches?orderReader.branches.length?inArray(salesOrdersTable.branchId,orderReader.branches):sql`false`:sql`true`,
           status ? eq(salesOrdersTable.status, String(status)) : sql`true`,
           customerId ? eq(salesOrdersTable.customerId, Number(customerId)) : sql`true`,
         ),
@@ -1174,6 +1180,10 @@ router.get("/sales/orders/:id", customerReadGuard, async (req, res) => {
       .innerJoin(customersTable, eq(customersTable.id, salesOrdersTable.customerId))
       .where(and(eq(salesOrdersTable.id, id), eq(salesOrdersTable.companyId, companyId), eq(customersTable.companyId, companyId)));
     if (!row) { res.status(404).json({ error: "Not found" }); return; }
+    const orderReader=await returnActor(req.session.userId!,companyId);
+    if(orderReader.branches&&(row.so.branchId==null||!orderReader.branches.includes(row.so.branchId))){
+      res.status(404).json({error:"أمر البيع غير متاح في النطاق"});return;
+    }
     const lines = await db.select().from(salesOrderLinesTable).where(eq(salesOrderLinesTable.soId, id));
     res.json({ ...serializeMoneyDoc(row.so), lines: lines.map(serializeLine) });
   } catch (err) {
@@ -1181,11 +1191,46 @@ router.get("/sales/orders/:id", customerReadGuard, async (req, res) => {
   }
 });
 
+router.post("/sales/orders/:id/review-price-basis",financeGuard,async(req,res)=>{
+  try{
+    const input=z.object({priceIncludesVat:z.boolean(),orderDiscount:z.number().finite().min(0),
+      currencyCode:z.literal("SAR"),reason:z.string().trim().min(10).max(1000),
+      proof:z.object({currentPassword:z.string().min(1).max(200),token:z.string().max(20).optional(),
+        recoveryCode:z.string().max(100).optional()})}).parse(req.body);
+    const cid=getCompanyId(req),id=Number(req.params.id);
+    await withAccountProof(req,input.proof,async tx=>{
+      await directInvoiceTaxAuthority(req,tx);
+      const [order]=await tx.select().from(salesOrdersTable).where(and(eq(salesOrdersTable.id,id),
+        eq(salesOrdersTable.companyId,cid))).for("update");
+      if(!order)throw new FinancialRequestError("أمر البيع غير موجود",404);
+      if(order.pricingBasis)throw new FinancialRequestError("أساس السعر مثبت بالفعل ولا يُستبدل بهذا المسار",409);
+      if(order.currencyCode!=="SAR")throw new FinancialRequestError("لا تُحوّل العملة التاريخية افتراضيًا",422);
+      const lines=await tx.select().from(salesOrderLinesTable).where(eq(salesOrderLinesTable.soId,id)).orderBy(salesOrderLinesTable.id);
+      if(lines.some(l=>Number(l.invoicedQty)!==0))throw new FinancialRequestError("أمر مفوتر جزئيًا بلا دليل سعر؛ يحتاج مصالحة تاريخية مستقلة ولا يُعاد تفسيره",409);
+      const basis:OrderPriceBasis={version:1,priceIncludesVat:input.priceIncludesVat,currencyCode:"SAR",
+        orderDiscount:input.orderDiscount,source:"reviewed_legacy",recordedBy:req.session.userId!,
+        recordedAt:new Date().toISOString(),lines:lines.map(l=>({productId:l.productId,description:l.description,
+          quantity:Number(l.quantity),unitPrice:Number(l.unitPrice),discountPct:Number(l.discountPct),taxRate:Number(l.taxRate),priceSource:"reviewed_legacy"}))};
+      await tx.update(salesOrdersTable).set({pricingBasis:basis}).where(eq(salesOrdersTable.id,id));
+      await tx.execute(sql`INSERT INTO audit_logs(company_id,user_id,user_name,action,entity,details)
+        SELECT ${cid},id,name,'sales_order.price_basis_reviewed','sales_order',
+          ${JSON.stringify({orderId:id,reason:input.reason,basis,identityConfirmed:true,historicalTotalsUnchanged:true})}
+        FROM users WHERE id=${req.session.userId!}`);
+    },true);
+    res.json({ok:true});
+  }catch(err){handleRouteError(err,res);}
+});
+
 router.post("/sales/orders", salesWriteGuard, async (req, res) => {
   try {
     const body = SoBody.parse(req.body);
     const companyId = getCompanyId(req);
     const result = await db.transaction(async (tx) => {
+      await lockApprovalAuthority(tx);
+      const orderActor=await returnActor(req.session.userId!,companyId,tx);
+      if(!["owner","manager","accountant","sales"].includes(orderActor.role)||
+        orderActor.branches&&(body.branchId==null||!orderActor.branches.includes(body.branchId)))
+        throw new FinancialRequestError("صلاحية إنشاء أمر البيع أو نطاقه غير متاحين",403);
       // Tenant scope: customer must belong to the caller's company.
       const [customer] = await tx
         .select()
@@ -1193,17 +1238,34 @@ router.post("/sales/orders", salesWriteGuard, async (req, res) => {
         .where(and(eq(customersTable.id, body.customerId), eq(customersTable.companyId, companyId)));
       if (!customer) throw new Error("العميل غير موجود");
       const pricelistId = body.pricelistId ?? (await resolveCustomerPricelist(tx, customer.id));
+      if(pricelistId!=null){
+        const [list]=await tx.select().from(pricelistsTable).where(eq(pricelistsTable.id,pricelistId));
+        if(!list||list.currencyCode!=="SAR")throw new FinancialRequestError("قائمة الأسعار غير متاحة بعملة SAR؛ لا يُفترض تحويل عملة",422);
+      }
 
       const enriched = [] as Parameters<typeof computeTotals>[0];
+      const priceSources:OrderPriceBasis["lines"][number]["priceSource"][]=[];
+      if(body.branchId!=null&&!(await tx.execute(sql`SELECT id FROM branches WHERE id=${body.branchId} AND company_id=${companyId}`)).rows.length)
+        throw new FinancialRequestError("فرع أمر البيع خارج المنشأة",403);
+      if(body.warehouseId!=null&&!(await tx.execute(sql`SELECT id FROM warehouses WHERE id=${body.warehouseId} AND company_id=${companyId}
+        AND (${body.branchId??null}::integer IS NULL OR branch_id=${body.branchId??null})`)).rows.length)
+        throw new FinancialRequestError("مستودع أمر البيع خارج النطاق",403);
       for (const ln of body.lines) {
+        if(ln.productId!=null&&!(await tx.execute(sql`SELECT id FROM products WHERE id=${ln.productId} AND company_id=${companyId}`)).rows.length)
+          throw new FinancialRequestError("صنف أمر البيع خارج المنشأة",403);
+        if(Math.abs(ln.quantity*10000-Math.round(ln.quantity*10000))>1e-6)
+          throw new FinancialRequestError("كمية الأمر تدعم أربع منازل عشرية",422);
         let unitPrice = ln.unitPrice;
-        if ((unitPrice == null || unitPrice === 0) && ln.productId) {
-          unitPrice = (await resolvePrice(tx, {
+        let priceSource:OrderPriceBasis["lines"][number]["priceSource"]="manual";
+        if (unitPrice == null && ln.productId) {
+          const resolved = await resolvePrice(tx, {
             productId: ln.productId,
             pricelistId,
             quantity: ln.quantity,
-          })).unitPrice;
+          });
+          unitPrice=resolved.unitPrice;priceSource=resolved.source;
         }
+        priceSources.push(priceSource);
         enriched.push({
           productId: ln.productId ?? null,
           description: ln.description,
@@ -1213,7 +1275,9 @@ router.post("/sales/orders", salesWriteGuard, async (req, res) => {
           taxRate: ln.taxRate,
         });
       }
-      const lineRules = await applyLineDiscountRules(tx, enriched);
+      const orderRuleSteps:Array<{id:number;lines:Parameters<typeof computeTotals>[0]}>=[];
+      const beforeOrderRules=enriched.map(l=>({...l}));
+      const lineRules = await applyLineDiscountRules(tx, enriched,(rule,lines)=>orderRuleSteps.push({id:rule.id,lines}));
       const baseNetPre = enriched.reduce(
         (a, l) => a + l.quantity * l.unitPrice * (1 - (l.discountPct ?? 0) / 100),
         0,
@@ -1222,10 +1286,36 @@ router.post("/sales/orders", salesWriteGuard, async (req, res) => {
         baseNet: Math.max(0, baseNetPre - body.orderDiscount),
         scope: "order",
       });
-      const totals = computeTotals(
+      const orderContext=await taxContext(companyId,body.orderDate??riyadhDate(),tx);
+      if(!orderContext.registered)for(const line of enriched)line.taxRate=0;
+      const priceIncludesVat=body.priceIncludesVat??orderContext.priceIncludesVat;
+      const agreedOrderDiscount=body.orderDiscount+ruleResult.discountAmount;
+      const orderPolicy=await calculatePolicySale(tx,companyId,body.orderDate??riyadhDate(),enriched,agreedOrderDiscount,{priceIncludesVat});
+      const totals = orderPolicy?.totals??computeTotals(
         enriched,
-        body.orderDiscount + ruleResult.discountAmount,
+        agreedOrderDiscount,{priceIncludesVat},
       );
+      const pricingBasis:OrderPriceBasis={version:1,priceIncludesVat,currencyCode:body.currencyCode,
+        orderDiscount:agreedOrderDiscount,source:"explicit_order",recordedBy:req.session.userId!,
+        recordedAt:new Date().toISOString(),lines:enriched.map((l,i)=>({...l,
+          productId:l.productId??null,discountPct:l.discountPct??0,taxRate:l.taxRate??0,priceSource:priceSources[i]!})),
+        ruleBudgets:[]};
+      const untaxed=(ls:Parameters<typeof computeTotals>[0],discount:number)=>computeTotals(
+        ls.map(l=>({...l,taxRate:0})),discount,{priceIncludesVat:false});
+      let previousBudget=untaxed(beforeOrderRules,0);
+      for(const step of orderRuleSteps){
+        const next=untaxed(step.lines,0),rule=lineRules.applied.find(r=>r.id===step.id)!;
+        pricingBasis.ruleBudgets!.push({...rule,amounts:next.lines.map((l,i)=>+(previousBudget.lines[i]!.lineNet-l.lineNet).toFixed(2))});
+        previousBudget=next;
+      }
+      let cumulativeOrderDiscount=body.orderDiscount;
+      previousBudget=untaxed(enriched,cumulativeOrderDiscount);
+      for(const rule of ruleResult.applied){
+        cumulativeOrderDiscount=+(cumulativeOrderDiscount+rule.amount).toFixed(2);
+        const next=untaxed(enriched,cumulativeOrderDiscount);
+        pricingBasis.ruleBudgets!.push({...rule,amounts:next.lines.map((l,i)=>+(previousBudget.lines[i]!.lineNet-l.lineNet).toFixed(2))});
+        previousBudget=next;
+      }
       const appliedDiscounts = [
         ...lineRules.applied.map((r) => ({ ...r, scope: "line" as const })),
         ...ruleResult.applied.map((r) => ({ ...r, scope: "order" as const })),
@@ -1242,9 +1332,9 @@ router.post("/sales/orders", salesWriteGuard, async (req, res) => {
           pricelistId: pricelistId ?? null,
           salesRepId: body.salesRepId ?? req.session?.userId ?? null,
           branchId: body.branchId ?? null,
-          warehouseId: body.warehouseId ?? (await getDefaultWarehouseId(tx).catch(() => null)),
+          warehouseId: body.warehouseId ?? (await getDefaultWarehouseId(tx,companyId).catch(() => null)),
           status: body.status === "draft" ? "draft" : "confirmed",
-          orderDate: body.orderDate ?? new Date().toISOString().slice(0, 10),
+          orderDate: body.orderDate ?? riyadhDate(),
           expectedDate: body.expectedDate ?? null,
           subtotal: String(totals.subtotal),
           discount: String(totals.discount),
@@ -1253,17 +1343,19 @@ router.post("/sales/orders", salesWriteGuard, async (req, res) => {
           notes: body.notes ?? null,
           source: "manual",
           appliedDiscounts: appliedDiscounts.length ? appliedDiscounts : null,
+          pricingBasis,
+          currencyCode:body.currencyCode,
           createdBy: req.session?.userId ?? null,
         })
         .returning();
 
-      for (const ln of totals.lines) {
+      for (const [index,ln] of totals.lines.entries()) {
         await tx.insert(salesOrderLinesTable).values({
           soId: so.id,
           productId: (ln.productId as number | null) ?? null,
           description: ln.description,
           quantity: String(ln.quantity),
-          unitPrice: String(ln.unitPrice),
+          unitPrice: String(enriched[index]!.unitPrice),
           discountPct: String(ln.discountPct),
           taxRate: String(ln.taxRate),
           lineTotal: String(ln.lineTotal),
@@ -1493,7 +1585,7 @@ router.post("/sales/deliveries", salesWriteGuard, async (req, res) => {
           soId: so.id,
           warehouseId,
           status: initialStatus,
-          deliveryDate: body.deliveryDate ?? new Date().toISOString().slice(0, 10),
+          deliveryDate: body.deliveryDate ?? riyadhDate(),
           notes: body.notes ?? null,
           createdBy: req.session?.userId ?? null,
           deliveredAt: initialStatus === "delivered" ? new Date() : null,
@@ -1684,6 +1776,7 @@ router.post("/sales/deliveries/:id/transition", salesWriteGuard, async (req, res
 // Customer Invoices (AR)
 // ===================================================================
 const InvoiceBody = z.object({
+  soQuantities:z.array(z.object({soLineId:z.number().int().positive(),quantity:z.number().positive().finite()})).min(1).optional(),
   taxPreviewToken:z.string().optional(),
   taxContextToken:z.string().optional(),
   branchId: z.number().int().positive().nullable().optional(),
@@ -1701,12 +1794,19 @@ const InvoiceBody = z.object({
 router.post("/sales/invoices/tax-preview",financeGuard,async(req,res)=>{
   try{
     const body=InvoiceBody.parse(req.body);
-    if(body.soId)throw new FinancialRequestError("المعاينة الحالية للفواتير المباشرة فقط؛ مسار أمر البيع غير مفعّل",422);
     const result=await db.transaction(async tx=>{
       await lockApprovalAuthority(tx);
       await directInvoiceTaxAuthority(req,tx);
-      const prepared=await prepareDirectInvoiceTax(tx,req,body);
-      return {context:prepared.context,totals:prepared.totals,...issueTaxPreview(req,"invoice",prepared.facts)};
+      let prepared;
+      if(body.soId){
+        const [order]=await tx.select().from(salesOrdersTable).where(and(eq(salesOrdersTable.id,body.soId),
+          eq(salesOrdersTable.companyId,getCompanyId(req)))).for("update");
+        if(!order)throw new FinancialRequestError("أمر البيع غير موجود",404);
+        const lines=await tx.select().from(salesOrderLinesTable).where(eq(salesOrderLinesTable.soId,order.id)).orderBy(salesOrderLinesTable.id);
+        prepared=await prepareOrderInvoice(tx,req,order,lines,body);
+      }else prepared=await prepareDirectInvoiceTax(tx,req,body);
+      return {context:prepared.context,totals:prepared.totals,...("comparison" in prepared?{comparison:prepared.comparison}:{}),
+        ...issueTaxPreview(req,"invoice",prepared.facts)};
     });
     res.json(result);
   }catch(err){handleRouteError(err,res);}
@@ -2495,10 +2595,6 @@ router.post("/sales/invoices", financeGuard, async (req, res) => {
       const taxAt=body.invoiceDate??riyadhDate();
       await lockApprovalAuthority(tx);
       await directInvoiceTaxAuthority(req,tx);
-      const issuer = await captureIssuer(tx, getCompanyId(req),taxAt);
-      const vatEnabled = issuer.vatEnabled;
-      const sellerNameForZatca = issuer.nameAr;
-      const sellerVatForZatca = issuer.vatNumber;
       let customerId = body.customerId;
       let so: typeof salesOrdersTable.$inferSelect | undefined;
       let soLines: typeof salesOrderLinesTable.$inferSelect[] = [];
@@ -2506,8 +2602,9 @@ router.post("/sales/invoices", financeGuard, async (req, res) => {
         const [foundSo] = await tx.select().from(salesOrdersTable).where(and(eq(salesOrdersTable.id, body.soId), eq(salesOrdersTable.companyId, getCompanyId(req)))).for("update");
         if (!foundSo) throw new Error("أمر البيع غير موجود");
         so = foundSo;
-        soLines = await tx.select().from(salesOrderLinesTable).where(eq(salesOrderLinesTable.soId, foundSo.id));
+        soLines = await tx.select().from(salesOrderLinesTable).where(eq(salesOrderLinesTable.soId, foundSo.id)).orderBy(salesOrderLinesTable.id);
         customerId = foundSo.customerId;
+        await directInvoiceTaxAuthority(req,tx);
       }
       if (!customerId) throw new Error("يجب تحديد العميل أو أمر البيع");
       // Tenant scope: refuse if the resolved customer (direct or via SO) is foreign.
@@ -2517,9 +2614,14 @@ router.post("/sales/invoices", financeGuard, async (req, res) => {
         .where(and(eq(customersTable.id, customerId), eq(customersTable.companyId, getCompanyId(req))));
       if (!customer) throw new Error("العميل غير موجود");
 
-      const directTax=!body.soId?await prepareDirectInvoiceTax(tx,req,body):null;
+      const orderTax=so?await prepareOrderInvoice(tx,req,so,soLines,body):null;
+      const directTax=orderTax??await prepareDirectInvoiceTax(tx,req,body);
+      const issuer=await captureIssuer(tx,getCompanyId(req),orderTax?.context.supplyDate??taxAt);
+      const vatEnabled=issuer.vatEnabled;
+      const sellerNameForZatca=issuer.nameAr;
+      const sellerVatForZatca=issuer.vatNumber;
       let enriched: Parameters<typeof computeTotals>[0] = directTax?.enriched??[];
-      const soLineByIdx: number[] = [];
+      const soLineByIdx: number[] = orderTax?.soLineIds??[];
       if (!directTax && body.lines && body.lines.length > 0) {
         // When both `soId` AND custom `lines` are supplied, every line must
         // be traceable to an SO line (matched by productId), and the
@@ -2639,10 +2741,8 @@ router.post("/sales/invoices", financeGuard, async (req, res) => {
         verifyTaxPreview(req,"invoice",body.taxPreviewToken,directTax.facts);
         enriched=directTax.enriched;
       }
-      if(policySale&&body.taxContextToken!==policySale.context.token)
+      if(policySale?.context.mode==="unified"&&body.taxContextToken!==policySale.context.token)
         throw new FinancialRequestError("تغير الإعداد الضريبي؛ أعد مراجعة مسودة الفاتورة قبل الإصدار",409);
-      if(policySale&&fromSo)
-        throw new FinancialRequestError("مسار تثبيت أساس تسعير أمر البيع يحتاج تحققًا قبل تفعيل هذه السياسة؛ لم تصدر فاتورة",422);
       if(policySale)issuer.taxCalculation=policySale.snapshot;
       const totals = directTax?.totals ?? policySale?.totals ?? computeTotals(
         enriched,
@@ -2663,7 +2763,7 @@ router.post("/sales/invoices", financeGuard, async (req, res) => {
         ...lineRules.applied,
         ...ruleResult.applied,
       ];
-      if (fromSo && so) {
+      if (fromSo && so && !orderTax) {
         const snap = (so.appliedDiscounts as SnapRule[] | null) ?? [];
         const soSubtotal = Number(so.subtotal);
         const ratio = soSubtotal > 0 ? totals.subtotal / soSubtotal : 0;
@@ -2843,7 +2943,7 @@ router.post("/sales/invoices", financeGuard, async (req, res) => {
           branchId: so?.branchId ?? null,
         },
       };
-    });
+    },async(tx)=>{await lockApprovalAuthority(tx);await directInvoiceTaxAuthority(req,tx);});
     if (res.getHeader("Idempotency-Replayed")) {
       res.status(201).json(serializeMoneyDoc(result.inv)); return;
     }

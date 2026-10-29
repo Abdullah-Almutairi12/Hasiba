@@ -34,6 +34,8 @@ paths:
     $ref: "./vat-policy-paths.yaml#/posPreview"
   /sales/invoices/tax-preview:
     $ref: "./vat-policy-paths.yaml#/invoicePreview"
+  /sales/orders/{id}/review-price-basis:
+    $ref: "./vat-policy-paths.yaml#/orderPriceReview"
   /pos/tax-preview/close-intent:
     $ref: "./vat-policy-paths.yaml#/posCloseIntent"
   /sales/invoices/tax-preview/close-intent:

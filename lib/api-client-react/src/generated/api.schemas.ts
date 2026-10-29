@@ -3832,6 +3832,36 @@ export type PreviewDirectInvoiceTax200 = {
   totals: PreviewDirectInvoiceTax200Totals;
 };
 
+export type ReviewLegacySalesOrderPriceBasisBodyCurrencyCode = typeof ReviewLegacySalesOrderPriceBasisBodyCurrencyCode[keyof typeof ReviewLegacySalesOrderPriceBasisBodyCurrencyCode];
+
+
+export const ReviewLegacySalesOrderPriceBasisBodyCurrencyCode = {
+  SAR: 'SAR',
+} as const;
+
+export type ReviewLegacySalesOrderPriceBasisBodyProof = {
+  currentPassword: string;
+  token?: string;
+  recoveryCode?: string;
+};
+
+export type ReviewLegacySalesOrderPriceBasisBody = {
+  priceIncludesVat: boolean;
+  currencyCode: ReviewLegacySalesOrderPriceBasisBodyCurrencyCode;
+  /** @minimum 0 */
+  orderDiscount: number;
+  /**
+     * @minLength 10
+     * @maxLength 1000
+     */
+  reason: string;
+  proof: ReviewLegacySalesOrderPriceBasisBodyProof;
+};
+
+export type ReviewLegacySalesOrderPriceBasis200 = {
+  ok: boolean;
+};
+
 export type ClosePosTaxPreviewIntentBodyBody = { [key: string]: unknown };
 
 export type ClosePosTaxPreviewIntentBody = {

@@ -107,6 +107,9 @@ export interface SalesLineInput {
   quantity: number;
   unitPrice: number;
   discountPct?: number;
+  /** Internal server allocation of an already-evidenced commercial discount.
+   * Public invoice schemas never accept this field. */
+  discountAmount?: number;
   taxRate?: number;
   taxCategory?: "standard" | "zero" | "exempt" | "not_registered";
 }
@@ -230,6 +233,12 @@ function computePolicyTotals(lines:SalesLineInput[],discount:number,inclusive:bo
     return round(q*p*100n,qd*pd);
   });
   const afterLine=lines.map((l,i)=>{
+    if(l.discountAmount!=null){
+      if(l.discountPct)throw new Error("لا يجمع خصم مبلغ مخصص مع نسبة أخرى");
+      const discount=cents(l.discountAmount);
+      if(discount>gross[i]!)throw new Error("خصم البند يتجاوز أساس السعر");
+      return gross[i]!-discount;
+    }
     const[n,d]=ratio(l.discountPct??0);
     if(n>100n*d)throw new Error("خصم البند يتجاوز100%");
     return gross[i]!-round(gross[i]!*n,100n*d);
