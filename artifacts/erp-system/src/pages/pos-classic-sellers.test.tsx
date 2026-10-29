@@ -18,7 +18,7 @@ vi.mock("@workspace/api-client-react", async (original) => ({
   useListPosSessions: () => ({ data: [{ id: 9, status: "open", branchId: state.branchId, cashierName: "الكاشير المستقل" }], refetch: vi.fn() }),
   useGetZatcaStatus: () => ({ data: undefined }),
   useGetSellerWorkspace: (_: unknown, options: { query: { enabled: boolean } }) => { state.queryEnabled = options.query.enabled; return ({
-    data: (!state.cached && state.error) || !options.query.enabled ? undefined : { policy: { mode: state.mode, granularity: state.granularity }, sellers: state.empty ? [] : [{ id: 7, name: "البائعة سارة" }, { id: 8, name: "البائع خالد" }] },
+    data: (!state.cached && state.error) || !options.query.enabled ? undefined : { policy: { mode: state.mode, granularity: state.granularity }, sellers: state.empty ? [] : [{ id: 7, name: "البائعة سارة", employeeNo: "SELLER-7" }, { id: 8, name: "البائع خالد", employeeNo: "SELLER-8" }] },
     isError: state.error, refetch: state.refetch,
   }); },
 }));
@@ -121,7 +121,7 @@ describe("original classic POS seller assignment", () => {
     expect(state.queryEnabled).toBe(true);
     await u.click(pay()); await waitFor(() => expect(posts).toHaveLength(1));
   });
-  it("retains the exact invoice/line sellers, key and tokens after response loss and remount despite policy failure", async () => {
+  it("uses primary Pay to recover exact sellers/key/tokens after reload, never a new gateway charge", async () => {
     state.granularity = "line"; lose = true;
     const v = mount(); const u = userEvent.setup(); await add(u);
     await u.selectOptions(screen.getByTestId("classic-seller-whole"), "7");
@@ -130,7 +130,7 @@ describe("original classic POS seller assignment", () => {
     await screen.findByTestId("classic-seller-frozen"); expect(posts).toHaveLength(1);
     v.unmount(); state.error = true; state.gateway = true; mount();
     await screen.findByTestId("classic-seller-frozen");
-    await u.click(await screen.findByRole("button", { name: "استرجاع النتيجة" }));
+    await u.click(pay());
     await waitFor(() => expect(posts).toHaveLength(2));
     expect(posts[1]).toEqual(posts[0]);
     expect(posts[1].body).toMatchObject({ sellerEmployeeId: 7, lineSellers: [{ lineIndex: 0, employeeId: 8 }] });

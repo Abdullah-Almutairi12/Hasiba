@@ -21,6 +21,7 @@ const dir = resolve(import.meta.dirname, "../../../../generated-artifacts/classi
 mkdirSync(dir, { recursive: true });
 const file = resolve(dir, "browser-proxy.json");
 const q = async (s: string, p: unknown[] = []) => (await pool.query(s, p)).rows;
+const cashierId = Number((await q("SELECT id FROM users WHERE email=$1", [a.email]))[0].id);
 const hash = (s: Buffer) => createHash("sha256").update(s).digest("hex");
 async function snapshot(q: (sql: string, params?: unknown[]) => Promise<Record<string, any>[]> =
   async (sql, params = []) => (await pool.query(sql, params)).rows) {
@@ -64,12 +65,12 @@ if (process.argv.includes("--capture")) {
     assert.equal(Number(s.ledger.find((r) => r.system_key === "cogs")?.balance), 50);
     assert.equal(Number(s.ledger.find((r) => r.system_key === "sales_revenue")?.balance), -100);
     assert.equal(Number(s.ledger.find((r) => r.system_key === "vat_output")?.balance), -15);
-    assert.deepEqual(s.policies, before.policies);
+    assert.deepEqual(JSON.parse(JSON.stringify(s.policies)), before.policies);
     assert.equal(s.policies[0].mode, "required"); assert.equal(s.policies[0].granularity, "line");
     const seller = s.employees.find((e) => e.id === s.sellers[0].employee_id);
     assert.equal(seller?.user_id, null);
     const identity = s.identities.find((i) => i.document_kind === "pos")!.identity;
-    assert.equal(identity.cashier.id, a.userId);
+    assert.equal(identity.cashier.id, cashierId);
     assert.equal(identity.sellers[0].employeeId, seller!.id);
     assert.equal(s.commissions[0].employee_id, seller!.id);
     assert.equal(Number(s.commissions[0].net_cents), 10000);
