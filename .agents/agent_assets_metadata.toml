@@ -1288,3 +1288,31 @@ mtime_ms = 1793290555860
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/23903d7a-78aa-4eac-91ac-4c7519358f93/4e38f57c-457b-42df-8c62-0c8eccebe71b"
 storage_version_token = "1793290607995820"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "7n4bVzXoJRoMN1RvEjimn"
+uri = "file://generated-artifacts/classic-pos-sellers/Classic-POS-Sellers-AR-EN.docx"
+type = "word_document"
+title = "تقرير إغلاق اختيار البائع — عربي وإنجليزي"
+description = "ملف Word بالمنفذ والاختبارات والمصدر والرفع المؤكد وحدود الأدلة."
+logical_id = "0a2e4a0f-812b-4225-a10a-2ba4467d1ab1"
+content_hash = "sha256:18b8d3c9130290217e67770a29a5693696c1de89a07656255e6934a97f7ee6b1"
+size = 8279
+mtime_ms = 1793302814999
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/0a2e4a0f-812b-4225-a10a-2ba4467d1ab1/c5c32eeb-0cc0-4841-a77e-d6652cf9186c"
+storage_version_token = "1793302881878273"
+content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
+[[outputs]]
+id = "D7tXC8lo6WVwfh985P6T8"
+uri = "file://generated-artifacts/classic-pos-sellers/Classic-POS-Sellers-Evidence.zip"
+type = "unspecified"
+title = "حزمة الأدلة النهائية — ZIP"
+description = "96 ملفًا: البوابات الخام، رحلة الواجهة، المصالحة، PDF، بصمات المصدر والملفات وإثبات تطابق GitHub."
+logical_id = "a5e902f8-dca1-4762-ac30-53111e5a8b13"
+content_hash = "sha256:365358396faccaece3cc5fdde9fb3b422369aeb14230eb767be1b02263987199"
+size = 1160606
+mtime_ms = 1793302815295
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/a5e902f8-dca1-4762-ac30-53111e5a8b13/d2493649-9db2-4813-8556-7bb2fa188dcd"
+storage_version_token = "1793302884861359"
+content_type = "application/octet-stream"
