@@ -153,3 +153,14 @@ post-commit states and falsely report a financial mismatch.
 **How to apply:** Give the fixture an explicit evidence lifetime rather than
 assuming a fixed browser timeout covers reconciliation, and use a repeatable
 read-only snapshot for the stock, document and ledger comparison.
+
+Native POS acceptance must include a branch-assigned cashier starting without
+an open shift, not only fixtures with a shift already prepared.
+
+**Why:** A working shift-creation service and successful checkout tests can
+still hide a missing entry control for an existing account type.
+
+**How to apply:** Exercise the original shift-opening control before checkout
+for the affected legacy or responsibility-based account. Reuse the existing
+safe shift intent and server authorization instead of creating shifts by API
+to bypass a native UI blocker.

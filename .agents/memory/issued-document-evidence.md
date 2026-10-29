@@ -38,3 +38,9 @@ Invoice design is issuance evidence, not a reference to today's company or branc
 **Why:** A later preset, logo or branch-inheritance edit must not change an already issued invoice. A reversal of a legacy document must not manufacture a historical design that was never captured.
 
 **How to apply:** Retain the captured design schema and immutable asset references with the original transaction. Preserve the old renderer/assets when introducing a future schema version; do not silently reinterpret saved presets. Keep legacy reprints explicit rather than applying today's default retrospectively.
+
+Output retries and deliberate reprints are different logical requests.
+
+**Why:** A lost response must not duplicate the audit event, but retaining the same identity after acknowledged success silently collapses a later intentional print into the first event. Neither event proves paper output.
+
+**How to apply:** Retain the request identity until a successful body is acknowledged; release only that same identity after confirmation, and give the next deliberate request a new identity. Keep generation, print requests and export requests distinct, without introducing financial effects.
