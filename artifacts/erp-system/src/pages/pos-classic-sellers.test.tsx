@@ -75,10 +75,10 @@ describe("original classic POS seller assignment", () => {
     await u.selectOptions(screen.getByTestId("classic-seller-whole"), "7");
     await u.selectOptions(screen.getByTestId("classic-line-seller-6"), "8");
     // Delete the first product; the remaining override must shift to index zero.
-    const first = screen.getByTestId("classic-line-seller-5").parentElement!;
+    const first = screen.getByTestId("classic-line-seller-host-5").parentElement!;
     await u.click(within(first).getAllByRole("button")[0]);
     await waitFor(() => expect(screen.queryByTestId("classic-line-seller-5")).toBeNull());
-    await u.click(within(screen.getByTestId("classic-line-seller-6").parentElement!).getAllByRole("button")[1]);
+    await u.click(within(screen.getByTestId("classic-line-seller-host-6").parentElement!).getAllByRole("button")[1]);
     await review(u); await u.click(pay()); await waitFor(() => expect(posts).toHaveLength(1));
     expect(posts[0].body).toMatchObject({ items: [{ productId: 6, quantity: 2 }], sellerEmployeeId: 7, lineSellers: [{ lineIndex: 0, employeeId: 8 }] });
   });
@@ -94,7 +94,7 @@ describe("original classic POS seller assignment", () => {
     await review(u); expect(pay().matches(":disabled")).toBe(true);
     await u.selectOptions(screen.getByTestId("classic-line-seller-6"), "8");
     expect(pay().matches(":disabled")).toBe(false);
-    const first = screen.getByTestId("classic-line-seller-5").parentElement!;
+    const first = screen.getByTestId("classic-line-seller-host-5").parentElement!;
     await u.click(within(first).getAllByRole("button")[0]);
     await add(u);
     expect((screen.getByTestId("classic-line-seller-5") as HTMLSelectElement).value).toBe("");
@@ -120,6 +120,21 @@ describe("original classic POS seller assignment", () => {
     const u = userEvent.setup(); await add(u); await review(u);
     expect(state.queryEnabled).toBe(true);
     await u.click(pay()); await waitFor(() => expect(posts).toHaveLength(1));
+  });
+  it("can freeze a line picker reparented by a native-select wrapper without losing the intent", async () => {
+    state.granularity = "line"; lose = true;
+    mount(); const u = userEvent.setup(); await add(u);
+    await u.selectOptions(screen.getByTestId("classic-line-seller-5"), "8");
+    // Native-browser trace: SELECT remains connected but has been moved into a
+    // different DIV. Preserve this ownership mismatch, not a fake HTTP failure.
+    const select = screen.getByTestId("classic-line-seller-5");
+    const nativeWrapper = document.createElement("div");
+    select.parentNode!.insertBefore(nativeWrapper, select);
+    nativeWrapper.appendChild(select);
+    await review(u); await u.click(pay());
+    await screen.findByTestId("classic-seller-frozen");
+    expect(posts).toHaveLength(1);
+    expect(posts[0].body.lineSellers).toEqual([{ lineIndex: 0, employeeId: 8 }]);
   });
   it("uses primary Pay to recover exact sellers/key/tokens after reload, never a new gateway charge", async () => {
     state.granularity = "line"; lose = true;

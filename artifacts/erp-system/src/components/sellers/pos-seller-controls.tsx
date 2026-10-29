@@ -29,8 +29,10 @@ export function PosSellerControls({ selection: s, locked }: { selection: Selecti
 
 export function PosLineSeller({ selection: s, productId, locked }: { selection: Selection; productId: number; locked: boolean }) {
   if (s.frozen || !s.data || s.data.policy.mode === "hidden" || s.data.policy.granularity !== "line") return null;
-  return <SellerSelect sellers={s.data.sellers} value={s.lines[productId]} disabled={locked}
+  // Keep a React-owned host when the browser's native-select layer reparents
+  // SELECT. Freezing removes this host, never a SELECT from its former parent.
+  return <div data-testid={`classic-line-seller-host-${productId}`}><SellerSelect sellers={s.data.sellers} value={s.lines[productId]} disabled={locked}
     onChange={(value) => s.selectLine(productId, value)} allowEmpty emptyLabel="كبائع الفاتورة"
     testId={`classic-line-seller-${productId}`} label={`بائع البند ${productId}`}
-    className="mt-1 h-8 w-full rounded-md border border-input bg-background px-2 text-xs disabled:opacity-60" />;
+    className="mt-1 h-8 w-full rounded-md border border-input bg-background px-2 text-xs disabled:opacity-60" /></div>;
 }
