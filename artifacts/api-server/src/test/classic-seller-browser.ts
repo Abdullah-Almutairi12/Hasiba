@@ -51,7 +51,9 @@ if (process.argv.includes("--capture")) {
     const s = await snapshot(async (sql, params = []) => (await client.query(sql, params)).rows);
     assert.equal(s.invoices.length, 1); assert.equal(Number(s.invoices[0].total), 115);
     assert.equal(s.moves.filter((m) => m.kind === "issue").length, 1);
-    assert.equal(s.journals.length, before.journals.length + 1);
+    // The original POS engine posts one invoice JE, one cash-receipt JE and one
+    // COGS JE. Do not mistake these three distinct entries for duplicate sales.
+    assert.equal(s.journals.length, before.journals.length + 3);
     assert.equal(s.sellers.length, 1); assert.equal(s.receipts.length, 1); assert.equal(s.commissions.length, 1);
     assert.equal(s.unbalanced.length, 0);
     assert.equal(s.quants.reduce((n, r) => n + Number(r.quantity), 0), 19);
@@ -59,6 +61,9 @@ if (process.argv.includes("--capture")) {
     assert.equal(s.quants.reduce((n, r) => n + Number(r.quantity) * Number(r.avg_cost), 0), 950);
     assert.equal(s.layers.reduce((n, r) => n + Number(r.remaining_qty) * Number(r.unit_cost), 0), 950);
     assert.equal(Number(s.ledger.find((r) => r.system_key === "inventory")?.balance), 950);
+    assert.equal(Number(s.ledger.find((r) => r.system_key === "cogs")?.balance), 50);
+    assert.equal(Number(s.ledger.find((r) => r.system_key === "sales_revenue")?.balance), -100);
+    assert.equal(Number(s.ledger.find((r) => r.system_key === "vat_output")?.balance), -15);
     assert.deepEqual(s.policies, before.policies);
     assert.equal(s.policies[0].mode, "required"); assert.equal(s.policies[0].granularity, "line");
     const seller = s.employees.find((e) => e.id === s.sellers[0].employee_id);
@@ -66,6 +71,9 @@ if (process.argv.includes("--capture")) {
     const identity = s.identities.find((i) => i.document_kind === "pos")!.identity;
     assert.equal(identity.cashier.id, a.userId);
     assert.equal(identity.sellers[0].employeeId, seller!.id);
+    assert.equal(s.commissions[0].employee_id, seller!.id);
+    assert.equal(Number(s.commissions[0].net_cents), 10000);
+    assert.equal(Number(s.commissions[0].commission_cents), 1000);
     writeFileSync(resolve(dir, "browser-reconciliation.json"), JSON.stringify({ passed: true, snapshot: s }, null, 2));
   } finally { await client.query("ROLLBACK"); client.release(); await pool.end(); }
   console.log("[classic-sellers] Independent reconciliation passed.");
@@ -95,7 +103,9 @@ const proxy = createServer((req, res) => {
         const sale = req.method === "POST" && req.url?.split("?")[0] === "/api/pos/orders";
         if (sale) {
           const rows = await q("SELECT result->'value' AS value FROM financial_requests WHERE company_id=$1 AND request_key=$2", [a.companyId, key]);
+          const input = JSON.parse(body.toString("utf8"));
           const event = { phase: "response", key, bodyHash: hash(body), status: r.statusCode,
+            selection: { sellerEmployeeId: input.sellerEmployeeId, lineSellers: input.lineSellers },
             replay: r.headers["idempotency-replayed"] ?? null, documentId: rows[0]?.value?.order?.id ?? null };
           evidence.events.push(event);
           if (!dropped && r.statusCode === 201 && rows[0]?.value?.order?.id) {
