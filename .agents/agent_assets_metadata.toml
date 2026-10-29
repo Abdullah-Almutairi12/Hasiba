@@ -1232,3 +1232,31 @@ mtime_ms = 1793240452635
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/57dee3c7-e38c-4aaf-8c53-7bb0de81d20a/01782ef1-1d85-4b89-b13b-832717acac2f"
 storage_version_token = "1793240478259519"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "3dFzmCeifvI6QD5zY2-Eq"
+uri = "file://generated-artifacts/tax-unification/delivery-checkpoint-8e80975/Hasiba-Bilingual-Verification-Checkpoint-8e80975.docx"
+type = "word_document"
+title = "تقرير التحقق المرحلي — عربي وإنجليزي"
+description = "نتائج المصدر 8e80975، وحدود القبول، والإصلاحات والمتبقي الضريبي المحدد؛ ليس إعلان اكتمال المرحلة الضريبية."
+logical_id = "ce8ce229-e127-4834-8733-79a0eb892d73"
+content_hash = "sha256:dfcc557f7ce540cd9cd8bae1f50e0dc0eaf92ffc4b47c3fb7c82232963998224"
+size = 8900
+mtime_ms = 1793273844236
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/ce8ce229-e127-4834-8733-79a0eb892d73/a6598beb-c367-41e2-a0b6-0920570a33e2"
+storage_version_token = "1793273973103019"
+content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
+[[outputs]]
+id = "u3RJWt8wl3AkG_EREVFkR"
+uri = "file://generated-artifacts/tax-unification/Hasiba-Verification-Checkpoint-8e80975-Evidence.zip"
+type = "unspecified"
+title = "حزمة أدلة الاختبارات والواجهة والمصالحة"
+description = "72 ملفًا: نتائج البوابات، النتائج الخام المنقحة، 13 لقطة أصلية، 10 ملفات PDF، ومصالحة SQL وبصمات تحقق؛ الأدلة مفصولة بحسب مصدرها."
+logical_id = "35f24620-f0f4-4518-90fc-611bea030c1d"
+content_hash = "sha256:e9304a0e60f5693fa737eab97e8bff46e959500a407431a0141ccc39bcd671d9"
+size = 1163629
+mtime_ms = 1793273844516
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/35f24620-f0f4-4518-90fc-611bea030c1d/c82afef2-67e5-4a5f-ba5e-69d1060f0997"
+storage_version_token = "1793273976413224"
+content_type = "application/octet-stream"
