@@ -1260,3 +1260,31 @@ mtime_ms = 1793273844516
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/35f24620-f0f4-4518-90fc-611bea030c1d/c82afef2-67e5-4a5f-ba5e-69d1060f0997"
 storage_version_token = "1793273976413224"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "6_j2Ur5qdYhMRt95pmcit"
+uri = "file://generated-artifacts/tax-preview-slice/Hasiba-Trusted-Tax-Preview-AR-EN.docx"
+type = "word_document"
+title = "تقرير حاسبة — المعاينة الضريبية | Word"
+description = "تقرير عربي وإنجليزي بالتنفيذ والنتائج والمصادر المختبرة والحدود المتبقية."
+logical_id = "525f4b40-4d27-4025-8090-197d3a16e72c"
+content_hash = "sha256:41cdfa9db52df6db53f4726509a2e9f8ba57e3f12b936f564d4bf97485e65e50"
+size = 9193
+mtime_ms = 1793290550200
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/525f4b40-4d27-4025-8090-197d3a16e72c/1aa21cdd-2d06-4191-bfd4-fc925dd64d26"
+storage_version_token = "1793290603927191"
+content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
+[[outputs]]
+id = "IazPgUpsAlY0kh92ladT8"
+uri = "file://generated-artifacts/tax-preview-slice/Hasiba-Trusted-Tax-Preview-Evidence.zip"
+type = "unspecified"
+title = "حاسبة — حزمة أدلة التحقق | ZIP"
+description = "النتائج الخام المنقحة، تقرير المتصفح وسبع لقطات، المصالحة، أدلة التزامن وبصمات المصدر وتأكيد GitHub."
+logical_id = "23903d7a-78aa-4eac-91ac-4c7519358f93"
+content_hash = "sha256:81cdb57955e64016a1b6327a457a06070151ac71fe7b09cb5b2bc326b1b63f4a"
+size = 4157169
+mtime_ms = 1793290555860
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/23903d7a-78aa-4eac-91ac-4c7519358f93/4e38f57c-457b-42df-8c62-0c8eccebe71b"
+storage_version_token = "1793290607995820"
+content_type = "application/octet-stream"
