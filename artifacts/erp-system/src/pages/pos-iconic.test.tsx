@@ -211,7 +211,11 @@ describe("POS confirmed receipt printing", () => {
     const fetchMock = vi.mocked(fetch);
     fetchMock.mockClear();
     await user.click(screen.getByTestId("button-print-receipt"));
-    await waitFor(() => expect(fetchMock.mock.calls.some(([u]) => String(u).endsWith("/api/pos/orders/1/receipt.pdf"))).toBe(true));
+    await waitFor(() => expect(fetchMock.mock.calls.some(([u]) => {
+      const request=new URL(String(u),"https://test.invalid");
+      return request.pathname.endsWith("/api/pos/orders/1/receipt.pdf")&&request.searchParams.get("intent")==="file_generated"&&
+        !!request.searchParams.get("eventId");
+    })).toBe(true));
     expect(fetchMock.mock.calls.every(([, i]) => (i as RequestInit | undefined)?.method !== "POST")).toBe(true);
   });
 

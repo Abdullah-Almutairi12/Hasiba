@@ -43,6 +43,10 @@ export function PdfPreviewSheet({
     const eventId=eventIds.current[key]??(eventIds.current[key]=crypto.randomUUID());
     return `${url}${url.includes("?")?"&":"?"}intent=${action}&eventId=${eventId}`;
   }
+  function acknowledgeOutput(url:string,action:string,requestedUrl:string){
+    const key=`${url}|${action}`,eventId=new URL(requestedUrl,window.location.href).searchParams.get("eventId");
+    if(eventIds.current[key]===eventId)delete eventIds.current[key];
+  }
 
   useEffect(() => {
     generation.current++;
@@ -83,10 +87,12 @@ export function PdfPreviewSheet({
     const captured=generation.current;
     if(printUrl){
       try{
-        const response=await fetch(outputUrl(printUrl,"print_requested"),requestOptions());
+        const requestedUrl=outputUrl(printUrl,"print_requested");
+        const response=await fetch(requestedUrl,requestOptions());
         if(!response.ok)throw new Error("تعذرت الطباعة؛ تحقق من صلاحية الطباعة الحالية");
         await response.arrayBuffer();
         if(captured!==generation.current)return;
+        acknowledgeOutput(printUrl,"print_requested",requestedUrl);
         setError(null);
       }catch(e){setError(e instanceof Error?e.message:"تعذرت الطباعة");return;}
     }
@@ -110,10 +116,12 @@ export function PdfPreviewSheet({
     const captured=generation.current;
     if (downloadUrl) {
       try {
-        const response = await fetch(outputUrl(downloadUrl,"export_requested"), requestOptions());
+        const requestedUrl=outputUrl(downloadUrl,"export_requested");
+        const response = await fetch(requestedUrl, requestOptions());
         if (!response.ok) throw new Error("تعذر التنزيل؛ تحقق من صلاحية التصدير الحالية");
         const blob=await response.blob();
         if(captured!==generation.current)return;
+        acknowledgeOutput(downloadUrl,"export_requested",requestedUrl);
         downloadBlobUrl = URL.createObjectURL(blob);
         setError(null);
       } catch (e) {

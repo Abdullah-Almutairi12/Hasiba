@@ -8,6 +8,19 @@ const create=vi.fn(()=>"blob:invoice");
 vi.stubGlobal("URL",class extends URL{static createObjectURL=create;static revokeObjectURL=vi.fn();});
 afterEach(()=>{cleanup();vi.restoreAllMocks();});
 describe("native PDF application actions",()=>{
+  it("records a new request for a second deliberate print after confirmed success",async()=>{
+    const fetcher=vi.fn().mockResolvedValue({ok:true,blob:async()=>new Blob(["%PDF-test"]),arrayBuffer:async()=>new ArrayBuffer(0)});
+    vi.stubGlobal("fetch",fetcher);
+    render(<PdfPreviewSheet open onOpenChange={()=>{}} pdfUrl="/api/sales/invoices/7/pdf" printUrl="/api/sales/invoices/7/pdf"
+      title="فاتورة" downloadName="invoice.pdf" />);
+    const frame=await screen.findByTestId("pdf-preview-iframe");
+    const print=vi.fn();Object.defineProperty(frame,"contentWindow",{configurable:true,value:{focus:vi.fn(),print}});
+    fireEvent.click(screen.getByTestId("button-pdf-preview-print"));
+    await waitFor(()=>expect(print).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByTestId("button-pdf-preview-print"));
+    await waitFor(()=>expect(print).toHaveBeenCalledTimes(2));
+    expect(fetcher.mock.calls[2][0]).not.toBe(fetcher.mock.calls[1][0]);
+  });
   it("keeps the same print event identity after a lost response, separate from preview and export",async()=>{
     const fetcher=vi.fn().mockResolvedValueOnce({ok:true,blob:async()=>new Blob(["%PDF-test"])})
       .mockRejectedValueOnce(new TypeError("lost response")).mockResolvedValue({ok:true,arrayBuffer:async()=>new ArrayBuffer(0)});

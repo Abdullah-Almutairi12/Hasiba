@@ -66,6 +66,7 @@ export function PrintDocButton({
       const base=url(id),key=`${base}|${action}`,eventId=eventIds.current[key]??(eventIds.current[key]=crypto.randomUUID());
       const file=await fetchPdf(`${base}${base.includes("?")?"&":"?"}intent=${action}&eventId=${eventId}`,filename);
       if(!file)return;
+      if(eventIds.current[key]===eventId)delete eventIds.current[key];
       const href=URL.createObjectURL(file.blob);
       const link=document.createElement("a");link.href=href;
       if(action==="export_requested")link.download=file.filename;
@@ -82,8 +83,11 @@ export function PrintDocButton({
     setBusy(true);
     try {
       const original=url(id);
-      const got = await fetchPdf(tracked&&!allowPrint&&allowDownload?
-        `${original}${original.includes("?")?"&":"?"}intent=export_requested&eventId=${eventIds.current.preview??(eventIds.current.preview=crypto.randomUUID())}`:original, filename);
+      const action=!allowPrint&&allowDownload?"export_requested":"file_generated",key=`${original}|${action}`;
+      const eventId=tracked?(eventIds.current[key]??(eventIds.current[key]=crypto.randomUUID())):null;
+      const got = await fetchPdf(tracked?
+        `${original}${original.includes("?")?"&":"?"}intent=${action}&eventId=${eventId}`:original, filename);
+      if(got&&eventId&&eventIds.current[key]===eventId)delete eventIds.current[key];
       if (got) setReady({ href: URL.createObjectURL(got.blob), filename: got.filename });
     } catch (e) {
       const ref = e instanceof DownloadError ? e.diagnosticRef : "";
