@@ -5,6 +5,7 @@ import bcrypt from "bcryptjs";
 import { db, pool, companiesTable, usersTable, userCompaniesTable, customersTable, fiscalYearsTable, fiscalPeriodsTable, categoriesTable, productsTable, customerInvoicesTable, customerInvoiceLinesTable } from "@workspace/db";
 import { branchesTable, warehousesTable } from "@workspace/db";
 import { posSessionsTable } from "@workspace/db";
+import { accountsTable } from "@workspace/db";
 import { eq,sql } from "drizzle-orm";
 import { employeesTable,commissionPlansTable } from "@workspace/db";
 import { recordStockMove } from "../lib/stock-engine";
