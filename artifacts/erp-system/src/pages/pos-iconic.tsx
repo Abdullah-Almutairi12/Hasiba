@@ -458,14 +458,15 @@ export default function PosIconic({
 
       <PosSessionContext session={activeSession} />
       <div className="grid min-h-[calc(100vh-2.25rem)] grid-cols-1 gap-3 px-3 pb-4 lg:h-[calc(100vh-2.25rem)] lg:grid-cols-[minmax(0,1fr)_360px] lg:pb-28">
-        {isScoped && (
+        {(isScoped || (!activeSession && !!user?.branchId)) && (
           <ScopedPosNotice
-            branchId={scopedBranchId}
+            branchId={isScoped?scopedBranchId:user?.branchId??null}
             hasSession={!!activeSession}
             canOpenShift={canOpenPosShift}
             cashierName={user?.name ?? ""}
             intentScope={user?.companyId ? `${user.id}:${user.companyId}` : null}
             caps={scopedCaps}
+            scoped={isScoped}
             onOpened={() => void refetchSessions()}
           />
         )}
@@ -1258,9 +1259,10 @@ function ParkedOverlay({
  * honest list of what this responsibility cannot do. No closing, refunds,
  * parking, discounts, barcode lookup or non-cash tenders.
  */
-function ScopedPosNotice({ branchId, hasSession, canOpenShift, cashierName, onOpened, intentScope, caps }: {
+function ScopedPosNotice({ branchId, hasSession, canOpenShift, cashierName, onOpened, intentScope, caps, scoped=true }: {
   branchId: number | null; hasSession: boolean; canOpenShift: boolean; cashierName: string; onOpened: () => void;
   intentScope: string | null; caps: ReturnType<typeof scopedCheckoutCaps>;
+  scoped?:boolean;
 }) {
   const { toast } = useToast();
   const [cash, setCash] = useState("");
@@ -1350,7 +1352,7 @@ function ScopedPosNotice({ branchId, hasSession, canOpenShift, cashierName, onOp
       ) : (
         <p data-testid="text-scoped-pos-ready">{caps.recordTender ? "وردية فرعك مفتوحة. النقد والتسجيل اليدوي للدفع غير النقدي أو الآجل." : "وردية فرعك مفتوحة. نقدًا فقط."}</p>
       )}
-      <p className="mt-1 text-[11px] opacity-80" data-testid="text-scoped-unavailable">{`غير متاح لمسؤوليتك: ${unavailable}. تعديل السعر وتجاوز المدير غير متاحين.`}</p>
+      {scoped&&<p className="mt-1 text-[11px] opacity-80" data-testid="text-scoped-unavailable">{`غير متاح لمسؤوليتك: ${unavailable}. تعديل السعر وتجاوز المدير غير متاحين.`}</p>}
     </div>
   );
 }

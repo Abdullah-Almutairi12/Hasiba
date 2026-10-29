@@ -5,16 +5,17 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import PosIconic from "./pos-iconic";
 import { beforeEach } from "vitest";
 
-const sessionMock = vi.hoisted(() => ({ status: "open", refetch: vi.fn() }));
+const sessionMock = vi.hoisted(() => ({ status: "open", refetch: vi.fn(),branchId:null as number|null }));
 beforeEach(() => {
   sessionMock.status = "open";
+  sessionMock.branchId=null;
   sessionMock.refetch.mockClear();
 });
 import { usePosCheckout } from "@/hooks/use-pos-checkout";
 import ar from "@/i18n/ar.json";
 
 vi.mock("@/hooks/use-auth", () => ({
-  useAuth: () => ({ user: { id: 11, companyId: 21 } }),
+  useAuth: () => ({ user: { id: 11, companyId: 21,...(sessionMock.branchId?{role:"cashier",branchId:sessionMock.branchId}:{} )} }),
 }));
 vi.mock("@/hooks/use-vat-status", () => ({ useVatEnabled: () => false }));
 vi.mock("@/hooks/use-language", () => ({
@@ -69,6 +70,13 @@ function saleTransport(fault?: "lost" | "502" | "malformed" | "incomplete" | "re
 }
 
 describe("POS inline tender and durable checkout recovery", () => {
+  it("shows the existing shift-opening control to an authorized legacy cashier assigned to a branch",async()=>{
+    sessionMock.status="closed";sessionMock.branchId=7;
+    saleTransport();
+    mount();
+    expect((await screen.findByTestId("button-scoped-open-shift")).isConnected).toBe(true);
+    expect(screen.getByTestId("input-scoped-opening-cash")).toBeTruthy();
+  });
   it("selects a tender inside the cart, without a fullscreen selector, and records a sale", async () => {
     const transport = saleTransport();
     const user = userEvent.setup();
