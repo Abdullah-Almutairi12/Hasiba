@@ -1573,6 +1573,10 @@ function DocumentFormDialog({
           {kind === "quotation" ? "عرض سعر جديد" : kind === "order" ? "أمر بيع جديد" : "فاتورة عميل جديدة"}
         </DialogTitle>
       </DialogHeader>
+      {isInvoice && frozen && (
+        <IntentRecoveryPanel error={intent.error || INVOICE_UNCERTAIN} busy={intent.busy} recoveryRejected={intent.recoveryRejected}
+          scopeMismatch={intent.scopeMismatch} onRecover={() => void submit()} onClose={() => void closeIntent()} testId="invoice-intent" />
+      )}
       <fieldset disabled={!!frozen} className="space-y-4">
         <div className="grid grid-cols-2 gap-3">
           <div>
@@ -1631,10 +1635,6 @@ function DocumentFormDialog({
           <Label>ملاحظات</Label>
           <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} />
         </div>
-        {isInvoice && frozen && (
-          <IntentRecoveryPanel error={intent.error || INVOICE_UNCERTAIN} busy={intent.busy} recoveryRejected={intent.recoveryRejected}
-            scopeMismatch={intent.scopeMismatch} onRecover={() => void submit()} onClose={() => void closeIntent()} testId="invoice-intent" />
-        )}
         {isInvoice && !frozen && intent.error && !intent.ready && <p role="alert" className="text-sm text-destructive">{intent.error}</p>}
         {isInvoice && !frozen && <TaxPreviewPanel tp={tp} />}
         {isInvoice ? (

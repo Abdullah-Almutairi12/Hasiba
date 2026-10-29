@@ -92,8 +92,12 @@ for (const role of ["owner", "sales"] as const) {
       const [seller]=await db.insert(employeesTable).values({companyId:company.id,employeeNo:`seller-${label}-${tag}`,
         name:`Synthetic seller ${label}`,nameAr:`بائع اختبار ${label}`,branchId:branch.id,hireDate:"2026-01-01"}).returning();
       sellerIds.push(seller.id);
+      // The owner's manual invoice is company-wide. Give one synthetic seller
+      // explicit company eligibility, preserving the required/line policy.
+      const sellerBranches=process.env.HASBA_BROWSER_TAX_PREVIEW==="true"&&label==="ألف"
+        ?null:JSON.stringify([branch.id]);
       await db.execute(sql`INSERT INTO sales_seller_eligibility(company_id,employee_id,enabled,branch_ids,updated_by)
-        VALUES(${company.id},${seller.id},true,${JSON.stringify([branch.id])}::jsonb,${user.id})`);
+        VALUES(${company.id},${seller.id},true,${sellerBranches}::jsonb,${user.id})`);
     }
     const [plan]=await db.insert(commissionPlansTable).values({companyId:company.id,name:"سياسة اختبار صريحة فقط",rate:"10",quota:"0",bonusRate:"0"}).returning();
     await db.execute(sql`INSERT INTO sales_seller_policies(company_id,branch_id,inherit,mode,granularity,commission_enabled,commission_plan_id,effective_from,created_by)

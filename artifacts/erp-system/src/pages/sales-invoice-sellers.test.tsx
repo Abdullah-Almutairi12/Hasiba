@@ -31,14 +31,47 @@ function stub(workspace: () => Response) {
 }
 async function openDialog() {
   const user = userEvent.setup();
-  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><SalesPage /><Toaster /></QueryClientProvider>);
+  const view=render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><SalesPage /><Toaster /></QueryClientProvider>);
   await user.click(screen.getByRole("tab", { name: "فواتير العملاء" }));
   await user.click(await screen.findByRole("button", { name: "فاتورة جديدة" }));
   const dialog = screen.getByRole("dialog", { name: "فاتورة عميل جديدة" });
-  return { user, dialog, form: within(dialog) };
+  return { user, dialog, form: within(dialog),view };
 }
 
 describe("manual sales invoice seller attribution", () => {
+  it("keeps recovery outside the frozen fieldset and replays the original invoice after reload",async()=>{
+    stub(()=>Response.json({policy:{mode:"hidden"},sellers:[],branches:[]}));
+    const originalFetch=vi.mocked(fetch).getMockImplementation()!;
+    const attempts:Array<{body:string;key:string|null}>=[];
+    vi.mocked(fetch).mockImplementation(async(input,init)=>{
+      if(new URL(String(input),"http://localhost").pathname==="/api/sales/invoices"&&init?.method==="POST"){
+        attempts.push({body:String(init.body),key:new Headers(init.headers).get("Idempotency-Key")});
+        if(attempts.length===1)throw new TypeError("Synthetic response lost after commit");
+        return Response.json({id:91,reference:"INV-91"});
+      }
+      return originalFetch(input,init);
+    });
+    const first=await openDialog();
+    await first.user.click(first.form.getAllByRole("combobox")[0]);
+    await first.user.click(await screen.findByRole("option",{name:"عميل الاختبار"}));
+    await first.user.click(first.form.getAllByRole("combobox")[1]);
+    await first.user.click(await screen.findByRole("option",{name:"قلم"}));
+    await first.user.click(await first.form.findByTestId("button-tax-preview-confirm"));
+    await first.user.click(first.form.getByRole("button",{name:"حفظ"}));
+    await first.form.findByTestId("invoice-intent-recover");
+    expect(attempts).toHaveLength(1);
+    first.view.unmount();
+    const second=await openDialog();
+    const recover=await second.form.findByTestId("invoice-intent-recover");
+    expect(recover.closest("fieldset")).toBeNull();
+    expect((second.form.getByPlaceholderText("الكمية").closest("fieldset") as HTMLFieldSetElement).disabled).toBe(true);
+    await second.user.click(recover);
+    await waitFor(()=>expect(attempts).toHaveLength(2));
+    expect(attempts[1]).toEqual(attempts[0]);
+    expect(attempts[0].key).toBeTruthy();
+    await waitFor(()=>expect(screen.queryByRole("dialog",{name:"فاتورة عميل جديدة"})).toBeNull());
+  });
+
   it("required per-line policy validates and maps overrides to submitted (filtered) line order", async () => {
     const posts = stub(() => Response.json({ policy: { mode: "required", granularity: "line" }, sellers: [{ id: 7, name: "سارة" }, { id: 8, name: "خالد" }], branches: [] }));
     const { user, form } = await openDialog();
