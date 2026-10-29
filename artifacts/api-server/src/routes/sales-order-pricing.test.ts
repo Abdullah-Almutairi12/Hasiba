@@ -24,7 +24,7 @@ async function fixture(inclusive:boolean,price=115,quantity=3,discount=1,namedRu
   const [w]=await db.insert(warehousesTable).values({companyId:c.id,branchId:b.id,name:tag,nameAr:tag,isDefault:true}).returning();
   const [cat]=await db.insert(categoriesTable).values({name:tag,nameAr:tag}).returning();
   const [p]=await db.insert(productsTable).values({companyId:c.id,categoryId:cat.id,name:tag,nameAr:tag,
-    sku:tag,price:String(price),costPrice:"50",stock:"0"}).returning();
+    sku:tag,price:String(price),costPrice:"50",stock:"0",costingMethod:"fifo"}).returning();
   const [customer]=await db.insert(customersTable).values({companyId:c.id,name:"عميل مصطنع"}).returning();
   await db.transaction(tx=>recordStockMove(tx,{companyId:c.id,productId:p.id,toWarehouseId:w.id,
     quantity:20,unitCost:50,kind:"receipt",createdBy:u.id}));
@@ -106,6 +106,20 @@ describe("sales order fixed commercial basis, trusted partial invoice",()=>{
     expect(sum("total")).toBe(inclusive?344:395.6);
     expect(sum("discount")).toBe(inclusive?0.87:1);
     expect(sum("vat")).toBe(inclusive?44.87:51.6);
+    const [inventory]=await q(`SELECT
+      (SELECT sum(quantity) FROM stock_quants WHERE product_id=$1) AS quantity,
+      (SELECT sum(quantity*avg_cost) FROM stock_quants WHERE product_id=$1) AS value,
+      (SELECT sum(remaining_qty) FROM stock_layers WHERE product_id=$1) AS layer_quantity,
+      (SELECT sum(remaining_qty*unit_cost) FROM stock_layers WHERE product_id=$1) AS layer_value`,[f.p.id]);
+    expect(Object.fromEntries(Object.entries(inventory).map(([k,v])=>[k,Number(v)])))
+      .toEqual({quantity:17,value:850,layer_quantity:17,layer_value:850});
+    const ledger=await q(`SELECT a.system_key,sum(l.debit-l.credit) AS balance FROM journal_entries e
+      JOIN journal_entry_lines l ON l.entry_id=e.id JOIN accounts a ON a.id=l.account_id
+      WHERE e.company_id=$1 GROUP BY a.system_key`,[f.c.id]);
+    const accountBalance=(key:string)=>Number(ledger.find(r=>r.system_key===key)?.balance??0);
+    expect(accountBalance("inventory")).toBe(850);expect(accountBalance("cogs")).toBe(150);
+    expect(accountBalance("ar")).toBe(inclusive?344:395.6);expect(accountBalance("vat_output")).toBe(inclusive?-44.87:-51.6);
+    console.info("[so-independent-reconciliation]",JSON.stringify({inclusive,inventory,ledger}));
     const end=await state(f);expect(end.moves).toBe(before.moves);expect(end.quantity).toBe("17.0000");
     expect(end.invoices).toBe(2);
     const balance=(await q(`SELECT round(sum(l.debit::numeric-l.credit::numeric),2)::text AS balance
@@ -153,6 +167,21 @@ describe("sales order fixed commercial basis, trusted partial invoice",()=>{
     await q("UPDATE user_companies SET role='employee' WHERE company_id=$1 AND user_id=$2",[f.c.id,f.u.id]);
     const r=await f.a.post("/api/sales/invoices").set("Idempotency-Key",randomUUID()).send(v.body);
     expect(r.status).toBeGreaterThanOrEqual(400);expect(await state(f)).toEqual(before);
+  });
+  it("branch withdrawal denies committed replay and close without treating denial as absence",async()=>{
+    const f=await fixture(false),v=await quote(f,1),key=randomUUID();
+    const issued=await f.a.post("/api/sales/invoices").set("Idempotency-Key",key).send(v.body);
+    expect(issued.status).toBe(201);const before=await state(f);
+    await q("UPDATE user_companies SET role='accountant' WHERE company_id=$1 AND user_id=$2",[f.c.id,f.u.id]);
+    await q(`INSERT INTO return_access(company_id,user_id,template,capabilities,branches,updated_by)
+      VALUES($1,$2,'branch_accountant','["view"]'::jsonb,'[]'::jsonb,$2) ON CONFLICT(company_id,user_id) DO UPDATE SET branches='[]'::jsonb`,[f.c.id,f.u.id]);
+    expect((await f.a.post("/api/sales/invoices").set("Idempotency-Key",key).send(v.body)).status).toBe(403);
+    expect((await f.a.post("/api/sales/invoices/tax-preview/close-intent").send({requestKey:key,body:v.body})).status).toBe(403);
+    expect(await state(f)).toEqual(before);
+    await q("UPDATE return_access SET branches=$3::jsonb WHERE company_id=$1 AND user_id=$2",[f.c.id,f.u.id,JSON.stringify([f.b.id])]);
+    const recovered=await f.a.post("/api/sales/invoices").set("Idempotency-Key",key).send(v.body);
+    expect(recovered.status,JSON.stringify(recovered.body)).toBe(201);expect(recovered.body.id).toBe(issued.body.id);
+    expect(await state(f)).toEqual(before);
   });
   it("legacy review requires fresh account proof and records evidence without rewriting totals",async()=>{
     const f=await fixture(false),before=await state(f);

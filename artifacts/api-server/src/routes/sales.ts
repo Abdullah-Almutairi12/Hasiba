@@ -38,7 +38,7 @@ import { saleDocumentHistory } from "../lib/sale-document-history";
 import { checkDocumentPrint } from "../lib/print-permissions";
 import { randomUUID } from "node:crypto";
 import {directInvoiceTaxAuthority,prepareDirectInvoiceTax} from "../lib/direct-invoice-tax";
-import {prepareOrderInvoice,type OrderPriceBasis} from "../lib/sales-order-pricing";
+import {prepareOrderInvoice,assertOrderInvoiceAccess,type OrderPriceBasis} from "../lib/sales-order-pricing";
 import {withAccountProof} from "../lib/account-security";
 import {issueTaxPreview,verifyTaxPreview} from "../lib/tax-preview";
 import {closeSaleIntent} from "../lib/close-sale-intent";
@@ -1228,6 +1228,7 @@ router.post("/sales/orders", salesWriteGuard, async (req, res) => {
     const result = await db.transaction(async (tx) => {
       await lockApprovalAuthority(tx);
       const orderActor=await returnActor(req.session.userId!,companyId,tx);
+      if(body.branchId==null&&orderActor.branches?.length===1)body.branchId=orderActor.branches[0]!;
       if(!["owner","manager","accountant","sales"].includes(orderActor.role)||
         orderActor.branches&&(body.branchId==null||!orderActor.branches.includes(body.branchId)))
         throw new FinancialRequestError("صلاحية إنشاء أمر البيع أو نطاقه غير متاحين",403);
@@ -1332,7 +1333,10 @@ router.post("/sales/orders", salesWriteGuard, async (req, res) => {
           pricelistId: pricelistId ?? null,
           salesRepId: body.salesRepId ?? req.session?.userId ?? null,
           branchId: body.branchId ?? null,
-          warehouseId: body.warehouseId ?? (await getDefaultWarehouseId(tx,companyId).catch(() => null)),
+          warehouseId: body.warehouseId ?? (body.branchId!=null
+            ?(await tx.execute(sql`SELECT id FROM warehouses WHERE company_id=${companyId} AND branch_id=${body.branchId}
+              ORDER BY is_default DESC,id LIMIT 1`)).rows[0]?.id as number|null??null
+            :await getDefaultWarehouseId(tx,companyId).catch(() => null)),
           status: body.status === "draft" ? "draft" : "confirmed",
           orderDate: body.orderDate ?? riyadhDate(),
           expectedDate: body.expectedDate ?? null,
@@ -1813,7 +1817,10 @@ router.post("/sales/invoices/tax-preview",financeGuard,async(req,res)=>{
 });
 router.post("/sales/invoices/tax-preview/close-intent",financeGuard,async(req,res)=>{
   try{
-    const closed=await closeSaleIntent(req,"/sales/invoices",async tx=>{await directInvoiceTaxAuthority(req,tx);});
+    const closed=await closeSaleIntent(req,"/sales/invoices",async(tx,original)=>{
+      await directInvoiceTaxAuthority(req,tx);
+      if(original.soId!=null)await assertOrderInvoiceAccess(tx,req,z.number().int().positive().parse(original.soId));
+    });
     res.json(closed.state==="completed"?{state:closed.state,result:serializeMoneyDoc((closed.result as {inv:Parameters<typeof serializeMoneyDoc>[0]}).inv)}:closed);
   }
   catch(err){handleRouteError(err,res);}
@@ -2943,7 +2950,10 @@ router.post("/sales/invoices", financeGuard, async (req, res) => {
           branchId: so?.branchId ?? null,
         },
       };
-    },async(tx)=>{await lockApprovalAuthority(tx);await directInvoiceTaxAuthority(req,tx);});
+    },async(tx)=>{
+      await lockApprovalAuthority(tx);await directInvoiceTaxAuthority(req,tx);
+      if(body.soId)await assertOrderInvoiceAccess(tx,req,body.soId);
+    });
     if (res.getHeader("Idempotency-Replayed")) {
       res.status(201).json(serializeMoneyDoc(result.inv)); return;
     }

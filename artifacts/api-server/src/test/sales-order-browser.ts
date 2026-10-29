@@ -65,7 +65,7 @@ if(process.argv.includes("--capture")){
     assert.deepEqual(issued[0].after,issued[1].after);
     assert.equal(current.sellers.length,2);
     const invoices=current.invoices.map(i=>i.id);
-    assert.equal(current.receipts.filter(r=>invoices.includes(r.value?.id)).length,2);
+    assert.equal(current.receipts.filter(r=>invoices.includes(r.value?.inv?.id)).length,2);
     writeFileSync(resolve(dir,"browser-reconciliation.json"),JSON.stringify({passed:true,source:saved.source,current},null,2));
     console.log("[so-browser] independent reconciliation passed");
   }finally{await c.query("ROLLBACK");c.release();await pool.end();}
@@ -91,8 +91,8 @@ const proxy=createServer((req,res)=>{
         if(req.method==="POST"&&req.url?.split("?")[0]==="/api/sales/invoices"){
           const [receipt]=await q("SELECT result->'value' AS value FROM financial_requests WHERE company_id=$1 AND request_key=$2",
             [account.companyId,key]);
-          const after=await snapshot(),willDrop=!dropped&&r.statusCode===201&&!!receipt?.value?.id;
-          evidence.events.push({kind:"invoice",key,bodyHash:hash(body),id:receipt?.value?.id,status:r.statusCode,
+          const after=await snapshot(),willDrop=!dropped&&r.statusCode===201&&!!receipt?.value?.inv?.id;
+          evidence.events.push({kind:"invoice",key,bodyHash:hash(body),id:receipt?.value?.inv?.id,status:r.statusCode,
             droppedAfterCommit:willDrop,after});
           save();
           if(willDrop){dropped=true;res.writeHead(502,{"content-type":"application/json"});

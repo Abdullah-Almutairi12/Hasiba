@@ -37,6 +37,8 @@ export function OrderInvoiceDialog({id,open,onOpenChange,onSaved}:{
     userId:user?.id,companyId:user?.companyId,send:(body,key)=>apiPostWithKey<Created>("/sales/invoices",body,key),isValid:valid,
   });
   const frozen=!!intent.attempt;
+  const savedQuantities=(intent.attempt?.body.soId===id&&Array.isArray(intent.attempt.body.soQuantities))
+    ?intent.attempt.body.soQuantities as Array<{soLineId:number;quantity:number}>:null;
   const selected=useMemo(()=>order?.lines.map(l=>({soLineId:l.id,
     quantity:Number(quantities[l.id]??Math.max(0,Number(l.deliveredQty)-Number(l.invoicedQty)))}))
     .filter(l=>l.quantity>0)??[],[order,quantities]);
@@ -77,8 +79,11 @@ export function OrderInvoiceDialog({id,open,onOpenChange,onSaved}:{
       {isLoading&&<p>جارٍ تحميل حقائق الأمر…</p>}
       {error&&<p role="alert">تعذر تحميل الأمر. <Button onClick={()=>void refetch()}>إعادة المحاولة</Button></p>}
       {message&&<p role="status">{message}</p>}
-      <IntentRecoveryPanel error={intent.error} busy={intent.busy} recoveryRejected={intent.recoveryRejected}
-        scopeMismatch={intent.scopeMismatch} onRecover={()=>void submit()} onClose={()=>void closeIntent()} testId="order-invoice-intent"/>
+      {frozen&&<IntentRecoveryPanel error={intent.error} busy={intent.busy} recoveryRejected={intent.recoveryRejected}
+        scopeMismatch={intent.scopeMismatch} onRecover={()=>void submit()} onClose={()=>void closeIntent()} testId="order-invoice-intent"/>}
+      {!frozen&&intent.error&&<p role="alert">{intent.error}</p>}
+      {frozen&&<p>الاسترجاع يستخدم بيانات المحاولة المحفوظة وبائعها، لا اختيارات جديدة.
+        {intent.attempt?.body.soId!==id?" هذه المحاولة تخص فاتورة أخرى؛ لا يبدأ طلب جديد قبل حسمها.":""}</p>}
       {order&&<>
         <p>إجمالي الأمر: {order.total} {order.currencyCode} — سعر الاتفاق {order.pricingBasis?order.pricingBasis.priceIncludesVat?"شامل":"غير شامل":"غير مثبت"} الضريبة.
           المعاينة تخص الكميات المختارة؛ المعاملة الضريبية ليست مجمدة بتاريخ الاتفاق.</p>
@@ -100,10 +105,11 @@ export function OrderInvoiceDialog({id,open,onOpenChange,onSaved}:{
             <label htmlFor={`so-qty-${l.id}`}>{l.description} — سعر الاتفاق {l.unitPrice}؛ المتبقي المسلّم {Math.max(0,Number(l.deliveredQty)-Number(l.invoicedQty))}</label>
             <Input id={`so-qty-${l.id}`} data-testid={`so-invoice-qty-${l.id}`} type="number" min="0" step="0.0001"
               max={Math.max(0,Number(l.deliveredQty)-Number(l.invoicedQty))}
-              value={quantities[l.id]??Math.max(0,Number(l.deliveredQty)-Number(l.invoicedQty))}
+              value={frozen?savedQuantities?.find(q=>q.soLineId===l.id)?.quantity??0:
+                quantities[l.id]??Math.max(0,Number(l.deliveredQty)-Number(l.invoicedQty))}
               onChange={e=>setQuantities(q=>({...q,[l.id]:e.target.value}))}/>
           </div>)}
-          <InvoiceSellerFields state={sellers} lines={order.lines.map(l=>l.description)} hideBranch/>
+          {!frozen&&<InvoiceSellerFields state={sellers} lines={order.lines.map(l=>l.description)} hideBranch/>}
         </fieldset>
         <TaxPreviewPanel tp={tp} frozenNote={frozen?"محاولة محفوظة؛ تُسترجع بالجسم والمعرف نفسيهما دون إعادة حساب.":undefined}/>
         {comparison&&<div className="rounded border p-2 text-sm" data-testid="order-invoice-comparison">

@@ -19,6 +19,15 @@ export type OrderPriceBasis={
 type Order=typeof salesOrdersTable.$inferSelect;
 type Line=typeof salesOrderLinesTable.$inferSelect;
 const fail=(message:string,status=422)=>new FinancialRequestError(message,status);
+export async function assertOrderInvoiceAccess(tx:DbOrTx,req:Request,orderId:number){
+  const cid=getCompanyId(req);
+  const [source]=(await tx.execute(sql`SELECT branch_id FROM sales_orders WHERE id=${orderId}
+    AND company_id=${cid} FOR SHARE`)).rows;
+  if(!source)throw fail("أمر البيع غير متاح في المنشأة",404);
+  const actor=await returnActor(req.session.userId!,cid,tx);
+  if(actor.branches&&(source.branch_id==null||!actor.branches.includes(Number(source.branch_id))))
+    throw fail("أمر البيع خارج نطاق فروع المستخدم",403);
+}
 const money=(n:number)=>Math.round((n+Number.EPSILON)*100)/100;
 function prorate(budget:number,quantity:number,total:number){
   const units=(q:number)=>{
@@ -62,9 +71,7 @@ export async function prepareOrderInvoice(tx:DbOrTx,req:Request,so:Order,lines:L
     throw fail("هذه الشريحة تدعم SAR فقط؛ لم تُنفذ فاتورة بعملة مفترضة");
   if(!["confirmed","partially_delivered","fully_delivered","invoiced"].includes(so.status))
     throw fail("أمر البيع غير مؤكد أو بانتظار اعتماد أو مكتمل الفوترة",409);
-  const actor=await returnActor(req.session.userId!,cid,tx);
-  if(actor.branches&&(so.branchId==null||!actor.branches.includes(so.branchId)))
-    throw fail("أمر البيع خارج نطاق فروع المستخدم",403);
+  await assertOrderInvoiceAccess(tx,req,so.id);
   if(body.orderDiscount!==0)throw fail("خصم التحويل يؤخذ من الاتفاق المحفوظ ولا يسمح بخصم إضافي");
   if(so.branchId!=null&&!(await tx.execute(sql`SELECT id FROM branches WHERE id=${so.branchId} AND company_id=${cid}`)).rows.length)
     throw fail("فرع الأمر خارج المنشأة",403);

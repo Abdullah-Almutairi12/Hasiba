@@ -39,6 +39,12 @@ Invoice design is issuance evidence, not a reference to today's company or branc
 
 **How to apply:** Retain the captured design schema and immutable asset references with the original transaction. Preserve the old renderer/assets when introducing a future schema version; do not silently reinterpret saved presets. Keep legacy reprints explicit rather than applying today's default retrospectively.
 
+An agreed sales-order price basis is distinct from the legal tax treatment.
+
+**Why:** The user requires agreed prices, inclusivity and discounts to survive catalogue/default changes, but explicitly does not authorize freezing VAT treatment forever or guessing an old agreement from today's settings.
+
+**How to apply:** Preserve evidence of the commercial agreement and determine tax using evidenced supply facts. Round each actual invoice with the canonical calculator; disclose differences from an order's estimate. Unknown legacy agreements require explicit audited review, not automatic historical backfilling.
+
 Output retries and deliberate reprints are different logical requests.
 
 **Why:** A lost response must not duplicate the audit event, but retaining the same identity after acknowledged success silently collapses a later intentional print into the first event. Neither event proves paper output.
