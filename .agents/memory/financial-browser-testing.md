@@ -3,6 +3,14 @@ name: Financial browser fault injection
 description: Verify a genuinely lost committed response through the preview proxy without relying on browser request routing
 ---
 
+## Browser notebook loss is not an application reload
+
+An expired testing notebook can create a new browser context and lose cookies/sessionStorage. Do not call this a reload or recovery of the original saved financial intent.
+
+**Why:** A committed invoice survived in PostgreSQL after its response was dropped, but the automation context expired before native recovery. A server receipt proved the commit, not the missing browser journey.
+
+**How to apply:** Keep the disposable database alive, preserve the partial run separately, and inspect receipts read-only. Never reconstruct an original financial body, silently replace its key, or delete an unresolved intent to continue. Start a fresh coherent isolated acceptance fixture when the original browser state cannot be recovered.
+
 ## Bind browser proof to the loaded runtime
 
 A clean working-tree fingerprint and passing gates do not prove a long-running browser server loaded that build.
