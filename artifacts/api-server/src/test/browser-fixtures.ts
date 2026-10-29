@@ -10,6 +10,7 @@ import { eq,sql } from "drizzle-orm";
 import { employeesTable,commissionPlansTable } from "@workspace/db";
 import { recordStockMove } from "../lib/stock-engine";
 import {postJournalEntry} from "../lib/journal-posting";
+import {taxPolicySchema,riyadhDate} from "../lib/vat-policy";
 
 if (process.env.NODE_ENV!=="test"||process.env.ACCOUNT_ISOLATED_TEST!=="true") {
   throw new Error("Browser fixtures require the isolated test runner environment.");
@@ -60,18 +61,24 @@ for (const role of ["owner", "sales"] as const) {
     }));
     const [session] = await db.insert(posSessionsTable).values({
       branchId: branch.id, sessionNumber: `POS-VERIFY-${tag}`, cashierName: "كاشير الاختبار", openingCash: "0",
+      cashierUserId:process.env.HASBA_BROWSER_TAX_PREVIEW==="true"?user.id:undefined,
     }).returning();
     posSession = { id: session.id, branchId: branch.id, warehouseId: warehouse.id };
     if(process.env.HASBA_BROWSER_TAX_PREVIEW==="true"){
       // Explicit synthetic fixture only. The real activation route stays blocked.
+      const input=taxPolicySchema.parse({revision:0,requestId:randomUUID(),effectiveFrom:riyadhDate(),
+        status:"registered",vatNumber:"300000000000003",priceIncludesVat:true,
+        productRules:[{productId:product.id,rule:{category:"standard"}}],
+        serviceRule:{category:"standard"},reason:"Synthetic preview acceptance only",
+        proof:{currentPassword:password}});
       await db.execute(sql`UPDATE products SET price=115 WHERE id=${product.id}`);
       await db.execute(sql`INSERT INTO company_tax_policy_versions(
         company_id,revision,request_id,request_hash,effective_from,status,vat_number,price_includes_vat,
         product_rules,service_rule,legacy_state,reason,created_by)
-        VALUES(${company.id},1,${randomUUID()},'isolated-browser-tax-fixture',
-          (now() AT TIME ZONE 'Asia/Riyadh')::date,'registered','310000000000003',true,
-          ${JSON.stringify([{categoryId:category.id,category:"standard",rate:15}])}::jsonb,
-          '{"category":"standard","rate":15}'::jsonb,'{}'::jsonb,'Synthetic preview acceptance only',${user.id})`);
+        VALUES(${company.id},1,${input.requestId},'isolated-browser-tax-fixture',
+          ${input.effectiveFrom},${input.status},${input.vatNumber},${input.priceIncludesVat},
+          ${JSON.stringify(input.productRules)}::jsonb,${JSON.stringify(input.serviceRule)}::jsonb,
+          '{}'::jsonb,${input.reason},${user.id})`);
       const [equity]=await db.insert(accountsTable).values({code:`TEST-OPEN-${tag}`,
         name:"Synthetic opening equity",nameAr:"رصيد افتتاحي اختباري",type:"equity"}).returning();
       await db.transaction(tx=>postJournalEntry(tx,{companyId:company.id,source:"system",

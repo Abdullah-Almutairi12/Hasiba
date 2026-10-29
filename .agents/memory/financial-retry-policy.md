@@ -80,3 +80,11 @@ Recovery does not exempt a revoked device from present authorization.
 **Why:** Financial deduplication is not permission to keep using a revoked authentication context. Both protections must hold together.
 
 **How to apply:** Deny the revoked context without deleting commit evidence; a currently authorized context of the original actor can recover the same result under source-read authority without executing again.
+
+## Expiring quotes are not expiring financial outcomes
+
+Freeze the original review token together with the exact financial body; never refresh its tax or price evidence while that intent is unresolved.
+
+**Why:** A newly signed preview changes the request fingerprint even when its displayed amounts are unchanged. Reconstructing an uncertain request from the current cart can therefore strand its confirmed receipt or create a second sale under a replacement key.
+
+**How to apply:** Recover the saved outcome before applying current quote expiry or changed prices to fresh execution. If no result exists, close under the original financial fence before preparing a newly reviewed intent. Durable storage must not include a manager's password; protected retries need explicit re-entry instead.
