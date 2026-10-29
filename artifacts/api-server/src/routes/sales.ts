@@ -37,6 +37,9 @@ import { recordAudit, recordDocumentOutput } from "../lib/audit";
 import { saleDocumentHistory } from "../lib/sale-document-history";
 import { checkDocumentPrint } from "../lib/print-permissions";
 import { randomUUID } from "node:crypto";
+import {directInvoiceTaxAuthority,prepareDirectInvoiceTax} from "../lib/direct-invoice-tax";
+import {issueTaxPreview,verifyTaxPreview} from "../lib/tax-preview";
+import {closeSaleIntent} from "../lib/close-sale-intent";
 import { salePrintDescription, saleCashierMetadata } from "../lib/sale-print-identity";
 import {
   adminGuard,
@@ -1681,6 +1684,7 @@ router.post("/sales/deliveries/:id/transition", salesWriteGuard, async (req, res
 // Customer Invoices (AR)
 // ===================================================================
 const InvoiceBody = z.object({
+  taxPreviewToken:z.string().optional(),
   taxContextToken:z.string().optional(),
   branchId: z.number().int().positive().nullable().optional(),
   customerId: z.number().int().optional(),
@@ -1692,6 +1696,27 @@ const InvoiceBody = z.object({
   // SO's remaining-to-invoice quantities.
   orderDiscount: z.number().min(0).default(0),
   lines: z.array(QuoteLineBody).optional(),
+});
+
+router.post("/sales/invoices/tax-preview",financeGuard,async(req,res)=>{
+  try{
+    const body=InvoiceBody.parse(req.body);
+    if(body.soId)throw new FinancialRequestError("المعاينة الحالية للفواتير المباشرة فقط؛ مسار أمر البيع غير مفعّل",422);
+    const result=await db.transaction(async tx=>{
+      await lockApprovalAuthority(tx);
+      await directInvoiceTaxAuthority(req,tx);
+      const prepared=await prepareDirectInvoiceTax(tx,req,body);
+      return {context:prepared.context,totals:prepared.totals,...issueTaxPreview(req,"invoice",prepared.facts)};
+    });
+    res.json(result);
+  }catch(err){handleRouteError(err,res);}
+});
+router.post("/sales/invoices/tax-preview/close-intent",financeGuard,async(req,res)=>{
+  try{
+    const closed=await closeSaleIntent(req,"/sales/invoices",async tx=>{await directInvoiceTaxAuthority(req,tx);});
+    res.json(closed.state==="completed"?{state:closed.state,result:serializeMoneyDoc((closed.result as {inv:Parameters<typeof serializeMoneyDoc>[0]}).inv)}:closed);
+  }
+  catch(err){handleRouteError(err,res);}
 });
 
 router.get("/sales/invoices", customerReadGuard, async (req, res) => {
@@ -2468,6 +2493,8 @@ router.post("/sales/invoices", financeGuard, async (req, res) => {
       companyRow?.vatRegistrationStatus === "voluntary";
     const result = await financialTransaction(req, async (tx) => {
       const taxAt=body.invoiceDate??riyadhDate();
+      await lockApprovalAuthority(tx);
+      await directInvoiceTaxAuthority(req,tx);
       const issuer = await captureIssuer(tx, getCompanyId(req),taxAt);
       const vatEnabled = issuer.vatEnabled;
       const sellerNameForZatca = issuer.nameAr;
@@ -2490,9 +2517,10 @@ router.post("/sales/invoices", financeGuard, async (req, res) => {
         .where(and(eq(customersTable.id, customerId), eq(customersTable.companyId, getCompanyId(req))));
       if (!customer) throw new Error("العميل غير موجود");
 
-      let enriched: Parameters<typeof computeTotals>[0] = [];
+      const directTax=!body.soId?await prepareDirectInvoiceTax(tx,req,body):null;
+      let enriched: Parameters<typeof computeTotals>[0] = directTax?.enriched??[];
       const soLineByIdx: number[] = [];
-      if (body.lines && body.lines.length > 0) {
+      if (!directTax && body.lines && body.lines.length > 0) {
         // When both `soId` AND custom `lines` are supplied, every line must
         // be traceable to an SO line (matched by productId), and the
         // cumulative requested qty per SO line must NOT exceed
@@ -2556,7 +2584,7 @@ router.post("/sales/invoices", financeGuard, async (req, res) => {
           });
           soLineByIdx.push(matchedSoLineId);
         }
-      } else if (so) {
+      } else if (!directTax && so) {
         // Cap by deliveredQty - invoicedQty so we never invoice ahead of
         // what physically left the warehouse. This keeps the SO statuses
         // (partially_delivered / fully_delivered) financially meaningful
@@ -2576,7 +2604,7 @@ router.post("/sales/invoices", financeGuard, async (req, res) => {
         }
         if (enriched.length === 0)
           throw new Error("لا توجد كميات مسلمة قابلة للتفويتر — يجب التسليم أولاً");
-      } else {
+      } else if (!directTax) {
         throw new Error("يجب إدخال البنود");
       }
 
@@ -2586,33 +2614,37 @@ router.post("/sales/invoices", financeGuard, async (req, res) => {
       // making the invoice diverge from the accepted SO). For ad-hoc
       // invoices (no soId) we still apply rules so promos take effect.
       const fromSo = !!body.soId;
-      const lineRules = fromSo
+      const lineRules = directTax?.lineRules ?? (fromSo
         ? { applied: [] as Awaited<ReturnType<typeof applyLineDiscountRules>>["applied"] }
-        : await applyLineDiscountRules(tx, enriched);
+        : await applyLineDiscountRules(tx, enriched));
       const baseNetPre = enriched.reduce(
         (a, l) => a + l.quantity * l.unitPrice * (1 - (l.discountPct ?? 0) / 100),
         0,
       );
-      const ruleResult = fromSo
+      const ruleResult = directTax?.ruleResult ?? (fromSo
         ? { discountAmount: 0, applied: [] as Awaited<ReturnType<typeof applyDiscountRules>>["applied"] }
         : await applyDiscountRules(tx, {
             baseNet: Math.max(0, baseNetPre - body.orderDiscount),
             scope: "order",
-          });
+          }));
       if (!vatEnabled) {
         // Force every line's tax rate to 0 BEFORE totals are computed
         // so non-registered tenants never see VAT in the persisted
         // numbers or the resulting journal entry / ZATCA payload.
         for (const ln of enriched) ln.taxRate = 0;
       }
-      const policySale=await calculatePolicySale(tx,getCompanyId(req),taxAt,
+      const policySale=directTax?directTax.policySale:await calculatePolicySale(tx,getCompanyId(req),taxAt,
         enriched,body.orderDiscount+ruleResult.discountAmount);
+      if(directTax&&(policySale||body.taxPreviewToken)){
+        verifyTaxPreview(req,"invoice",body.taxPreviewToken,directTax.facts);
+        enriched=directTax.enriched;
+      }
       if(policySale&&body.taxContextToken!==policySale.context.token)
         throw new FinancialRequestError("تغير الإعداد الضريبي؛ أعد مراجعة مسودة الفاتورة قبل الإصدار",409);
       if(policySale&&fromSo)
         throw new FinancialRequestError("مسار تثبيت أساس تسعير أمر البيع يحتاج تحققًا قبل تفعيل هذه السياسة؛ لم تصدر فاتورة",422);
       if(policySale)issuer.taxCalculation=policySale.snapshot;
-      const totals = policySale?.totals ?? computeTotals(
+      const totals = directTax?.totals ?? policySale?.totals ?? computeTotals(
         enriched,
         body.orderDiscount + ruleResult.discountAmount,
       );

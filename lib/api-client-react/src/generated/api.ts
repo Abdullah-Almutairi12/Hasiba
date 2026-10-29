@@ -88,7 +88,11 @@ import type {
   ChangeCommissionStateBody,
   CloseCompanyTaxPolicyRequest200,
   CloseCompanyTaxPolicyRequestBody,
+  CloseDirectInvoiceTaxPreviewIntent200,
+  CloseDirectInvoiceTaxPreviewIntentBody,
   CloseFiscalYearBody,
+  ClosePosTaxPreviewIntent200,
+  ClosePosTaxPreviewIntentBody,
   CloseYearResult,
   ClosingEntry,
   Company,
@@ -267,7 +271,11 @@ import type {
   PostJournalEntry200,
   PostStocktakeVariance200,
   PrepareCountCheckpoint200,
+  PreviewDirectInvoiceTax200,
+  PreviewDirectInvoiceTaxBody,
   PreviewInvoiceTemplateBody,
+  PreviewPosTax200,
+  PreviewPosTaxBody,
   PrimaryOwnerAppointmentInput,
   Product,
   ProductStats,
@@ -416,6 +424,334 @@ const withQueryKey = <T extends object, K>(query: T, queryKey: K): T & { queryKe
   }
   return result;
 };
+
+export const getPreviewPosTaxUrl = () => {
+
+
+
+
+  return `/api/pos/tax-preview`
+}
+
+export const previewPosTax = async (previewPosTaxBody: PreviewPosTaxBody, options?: Parameters<typeof customFetch>[1]): Promise<PreviewPosTax200> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<PreviewPosTax200>(getPreviewPosTaxUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(previewPosTaxBody)
+  }
+);}
+
+
+
+
+
+export const getPreviewPosTaxMutationKey = () => ['previewPosTax'] as const;
+
+export const getPreviewPosTaxMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof previewPosTax>>, TError,PreviewPosTaxMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof previewPosTax>>, TError,PreviewPosTaxMutationVariables, TContext> => {
+
+const mutationKey = getPreviewPosTaxMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof previewPosTax>>, PreviewPosTaxMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  previewPosTax(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PreviewPosTaxMutationResult = NonNullable<Awaited<ReturnType<typeof previewPosTax>>>
+    export type PreviewPosTaxMutationBody = BodyType<PreviewPosTaxBody>
+    export type PreviewPosTaxMutationError = ErrorType<unknown>
+    export type PreviewPosTaxMutationVariables = {data: BodyType<PreviewPosTaxBody>}
+
+    export const usePreviewPosTax = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof previewPosTax>>, TError,PreviewPosTaxMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof previewPosTax>>,
+        TError,
+        PreviewPosTaxMutationVariables,
+        TContext
+      > => {
+      return useMutation(getPreviewPosTaxMutationOptions(options), queryClient);
+    }
+
+export const getPreviewDirectInvoiceTaxUrl = () => {
+
+
+
+
+  return `/api/sales/invoices/tax-preview`
+}
+
+export const previewDirectInvoiceTax = async (previewDirectInvoiceTaxBody: PreviewDirectInvoiceTaxBody, options?: Parameters<typeof customFetch>[1]): Promise<PreviewDirectInvoiceTax200> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<PreviewDirectInvoiceTax200>(getPreviewDirectInvoiceTaxUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(previewDirectInvoiceTaxBody)
+  }
+);}
+
+
+
+
+
+export const getPreviewDirectInvoiceTaxMutationKey = () => ['previewDirectInvoiceTax'] as const;
+
+export const getPreviewDirectInvoiceTaxMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof previewDirectInvoiceTax>>, TError,PreviewDirectInvoiceTaxMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof previewDirectInvoiceTax>>, TError,PreviewDirectInvoiceTaxMutationVariables, TContext> => {
+
+const mutationKey = getPreviewDirectInvoiceTaxMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof previewDirectInvoiceTax>>, PreviewDirectInvoiceTaxMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  previewDirectInvoiceTax(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PreviewDirectInvoiceTaxMutationResult = NonNullable<Awaited<ReturnType<typeof previewDirectInvoiceTax>>>
+    export type PreviewDirectInvoiceTaxMutationBody = BodyType<PreviewDirectInvoiceTaxBody>
+    export type PreviewDirectInvoiceTaxMutationError = ErrorType<unknown>
+    export type PreviewDirectInvoiceTaxMutationVariables = {data: BodyType<PreviewDirectInvoiceTaxBody>}
+
+    export const usePreviewDirectInvoiceTax = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof previewDirectInvoiceTax>>, TError,PreviewDirectInvoiceTaxMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof previewDirectInvoiceTax>>,
+        TError,
+        PreviewDirectInvoiceTaxMutationVariables,
+        TContext
+      > => {
+      return useMutation(getPreviewDirectInvoiceTaxMutationOptions(options), queryClient);
+    }
+
+export const getClosePosTaxPreviewIntentUrl = () => {
+
+
+
+
+  return `/api/pos/tax-preview/close-intent`
+}
+
+export const closePosTaxPreviewIntent = async (closePosTaxPreviewIntentBody: ClosePosTaxPreviewIntentBody, options?: Parameters<typeof customFetch>[1]): Promise<ClosePosTaxPreviewIntent200> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<ClosePosTaxPreviewIntent200>(getClosePosTaxPreviewIntentUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(closePosTaxPreviewIntentBody)
+  }
+);}
+
+
+
+
+
+export const getClosePosTaxPreviewIntentMutationKey = () => ['closePosTaxPreviewIntent'] as const;
+
+export const getClosePosTaxPreviewIntentMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof closePosTaxPreviewIntent>>, TError,ClosePosTaxPreviewIntentMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof closePosTaxPreviewIntent>>, TError,ClosePosTaxPreviewIntentMutationVariables, TContext> => {
+
+const mutationKey = getClosePosTaxPreviewIntentMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof closePosTaxPreviewIntent>>, ClosePosTaxPreviewIntentMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  closePosTaxPreviewIntent(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ClosePosTaxPreviewIntentMutationResult = NonNullable<Awaited<ReturnType<typeof closePosTaxPreviewIntent>>>
+    export type ClosePosTaxPreviewIntentMutationBody = BodyType<ClosePosTaxPreviewIntentBody>
+    export type ClosePosTaxPreviewIntentMutationError = ErrorType<unknown>
+    export type ClosePosTaxPreviewIntentMutationVariables = {data: BodyType<ClosePosTaxPreviewIntentBody>}
+
+    export const useClosePosTaxPreviewIntent = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof closePosTaxPreviewIntent>>, TError,ClosePosTaxPreviewIntentMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof closePosTaxPreviewIntent>>,
+        TError,
+        ClosePosTaxPreviewIntentMutationVariables,
+        TContext
+      > => {
+      return useMutation(getClosePosTaxPreviewIntentMutationOptions(options), queryClient);
+    }
+
+export const getCloseDirectInvoiceTaxPreviewIntentUrl = () => {
+
+
+
+
+  return `/api/sales/invoices/tax-preview/close-intent`
+}
+
+export const closeDirectInvoiceTaxPreviewIntent = async (closeDirectInvoiceTaxPreviewIntentBody: CloseDirectInvoiceTaxPreviewIntentBody, options?: Parameters<typeof customFetch>[1]): Promise<CloseDirectInvoiceTaxPreviewIntent200> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<CloseDirectInvoiceTaxPreviewIntent200>(getCloseDirectInvoiceTaxPreviewIntentUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(closeDirectInvoiceTaxPreviewIntentBody)
+  }
+);}
+
+
+
+
+
+export const getCloseDirectInvoiceTaxPreviewIntentMutationKey = () => ['closeDirectInvoiceTaxPreviewIntent'] as const;
+
+export const getCloseDirectInvoiceTaxPreviewIntentMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof closeDirectInvoiceTaxPreviewIntent>>, TError,CloseDirectInvoiceTaxPreviewIntentMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof closeDirectInvoiceTaxPreviewIntent>>, TError,CloseDirectInvoiceTaxPreviewIntentMutationVariables, TContext> => {
+
+const mutationKey = getCloseDirectInvoiceTaxPreviewIntentMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof closeDirectInvoiceTaxPreviewIntent>>, CloseDirectInvoiceTaxPreviewIntentMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  closeDirectInvoiceTaxPreviewIntent(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CloseDirectInvoiceTaxPreviewIntentMutationResult = NonNullable<Awaited<ReturnType<typeof closeDirectInvoiceTaxPreviewIntent>>>
+    export type CloseDirectInvoiceTaxPreviewIntentMutationBody = BodyType<CloseDirectInvoiceTaxPreviewIntentBody>
+    export type CloseDirectInvoiceTaxPreviewIntentMutationError = ErrorType<unknown>
+    export type CloseDirectInvoiceTaxPreviewIntentMutationVariables = {data: BodyType<CloseDirectInvoiceTaxPreviewIntentBody>}
+
+    export const useCloseDirectInvoiceTaxPreviewIntent = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof closeDirectInvoiceTaxPreviewIntent>>, TError,CloseDirectInvoiceTaxPreviewIntentMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof closeDirectInvoiceTaxPreviewIntent>>,
+        TError,
+        CloseDirectInvoiceTaxPreviewIntentMutationVariables,
+        TContext
+      > => {
+      return useMutation(getCloseDirectInvoiceTaxPreviewIntentMutationOptions(options), queryClient);
+    }
 
 export const getGetProcurementReceivingPolicyUrl = () => {
 

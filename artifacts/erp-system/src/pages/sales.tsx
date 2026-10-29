@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { CustomerInvoiceDetails } from "@/components/customer-invoice-details";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -28,7 +28,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Money } from "@/components/riyal";
 import { Plus, FileText, Truck, Receipt, ArrowLeftRight, Tag, Percent, Award, AlertCircle, Lock, Undo2, Loader2, Printer, Send, Mail, MessageCircle, Inbox, RefreshCw, CheckCircle2, XCircle } from "lucide-react";
-import { useApiQuery, useApiMutation, apiPost, apiGet, apiDelete } from "@/hooks/use-api";
+import { useApiQuery, useApiMutation, apiPost, apiPostWithKey, apiGet, apiDelete } from "@/hooks/use-api";
+import { useAuth } from "@/hooks/use-auth";
+import { useDurableIntent, type IntentOutcome } from "@/hooks/use-durable-intent";
+import { IntentRecoveryPanel } from "@/components/intent-recovery-panel";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { useToast } from "@/hooks/use-toast";
 import { useListCustomers, useListProducts } from "@workspace/api-client-react";
@@ -39,6 +42,9 @@ import { SendStatusBadge } from "@/components/send-status-badge";
 import { PdfPreviewSheet } from "@/components/pdf-preview-sheet";
 import { SellerCommissionsPanel } from "@/components/sellers/seller-commissions";
 import { InvoiceSellerFields, useInvoiceSellers } from "@/components/sellers/invoice-seller-fields";
+import { useTaxPreview } from "@/hooks/use-tax-preview";
+import { previewDirectInvoiceTax, type DirectInvoicePreviewBody } from "@/lib/tax-preview";
+import { TaxPreviewPanel } from "@/components/tax-preview-panel";
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
@@ -1465,6 +1471,10 @@ function BucketCard({ label, value, tone }: { label: string; value: number; tone
 }
 
 // ===== Shared dialogs =====
+const INVOICE_UNCERTAIN = "تعذر تأكيد نتيجة العملية؛ قد تكون حُفظت بالفعل. أعد المحاولة بنفس البيانات لاسترجاع النتيجة دون إنشاء عملية مكررة.";
+type InvoiceCreated = { id: number; reference?: string };
+type InvoiceIntentMeta = { customerId: number; lines: Array<{ productId: number | null; description: string; quantity: number; unitPrice: number; discountPct: number; taxRate: number }>; notes: string };
+const isInvoiceCreated = (r: unknown): r is InvoiceCreated => !!r && typeof r === "object" && Number.isInteger((r as InvoiceCreated).id);
 function DocumentFormDialog({
   kind,
   onSuccess,
@@ -1485,8 +1495,49 @@ function DocumentFormDialog({
   ]);
   const total = useMemo(() => lines.reduce((a, l) => a + (l.quantity * l.unitPrice * (1 - l.discountPct / 100) * (1 + (vatEnabled ? l.taxRate : 0) / 100)), 0), [lines, vatEnabled]);
   const sellers = useInvoiceSellers(kind === "invoice");
+  // Direct invoice only: durable user+company scoped intent with the exact
+  // body, a caller-owned Idempotency-Key and the original responsibility.
+  const { user } = useAuth();
+  const isInvoice = kind === "invoice";
+  const intent = useDurableIntent<Record<string, unknown>, InvoiceCreated, InvoiceIntentMeta>({
+    endpoint: "/sales/invoices", closePath: "/sales/invoices/tax-preview/close-intent",
+    userId: isInvoice ? user?.id : null, companyId: isInvoice ? user?.companyId : null,
+    send: (body, key) => apiPostWithKey<InvoiceCreated>("/sales/invoices", body, key),
+    isValid: isInvoiceCreated,
+  });
+  const frozen = intent.attempt;
+  const restoredFor = useRef<string | null>(null);
+  useEffect(() => {
+    // After a reload, show the saved (locked) form; the body itself is what is resent.
+    const m = frozen?.meta;
+    if (!frozen || !m || restoredFor.current === frozen.key) return;
+    restoredFor.current = frozen.key;
+    setCustomerId(m.customerId); setLines(m.lines); setNotes(m.notes);
+  }, [frozen]);
+  const previewBody = useMemo<DirectInvoicePreviewBody | null>(() => {
+    if (!isInvoice || frozen || !customerId) return null;
+    const clean = lines.filter((l) => l.description && l.quantity > 0);
+    return clean.length ? { customerId, lines: clean } : null;
+  }, [isInvoice, frozen, customerId, lines]);
+  const tp = useTaxPreview({ body: previewBody, fetcher: previewDirectInvoiceTax, frozen: !!frozen || !intent.ready });
+
+  const settle = (out: IntentOutcome<InvoiceCreated> | null) => {
+    if (!out) return;
+    if (out.kind === "created") {
+      toast({ title: "تم إنشاء الفاتورة", ...(out.recovered ? { description: `تأكدت نتيجة المحاولة السابقة نفسها${out.result.reference ? `: ${out.result.reference}` : ""}؛ لم تُنشأ فاتورة مكررة.` } : {}) });
+      onSuccess();
+    } else if (out.kind === "rejected") toast({ title: "خطأ", description: out.message, variant: "destructive" });
+    else toast({ title: "خطأ", description: INVOICE_UNCERTAIN, variant: "destructive" });
+  };
+  const closeIntent = async () => {
+    const out = await intent.close();
+    if (!out) return;
+    if (out.kind === "completed") { toast({ title: "الفاتورة السابقة نُفذت بالفعل", description: `هذه نتيجتها الأصلية: ${out.result.reference ?? `#${out.result.id}`}. لم تُنشأ فاتورة جديدة.` }); onSuccess(); }
+    else toast({ title: "أُغلقت العملية السابقة دون تنفيذ", description: "يمكنك الآن إنشاء فاتورة جديدة بعد مراجعة الضريبة." });
+  };
 
   const submit = async () => {
+    if (isInvoice && frozen) { settle(await intent.recover()); return; }
     if (!customerId) { toast({ title: "اختر العميل", variant: "destructive" }); return; }
     const kept = lines.map((l, i) => ({ l, i })).filter(({ l }) => l.description && l.quantity > 0);
     const cleanLines = kept.map(({ l }) => l);
@@ -1496,6 +1547,12 @@ function DocumentFormDialog({
       const built = sellers.build(kept.map(({ i }) => i));
       if (!built.ok) { toast({ title: built.error, variant: "destructive" }); return; }
       sellerFields = built.fields;
+    }
+    if (isInvoice) {
+      if (!intent.ready) { toast({ title: intent.error || "جارٍ التحقق من العمليات السابقة", variant: "destructive" }); return; }
+      if (tp.freshBlock) { toast({ title: tp.freshBlock, variant: "destructive" }); return; }
+      settle(await intent.submit({ customerId, lines: cleanLines, notes, ...sellerFields, ...tp.tokens() }, { meta: { customerId, lines, notes } }));
+      return;
     }
     try {
       const path = kind === "quotation" ? "/sales/quotations" : kind === "order" ? "/sales/orders" : "/sales/invoices";
@@ -1516,7 +1573,7 @@ function DocumentFormDialog({
           {kind === "quotation" ? "عرض سعر جديد" : kind === "order" ? "أمر بيع جديد" : "فاتورة عميل جديدة"}
         </DialogTitle>
       </DialogHeader>
-      <div className="space-y-4">
+      <fieldset disabled={!!frozen} className="space-y-4">
         <div className="grid grid-cols-2 gap-3">
           <div>
             <Label>العميل</Label>
@@ -1574,10 +1631,20 @@ function DocumentFormDialog({
           <Label>ملاحظات</Label>
           <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} />
         </div>
-        <div className="text-end font-bold">{vatEnabled ? "الإجمالي مع الضريبة" : "الإجمالي"}: <Money value={+total.toFixed(2)} /></div>
-      </div>
+        {isInvoice && frozen && (
+          <IntentRecoveryPanel error={intent.error || INVOICE_UNCERTAIN} busy={intent.busy} recoveryRejected={intent.recoveryRejected}
+            scopeMismatch={intent.scopeMismatch} onRecover={() => void submit()} onClose={() => void closeIntent()} testId="invoice-intent" />
+        )}
+        {isInvoice && !frozen && intent.error && !intent.ready && <p role="alert" className="text-sm text-destructive">{intent.error}</p>}
+        {isInvoice && !frozen && <TaxPreviewPanel tp={tp} />}
+        {isInvoice ? (
+          tp.preview && !frozen && <div className="text-end font-bold">الإجمالي (من الخادم): <Money value={Number(tp.preview.totals.total)} /></div>
+        ) : (
+          <div className="text-end font-bold">{vatEnabled ? "الإجمالي مع الضريبة" : "الإجمالي"}: <Money value={+total.toFixed(2)} /></div>
+        )}
+      </fieldset>
       <DialogFooter>
-        <Button onClick={submit}>حفظ</Button>
+        <Button onClick={submit} disabled={isInvoice && (intent.busy || !intent.ready || (!!frozen && (intent.recoveryRejected || intent.scopeMismatch)))}>حفظ</Button>
       </DialogFooter>
     </DialogContent>
   );

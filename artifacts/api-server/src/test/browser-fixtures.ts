@@ -9,6 +9,7 @@ import { accountsTable } from "@workspace/db";
 import { eq,sql } from "drizzle-orm";
 import { employeesTable,commissionPlansTable } from "@workspace/db";
 import { recordStockMove } from "../lib/stock-engine";
+import {postJournalEntry} from "../lib/journal-posting";
 
 if (process.env.NODE_ENV!=="test"||process.env.ACCOUNT_ISOLATED_TEST!=="true") {
   throw new Error("Browser fixtures require the isolated test runner environment.");
@@ -43,6 +44,7 @@ for (const role of ["owner", "sales"] as const) {
   const [product] = await db.insert(productsTable).values({
     companyId: company.id, categoryId: category.id, name: `Verification product ${tag}`,
     nameAr: "منتج اختبار", sku: `verify-${role}-${tag}`, price: "100", costPrice: "50", stock: "0",
+    costingMethod:process.env.HASBA_BROWSER_TAX_PREVIEW==="true"?"fifo":"average",
   }).returning();
   let posSession;
   if (role === "owner" && process.env.HASBA_BROWSER_POS === "true") {
@@ -60,6 +62,23 @@ for (const role of ["owner", "sales"] as const) {
       branchId: branch.id, sessionNumber: `POS-VERIFY-${tag}`, cashierName: "كاشير الاختبار", openingCash: "0",
     }).returning();
     posSession = { id: session.id, branchId: branch.id, warehouseId: warehouse.id };
+    if(process.env.HASBA_BROWSER_TAX_PREVIEW==="true"){
+      // Explicit synthetic fixture only. The real activation route stays blocked.
+      await db.execute(sql`UPDATE products SET price=115 WHERE id=${product.id}`);
+      await db.execute(sql`INSERT INTO company_tax_policy_versions(
+        company_id,revision,request_id,request_hash,effective_from,status,vat_number,price_includes_vat,
+        product_rules,service_rule,legacy_state,reason,created_by)
+        VALUES(${company.id},1,${randomUUID()},'isolated-browser-tax-fixture',
+          (now() AT TIME ZONE 'Asia/Riyadh')::date,'registered','310000000000003',true,
+          ${JSON.stringify([{categoryId:category.id,category:"standard",rate:15}])}::jsonb,
+          '{"category":"standard","rate":15}'::jsonb,'{}'::jsonb,'Synthetic preview acceptance only',${user.id})`);
+      const [equity]=await db.insert(accountsTable).values({code:`TEST-OPEN-${tag}`,
+        name:"Synthetic opening equity",nameAr:"رصيد افتتاحي اختباري",type:"equity"}).returning();
+      await db.transaction(tx=>postJournalEntry(tx,{companyId:company.id,source:"system",
+        entryDate:new Date().toISOString().slice(0,10),reference:`TEST-OPEN-${tag}`,
+        description:"Synthetic FIFO opening stock only",createdBy:user.id,status:"posted"},
+        [{systemKey:"inventory",debit:1000},{accountId:equity.id,credit:1000}]));
+    }
     // Explicit synthetic-owner test configuration, NOT a product default.
     const sellerIds:number[]=[];
     for(const label of ["ألف","باء"]){

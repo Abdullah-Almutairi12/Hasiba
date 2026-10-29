@@ -118,6 +118,7 @@ try {
     pnpm(["--filter", "@workspace/scripts", "exec", "tsx", "../artifacts/api-server/src/test/browser-fixtures.ts"],
       { ...env, HASBA_BROWSER_STATE: state, HASBA_BROWSER_RECEIPTS: process.argv.includes("--receipts") ? "true" : "",
         HASBA_BROWSER_POS: process.argv.includes("--pos") ? "true" : "",
+        HASBA_BROWSER_TAX_PREVIEW: process.argv.includes("--tax-preview") ? "true" : "",
         HASBA_BROWSER_RETURN_SETTLEMENT: process.argv.includes("--return-settlement") ? "true" : "",
         HASBA_BROWSER_MULTI_RECEIPTS: process.argv.includes("--multi-receipts") ? "true" : "",
         HASBA_BROWSER_RETURNS: process.argv.includes("--returns") ? "true" : "",

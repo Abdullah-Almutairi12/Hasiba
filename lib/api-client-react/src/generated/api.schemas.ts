@@ -1666,6 +1666,7 @@ export const CreatePosOrderBodyPaymentMethod = {
 } as const;
 
 export interface CreatePosOrderBody {
+  taxPreviewToken?: string;
   /** Reviewed company tax context; frozen with the financial attempt, never refreshed on an unknown retry. */
   taxContextToken?: string;
   /**
@@ -3609,6 +3610,270 @@ export type EditorPreviewInput = EditorScope & {
   design: EditorDesign;
   sample: EditorPreviewInputSample;
   width: EditorPreviewInputWidth;
+};
+
+export type PreviewPosTaxBodyItemsItem = {
+  productId: number;
+  quantity: number;
+};
+
+export type PreviewPosTaxBody = {
+  sessionId: number;
+  /** @minItems 1 */
+  items: PreviewPosTaxBodyItemsItem[];
+  discount?: number;
+};
+
+export type PreviewPosTax200ContextStatus = typeof PreviewPosTax200ContextStatus[keyof typeof PreviewPosTax200ContextStatus];
+
+
+export const PreviewPosTax200ContextStatus = {
+  registered: 'registered',
+  voluntary: 'voluntary',
+  not_registered: 'not_registered',
+  unresolved: 'unresolved',
+} as const;
+
+export type PreviewPosTax200ContextMode = typeof PreviewPosTax200ContextMode[keyof typeof PreviewPosTax200ContextMode];
+
+
+export const PreviewPosTax200ContextMode = {
+  unified: 'unified',
+  legacy: 'legacy',
+} as const;
+
+export type PreviewPosTax200ContextProductRulesItemRuleCategory = typeof PreviewPosTax200ContextProductRulesItemRuleCategory[keyof typeof PreviewPosTax200ContextProductRulesItemRuleCategory];
+
+
+export const PreviewPosTax200ContextProductRulesItemRuleCategory = {
+  standard: 'standard',
+  zero: 'zero',
+  exempt: 'exempt',
+} as const;
+
+export type PreviewPosTax200ContextProductRulesItemRule = {
+  category: PreviewPosTax200ContextProductRulesItemRuleCategory;
+  /** @maxLength 250 */
+  reason?: string;
+};
+
+export type PreviewPosTax200ContextProductRulesItem = {
+  productId: number;
+  rule: PreviewPosTax200ContextProductRulesItemRule;
+};
+
+export type PreviewPosTax200ContextServiceRuleCategory = typeof PreviewPosTax200ContextServiceRuleCategory[keyof typeof PreviewPosTax200ContextServiceRuleCategory];
+
+
+export const PreviewPosTax200ContextServiceRuleCategory = {
+  standard: 'standard',
+  zero: 'zero',
+  exempt: 'exempt',
+} as const;
+
+export type PreviewPosTax200ContextServiceRule = {
+  category: PreviewPosTax200ContextServiceRuleCategory;
+  /** @maxLength 250 */
+  reason?: string;
+};
+
+export type PreviewPosTax200Context = {
+  companyId: number;
+  /** @nullable */
+  policyId?: number | null;
+  revision: number;
+  /** @nullable */
+  effectiveFrom?: string | null;
+  status: PreviewPosTax200ContextStatus;
+  registered: boolean;
+  /** @nullable */
+  vatNumber?: string | null;
+  priceIncludesVat: boolean;
+  mode: PreviewPosTax200ContextMode;
+  token: string;
+  registrationVerification: string;
+  productRules?: PreviewPosTax200ContextProductRulesItem[];
+  serviceRule?: PreviewPosTax200ContextServiceRule;
+};
+
+export type PreviewPosTax200TotalsLinesItem = {
+  /** @nullable */
+  productId?: number | null;
+  description: string;
+  quantity: number;
+  unitPrice: number;
+  discountPct: number;
+  taxRate: number;
+  taxCategory?: string;
+  lineSubtotal: number;
+  lineDiscount: number;
+  lineNet: number;
+  lineVat: number;
+  lineTotal: number;
+};
+
+export type PreviewPosTax200Totals = {
+  subtotal: number;
+  discount: number;
+  vat: number;
+  total: number;
+  lines: PreviewPosTax200TotalsLinesItem[];
+};
+
+export type PreviewPosTax200 = {
+  context: PreviewPosTax200Context;
+  previewToken: string;
+  expiresAt: string;
+  totals: PreviewPosTax200Totals;
+};
+
+export type PreviewDirectInvoiceTaxBody = { [key: string]: unknown };
+
+export type PreviewDirectInvoiceTax200ContextStatus = typeof PreviewDirectInvoiceTax200ContextStatus[keyof typeof PreviewDirectInvoiceTax200ContextStatus];
+
+
+export const PreviewDirectInvoiceTax200ContextStatus = {
+  registered: 'registered',
+  voluntary: 'voluntary',
+  not_registered: 'not_registered',
+  unresolved: 'unresolved',
+} as const;
+
+export type PreviewDirectInvoiceTax200ContextMode = typeof PreviewDirectInvoiceTax200ContextMode[keyof typeof PreviewDirectInvoiceTax200ContextMode];
+
+
+export const PreviewDirectInvoiceTax200ContextMode = {
+  unified: 'unified',
+  legacy: 'legacy',
+} as const;
+
+export type PreviewDirectInvoiceTax200ContextProductRulesItemRuleCategory = typeof PreviewDirectInvoiceTax200ContextProductRulesItemRuleCategory[keyof typeof PreviewDirectInvoiceTax200ContextProductRulesItemRuleCategory];
+
+
+export const PreviewDirectInvoiceTax200ContextProductRulesItemRuleCategory = {
+  standard: 'standard',
+  zero: 'zero',
+  exempt: 'exempt',
+} as const;
+
+export type PreviewDirectInvoiceTax200ContextProductRulesItemRule = {
+  category: PreviewDirectInvoiceTax200ContextProductRulesItemRuleCategory;
+  /** @maxLength 250 */
+  reason?: string;
+};
+
+export type PreviewDirectInvoiceTax200ContextProductRulesItem = {
+  productId: number;
+  rule: PreviewDirectInvoiceTax200ContextProductRulesItemRule;
+};
+
+export type PreviewDirectInvoiceTax200ContextServiceRuleCategory = typeof PreviewDirectInvoiceTax200ContextServiceRuleCategory[keyof typeof PreviewDirectInvoiceTax200ContextServiceRuleCategory];
+
+
+export const PreviewDirectInvoiceTax200ContextServiceRuleCategory = {
+  standard: 'standard',
+  zero: 'zero',
+  exempt: 'exempt',
+} as const;
+
+export type PreviewDirectInvoiceTax200ContextServiceRule = {
+  category: PreviewDirectInvoiceTax200ContextServiceRuleCategory;
+  /** @maxLength 250 */
+  reason?: string;
+};
+
+export type PreviewDirectInvoiceTax200Context = {
+  companyId: number;
+  /** @nullable */
+  policyId?: number | null;
+  revision: number;
+  /** @nullable */
+  effectiveFrom?: string | null;
+  status: PreviewDirectInvoiceTax200ContextStatus;
+  registered: boolean;
+  /** @nullable */
+  vatNumber?: string | null;
+  priceIncludesVat: boolean;
+  mode: PreviewDirectInvoiceTax200ContextMode;
+  token: string;
+  registrationVerification: string;
+  productRules?: PreviewDirectInvoiceTax200ContextProductRulesItem[];
+  serviceRule?: PreviewDirectInvoiceTax200ContextServiceRule;
+};
+
+export type PreviewDirectInvoiceTax200TotalsLinesItem = {
+  /** @nullable */
+  productId?: number | null;
+  description: string;
+  quantity: number;
+  unitPrice: number;
+  discountPct: number;
+  taxRate: number;
+  taxCategory?: string;
+  lineSubtotal: number;
+  lineDiscount: number;
+  lineNet: number;
+  lineVat: number;
+  lineTotal: number;
+};
+
+export type PreviewDirectInvoiceTax200Totals = {
+  subtotal: number;
+  discount: number;
+  vat: number;
+  total: number;
+  lines: PreviewDirectInvoiceTax200TotalsLinesItem[];
+};
+
+export type PreviewDirectInvoiceTax200 = {
+  context: PreviewDirectInvoiceTax200Context;
+  previewToken: string;
+  expiresAt: string;
+  totals: PreviewDirectInvoiceTax200Totals;
+};
+
+export type ClosePosTaxPreviewIntentBodyBody = { [key: string]: unknown };
+
+export type ClosePosTaxPreviewIntentBody = {
+  requestKey: string;
+  body: ClosePosTaxPreviewIntentBodyBody;
+};
+
+export type ClosePosTaxPreviewIntent200State = typeof ClosePosTaxPreviewIntent200State[keyof typeof ClosePosTaxPreviewIntent200State];
+
+
+export const ClosePosTaxPreviewIntent200State = {
+  completed: 'completed',
+  closed_without_execution: 'closed_without_execution',
+} as const;
+
+export type ClosePosTaxPreviewIntent200Result = { [key: string]: unknown };
+
+export type ClosePosTaxPreviewIntent200 = {
+  state: ClosePosTaxPreviewIntent200State;
+  result?: ClosePosTaxPreviewIntent200Result;
+};
+
+export type CloseDirectInvoiceTaxPreviewIntentBodyBody = { [key: string]: unknown };
+
+export type CloseDirectInvoiceTaxPreviewIntentBody = {
+  requestKey: string;
+  body: CloseDirectInvoiceTaxPreviewIntentBodyBody;
+};
+
+export type CloseDirectInvoiceTaxPreviewIntent200State = typeof CloseDirectInvoiceTaxPreviewIntent200State[keyof typeof CloseDirectInvoiceTaxPreviewIntent200State];
+
+
+export const CloseDirectInvoiceTaxPreviewIntent200State = {
+  completed: 'completed',
+  closed_without_execution: 'closed_without_execution',
+} as const;
+
+export type CloseDirectInvoiceTaxPreviewIntent200Result = { [key: string]: unknown };
+
+export type CloseDirectInvoiceTaxPreviewIntent200 = {
+  state: CloseDirectInvoiceTaxPreviewIntent200State;
+  result?: CloseDirectInvoiceTaxPreviewIntent200Result;
 };
 
 export type GetProcurementReceivingPolicy200 = {

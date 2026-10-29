@@ -26,13 +26,16 @@ import {
   useGetPrintProfile,
   useGetSellerWorkspace,
 } from "@workspace/api-client-react";
-import { createPosSession, getWorkspaceResponsibility, useGetApprovalRequest, getGetApprovalRequestQueryKey, type CreatePosOrderBody } from "@workspace/api-client-react";
+import { createPosSession, getWorkspaceResponsibility, useGetApprovalRequest, useGetPosTaxContext, getGetApprovalRequestQueryKey, type CreatePosOrderBody } from "@workspace/api-client-react";
 import { usePermissions } from "@/hooks/use-permissions";
 import { useLiveScopedAccess } from "@/lib/scoped-access";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
 import { usePosCheckout, type PosProduct as Product, type PosCartItem as CartItem } from "@/hooks/use-pos-checkout";
 import { useToast } from "@/hooks/use-toast";
+import { useTaxPreview } from "@/hooks/use-tax-preview";
+import { previewPosTax, previewUnitPrices, type PosTaxPreviewBody } from "@/lib/tax-preview";
+import { TaxPreviewPanel } from "@/components/tax-preview-panel";
 import { useLanguage } from "@/hooks/use-language";
 import { useVatEnabled } from "@/hooks/use-vat-status";
 import { Button } from "@/components/ui/button";
@@ -200,10 +203,14 @@ export default function PosIconic({
     void refreshParked();
   }, [refreshParked]);
 
+  // Last server price basis (inputUnitPrice) per product. It survives the
+  // reload between quotes so a % discount never flips back to a stale cached
+  // price, and it is never written into an unresolved attempt.
+  const [serverPrices, setServerPrices] = useState<Record<number, number>>({});
   const subtotal = useMemo(
     () =>
-      cart.reduce((acc, ci) => acc + Number(ci.product.price) * ci.quantity, 0),
-    [cart],
+      cart.reduce((acc, ci) => acc + (serverPrices[ci.product.id] ?? Number(ci.product.price)) * ci.quantity, 0),
+    [cart, serverPrices],
   );
   // Legacy cashier discount (percent of basket). Scoped profiles: always 0.
   const [discountPct, setDiscountPct] = useState("");
@@ -218,8 +225,29 @@ export default function PosIconic({
   });
   const reviewStatus = reviewQ.data?.status ?? null;
   const net = Math.max(0, subtotal - discount);
-  const tax = vatEnabled ? net * 0.15 : 0;
-  const total = net + tax;
+  const bodyDiscount = isScoped ? scopedBodyDiscount(selectedResp?.actions, discount) : discount;
+  // Trusted server quote. Frozen while an unknown attempt exists so a refresh
+  // can never rewrite the saved body, key, header or its original tokens.
+  const taxCtx = useGetPosTaxContext({ query: { retry: false, staleTime: 30_000 } });
+  // Body does not depend on the attempt itself; the hook freezes while one exists.
+  const previewBody = useMemo<PosTaxPreviewBody | null>(() => (activeSession && cart.length > 0 && pctValid
+    ? { sessionId: activeSession.id, items: cart.map((c) => ({ productId: c.product.id, quantity: c.quantity })), ...(bodyDiscount ? { discount: bodyDiscount } : {}) }
+    : null), [activeSession, cart, pctValid, bodyDiscount]);
+  const tp = useTaxPreview({ body: previewBody, fetcher: previewPosTax, frozen: !!checkout.attempt, knownMode: taxCtx.data?.mode ?? null });
+  // Row prices only from a quote matching the current cart rows.
+  const unitPrices = useMemo(() => previewUnitPrices(tp.preview, cart.map((c) => c.product.id)), [tp.preview, cart]);
+  useEffect(() => {
+    if (!unitPrices || checkout.attempt) return;
+    setServerPrices((old) => {
+      const next = { ...old };
+      cart.forEach((c, i) => { next[c.product.id] = unitPrices[i]; });
+      return Object.keys(next).length === Object.keys(old).length && cart.every((c) => old[c.product.id] === next[c.product.id]) ? old : next;
+    });
+  }, [unitPrices, cart, checkout.attempt]);
+  // The server preview is authoritative in every mode; no local tax math.
+  const tax = tp.preview ? Number(tp.preview.totals.vat) : 0;
+  const total = tp.preview ? Number(tp.preview.totals.total) : 0;
+  const taxBlock = checkout.attempt ? null : tp.freshBlock;
 
   const addToCart = (p: Product) => {
     if (checkoutLocked || review) return;
@@ -343,6 +371,7 @@ export default function PosIconic({
       return;
     }
     if (payBlock) { toast({ title: payBlock, variant: "destructive" }); return; }
+    if (taxBlock) { toast({ title: taxBlock, variant: "destructive" }); return; }
     // Managed tenders follow the live action list; non-cash needs pos.payment.record.
     if (isScoped && !scopedCaps.tenders.includes(paymentMethod) && !checkout.attempt) {
       setPaymentMethod("cash");
@@ -378,8 +407,9 @@ export default function PosIconic({
         productId: c.product.id,
         quantity: c.quantity,
       })),
-      discount: isScoped ? scopedBodyDiscount(selectedResp?.actions, discount) : discount,
+      discount: bodyDiscount,
       paymentMethod,
+      ...tp.tokens(),
       ...sellerFields,
       ...(opts?.approvalRequestId ? { approvalRequestId: opts.approvalRequestId } : {}),
     };
@@ -405,6 +435,10 @@ export default function PosIconic({
       void refetchSessions();
       return;
     }
+    finishSale(created, body);
+  };
+
+  const finishSale = (created: NonNullable<Awaited<ReturnType<typeof checkout.pay>>>, body: CreatePosOrderBody) => {
     setSuccess({ orderNumber: created.orderNumber, total: Number(created.total) });
     setLastReceipt({ id: created.id, orderNumber: created.orderNumber, total: Number(created.total), seller: "sellerAttribution" in created || body.sellerEmployeeId !== undefined || body.lineSellers !== undefined
       ? savedSellerLabel((created as { sellerAttribution?: unknown }).sellerAttribution) : null });
@@ -415,6 +449,20 @@ export default function PosIconic({
     setReview(null);
     void queryClient.invalidateQueries();
     setTimeout(() => setSuccess(null), 2200);
+  };
+
+  // Narrow server check for the saved unknown attempt; never a new sale.
+  const handleCloseIntent = async () => {
+    const savedBody = checkout.attempt?.body;
+    if (!savedBody) return;
+    const out = await checkout.close();
+    if (!out) return;
+    if (out.kind === "completed") {
+      toast({ title: "عملية البيع السابقة نُفذت بالفعل", description: `هذه نتيجتها الأصلية ${out.result.orderNumber}؛ لم يُسجل بيع جديد ولا تعاود التحصيل.` });
+      finishSale(out.result, savedBody);
+    } else {
+      toast({ title: "أُغلقت عملية البيع السابقة دون تنفيذ", description: "لم يُسجل البيع. يمكنك بدء بيع جديد بعد مراجعة الضريبة." });
+    }
   };
 
   // ---- Render ----
@@ -535,10 +583,19 @@ export default function PosIconic({
         {/* RIGHT: Live cart rail */}
         <LiveCartRail
           cart={cart}
-          subtotal={subtotal}
+          unitPrices={unitPrices}
+          subtotal={tp.preview ? Number(tp.preview.totals.subtotal) : subtotal}
           tax={tax}
           total={total}
-          vatEnabled={vatEnabled}
+          vatEnabled={tp.preview ? tp.preview.context.registered : vatEnabled}
+          taxSlot={<>
+            <TaxPreviewPanel tp={tp} compact={false} frozenNote={checkout.attempt ? "عملية البيع المعلقة محفوظة بنصها ومفتاحها ورموزها الضريبية الأصلية؛ لن تُحدَّث المعاينة حتى تُحسم نتيجتها." : null} />
+            {checkout.attempt && (
+              <button type="button" onClick={() => void handleCloseIntent()} disabled={checkout.isPending || checkout.scopeMismatch}
+                className="w-full rounded-lg border border-amber-300 bg-white py-1.5 text-xs font-bold text-amber-900 hover:bg-amber-50 disabled:opacity-50 dark:bg-neutral-900 dark:text-amber-100"
+                data-testid="button-pos-close-intent">تحقق من الخادم وأغلق</button>
+            )}
+          </>}
           onBump={bump}
           onClear={clearCart}
           onPay={handlePay}
@@ -547,7 +604,7 @@ export default function PosIconic({
           cashOnly={isScoped && !scopedCaps.recordTender}
           tenders={isScoped ? scopedCaps.tenders : undefined}
           scopedNotice={isScoped}
-          discount={discount}
+          discount={tp.preview ? Number(tp.preview.totals.discount) : discount}
           discountSlot={discountAllowed && (discountOpen || discountPct !== "" || review) ? (
             <DiscountReviewPanel scoped={isScoped} pct={discountPct} setPct={setDiscountPct} valid={pctValid} discount={discount} net={net}
               locked={checkoutLocked || !!review} review={review} reviewStatus={reviewStatus} reviewLoading={reviewQ.isFetching}
@@ -556,8 +613,8 @@ export default function PosIconic({
               onFresh={() => void handlePay({ freshReview: true })}
               onDiscard={() => setReview(null)} busy={checkout.isPending} />
           ) : null}
-          vatUnknown={vatUnknown}
-          payBlock={payBlock}
+          vatUnknown={vatUnknown || !tp.preview}
+          payBlock={payBlock ?? taxBlock}
           onRetryVat={live.isError ? () => void live.refetch() : undefined}
           locked={checkoutLocked}
           recovery={!!checkout.attempt}
@@ -625,7 +682,7 @@ export default function PosIconic({
         onOpenPay={() => void handlePay()}
         onMore={!discountAllowed ? undefined : () => setDiscountOpen((v) => !v)}
         moreExpanded={discountOpen}
-        payDisabled={!!payBlock || !checkout.ready || checkout.isPending || cart.length === 0}
+        payDisabled={!!payBlock || !!taxBlock || !checkout.ready || checkout.isPending || cart.length === 0}
         parkingUnavailable={isScoped}
       />
 
@@ -807,6 +864,7 @@ function PhotoTile({
 
 function LiveCartRail({
   cart,
+  unitPrices,
   subtotal,
   tax,
   total,
@@ -831,6 +889,7 @@ function LiveCartRail({
   discountSlot,
   vatUnknown = false,
   payBlock = null,
+  taxSlot,
   onRetryVat,
 }: {
   cashOnly?: boolean;
@@ -840,8 +899,10 @@ function LiveCartRail({
   discountSlot?: React.ReactNode;
   vatUnknown?: boolean;
   payBlock?: string | null;
+  taxSlot?: React.ReactNode;
   onRetryVat?: () => void;
   cart: CartItem[];
+  unitPrices?: number[] | null;
   subtotal: number;
   tax: number;
   total: number;
@@ -890,7 +951,7 @@ function LiveCartRail({
               {t("pos_iconic.cart_empty")}
             </div>
           ) : (
-            cart.map((ci) => (
+            cart.map((ci, rowIdx) => (
               <motion.div
                 key={ci.product.id}
                 layout
@@ -906,7 +967,7 @@ function LiveCartRail({
                     {ci.product.name}
                   </div>
                   <div className="font-mono text-[10px] text-neutral-500">
-                    {Number(ci.product.price).toFixed(2)} × {ci.quantity}
+                    <span data-testid={`cart-row-unit-${ci.product.id}`}>{Number(unitPrices?.[rowIdx] ?? ci.product.price).toFixed(2)}</span> × {ci.quantity}
                   </div>
                   {lineSeller?.(ci.product.id)}
                 </div>
@@ -954,6 +1015,7 @@ function LiveCartRail({
         </div>
       </div>
 
+      {taxSlot}
       {sellerSlot}
       {discountSlot}
       <fieldset disabled={locked} className="grid grid-cols-2 gap-2" aria-label={t("pos_iconic.choose_payment")}>

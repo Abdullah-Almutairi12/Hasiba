@@ -1,4 +1,7 @@
 import { randomUUID } from "node:crypto";
+import {posTaxPreviewBody,preparePosTaxPreview,posTaxFacts,posIntentRead} from "../lib/pos-tax-preview";
+import {closeSaleIntent} from "../lib/close-sale-intent";
+import {issueTaxPreview,verifyTaxPreview} from "../lib/tax-preview";
 import { returnAuthorize } from "../lib/return-access";
 import { scopedPosOrderVisible } from "../lib/scoped-pos-operations";
 import { Router } from "express";
@@ -19,7 +22,7 @@ import {
   deliveryOrdersTable,
   deliveryOrderLinesTable,
 } from "@workspace/db";
-import { nextRef } from "../lib/sales-engine";
+import { nextRef,legacyPosTotals } from "../lib/sales-engine";
 import { buildZatcaQrBase64 } from "../lib/zatca-qr";
 import { captureIssuer, saveIssuer } from "../lib/document-identity";
 import { recordSaleSellers } from "../lib/seller-ledger";
@@ -89,6 +92,29 @@ const posOverrideLimiter = rateLimit({
 });
 
 const router = Router();
+router.post("/pos/tax-preview/close-intent",posReadGuard,async(req,res)=>{
+  try{
+    const closed=await closeSaleIntent(req,"/pos/orders",(tx,body,saved)=>posIntentRead(tx,req,body,saved));
+    if(closed.state==="completed"){
+      const r=closed.result as {order:Record<string,unknown>;orderItems:unknown;subtotal:number;tax:number;total:number;payments:unknown;sellerAttribution:unknown;discount?:number};
+      res.json({state:closed.state,result:{...r.order,sellerAttribution:r.sellerAttribution,
+        items:r.orderItems,subtotal:r.subtotal,tax:r.tax,total:r.total,payments:r.payments,
+        discount:r.discount??Number(r.order.discount??0)}});
+    }else res.json(closed);
+  }
+  catch(err){handleRouteError(err,res);}
+});
+router.post("/pos/tax-preview",posReadGuard,async(req,res)=>{
+  try{
+    const body=posTaxPreviewBody.parse(req.body);
+    const result=await db.transaction(async tx=>{
+      await lockApprovalAuthority(tx);
+      const prepared=await preparePosTaxPreview(tx,req,body);
+      return {context:prepared.context,totals:prepared.totals,...issueTaxPreview(req,"pos",prepared.facts)};
+    });
+    res.json(result);
+  }catch(err){handleRouteError(err,res);}
+});
 router.get("/pos/tax-context",posReadGuard,async(req,res)=>{
   try {res.json(await taxContext(getCompanyId(req)));}
   catch(err){handleRouteError(err,res);}
@@ -928,7 +954,19 @@ router.post(
       const policySale=await calculatePolicySale(tx,companyId,taxAt,orderItems.map(l=>({
         productId:l.productId,description:l.productName,quantity:l.quantity,unitPrice:l.unitPrice,
       })),discount);
+      if(!policySale&&body.taxPreviewToken){
+        const context=await taxContext(companyId,taxAt,tx);
+        const {publicTaxContext}=await import("../lib/vat-policy");
+        verifyTaxPreview(req,"pos",body.taxPreviewToken,posTaxFacts(companyId,body.sessionId,session.branchId,
+          issueWarehouseId!,publicTaxContext(context),orderItems.map(l=>({
+            productId:l.productId,description:l.productName,quantity:l.quantity,unitPrice:l.unitPrice,
+          })),discount,taxAt));
+      }
       if(policySale){
+        verifyTaxPreview(req,"pos",body.taxPreviewToken,posTaxFacts(companyId,body.sessionId,session.branchId,
+          issueWarehouseId!,policySale.context,orderItems.map(l=>({
+            productId:l.productId,description:l.productName,quantity:l.quantity,unitPrice:l.unitPrice,
+          })),discount,taxAt));
         if(body.taxContextToken!==policySale.context.token)
           throw new FinancialRequestError("تغير الإعداد الضريبي؛ راجع السلة وحساباتها ثم أكد طلبًا جديدًا",409);
         subtotal=policySale.totals.subtotal;
@@ -941,8 +979,11 @@ router.post(
         });
         issuer.taxCalculation=policySale.snapshot;
       }
-      const tax = policySale?.totals.vat ?? (vatEnabled ? (subtotal - discount) * 0.15 : 0);
-      const total = policySale?.totals.total ?? (subtotal - discount + tax);
+      const legacyTotals=policySale?null:legacyPosTotals(orderItems.map(l=>({
+        productId:l.productId,description:l.productName,quantity:l.quantity,unitPrice:l.unitPrice,
+      })),discount,vatEnabled);
+      const tax = policySale?.totals.vat ?? legacyTotals!.vat;
+      const total = policySale?.totals.total ?? legacyTotals!.total;
       if (await managedProfile(req.session.userId!, companyId, tx)) {
         const grant = await selectedResponsibility(req.session.userId!, companyId, tx);
         if (!grant) throw new FinancialRequestError("سحب الوصول قبل تنفيذ العملية", 403);
@@ -1426,6 +1467,7 @@ router.post(
         total,
         subtotal,
         tax,
+        discount,
         orderItems,
         invoiceId: posInvoice.id,
         invoiceRef: invRef,
@@ -1462,7 +1504,7 @@ router.post(
     if (res.getHeader("Idempotency-Replayed")) {
       res.status(201).json({
         ...result.order, sellerAttribution:result.sellerAttribution,items: result.orderItems, subtotal: result.subtotal,
-        tax: result.tax, discount, total: result.total, payments: result.payments,
+        tax: result.tax, discount:result.discount??Number(result.order.discount??discount), total: result.total, payments: result.payments,
         createdAt: result.order.createdAt.toISOString(),
       }); return;
     }
@@ -1537,7 +1579,7 @@ router.post(
       items: result.orderItems,
       subtotal: result.subtotal,
       tax: result.tax,
-      discount,
+      discount:result.discount??Number(result.order.discount??discount),
       total: result.total,
       payments: result.payments,
       createdAt: result.order.createdAt.toISOString(),

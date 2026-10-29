@@ -58,6 +58,7 @@ export async function financialTransaction<T>(
   req: Request,
   work: (tx: Tx) => Promise<T>,
   authorizeReplay?: (tx: Tx, result: T) => Promise<void>,
+  options?: { acceptClosedReceipt: boolean },
 ): Promise<T> {
   const key = req.get("Idempotency-Key");
   if (!key) return db.transaction(work);
@@ -84,7 +85,7 @@ export async function financialTransaction<T>(
       // Routes that distinguish source reading from fresh execution must
       // authorize the persisted source before disclosing a committed receipt.
       await authorizeReplay?.(tx, result);
-      if (isClosedFinancialIntent(result)) {
+      if (isClosedFinancialIntent(result) && !options?.acceptClosedReceipt) {
         throw new FinancialRequestError("أُغلقت هذه المحاولة دون تنفيذ؛ لا يُعاد استخدام معرفها. تحقق من الإغلاق ثم ابدأ طلبًا جديدًا.", 409);
       }
       req.res?.setHeader("Idempotency-Replayed", "true");

@@ -11,5 +11,9 @@ export default defineConfig({
     include: ["src/**/*.test.{ts,tsx}"],
     setupFiles: ["./src/test/setup.ts"],
     clearMocks: true,
+    // These UI files exercise large native pages. Do not overcommit workers
+    // in the shared verification container; financial concurrency has explicit
+    // PostgreSQL/browser tests rather than unrelated file-level overlap.
+    fileParallelism: false,
   },
 });

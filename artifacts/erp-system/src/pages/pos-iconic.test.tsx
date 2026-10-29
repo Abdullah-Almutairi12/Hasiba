@@ -13,6 +13,7 @@ beforeEach(() => {
 });
 import { usePosCheckout } from "@/hooks/use-pos-checkout";
 import ar from "@/i18n/ar.json";
+import { posPreviewServer } from "@/lib/tax-preview-mock";
 
 vi.mock("@/hooks/use-auth", () => ({
   useAuth: () => ({ user: { id: 11, companyId: 21,...(sessionMock.branchId?{role:"cashier",branchId:sessionMock.branchId}:{} )} }),
@@ -33,6 +34,10 @@ vi.mock("@workspace/api-client-react", async (original) => ({
 }));
 
 const storageKey = "hasba:pos-checkout:11:21";
+let previews: unknown[] = [];
+beforeEach(() => { previews = []; });
+// A new sale needs an explicitly reviewed authoritative server quote.
+const review = async (u: { click: (el: Element) => Promise<void> }) => u.click(await screen.findByTestId("button-tax-preview-confirm"));
 afterEach(() => vi.restoreAllMocks());
 function mount() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -42,6 +47,8 @@ function saleTransport(fault?: "lost" | "502" | "malformed" | "incomplete" | "re
   const attempts: Array<{ key: string; body: string }> = [];
   const committed = new Map<string, { id: number; orderNumber: string; total: number }>();
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const preview = posPreviewServer(input, init, { prices: { 5: 100 }, token: `sale-${previews.length}`, log: previews });
+    if (preview) return preview;
     if (!String(input).split("?")[0].endsWith("/api/pos/orders") || init?.method !== "POST") {
       return Response.json([]);
     }
@@ -85,11 +92,15 @@ describe("POS inline tender and durable checkout recovery", () => {
     expect(screen.getByTestId("button-pay-cash").isConnected).toBe(true);
     expect(screen.queryByTestId("overlay-payment")).toBeNull();
     await user.click(screen.getByTestId("button-pay-cash"));
+    await review(user);
     await user.click(screen.getByTestId("button-pay-rail"));
     expect((await screen.findByText("ORD-TEST-1")).isConnected).toBe(true);
     expect(JSON.parse(transport.attempts[0].body)).toMatchObject({
       sessionId: 9, paymentMethod: "cash", items: [{ productId: 5, quantity: 1 }],
     });
+    // Legacy authoritative quote: preview token only, never a context token.
+    expect(JSON.parse(transport.attempts[0].body).taxPreviewToken).toMatch(/^pv-sale-\d+$/);
+    expect(JSON.parse(transport.attempts[0].body)).not.toHaveProperty("taxContextToken");
     expect(sessionStorage.getItem(storageKey)).toBeNull();
     expect(screen.getByText(ar.pos_iconic.cart_empty).isConnected).toBe(true);
   });
@@ -102,10 +113,12 @@ describe("POS inline tender and durable checkout recovery", () => {
       const view = mount();
       await user.click(await screen.findByTestId("product-icon-5"));
       await user.click(screen.getByTestId("button-pay-cash"));
+      await review(user);
       await user.click(screen.getByTestId("button-pay-rail"));
       expect((await screen.findByRole("alert")).textContent).toContain("تعذر تأكيد نتيجة البيع");
       expect(screen.getByTestId("button-pay-card").matches(":disabled")).toBe(true);
       await user.click(screen.getByTestId("product-icon-5")); // must not change frozen cart
+      const previewsWhileFrozen = previews.length;
       view.unmount();
       mount();
       await waitFor(() => expect(screen.getByTestId("button-pay-rail").textContent).toContain("استرجاع نتيجة البيع"));
@@ -114,8 +127,11 @@ describe("POS inline tender and durable checkout recovery", () => {
       expect(transport.attempts).toHaveLength(2);
       expect(transport.attempts[1]).toEqual(transport.attempts[0]);
       expect(transport.committed.size).toBe(1);
+      // No re-quote while the unknown attempt existed; its original token was resent.
+      expect(previews.length).toBe(previewsWhileFrozen);
       // Intentional identical NEXT sale gets a fresh key after confirmation.
       await user.click(screen.getByTestId("product-icon-5"));
+      await review(user);
       await user.click(screen.getByTestId("button-pay-rail"));
       await waitFor(() => expect(transport.committed.size).toBe(2));
       expect(transport.attempts[2].key).not.toBe(transport.attempts[0].key);
@@ -127,6 +143,7 @@ describe("POS inline tender and durable checkout recovery", () => {
     const user = userEvent.setup();
     const view = mount();
     await user.click(await screen.findByTestId("product-icon-5"));
+    await review(user);
     await user.click(screen.getByTestId("button-pay-rail"));
     expect((await screen.findByRole("alert")).textContent).toContain("الوردية مغلقة");
     expect(screen.getByTestId("button-pay-cash").matches(":disabled")).toBe(false);
@@ -138,6 +155,7 @@ describe("POS inline tender and durable checkout recovery", () => {
     sessionMock.status = "open";
     mount();
     await user.click(await screen.findByTestId("product-icon-5"));
+    await review(user);
     await user.click(screen.getByTestId("button-pay-rail"));
     expect((await screen.findByText("ORD-TEST-1")).isConnected).toBe(true);
     expect(transport.committed.size).toBe(1);
@@ -153,6 +171,7 @@ describe("POS inline tender and durable checkout recovery", () => {
     });
     mount();
     await user.click(await screen.findByTestId("product-icon-5"));
+    await review(user);
     await user.click(screen.getByTestId("button-pay-rail"));
     expect((await screen.findByRole("alert")).textContent).toContain("تم تسجيل البيع بالفعل");
     expect(screen.getByTestId("button-pay-cash").matches(":disabled")).toBe(true);
@@ -168,6 +187,7 @@ describe("POS inline tender and durable checkout recovery", () => {
     const user = userEvent.setup();
     mount();
     await user.click(await screen.findByTestId("product-icon-5"));
+    await review(user);
     const write = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
       throw new DOMException("Synthetic storage fault", "QuotaExceededError");
     });
@@ -204,6 +224,7 @@ describe("POS confirmed receipt printing", () => {
     const user = userEvent.setup();
     mount();
     await user.click(await screen.findByTestId("product-icon-5"));
+    await review(user);
     await user.click(screen.getByTestId("button-pay-rail"));
     const panel = await screen.findByTestId("panel-last-receipt");
     expect(panel.textContent).toContain("ORD-TEST-1");
@@ -224,6 +245,7 @@ describe("POS confirmed receipt printing", () => {
     const user = userEvent.setup();
     mount();
     await user.click(await screen.findByTestId("product-icon-5"));
+    await review(user);
     await user.click(screen.getByTestId("button-pay-rail"));
     await screen.findByRole("alert");
     expect(screen.queryByTestId("panel-last-receipt")).toBeNull();

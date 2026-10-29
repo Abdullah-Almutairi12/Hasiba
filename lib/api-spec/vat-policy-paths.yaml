@@ -1,3 +1,122 @@
+posCloseIntent:
+  post:
+    operationId: closePosTaxPreviewIntent
+    tags: [pos]
+    requestBody: {$ref: "#/closeIntentBody"}
+    responses:
+      "200":
+        description: Existing committed result or durable nonexecution; access denial proves neither
+        content:
+          application/json:
+            schema: {$ref: "#/closeIntentResponse"}
+invoiceCloseIntent:
+  post:
+    operationId: closeDirectInvoiceTaxPreviewIntent
+    tags: [sales]
+    requestBody: {$ref: "#/closeIntentBody"}
+    responses:
+      "200":
+        description: Exact original result or durable closure through the original financial engine
+        content:
+          application/json:
+            schema: {$ref: "#/closeIntentResponse"}
+closeIntentBody:
+  required: true
+  content:
+    application/json:
+      schema:
+        type: object
+        required: [requestKey, body]
+        properties:
+          requestKey: {type: string}
+          body: {type: object, additionalProperties: true}
+closeIntentResponse:
+  type: object
+  required: [state]
+  properties:
+    state:
+      type: string
+      enum: [completed, closed_without_execution]
+    result: {type: object, additionalProperties: true}
+posPreview:
+  post:
+    operationId: previewPosTax
+    tags: [pos]
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [sessionId, items]
+            properties:
+              sessionId: {type: integer}
+              items:
+                type: array
+                minItems: 1
+                items:
+                  type: object
+                  required: [productId, quantity]
+                  properties:
+                    productId: {type: integer}
+                    quantity: {type: number}
+              discount: {type: number}
+    responses:
+      "200":
+        description: Read-only trusted preview; never an invoice, stock reservation or payment
+        content:
+          application/json:
+            schema: {$ref: "#/previewResponse"}
+invoicePreview:
+  post:
+    operationId: previewDirectInvoiceTax
+    tags: [sales]
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: true
+    responses:
+      "200":
+        description: Direct invoice preview only; sales-order conversion remains guarded
+        content:
+          application/json:
+            schema: {$ref: "#/previewResponse"}
+previewResponse:
+  type: object
+  required: [context, totals, previewToken, expiresAt]
+  properties:
+    context: {$ref: "#/schemas/TaxContext"}
+    previewToken: {type: string}
+    expiresAt: {type: string}
+    totals:
+      type: object
+      required: [subtotal, discount, vat, total, lines]
+      properties:
+        subtotal: {type: number}
+        discount: {type: number}
+        vat: {type: number}
+        total: {type: number}
+        lines:
+          type: array
+          items:
+            type: object
+            required: [description, quantity, unitPrice, discountPct, taxRate, lineSubtotal, lineDiscount, lineNet, lineVat, lineTotal]
+            properties:
+              productId: {type: [integer, "null"]}
+              description: {type: string}
+              quantity: {type: number}
+              unitPrice: {type: number}
+              discountPct: {type: number}
+              taxRate: {type: number}
+              taxCategory: {type: string}
+              lineSubtotal: {type: number}
+              lineDiscount: {type: number}
+              lineNet: {type: number}
+              lineVat: {type: number}
+              lineTotal: {type: number}
 policy:
   get:
     operationId: getCompanyTaxPolicy

@@ -1,10 +1,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import PosIconic from "./pos-iconic";
 import { __resetWorkspaceResponsibility, selectResponsibility, getSelectedResponsibility } from "@/lib/workspace-responsibility";
 import ar from "@/i18n/ar.json";
+import { posPreviewServer } from "@/lib/tax-preview-mock";
 
 const access = vi.hoisted(() => ({
   data: undefined as undefined | { managed: boolean; status: string; grants: unknown[]; deniedActions: string[]; vatRegistered?: boolean },
@@ -32,7 +33,10 @@ let urls: string[] = [];
 beforeEach(() => {
   urls = [];
   sessionStorage.clear();
-  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => { urls.push(String(input)); return Response.json([]); }));
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    urls.push(String(input));
+    return posPreviewServer(input, init, { prices: { 5: 20 }, registered: access.data?.vatRegistered !== false, token: "scoped" }) ?? Response.json([]);
+  }));
 });
 afterEach(() => { vi.unstubAllGlobals(); __resetWorkspaceResponsibility(); });
 
@@ -72,8 +76,11 @@ describe("PosIconic for scoped members", () => {
     expect(screen.queryByTestId("panel-discount")).toBeNull();
     expect(screen.queryByTestId("input-discount-pct")).toBeNull();
     await userEvent.click(screen.getByText("تمر"));
+    // Registered: the server quote (not a local 15%) drives the total; review unlocks pay.
+    await waitFor(() => expect(pay().textContent).toContain("23.00"));
+    expect(pay().disabled).toBe(true);
+    await userEvent.click(screen.getByTestId("button-tax-preview-confirm"));
     expect(pay().disabled).toBe(false);
-    expect(pay().textContent).toContain("23.00");
     await new Promise((r) => setTimeout(r, 20));
     expect(urls.some((u) => /parked|payment|gateway|vat|zatca|inventory\/lookup/.test(u))).toBe(false);
   });
@@ -81,7 +88,8 @@ describe("PosIconic for scoped members", () => {
   it("unregistered company: tax is exactly 0, never a guessed 15%", async () => {
     mount(["pos.read", "pos.sell"], false);
     await userEvent.click(await screen.findByText("تمر"));
-    expect(pay().textContent).toContain("20.00");
+    await waitFor(() => expect(pay().textContent).toContain("20.00"));
+    expect(screen.getByTestId("tax-preview-category-not_registered")).toBeTruthy();
     expect(pay().textContent).not.toContain("23.00");
   });
 

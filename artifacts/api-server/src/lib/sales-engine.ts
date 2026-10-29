@@ -132,6 +132,21 @@ export interface ComputedTotals {
   lines: ComputedLine[];
 }
 
+/** Existing POS arithmetic preserved exactly for unconverted companies.
+ * Shared by read-only preview and issue; no per-line ERP rounding migration. */
+export function legacyPosTotals(lines:SalesLineInput[],discount:number,registered:boolean):ComputedTotals{
+  const subtotal=lines.reduce((a,l)=>a+l.unitPrice*l.quantity,0);
+  const vat=registered?(subtotal-discount)*.15:0;
+  return {subtotal,discount,vat,total:subtotal-discount+vat,
+    lines:lines.map(l=>{
+      const lineSubtotal=l.unitPrice*l.quantity;
+      const lineDiscount=subtotal?lineSubtotal/subtotal*discount:0;
+      const lineNet=lineSubtotal-lineDiscount,lineVat=registered?lineNet*.15:0;
+      return {...l,discountPct:0,taxRate:registered?15:0,
+        taxCategory:registered?"standard":"not_registered",lineSubtotal,lineDiscount,lineNet,lineVat,lineTotal:lineNet+lineVat};
+    })};
+}
+
 export function computeTotals(
   lines: SalesLineInput[],
   orderDiscount = 0,
@@ -325,6 +340,7 @@ export async function applyDiscountRules(
 export async function applyLineDiscountRules(
   tx: DbOrTx,
   lines: SalesLineInput[],
+  onApplied?: (rule: AppliedDiscountRule, after: SalesLineInput[]) => void,
 ): Promise<{ applied: AppliedDiscountRule[] }> {
   const rules = await tx
     .select()
@@ -362,6 +378,8 @@ export async function applyLineDiscountRules(
       cur.amount = +(cur.amount + extra).toFixed(2);
       agg.set(rule.id, cur);
     }
+    const applied=agg.get(rule.id);
+    if(applied&&onApplied)onApplied({...applied},lines.map(l=>({...l})));
   }
   return { applied: [...agg.values()] };
 }

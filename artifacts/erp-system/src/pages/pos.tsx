@@ -6,11 +6,11 @@ import { useLocation } from "wouter";
 import {
   useListProducts,
   useListProductCategories,
-  useCreatePosOrder,
+  createPosOrder,
   useListPosSessions,
   useGetZatcaStatus,
 } from "@workspace/api-client-react";
-import type { CreatePosOrderBody, PosOrder } from "@workspace/api-client-react";
+import { useGetPosTaxContext, type CreatePosOrderBody, type PosOrder } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
@@ -61,6 +61,16 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useApiQuery, apiPost } from "@/hooks/use-api";
 import { useVatEnabled } from "@/hooks/use-vat-status";
 import { readPosRejection } from "@/lib/pos-rejection";
+import { useAuth } from "@/hooks/use-auth";
+import { useDurableIntent, UNCERTAIN_TEXT } from "@/hooks/use-durable-intent";
+import { IntentRecoveryPanel } from "@/components/intent-recovery-panel";
+
+type PosIntentMeta = { methodLabel: string; cart: Array<{ product: { id: number; name: string; nameAr?: string; price: number }; quantity: number }> };
+const isPosOrder = (r: unknown): r is PosOrder => !!r && typeof r === "object" && Number.isInteger((r as PosOrder).id) &&
+  !!(r as PosOrder).orderNumber && Number.isFinite(Number((r as PosOrder).total));
+import { useTaxPreview } from "@/hooks/use-tax-preview";
+import { previewPosTax, previewUnitPrices, type PosTaxPreviewBody } from "@/lib/tax-preview";
+import { TaxPreviewPanel } from "@/components/tax-preview-panel";
 
 interface PosShippingCarrier {
   id: number;
@@ -188,7 +198,6 @@ export default function POS() {
   const { data: sessions, refetch: refreshSessions } = useListPosSessions();
   const { data: zatca } = useGetZatcaStatus();
   const vatEnabled = useVatEnabled();
-  const createOrder = useCreatePosOrder();
 
   const activeSession = sessions?.find((s) => s.status === "open");
 
@@ -202,7 +211,28 @@ export default function POS() {
     tier: string;
   } | null>(null);
 
+  // Exact body of a sale whose outcome is unknown. Memory only (may carry
+  // manager credentials); never re-priced or re-tokenised. Retry resends it.
+  const { user } = useAuth();
+  const intent = useDurableIntent<CreatePosOrderBody & Record<string, unknown>, PosOrder, PosIntentMeta>({
+    endpoint: "/pos/orders", closePath: "/pos/tax-preview/close-intent",
+    userId: user?.id, companyId: user?.companyId,
+    send: (body, key) => createPosOrder(body, { headers: { "Idempotency-Key": key } }),
+    isValid: isPosOrder,
+  });
+  const frozen = intent.attempt;
+  const frozenRef = useRef(frozen);
+  frozenRef.current = frozen;
+  const restoredFor = useRef<string | null>(null);
+  useEffect(() => {
+    // After reload, show the saved cart (locked); the saved body is what is resent.
+    if (!frozen || restoredFor.current === frozen.key) return;
+    restoredFor.current = frozen.key;
+    if (frozen.meta?.cart?.length) setCart(frozen.meta.cart);
+  }, [frozen]);
+
   const addToCart = (product: any) => {
+    if (frozenRef.current) return;
     setCart((prev) => {
       const existing = prev.find((item) => item.product.id === product.id);
       if (existing) {
@@ -217,10 +247,12 @@ export default function POS() {
   };
 
   const removeFromCart = (productId: number) => {
+    if (frozenRef.current) return;
     setCart((prev) => prev.filter((item) => item.product.id !== productId));
   };
 
   const updateQuantity = (productId: number, delta: number) => {
+    if (frozenRef.current) return;
     setCart((prev) =>
       prev.flatMap((item) => {
         if (item.product.id === productId) {
@@ -241,8 +273,17 @@ export default function POS() {
     ? Math.min(customer.loyaltyPoints * 0.05, subtotal * 0.1)
     : 0;
   const effectiveDiscount = discount + loyaltyDiscount;
-  const tax = vatEnabled ? Math.max(0, subtotal - effectiveDiscount) * 0.15 : 0;
-  const total = Math.max(0, subtotal - effectiveDiscount) + tax;
+  const taxCtx = useGetPosTaxContext({ query: { retry: false, staleTime: 30_000 } });
+  const previewBody = useMemo<PosTaxPreviewBody | null>(() => (!frozen && activeSession && cart.length > 0
+    ? { sessionId: activeSession.id, items: cart.map((i) => ({ productId: i.product.id, quantity: i.quantity })), ...(effectiveDiscount ? { discount: effectiveDiscount } : {}) }
+    : null), [frozen, activeSession, cart, effectiveDiscount]);
+  const tp = useTaxPreview({ body: previewBody, fetcher: previewPosTax, frozen: !!frozen || !intent.ready, knownMode: taxCtx.data?.mode ?? null });
+  // Row prices only from a quote matching the current (unfrozen) cart rows.
+  const unitPrices = useMemo(() => previewUnitPrices(tp.preview, cart.map((c) => c.product.id)), [tp.preview, cart]);
+  const unifiedTax = true; // server preview is authoritative in every mode
+  const taxBlock = frozen ? null : tp.freshBlock;
+  const tax = unifiedTax ? (tp.preview ? Number(tp.preview.totals.vat) : 0) : vatEnabled ? Math.max(0, subtotal - effectiveDiscount) * 0.15 : 0;
+  const total = unifiedTax ? (tp.preview ? Number(tp.preview.totals.total) : 0) : Math.max(0, subtotal - effectiveDiscount) + tax;
   const earnedPoints = Math.floor(total / 10);
 
   const methodLabels: Record<string, string> = {
@@ -280,20 +321,75 @@ export default function POS() {
   const [pinReason, setPinReason] = useState("");
   const [pinSubmitting, setPinSubmitting] = useState(false);
 
-  const submitOrder = (
+  const onSaleCreated = (resp: PosOrder, successMethodLabel: string, saleTotal: number) => {
+    const order = resp as PosOrder & { invoiceNo?: string; uuid?: string };
+    setShowSuccess({
+      invoiceNo: order.invoiceNo ?? order.orderNumber ?? `INV-${Date.now()}`,
+      total: saleTotal,
+      method: successMethodLabel,
+      uuid: order.uuid ?? crypto.randomUUID(),
+      payments: order.payments ?? undefined,
+    });
+    if (customer) {
+      setCustomer({
+        ...customer,
+        loyaltyPoints: customer.loyaltyPoints + earnedPoints,
+      });
+    }
+    setCart([]);
+    setDiscount(0);
+    setSplitOpen(false);
+    setSplitRows([]);
+    setPinDialog(null);
+    setPinEmail("");
+    setPinPassword("");
+    setPinReason("");
+    setPinSubmitting(false);
+  };
+
+  // Exact replay / server check of the saved unknown sale. Manager passwords
+  // are never stored; when the original carried one it must be re-entered.
+  const recoverSale = async (password?: string) => {
+    const a = intent.attempt;
+    if (!a) return;
+    const hints = (a.secretHints ?? {}) as { managerEmail?: string; managerReason?: string };
+    const out = await intent.recover(password ? { managerOverride: { email: hints.managerEmail, password, ...(hints.managerReason !== undefined ? { reason: hints.managerReason } : {}) } } : undefined);
+    if (!out) return;
+    if (out.kind === "created") onSaleCreated(out.result, a.meta?.methodLabel ?? "", Number(out.result.total));
+    else if (out.kind === "unknown") toast({ title: "تعذر تأكيد نتيجة البيع", description: UNCERTAIN_TEXT, variant: "destructive" });
+  };
+  const closeSale = async (password?: string) => {
+    const a = intent.attempt;
+    if (!a) return;
+    const hints = (a.secretHints ?? {}) as { managerEmail?: string; managerReason?: string };
+    const out = await intent.close(password ? { managerOverride: { email: hints.managerEmail, password, ...(hints.managerReason !== undefined ? { reason: hints.managerReason } : {}) } } : undefined);
+    if (!out) return;
+    if (out.kind === "completed") {
+      toast({ title: "عملية البيع السابقة نُفذت بالفعل", description: `هذه نتيجتها الأصلية ${out.result.orderNumber}؛ لم يُسجل بيع جديد.` });
+      onSaleCreated(out.result, a.meta?.methodLabel ?? "", Number(out.result.total));
+    } else {
+      toast({ title: "أُغلقت عملية البيع السابقة دون تنفيذ", description: "لم يُسجل البيع. يمكنك بدء بيع جديد بعد مراجعة الضريبة." });
+    }
+  };
+
+  const submitOrder = async (
     payments: SplitPayment[] | null,
     successMethodLabel: string,
     paymentIntentId?: number | null,
     managerOverride?: { email: string; password: string; reason?: string },
     approvalRequestId?: number | null,
   ) => {
+    if (intent.attempt) { await recoverSale(); return; }
+    if (!intent.ready) { toast({ title: intent.error || "جارٍ التحقق من عمليات البيع السابقة", variant: "destructive" }); return; }
     if (!activeSession) {
       toast({ title: "لا يوجد جلسة بيع مفتوحة", variant: "destructive" });
       return;
     }
     if (cart.length === 0) return;
+    if (taxBlock) { toast({ title: taxBlock, variant: "destructive" }); return; }
 
-    const data: CreatePosOrderBody = {
+    // managerOverride is appended last by the intent store and never persisted.
+    const data = {
       sessionId: activeSession.id,
       items: cart.map((item) => ({
         productId: item.product.id,
@@ -319,75 +415,48 @@ export default function POS() {
               : paymentMethod) as "cash" | "card" | "stc",
           }),
       ...(paymentIntentId ? { paymentIntentId } : {}),
-      // Server validates these credentials inline and grants the manager's
-      // higher cap for this transaction only; we tag the audit row too.
-      ...(managerOverride
-        ? { managerOverride }
-        : {}),
       ...(approvalRequestId
         ? { approvalRequestId }
         : {}),
-    } as CreatePosOrderBody & {
-      managerOverride?: { email: string; password: string; reason?: string };
-      approvalRequestId?: number;
-    };
+      ...tp.tokens(),
+    } as CreatePosOrderBody & Record<string, unknown>;
 
-    createOrder.mutate(
-      { data: data as CreatePosOrderBody },
-      {
-        onSuccess: (resp) => {
-          const order = resp as PosOrder & { invoiceNo?: string; uuid?: string };
-          setShowSuccess({
-            invoiceNo: order.invoiceNo ?? order.orderNumber ?? `INV-${Date.now()}`,
-            total,
-            method: successMethodLabel,
-            uuid: order.uuid ?? crypto.randomUUID(),
-            payments: order.payments ?? undefined,
-          });
-          if (customer) {
-            setCustomer({
-              ...customer,
-              loyaltyPoints: customer.loyaltyPoints + earnedPoints,
-            });
-          }
-          setCart([]);
-          setDiscount(0);
-          setSplitOpen(false);
-          setSplitRows([]);
-          setPinDialog(null);
-          setPinEmail("");
-          setPinPassword("");
-          setPinReason("");
-          setPinSubmitting(false);
-        },
-        onError: (err) => {
-          // Real ApiError: JSON body on `.data`; `.response` is a fetch Response.
-          const r = readPosRejection(err);
-          setPinSubmitting(false);
-          // Server signals dual-auth requirement → pop the manager PIN
-          // dialog and stash the original args so we can retry with the
-          // same payload + manager creds (or the pending request id).
-          if (r.status === 403 && r.requiresManagerApproval && !managerOverride && !approvalRequestId) {
-            setPinDialog({
-              actionKey: r.actionKey ?? "pos.limit",
-              max: r.max ?? null,
-              attempted: r.attempted ?? 0,
-              error: r.error ?? "تجاوزت حدك المسموح",
-              payments,
-              successMethodLabel,
-              paymentIntentId: paymentIntentId ?? null,
-              approvalRequestId: r.approvalRequestId ?? null,
-            });
-            return;
-          }
-          toast({
-            title: "تعذر إتمام الدفع",
-            description: r.error || (err instanceof Error ? err.message : "") || "حدث خطأ غير متوقع",
-            variant: "destructive",
-          });
-        },
-      }
-    );
+    const out = await intent.submit(data, {
+      meta: { methodLabel: successMethodLabel, cart: cart.map((c) => ({ product: { id: c.product.id, name: c.product.name, nameAr: c.product.nameAr, price: c.product.price }, quantity: c.quantity })) },
+      // Server validates these credentials inline and grants the manager's
+      // higher cap for this transaction only; we tag the audit row too.
+      ...(managerOverride ? { secrets: { managerOverride }, secretHints: { managerEmail: managerOverride.email, ...(managerOverride.reason !== undefined ? { managerReason: managerOverride.reason } : {}) } } : {}),
+    });
+    setPinSubmitting(false);
+    if (!out) return;
+    if (out.kind === "created") { onSaleCreated(out.result, successMethodLabel, total); return; }
+    if (out.kind === "unknown") {
+      toast({ title: "تعذر تأكيد نتيجة البيع", description: UNCERTAIN_TEXT, variant: "destructive" });
+      return;
+    }
+    // Confirmed fresh rejection (intent already cleared by its exact key).
+    const r = readPosRejection({ status: out.status, data: out.data });
+    // Server signals dual-auth requirement → pop the manager PIN
+    // dialog and stash the original args so we can retry with the
+    // same payload + manager creds (or the pending request id).
+    if (r.status === 403 && r.requiresManagerApproval && !managerOverride && !approvalRequestId) {
+      setPinDialog({
+        actionKey: r.actionKey ?? "pos.limit",
+        max: r.max ?? null,
+        attempted: r.attempted ?? 0,
+        error: r.error ?? "تجاوزت حدك المسموح",
+        payments,
+        successMethodLabel,
+        paymentIntentId: paymentIntentId ?? null,
+        approvalRequestId: r.approvalRequestId ?? null,
+      });
+      return;
+    }
+    toast({
+      title: "تعذر إتمام الدفع",
+      description: r.error || out.message || "حدث خطأ غير متوقع",
+      variant: "destructive",
+    });
   };
 
   const confirmManagerOverride = () => {
@@ -979,7 +1048,7 @@ export default function POS() {
                     <p className="mt-1 text-xs">اضغط على المنتجات لإضافتها</p>
                   </div>
                 ) : (
-                  cart.map((item) => (
+                  cart.map((item, rowIdx) => (
                     <motion.div
                       key={item.product.id}
                       initial={{ opacity: 0, x: -20 }}
@@ -1003,7 +1072,7 @@ export default function POS() {
                             {item.product.nameAr || item.product.name}
                           </h4>
                           <span className="text-sm font-bold text-neutral-900">
-                            {fmtPrice(item.product.price * item.quantity)}
+                            <span data-testid={`cart-row-total-${item.product.id}`}>{fmtPrice((unitPrices?.[rowIdx] ?? item.product.price) * item.quantity)}</span>
                           </span>
                         </div>
                         <div className="flex items-center justify-between">
@@ -1088,7 +1157,7 @@ export default function POS() {
             <div className="space-y-2 border-t border-neutral-200 bg-neutral-50 p-4">
               <div className="flex justify-between text-xs text-neutral-500">
                 <span>المجموع الفرعي</span>
-                <span className="font-mono">{fmtPrice(subtotal)}</span>
+                <span className="font-mono">{fmtPrice(tp.preview ? Number(tp.preview.totals.subtotal) : subtotal)}</span>
               </div>
               {vatEnabled && (
                 <div className="flex justify-between text-xs text-neutral-500">
@@ -1107,6 +1176,17 @@ export default function POS() {
                   </span>
                   <span className="font-mono">-{fmtPrice(loyaltyDiscount)}</span>
                 </div>
+              )}
+              {frozen ? (
+                <IntentRecoveryPanel error={intent.error} busy={intent.busy} recoveryRejected={intent.recoveryRejected}
+                  scopeMismatch={intent.scopeMismatch} needsPassword={intent.needsSecrets}
+                  managerEmail={(frozen.secretHints as { managerEmail?: string } | undefined)?.managerEmail ?? null}
+                  onRecover={(pw) => void recoverSale(pw)} onClose={(pw) => void closeSale(pw)} testId="pos-intent" />
+              ) : (
+                <>
+                  {intent.error && !intent.ready && <p role="alert" className="text-xs text-red-700">{intent.error}</p>}
+                  <TaxPreviewPanel tp={tp} />
+                </>
               )}
               <div className="my-2 border-t border-dashed border-neutral-300" />
               <div className="flex items-end justify-between">
@@ -1218,7 +1298,9 @@ export default function POS() {
                 onClick={handleCheckout}
                 disabled={
                   cart.length === 0 ||
-                  createOrder.isPending ||
+                  intent.busy ||
+                  (!frozen && !!taxBlock) ||
+                  (!!frozen && (intent.recoveryRejected || intent.scopeMismatch || intent.needsSecrets)) ||
                   gatewayStage === "starting" ||
                   gatewayStage === "awaiting" ||
                   gatewayStage === "settling"
@@ -1226,17 +1308,17 @@ export default function POS() {
                 className="h-14 w-full gap-2 rounded-xl bg-[#2563EB] text-lg font-bold text-white shadow-lg shadow-blue-500/30 transition-all active:scale-95 hover:bg-[#1D4ED8] disabled:bg-neutral-300 disabled:shadow-none"
               >
                 <span>
-                  {createOrder.isPending
+                  {intent.busy
                     ? "جاري الدفع..."
                     : `دفع ${fmtPrice(total)}`}
                 </span>
-                {!createOrder.isPending && <ArrowLeft className="size-4" />}
+                {!intent.busy && <ArrowLeft className="size-4" />}
               </Button>
               <div className="flex gap-2">
                 <button
                   type="button"
                   onClick={openSplitDialog}
-                  disabled={cart.length === 0 || createOrder.isPending}
+                  disabled={cart.length === 0 || intent.busy || !!frozen || !!taxBlock}
                   className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-blue-200 bg-white py-2.5 text-sm font-bold text-[#1D4ED8] transition-colors hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <ArrowRight className="size-3.5" />
@@ -1412,16 +1494,16 @@ export default function POS() {
               <Button
                 type="button"
                 onClick={confirmSplit}
-                disabled={!splitValid || createOrder.isPending}
+                disabled={!splitValid || intent.busy}
                 className="flex-1 bg-[#2563EB] hover:bg-[#1D4ED8]"
               >
-                {createOrder.isPending ? "جاري الدفع..." : `تأكيد الدفع المقسّم (${fmtPrice(total)})`}
+                {intent.busy ? "جاري الدفع..." : `تأكيد الدفع المقسّم (${fmtPrice(total)})`}
               </Button>
               <Button
                 type="button"
                 variant="outline"
                 onClick={() => setSplitOpen(false)}
-                disabled={createOrder.isPending}
+                disabled={intent.busy}
               >
                 إلغاء
               </Button>

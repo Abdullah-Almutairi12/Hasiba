@@ -4,15 +4,22 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import SalesPage from "./sales";
 import { Toaster } from "@/components/ui/toaster";
+import { mockPreviewResponse } from "@/lib/tax-preview-mock";
 
 vi.mock("@/hooks/use-permissions", () => ({ usePermissions: () => ({ canManageFinance: true, canReadReports: false,isScoped:false,canCustomerInvoice:()=>true }) }));
+vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { id: 5, companyId: 3 } }) }));
 vi.mock("@/hooks/use-vat-status", () => ({ useVatEnabled: () => false }));
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => { vi.unstubAllGlobals(); sessionStorage.clear(); });
+vi.setConfig({ testTimeout: 20_000 });
 
 function stub(workspace: () => Response) {
   const posts: Array<Record<string, unknown>> = [];
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const path = new URL(String(input), "http://localhost").pathname;
+    if (path === "/api/sales/invoices/tax-preview" && init?.method === "POST") {
+      const b = JSON.parse(String(init.body)) as { lines: Array<{ productId: number; description: string; quantity: number }> };
+      return Response.json(mockPreviewResponse({ registered: false, vat: 0, total: 30, token: "inv", lines: b.lines }));
+    }
     if (path === "/api/sales/invoices" && init?.method === "POST") { posts.push(JSON.parse(String(init.body))); return Response.json({ id: 91, reference: "INV-91" }); }
     if (path === "/api/sales/sellers/workspace") return workspace();
     if (path === "/api/sales/invoices/email-failure-count") return Response.json({ exhaustedCount: 0, maxAttempts: 3 });
@@ -51,10 +58,14 @@ describe("manual sales invoice seller attribution", () => {
     expect(posts).toHaveLength(0);
     await user.selectOptions(form.getByTestId("select-invoice-seller"), "7");
     await user.selectOptions(form.getByTestId("select-invoice-line-seller-2"), "8");
+    await user.click(await form.findByTestId("button-tax-preview-confirm"));
     await user.click(form.getByRole("button", { name: "حفظ" }));
     await waitFor(() => expect(posts).toHaveLength(1));
     expect(posts[0]).toMatchObject({ customerId: 7, sellerEmployeeId: 7, lineSellers: [{ lineIndex: 1, employeeId: 8 }] });
     expect((posts[0].lines as unknown[]).length).toBe(2);
+    // Not-registered legacy quote: preview token only, never a context token.
+    expect(posts[0].taxPreviewToken).toBe("pv-inv");
+    expect(posts[0]).not.toHaveProperty("taxContextToken");
   });
 
   it("hidden policy sends no seller fields", async () => {
@@ -65,6 +76,8 @@ describe("manual sales invoice seller attribution", () => {
     await user.click(await screen.findByRole("option", { name: "عميل الاختبار" }));
     await user.click(form.getAllByRole("combobox")[1]);
     await user.click(await screen.findByRole("option", { name: "قلم" }));
+    expect((await form.findByTestId("tax-preview-category-not_registered")).textContent).toContain("غير مسجلة");
+    await user.click(form.getByTestId("button-tax-preview-confirm"));
     await user.click(form.getByRole("button", { name: "حفظ" }));
     await waitFor(() => expect(posts).toHaveLength(1));
     expect(posts[0]).not.toHaveProperty("sellerEmployeeId");

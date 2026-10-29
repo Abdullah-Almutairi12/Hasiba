@@ -8,6 +8,154 @@
 import * as zod from 'zod';
 
 
+
+
+
+export const PreviewPosTaxBody = zod.object({
+  "sessionId": zod.number().int(),
+  "items": zod.array(zod.object({
+  "productId": zod.number().int(),
+  "quantity": zod.number()
+})).min(1),
+  "discount": zod.number().optional()
+})
+
+export const previewPosTaxResponseContextProductRulesItemRuleReasonMax = 250;
+
+export const previewPosTaxResponseContextServiceRuleReasonMax = 250;
+
+
+
+export const PreviewPosTaxResponse = zod.object({
+  "context": zod.object({
+  "companyId": zod.number().int(),
+  "policyId": zod.number().int().nullish(),
+  "revision": zod.number().int(),
+  "effectiveFrom": zod.string().nullish(),
+  "status": zod.enum(['registered', 'voluntary', 'not_registered', 'unresolved']),
+  "registered": zod.boolean(),
+  "vatNumber": zod.string().nullish(),
+  "priceIncludesVat": zod.boolean(),
+  "mode": zod.enum(['unified', 'legacy']),
+  "token": zod.string(),
+  "registrationVerification": zod.string(),
+  "productRules": zod.array(zod.object({
+  "productId": zod.number().int(),
+  "rule": zod.object({
+  "category": zod.enum(['standard', 'zero', 'exempt']),
+  "reason": zod.string().max(previewPosTaxResponseContextProductRulesItemRuleReasonMax).optional()
+})
+})).optional(),
+  "serviceRule": zod.object({
+  "category": zod.enum(['standard', 'zero', 'exempt']),
+  "reason": zod.string().max(previewPosTaxResponseContextServiceRuleReasonMax).optional()
+}).optional()
+}),
+  "previewToken": zod.string(),
+  "expiresAt": zod.string(),
+  "totals": zod.object({
+  "subtotal": zod.number(),
+  "discount": zod.number(),
+  "vat": zod.number(),
+  "total": zod.number(),
+  "lines": zod.array(zod.object({
+  "productId": zod.number().int().nullish(),
+  "description": zod.string(),
+  "quantity": zod.number(),
+  "unitPrice": zod.number(),
+  "discountPct": zod.number(),
+  "taxRate": zod.number(),
+  "taxCategory": zod.string().optional(),
+  "lineSubtotal": zod.number(),
+  "lineDiscount": zod.number(),
+  "lineNet": zod.number(),
+  "lineVat": zod.number(),
+  "lineTotal": zod.number()
+}))
+})
+})
+
+
+export const PreviewDirectInvoiceTaxBody = zod.record(zod.string(), zod.unknown())
+
+export const previewDirectInvoiceTaxResponseContextProductRulesItemRuleReasonMax = 250;
+
+export const previewDirectInvoiceTaxResponseContextServiceRuleReasonMax = 250;
+
+
+
+export const PreviewDirectInvoiceTaxResponse = zod.object({
+  "context": zod.object({
+  "companyId": zod.number().int(),
+  "policyId": zod.number().int().nullish(),
+  "revision": zod.number().int(),
+  "effectiveFrom": zod.string().nullish(),
+  "status": zod.enum(['registered', 'voluntary', 'not_registered', 'unresolved']),
+  "registered": zod.boolean(),
+  "vatNumber": zod.string().nullish(),
+  "priceIncludesVat": zod.boolean(),
+  "mode": zod.enum(['unified', 'legacy']),
+  "token": zod.string(),
+  "registrationVerification": zod.string(),
+  "productRules": zod.array(zod.object({
+  "productId": zod.number().int(),
+  "rule": zod.object({
+  "category": zod.enum(['standard', 'zero', 'exempt']),
+  "reason": zod.string().max(previewDirectInvoiceTaxResponseContextProductRulesItemRuleReasonMax).optional()
+})
+})).optional(),
+  "serviceRule": zod.object({
+  "category": zod.enum(['standard', 'zero', 'exempt']),
+  "reason": zod.string().max(previewDirectInvoiceTaxResponseContextServiceRuleReasonMax).optional()
+}).optional()
+}),
+  "previewToken": zod.string(),
+  "expiresAt": zod.string(),
+  "totals": zod.object({
+  "subtotal": zod.number(),
+  "discount": zod.number(),
+  "vat": zod.number(),
+  "total": zod.number(),
+  "lines": zod.array(zod.object({
+  "productId": zod.number().int().nullish(),
+  "description": zod.string(),
+  "quantity": zod.number(),
+  "unitPrice": zod.number(),
+  "discountPct": zod.number(),
+  "taxRate": zod.number(),
+  "taxCategory": zod.string().optional(),
+  "lineSubtotal": zod.number(),
+  "lineDiscount": zod.number(),
+  "lineNet": zod.number(),
+  "lineVat": zod.number(),
+  "lineTotal": zod.number()
+}))
+})
+})
+
+
+export const ClosePosTaxPreviewIntentBody = zod.object({
+  "requestKey": zod.string(),
+  "body": zod.record(zod.string(), zod.unknown())
+})
+
+export const ClosePosTaxPreviewIntentResponse = zod.object({
+  "state": zod.enum(['completed', 'closed_without_execution']),
+  "result": zod.record(zod.string(), zod.unknown()).optional()
+})
+
+
+export const CloseDirectInvoiceTaxPreviewIntentBody = zod.object({
+  "requestKey": zod.string(),
+  "body": zod.record(zod.string(), zod.unknown())
+})
+
+export const CloseDirectInvoiceTaxPreviewIntentResponse = zod.object({
+  "state": zod.enum(['completed', 'closed_without_execution']),
+  "result": zod.record(zod.string(), zod.unknown()).optional()
+})
+
+
 /**
  * @summary Read company receiving segregation policy with settings administration
  */
@@ -3450,6 +3598,7 @@ export const createPosOrderBodyItemsItemQuantityExclusiveMin = 0;
 
 
 export const CreatePosOrderBody = zod.object({
+  "taxPreviewToken": zod.string().optional(),
   "taxContextToken": zod.string().optional().describe('Reviewed company tax context; frozen with the financial attempt, never refreshed on an unknown retry.'),
   "sellerEmployeeId": zod.number().int().nullish().describe('Employee seller, never implicitly the cashier.'),
   "lineSellers": zod.array(zod.object({

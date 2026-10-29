@@ -4,6 +4,8 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import PosIconic from "./pos-iconic";
 import ar from "@/i18n/ar.json";
+import { posPreviewServer } from "@/lib/tax-preview-mock";
+const review = async (u: { click: (el: Element) => Promise<void> }) => u.click(await screen.findByTestId("button-tax-preview-confirm"));
 
 const ws = vi.hoisted(() => ({ policy: { mode: "hidden", granularity: "invoice" } as Record<string, unknown>, error: false, refetch: vi.fn(), names: { 7: "سارة البائعة", 8: "خالد" } as Record<number, string> }));
 const auth = vi.hoisted(() => ({ user: { id: 11, companyId: 21 } }));
@@ -30,6 +32,8 @@ beforeEach(() => { auth.user = { id: 11, companyId: 21 }; posts = []; fault = fa
 afterEach(() => vi.unstubAllGlobals());
 function stub() {
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const preview = posPreviewServer(input, init, { prices: { 5: 100, 6: 50 }, token: "seller" });
+    if (preview) return preview;
     if (String(input).split("?")[0].endsWith("/api/pos/orders") && init?.method === "POST") {
       posts.push(JSON.parse(String(init.body)));
       if (fault && posts.length === 1) throw new TypeError("lost");
@@ -48,6 +52,7 @@ describe("POS seller attribution", () => {
     stub(); const u = userEvent.setup(); mount();
     await u.click(await screen.findByTestId("product-icon-5"));
     expect(screen.queryByTestId("select-pos-seller")).toBeNull();
+    await review(u);
     await u.click(screen.getByTestId("button-pay-rail"));
     await waitFor(() => expect(posts).toHaveLength(1));
     expect(posts[0]).not.toHaveProperty("sellerEmployeeId");
@@ -57,6 +62,7 @@ describe("POS seller attribution", () => {
     ws.policy = { mode: "optional", granularity: "invoice" };
     stub(); const u = userEvent.setup(); mount();
     await u.click(await screen.findByTestId("product-icon-5"));
+    await review(u);
     await u.click(screen.getByTestId("button-pay-rail"));
     await waitFor(() => expect(posts).toHaveLength(1));
     expect(posts[0].sellerEmployeeId).toBeNull();
@@ -66,6 +72,7 @@ describe("POS seller attribution", () => {
     ws.policy = { mode: "required", granularity: "invoice" };
     stub(); const u = userEvent.setup(); mount();
     await u.click(await screen.findByTestId("product-icon-5"));
+    await review(u);
     await u.click(screen.getByTestId("button-pay-rail"));
     expect((await screen.findByTestId("pos-seller-error")).textContent).toContain("إلزامي");
     expect(posts).toHaveLength(0);
@@ -83,6 +90,7 @@ describe("POS seller attribution", () => {
     await u.click(screen.getByTestId("product-icon-6"));
     await u.selectOptions(screen.getByTestId("select-pos-seller"), "7");
     await u.selectOptions(screen.getByTestId("select-pos-line-seller-6"), "8");
+    await review(u);
     await u.click(screen.getByTestId("button-pay-rail"));
     await waitFor(() => expect(posts).toHaveLength(1));
     expect(posts[0]).toMatchObject({ sellerEmployeeId: 7, lineSellers: [{ lineIndex: 1, employeeId: 8 }] });
@@ -94,6 +102,7 @@ describe("POS seller attribution", () => {
     await u.click(await screen.findByTestId("product-icon-5"));
     await u.selectOptions(screen.getByTestId("select-pos-seller"), "7");
     await u.selectOptions(screen.getByTestId("select-pos-line-seller-5"), "8");
+    await review(u);
     await u.click(screen.getByTestId("button-pay-rail"));
     await screen.findByRole("alert");
     expect(screen.getByTestId("select-pos-seller").matches(":disabled")).toBe(true);
@@ -120,6 +129,7 @@ describe("POS seller attribution", () => {
     stub(); historic = true; const u = userEvent.setup(); mount();
     await u.click(await screen.findByTestId("product-icon-5"));
     await u.selectOptions(screen.getByTestId("select-pos-seller"), "7");
+    await review(u);
     await u.click(screen.getByTestId("button-pay-rail"));
     expect((await screen.findByTestId("last-receipt-seller")).textContent).toContain("غير معروف");
   });
@@ -140,6 +150,7 @@ describe("POS seller attribution", () => {
     stub(); const u = userEvent.setup(); const first = mount();
     await u.click(await screen.findByTestId("product-icon-5"));
     await u.selectOptions(screen.getByTestId("select-pos-seller"), "7");
+    await review(u);
     await u.click(screen.getByTestId("button-pay-rail"));
     await screen.findByTestId("panel-last-receipt");
     first.unmount();

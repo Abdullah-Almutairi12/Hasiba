@@ -30,6 +30,14 @@ tags:
   - name: auth
     description: Authentication & session management
 paths:
+  /pos/tax-preview:
+    $ref: "./vat-policy-paths.yaml#/posPreview"
+  /sales/invoices/tax-preview:
+    $ref: "./vat-policy-paths.yaml#/invoicePreview"
+  /pos/tax-preview/close-intent:
+    $ref: "./vat-policy-paths.yaml#/posCloseIntent"
+  /sales/invoices/tax-preview/close-intent:
+    $ref: "./vat-policy-paths.yaml#/invoiceCloseIntent"
   /team/procurement-receiving-policy:
     get:
       operationId: getProcurementReceivingPolicy
@@ -6768,6 +6776,8 @@ components:
     CreatePosOrderBody:
       type: object
       properties:
+        taxPreviewToken:
+          type: string
         taxContextToken:
           type: string
           description: Reviewed company tax context; frozen with the financial attempt, never refreshed on an unknown retry.

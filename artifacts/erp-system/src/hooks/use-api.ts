@@ -79,3 +79,22 @@ export function useApiMutation<TBody, TResp>(path: string, invalidate?: string[]
     },
   });
 }
+
+/**
+ * Financial POST with a caller-owned, persisted Idempotency-Key. financialFetch
+ * passes such requests through untouched (it neither mints nor deletes keys),
+ * so the caller's durable intent stays the only source of truth.
+ */
+export async function apiPostWithKey<T>(path: string, body: unknown, key: string): Promise<T> {
+  const res = await financialFetch(`${API_BASE}${path}`, {
+    method: "POST",
+    credentials: "include",
+    headers: workspaceHeaders({ "Content-Type": "application/json", "Idempotency-Key": key }),
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw Object.assign(new Error(data?.error ?? `HTTP ${res.status}`), { status: res.status, data });
+  }
+  return (await res.json()) as T;
+}

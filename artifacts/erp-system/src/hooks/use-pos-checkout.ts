@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { createPosOrder, getWorkspaceResponsibility, type CreatePosOrderBody } from "@workspace/api-client-react";
+import { clearIntentIfKey } from "@/lib/durable-intent";
+import { closePosTaxPreviewIntent, createPosOrder, getWorkspaceResponsibility, type CreatePosOrderBody } from "@workspace/api-client-react";
 
 export type PosProduct = {
   id: number;
@@ -164,9 +165,44 @@ export function usePosCheckout(scope: string | null) {
     }
   }
 
+  /**
+   * Narrow server check for the saved attempt (same key + exact body). Clears
+   * only on a definite answer and only if storage still holds THIS key.
+   * A completed answer is the original sale's result, never a new sale.
+   */
+  async function close(): Promise<{ kind: "completed"; result: NonNullable<Awaited<ReturnType<typeof createPosOrder>>> } | { kind: "closed" } | null> {
+    const attempt = isCurrent ? state.attempt : null;
+    if (!storageKey || !attempt || inFlight.current) return null;
+    if ((attempt.responsibility ?? null) !== getWorkspaceResponsibility()) { setState((o) => ({ ...o, error: scopeMismatchText })); return null; }
+    inFlight.current = true;
+    const update = (changes: Partial<typeof state>) => { if (scopeRef.current === storageKey) setState((old) => ({ ...old, ...changes })); };
+    update({ busy: true });
+    try {
+      let res: { state?: unknown; result?: unknown };
+      try {
+        res = await closePosTaxPreviewIntent({ requestKey: attempt.key, body: attempt.body } as unknown as Parameters<typeof closePosTaxPreviewIntent>[0]) as { state?: unknown; result?: unknown };
+      } catch (e) {
+        const status = (e as { status?: unknown }).status;
+        update({ error: `تعذر التحقق من عملية البيع${typeof status === "number" ? ` (${status})` : ""}. بقيت محفوظة كما هي؛ لا تعاود التحصيل.` });
+        return null;
+      }
+      const result = res?.state === "completed" ? res.result as Awaited<ReturnType<typeof createPosOrder>> : null;
+      const ok = res?.state === "closed_without_execution" ||
+        (!!result && Number.isInteger(result.id) && !!result.orderNumber && Number.isFinite(Number(result.total)));
+      if (!ok) { update({ error: "رد التحقق غير مفهوم؛ بقيت عملية البيع محفوظة." }); return null; }
+      try { clearIntentIfKey(storageKey, attempt.key); } catch { update({ error: cleanupFailure }); return null; }
+      update({ attempt: null, error: "" });
+      return result ? { kind: "completed", result } : { kind: "closed" };
+    } finally {
+      inFlight.current = false;
+      update({ busy: false });
+    }
+  }
+
   const attemptNow = isCurrent ? state.attempt : null;
   return {
     pay,
+    close,
     /** True when a saved unknown attempt belongs to another responsibility. */
     scopeMismatch: !!attemptNow && (attemptNow.responsibility ?? null) !== getWorkspaceResponsibility(),
     attempt: isCurrent ? state.attempt : null,

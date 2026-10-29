@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import PosIconic from "./pos-iconic";
 import ar from "@/i18n/ar.json";
+import { posPreviewServer } from "@/lib/tax-preview-mock";
 
 const m = vi.hoisted(() => ({ reviewStatus: "pending" as string }));
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { id: 11, companyId: 21, role: "cashier" } }) }));
@@ -31,11 +32,16 @@ vi.mock("@/lib/sellers", async (original) => ({
 
 type Sent = { key: string | null; body: Record<string, unknown> };
 let sent: Sent[] = [];
+let previews: Array<{ discount?: number }> = [];
+const review = async (u: { click: (el: Element) => Promise<void> }) => u.click(await screen.findByTestId("button-tax-preview-confirm"));
+let serverPrice = 100;
 let replies: Array<() => Response | Promise<Response>> = [];
 const storageKey = "hasba:pos-checkout:11:21";
 beforeEach(() => {
-  sent = []; replies = []; m.reviewStatus = "pending"; sessionStorage.clear();
+  serverPrice = 100; sent = []; previews = []; replies = []; m.reviewStatus = "pending"; sessionStorage.clear();
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const preview = posPreviewServer(input, init, { prices: { 5: serverPrice }, token: "disc", log: previews });
+    if (preview) return preview;
     if (String(input).split("?")[0].endsWith("/api/pos/orders") && init?.method === "POST") {
       sent.push({ key: new Headers(init.headers).get("Idempotency-Key"), body: JSON.parse(String(init.body)) });
       const r = replies.shift();
@@ -68,8 +74,11 @@ describe("legacy cashier discount and over-limit review", () => {
     await u.clear(screen.getByTestId("input-discount-pct"));
     await u.type(screen.getByTestId("input-discount-pct"), "10");
     expect(screen.getByTestId("text-discount-net").textContent).toContain("90.00");
-    expect(pay().textContent).toContain("90.00");
+    await waitFor(() => expect(pay().textContent).toContain("90.00"));
+    // The server was quoted with the same discount the sale will carry.
+    expect(previews.at(-1)?.discount).toBe(10);
     replies.push(overLimit(41));
+    await review(u);
     await u.click(pay());
     expect(await screen.findByTestId("text-review-id")).toBeTruthy();
     expect(sent[0].body.discount).toBe(10);
@@ -84,6 +93,7 @@ describe("legacy cashier discount and over-limit review", () => {
     const u = await setup();
     await u.type(screen.getByTestId("input-discount-pct"), "10");
     replies.push(overLimit(41));
+    await review(u);
     await u.click(pay());
     await screen.findByTestId("text-review-id");
     m.reviewStatus = "approved";
@@ -104,10 +114,30 @@ describe("legacy cashier discount and over-limit review", () => {
     expect(screen.getByTestId("text-review-previous").textContent).toContain("#41");
   });
 
+  it("a changed server price relabels the cart row and the % discount is computed on the server price basis", async () => {
+    serverPrice = 120; // catalog repriced; cached product.price is still 100
+    const u = await setup();
+    await waitFor(() => expect(screen.getByTestId("cart-row-unit-5").textContent).toBe("120.00"));
+    await u.type(screen.getByTestId("input-discount-pct"), "10");
+    // 10% of the server basis (12.00), never 10% of the stale 100 labelled as 10%.
+    await waitFor(() => expect(previews.at(-1)?.discount).toBe(12));
+    await waitFor(() => expect(pay().textContent).toContain("108.00"));
+    expect(screen.getByTestId("text-discount-net").textContent).toContain("108.00");
+    expect(screen.getByTestId("tax-preview-discount").textContent).toContain("12.00");
+    replies.push(() => { throw new TypeError("network down"); });
+    await review(u);
+    await u.click(pay());
+    await waitFor(() => expect(sent).toHaveLength(1));
+    expect(sent[0].body.discount).toBe(12);
+    // Editing qty/discount is locked while the attempt is unresolved.
+    expect((screen.getByTestId("input-discount-pct") as HTMLInputElement).disabled).toBe(true);
+  });
+
   it("an unknown result is never overwritten: discount locks and recovery re-sends the identical key and body", async () => {
     const u = await setup();
     await u.type(screen.getByTestId("input-discount-pct"), "10");
     replies.push(() => { throw new TypeError("network down"); });
+    await review(u);
     await u.click(pay());
     await waitFor(() => expect(sessionStorage.getItem(storageKey)).not.toBeNull());
     const saved = sessionStorage.getItem(storageKey);
@@ -117,6 +147,7 @@ describe("legacy cashier discount and over-limit review", () => {
     await waitFor(() => expect(sent).toHaveLength(2));
     expect(sent[1].key).toBe(sent[0].key);
     expect(sent[1].body).toEqual(sent[0].body);
+    expect(sent[1].body.taxPreviewToken).toBe("pv-disc");
     // A 403 on recovery proves nothing: evidence kept, no review swapped in.
     expect(sessionStorage.getItem(storageKey)).toBe(saved);
     expect(screen.queryByTestId("text-review-id")).toBeNull();
