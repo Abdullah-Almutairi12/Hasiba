@@ -24,7 +24,8 @@ const accounts = [];
 for (const role of ["owner", "sales"] as const) {
   const [company] = await db.insert(companiesTable).values({
     name: `Verification ${role} ${tag}`,
-    ...(role === "owner" && process.env.HASBA_BROWSER_POS === "true" ? { businessType: "retail" } : {}),
+    ...(role === "owner" && process.env.HASBA_BROWSER_POS === "true"
+      ? { businessType: process.env.HASBA_BROWSER_CLASSIC_SELLERS === "true" ? "services" : "retail" } : {}),
     ...(role === "owner" && process.env.HASBA_BROWSER_RETURN_SETTLEMENT === "true" ? { vatRegistrationStatus: "not_registered" } : {}),
   }).returning();
   const email = `verify-${role}-${tag}@example.invalid`;

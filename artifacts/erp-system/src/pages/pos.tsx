@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useRef } from "react";
-import {printWhenFontsReady} from "@/lib/browser-print";
+import { docUrls, PrintDocButton } from "@/lib/print-docs";
 import { Money } from "@/components/riyal";
 import { LegacyShiftStart } from "@/components/legacy-shift-start";
 import { useLocation } from "wouter";
@@ -71,6 +71,8 @@ const isPosOrder = (r: unknown): r is PosOrder => !!r && typeof r === "object" &
 import { useTaxPreview } from "@/hooks/use-tax-preview";
 import { previewPosTax, previewUnitPrices, type PosTaxPreviewBody } from "@/lib/tax-preview";
 import { TaxPreviewPanel } from "@/components/tax-preview-panel";
+import { usePosSellers } from "@/hooks/use-pos-sellers";
+import { PosSellerControls, PosLineSeller } from "@/components/sellers/pos-seller-controls";
 
 interface PosShippingCarrier {
   id: number;
@@ -102,6 +104,7 @@ export default function POS() {
   >("card");
   const [clock, setClock] = useState<string>("");
   const [showSuccess, setShowSuccess] = useState<{
+    id: number;
     invoiceNo: string;
     total: number;
     method: string;
@@ -221,6 +224,8 @@ export default function POS() {
     isValid: isPosOrder,
   });
   const frozen = intent.attempt;
+  const sellers = usePosSellers(activeSession?.branchId, cart, !!frozen, !!activeSession);
+  const sellerLocked = !!frozen || intent.busy || ["starting", "awaiting", "settling"].includes(gatewayStage);
   const frozenRef = useRef(frozen);
   frozenRef.current = frozen;
   const restoredFor = useRef<string | null>(null);
@@ -229,7 +234,8 @@ export default function POS() {
     if (!frozen || restoredFor.current === frozen.key) return;
     restoredFor.current = frozen.key;
     if (frozen.meta?.cart?.length) setCart(frozen.meta.cart);
-  }, [frozen]);
+    sellers.restore(frozen.body, frozen.meta?.cart ?? []);
+  }, [frozen, sellers.restore]);
 
   const addToCart = (product: any) => {
     if (frozenRef.current) return;
@@ -248,11 +254,13 @@ export default function POS() {
 
   const removeFromCart = (productId: number) => {
     if (frozenRef.current) return;
+    sellers.removeLine(productId);
     setCart((prev) => prev.filter((item) => item.product.id !== productId));
   };
 
   const updateQuantity = (productId: number, delta: number) => {
     if (frozenRef.current) return;
+    if ((cart.find((row) => row.product.id === productId)?.quantity ?? 0) + delta <= 0) sellers.removeLine(productId);
     setCart((prev) =>
       prev.flatMap((item) => {
         if (item.product.id === productId) {
@@ -324,6 +332,7 @@ export default function POS() {
   const onSaleCreated = (resp: PosOrder, successMethodLabel: string, saleTotal: number) => {
     const order = resp as PosOrder & { invoiceNo?: string; uuid?: string };
     setShowSuccess({
+      id: order.id,
       invoiceNo: order.invoiceNo ?? order.orderNumber ?? `INV-${Date.now()}`,
       total: saleTotal,
       method: successMethodLabel,
@@ -337,6 +346,7 @@ export default function POS() {
       });
     }
     setCart([]);
+    sellers.reset();
     setDiscount(0);
     setSplitOpen(false);
     setSplitRows([]);
@@ -387,6 +397,10 @@ export default function POS() {
     }
     if (cart.length === 0) return;
     if (taxBlock) { toast({ title: taxBlock, variant: "destructive" }); return; }
+    if (sellers.block || !sellers.fields) {
+      toast({ title: sellers.block || "تعذر التحقق من اختيار البائع", variant: "destructive" });
+      return;
+    }
 
     // managerOverride is appended last by the intent store and never persisted.
     const data = {
@@ -419,6 +433,7 @@ export default function POS() {
         ? { approvalRequestId }
         : {}),
       ...tp.tokens(),
+      ...sellers.fields,
     } as CreatePosOrderBody & Record<string, unknown>;
 
     const out = await intent.submit(data, {
@@ -495,7 +510,10 @@ export default function POS() {
   };
 
   const handleCheckout = () => {
+    // A pending order must never start a second gateway charge.
+    if (intent.attempt) { void recoverSale(); return; }
     if (cart.length === 0) return;
+    if (sellers.block) return;
     // Cash, gift card, and STC-without-a-configured-gateway stay on the
     // legacy direct-tender path. For card/STC/transfer we route through
     // a real payment gateway when one is enabled.
@@ -511,6 +529,7 @@ export default function POS() {
   };
 
   const startGatewayCheckout = async () => {
+    if (intent.attempt || !intent.ready || sellers.block || taxBlock) return;
     if (!selectedGatewayId) {
       toast({ title: "اختر بوابة الدفع أولاً", variant: "destructive" });
       return;
@@ -621,6 +640,7 @@ export default function POS() {
   };
 
   const openSplitDialog = () => {
+    if (intent.attempt || !intent.ready || sellers.block || taxBlock) return;
     if (cart.length === 0) {
       toast({ title: "السلة فارغة", variant: "destructive" });
       return;
@@ -1075,6 +1095,7 @@ export default function POS() {
                             <span data-testid={`cart-row-total-${item.product.id}`}>{fmtPrice((unitPrices?.[rowIdx] ?? item.product.price) * item.quantity)}</span>
                           </span>
                         </div>
+                        <PosLineSeller selection={sellers} productId={item.product.id} locked={sellerLocked} />
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-3 rounded-lg border border-neutral-200 bg-neutral-50 px-2 py-1">
                             <button
@@ -1177,6 +1198,7 @@ export default function POS() {
                   <span className="font-mono">-{fmtPrice(loyaltyDiscount)}</span>
                 </div>
               )}
+              <PosSellerControls selection={sellers} locked={sellerLocked} />
               {frozen ? (
                 <IntentRecoveryPanel error={intent.error} busy={intent.busy} recoveryRejected={intent.recoveryRejected}
                   scopeMismatch={intent.scopeMismatch} needsPassword={intent.needsSecrets}
@@ -1300,6 +1322,7 @@ export default function POS() {
                   cart.length === 0 ||
                   intent.busy ||
                   (!frozen && !!taxBlock) ||
+                  (!frozen && !!sellers.block) ||
                   (!!frozen && (intent.recoveryRejected || intent.scopeMismatch || intent.needsSecrets)) ||
                   gatewayStage === "starting" ||
                   gatewayStage === "awaiting" ||
@@ -1318,7 +1341,7 @@ export default function POS() {
                 <button
                   type="button"
                   onClick={openSplitDialog}
-                  disabled={cart.length === 0 || intent.busy || !!frozen || !!taxBlock}
+                  disabled={cart.length === 0 || intent.busy || !!frozen || !!taxBlock || !!sellers.block}
                   className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-blue-200 bg-white py-2.5 text-sm font-bold text-[#1D4ED8] transition-colors hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <ArrowRight className="size-3.5" />
@@ -1710,12 +1733,9 @@ export default function POS() {
                   </div>
 
                   <div className="grid grid-cols-2 gap-3">
-                    <Button
-                      onClick={() => void printWhenFontsReady()}
-                      className="h-11 bg-[#2563EB] text-sm font-bold text-white hover:bg-[#1D4ED8] print:hidden"
-                    >
-                      طباعة فاتورة
-                    </Button>
+                    <PrintDocButton id={showSuccess.id} url={(id) => docUrls.receipt(id)}
+                      filename={`receipt-${showSuccess.invoiceNo}.pdf`} label="طباعة الإيصال"
+                      testId="classic-print-receipt" />
                     <Button
                       variant="outline"
                       onClick={() => setShowSuccess(null)}

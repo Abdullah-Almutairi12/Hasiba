@@ -4,7 +4,7 @@ import bcrypt from "bcryptjs";
 import {randomUUID} from "node:crypto";
 import type {Request} from "express";
 import {db,pool,companiesTable,usersTable,userCompaniesTable,branchesTable,warehousesTable,
-  categoriesTable,productsTable,customersTable,posSessionsTable} from "@workspace/db";
+  categoriesTable,productsTable,customersTable,posSessionsTable,employeesTable} from "@workspace/db";
 import app,{assertApplicationReady} from "../app";
 import {recordStockMove} from "../lib/stock-engine";
 import {seedCompanyFiscalCalendar} from "../lib/fiscal-calendar";
@@ -45,6 +45,15 @@ async function fixture(status="registered",inclusive=true,category="standard"){
   return {a,c,u,p,b,w,s,pos,invoice};
 }
 type F=Awaited<ReturnType<typeof fixture>>;
+async function sellerFixture(f:F,mode:string,granularity:string){
+  const [employee]=await db.insert(employeesTable).values({companyId:f.c.id,branchId:f.b.id,
+    employeeNo:randomUUID(),name:"بائع بلا حساب دخول",nameAr:"بائع بلا حساب دخول",hireDate:"2026-01-01"}).returning();
+  await q(`INSERT INTO sales_seller_eligibility(company_id,employee_id,enabled,branch_ids,updated_by)
+    VALUES($1,$2,true,$3,$4)`,[f.c.id,employee.id,JSON.stringify([f.b.id]),f.u.id]);
+  await q(`INSERT INTO sales_seller_policies(company_id,branch_id,inherit,mode,granularity,commission_enabled,effective_from,created_by)
+    VALUES($1,0,false,$2,$3,false,now()-interval '1 minute',$4)`,[f.c.id,mode,granularity,f.u.id]);
+  return employee;
+}
 async function counts(f:F){
   return (await q(`SELECT
     (SELECT count(*) FROM customer_invoices WHERE company_id=$1)::int AS invoices,
@@ -58,6 +67,59 @@ async function preview(f:F,kind:"pos"|"invoice"){
   expect(response.status,JSON.stringify(response.body)).toBe(200);
   return {...body,taxContextToken:response.body.context.token,taxPreviewToken:response.body.previewToken};
 }
+describe("classic POS uses the original live seller authority and receipt",()=>{
+  for(const mode of ["hidden","optional","required"])for(const granularity of ["invoice","line"]){
+    it(`${mode}/${granularity}: original issue engine records the separate seller/cashier`,async()=>{
+      const f=await fixture(),e=await sellerFixture(f,mode,granularity);
+      const b=await preview(f,"pos");
+      const fields=mode==="hidden"?{}:granularity==="line"
+        ?{sellerEmployeeId:null,lineSellers:[{lineIndex:0,employeeId:e.id}]}:{sellerEmployeeId:e.id};
+      if(mode==="required"){
+        const before=await counts(f);
+        expect((await f.a.post("/api/pos/orders").set("Idempotency-Key",randomUUID()).send(b)).status).toBe(422);
+        expect(await counts(f)).toEqual(before);
+      }
+      const res=await f.a.post("/api/pos/orders").set("Idempotency-Key",randomUUID()).send({...b,...fields});
+      expect(res.status,JSON.stringify(res.body)).toBe(201);
+      expect(res.body.sellerAttribution).toHaveLength(1);
+      expect(res.body.sellerAttribution[0].employeeId).toBe(mode==="hidden"?null:e.id);
+      const identity=(await q(`SELECT issuer->'saleIdentity' AS identity FROM document_issuer_snapshots
+        WHERE company_id=$1 AND document_kind='pos' AND document_id=$2`,[f.c.id,res.body.id]))[0].identity;
+      expect(identity.cashier).toMatchObject({id:f.u.id,name:f.u.name});
+      expect(identity.sellers[0]).toMatchObject({employeeId:mode==="hidden"?null:e.id,visible:mode!=="hidden"});
+      expect((await q("SELECT user_id FROM employees WHERE id=$1",[e.id]))[0].user_id).toBeNull();
+    });
+  }
+  it.each(["foreign-company","foreign-branch","revoked"])("rejects %s seller at execution without inventory or GL effects",async(kind)=>{
+    const f=await fixture(),e=await sellerFixture(f,"required","line"),b=await preview(f,"pos");
+    if(kind==="foreign-company"){
+      const other=await fixture();
+      await q("UPDATE employees SET company_id=$2,branch_id=$3 WHERE id=$1",[e.id,other.c.id,other.b.id]);
+    }else if(kind==="foreign-branch"){
+      const [other]=await db.insert(branchesTable).values({companyId:f.c.id,name:randomUUID(),nameAr:"فرع آخر",city:"اختبار"}).returning();
+      await q("UPDATE sales_seller_eligibility SET branch_ids=$2 WHERE employee_id=$1",[e.id,JSON.stringify([other.id])]);
+    }else await q("UPDATE sales_seller_eligibility SET enabled=false WHERE employee_id=$1",[e.id]);
+    const before=await counts(f);
+    const res=await f.a.post("/api/pos/orders").set("Idempotency-Key",randomUUID())
+      .send({...b,lineSellers:[{lineIndex:0,employeeId:e.id}]});
+    expect(res.status,JSON.stringify(res.body)).toBe(403);expect(await counts(f)).toEqual(before);
+  });
+  it("replays the same saved attribution after eligibility revocation without a second sale",async()=>{
+    const f=await fixture(),e=await sellerFixture(f,"required","line"),key=randomUUID();
+    const b={...await preview(f,"pos"),lineSellers:[{lineIndex:0,employeeId:e.id}]};
+    const first=await f.a.post("/api/pos/orders").set("Idempotency-Key",key).send(b);
+    expect(first.status,JSON.stringify(first.body)).toBe(201);
+    const after=await counts(f);
+    await q("UPDATE sales_seller_eligibility SET enabled=false WHERE employee_id=$1",[e.id]);
+    await q("UPDATE employees SET name='اسم جديد بعد الإصدار' WHERE id=$1",[e.id]);
+    const replay=await f.a.post("/api/pos/orders").set("Idempotency-Key",key).send(b);
+    expect(replay.status).toBe(201);expect(replay.headers["idempotency-replayed"]).toBe("true");
+    expect(replay.body.id).toBe(first.body.id);
+    expect(replay.body.sellerAttribution).toEqual(first.body.sellerAttribution);
+    expect(await counts(f)).toEqual(after);
+    expect(Number((await q("SELECT count(*) AS count FROM invoice_seller_lines WHERE company_id=$1",[f.c.id]))[0].count)).toBe(1);
+  });
+});
 describe("trusted tax previews on native issue services / isolated PostgreSQL",()=>{
   for(const kind of ["pos","invoice"] as const){
     it(`${kind}: preserves halala rounding and discount, rejects browser aggregate overrides`,async()=>{
