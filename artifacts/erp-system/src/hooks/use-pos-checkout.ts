@@ -92,9 +92,9 @@ export function usePosCheckout(scope: string | null) {
 
   const isCurrent = state.scope === storageKey;
   /**
-   * `onRejected` fires ONLY for a confirmed, fresh 4xx rejection (the saved
-   * intent was cleared). It never fires for ambiguous results or for a
-   * recovery replay, so callers can never replace unknown evidence.
+   * `onRejected` describes a fresh 4xx response (for approval UI only).
+   * Quoted attempts remain frozen until the server recovers or seals them;
+   * this callback does not establish terminal nonexecution.
    */
   async function pay(body: CreatePosOrderBody, cart: PosCartItem[], opts?: { onRejected?: (status: number, data: unknown) => void }) {
     if (!storageKey || !isCurrent || !state.ready || inFlight.current) return null;
@@ -130,9 +130,10 @@ export function usePosCheckout(scope: string | null) {
         const status = (error as { status?: number } | null)?.status;
         const rejected = typeof status === "number" && status >= 400 && status < 500 &&
           ![408, 429].includes(status);
-        // A fresh 4xx is a confirmed rejection. A 4xx on recovery (e.g.
-        // revoked permission) cannot prove that the ORIGINAL sale rolled back.
-        if (rejected && !wasRecovery) {
+        // Keep the accepted unquoted legacy flow. A quote-bound request must
+        // use the original server fence before replacing its key/body: HTTP
+        // status alone cannot seal a delayed or already committed attempt.
+        if (rejected && !wasRecovery && !attempt.body.taxPreviewToken) {
           try {
             sessionStorage.removeItem(storageKey);
             update({ attempt: null, error: error instanceof Error ? error.message : "رفض الخادم البيع." });
@@ -141,7 +142,12 @@ export function usePosCheckout(scope: string | null) {
             update({ error: "رفض الخادم البيع، لكن تعذر تنظيف المحاولة. استعد تخزين الجلسة ثم أعد الطلب نفسه." });
           }
         } else {
-          update({ error: uncertain });
+          update({ error: rejected && !wasRecovery && error instanceof Error
+            ? `${error.message} بقيت المحاولة محفوظة؛ تحقق من الخادم قبل تصحيحها أو بدء بيع جديد.`
+            : uncertain });
+          if (rejected && !wasRecovery) {
+            opts?.onRejected?.(status!, (error as { data?: unknown }).data ?? null);
+          }
         }
         return null;
       }

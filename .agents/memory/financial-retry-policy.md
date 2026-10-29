@@ -63,7 +63,8 @@ commit after the employee starts a replacement, duplicating stock or money.
 **How to apply:** Under the original identity's lock, recover an existing committed
 result or record a permanent closure that later original requests cannot execute.
 Recheck present source-read authority after waiting. A denial keeps the local
-evidence; a completed result is recovery, not cancellation.
+evidence; a completed result is recovery, not cancellation. A business rejection's
+HTTP status alone is not a terminal nonexecution receipt.
 
 ## Current cashier work is not a branch activity report
 
