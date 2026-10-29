@@ -40,7 +40,7 @@ export const companiesTable = pgTable("companies", {
    *   - `not_registered` — below voluntary threshold; VAT UI hidden.
    * Default `registered` for backward compatibility with existing tenants.
    */
-  vatRegistrationStatus: text("vat_registration_status").notNull().default("registered"),
+  vatRegistrationStatus: text("vat_registration_status").notNull().default("unresolved"),
   /** Effective date of the company's VAT registration certificate. */
   vatRegistrationDate: timestamp("vat_registration_date"),
   vatDeregistrationDate: timestamp("vat_deregistration_date"),

@@ -80,7 +80,7 @@ administrationRouter.post("/administration/handovers/:id/accept",wrap(async(req,
   res.json(await acceptHandover(getCompanyId(req),req.session.userId!,id(req),revision.parse(req.body).expectedRevision));
 }));
 administrationRouter.patch("/administration/members/:id",wrap(async(req,res)=>{
-  const body=z.object({responsibilities:z.array(z.enum(ADMIN_RESPONSIBILITIES)).max(5),active:z.boolean()}).strict().parse(req.body);
+  const body=z.object({responsibilities:z.array(z.enum(ADMIN_RESPONSIBILITIES)).max(ADMIN_RESPONSIBILITIES.length),active:z.boolean()}).strict().parse(req.body);
   res.json(await setAdministrator(getCompanyId(req),req.session.userId!,z.coerce.number().int().positive().parse(req.params.id),
     body.responsibilities,body.active));
 }));

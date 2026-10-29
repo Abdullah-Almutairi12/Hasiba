@@ -17,7 +17,7 @@ export default defineConfig({
   "api-client-react": {
     input: {
       target: "./openapi.yaml",
-      parserOptions: { externalRefs: { allow: ["./print-paths.yaml","./seller-paths.yaml","./invoice-template-paths.yaml","./invoice-editor-paths.yaml"] } },
+      parserOptions: { externalRefs: { allow: ["./print-paths.yaml","./seller-paths.yaml","./invoice-template-paths.yaml","./invoice-editor-paths.yaml","./vat-policy-paths.yaml"] } },
       override: {
         transformer: titleTransformer,
       },
@@ -45,7 +45,7 @@ export default defineConfig({
   zod: {
     input: {
       target: "./openapi.yaml",
-      parserOptions: { externalRefs: { allow: ["./print-paths.yaml","./seller-paths.yaml","./invoice-template-paths.yaml","./invoice-editor-paths.yaml"] } },
+      parserOptions: { externalRefs: { allow: ["./print-paths.yaml","./seller-paths.yaml","./invoice-template-paths.yaml","./invoice-editor-paths.yaml","./vat-policy-paths.yaml"] } },
       override: {
         transformer: titleTransformer,
       },

@@ -658,7 +658,7 @@ export const SaveAdministrationHandoverBody = zod.object({
   "expectedRevision": zod.number().int().min(saveAdministrationHandoverBodyExpectedRevisionMin),
   "toUserId": zod.number().int().nullable(),
   "personId": zod.number().int().nullable(),
-  "responsibilities": zod.array(zod.enum(['users', 'administrators', 'settings', 'subscription', 'contact'])),
+  "responsibilities": zod.array(zod.enum(['users', 'administrators', 'settings', 'subscription', 'contact', 'tax'])),
   "ownerTransfer": zod.boolean().optional(),
   "departure": zod.enum(['retain', 'stay', 'suspend', 'terminate']).describe('retain appoints an additional manager; the three departure choices are stay/suspend/terminate')
 })
@@ -3450,6 +3450,7 @@ export const createPosOrderBodyItemsItemQuantityExclusiveMin = 0;
 
 
 export const CreatePosOrderBody = zod.object({
+  "taxContextToken": zod.string().optional().describe('Reviewed company tax context; frozen with the financial attempt, never refreshed on an unknown retry.'),
   "sellerEmployeeId": zod.number().int().nullish().describe('Employee seller, never implicitly the cashier.'),
   "lineSellers": zod.array(zod.object({
   "lineIndex": zod.number().int().min(createPosOrderBodyLineSellersItemLineIndexMin),
@@ -6922,11 +6923,186 @@ export const UploadStorageAttachmentResponse = zod.object({
 })
 
 
+export const getCompanyTaxPolicyResponseCurrentProductRulesItemRuleReasonMax = 250;
+
+export const getCompanyTaxPolicyResponseCurrentServiceRuleReasonMax = 250;
+
+
+
+export const GetCompanyTaxPolicyResponse = zod.object({
+  "canManage": zod.boolean(),
+  "canAdopt": zod.boolean(),
+  "publishingReady": zod.boolean(),
+  "current": zod.object({
+  "companyId": zod.number().int(),
+  "policyId": zod.number().int().nullish(),
+  "revision": zod.number().int(),
+  "effectiveFrom": zod.string().nullish(),
+  "status": zod.enum(['registered', 'voluntary', 'not_registered', 'unresolved']),
+  "registered": zod.boolean(),
+  "vatNumber": zod.string().nullish(),
+  "priceIncludesVat": zod.boolean(),
+  "mode": zod.enum(['unified', 'legacy']),
+  "token": zod.string(),
+  "registrationVerification": zod.string(),
+  "productRules": zod.array(zod.object({
+  "productId": zod.number().int(),
+  "rule": zod.object({
+  "category": zod.enum(['standard', 'zero', 'exempt']),
+  "reason": zod.string().max(getCompanyTaxPolicyResponseCurrentProductRulesItemRuleReasonMax).optional()
+})
+})).optional(),
+  "serviceRule": zod.object({
+  "category": zod.enum(['standard', 'zero', 'exempt']),
+  "reason": zod.string().max(getCompanyTaxPolicyResponseCurrentServiceRuleReasonMax).optional()
+}).optional()
+}),
+  "revision": zod.number().int(),
+  "history": zod.array(zod.record(zod.string(), zod.unknown())),
+  "products": zod.array(zod.object({
+  "id": zod.number().int(),
+  "name": zod.string(),
+  "price": zod.string()
+})),
+  "transition": zod.object({
+  "legacyUnchanged": zod.boolean(),
+  "historicalDocumentsUnchanged": zod.boolean(),
+  "missingClassifications": zod.number().int()
+}),
+  "integration": zod.object({
+  "registrationVerified": zod.boolean(),
+  "productionAcceptance": zod.boolean(),
+  "explanation": zod.string()
+})
+})
+
+
+export const publishCompanyTaxPolicyBodyRevisionMin = 0;
+
+export const publishCompanyTaxPolicyBodyProductRulesItemRuleReasonMax = 250;
+
+export const publishCompanyTaxPolicyBodyProductRulesMax = 10000;
+
+export const publishCompanyTaxPolicyBodyServiceRuleReasonMax = 250;
+
+export const publishCompanyTaxPolicyBodyReasonMin = 6;
+export const publishCompanyTaxPolicyBodyReasonMax = 500;
+
+export const publishCompanyTaxPolicyBodyProofCurrentPasswordMax = 200;
+
+export const publishCompanyTaxPolicyBodyProofTokenMax = 20;
+
+export const publishCompanyTaxPolicyBodyProofRecoveryCodeMax = 100;
+
+
+
+export const PublishCompanyTaxPolicyBody = zod.object({
+  "adoptTaxAdministration": zod.boolean().optional(),
+  "revision": zod.number().int().min(publishCompanyTaxPolicyBodyRevisionMin),
+  "requestId": zod.string().uuid(),
+  "effectiveFrom": zod.coerce.date(),
+  "status": zod.enum(['registered', 'voluntary', 'not_registered']),
+  "vatNumber": zod.string().nullable(),
+  "priceIncludesVat": zod.boolean(),
+  "productRules": zod.array(zod.object({
+  "productId": zod.number().int(),
+  "rule": zod.object({
+  "category": zod.enum(['standard', 'zero', 'exempt']),
+  "reason": zod.string().max(publishCompanyTaxPolicyBodyProductRulesItemRuleReasonMax).optional()
+})
+})).max(publishCompanyTaxPolicyBodyProductRulesMax),
+  "serviceRule": zod.object({
+  "category": zod.enum(['standard', 'zero', 'exempt']),
+  "reason": zod.string().max(publishCompanyTaxPolicyBodyServiceRuleReasonMax).optional()
+}),
+  "reason": zod.string().min(publishCompanyTaxPolicyBodyReasonMin).max(publishCompanyTaxPolicyBodyReasonMax),
+  "proof": zod.object({
+  "currentPassword": zod.string().min(1).max(publishCompanyTaxPolicyBodyProofCurrentPasswordMax),
+  "token": zod.string().max(publishCompanyTaxPolicyBodyProofTokenMax).optional(),
+  "recoveryCode": zod.string().max(publishCompanyTaxPolicyBodyProofRecoveryCodeMax).optional()
+})
+})
+
+export const PublishCompanyTaxPolicyResponse = zod.object({
+  "revision": zod.number().int(),
+  "replayed": zod.boolean()
+})
+
+
+export const GetCompanyTaxPolicyRequestStatusParams = zod.object({
+  "requestId": zod.coerce.string()
+})
+
+export const GetCompanyTaxPolicyRequestStatusResponse = zod.object({
+  "status": zod.enum(['saved', 'closed', 'pending']),
+  "revision": zod.number().int().nullable()
+})
+
+
+export const CloseCompanyTaxPolicyRequestParams = zod.object({
+  "requestId": zod.coerce.string()
+})
+
+export const closeCompanyTaxPolicyRequestBodyProofCurrentPasswordMax = 200;
+
+export const closeCompanyTaxPolicyRequestBodyProofTokenMax = 20;
+
+export const closeCompanyTaxPolicyRequestBodyProofRecoveryCodeMax = 100;
+
+
+
+export const CloseCompanyTaxPolicyRequestBody = zod.object({
+  "facts": zod.record(zod.string(), zod.unknown()),
+  "proof": zod.object({
+  "currentPassword": zod.string().min(1).max(closeCompanyTaxPolicyRequestBodyProofCurrentPasswordMax),
+  "token": zod.string().max(closeCompanyTaxPolicyRequestBodyProofTokenMax).optional(),
+  "recoveryCode": zod.string().max(closeCompanyTaxPolicyRequestBodyProofRecoveryCodeMax).optional()
+})
+})
+
+export const CloseCompanyTaxPolicyRequestResponse = zod.object({
+  "status": zod.enum(['saved', 'closed', 'pending']),
+  "revision": zod.number().int().nullable()
+})
+
+
+export const getPosTaxContextResponseProductRulesItemRuleReasonMax = 250;
+
+export const getPosTaxContextResponseServiceRuleReasonMax = 250;
+
+
+
+export const GetPosTaxContextResponse = zod.object({
+  "companyId": zod.number().int(),
+  "policyId": zod.number().int().nullish(),
+  "revision": zod.number().int(),
+  "effectiveFrom": zod.string().nullish(),
+  "status": zod.enum(['registered', 'voluntary', 'not_registered', 'unresolved']),
+  "registered": zod.boolean(),
+  "vatNumber": zod.string().nullish(),
+  "priceIncludesVat": zod.boolean(),
+  "mode": zod.enum(['unified', 'legacy']),
+  "token": zod.string(),
+  "registrationVerification": zod.string(),
+  "productRules": zod.array(zod.object({
+  "productId": zod.number().int(),
+  "rule": zod.object({
+  "category": zod.enum(['standard', 'zero', 'exempt']),
+  "reason": zod.string().max(getPosTaxContextResponseProductRulesItemRuleReasonMax).optional()
+})
+})).optional(),
+  "serviceRule": zod.object({
+  "category": zod.enum(['standard', 'zero', 'exempt']),
+  "reason": zod.string().max(getPosTaxContextResponseServiceRuleReasonMax).optional()
+}).optional()
+})
+
+
 /**
  * @summary Current tenant's VAT registration + rolling 12m threshold snapshot
  */
 export const GetVatStatusResponse = zod.object({
-  "status": zod.enum(['registered', 'voluntary', 'not_registered']),
+  "status": zod.enum(['registered', 'voluntary', 'not_registered', 'unresolved']),
   "rolling12mSales": zod.number(),
   "percentOfMandatory": zod.number(),
   "near80": zod.boolean(),
@@ -6937,7 +7113,11 @@ export const GetVatStatusResponse = zod.object({
   "voluntaryThreshold": zod.number(),
   "computedAt": zod.string(),
   "vatNumber": zod.string().nullish(),
-  "vatRegistrationDate": zod.string().nullish()
+  "vatRegistrationDate": zod.string().nullish(),
+  "policyRevision": zod.number().int().optional(),
+  "policyEffectiveFrom": zod.string().nullish(),
+  "priceIncludesVat": zod.boolean().optional(),
+  "registrationVerification": zod.enum(['declared_unverified']).optional()
 })
 
 
@@ -7070,7 +7250,7 @@ export const SimulateVatTrajectoryResponse = zod.object({
  */
 export const RunVatThresholdCheckResponse = zod.object({
   "snapshot": zod.object({
-  "status": zod.enum(['registered', 'voluntary', 'not_registered']),
+  "status": zod.enum(['registered', 'voluntary', 'not_registered', 'unresolved']),
   "rolling12mSales": zod.number(),
   "percentOfMandatory": zod.number(),
   "near80": zod.boolean(),
@@ -7081,7 +7261,11 @@ export const RunVatThresholdCheckResponse = zod.object({
   "voluntaryThreshold": zod.number(),
   "computedAt": zod.string(),
   "vatNumber": zod.string().nullish(),
-  "vatRegistrationDate": zod.string().nullish()
+  "vatRegistrationDate": zod.string().nullish(),
+  "policyRevision": zod.number().int().optional(),
+  "policyEffectiveFrom": zod.string().nullish(),
+  "priceIncludesVat": zod.boolean().optional(),
+  "registrationVerification": zod.enum(['declared_unverified']).optional()
 }),
   "alertEmitted": zod.union([zod.literal('near80'),zod.literal('mandatory'),zod.literal(null)]).nullish()
 })

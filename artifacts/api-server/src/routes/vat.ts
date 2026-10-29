@@ -1,10 +1,13 @@
 import { Router } from "express";
 import { db, companiesTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { eq,sql } from "drizzle-orm";
 import { z } from "zod";
 import { handleRouteError } from "../lib/handle-error";
 import { recordAudit } from "../lib/audit";
 import { getCompanyId } from "../lib/scoped-db";
+import {lockApprovalAuthorityWrite} from "../lib/approval-authority";
+import {FinancialRequestError} from "../lib/financial-transaction";
+import {returnActor} from "../lib/return-access";
 import {
   getVatThresholdSnapshot,
   computeRolling12mSales,
@@ -17,8 +20,38 @@ import { buildVatReturnPdf } from "../lib/pdf/business-documents";
 import { getPrintCompany as getCompanyInfo } from "../lib/pdf/print-company";
 import { aggregatePrintGuard } from "../lib/print-permissions";
 import { requireRole, financeGuard } from "../middlewares/require-role";
+import {taxContext,taxPolicyView,taxPolicySchema,publishTaxPolicy,publicTaxContext,
+  getTaxPolicyRequestStatus,closeTaxPolicyRequest} from "../lib/vat-policy";
 
 const router = Router();
+
+router.get("/vat/policy", async(req,res)=>{
+  try {res.json(await taxPolicyView(req));}
+  catch(err){handleRouteError(err,res);}
+});
+router.put("/vat/policy", async(req,res)=>{
+  try {
+    const input=taxPolicySchema.parse(req.body);
+    // Do not accept a live policy while any issuer/checkout still uses the
+    // previous calculation path. Remove only together with full-path tests.
+    res.status(503).json({error:"إعداد الضريبة للمراجعة فقط حتى إغلاق مسارات الإصدار والتقارير",code:"TAX_POLICY_NOT_READY"});
+    void input;void publishTaxPolicy;
+  } catch(err){handleRouteError(err,res);}
+});
+router.get("/vat/policy/requests/:requestId",async(req,res)=>{
+  try {res.json(await getTaxPolicyRequestStatus(req,req.params.requestId));}
+  catch(err){handleRouteError(err,res);}
+});
+router.post("/vat/policy/requests/:requestId/close",async(req,res)=>{
+  try {
+    const input=z.object({
+      facts:z.record(z.string(),z.unknown()),
+      proof:z.object({currentPassword:z.string().min(1).max(200),
+        token:z.string().max(20).optional(),recoveryCode:z.string().max(100).optional()}).strict(),
+    }).strict().parse(req.body);
+    res.json(await closeTaxPolicyRequest(req,req.params.requestId,input.facts,input.proof));
+  }catch(err){handleRouteError(err,res);}
+});
 
 const UpdateRegistrationBody = z.object({
   status: z.enum(["registered", "voluntary", "not_registered"]),
@@ -37,7 +70,10 @@ router.get("/vat/status", async (req, res) => {
   try {
     const companyId = getCompanyId(req);
     const snap = await getVatThresholdSnapshot(companyId);
-    res.json(snap);
+    const legal=publicTaxContext(await taxContext(companyId));
+    res.json({...snap,status:legal.status,vatNumber:legal.vatNumber,
+      registrationVerification:legal.registrationVerification,policyRevision:legal.revision,
+      policyEffectiveFrom:legal.effectiveFrom,priceIncludesVat:legal.priceIncludesVat});
   } catch (err) {
     req.log.error({ err }, "GET /vat/status failed");
     handleRouteError(err, res);
@@ -78,8 +114,16 @@ router.patch(
           : null;
       }
 
-      const [updated] = await db
-        .update(companiesTable)
+      const updated=await db.transaction(async tx=>{
+        await lockApprovalAuthorityWrite(tx);
+        await tx.execute(sql`SELECT id FROM companies WHERE id=${companyId} FOR UPDATE`);
+        const actor=await returnActor(req.session.userId!,companyId,tx);
+        if(!["owner","manager","accountant"].includes(actor.role))
+          throw new FinancialRequestError("سحبت صلاحية تعديل التسجيل",403);
+        const adopted=await tx.execute(sql`SELECT 1 FROM company_tax_policy_versions WHERE company_id=${companyId} LIMIT 1`);
+        if(adopted.rows.length)
+          throw new FinancialRequestError("اعتمدت المنشأة سياسة مؤرخة؛ تعديل التسجيل يتم من إعداد الضريبة الموحد",409);
+        const [saved]=await tx.update(companiesTable)
         .set(patch)
         .where(eq(companiesTable.id, companyId))
         .returning({
@@ -88,6 +132,8 @@ router.patch(
           vatNumber: companiesTable.vatNumber,
           vatRegistrationDate: companiesTable.vatRegistrationDate,
         });
+        return saved;
+      });
 
       await recordAudit(req, {
         action: "vat.registration.update",

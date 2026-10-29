@@ -7,6 +7,7 @@ export const RIGHT_LABEL: Record<string, string> = {
   settings: "الإعدادات",
   subscription: "الاشتراك",
   contact: "التواصل مع حاسبة",
+  tax: "الإعداد الضريبي (يُمنح صراحة)",
 };
 export const RIGHTS = Object.keys(RIGHT_LABEL) as AdministrationHandoverInputResponsibilitiesItem[];
 

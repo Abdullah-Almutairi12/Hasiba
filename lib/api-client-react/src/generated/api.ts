@@ -86,6 +86,8 @@ import type {
   ChangeAccountPasswordBody,
   ChangeCommissionState200,
   ChangeCommissionStateBody,
+  CloseCompanyTaxPolicyRequest200,
+  CloseCompanyTaxPolicyRequestBody,
   CloseFiscalYearBody,
   CloseYearResult,
   ClosingEntry,
@@ -169,6 +171,8 @@ import type {
   GetCleanupReportPreview200,
   GetCleanupReportPreviewParams,
   GetCleanupReportTestHistory200,
+  GetCompanyTaxPolicy200,
+  GetCompanyTaxPolicyRequestStatus200,
   GetCountSession200,
   GetDashboardSalesChartParams,
   GetFraudAnomalies200,
@@ -176,6 +180,7 @@ import type {
   GetGeneralLedgerParams,
   GetInvoiceTemplateCatalog200,
   GetPosReceiptPdfParams,
+  GetPosTaxContext200,
   GetPrintProfile200,
   GetProcurementReceivingPolicy200,
   GetProductRecommendations200,
@@ -267,6 +272,8 @@ import type {
   Product,
   ProductStats,
   ProfitLoss,
+  PublishCompanyTaxPolicy200,
+  PublishCompanyTaxPolicyBody,
   ReceiveInventoryTransfer200,
   ReceiveInventoryTransferBody,
   ReplaceCountObservation200,
@@ -25148,6 +25155,456 @@ export const useUploadStorageAttachment = <TError = ErrorType<unknown>,
       > => {
       return useMutation(getUploadStorageAttachmentMutationOptions(options), queryClient);
     }
+
+export const getGetCompanyTaxPolicyUrl = () => {
+
+
+
+
+  return `/api/vat/policy`
+}
+
+export const getCompanyTaxPolicy = async ( options?: Parameters<typeof customFetch>[1]): Promise<GetCompanyTaxPolicy200> => {
+
+  return customFetch<GetCompanyTaxPolicy200>(getGetCompanyTaxPolicyUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetCompanyTaxPolicyQueryKey = () => {
+    return [
+    `/api/vat/policy`
+    ] as const;
+    }
+
+
+export const getGetCompanyTaxPolicyQueryOptions = <TData = Awaited<ReturnType<typeof getCompanyTaxPolicy>>, TError = ErrorType<unknown>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getCompanyTaxPolicy>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetCompanyTaxPolicyQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getCompanyTaxPolicy>>> = ({ signal }) => getCompanyTaxPolicy({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getCompanyTaxPolicy>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetCompanyTaxPolicyQueryResult = NonNullable<Awaited<ReturnType<typeof getCompanyTaxPolicy>>>
+export type GetCompanyTaxPolicyQueryError = ErrorType<unknown>
+
+
+export function useGetCompanyTaxPolicy<TData = Awaited<ReturnType<typeof getCompanyTaxPolicy>>, TError = ErrorType<unknown>>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getCompanyTaxPolicy>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getCompanyTaxPolicy>>,
+          TError,
+          Awaited<ReturnType<typeof getCompanyTaxPolicy>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetCompanyTaxPolicy<TData = Awaited<ReturnType<typeof getCompanyTaxPolicy>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getCompanyTaxPolicy>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getCompanyTaxPolicy>>,
+          TError,
+          Awaited<ReturnType<typeof getCompanyTaxPolicy>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetCompanyTaxPolicy<TData = Awaited<ReturnType<typeof getCompanyTaxPolicy>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getCompanyTaxPolicy>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useGetCompanyTaxPolicy<TData = Awaited<ReturnType<typeof getCompanyTaxPolicy>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getCompanyTaxPolicy>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetCompanyTaxPolicyQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getPublishCompanyTaxPolicyUrl = () => {
+
+
+
+
+  return `/api/vat/policy`
+}
+
+export const publishCompanyTaxPolicy = async (publishCompanyTaxPolicyBody: PublishCompanyTaxPolicyBody, options?: Parameters<typeof customFetch>[1]): Promise<PublishCompanyTaxPolicy200> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<PublishCompanyTaxPolicy200>(getPublishCompanyTaxPolicyUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(publishCompanyTaxPolicyBody)
+  }
+);}
+
+
+
+
+
+export const getPublishCompanyTaxPolicyMutationKey = () => ['publishCompanyTaxPolicy'] as const;
+
+export const getPublishCompanyTaxPolicyMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof publishCompanyTaxPolicy>>, TError,PublishCompanyTaxPolicyMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof publishCompanyTaxPolicy>>, TError,PublishCompanyTaxPolicyMutationVariables, TContext> => {
+
+const mutationKey = getPublishCompanyTaxPolicyMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof publishCompanyTaxPolicy>>, PublishCompanyTaxPolicyMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  publishCompanyTaxPolicy(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PublishCompanyTaxPolicyMutationResult = NonNullable<Awaited<ReturnType<typeof publishCompanyTaxPolicy>>>
+    export type PublishCompanyTaxPolicyMutationBody = BodyType<PublishCompanyTaxPolicyBody>
+    export type PublishCompanyTaxPolicyMutationError = ErrorType<unknown>
+    export type PublishCompanyTaxPolicyMutationVariables = {data: BodyType<PublishCompanyTaxPolicyBody>}
+
+    export const usePublishCompanyTaxPolicy = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof publishCompanyTaxPolicy>>, TError,PublishCompanyTaxPolicyMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof publishCompanyTaxPolicy>>,
+        TError,
+        PublishCompanyTaxPolicyMutationVariables,
+        TContext
+      > => {
+      return useMutation(getPublishCompanyTaxPolicyMutationOptions(options), queryClient);
+    }
+
+export const getGetCompanyTaxPolicyRequestStatusUrl = (requestId: string,) => {
+
+
+
+
+  return `/api/vat/policy/requests/${requestId}`
+}
+
+export const getCompanyTaxPolicyRequestStatus = async (requestId: string, options?: Parameters<typeof customFetch>[1]): Promise<GetCompanyTaxPolicyRequestStatus200> => {
+
+  return customFetch<GetCompanyTaxPolicyRequestStatus200>(getGetCompanyTaxPolicyRequestStatusUrl(requestId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetCompanyTaxPolicyRequestStatusQueryKey = (requestId: string,) => {
+    return [
+    `/api/vat/policy/requests/${requestId}`
+    ] as const;
+    }
+
+
+export const getGetCompanyTaxPolicyRequestStatusQueryOptions = <TData = Awaited<ReturnType<typeof getCompanyTaxPolicyRequestStatus>>, TError = ErrorType<unknown>>(requestId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getCompanyTaxPolicyRequestStatus>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetCompanyTaxPolicyRequestStatusQueryKey(requestId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getCompanyTaxPolicyRequestStatus>>> = ({ signal }) => getCompanyTaxPolicyRequestStatus(requestId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: requestId !== null && requestId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getCompanyTaxPolicyRequestStatus>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetCompanyTaxPolicyRequestStatusQueryResult = NonNullable<Awaited<ReturnType<typeof getCompanyTaxPolicyRequestStatus>>>
+export type GetCompanyTaxPolicyRequestStatusQueryError = ErrorType<unknown>
+
+
+export function useGetCompanyTaxPolicyRequestStatus<TData = Awaited<ReturnType<typeof getCompanyTaxPolicyRequestStatus>>, TError = ErrorType<unknown>>(
+ requestId: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getCompanyTaxPolicyRequestStatus>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getCompanyTaxPolicyRequestStatus>>,
+          TError,
+          Awaited<ReturnType<typeof getCompanyTaxPolicyRequestStatus>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetCompanyTaxPolicyRequestStatus<TData = Awaited<ReturnType<typeof getCompanyTaxPolicyRequestStatus>>, TError = ErrorType<unknown>>(
+ requestId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getCompanyTaxPolicyRequestStatus>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getCompanyTaxPolicyRequestStatus>>,
+          TError,
+          Awaited<ReturnType<typeof getCompanyTaxPolicyRequestStatus>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetCompanyTaxPolicyRequestStatus<TData = Awaited<ReturnType<typeof getCompanyTaxPolicyRequestStatus>>, TError = ErrorType<unknown>>(
+ requestId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getCompanyTaxPolicyRequestStatus>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useGetCompanyTaxPolicyRequestStatus<TData = Awaited<ReturnType<typeof getCompanyTaxPolicyRequestStatus>>, TError = ErrorType<unknown>>(
+ requestId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getCompanyTaxPolicyRequestStatus>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetCompanyTaxPolicyRequestStatusQueryOptions(requestId,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCloseCompanyTaxPolicyRequestUrl = (requestId: string,) => {
+
+
+
+
+  return `/api/vat/policy/requests/${requestId}/close`
+}
+
+export const closeCompanyTaxPolicyRequest = async (requestId: string,
+    closeCompanyTaxPolicyRequestBody: CloseCompanyTaxPolicyRequestBody, options?: Parameters<typeof customFetch>[1]): Promise<CloseCompanyTaxPolicyRequest200> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<CloseCompanyTaxPolicyRequest200>(getCloseCompanyTaxPolicyRequestUrl(requestId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(closeCompanyTaxPolicyRequestBody)
+  }
+);}
+
+
+
+
+
+export const getCloseCompanyTaxPolicyRequestMutationKey = () => ['closeCompanyTaxPolicyRequest'] as const;
+
+export const getCloseCompanyTaxPolicyRequestMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof closeCompanyTaxPolicyRequest>>, TError,CloseCompanyTaxPolicyRequestMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof closeCompanyTaxPolicyRequest>>, TError,CloseCompanyTaxPolicyRequestMutationVariables, TContext> => {
+
+const mutationKey = getCloseCompanyTaxPolicyRequestMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof closeCompanyTaxPolicyRequest>>, CloseCompanyTaxPolicyRequestMutationVariables> = (props) => {
+          const {requestId,data} = props ?? {};
+
+          return  closeCompanyTaxPolicyRequest(requestId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CloseCompanyTaxPolicyRequestMutationResult = NonNullable<Awaited<ReturnType<typeof closeCompanyTaxPolicyRequest>>>
+    export type CloseCompanyTaxPolicyRequestMutationBody = BodyType<CloseCompanyTaxPolicyRequestBody>
+    export type CloseCompanyTaxPolicyRequestMutationError = ErrorType<unknown>
+    export type CloseCompanyTaxPolicyRequestMutationVariables = {requestId: string;data: BodyType<CloseCompanyTaxPolicyRequestBody>}
+
+    export const useCloseCompanyTaxPolicyRequest = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof closeCompanyTaxPolicyRequest>>, TError,CloseCompanyTaxPolicyRequestMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof closeCompanyTaxPolicyRequest>>,
+        TError,
+        CloseCompanyTaxPolicyRequestMutationVariables,
+        TContext
+      > => {
+      return useMutation(getCloseCompanyTaxPolicyRequestMutationOptions(options), queryClient);
+    }
+
+export const getGetPosTaxContextUrl = () => {
+
+
+
+
+  return `/api/pos/tax-context`
+}
+
+export const getPosTaxContext = async ( options?: Parameters<typeof customFetch>[1]): Promise<GetPosTaxContext200> => {
+
+  return customFetch<GetPosTaxContext200>(getGetPosTaxContextUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetPosTaxContextQueryKey = () => {
+    return [
+    `/api/pos/tax-context`
+    ] as const;
+    }
+
+
+export const getGetPosTaxContextQueryOptions = <TData = Awaited<ReturnType<typeof getPosTaxContext>>, TError = ErrorType<unknown>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getPosTaxContext>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetPosTaxContextQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getPosTaxContext>>> = ({ signal }) => getPosTaxContext({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getPosTaxContext>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetPosTaxContextQueryResult = NonNullable<Awaited<ReturnType<typeof getPosTaxContext>>>
+export type GetPosTaxContextQueryError = ErrorType<unknown>
+
+
+export function useGetPosTaxContext<TData = Awaited<ReturnType<typeof getPosTaxContext>>, TError = ErrorType<unknown>>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getPosTaxContext>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getPosTaxContext>>,
+          TError,
+          Awaited<ReturnType<typeof getPosTaxContext>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetPosTaxContext<TData = Awaited<ReturnType<typeof getPosTaxContext>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getPosTaxContext>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getPosTaxContext>>,
+          TError,
+          Awaited<ReturnType<typeof getPosTaxContext>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetPosTaxContext<TData = Awaited<ReturnType<typeof getPosTaxContext>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getPosTaxContext>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useGetPosTaxContext<TData = Awaited<ReturnType<typeof getPosTaxContext>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getPosTaxContext>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetPosTaxContextQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
 export const getGetVatStatusUrl = () => {
 

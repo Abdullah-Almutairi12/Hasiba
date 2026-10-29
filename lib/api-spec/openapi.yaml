@@ -5259,6 +5259,14 @@ paths:
   # ============================================================
   # ZATCA SMB compliance — VAT registration + threshold counter
   # ============================================================
+  /vat/policy:
+    $ref: "./vat-policy-paths.yaml#/policy"
+  /vat/policy/requests/{requestId}:
+    $ref: "./vat-policy-paths.yaml#/requestStatus"
+  /vat/policy/requests/{requestId}/close:
+    $ref: "./vat-policy-paths.yaml#/closeRequest"
+  /pos/tax-context:
+    $ref: "./vat-policy-paths.yaml#/context"
   /vat/status:
     get:
       tags: [companies]
@@ -5603,7 +5611,7 @@ components:
         expectedRevision: {type: integer, minimum: 0}
         toUserId: {type: [integer, "null"]}
         personId: {type: [integer, "null"]}
-        responsibilities: {type: array, items: {type: string, enum: [users, administrators, settings, subscription, contact]}}
+        responsibilities: {type: array, items: {type: string, enum: [users, administrators, settings, subscription, contact, tax]}}
         ownerTransfer: {type: boolean}
         departure:
           type: string
@@ -5972,7 +5980,7 @@ components:
       properties:
         status:
           type: string
-          enum: [registered, voluntary, not_registered]
+          enum: [registered, voluntary, not_registered, unresolved]
         rolling12mSales: { type: number }
         percentOfMandatory: { type: number }
         near80: { type: boolean }
@@ -5984,6 +5992,10 @@ components:
         computedAt: { type: string }
         vatNumber: { type: string, nullable: true }
         vatRegistrationDate: { type: string, nullable: true }
+        policyRevision: { type: integer }
+        policyEffectiveFrom: { type: [string, "null"] }
+        priceIncludesVat: { type: boolean }
+        registrationVerification: { type: string, enum: [declared_unverified] }
       required: [status, rolling12mSales, percentOfMandatory, near80, crossedMandatory, eligibleVoluntary, remainingToMandatory, mandatoryThreshold, voluntaryThreshold, computedAt]
     VatReturnResponse:
       type: object
@@ -6756,6 +6768,9 @@ components:
     CreatePosOrderBody:
       type: object
       properties:
+        taxContextToken:
+          type: string
+          description: Reviewed company tax context; frozen with the financial attempt, never refreshed on an unknown retry.
         sellerEmployeeId:
           type: [integer, "null"]
           description: Employee seller, never implicitly the cashier.

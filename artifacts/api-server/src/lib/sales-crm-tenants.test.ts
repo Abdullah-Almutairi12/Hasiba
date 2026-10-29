@@ -43,7 +43,9 @@ beforeAll(async () => {
     const f = {} as Fixture;
     const name = `${tag}-${n}`;
     const amount = n === 0 ? "100" : "9000";
-    f.company = (await db.insert(companiesTable).values({ name }).returning())[0].id;
+    f.company = (await db.insert(companiesTable).values({
+      name,vatRegistrationStatus:"registered",vatNumber:"300000000000003",
+    }).returning())[0].id;
     await seedCompanyFiscalCalendar(f.company);
     f.user = (await db.insert(usersTable).values({
       name, email: `${name}@test.local`, passwordHash: hash, role: "owner", isActive: true,

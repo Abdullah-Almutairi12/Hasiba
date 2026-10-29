@@ -5,10 +5,13 @@ import type { CompanyInfo } from "./pdf/purchase-order";
 import { FinancialRequestError } from "./financial-transaction";
 import { objectStorageClient } from "./objectStorage";
 import { captureInvoiceDesign, type InvoiceDesignSnapshot } from "./invoice-design";
+import {taxContext,publicTaxContext} from "./vat-policy";
 
 export type IdentityTx = Pick<typeof db, "execute">;
 export type DocumentKind = "invoice" | "pos" | "credit" | "refund" | "closing";
 export interface IssuerSnapshot extends CompanyInfo {
+  taxContext?: ReturnType<typeof publicTaxContext>;
+  taxCalculation?: Record<string,unknown>;
   saleIdentity?: {
     version: 1;
     creator: { id: number | null; name: string | null };
@@ -32,7 +35,7 @@ export const missingIssuer = (companyId: number): IssuerSnapshot => ({
   crNumber: "", vatEnabled: true, logoObjectKey: null, receiptWidths: [80],
   capturedAt: "", verifiedSnapshot: false,
 });
-export async function captureIssuer(tx: IdentityTx, companyId: number): Promise<IssuerSnapshot> {
+export async function captureIssuer(tx: IdentityTx, companyId: number,at?:string): Promise<IssuerSnapshot> {
   // Separate statement: after waiting for a profile writer, read its newly
   // committed identity/profile together rather than an older JOIN snapshot.
   await tx.execute(sql`SELECT id FROM companies WHERE id=${companyId} FOR SHARE`);
@@ -43,16 +46,21 @@ export async function captureIssuer(tx: IdentityTx, companyId: number): Promise<
   const p = (c.profile ?? {}) as Record<string, unknown>;
   const str = (key: string) => typeof p[key] === "string" ? String(p[key]) : "";
   const a = (c.address ?? {}) as Record<string, unknown>;
+  const resolved=await taxContext(companyId,at,tx);
+  // Reading a historical report or a non-tax purchase order must not be
+  // blocked by today's unresolved registration. New financial issuance is
+  // guarded by calculatePolicySale; it must not guess a registration status.
   return {
     companyId, revision: Number(c.revision ?? 0), nameAr: String(c.name),
-    nameEn: String(c.name_en ?? c.name), vatNumber: String(c.vat_number ?? ""),
+    nameEn: String(c.name_en ?? c.name), vatNumber: resolved.vatNumber??"",
     crNumber: String(c.cr_number ?? ""),
     address: Object.values(a).filter(v => typeof v === "string").join("، "),
     phone: str("phone"), email: str("email"), bankName: str("bankName"),
     bankIban: str("bankIban"), termsAr: str("termsAr"), termsEn: str("termsEn"),
     logoObjectKey: str("logoObjectKey") || null,
     receiptWidths: Array.isArray(p.receiptWidths) ? p.receiptWidths as number[] : [80],
-    vatEnabled: c.vat_registration_status === "registered" || c.vat_registration_status === "voluntary",
+    vatEnabled: resolved.registered,
+    taxContext:publicTaxContext(resolved),
     capturedAt: new Date().toISOString(), verifiedSnapshot: true,
   };
 }

@@ -52,6 +52,8 @@ import { matchesPosApprovalNotes, posApprovalNotes } from "../lib/pos-approval-i
 import { recordAudit } from "../lib/audit";
 import { evaluateAnomalies } from "../lib/anomaly-engine";
 import { z } from "zod";
+import {handleRouteError} from "../lib/handle-error";
+import {taxContext,calculatePolicySale,riyadhDate} from "../lib/vat-policy";
 import { createCheckout } from "../lib/integrations/payments";
 import bcrypt from "bcryptjs";
 import rateLimit, { ipKeyGenerator } from "express-rate-limit";
@@ -87,6 +89,10 @@ const posOverrideLimiter = rateLimit({
 });
 
 const router = Router();
+router.get("/pos/tax-context",posReadGuard,async(req,res)=>{
+  try {res.json(await taxContext(getCompanyId(req)));}
+  catch(err){handleRouteError(err,res);}
+});
 
 class ValidationError extends Error {
   constructor(message: string) {
@@ -574,7 +580,9 @@ router.post(
     // New intents still validate and consume approval in this transaction.
     const result = await financialTransaction(req, async (tx) => {
       await lockApprovalAuthority(tx);
-      const issuer = await captureIssuer(tx, companyId);
+      let discount=body.discount??0;
+      const taxAt=riyadhDate();
+      const issuer = await captureIssuer(tx, companyId,taxAt);
       const vatEnabled = issuer.vatEnabled;
       const sellerNameForZatca = issuer.nameAr;
       const sellerVatForZatca = issuer.vatNumber;
@@ -738,6 +746,7 @@ router.post(
         quantity: number;
         unitPrice: number;
         costPrice: number;
+        taxRate?:number;
         stockMoveIds: number[];
         total: number;
       }> = [];
@@ -822,6 +831,7 @@ router.post(
       approvalQuote = {
         companyId, branchId: session.branchId, warehouseId: issueWarehouseId,
         vatRegistrationStatus: companyRow?.vatRegistrationStatus ?? null,
+        ...(issuer.taxContext?.mode==="unified"?{taxContextToken:issuer.taxContext.token}:{}),
         subtotal, discount,
         items: orderItems.map(({ productId, productName, quantity, unitPrice, costPrice, total }) =>
           ({ productId, productName, quantity, unitPrice, costPrice, total })),
@@ -915,8 +925,24 @@ router.post(
         consumedApprovalRequestId = pendingApprovalRow.id;
       }
 
-      const tax = vatEnabled ? (subtotal - discount) * 0.15 : 0;
-      const total = subtotal - discount + tax;
+      const policySale=await calculatePolicySale(tx,companyId,taxAt,orderItems.map(l=>({
+        productId:l.productId,description:l.productName,quantity:l.quantity,unitPrice:l.unitPrice,
+      })),discount);
+      if(policySale){
+        if(body.taxContextToken!==policySale.context.token)
+          throw new FinancialRequestError("تغير الإعداد الضريبي؛ راجع السلة وحساباتها ثم أكد طلبًا جديدًا",409);
+        subtotal=policySale.totals.subtotal;
+        discount=policySale.totals.discount;
+        orderItems.forEach((item,i)=>{
+          const priced=policySale.totals.lines[i]!;
+          item.unitPrice=priced.unitPrice;
+          item.total=priced.lineNet;
+          item.taxRate=priced.taxRate;
+        });
+        issuer.taxCalculation=policySale.snapshot;
+      }
+      const tax = policySale?.totals.vat ?? (vatEnabled ? (subtotal - discount) * 0.15 : 0);
+      const total = policySale?.totals.total ?? (subtotal - discount + tax);
       if (await managedProfile(req.session.userId!, companyId, tx)) {
         const grant = await selectedResponsibility(req.session.userId!, companyId, tx);
         if (!grant) throw new FinancialRequestError("سحب الوصول قبل تنفيذ العملية", 403);
@@ -1140,7 +1166,7 @@ router.post(
       // already fully fulfilled and invoiced (cash-and-carry), so we just
       // pre-fill quantities and statuses; no extra GL is needed because the
       // inventory issue + invoice + receipt JEs below already cover it.
-      const todayStr = new Date().toISOString().slice(0, 10);
+      const todayStr = policySale?taxAt:new Date().toISOString().slice(0, 10);
       const soRef = await nextRef(tx, "POS-SO");
       const [posSo] = await tx
         .insert(salesOrdersTable)
@@ -1172,7 +1198,7 @@ router.post(
             quantity: String(li.quantity),
             unitPrice: String(li.unitPrice),
             discountPct: "0",
-            taxRate: vatEnabled ? "15" : "0",
+            taxRate: String(li.taxRate??(vatEnabled?15:0)),
             lineTotal: String(li.total),
             deliveredQty: String(li.quantity),
             invoicedQty: String(li.quantity),
@@ -1253,7 +1279,7 @@ router.post(
           quantity: String(li.quantity),
           unitPrice: String(li.unitPrice),
           discountPct: "0",
-          taxRate: vatEnabled ? "15" : "0",
+          taxRate: String(li.taxRate??(vatEnabled?15:0)),
           lineTotal: String(li.total),
         }).returning();
         for (const moveId of li.stockMoveIds) {

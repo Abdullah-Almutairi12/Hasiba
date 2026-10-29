@@ -294,6 +294,7 @@ export const AdministrationHandoverInputResponsibilitiesItem = {
   settings: 'settings',
   subscription: 'subscription',
   contact: 'contact',
+  tax: 'tax',
 } as const;
 
 /**
@@ -780,6 +781,14 @@ export const VatStatusResponseStatus = {
   registered: 'registered',
   voluntary: 'voluntary',
   not_registered: 'not_registered',
+  unresolved: 'unresolved',
+} as const;
+
+export type VatStatusResponseRegistrationVerification = typeof VatStatusResponseRegistrationVerification[keyof typeof VatStatusResponseRegistrationVerification];
+
+
+export const VatStatusResponseRegistrationVerification = {
+  declared_unverified: 'declared_unverified',
 } as const;
 
 export interface VatStatusResponse {
@@ -797,6 +806,11 @@ export interface VatStatusResponse {
   vatNumber?: string | null;
   /** @nullable */
   vatRegistrationDate?: string | null;
+  policyRevision?: number;
+  /** @nullable */
+  policyEffectiveFrom?: string | null;
+  priceIncludesVat?: boolean;
+  registrationVerification?: VatStatusResponseRegistrationVerification;
 }
 
 export type VatReturnResponseSupplies = {
@@ -1652,6 +1666,8 @@ export const CreatePosOrderBodyPaymentMethod = {
 } as const;
 
 export interface CreatePosOrderBody {
+  /** Reviewed company tax context; frozen with the financial attempt, never refreshed on an unknown retry. */
+  taxContextToken?: string;
   /**
      * Employee seller, never implicitly the cashier.
      * @nullable
@@ -5510,6 +5526,313 @@ export type UploadStorageAttachment200 = {
   /** Relative URL under /api/storage/objects/attachments/... */
   url: string;
   filename: string;
+};
+
+export type GetCompanyTaxPolicy200CurrentStatus = typeof GetCompanyTaxPolicy200CurrentStatus[keyof typeof GetCompanyTaxPolicy200CurrentStatus];
+
+
+export const GetCompanyTaxPolicy200CurrentStatus = {
+  registered: 'registered',
+  voluntary: 'voluntary',
+  not_registered: 'not_registered',
+  unresolved: 'unresolved',
+} as const;
+
+export type GetCompanyTaxPolicy200CurrentMode = typeof GetCompanyTaxPolicy200CurrentMode[keyof typeof GetCompanyTaxPolicy200CurrentMode];
+
+
+export const GetCompanyTaxPolicy200CurrentMode = {
+  unified: 'unified',
+  legacy: 'legacy',
+} as const;
+
+export type GetCompanyTaxPolicy200CurrentProductRulesItemRuleCategory = typeof GetCompanyTaxPolicy200CurrentProductRulesItemRuleCategory[keyof typeof GetCompanyTaxPolicy200CurrentProductRulesItemRuleCategory];
+
+
+export const GetCompanyTaxPolicy200CurrentProductRulesItemRuleCategory = {
+  standard: 'standard',
+  zero: 'zero',
+  exempt: 'exempt',
+} as const;
+
+export type GetCompanyTaxPolicy200CurrentProductRulesItemRule = {
+  category: GetCompanyTaxPolicy200CurrentProductRulesItemRuleCategory;
+  /** @maxLength 250 */
+  reason?: string;
+};
+
+export type GetCompanyTaxPolicy200CurrentProductRulesItem = {
+  productId: number;
+  rule: GetCompanyTaxPolicy200CurrentProductRulesItemRule;
+};
+
+export type GetCompanyTaxPolicy200CurrentServiceRuleCategory = typeof GetCompanyTaxPolicy200CurrentServiceRuleCategory[keyof typeof GetCompanyTaxPolicy200CurrentServiceRuleCategory];
+
+
+export const GetCompanyTaxPolicy200CurrentServiceRuleCategory = {
+  standard: 'standard',
+  zero: 'zero',
+  exempt: 'exempt',
+} as const;
+
+export type GetCompanyTaxPolicy200CurrentServiceRule = {
+  category: GetCompanyTaxPolicy200CurrentServiceRuleCategory;
+  /** @maxLength 250 */
+  reason?: string;
+};
+
+export type GetCompanyTaxPolicy200Current = {
+  companyId: number;
+  /** @nullable */
+  policyId?: number | null;
+  revision: number;
+  /** @nullable */
+  effectiveFrom?: string | null;
+  status: GetCompanyTaxPolicy200CurrentStatus;
+  registered: boolean;
+  /** @nullable */
+  vatNumber?: string | null;
+  priceIncludesVat: boolean;
+  mode: GetCompanyTaxPolicy200CurrentMode;
+  token: string;
+  registrationVerification: string;
+  productRules?: GetCompanyTaxPolicy200CurrentProductRulesItem[];
+  serviceRule?: GetCompanyTaxPolicy200CurrentServiceRule;
+};
+
+export type GetCompanyTaxPolicy200HistoryItem = { [key: string]: unknown };
+
+export type GetCompanyTaxPolicy200ProductsItem = {
+  id: number;
+  name: string;
+  price: string;
+};
+
+export type GetCompanyTaxPolicy200Transition = {
+  legacyUnchanged: boolean;
+  historicalDocumentsUnchanged: boolean;
+  missingClassifications: number;
+};
+
+export type GetCompanyTaxPolicy200Integration = {
+  registrationVerified: boolean;
+  productionAcceptance: boolean;
+  explanation: string;
+};
+
+export type GetCompanyTaxPolicy200 = {
+  canManage: boolean;
+  canAdopt: boolean;
+  publishingReady: boolean;
+  current: GetCompanyTaxPolicy200Current;
+  revision: number;
+  history: GetCompanyTaxPolicy200HistoryItem[];
+  products: GetCompanyTaxPolicy200ProductsItem[];
+  transition: GetCompanyTaxPolicy200Transition;
+  integration: GetCompanyTaxPolicy200Integration;
+};
+
+export type PublishCompanyTaxPolicyBodyStatus = typeof PublishCompanyTaxPolicyBodyStatus[keyof typeof PublishCompanyTaxPolicyBodyStatus];
+
+
+export const PublishCompanyTaxPolicyBodyStatus = {
+  registered: 'registered',
+  voluntary: 'voluntary',
+  not_registered: 'not_registered',
+} as const;
+
+export type PublishCompanyTaxPolicyBodyProductRulesItemRuleCategory = typeof PublishCompanyTaxPolicyBodyProductRulesItemRuleCategory[keyof typeof PublishCompanyTaxPolicyBodyProductRulesItemRuleCategory];
+
+
+export const PublishCompanyTaxPolicyBodyProductRulesItemRuleCategory = {
+  standard: 'standard',
+  zero: 'zero',
+  exempt: 'exempt',
+} as const;
+
+export type PublishCompanyTaxPolicyBodyProductRulesItemRule = {
+  category: PublishCompanyTaxPolicyBodyProductRulesItemRuleCategory;
+  /** @maxLength 250 */
+  reason?: string;
+};
+
+export type PublishCompanyTaxPolicyBodyProductRulesItem = {
+  productId: number;
+  rule: PublishCompanyTaxPolicyBodyProductRulesItemRule;
+};
+
+export type PublishCompanyTaxPolicyBodyServiceRuleCategory = typeof PublishCompanyTaxPolicyBodyServiceRuleCategory[keyof typeof PublishCompanyTaxPolicyBodyServiceRuleCategory];
+
+
+export const PublishCompanyTaxPolicyBodyServiceRuleCategory = {
+  standard: 'standard',
+  zero: 'zero',
+  exempt: 'exempt',
+} as const;
+
+export type PublishCompanyTaxPolicyBodyServiceRule = {
+  category: PublishCompanyTaxPolicyBodyServiceRuleCategory;
+  /** @maxLength 250 */
+  reason?: string;
+};
+
+export type PublishCompanyTaxPolicyBodyProof = {
+  /**
+     * @minLength 1
+     * @maxLength 200
+     */
+  currentPassword: string;
+  /** @maxLength 20 */
+  token?: string;
+  /** @maxLength 100 */
+  recoveryCode?: string;
+};
+
+export type PublishCompanyTaxPolicyBody = {
+  adoptTaxAdministration?: boolean;
+  /** @minimum 0 */
+  revision: number;
+  requestId: string;
+  effectiveFrom: string;
+  status: PublishCompanyTaxPolicyBodyStatus;
+  /** @nullable */
+  vatNumber: string | null;
+  priceIncludesVat: boolean;
+  /** @maxItems 10000 */
+  productRules: PublishCompanyTaxPolicyBodyProductRulesItem[];
+  serviceRule: PublishCompanyTaxPolicyBodyServiceRule;
+  /**
+     * @minLength 6
+     * @maxLength 500
+     */
+  reason: string;
+  proof: PublishCompanyTaxPolicyBodyProof;
+};
+
+export type PublishCompanyTaxPolicy200 = {
+  revision: number;
+  replayed: boolean;
+};
+
+export type GetCompanyTaxPolicyRequestStatus200Status = typeof GetCompanyTaxPolicyRequestStatus200Status[keyof typeof GetCompanyTaxPolicyRequestStatus200Status];
+
+
+export const GetCompanyTaxPolicyRequestStatus200Status = {
+  saved: 'saved',
+  closed: 'closed',
+  pending: 'pending',
+} as const;
+
+export type GetCompanyTaxPolicyRequestStatus200 = {
+  status: GetCompanyTaxPolicyRequestStatus200Status;
+  /** @nullable */
+  revision: number | null;
+};
+
+export type CloseCompanyTaxPolicyRequestBodyFacts = { [key: string]: unknown };
+
+export type CloseCompanyTaxPolicyRequestBodyProof = {
+  /**
+     * @minLength 1
+     * @maxLength 200
+     */
+  currentPassword: string;
+  /** @maxLength 20 */
+  token?: string;
+  /** @maxLength 100 */
+  recoveryCode?: string;
+};
+
+export type CloseCompanyTaxPolicyRequestBody = {
+  facts: CloseCompanyTaxPolicyRequestBodyFacts;
+  proof: CloseCompanyTaxPolicyRequestBodyProof;
+};
+
+export type CloseCompanyTaxPolicyRequest200Status = typeof CloseCompanyTaxPolicyRequest200Status[keyof typeof CloseCompanyTaxPolicyRequest200Status];
+
+
+export const CloseCompanyTaxPolicyRequest200Status = {
+  saved: 'saved',
+  closed: 'closed',
+  pending: 'pending',
+} as const;
+
+export type CloseCompanyTaxPolicyRequest200 = {
+  status: CloseCompanyTaxPolicyRequest200Status;
+  /** @nullable */
+  revision: number | null;
+};
+
+export type GetPosTaxContext200Status = typeof GetPosTaxContext200Status[keyof typeof GetPosTaxContext200Status];
+
+
+export const GetPosTaxContext200Status = {
+  registered: 'registered',
+  voluntary: 'voluntary',
+  not_registered: 'not_registered',
+  unresolved: 'unresolved',
+} as const;
+
+export type GetPosTaxContext200Mode = typeof GetPosTaxContext200Mode[keyof typeof GetPosTaxContext200Mode];
+
+
+export const GetPosTaxContext200Mode = {
+  unified: 'unified',
+  legacy: 'legacy',
+} as const;
+
+export type GetPosTaxContext200ProductRulesItemRuleCategory = typeof GetPosTaxContext200ProductRulesItemRuleCategory[keyof typeof GetPosTaxContext200ProductRulesItemRuleCategory];
+
+
+export const GetPosTaxContext200ProductRulesItemRuleCategory = {
+  standard: 'standard',
+  zero: 'zero',
+  exempt: 'exempt',
+} as const;
+
+export type GetPosTaxContext200ProductRulesItemRule = {
+  category: GetPosTaxContext200ProductRulesItemRuleCategory;
+  /** @maxLength 250 */
+  reason?: string;
+};
+
+export type GetPosTaxContext200ProductRulesItem = {
+  productId: number;
+  rule: GetPosTaxContext200ProductRulesItemRule;
+};
+
+export type GetPosTaxContext200ServiceRuleCategory = typeof GetPosTaxContext200ServiceRuleCategory[keyof typeof GetPosTaxContext200ServiceRuleCategory];
+
+
+export const GetPosTaxContext200ServiceRuleCategory = {
+  standard: 'standard',
+  zero: 'zero',
+  exempt: 'exempt',
+} as const;
+
+export type GetPosTaxContext200ServiceRule = {
+  category: GetPosTaxContext200ServiceRuleCategory;
+  /** @maxLength 250 */
+  reason?: string;
+};
+
+export type GetPosTaxContext200 = {
+  companyId: number;
+  /** @nullable */
+  policyId?: number | null;
+  revision: number;
+  /** @nullable */
+  effectiveFrom?: string | null;
+  status: GetPosTaxContext200Status;
+  registered: boolean;
+  /** @nullable */
+  vatNumber?: string | null;
+  priceIncludesVat: boolean;
+  mode: GetPosTaxContext200Mode;
+  token: string;
+  registrationVerification: string;
+  productRules?: GetPosTaxContext200ProductRulesItem[];
+  serviceRule?: GetPosTaxContext200ServiceRule;
 };
 
 export type UpdateVatRegistration200 = {

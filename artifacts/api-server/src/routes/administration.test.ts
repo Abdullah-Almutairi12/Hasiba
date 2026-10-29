@@ -4,10 +4,12 @@ import { randomUUID } from "node:crypto";
 import bcrypt from "bcryptjs";
 import { db, pool, companiesTable, usersTable, userCompaniesTable, branchesTable, warehousesTable, categoriesTable, productsTable } from "@workspace/db";
 import app,{assertApplicationReady} from "../app";
-import { ADMIN_RESPONSIBILITIES } from "../lib/administration-authority";
+import { LEGACY_ADMIN_RESPONSIBILITIES } from "../lib/administration-authority";
 import { ensureAdministrativePerson } from "../lib/administration-enrollment";
 const password="Isolated administration phrase 2026!";
-const all=[...ADMIN_RESPONSIBILITIES];
+// Preserve the pre-tax-administration lifecycle fixture. New tax authority is
+// explicit and separately exercised by the policy tests, never inferred here.
+const all=[...LEGACY_ADMIN_RESPONSIBILITIES];
 let clientNumber=0;
 const agent=()=>request.agent(app).set("X-Forwarded-For",`198.51.100.${++clientNumber}`);
 const ok=(r:request.Response,status=200)=>{expect(r.status,JSON.stringify(r.body)).toBe(status);return r.body;};

@@ -108,9 +108,13 @@ export interface SalesLineInput {
   unitPrice: number;
   discountPct?: number;
   taxRate?: number;
+  taxCategory?: "standard" | "zero" | "exempt" | "not_registered";
 }
 
 export interface ComputedLine extends SalesLineInput {
+  /** A halala allocation adjustment when grouping creates a different net
+   * per line; never label this as a negative customer discount. */
+  roundingAdjustment?: number;
   discountPct: number;
   taxRate: number;
   lineSubtotal: number;
@@ -131,7 +135,9 @@ export interface ComputedTotals {
 export function computeTotals(
   lines: SalesLineInput[],
   orderDiscount = 0,
+  policy?: { priceIncludesVat: boolean },
 ): ComputedTotals {
+  if (policy) return computePolicyTotals(lines,orderDiscount,policy.priceIncludesVat);
   const computed: ComputedLine[] = lines.map((ln) => {
     const taxRate = ln.taxRate ?? VAT_RATE_DEFAULT;
     const discountPct = ln.discountPct ?? 0;
@@ -176,6 +182,78 @@ export function computeTotals(
     total,
     lines: computed,
   };
+}
+
+/** The same sales engine, with explicit policy arithmetic. Monetary totals are
+ * exact halalas, grouped by evidenced category/rate. The legacy call signature
+ * remains unchanged until a company's reviewed policy is activated. */
+function computePolicyTotals(lines:SalesLineInput[],discount:number,inclusive:boolean):ComputedTotals {
+  const ratio=(v:number):[bigint,bigint]=>{
+    if(!Number.isFinite(v)||v<0)throw new Error("قيمة مالية غير صحيحة");
+    const [mantissa,exponent="0"]=String(v).toLowerCase().split("e");
+    const parts=mantissa!.split(".");
+    const digits=parts.join("");const scale=(parts[1]?.length??0)-Number(exponent);
+    return scale>=0?[BigInt(digits),10n**BigInt(scale)]:[BigInt(digits)*10n**BigInt(-scale),1n];
+  };
+  const round=(n:bigint,d:bigint)=>(n*2n+d)/(2n*d);
+  const cents=(v:number)=>{const[n,d]=ratio(v);return round(n*100n,d);};
+  const money=(v:bigint)=>{
+    if(v>BigInt(Number.MAX_SAFE_INTEGER)||v< -BigInt(Number.MAX_SAFE_INTEGER))throw new Error("المبلغ يتجاوز الدقة المدعومة");
+    return Number(v)/100;
+  };
+  const allocate=(target:bigint,weights:bigint[])=>{
+    const sum=weights.reduce((a,b)=>a+b,0n);
+    if(!sum){if(target)throw new Error("لا يمكن توزيع مبلغ دون أساس");return weights.map(()=>0n);}
+    const result=weights.map(w=>target*w/sum);
+    let remaining=target-result.reduce((a,b)=>a+b,0n);
+    const order=weights.map((w,i)=>({i,r:target*w%sum})).sort((a,b)=>a.r===b.r?a.i-b.i:a.r>b.r?-1:1);
+    for(const entry of order){if(!remaining)break;result[entry.i]=result[entry.i]!+1n;remaining--;}
+    return result;
+  };
+  const gross=lines.map(l=>{
+    const[q,qd]=ratio(l.quantity),[p,pd]=ratio(l.unitPrice);
+    return round(q*p*100n,qd*pd);
+  });
+  const afterLine=lines.map((l,i)=>{
+    const[n,d]=ratio(l.discountPct??0);
+    if(n>100n*d)throw new Error("خصم البند يتجاوز100%");
+    return gross[i]!-round(gross[i]!*n,100n*d);
+  });
+  const available=afterLine.reduce((a,b)=>a+b,0n);
+  const wanted=cents(Math.max(0,discount));
+  const order=allocate(wanted>available?available:wanted,afterLine);
+  const payable=afterLine.map((v,i)=>v-order[i]!);
+  const groups=new Map<string,number[]>();
+  lines.forEach((l,i)=>{
+    const rate=l.taxRate??0;
+    if(rate!==0&&rate!==15)throw new Error("نسبة غير مدعومة في السياسة السعودية المحددة");
+    const key=`${l.taxCategory??"rate"}:${rate}`;
+    groups.set(key,[...(groups.get(key)??[]),i]);
+  });
+  const rawBase=gross.map(()=>0n),net=gross.map(()=>0n),vat=gross.map(()=>0n);
+  for(const indexes of groups.values()){
+    const rate=BigInt(lines[indexes[0]!]!.taxRate??0);
+    const rawWeights=indexes.map(i=>gross[i]!);
+    const finalWeights=indexes.map(i=>payable[i]!);
+    const rawSum=rawWeights.reduce((a,b)=>a+b,0n);
+    const sum=finalWeights.reduce((a,b)=>a+b,0n);
+    const baseSum=inclusive?round(sum*100n,100n+rate):sum;
+    const baseBefore=inclusive?round(rawSum*100n,100n+rate):rawSum;
+    const tax=inclusive?sum-baseSum:round(baseSum*rate,100n);
+    const baseParts=allocate(baseSum,finalWeights),beforeParts=allocate(baseBefore,rawWeights);
+    const taxParts=inclusive?finalWeights.map((v,i)=>v-baseParts[i]!):allocate(tax,baseParts);
+    indexes.forEach((idx,j)=>{rawBase[idx]=beforeParts[j]!;net[idx]=baseParts[j]!;vat[idx]=taxParts[j]!;});
+  }
+  const subtotal=rawBase.reduce((a,b)=>a+b,0n),netSum=net.reduce((a,b)=>a+b,0n);
+  const vatSum=vat.reduce((a,b)=>a+b,0n);
+  return {subtotal:money(subtotal),discount:money(subtotal-netSum),vat:money(vatSum),total:money(netSum+vatSum),
+    lines:lines.map((l,i)=>({...l,
+      unitPrice:inclusive?Number((l.unitPrice/(1+(l.taxRate??0)/100)).toFixed(12)):l.unitPrice,
+      discountPct:l.discountPct??0,taxRate:l.taxRate??0,lineSubtotal:money(rawBase[i]!),
+      lineDiscount:money(rawBase[i]!>net[i]!?rawBase[i]!-net[i]!:0n),
+      roundingAdjustment:money(rawBase[i]!<net[i]!?net[i]!-rawBase[i]!:0n),
+      lineNet:money(net[i]!),lineVat:money(vat[i]!),
+      lineTotal:money(net[i]!+vat[i]!)}))};
 }
 
 /**

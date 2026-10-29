@@ -16,7 +16,7 @@ import { and, eq, gte, sql } from "drizzle-orm";
 export const VAT_MANDATORY_THRESHOLD_SAR = 375_000;
 export const VAT_VOLUNTARY_THRESHOLD_SAR = 187_500;
 
-export type VatRegistrationStatus = "registered" | "voluntary" | "not_registered";
+export type VatRegistrationStatus = "registered" | "voluntary" | "not_registered" | "unresolved";
 
 export interface VatThresholdSnapshot {
   /** Persisted registration status. */
@@ -113,7 +113,7 @@ export async function getVatThresholdSnapshot(companyId: number): Promise<VatThr
   const sales = await computeRolling12mSales(companyId);
   const status = isVatStatus(company.vatRegistrationStatus)
     ? company.vatRegistrationStatus
-    : "registered";
+    : "unresolved";
 
   return {
     status,
@@ -139,7 +139,7 @@ export function isVatEnabled(status: string | null | undefined): boolean {
 }
 
 function isVatStatus(v: string): v is VatRegistrationStatus {
-  return v === "registered" || v === "voluntary" || v === "not_registered";
+  return v === "registered" || v === "voluntary" || v === "not_registered" || v === "unresolved";
 }
 
 function round2(n: number): number {

@@ -9,6 +9,7 @@ import { handleRouteError } from "../lib/handle-error";
 import { uploadBufferToPrivateObject } from "./storage";
 import { returnActor } from "../lib/return-access";
 import { normalizePrintLogo } from "../lib/print-logo-validation";
+import { lockApprovalAuthorityWrite } from "../lib/approval-authority";
 const router = Router();
 const text = z.string().trim().max(2000);
 export const PrintProfilePatch = z.object({
@@ -52,8 +53,16 @@ router.patch("/print/profile", async (req, res) => {
   try {
     const actor = await authorize(req, true), b = PrintProfilePatch.parse(req.body);
     const profile = await db.transaction(async tx => {
+      await lockApprovalAuthorityWrite(tx);
       await tx.execute(sql`SELECT id FROM companies WHERE id=${actor.companyId} FOR UPDATE`);
+      const currentActor=await returnActor(actor.userId,actor.companyId,tx);
+      if(!["owner","manager"].includes(currentActor.role))
+        throw new FinancialRequestError("سحبت صلاحية تعديل الهوية",403);
       const before = await state(tx, actor.companyId);
+      const adopted=(await tx.execute(sql`SELECT 1 FROM company_tax_policy_versions
+        WHERE company_id=${actor.companyId} LIMIT 1`)).rows.length>0;
+      if(adopted&&b.vatNumber!==(before.vatNumber??""))
+        throw new FinancialRequestError("الرقم الضريبي تملكه السياسة المؤرخة؛ عدّله من إعداد الضريبة وليس هوية الطباعة",409);
       if (before.revision !== b.revision) throw new FinancialRequestError("تغير الملف في جلسة أخرى؛ أعد تحميله", 409);
       if (before.vatEnabled && !b.vatNumber) throw new FinancialRequestError("الرقم الضريبي مطلوب للشركة المسجلة في الضريبة", 400);
       if (b.logoObjectKey) {
@@ -61,7 +70,8 @@ router.patch("/print/profile", async (req, res) => {
         if (!logo.rows.length) throw new FinancialRequestError("الشعار ليس مملوكًا للشركة", 400);
       }
       await tx.execute(sql`UPDATE companies SET name=${b.nameAr},name_en=${b.nameEn || null},
-        vat_number=${b.vatNumber || null},cr_number=${b.crNumber || null},address=${JSON.stringify(b.address)}::jsonb,updated_at=now()
+        vat_number=CASE WHEN ${adopted} THEN vat_number ELSE ${b.vatNumber || null} END,
+        cr_number=${b.crNumber || null},address=${JSON.stringify(b.address)}::jsonb,updated_at=now()
         WHERE id=${actor.companyId}`);
       const { revision: _, nameAr: _a, nameEn: _e, vatNumber: _v, crNumber: _c, address: _d, ...extras } = b;
       await tx.execute(sql`INSERT INTO company_print_profiles(company_id,revision,profile,updated_by)

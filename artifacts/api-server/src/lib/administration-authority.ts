@@ -3,7 +3,8 @@ import { db } from "@workspace/db";
 import type { DbOrTx } from "./journal-posting";
 import { FinancialRequestError } from "./financial-transaction";
 
-export const ADMIN_RESPONSIBILITIES = ["users","administrators","settings","subscription","contact"] as const;
+export const ADMIN_RESPONSIBILITIES = ["users","administrators","settings","subscription","contact","tax"] as const;
+export const LEGACY_ADMIN_RESPONSIBILITIES = ADMIN_RESPONSIBILITIES.filter(r=>r!=="tax");
 export type AdminResponsibility = typeof ADMIN_RESPONSIBILITIES[number];
 export async function adminRows<T = Record<string, any>>(tx: DbOrTx, query: SQL): Promise<T[]> {
   return (await tx.execute(query)).rows as T[];
@@ -23,13 +24,13 @@ export async function administrativeRights(companyId: number, userId: number, tx
   if (!row?.enabled) return [];
   // An explicit disabled row overrides legacy owner administration, not finance.
   if (row.active != null) return row.active ? row.responsibilities : [];
-  return !row.roster_initialized && row.role === "owner" && !row.managed ? [...ADMIN_RESPONSIBILITIES] : [];
+  return !row.roster_initialized && row.role === "owner" && !row.managed ? [...LEGACY_ADMIN_RESPONSIBILITIES] : [];
 }
 /** Compatibility for old company-creation/import flows, before its FIRST roster.
  * Once explicit administration exists, a new owner role never implies administration. */
 export async function initializeLegacyAdministration(tx:DbOrTx,companyId:number) {
   await tx.execute(sql`INSERT INTO company_administrators(company_id,user_id,responsibilities)
-    SELECT uc.company_id,uc.user_id,${sql.param([...ADMIN_RESPONSIBILITIES])}::text[] FROM user_companies uc
+    SELECT uc.company_id,uc.user_id,${sql.param([...LEGACY_ADMIN_RESPONSIBILITIES])}::text[] FROM user_companies uc
     WHERE uc.company_id=${companyId} AND uc.role='owner'
     AND NOT EXISTS(SELECT 1 FROM company_administrators ca WHERE ca.company_id=${companyId})
     AND NOT EXISTS(SELECT 1 FROM employee_access a WHERE a.company_id=uc.company_id AND a.user_id=uc.user_id)`);

@@ -6,7 +6,7 @@ The primary system owner is an explicitly subscriber-appointed account responsib
 not legal ownership. This one primary role has full administrative and financial
 operation access within the company's enabled modules, still subject to immutable
 posting, approval separation and tenant isolation. Limited administrators retain
-the five independent administrative duties and gain no implied financial access.
+their explicitly assigned administrative duties and gain no implied financial access.
 
 **Why:** The user superseded the previous administration-only model on 2026-10-25:
 full primary-owner authority is now required, but legacy `owner` holders must not
@@ -35,6 +35,18 @@ company's sessions, delegations and access methods, preserving history and other
 memberships. Treat single-user operation, legal ownership and system
 administration as three separate policies. Do not mass-replace `owner` labels
 and assume the authority model has been migrated.
+
+Adding a separately commissioned administrative responsibility must not silently
+expand legacy grants or redefine the mandatory governance pack for owner transfer,
+restoration, or primary-owner eligibility.
+
+**Why:** Treating every new responsibility as a compulsory old governance duty
+broke legitimate lifecycle operations and could encourage accidental privilege
+expansion as a workaround.
+
+**How to apply:** Preserve existing governance eligibility. Commission a new duty
+only through an explicit authorized, identity-confirmed change; first-use adoption
+must be auditable and must not become a way to restore a revoked grant.
 
 Receipt recovery is a separate credential purpose, never an operational login.
 Existing memberships must not silently upgrade it, and it may recover a committed

@@ -1,0 +1,191 @@
+policy:
+  get:
+    operationId: getCompanyTaxPolicy
+    tags: [vat]
+    responses:
+      "200":
+        description: Company-scoped policy, conservative legacy transition and unverified registration declaration
+        content:
+          application/json:
+            schema:
+              $ref: "#/schemas/TaxPolicyView"
+  put:
+    operationId: publishCompanyTaxPolicy
+    tags: [vat]
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/schemas/TaxPolicyBody"
+    responses:
+      "200":
+        description: Immutable policy revision saved or recovered for the same actor and request
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [revision, replayed]
+              properties:
+                revision: {type: integer}
+                replayed: {type: boolean}
+context:
+  get:
+    operationId: getPosTaxContext
+    tags: [pos]
+    responses:
+      "200":
+        description: Minimal live legal-entity tax context; not a device activation or finance grant
+        content:
+          application/json:
+            schema:
+              $ref: "#/schemas/TaxContext"
+requestStatus:
+  get:
+    operationId: getCompanyTaxPolicyRequestStatus
+    tags: [vat]
+    parameters:
+      - in: path
+        name: requestId
+        required: true
+        schema: {type: string, description: "UUID; validated by the server before database access"}
+    responses:
+      "200":
+        description: Only saved or closed proves a known result; pending does not prove non-execution
+        content:
+          application/json:
+            schema:
+              $ref: "#/schemas/TaxPolicyRequestStatus"
+closeRequest:
+  post:
+    operationId: closeCompanyTaxPolicyRequest
+    tags: [vat]
+    parameters:
+      - in: path
+        name: requestId
+        required: true
+        schema: {type: string, description: "UUID; validated by the server before database access"}
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [facts, proof]
+            properties:
+              facts: {type: object, additionalProperties: true}
+              proof:
+                type: object
+                required: [currentPassword]
+                properties:
+                  currentPassword: {type: string, minLength: 1, maxLength: 200}
+                  token: {type: string, maxLength: 20}
+                  recoveryCode: {type: string, maxLength: 100}
+    responses:
+      "200":
+        description: Result under company policy writer lock and current account proof
+        content:
+          application/json:
+            schema:
+              $ref: "#/schemas/TaxPolicyRequestStatus"
+schemas:
+  TaxPolicyRequestStatus:
+    type: object
+    required: [status, revision]
+    properties:
+      status: {type: string, enum: [saved, closed, pending]}
+      revision: {type: integer, nullable: true}
+  TaxRule:
+    type: object
+    required: [category]
+    properties:
+      category: {type: string, enum: [standard, zero, exempt]}
+      reason: {type: string, maxLength: 250}
+  TaxContext:
+    type: object
+    required: [companyId, revision, status, registered, priceIncludesVat, mode, token, registrationVerification]
+    properties:
+      companyId: {type: integer}
+      policyId: {type: integer, nullable: true}
+      revision: {type: integer}
+      effectiveFrom: {type: string, nullable: true}
+      status: {type: string, enum: [registered, voluntary, not_registered, unresolved]}
+      registered: {type: boolean}
+      vatNumber: {type: string, nullable: true}
+      priceIncludesVat: {type: boolean}
+      mode: {type: string, enum: [unified, legacy]}
+      token: {type: string}
+      registrationVerification: {type: string}
+      productRules:
+        type: array
+        items:
+          type: object
+          required: [productId, rule]
+          properties:
+            productId: {type: integer}
+            rule: {$ref: "#/schemas/TaxRule"}
+      serviceRule: {$ref: "#/schemas/TaxRule"}
+  TaxPolicyBody:
+    type: object
+    required: [revision, requestId, effectiveFrom, status, vatNumber, priceIncludesVat, productRules, serviceRule, reason, proof]
+    properties:
+      adoptTaxAdministration: {type: boolean}
+      revision: {type: integer, minimum: 0}
+      requestId: {type: string, format: uuid}
+      effectiveFrom: {type: string, format: date}
+      status: {type: string, enum: [registered, voluntary, not_registered]}
+      vatNumber: {type: string, nullable: true}
+      priceIncludesVat: {type: boolean}
+      productRules:
+        type: array
+        maxItems: 10000
+        items:
+          type: object
+          required: [productId, rule]
+          properties:
+            productId: {type: integer}
+            rule: {$ref: "#/schemas/TaxRule"}
+      serviceRule: {$ref: "#/schemas/TaxRule"}
+      reason: {type: string, minLength: 6, maxLength: 500}
+      proof:
+        type: object
+        required: [currentPassword]
+        properties:
+          currentPassword: {type: string, minLength: 1, maxLength: 200}
+          token: {type: string, maxLength: 20}
+          recoveryCode: {type: string, maxLength: 100}
+  TaxPolicyView:
+    type: object
+    required: [canManage, canAdopt, publishingReady, current, revision, history, products, transition, integration]
+    properties:
+      canManage: {type: boolean}
+      canAdopt: {type: boolean}
+      publishingReady: {type: boolean}
+      current: {$ref: "#/schemas/TaxContext"}
+      revision: {type: integer}
+      history:
+        type: array
+        items: {type: object, additionalProperties: true}
+      products:
+        type: array
+        items:
+          type: object
+          required: [id, name, price]
+          properties:
+            id: {type: integer}
+            name: {type: string}
+            price: {type: string}
+      transition:
+        type: object
+        required: [legacyUnchanged, historicalDocumentsUnchanged, missingClassifications]
+        properties:
+          legacyUnchanged: {type: boolean}
+          historicalDocumentsUnchanged: {type: boolean}
+          missingClassifications: {type: integer}
+      integration:
+        type: object
+        required: [registrationVerified, productionAcceptance, explanation]
+        properties:
+          registrationVerified: {type: boolean}
+          productionAcceptance: {type: boolean}
+          explanation: {type: string}

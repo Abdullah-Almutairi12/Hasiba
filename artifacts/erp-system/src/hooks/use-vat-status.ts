@@ -4,7 +4,7 @@ import {
 } from "@workspace/api-client-react";
 
 export interface VatStatus {
-  status: "registered" | "voluntary" | "not_registered";
+  status: "registered" | "voluntary" | "not_registered" | "unresolved";
   rolling12mSales: number;
   percentOfMandatory: number;
   near80: boolean;
@@ -19,8 +19,7 @@ export interface VatStatus {
  * Tenant-wide VAT registration snapshot. Drives UI gating: when status
  * is `not_registered` the system suppresses VAT inputs and columns so
  * non-registered tenants don't accidentally charge tax. Returns
- * `undefined` while loading; consumers should default to "enabled" to
- * keep behaviour stable for existing tenants until the API resolves.
+ * `undefined` while loading; no registration is inferred from missing data.
  */
 export function useVatStatus(opts: { enabled?: boolean } = {}): {
   data: VatStatus | undefined;
@@ -32,9 +31,7 @@ export function useVatStatus(opts: { enabled?: boolean } = {}): {
   });
   const data = q.data as VatStatus | undefined;
   const status = data?.status;
-  // Default to enabled while loading to avoid hiding fields for the
-  // (overwhelming) majority of registered tenants.
-  const enabled = status === undefined ? true : status !== "not_registered";
+  const enabled = status === "registered" || status === "voluntary";
   return { data, isLoading: q.isLoading, enabled };
 }
 

@@ -62,13 +62,6 @@ export default function OnboardingWizard() {
   const { t } = useLanguage();
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [businessType, setBusinessType] = useState<string>("retail");
-  const [vatType, setVatType] = useState<"standard" | "zero" | "exempt">(
-    "standard"
-  );
-  const [vatRegStatus, setVatRegStatus] = useState<
-    "registered" | "voluntary" | "not_registered"
-  >("registered");
-  const [vatNumber, setVatNumber] = useState("");
   const [invoiceType, setInvoiceType] = useState<"simplified" | "standard">(
     "simplified"
   );
@@ -239,56 +232,16 @@ export default function OnboardingWizard() {
               <h2 className="text-sm font-bold text-neutral-900">إعدادات الضريبة</h2>
             </div>
 
-            {/* ZATCA SMB registration status — drives whether the system surfaces VAT */}
-            <div className="mb-6 rounded-2xl border border-blue-100 bg-blue-50/40 p-4">
-              <p className="mb-3 text-xs font-bold text-neutral-700">
-                هل منشأتك مسجَّلة في ضريبة القيمة المضافة (ZATCA)؟
+            {/* Tax status is NOT decided here: the authoritative, proof-backed
+                policy lives in Settings > Tax. Onboarding only guides there. */}
+            <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50/60 p-4" data-testid="panel-onboarding-tax-guide">
+              <p className="text-xs font-bold text-neutral-800">حالة التسجيل الضريبي: غير محسومة بعد</p>
+              <p className="mt-1 text-[11px] leading-relaxed text-neutral-600">
+                لا يحفظ هذا المعالج حالة التسجيل أو الرقم الضريبي أو تصنيف الأصناف. أعلنها مرة واحدة في السياسة الضريبية للمنشأة بتاريخ سريان وسبب وتأكيد هوية، وتبقى منشأتك غير محسومة حتى تفعل.
               </p>
-              <div className="grid gap-2 md:grid-cols-3">
-                {[
-                  { key: "registered", label: "مسجَّلة إلزامي", sub: "مبيعات ≥ 375,000 ر.س / سنة" },
-                  { key: "voluntary", label: "مسجَّلة اختياري", sub: "مبيعات بين 187.5K و 375K" },
-                  { key: "not_registered", label: "غير مسجَّلة", sub: "مبيعات أقل من 187.5K" },
-                ].map((opt) => {
-                  const selected = vatRegStatus === opt.key;
-                  return (
-                    <button
-                      key={opt.key}
-                      type="button"
-                      data-testid={`button-vat-reg-${opt.key}`}
-                      onClick={() => setVatRegStatus(opt.key as typeof vatRegStatus)}
-                      className={`rounded-xl border-2 p-3 text-right text-xs transition-all ${
-                        selected
-                          ? "border-[#2563EB] bg-white shadow-sm"
-                          : "border-neutral-200 bg-white hover:border-neutral-300"
-                      }`}
-                    >
-                      <p className="font-bold text-neutral-900">{opt.label}</p>
-                      <p className="mt-1 text-[10px] text-neutral-500">{opt.sub}</p>
-                    </button>
-                  );
-                })}
-              </div>
-              {vatRegStatus !== "not_registered" && (
-                <div className="mt-3">
-                  <label className="block text-xs font-bold text-neutral-700">
-                    الرقم الضريبي (15 رقمًا)
-                  </label>
-                  <input
-                    value={vatNumber}
-                    onChange={(e) => setVatNumber(e.target.value)}
-                    placeholder="3xxxxxxxxxxxxxxx"
-                    inputMode="numeric"
-                    data-testid="input-vat-number"
-                    className="mt-1 w-full rounded-lg border border-neutral-200 bg-white p-2 text-sm font-mono focus:border-[#2563EB] focus:outline-none"
-                  />
-                </div>
-              )}
-              {vatRegStatus === "not_registered" && (
-                <p className="mt-2 text-[11px] text-neutral-600">
-                  سيتم إخفاء حقول الضريبة من الفواتير ونقطة البيع، وعرض عدّاد تذكير عند الاقتراب من الحد الإلزامي.
-                </p>
-              )}
+              <Button type="button" variant="outline" size="sm" className="mt-3" onClick={() => setLocation("/settings?tab=tax")} data-testid="button-onboarding-open-tax">
+                فتح السياسة الضريبية
+              </Button>
             </div>
 
             {/* Task #261 — "Will I need VAT?" simulator panel.
@@ -316,55 +269,6 @@ export default function OnboardingWizard() {
             </div>
 
             <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-              <div>
-                <p className="mb-2 text-xs font-bold text-neutral-700">
-                  معدل ضريبة القيمة المضافة
-                </p>
-                <div className="space-y-2">
-                  {[
-                    { key: "standard", label: "قياسي 15%", sub: "غالبية السلع والخدمات" },
-                    { key: "zero", label: "صفري 0%", sub: "صادرات وأدوية معينة" },
-                    { key: "exempt", label: "معفى", sub: "خدمات تعليمية وصحية" },
-                  ].map((opt) => {
-                    const selected = vatType === opt.key;
-                    return (
-                      <label
-                        key={opt.key}
-                        className={`flex cursor-pointer items-center gap-3 rounded-xl border p-3 transition-all ${
-                          selected
-                            ? "border-[#2563EB] bg-blue-50/50"
-                            : "border-neutral-200 bg-white hover:border-neutral-300"
-                        }`}
-                      >
-                        <div
-                          className={`grid size-5 place-items-center rounded-full border-2 ${
-                            selected
-                              ? "border-[#2563EB] bg-[#2563EB]"
-                              : "border-neutral-300"
-                          }`}
-                        >
-                          {selected && (
-                            <div className="size-1.5 rounded-full bg-white" />
-                          )}
-                        </div>
-                        <div className="flex-1">
-                          <p className="text-sm font-bold text-neutral-900">
-                            {opt.label}
-                          </p>
-                          <p className="text-[11px] text-neutral-500">{opt.sub}</p>
-                        </div>
-                        <input
-                          type="radio"
-                          checked={selected}
-                          onChange={() => setVatType(opt.key as typeof vatType)}
-                          className="hidden"
-                        />
-                      </label>
-                    );
-                  })}
-                </div>
-              </div>
-
               <div>
                 <p className="mb-2 text-xs font-bold text-neutral-700">نوع الفاتورة</p>
                 <div className="space-y-2">
@@ -523,7 +427,7 @@ export default function OnboardingWizard() {
             <section className="space-y-4">
               {[
                 { label: "نوع النشاط", value: BUSINESS_TYPES.find((b) => b.key === businessType)?.title },
-                { label: "ضريبة القيمة المضافة", value: vatType === "standard" ? "قياسي 15%" : vatType === "zero" ? "صفري 0%" : "معفى" },
+                { label: "ضريبة القيمة المضافة", value: "غير محسومة — تُضبط من السياسة الضريبية" },
                 { label: "نوع الفاتورة", value: invoiceType === "simplified" ? "فاتورة مبسطة" : "فاتورة قياسية" },
                 { label: "العملة الأساسية", value: currency },
                 { label: "عدد الفروع", value: `${branches} فرع` },
@@ -585,18 +489,6 @@ export default function OnboardingWizard() {
                 // POS layout (retail → iconic grid, fb → photo tiles).
                 const base = import.meta.env.BASE_URL;
                 void Promise.allSettled([
-                  fetch(`${base}api/vat/registration`, {
-                    method: "PATCH",
-                    credentials: "include",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                      status: vatRegStatus,
-                      vatNumber:
-                        vatRegStatus === "not_registered"
-                          ? null
-                          : vatNumber || null,
-                    }),
-                  }),
                   fetch(`${base}api/companies/me`, {
                     method: "PATCH",
                     credentials: "include",

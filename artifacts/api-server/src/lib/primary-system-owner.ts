@@ -1,6 +1,6 @@
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
-import { administrativeRights, adminRows, ADMIN_RESPONSIBILITIES, initializeLegacyAdministration } from "./administration-authority";
+import { administrativeRights, adminRows, LEGACY_ADMIN_RESPONSIBILITIES, initializeLegacyAdministration } from "./administration-authority";
 import { lockApprovalAuthorityWrite } from "./approval-authority";
 import { FinancialRequestError } from "./financial-transaction";
 
@@ -24,7 +24,7 @@ export async function primaryOwnerStatus(companyId:number,userId:number) {
   const rights=await administrativeRights(companyId,userId);
   return {primaryOwnerId:owner?.user_id??null,isPrimaryOwner:await isPrimarySystemOwner(companyId,userId),
     canAppointPrimaryOwner:!owner&&!!actor&&(actor.role==="owner"||actor.may_appoint_primary_owner===true)&&
-      ADMIN_RESPONSIBILITIES.every(r=>rights.includes(r))};
+      LEGACY_ADMIN_RESPONSIBILITIES.every(r=>rights.includes(r))};
 }
 export async function appointFirstPrimaryOwner(companyId:number,userId:number) {
   return db.transaction(async tx=>{
@@ -40,7 +40,7 @@ export async function appointFirstPrimaryOwner(companyId:number,userId:number) {
       LEFT JOIN company_administrators ca ON ca.company_id=uc.company_id AND ca.user_id=uc.user_id
       WHERE uc.company_id=${companyId} AND uc.user_id=${userId}`);
     const rights=await administrativeRights(companyId,userId,tx);
-    if(!actor||(actor.role!=="owner"&&!actor.may_appoint_primary_owner)||!ADMIN_RESPONSIBILITIES.every(r=>rights.includes(r)))
+    if(!actor||(actor.role!=="owner"&&!actor.may_appoint_primary_owner)||!LEGACY_ADMIN_RESPONSIBILITIES.every(r=>rights.includes(r)))
       throw new FinancialRequestError("يلزم تعيين صريح من الجهة المشتركة المخوّلة؛ لم يُستنتج مالك من الدور القديم",403);
     await tx.execute(sql`UPDATE user_companies SET role='owner' WHERE company_id=${companyId} AND user_id=${userId}`);
     await tx.execute(sql`UPDATE company_administrators SET primary_owner=true,may_appoint_primary_owner=false,

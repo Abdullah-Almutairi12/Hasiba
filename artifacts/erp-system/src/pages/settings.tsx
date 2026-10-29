@@ -25,6 +25,7 @@ import { usePermissions } from "@/hooks/use-permissions";
 import { useToast } from "@/hooks/use-toast";
 import { CompanySettingsTab } from "@/components/company-settings-tab";
 import { InvoiceTemplatesTab } from "@/components/invoice-templates-tab";
+import { CompanyTaxPolicyPanel } from "@/components/company-tax-policy";
 import {ProcurementReceivingPolicy} from "@/components/procurement-receiving-policy";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -183,109 +184,7 @@ function CompanyTab({ readOnly }: { readOnly: boolean }) {
 
 // ====================== 2. TAX SETTINGS ======================
 function TaxTab({ readOnly }: { readOnly: boolean }) {
-  const [draft, setDraft] = useSettingsSection("tax", {
-    vatEnabled: true,
-    vatRate: 15,
-    priceIncludesVat: false,
-    zatcaEnabled: false,
-    zatcaApiUrl: "",
-    zatcaCsid: "",
-  });
-  const save = useSavePatch();
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Receipt className="size-5 text-primary" />
-          الإعدادات الضريبية
-        </CardTitle>
-        <CardDescription>الامتثال لمتطلبات هيئة الزكاة والضريبة والجمارك (ZATCA).</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="flex items-center justify-between rounded-lg border p-3">
-          <div>
-            <div className="font-medium">تفعيل ضريبة القيمة المضافة</div>
-            <div className="text-xs text-muted-foreground">إيقاف الضريبة سيوقف حسابها على جميع الفواتير الجديدة.</div>
-          </div>
-          <Switch
-            checked={Boolean(draft.vatEnabled)}
-            onCheckedChange={(v) => setDraft({ ...draft, vatEnabled: v })}
-            disabled={readOnly}
-            data-testid="switch-vat-enabled"
-          />
-        </div>
-        <div className="grid gap-3 md:grid-cols-2">
-          <div>
-            <Label>نسبة الضريبة (%)</Label>
-            <Input
-              type="number"
-              step="0.01"
-              value={Number(draft.vatRate ?? 15)}
-              onChange={(e) => setDraft({ ...draft, vatRate: Number(e.target.value) })}
-              disabled={readOnly}
-              data-testid="input-vat-rate"
-            />
-          </div>
-          <div className="flex items-end gap-2 rounded-lg border p-3">
-            <Switch
-              checked={Boolean(draft.priceIncludesVat)}
-              onCheckedChange={(v) => setDraft({ ...draft, priceIncludesVat: v })}
-              disabled={readOnly}
-              data-testid="switch-vat-inclusive"
-            />
-            <div>
-              <div className="text-sm font-medium">الأسعار شاملة الضريبة</div>
-              <div className="text-xs text-muted-foreground">عند التفعيل: السعر المدخل يحوي الضريبة بداخله.</div>
-            </div>
-          </div>
-        </div>
-        <Separator />
-        <div className="flex items-center justify-between rounded-lg border p-3">
-          <div>
-            <div className="font-medium">ربط الفاتورة الإلكترونية (ZATCA)</div>
-            <div className="text-xs text-muted-foreground">يفعّل إرسال الفواتير لـ "فاتورة" واستلام CSID.</div>
-          </div>
-          <Switch
-            checked={Boolean(draft.zatcaEnabled)}
-            onCheckedChange={(v) => setDraft({ ...draft, zatcaEnabled: v })}
-            disabled={readOnly}
-            data-testid="switch-zatca-enabled"
-          />
-        </div>
-        <div className="grid gap-3 md:grid-cols-2">
-          <div>
-            <Label>ZATCA API URL</Label>
-            <Input
-              value={String(draft.zatcaApiUrl ?? "")}
-              onChange={(e) => setDraft({ ...draft, zatcaApiUrl: e.target.value })}
-              disabled={readOnly}
-              dir="ltr"
-              placeholder="https://gw-fatoora.zatca.gov.sa/..."
-              data-testid="input-zatca-url"
-            />
-          </div>
-          <div>
-            <Label>CSID (Compliance ID)</Label>
-            <Input
-              value={String(draft.zatcaCsid ?? "")}
-              onChange={(e) => setDraft({ ...draft, zatcaCsid: e.target.value })}
-              disabled={readOnly}
-              dir="ltr"
-              data-testid="input-zatca-csid"
-            />
-          </div>
-        </div>
-        {!readOnly && (
-          <div className="flex justify-end">
-            <Button onClick={() => save({ tax: draft })} data-testid="btn-save-tax">
-              <Save className="ms-2 size-4" /> حفظ
-            </Button>
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
+  return <CompanyTaxPolicyPanel readOnly={readOnly} />;
 }
 
 // ====================== 3. BRANCHES & INVENTORY ======================
@@ -1483,7 +1382,7 @@ function SettingsContent() {
 
       <Tabs
         key={branchId??"company"}
-        defaultValue="company"
+        defaultValue={typeof window!=="undefined"&&new URLSearchParams(window.location.search).get("tab")==="tax"?"tax":"company"}
         className={`lg:flex lg:gap-6 ${isRTL ? "lg:flex-row-reverse" : "lg:flex-row"}`}
         orientation={isMobile ? "horizontal" : "vertical"}
       >

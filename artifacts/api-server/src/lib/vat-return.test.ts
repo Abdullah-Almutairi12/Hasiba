@@ -34,7 +34,7 @@ let periodId: number;
 beforeAll(async () => {
   const [c] = await db
     .insert(companiesTable)
-    .values({ name: `${TAG}-co`, baseCurrency: "SAR", vatNumber: "300000000000003" })
+    .values({ name: `${TAG}-co`, baseCurrency: "SAR", vatNumber: "300000000000003",vatRegistrationStatus:"registered" })
     .returning({ id: companiesTable.id });
   companyId = c.id;
 

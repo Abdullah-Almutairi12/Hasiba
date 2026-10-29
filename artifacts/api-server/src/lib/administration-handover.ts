@@ -1,7 +1,7 @@
 import { db, auditLogsTable } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import { z } from "zod";
-import { adminRows, administrativeRights, requireAdministrative, protectLastAdministrator, initializeLegacyAdministration, ADMIN_RESPONSIBILITIES } from "./administration-authority";
+import { adminRows, administrativeRights, requireAdministrative, protectLastAdministrator, initializeLegacyAdministration, ADMIN_RESPONSIBILITIES, LEGACY_ADMIN_RESPONSIBILITIES } from "./administration-authority";
 import { lockApprovalAuthorityWrite, authorityFingerprint } from "./approval-authority";
 import { FinancialRequestError } from "./financial-transaction";
 import type { DbOrTx } from "./journal-posting";
@@ -12,7 +12,7 @@ export const HandoverInput = z.object({
   id:z.string().uuid(), expectedRevision:z.number().int().nonnegative(),
   toUserId:z.number().int().positive().nullable(),
   personId:z.number().int().positive().nullable(),
-  responsibilities:z.array(z.enum(ADMIN_RESPONSIBILITIES)).min(1).max(5),
+  responsibilities:z.array(z.enum(ADMIN_RESPONSIBILITIES)).min(1).max(ADMIN_RESPONSIBILITIES.length),
   departure:z.enum(["retain","stay","suspend","terminate"]),
   ownerTransfer:z.boolean().default(false),
 }).strict().refine(b => !!b.toUserId !== !!b.personId,"اختر مستخدمًا أو شخصًا مدعوًا، لا كليهما");
@@ -93,7 +93,7 @@ export async function saveHandover(companyId:number,userId:number,input:z.infer<
     await requireAdministrative(companyId,userId,"administrators",tx);
     const rights=await administrativeRights(companyId,userId,tx);
     if(input.ownerTransfer && (!await isPrimarySystemOwner(companyId,userId,tx)||
-      !ADMIN_RESPONSIBILITIES.every(r=>input.responsibilities.includes(r))))
+      !LEGACY_ADMIN_RESPONSIBILITIES.every(r=>input.responsibilities.includes(r))))
       throw new FinancialRequestError("نقل مسؤولية مالك النظام يقتصر على المالك الحالي وبكامل المسؤوليات",403);
     if(!input.ownerTransfer&&input.departure!=="retain"&&await isPrimarySystemOwner(companyId,userId,tx))
       throw new FinancialRequestError("انقل مسؤولية مالك النظام أولًا؛ تسليم مسؤوليات مدير وحده لا يكفي",409);
@@ -228,7 +228,7 @@ export async function setAdministrator(companyId:number,actor:number,target:numb
     if(responsibilities.some(r=>!rights.includes(r)||!ADMIN_RESPONSIBILITIES.includes(r as any)))
       throw new FinancialRequestError("لا يمكنك منح مسؤوليات لا تملكها",403);
     await eligible(tx,{company_id:companyId,from_user_id:-1,to_user_id:target,person_id:null} as Handover);
-    if(await isPrimarySystemOwner(companyId,target,tx)&&(!active||!ADMIN_RESPONSIBILITIES.every(r=>responsibilities.includes(r))))
+    if(await isPrimarySystemOwner(companyId,target,tx)&&(!active||!LEGACY_ADMIN_RESPONSIBILITIES.every(r=>responsibilities.includes(r))))
       await protectLastAdministrator(tx,companyId,target);
     if(!active||!responsibilities.includes("administrators"))await protectLastAdministrator(tx,companyId,target);
     // Limited administrators still use accepted appointments; the explicit

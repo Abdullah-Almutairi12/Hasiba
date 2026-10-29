@@ -169,7 +169,17 @@ describe("original POS invoice: independent linked return lifecycle", () => {
       return result;
     };
     const before = await snapshots();
-    const expectedAfter={...before,companies:(before.companies as Record<string,unknown>[]).map(c=>({...c,account_mfa_required:false}))};
+    const expectedAfter={
+      ...before,
+      companies:(before.companies as Record<string,unknown>[]).map(c=>({...c,account_mfa_required:false})),
+      // The intentional widening from numeric(18,4) to numeric(30,12)
+      // appends zeros to PostgreSQL's wire representation, not its value.
+      // Keep every field comparison; do not round through a JS number.
+      invoiceLines:(before.invoiceLines as Record<string,unknown>[]).map(line=>{
+        const [whole,fraction=""]=String(line.unit_price).split(".");
+        return {...line,unit_price:`${whole}.${fraction.padEnd(12,"0")}`};
+      }),
+    };
     await rows(`INSERT INTO financial_limits(role,action_key,max_value,description)
       VALUES('hr','sales.refund_amount',333,'Synthetic pre-upgrade policy evidence') ON CONFLICT DO NOTHING RETURNING id`);
     const oldLimits = await rows("SELECT id,role,action_key,max_value,description,updated_at FROM financial_limits ORDER BY id");
@@ -224,8 +234,14 @@ describe("original POS invoice: independent linked return lifecycle", () => {
       "0064_customer_invoice_permissions.sql",
       "0065_invoice_editor.sql",
       "0066_sale_document_audit.sql",
+      "0067_company_tax_policy.sql",
+      "0068_tax_credit_note_price_precision.sql",
+      "0069_company_tax_policy_request_closures.sql",
     ]);
     expect(first.skipped).toHaveLength(26);
+    // Installing a policy schema is not acceptance of a company's tax facts.
+    expect(await rows("SELECT count(*)::int AS n FROM company_tax_policy_versions")).toEqual([{n:0}]);
+    expect(await rows("SELECT count(*)::int AS n FROM company_tax_policy_request_closures")).toEqual([{n:0}]);
     // The editor migration is prospective: an old install must not acquire
     // a published design or have issued-document evidence rewritten.
     expect(await rows("SELECT count(*)::int AS n FROM invoice_editor_releases")).toEqual([{n:0}]);
@@ -241,6 +257,14 @@ describe("original POS invoice: independent linked return lifecycle", () => {
     expect(await rows("SELECT count(*)::int AS n FROM responsibility_grants WHERE 'procurement.receipts.receive_self'=ANY(actions)"))
       .toEqual([{n:0}]);
     expect(await snapshots()).toEqual(expectedAfter);
+    expect(await rows(`SELECT numeric_precision,numeric_scale FROM information_schema.columns
+      WHERE table_schema='public' AND table_name='customer_invoice_lines' AND column_name='unit_price'`))
+      .toEqual([{numeric_precision:30,numeric_scale:12}]);
+    for(const line of before.invoiceLines as Record<string,unknown>[]) {
+      expect(await rows(`SELECT unit_price=$1::numeric AS same_value FROM customer_invoice_lines
+        WHERE id=$2 AND invoice_id=$3`,[String(line.unit_price),line.id,sold.invoice.id]))
+        .toEqual([{same_value:true}]);
+    }
     expect(await rows("SELECT id,expected_qty::text,counted_qty::text,unit_cost::text FROM stock_take_lines WHERE id=$1",[oldCount.id]))
       .toEqual([oldCount]);
     expect(await rows("SELECT count_revision::text FROM stock_take_lines WHERE id=$1",[oldCount.id])).toEqual([{count_revision:"0"}]);

@@ -160,7 +160,7 @@ export const quotationLinesTable = pgTable("quotation_lines", {
   productId: integer("product_id").references(() => productsTable.id),
   description: text("description").notNull(),
   quantity: numeric("quantity", { precision: 18, scale: 4 }).notNull(),
-  unitPrice: numeric("unit_price", { precision: 18, scale: 4 }).notNull(),
+  unitPrice: numeric("unit_price", { precision: 30, scale: 12 }).notNull(),
   discountPct: numeric("discount_pct", { precision: 5, scale: 2 })
     .notNull()
     .default("0"),
@@ -228,7 +228,7 @@ export const salesOrderLinesTable = pgTable("sales_order_lines", {
   invoicedQty: numeric("invoiced_qty", { precision: 18, scale: 4 })
     .notNull()
     .default("0"),
-  unitPrice: numeric("unit_price", { precision: 18, scale: 4 }).notNull(),
+  unitPrice: numeric("unit_price", { precision: 30, scale: 12 }).notNull(),
   discountPct: numeric("discount_pct", { precision: 5, scale: 2 })
     .notNull()
     .default("0"),
@@ -367,7 +367,7 @@ export const customerInvoiceLinesTable = pgTable("customer_invoice_lines", {
   productId: integer("product_id").references(() => productsTable.id),
   description: text("description").notNull(),
   quantity: numeric("quantity", { precision: 18, scale: 4 }).notNull(),
-  unitPrice: numeric("unit_price", { precision: 18, scale: 4 }).notNull(),
+  unitPrice: numeric("unit_price", { precision: 30, scale: 12 }).notNull(),
   discountPct: numeric("discount_pct", { precision: 5, scale: 2 })
     .notNull()
     .default("0"),
@@ -463,7 +463,7 @@ export const creditNoteLinesTable = pgTable("credit_note_lines", {
   productId: integer("product_id").references(() => productsTable.id),
   description: text("description").notNull(),
   quantity: numeric("quantity", { precision: 18, scale: 4 }).notNull(),
-  unitPrice: numeric("unit_price", { precision: 18, scale: 4 }).notNull(),
+  unitPrice: numeric("unit_price", { precision: 30, scale: 12 }).notNull(),
   taxRate: numeric("tax_rate", { precision: 5, scale: 2 }).notNull().default("15"),
   lineTotal: numeric("line_total", { precision: 18, scale: 2 }).notNull(),
 });

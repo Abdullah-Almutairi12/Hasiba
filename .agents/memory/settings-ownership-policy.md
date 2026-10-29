@@ -26,3 +26,17 @@ inconsistent authority source and unsupported claims.
 claiming functional inheritance; preserve dedicated service authorization and
 historical documents. Bind save intent to the company as well as the revision,
 since revisions can coincide across companies.
+
+Tax registration is an explicitly reviewed, dated fact of the legal company,
+not something inferred from a revenue threshold, a printed VAT number, or a
+successful XML/PDF build. Branches inherit it; historical issued facts do not
+change when the current configuration changes.
+
+**Why:** The approved tax-unification scope preserves existing companies until
+their transition is explicitly reviewed, and distinguishes implementation from
+tax-registry verification and live ZATCA acceptance.
+
+**How to apply:** Trace all tax consumers to the same effective company policy;
+keep zero-rated and exempt classifications distinct, and derive returns from
+the original issued evidence rather than current product settings. Missing
+official acceptance remains an explicit operational limitation.

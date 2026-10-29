@@ -60,6 +60,7 @@ import { invoiceReturnBudgets, operationalReturnTotals, returnCents, returnMoney
 import { assertSavedReturnValue } from "../lib/sales-return-value-guard";
 import { buildZatcaQrBase64 } from "../lib/zatca-qr";
 import { captureIssuer, saveIssuer, documentIssuer } from "../lib/document-identity";
+import {calculatePolicySale,riyadhDate} from "../lib/vat-policy";
 import { recordSaleSellers, recordReturnSellers, cancelSellerInvoice,savedSellerLines,sellerLineDescription } from "../lib/seller-ledger";
 import { resolveSellerBranch } from "../lib/seller-policy";
 import { returnActor } from "../lib/return-access";
@@ -1680,10 +1681,11 @@ router.post("/sales/deliveries/:id/transition", salesWriteGuard, async (req, res
 // Customer Invoices (AR)
 // ===================================================================
 const InvoiceBody = z.object({
+  taxContextToken:z.string().optional(),
   branchId: z.number().int().positive().nullable().optional(),
   customerId: z.number().int().optional(),
   soId: z.number().int().nullable().optional(),
-  invoiceDate: z.string().optional(),
+  invoiceDate: z.iso.date().optional(),
   dueDate: z.string().nullable().optional(),
   notes: z.string().nullable().optional(),
   // Optional override lines; when omitted and soId is given, invoice the
@@ -2465,7 +2467,8 @@ router.post("/sales/invoices", financeGuard, async (req, res) => {
       companyRow?.vatRegistrationStatus === "registered" ||
       companyRow?.vatRegistrationStatus === "voluntary";
     const result = await financialTransaction(req, async (tx) => {
-      const issuer = await captureIssuer(tx, getCompanyId(req));
+      const taxAt=body.invoiceDate??riyadhDate();
+      const issuer = await captureIssuer(tx, getCompanyId(req),taxAt);
       const vatEnabled = issuer.vatEnabled;
       const sellerNameForZatca = issuer.nameAr;
       const sellerVatForZatca = issuer.vatNumber;
@@ -2602,7 +2605,14 @@ router.post("/sales/invoices", financeGuard, async (req, res) => {
         // numbers or the resulting journal entry / ZATCA payload.
         for (const ln of enriched) ln.taxRate = 0;
       }
-      const totals = computeTotals(
+      const policySale=await calculatePolicySale(tx,getCompanyId(req),taxAt,
+        enriched,body.orderDiscount+ruleResult.discountAmount);
+      if(policySale&&body.taxContextToken!==policySale.context.token)
+        throw new FinancialRequestError("تغير الإعداد الضريبي؛ أعد مراجعة مسودة الفاتورة قبل الإصدار",409);
+      if(policySale&&fromSo)
+        throw new FinancialRequestError("مسار تثبيت أساس تسعير أمر البيع يحتاج تحققًا قبل تفعيل هذه السياسة؛ لم تصدر فاتورة",422);
+      if(policySale)issuer.taxCalculation=policySale.snapshot;
+      const totals = policySale?.totals ?? computeTotals(
         enriched,
         body.orderDiscount + ruleResult.discountAmount,
       );
@@ -2632,7 +2642,7 @@ router.post("/sales/invoices", financeGuard, async (req, res) => {
       }
       const reference = await nextRef(tx, "SINV");
       const dueDays = customer.paymentTermsDays ?? 0;
-      const invoiceDate = body.invoiceDate ?? new Date().toISOString().slice(0, 10);
+      const invoiceDate = body.invoiceDate ?? (policySale?taxAt:new Date().toISOString().slice(0, 10));
       const dueDate =
         body.dueDate ??
         new Date(new Date(invoiceDate).getTime() + dueDays * 86_400_000).toISOString().slice(0, 10);

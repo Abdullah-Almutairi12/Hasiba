@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { employeesTable } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import type { DbOrTx } from "./journal-posting";
-import { adminRows, ADMIN_RESPONSIBILITIES } from "./administration-authority";
+import { adminRows, LEGACY_ADMIN_RESPONSIBILITIES } from "./administration-authority";
 
 /** Reuse the employee/person + scoped access model; no inferred job or financial grants. */
 export async function ensureAdministrativePerson(tx:DbOrTx,companyId:number,userId:number) {
@@ -19,5 +19,5 @@ export async function ensureAdministrativePerson(tx:DbOrTx,companyId:number,user
 export async function enrollCompanyAdministrator(tx:DbOrTx,companyId:number,userId:number) {
   await ensureAdministrativePerson(tx,companyId,userId);
   await tx.execute(sql`INSERT INTO company_administrators(company_id,user_id,responsibilities,may_appoint_primary_owner)
-    VALUES(${companyId},${userId},${sql.param([...ADMIN_RESPONSIBILITIES])}::text[],true)`);
+    VALUES(${companyId},${userId},${sql.param([...LEGACY_ADMIN_RESPONSIBILITIES])}::text[],true)`);
 }
