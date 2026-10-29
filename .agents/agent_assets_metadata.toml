@@ -1204,3 +1204,31 @@ mtime_ms = 1793196804310
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/c8fd38b7-762d-498a-827d-e50f55bb5207/c582c56a-31c6-42dc-a272-1982228069f4"
 storage_version_token = "1793198028056720"
 content_type = "application/pdf"
+
+[[outputs]]
+id = "017joyWLMofcRFY8YM1rI"
+uri = "file://generated-artifacts/sale-identity/Hasiba-sale-identity-report-ar.docx"
+type = "word_document"
+title = "تقرير حاسبة — هوية البيع والطباعة"
+description = "تقرير Word عربي يوضح المنجز والفجوات المعالجة ونتائج التحقق والحدود والمتبقي والمصدر المختبر."
+logical_id = "1582d732-3043-4c65-aee1-b22b8837b00e"
+content_hash = "sha256:e1a81b8451e2924522b2a4155eb1235fde217fce021d078807ed3cd9f8a74132"
+size = 9284
+mtime_ms = 1793240369356
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/1582d732-3043-4c65-aee1-b22b8837b00e/75fd6019-2ec3-45cc-bdf0-686bfdffd162"
+storage_version_token = "1793240474709881"
+content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
+[[outputs]]
+id = "VlDwmJPg_vYubjqWXhpcR"
+uri = "file://generated-artifacts/sale-identity/Hasiba-sale-identity-evidence.zip"
+type = "unspecified"
+title = "حزمة أدلة التحقق والمصالحة"
+description = "113 ملفًا: النتائج الخام المنقحة، أدلة المتصفح، ملفات PDF الفعلية، المصالحة المستقلة، بصمات الملفات وحالة Git. الحجم نحو1.6MB."
+logical_id = "57dee3c7-e38c-4aaf-8c53-7bb0de81d20a"
+content_hash = "sha256:7bfbc19f8714719fff140448a353d16588415c4dfbf8689e0b0341b78a675c83"
+size = 1643836
+mtime_ms = 1793240452635
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/57dee3c7-e38c-4aaf-8c53-7bb0de81d20a/01782ef1-1d85-4b89-b13b-832717acac2f"
+storage_version_token = "1793240478259519"
+content_type = "application/octet-stream"
