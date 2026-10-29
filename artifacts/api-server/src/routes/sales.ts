@@ -1203,6 +1203,7 @@ router.post("/sales/orders/:id/review-price-basis",financeGuard,async(req,res)=>
       const [order]=await tx.select().from(salesOrdersTable).where(and(eq(salesOrdersTable.id,id),
         eq(salesOrdersTable.companyId,cid))).for("update");
       if(!order)throw new FinancialRequestError("أمر البيع غير موجود",404);
+      await assertOrderInvoiceAccess(tx,req,order.id);
       if(order.pricingBasis)throw new FinancialRequestError("أساس السعر مثبت بالفعل ولا يُستبدل بهذا المسار",409);
       if(order.currencyCode!=="SAR")throw new FinancialRequestError("لا تُحوّل العملة التاريخية افتراضيًا",422);
       const lines=await tx.select().from(salesOrderLinesTable).where(eq(salesOrderLinesTable.soId,id)).orderBy(salesOrderLinesTable.id);

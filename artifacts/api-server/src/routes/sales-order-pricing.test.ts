@@ -198,6 +198,17 @@ describe("sales order fixed commercial basis, trusted partial invoice",()=>{
     expect((await q("SELECT details FROM audit_logs WHERE company_id=$1 AND action='sales_order.price_basis_reviewed'",[f.c.id]))).toHaveLength(1);
     await quote(f,1);
   });
+  it("legacy basis review cannot cross a withdrawn branch scope even with valid account proof",async()=>{
+    const f=await fixture(false);
+    await q("UPDATE sales_orders SET pricing_basis=NULL WHERE id=$1",[f.order.id]);
+    await q("UPDATE user_companies SET role='accountant' WHERE company_id=$1 AND user_id=$2",[f.c.id,f.u.id]);
+    await q(`INSERT INTO return_access(company_id,user_id,template,capabilities,branches,updated_by)
+      VALUES($1,$2,'branch_accountant','["view"]'::jsonb,'[]'::jsonb,$2)`,[f.c.id,f.u.id]);
+    const r=await f.a.post(`/api/sales/orders/${f.order.id}/review-price-basis`).send({priceIncludesVat:false,
+      currencyCode:"SAR",orderDiscount:1,reason:"مراجعة مصطنعة لا تمنح نطاقًا",proof:{currentPassword:f.password}});
+    expect(r.status,JSON.stringify(r.body)).toBe(403);
+    expect((await q("SELECT pricing_basis FROM sales_orders WHERE id=$1",[f.order.id]))[0].pricing_basis).toBe(null);
+  });
   it("changed fulfilment facts invalidate review, and distinct concurrent keys do not overbill",async()=>{
     const f=await fixture(false),v=await quote(f,2);
     const rs=await Promise.all([f.a.post("/api/sales/invoices").set("Idempotency-Key",randomUUID()).send(v.body),
