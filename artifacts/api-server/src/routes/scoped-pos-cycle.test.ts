@@ -37,7 +37,7 @@ async function fixture(legacy: boolean, extraActions: string[] = []) {
   await db.insert(fiscalPeriodsTable).values({ fiscalYearId: fy.id, name: tag, startDate: `${year}-01-01`, endDate: `${year}-12-31`, status: "open" });
   await db.transaction(tx => recordStockMove(tx, { companyId: c.id, productId: p.id, quantity: 20, unitCost: 3, kind: "receipt",
     toWarehouseId: w.id, sourceType: "isolated_cycle", sourceRef: tag, createdBy: u.id }));
-  const actions = ["pos.read","pos.sell","pos.shift.open","pos.discount","pos.payment.record","pos.shift.close",
+  const actions = ["pos.read","pos.sell","pos.shift.open","pos.discount","pos.payment.record","pos.shift.close","pos.receipts.print",
     "pos.return.request","pos.return.direct","pos.return.receive","pos.return.payout", ...extraActions];
   const person: TeamPerson = { creationKey: randomUUID(), name: "موظف دورة معزولة", email: `${tag}-e@example.invalid`,
     loginKinds: ["pos","platform"], deniedActions: [], grants: [{ resource: "pos", branchId: b.id, warehouseIds: [w.id],
@@ -473,6 +473,7 @@ describe("native POS lifecycle for new and converted scoped employees", () => {
     const receiptPdf = await f.get(`/pos/orders/${sale.id}/receipt.pdf`);
     ok(receiptPdf);
     expect(receiptPdf.headers["content-type"]).toContain("application/pdf");
+    ok(await f.get(`/pos/orders/${sale.id}/receipt.pdf?intent=export_requested`),403);
     ok(await f.post("/pos/orders", { ...body, items: [{ productId: f.product, quantity: 1, unitPrice: 10 }], discount: 1,
       paymentMethod: "card", payments: [{ method: "card", amount: 9, reference: "دليل تحصيل تجريبي" }] }), 201);
     const workspace = ok(await f.get("/pos/returns/workspace"));

@@ -166,9 +166,13 @@ afterAll(async () => {
   await db.delete(branchesTable).where(inArray(branchesTable.companyId, ids));
   await db.delete(journalEntriesTable).where(inArray(journalEntriesTable.companyId, ids));
   await cleanupCompanyDefaults(ids);
-  await db.delete(auditLogsTable).where(inArray(auditLogsTable.userId, users));
+  // Keep append-only document evidence and its tenant until the disposable
+  // PostgreSQL cluster is destroyed. Cleanup must not bypass production guards.
+  await db.execute(sql`DELETE FROM audit_logs WHERE user_id IN (${sql.join(users.map(id=>sql`${id}`),sql`, `)})
+    AND document_id IS NULL`);
   await db.delete(usersTable).where(inArray(usersTable.id, users));
-  await db.delete(companiesTable).where(inArray(companiesTable.id, ids));
+  await db.execute(sql`DELETE FROM companies c WHERE c.id IN (${sql.join(ids.map(id=>sql`${id}`),sql`, `)})
+    AND NOT EXISTS(SELECT 1 FROM audit_logs a WHERE a.company_id=c.id)`);
 });
 
 describe("Sales and CRM company isolation", () => {
