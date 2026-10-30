@@ -1442,3 +1442,31 @@ mtime_ms = 1793402911890
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/5cf923b7-0ce2-4c15-8f93-f14afaaeb929/03d7fd6a-59e8-4752-88e3-9fd4b145d3f5"
 storage_version_token = "1793402933357759"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "UUqowCs4Fa53wBxEEb5x_"
+uri = "file://generated-artifacts/final-recheck-20261030-2330/Hasiba-fresh-recheck-report-AR-EN.docx"
+type = "word_document"
+title = "حاسبة — تقرير إعادة التشغيل الفعلية بالعربية والإنجليزية"
+description = "النتائج الجديدة على المصدر26f3bb5،وتوقيت التشغيل ورحلة الواجهة والمصالحة وحدود الاختبار."
+logical_id = "f63ad2c5-aa19-44ed-9c1a-c4d2c1bb3946"
+content_hash = "sha256:8daca5f18207d26a9b80f992390e64207fd8501d606c78f526844f918ebbf0f8"
+size = 6374
+mtime_ms = 1793404608545
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/f63ad2c5-aa19-44ed-9c1a-c4d2c1bb3946/d034a8b0-6730-432b-a778-493d35d3168a"
+storage_version_token = "1793404634375375"
+content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
+[[outputs]]
+id = "3NgQ8106x9BnucXyRpVOx"
+uri = "file://generated-artifacts/final-recheck-20261030-2330/Hasiba-fresh-recheck-evidence.zip"
+type = "unspecified"
+title = "حاسبة — حزمة الأدلة الجديدة لإعادة التشغيل"
+description = "سجلات جديدة للبوابات و1110 اختبار خادم و346 واجهة،و20 صورة،ومصالحة PostgreSQL،ومطابقة المصدر،وبصمات الملفات."
+logical_id = "40c0af50-0c68-4d31-ac5f-fc950e129a73"
+content_hash = "sha256:b997731daccf5db2c69391d234d4b4d9238e3479871e3cf1efbdec414e1fe18f"
+size = 1754408
+mtime_ms = 1793404625252
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/40c0af50-0c68-4d31-ac5f-fc950e129a73/6f178f9b-5f63-4183-b048-045edd1aaf4b"
+storage_version_token = "1793404637942397"
+content_type = "application/octet-stream"
