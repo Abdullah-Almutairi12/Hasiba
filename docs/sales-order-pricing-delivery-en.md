@@ -1,4 +1,95 @@
-# Verification evidence closure — 30 October2026,20:02UTC
+# Current review and fix — confirm the actual persisted order agreement
+
+30 October2026,23:25UTC. **Closed successfully within the original scope.**
+Actual starting tip was`d82d78add81e96dfcf20cd1e9e9b88621401061b`;
+all previous acceptances remain in history. No main rewrite or production action.
+
+## Established defect and narrow correction
+The native create form labelled345 as the total, omitted status, and the existing
+server defaults an omitted status to **confirmed**, applying the fixed line rule1
+and saving344. Thus this was not merely harmless draft arithmetic: the agreement
+was implicitly confirmed before the adjusted amount/source was reviewed.
+
+The native form now calls its local arithmetic an estimate before server rules
+and explicitly sends`status:"draft"`. Confirmation opens the original saved-order
+GET, showing actual quantities/prices/discount percentages, named rule sources,
+saved VAT and total344. Acknowledgment is required; cancellation leaves the draft,
+and failed reads fail closed. Changed read facts invalidate local acknowledgment.
+The existing transition/approval service is reused, including its pending response;
+no parallel pricing, tax, approval or accounting engine was created.
+No API default/contract, historical order, valuation, schema or company policy was
+rewritten. Other API clients keep their existing semantics; this fixes the native
+form's implicit confirmation, not a new global API confirmation prohibition.
+
+Executable files under artifacts/erp-system/src:
+- pages/sales.tsx
+- components/sales/order-agreement-review.tsx
+- pages/sales-order-agreement.test.tsx
+
+## Original-scope review
+The stored price basis, four-decimal line precision, original portion allocator,
+signed invoice tax review, original retry receipts, approval eligibility fence,
+delivery accounting, seller identity and summary invalidation remain in place.
+The32 existing API pricing cases reran: inclusive/exclusive, catalogue/settings
+changes, fixed/stacked/manual/penny discounts, true tampering, legacy safe blocks,
+partial rounding, concurrent quantities, lost-result replay, branch/executor/
+approver withdrawal including PostgreSQL fence waits and changed approval facts.
+They are a subset of1110, not an additional total. This is not whole-ERP assurance.
+
+## Fresh regression and final-source verification
+- Before:4/4 new UI regressions failed against d82d78a production behavior with
+  only the test added. After:4/4 passed, plus5/5 unchanged summary UI regressions.
+  An incorrect Money import and a mixed-element test-text match were corrected
+  during development; diagnostic logs are retained, not called final failures.
+- Test and native browser source:
+  `7bda281267dc5f09c8c2c4a78a411b395dbd908e`.
+  Executable SHA256:
+  `e4b789371353b783d037cc61abc5a6edc2c78b8ac1579c31ea70bab4c3b003f0`.
+  Served Vite source-map contents matched sales.tsx; original-file SHA256:
+  `19da233ed35711da1f0a251ed7bedefe153a67c91cc8010ac431c99c37733ac6`.
+- Exactly one new full verification started
+  `2026-10-30T23:09:21.696480+00:00`, finished
+  `2026-10-30T23:25:38.161088+00:00`, **exit0**.
+  **15/15 gates; API1110 passed,0 failed,1 upgrade-fixture skip;
+  UI346 passed,0 failed across63 files**. Independent upgrade:1 passed,0 failed,
+  38 outside selection. Source unchanged, tree clean before/after.
+  Earlier c5ced6a acceptance is preserved separately, not attributed to new code.
+
+## Fresh original UI and independent reconciliation
+Created SO-2026-00001 with3×115 inclusive: estimate345, saved344 **draft**.
+Review showed SO-FIX-LINE1, stored0.2899%, VAT44.87; confirm disabled until
+acknowledgment. Cancellation left draft, reopening/acknowledgment used the
+original confirmation, then one native delivery.
+
+Invoice1 quantity1=114.67 refreshed summary without reload. Remainder2=229.33:
+the isolated proxy proved HTTP201 plus durable receipt/commit before cutting the
+second response. UI preserved unknown intent, reloaded and recovered
+SINV-2026-00002. Proxy events were201 invoice1, dropped committed201 invoice2,
+and recovered201 invoice2 with the same key/body hash/identity. HTTP evidence
+belongs to the server proxy; the tester independently proved visible UI recovery.
+
+Actual new read-only SQL reconciliation passed on disposable PostgreSQL:
+two invoices344, two receipts; two stock moves (opening and one delivery), four
+balanced journals;17 units, FIFO/inventory GL850, COGS150, AR344, VAT44.87,
+gross revenue account300 less discount account0.87 = net299.13. No cash collected.
+Seller and issuer snapshots retained.15 screenshots and41 UTC steps retained.
+The test API stopped only after capture; normal API restored,0 new migrations,
+72 skipped. A non-blocking DialogContent aria-describedby warning was observed;
+no claim that the entire application is free of warnings or defects.
+
+## Evidence and limits
+generated-artifacts/order-agreement-review contains red/green results,
+source/served-source receipts, browser-result/browser-testing, proxy and SQL
+reconciliation, verify-start/finish/runner and final-verification. The sanitized ZIP
+and bilingual report are delivered as files; ignored outputs are not claimed in Git.
+Previous accepted summary evidence was preserved before reusing the existing
+isolated harness. No fresh three-penny browser journey or every role permutation;
+their permanent tests reran. No hardware, paper, mobile or live ZATCA acceptance.
+No operational-data writes, external sends/payments or production deployment.
+TAX_POLICY_NOT_READY and safe unproven-legacy blocks remain. No final established
+failure/blocker remains within this fix, and no third scope starts automatically.
+
+# Earlier verification evidence closure — 30 October2026,20:02UTC
 
 **Closed successfully within the two discount fixes and sales-summary scope only.**
 No executable change, weakened test, production action, or new feature scope.
