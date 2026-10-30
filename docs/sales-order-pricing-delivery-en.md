@@ -1,3 +1,76 @@
+# Explicit fresh recheck — 30 October2026,23:55UTC
+
+**Final result: the newly executed full gates, native journey and independent
+reconciliation passed; no new established defect required application edits.**
+This is a fresh user-requested rerun despite unchanged application code, not a
+relabelled23:25 acceptance. No concurrent verification/isolated journey existed at
+start; the tree was clean and local/GitHub matched. Prior shared evidence was
+preserved before reuse, and prior summary evidence restored afterwards.
+
+## Final-source identity and actual execution
+Server, browser and tests all used:
+`26f3bb5751c98c969c342db3a702a51a013edebe`, executable SHA256
+`e4b789371353b783d037cc61abc5a6edc2c78b8ac1579c31ea70bab4c3b003f0`.
+The freshly fetched Vite source-map contents matched sales.tsx on disk, and the
+isolated API source receipt matched. **No source difference.**
+
+Exactly one new full verify started`2026-10-30T23:40:04.418097+00:00` and ended
+`2026-10-30T23:55:22.852520+00:00`, **exit0**. Source, clean tree and main remained
+unchanged throughout. No further verification cycle starts after success.
+
+|Fresh check|Passed|Failed|Skipped/outside selection|
+|---|---:|---:|---|
+|Project gates, including typecheck/builds/dependency audit|15|0|0|
+|API on fresh disposable PostgreSQL|1110|0|1 dedicated upgrade case|
+|UI across63 files|346|0|0|
+|Independent pinned previous-installation upgrade|1|0|38 outside upgrade selection|
+|Original native browser journey|success|no blocker|20 new images,57 milestones|
+|Independent financial/stock reconciliation|success|no difference|fresh SQL/proxy evidence|
+
+Machine extraction from this run's API JSON confirms32 pricing tests and8 summary
+tests, all passed and **subsets of1110, not additional totals**. Coverage includes
+inclusive/exclusive, later catalogue/default changes, fixed line1 on3 units, two
+order rules0.01 through three real invoices with/without manual discount, source
+preservation, final portion/rounding, tampering, concurrent remaining quantities,
+executor/branch/approver withdrawal behind actual PostgreSQL fences, changed
+approval facts, same-intent replay and no extra stock issue after delivery.
+No application source, migration, financial engine or company policy changed.
+
+## Fresh native journey and independent reconciliation
+Browser UTC window`23:32:03.757854738Z`–`23:38:14.604Z`,30 October2026.
+Fresh private session and empty synthetic company: native order3×115 inclusive,
+estimate345, saved draft344. Review showed SO-FIX-LINE1,0.2899% and VAT44.87.
+Confirmation was disabled before acknowledgment; cancellation preserved draft.
+Original acknowledged confirmation and a single delivery succeeded.
+First invoice quantity1=114.67 updated sales/AR summaries without reload.
+Remainder2=229.33 was committed before the proxy dropped its response. Original
+unknown intent survived reload; native recovery returned SINV-2026-00002.
+A redundant second reload had no intervening financial action and is disclosed.
+
+Independent proxy evidence proves201 invoice1, committed/dropped201 invoice2,
+recovered201 invoice2 with the same identity/key/body hash. New read-only SQL
+reconciliation proves exactly two invoices344, two durable receipts, two stock
+moves (opening plus one delivery), four balanced journals;17 units at50, FIFO and
+inventory GL850, COGS150, AR344, VAT44.87, revenue account300 minus discount0.87
+= net299.13, paid0. Fresh summary API/independent SQL pairs on the same scope
+were0,114.67,344; recovery did not duplicate revenue.
+
+## New evidence and limits
+generated-artifacts/final-recheck-20261030-2330 holds fresh run/verify start+finish,
+runner log, final-verification, scope-results, served-source, browser-result/
+browser-testing and proxy/reconciliation/finish evidence. New sanitized ZIP and
+bilingual Word report are delivered as files. Earlier bundles are historical
+hash references, not this run's results.
+
+Browser exercised the inclusive journey above; exclusive/penny/concurrency and
+all withdrawal permutations were covered by suitable fresh PostgreSQL tests,
+not all separately photographed browser journeys. The same non-blocking
+DialogContent aria-describedby warning is disclosed. No hardware/paper/live tax
+acceptance, operational customer-data test writes, external sends or payments.
+TAX_POLICY_NOT_READY and unproven legacy blocks remain; no main or production
+change. No final failing criterion/blocker remains within this recheck. No next
+scope or automatic additional cycle.
+
 # Current review and fix — confirm the actual persisted order agreement
 
 30 October2026,23:25UTC. **Closed successfully within the original scope.**
