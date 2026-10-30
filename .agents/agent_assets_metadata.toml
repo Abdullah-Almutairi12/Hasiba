@@ -1414,3 +1414,31 @@ mtime_ms = 1793390628586
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/3e815e28-9021-48f5-b64c-3d9d0da4af22/11658af2-8ec6-4a5d-b92f-1da9ca9b4ca4"
 storage_version_token = "1793390638511031"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "ATLVjGzyxFRX3eg2P_lTB"
+uri = "file://generated-artifacts/order-agreement-review/Hasiba-order-agreement-report-AR-EN.docx"
+type = "word_document"
+title = "حاسبة — تقرير مراجعة اتفاق أمر البيع بالعربية والإنجليزية"
+description = "الخلل المثبت في التأكيد الضمني، والتصحيح المحدود، والنتائج الجديدة وحدود الأدلة."
+logical_id = "28382bfc-d635-43f4-bae0-6373cc574cba"
+content_hash = "sha256:c6569411bc18d60af3718e59372112ab08ebe0f6bdf2e6c7b7855c79fda3d2df"
+size = 7662
+mtime_ms = 1793402885678
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/28382bfc-d635-43f4-bae0-6373cc574cba/741b07d3-6b65-4990-8fd8-48d134242b9c"
+storage_version_token = "1793402930141677"
+content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
+[[outputs]]
+id = "XfobYB25zrj_BhEuamJLC"
+uri = "file://generated-artifacts/order-agreement-review/Hasiba-order-agreement-evidence.zip"
+type = "unspecified"
+title = "حاسبة — حزمة أدلة الإصلاح والقبول الجديدة"
+description = "اختبارات قبل/بعد،15/15 بوابة،1110 اختبار خادم و346 واجهة،ورحلة أصلية ومصالحة مستقلة وصور وبصمات منقحة."
+logical_id = "5cf923b7-0ce2-4c15-8f93-f14afaaeb929"
+content_hash = "sha256:728c20d80112d178967f1271da2a99820c1dccbde3d42b34b3aeac2716d14f17"
+size = 1373627
+mtime_ms = 1793402911890
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/5cf923b7-0ce2-4c15-8f93-f14afaaeb929/03d7fd6a-59e8-4752-88e3-9fd4b145d3f5"
+storage_version_token = "1793402933357759"
+content_type = "application/octet-stream"
