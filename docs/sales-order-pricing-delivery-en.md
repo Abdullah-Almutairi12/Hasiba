@@ -1,5 +1,95 @@
 # Sales-order agreed pricing and trusted partial invoice conversion
 
+## Two-regression fix delivery — 30 October 2026
+
+Tested executable and native-browser source:
+`21ec97a790e6f86453f611c565d00c2298d0aae5`
+
+Source SHA-256:
+`60030c7a16ef11c24c09db94ed35d89753d9de2548fda7fb0fa79528bc9cbaf2`
+
+Actual starting HEAD was `ad3dbb34fbfd4cf5b60b4d6bd224a573c2a2f05f`, not an
+assumption that remote `639c9a8` was the newest local work. Local safety tag:
+`checkpoint/sales-order-discount-fixes-start-20261030`. Earlier deliveries remain
+ancestors; no hard reset, force push or main replacement. Original 73 requirement
+identifiers remain: this is detail under 05.2, 05.9, 08.4, 12.2 and 14.2–14.6.
+
+### Implemented changes
+- Migration `0071_sales_order_discount_precision.sql` widens **sales-order line**
+  discount storage to `numeric(7,4)`, matching the existing engine. It neither
+  recalculates old rows nor reconstructs a historical agreement.
+- New agreement version2; input beyond four decimal places is rejected rather
+  than silently rounded. Actual price, quantity and discount tampering still fails.
+- Joint monotone cumulative cent allocation conserves the manual and each named
+  source budget. No negative clamping, dropped rule or reassignment to manual.
+  Issuance retains allocation-method/source evidence and uses the original tax
+  calculator, posting services, approval authority and financial-attempt engine.
+- Unbilled legacy version1 agreements need explicit identity-proved, reasoned,
+  audited acknowledgement of the evidenced old two-decimal projection. All other
+  source facts must match. Original rows and historical totals stay unchanged;
+  the original invoice dialog exposes this route, not a parallel approval system.
+
+### Newly executed evidence
+- Final gates on the source above: **15/15**; API: **1102 passed,0 failed,1 upgrade-only
+  case skipped in the ordinary run and executed separately**; UI: **337 passed,0 failed/skipped**.
+- Before-fix: **8 expected failures**, plus a focused rerun of the four precision
+  cases proving actual409 after PostgreSQL persistence/read-back. Not12 distinct cases.
+- Final targeted suite: **32/32**, inclusive/exclusive, full/partial/fractional,
+  stacked line rules, manual discount with multiple order rules, and independent
+  reconciliation of two separate rule accounts plus the manual account.
+  These are a subset, never added to the full-suite total.
+- Dedicated historical upgrade:1 passed;38 unrelated cases deselected.
+  The upgrade-only case skipped in ordinary API execution ran in this separate gate.
+- Real PostgreSQL waiting barriers proved executor and original-approver revocation
+  after queueing returns403 with no financial effect. Existing facts-change,
+  concurrency, remaining-quantity and committed replay protections remain covered.
+- Initial TypeScript errors and an additional synthetic account-fixture error
+  (assuming a nonexistent column) are retained with their corrections. They are
+  diagnostics, not unresolved final failures or customer-data defects.
+  Full final counts come from the attached `acceptance-metrics.json` and
+  `verification/summary.json`, not historical results or summed targeted runs.
+
+### Original-UI journeys and independent reconciliation
+1. Inclusive3×115, fixed line discount1: saved344 and effective percentage0.2899.
+   Native delivery3, quantity1 invoice114.67, reply dropped only after a verified
+   committed PostgreSQL receipt, reload and recovery of the SAME invoice, then
+   remainder2 invoice229.33. No replacement intent or duplicate issuance.
+2. Inclusive3×1 with two one-cent order rules: order2.98, native delivery3, then
+   invoices0.99,1.00,0.99. Middle discount0, final one cent per named rule, manual0,
+   no negative-money exception. The between-flow CLI only arranged synthetic rules;
+   creation, delivery, previews and issuance used the original UI.
+3. Separate read-only reconciliation:2 orders,5 unique invoices,6 success events
+   including the first replay,5 issuance receipts,2 delivery issues only; stock14,
+   FIFO700, COGS300, AR346.98, VAT45.26, discount-ledger0.89, no unbalanced journals.
+   Browser/API source identities matched. Actual Vite module source-map content
+   matched the frozen component, rather than assuming the browser used current code.
+4. Normal API/frontend restored. Development migration only widened precision,
+   without recalculating financial history. All business test writes used isolated
+   PostgreSQL fixtures, not ordinary customer data.
+
+### Precise limits and stop point
+- **Both reported regression criteria are evidenced within the tested cases.**
+  General `TAX_POLICY_NOT_READY` remains; no general tax rollout, returns,
+  functional reporting expansion, production ZATCA, or invoice-editor restart.
+- Legacy partly invoiced source allocations without issuance evidence stay blocked
+  for audited reconciliation. No guessed historical allocation or rewritten invoice/GL.
+- Legacy precision identity review was API-tested, not a separate native journey.
+  Browser evidence is the two inclusive flows; exclusive/full/fractional/manual-plus-
+  multiple-rule cases are PostgreSQL tests, not claims of physical-device journeys.
+- Out-of-scope observation: the sales summary tile stayed114.67 while invoice rows
+  and reconciliation totaled346.98. Metric semantics/cause were not investigated;
+  this is an observed UI discrepancy, not proof of incorrect posting.
+- No paper printing, payment, PDF or invoice-download acceptance in this round.
+  No production deployment or external sending/payment. No next scope starts.
+- Sanitized raw results, bilingual Word report and evidence ZIP are actual
+  downloadable, Git-ignored outputs. The attached `delivery-state.json` records
+  verified push identity separately from the tested executable source.
+
+## Historical prior delivery — not current-run results
+All identities, counts and browser diagnostics below this boundary are retained
+historical evidence. They are not added to this run; prior downloadable assets
+have not been overwritten.
+
 ## Scope and source identity
 Existing Hasiba project, repository `Abdullah-Almutairi12/Hasiba`, branch
 `sync/hasiba-erp-20261023`. Both accepted `c9d314f` and later initial `1e5119a`
