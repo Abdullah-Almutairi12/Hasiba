@@ -29,7 +29,7 @@ import {
   usersTable,
   companiesTable,
 } from "@workspace/db";
-import { and, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, lt, lte, sql } from "drizzle-orm";
 import { handleRouteError } from "../lib/handle-error";
 import { parsePagination } from "../lib/pagination";
 import { customerInvoiceGrant,customerInvoiceScope } from "../lib/customer-invoice-access";
@@ -3902,8 +3902,10 @@ router.get("/sales/reports/ar-aging", reportReadGuard, async (req, res) => {
 
 router.get("/sales/reports/summary", reportReadGuard, async (req, res) => {
   try {
-    const today = new Date();
-    const monthStart = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().slice(0, 10);
+    // Match the established Saudi business date, not the server's timezone.
+    const monthStart = `${riyadhDate().slice(0, 7)}-01`;
+    const [year, month] = monthStart.split("-").map(Number);
+    const monthEnd = new Date(Date.UTC(year, month, 1)).toISOString().slice(0, 10);
 
     const [quotes] = await db
       .select({
@@ -3912,7 +3914,7 @@ router.get("/sales/reports/summary", reportReadGuard, async (req, res) => {
         accepted: sql<number>`count(*) filter (where ${quotationsTable.status} = 'accepted')::int`,
       })
       .from(quotationsTable)
-      .where(and(eq(quotationsTable.companyId, getCompanyId(req)), gte(quotationsTable.quoteDate, monthStart)));
+      .where(and(eq(quotationsTable.companyId, getCompanyId(req)), gte(quotationsTable.quoteDate, monthStart), lt(quotationsTable.quoteDate, monthEnd)));
 
     const [orders] = await db
       .select({
@@ -3920,7 +3922,7 @@ router.get("/sales/reports/summary", reportReadGuard, async (req, res) => {
         totalValue: sql<number>`coalesce(sum(${salesOrdersTable.total}::numeric), 0)`,
       })
       .from(salesOrdersTable)
-      .where(and(eq(salesOrdersTable.companyId, getCompanyId(req)), gte(salesOrdersTable.orderDate, monthStart)));
+      .where(and(eq(salesOrdersTable.companyId, getCompanyId(req)), gte(salesOrdersTable.orderDate, monthStart), lt(salesOrdersTable.orderDate, monthEnd)));
 
     const [invoices] = await db
       .select({
@@ -3934,7 +3936,13 @@ router.get("/sales/reports/summary", reportReadGuard, async (req, res) => {
                 and cn.status in ('issued','applied')
             ), 0)
         ) filter (where ${customerInvoicesTable.status} in ('open','partially_paid')), 0)`,
-        thisMonth: sql<number>`coalesce(sum(${customerInvoicesTable.total}::numeric) filter (where ${customerInvoicesTable.invoiceDate} >= ${monthStart}), 0)`,
+        // Issued invoice face values include VAT; this is neither net revenue
+        // nor receipts. Outstanding above deliberately spans all periods.
+        thisMonth: sql<number>`coalesce(sum(${customerInvoicesTable.total}::numeric) filter (
+          where ${customerInvoicesTable.invoiceDate} >= ${monthStart}
+            and ${customerInvoicesTable.invoiceDate} < ${monthEnd}
+            and ${customerInvoicesTable.status} in ('open','partially_paid','paid')
+        ), 0)`,
       })
       .from(customerInvoicesTable)
       .where(eq(customerInvoicesTable.companyId, getCompanyId(req)));

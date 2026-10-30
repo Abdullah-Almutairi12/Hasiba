@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { CustomerInvoiceDetails } from "@/components/customer-invoice-details";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -195,9 +196,9 @@ export default function SalesPage() {
   // (owner/manager/accountant/auditor). Skipping the query for non-report
   // roles avoids a 403 + misleading zero-state on the summary cards and
   // hides the report-only tabs from the tab bar.
-  const { data: summary } = useApiQuery<SalesSummary>(
+  const { data: summary, isLoading: summaryLoading, error: summaryError, refetch: refetchSummary } = useApiQuery<SalesSummary>(
     "/sales/reports/summary",
-    { enabled: canReadReports },
+    { enabled: canReadReports && !isScoped, refetchInterval: 60_000 },
   );
 
   return (
@@ -209,12 +210,17 @@ export default function SalesPage() {
         </p>
       </div>
 
-      {!isScoped && <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+      {canReadReports && !isScoped && <section aria-label="ملخص المبيعات" className="space-y-2">
+        <p className="text-xs text-muted-foreground">نطاق الملخص: الشركة بجميع فروعها؛ الشهر بتوقيت الرياض{summary ? ` من ${summary.monthStart}` : ""}. جدول المستندات قد يشمل فترات وحالات مختلفة.</p>
+        {summaryError ? <div role="alert" className="text-sm text-destructive">
+          تعذر تحديث ملخص المبيعات؛ لا تمثل هذه الحالة قيمة صفر.
+          <Button variant="outline" size="sm" onClick={() => void refetchSummary()}>إعادة المحاولة</Button>
+        </div> : summaryLoading ? <p role="status">جارٍ تحميل ملخص المبيعات…</p> : summary && <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <SummaryCard title="عروض الأسعار" value={summary?.quotations.value ?? 0} subtitle={`${summary?.quotations.count ?? 0} عرض، ${summary?.quotations.accepted ?? 0} مقبول`} icon={FileText} />
         <SummaryCard title="أوامر البيع" value={summary?.salesOrders.value ?? 0} subtitle={`${summary?.salesOrders.count ?? 0} أمر هذا الشهر`} icon={Truck} />
-        <SummaryCard title="فواتير الشهر" value={summary?.invoices.thisMonth ?? 0} subtitle="الفواتير المُصدرة" icon={Receipt} />
-        <SummaryCard title="ذمم مدينة قائمة" value={summary?.invoices.outstanding ?? 0} subtitle="غير مُحصّلة بعد" icon={AlertCircle} />
-      </div>}
+        <SummaryCard title="فواتير الشهر" value={summary.invoices.thisMonth} subtitle="المُصدرة شاملة الضريبة؛ ليست إيرادًا صافيًا أو تحصيلًا" icon={Receipt} />
+        <SummaryCard title="ذمم مدينة قائمة" value={summary.invoices.outstanding} subtitle="غير مُحصّلة بعد؛ جميع الفترات" icon={AlertCircle} />
+      </div>}</section>}
 
       <Tabs defaultValue={isScoped?"invoices":"quotations"} className="space-y-4">
         <TabsList className="flex w-full flex-wrap justify-start">
@@ -402,6 +408,7 @@ function SalesOrdersTab() {
 }
 
 function SoActions({ so, onChange }: { so: SalesOrder; onChange: () => void }) {
+  const qc = useQueryClient();
   const [invoiceOpen,setInvoiceOpen]=useState(false);
   const { toast } = useToast();
   const { canManageFinance, canManageInventory } = usePermissions();
@@ -438,7 +445,13 @@ function SoActions({ so, onChange }: { so: SalesOrder; onChange: () => void }) {
       {canManageFinance && !["draft", "cancelled"].includes(so.status) && (
         <Button size="sm" variant="outline" onClick={invoice}>تفويتر</Button>
       )}
-      {invoiceOpen&&<OrderInvoiceDialog id={so.id} open={invoiceOpen} onOpenChange={setInvoiceOpen} onSaved={onChange}/>}
+      {invoiceOpen&&<OrderInvoiceDialog id={so.id} open={invoiceOpen} onOpenChange={setInvoiceOpen} onSaved={()=>{
+        onChange();
+        // Both a first acknowledgement and a recovered durable result arrive
+        // here. Refresh read models only; never submit another financial POST.
+        void qc.invalidateQueries({queryKey:["/sales/reports/summary"]});
+        void qc.invalidateQueries({queryKey:["/sales/invoices"]});
+      }}/>}
       {so.status === "invoiced" && (
         <Button size="sm" variant="outline" onClick={() => transition("done")}>إنهاء</Button>
       )}
@@ -722,6 +735,7 @@ function SendStatusCell({ invoice }: { invoice: Invoice }) {
 }
 
 function InvoicesTab() {
+  const qc = useQueryClient();
   const { data, isLoading, refetch } = useApiQuery<Invoice[]>("/sales/invoices");
   // Polled separately because the background email-retry worker can flip
   // an invoice into "exhausted" state on its own schedule (no user
@@ -817,7 +831,10 @@ function InvoicesTab() {
             <DialogTrigger asChild>
               <Button size="sm" className="gap-2"><Plus className="size-4" />فاتورة جديدة</Button>
             </DialogTrigger>
-            <DocumentFormDialog kind="invoice" onSuccess={() => { setOpen(false); refetch(); }} />
+            <DocumentFormDialog kind="invoice" onSuccess={() => {
+              setOpen(false); refetch();
+              void qc.invalidateQueries({queryKey:["/sales/reports/summary"]});
+            }} />
           </Dialog>
         )}
       </CardHeader>

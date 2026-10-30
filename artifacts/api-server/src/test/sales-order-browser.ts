@@ -16,8 +16,9 @@ Object.assign(process.env,state.env,{NODE_ENV:"test",VITEST:"true",LOG_LEVEL:"er
 const {pool}=await import("@workspace/db");
 const account=state.accounts.find((a:{role:string,posSession?:unknown})=>a.role==="owner"&&a.posSession);
 assert.ok(account);
-const discountFixes=process.argv.includes("--discount-fixes");
-const dir=resolve(import.meta.dirname,discountFixes?
+const summaryRefresh=process.argv.includes("--summary-refresh");
+const discountFixes=summaryRefresh||process.argv.includes("--discount-fixes");
+const dir=resolve(import.meta.dirname,summaryRefresh?"../../../../generated-artifacts/sales-summary-refresh":discountFixes?
   "../../../../generated-artifacts/sales-order-discount-fixes":"../../../../generated-artifacts/sales-order-pricing");
 mkdirSync(dir,{recursive:true});
 const file=resolve(dir,"browser-proxy.json");
@@ -53,27 +54,38 @@ if(process.argv.includes("--capture")){
     await c.query("BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY");
     const saved=JSON.parse(readFileSync(file,"utf8"));
     const current=await snapshot(async(s,p=[]) => (await c.query(s,p)).rows);
-    assert.equal(current.orders.length,discountFixes?2:1);assert.equal(current.invoices.length,discountFixes?5:2);
-    assert.deepEqual(current.invoices.map(i=>Number(i.total)).sort((a,b)=>a-b),discountFixes?[.99,.99,1,114.67,229.33]:[115,230]);
-    assert.equal(current.lines.reduce((s,l)=>s+Number(l.invoiced_qty),0),discountFixes?6:3);
-    assert.equal(current.lines.reduce((s,l)=>s+Number(l.delivered_qty),0),discountFixes?6:3);
-    assert.equal(current.quants.reduce((s,l)=>s+Number(l.quantity),0),discountFixes?14:17);
-    assert.equal(current.quants.reduce((s,l)=>s+Number(l.quantity)*Number(l.avg_cost),0),discountFixes?700:850);
-    assert.equal(current.layers.reduce((s,l)=>s+Number(l.remaining_qty),0),discountFixes?14:17);
-    assert.equal(current.layers.reduce((s,l)=>s+Number(l.remaining_qty)*Number(l.unit_cost),0),discountFixes?700:850);
+    const multiple=discountFixes&&!summaryRefresh;
+    assert.equal(current.orders.length,multiple?2:1);assert.equal(current.invoices.length,multiple?5:2);
+    assert.deepEqual(current.invoices.map(i=>Number(i.total)).sort((a,b)=>a-b),
+      summaryRefresh?[114.67,229.33]:multiple?[.99,.99,1,114.67,229.33]:[115,230]);
+    assert.equal(current.lines.reduce((s,l)=>s+Number(l.invoiced_qty),0),multiple?6:3);
+    assert.equal(current.lines.reduce((s,l)=>s+Number(l.delivered_qty),0),multiple?6:3);
+    assert.equal(current.quants.reduce((s,l)=>s+Number(l.quantity),0),multiple?14:17);
+    assert.equal(current.quants.reduce((s,l)=>s+Number(l.quantity)*Number(l.avg_cost),0),multiple?700:850);
+    assert.equal(current.layers.reduce((s,l)=>s+Number(l.remaining_qty),0),multiple?14:17);
+    assert.equal(current.layers.reduce((s,l)=>s+Number(l.remaining_qty)*Number(l.unit_cost),0),multiple?700:850);
     const balance=(key:string)=>Number(current.ledger.find(l=>l.system_key===key)?.balance??0);
-    assert.equal(balance("inventory"),discountFixes?700:850);assert.equal(balance("cogs"),discountFixes?300:150);
-    assert.equal(balance("ar"),discountFixes?346.98:345);assert.equal(balance("vat_output"),discountFixes?-45.26:-45);
-    assert.equal(balance("sales_revenue"),discountFixes?-302.61:-300);assert.deepEqual(current.unbalanced,[]);
+    assert.equal(balance("inventory"),multiple?700:850);assert.equal(balance("cogs"),multiple?300:150);
+    assert.equal(balance("ar"),summaryRefresh?344:multiple?346.98:345);
+    assert.equal(balance("vat_output"),summaryRefresh?-44.87:multiple?-45.26:-45);
+    assert.equal(balance("sales_revenue"),multiple?-302.61:-300);assert.deepEqual(current.unbalanced,[]);
     const issued=saved.events.filter((e:{kind:string})=>e.kind==="invoice");
-    assert.equal(issued.length,discountFixes?6:3);assert.equal(issued[0].droppedAfterCommit,true);
-    assert.equal(issued[0].key,issued[1].key);assert.equal(issued[0].bodyHash,issued[1].bodyHash);
-    assert.equal(issued[0].id,issued[1].id);
-    assert.deepEqual(issued[0].after,issued[1].after);
-    assert.equal(current.sellers.length,discountFixes?5:2);
+    const replay=summaryRefresh?1:0;
+    assert.equal(issued.length,multiple?6:3);assert.equal(issued[replay].droppedAfterCommit,true);
+    assert.equal(issued[replay].key,issued[replay+1].key);assert.equal(issued[replay].bodyHash,issued[replay+1].bodyHash);
+    assert.equal(issued[replay].id,issued[replay+1].id);
+    assert.deepEqual(issued[replay].after,issued[replay+1].after);
+    assert.equal(current.sellers.length,multiple?5:2);
     const invoices=current.invoices.map(i=>i.id);
-    assert.equal(current.receipts.filter(r=>invoices.includes(r.value?.inv?.id)).length,discountFixes?5:2);
-    if(discountFixes){
+    assert.equal(current.receipts.filter(r=>invoices.includes(r.value?.inv?.id)).length,multiple?5:2);
+    if(summaryRefresh){
+      assert.equal(Number(current.lines[0].discount_pct),.2899);
+      assert.equal(current.moves.filter(m=>m.kind==="issue").length,1);
+      assert.equal(balance("sales_discount"),.87);
+      for(const expected of [114.67,344])assert.ok(saved.events.some((e:{kind:string;value?:{invoices?:{thisMonth:number}};independent?:{total:string}})=>
+        e.kind==="summary"&&e.value?.invoices?.thisMonth===expected&&Number(e.independent?.total)===expected));
+    }
+    if(multiple){
       assert.equal(Number(current.lines[0].discount_pct),.2899);
       const sources=new Map<number,number>();
       for(const inv of current.invoices.slice(2)){
@@ -121,12 +133,22 @@ const proxy=createServer((req,res)=>{
         if(req.method==="POST"&&req.url?.split("?")[0]==="/api/sales/invoices"){
           const [receipt]=await q("SELECT result->'value' AS value FROM financial_requests WHERE company_id=$1 AND request_key=$2",
             [account.companyId,key]);
-          const after=await snapshot(),willDrop=!dropped&&r.statusCode===201&&!!receipt?.value?.inv?.id;
+          const after=await snapshot(),willDrop=!dropped&&r.statusCode===201&&!!receipt?.value?.inv?.id&&
+            (!summaryRefresh||evidence.events.filter(e=>e.kind==="invoice"&&e.status===201).length===1);
           evidence.events.push({kind:"invoice",key,bodyHash:hash(body),id:receipt?.value?.inv?.id,status:r.statusCode,
             droppedAfterCommit:willDrop,after});
           save();
           if(willDrop){dropped=true;res.writeHead(502,{"content-type":"application/json"});
             res.end(JSON.stringify({error:"Synthetic lost response AFTER durable commit"}));return;}
+        }
+        if(summaryRefresh&&req.method==="GET"&&req.url?.split("?")[0]==="/api/sales/reports/summary"&&r.statusCode===200){
+          const [independent]=await q(`SELECT coalesce(sum(total::numeric),0)::text AS total,
+            array_agg(id ORDER BY id) AS invoice_ids FROM customer_invoices WHERE company_id=$1
+            AND status IN ('open','partially_paid','paid')
+            AND invoice_date >= date_trunc('month',now() AT TIME ZONE 'Asia/Riyadh')::date
+            AND invoice_date < (date_trunc('month',now() AT TIME ZONE 'Asia/Riyadh')+interval '1 month')::date`,
+            [account.companyId]);
+          evidence.events.push({kind:"summary",value:JSON.parse(bytes.toString()),independent});save();
         }
         if(req.method==="GET"&&/^\/src\/.*\.(tsx?|css)(\?|$)/.test(req.url??"")){
           evidence.events.push({kind:"served-module",path:req.url,sha256:hash(bytes)});save();
