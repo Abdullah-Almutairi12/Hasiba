@@ -1344,3 +1344,31 @@ mtime_ms = 1793312277907
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/4f4dc0c7-4ef0-47fa-9a92-b15a7f3498ee/73901807-aa46-4d8b-938e-12e270726159"
 storage_version_token = "1793312312165990"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "_qtzHrA9Lbq5674jpK_nC"
+uri = "file://generated-artifacts/sales-order-discount-fixes/Hasiba-sales-order-discount-fixes-report-AR-EN.docx"
+type = "word_document"
+title = "تقرير إصلاح الخصومات — عربي وإنجليزي"
+description = "التغييرات والأدلة والنتائج والحدود؛ المصدر المختبر21ec97a والرفع المتحقق441a52e."
+logical_id = "b71ad847-03b5-40b8-b3a6-d8182b1fcab9"
+content_hash = "sha256:5cf9ea850acdd02349a67cc00911b551871cf8387bb01b14661296db18f6c842"
+size = 16685
+mtime_ms = 1793355996195
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/b71ad847-03b5-40b8-b3a6-d8182b1fcab9/17769a68-adae-4ecf-96f1-fa1ec0f21605"
+storage_version_token = "1793356098540527"
+content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
+[[outputs]]
+id = "6AMXKm-CK8SawY2JRIff4"
+uri = "file://generated-artifacts/sales-order-discount-fixes/Hasiba-sales-order-discount-fixes-evidence.zip"
+type = "unspecified"
+title = "حزمة أدلة الإصلاح المنقحة ZIP"
+description = "النتائج الخام قبل وبعد الإصلاح،15 بوابة، ومصالحة PostgreSQL، وأدلة التزامن والمتصفح و21 لقطة، وبصمات الملفات."
+logical_id = "c60788f8-8392-4e27-bd7c-4d7e022c4202"
+content_hash = "sha256:ac5dfd2eb70be313c5ad51f44d8c2e2e4a080b5ea5e5f868f073da3b8162c4bc"
+size = 1884322
+mtime_ms = 1793355996339
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/c60788f8-8392-4e27-bd7c-4d7e022c4202/f681e3f5-83e1-42dc-b6b3-4421fb88397b"
+storage_version_token = "1793356101905461"
+content_type = "application/octet-stream"

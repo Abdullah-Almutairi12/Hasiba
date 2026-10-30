@@ -50,3 +50,9 @@ Inspect remote URLs only through redacted output; do not print raw `git remote -
 **Why:** The retained legacy source-control remote contained an embedded credential. Keeping the previous repository location must not expose or preserve that credential in reports or command output.
 
 **How to apply:** Strip URL user information before logging configuration. Retain canonical repository URLs without credentials. Removing a credential from local configuration is not provider-side revocation; never claim otherwise or copy its value into project files.
+
+Finish deliverable registration before the final tracked-file synchronization check.
+
+**Why:** Registering downloadable assets changes tracked asset metadata after a previously clean push, even when the tested executable source is unchanged.
+
+**How to apply:** Check and safely synchronize registration metadata after presenting files. Distinguish the immutable tested code, the report/package checkpoint, and any later metadata-only tip instead of pretending their commit identifiers are identical.
