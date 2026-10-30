@@ -19,6 +19,14 @@ A clean working-tree fingerprint and passing gates do not prove a long-running b
 
 **How to apply:** After the coherent source batch, restart the relevant test service from the verified build before native acceptance. Bind its loaded artifact digest to the source receipt. Preserve stale-run results separately; reprint the same confirmed documents, without creating replacement sales, then reconcile.
 
+## A completed verifier does not refresh every retained artifact
+
+Select evidence belonging to the actual run and source; do not relabel every file in a shared output directory as freshly executed.
+
+**Why:** A fully passing verification left unrelated earlier browser/security reports beside its new gate logs. Copying the whole directory into a new acceptance archive would silently mix sources and dates.
+
+**How to apply:** Bind gate outputs to the recorded source and run boundary, preserve prior evidence explicitly as historical, and verify native artifacts separately. If a gate emits only a text log, derive its totals from that raw log rather than assuming an adjacent machine-readable report exists.
+
 ## Evidence database lifetime
 
 Keep the isolated browser database alive until independent financial reconciliation has been captured, then stop it explicitly.

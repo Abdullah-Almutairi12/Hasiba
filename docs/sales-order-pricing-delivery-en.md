@@ -1,3 +1,116 @@
+# Current round — close discount fixes; correct sales summary,30 October2026
+
+## Scope and source identities
+The two discount defects are closed within their evidenced scope, not rebuilt.
+The additional run actually finished at2026-10-30T17:15:25.631Z with15/15 gates
+on377049f and the same tested executable SHA256 as21ec97a:
+60030c7a16ef11c24c09db94ed35d89753d9de2548fda7fb0fa79528bc9cbaf2.
+Its32 targeted cases are included in1102 API cases, alongside337 UI cases,
+not extra tests to add to later totals.
+
+The sales-summary fix source is e9ca70a2766b5fa552a33e9a93469acf261b2414,
+SHA25627ed596634ac2be9a15909535d792419aa1614ed9deb7ce3479ab5a1b7d2aad5.
+Rollback tag:checkpoint/sales-summary-refresh-start-20261030 at377049f.
+History is preserved; no main rewrite, force push, financial migration or new engine.
+Changed executable/test files:sales.ts,sales.tsx,sales-summary.test.ts,
+sales-summary-refresh.test.tsx and the existing isolated sales-order-browser.ts harness.
+Existing requirements05.2,12.2–12.3,14.2–14.6 apply; the73 identifiers are unchanged.
+
+## Metric contract
+Monthly invoices are gross issued invoice face values, after discounts and including VAT,
+for statuses open/partially_paid/paid within the Riyadh calendar month:
+inclusive first day,exclusive first day of next month. This is not net revenue or cash.
+The existing report permission covers the current company across all its branches;
+this is not a new delegated branch report. Restricted responsibilities cannot read it.
+An invoice table with other dates/statuses need not equal this metric.
+Outstanding receivables span all periods, using the unchanged existing paid/credit-note
+formula. No journal or historical document is recalculated.
+
+## Established faults and limited repair
+An acknowledged/recovered order invoice refreshed orders but not summary/invoice caches.
+The regression retained114.67 although the source changed to344. Both confirmed-result
+paths now invalidate the existing read models, never issue another financial POST.
+Direct invoice creation also refreshes the summary; mounted summaries poll every60seconds.
+The old month query counted draft/cancelled/next-month invoices and used server month
+instead of the shared Riyadh business date. Isolated PostgreSQL proved3430 instead of350,
+with individual status/future-month/business-clock regressions. Only read filters changed.
+Unauthorized/restricted users no longer request/render report cards, and loading/failure
+is distinct from an authoritative zero. Live server authorization remains intact.
+
+## Evidence status
+Before fix:UI0 passed/5 failed; API3 passed/5 failed.
+After targeted repair:UI5/5,API8/8; API and ERP type checks passed.
+These are subsets,not additions to final gate totals.
+Initial synthetic fixture mistakes (missing foreign-company customer, assuming stock_moves
+has company_id) and test-only TypeScript alias errors are retained as diagnostics,
+not represented as production defects.
+Final verification completed at2026-10-30T17:40:55.310Z on e9ca70a/SHA27ed5966 above:
+15/15 gates;1110 API passed/0 failed/1 upgrade-environment-only skipped;
+342 UI passed/0 failed. The independent upgrade gate passed its selected1 case,
+with38 outside that gate's selection. Do not add selected/targeted runs to aggregate totals.
+Accepted discount regression tests were rerun within the full API gate; no established
+final failure remains in those two fixes or the summary-card scope.
+The UI total is parsed from its raw erp-ui-tests.log; that gate does not emit JSON.
+Shared verifier directories retain historical browser/security files; only source/time-bound
+current outputs are packaged as fresh execution, with historical evidence labelled separately.
+The Vite-served sales.tsx inline original source matches exactly:
+52654a01dbe07065c65e220c5b2375d5fb1ade441f1d625249e1866f2b510429.
+
+## Actual original-UI journey and independent reconciliation
+A fresh synthetic PostgreSQL fixture and e9ca70a-loaded API were used. The order form
+has no branch/warehouse selectors; the native branches page proved the unique active
+branch/default warehouse used by this company. Separate API tests cover two companies
+and two branches in the first company.
+Native SO-2026-00001:3×115 VAT-inclusive,delivered once. The draft form displayed345
+before automatic pricing; the existing server line rule1 made the saved agreement344.
+This round does not establish a server-rule preview in the order-creation draft form.
+The first quantity1 preview/normal issue was114.67:SINV-2026-00001.
+Both monthly invoices and receivables refreshed to114.67 without reload,before invoice2.
+Remaining quantity2 preview229.33:the proxy dropped its201 only after committed evidence.
+The UI retained uncertainty; after reload,the original recovery returned SINV-2026-00002
+with the same request key/body digest/document identity. After recovery and tab navigation,
+summary344 and exactly two table invoices persisted. The post-reload server read may
+already show344 before recovery; we do not attribute every refresh to the replay callback.
+
+Independent read-only SQL passed:opening20 units at50,one delivery3,remaining17;
+FIFO/carrying-stock GL850,COGS150,receivables344,VAT44.87,gross revenue account300,
+discount-account debit0.87,net revenue299.13. Journals balance; no cash collection occurred.
+Two invoices/two durable financial receipts; financial snapshots after dropped success
+and its replay are identical. Scoped/month/status-matched summary API and SQL agree.
+Existing seller selection and issuance identity remain intact.
+Fifteen screenshots,UTC step report,source/proxy records and reconciliation are under
+browser-testing/final-run. Historical346.98 belongs to five invoices in the prior
+discount acceptance;344 is this new two-invoice fixture,not a hardcoded display target.
+The test proxy was stopped and normal API restored:0 new migrations applied,72 skipped.
+No remaining blocker in this slice; no third scope starts automatically.
+
+## Reproduction and handoff
+Run node scripts/test-isolated.mjs src/routes/sales-summary.test.ts,
+pnpm --filter @workspace/erp-system exec vitest run src/pages/sales-summary-refresh.test.tsx,
+then pnpm run verify. Native fixtures use --browser --pos --tax-preview --hold-browser;
+the existing sales-order-browser.ts --summary-refresh proxy performs fault injection
+and --capture performs independent reads. Pause/restore the normal API around isolated
+browser work; never point these tools at operating data.
+The bilingual Word report and actual ZIP include sanitized raw results and a SHA manifest.
+delivery-state.json records the verified code/report push at packaging time;
+later asset-registration-only commits are not a newly tested executable source.
+Generated outputs are ignored by Git and delivered separately,not claimed present in GitHub.
+
+## Boundaries
+TAX_POLICY_NOT_READY and safe legacy evidence blocks remain. No historical rewrite,
+returns expansion,other reports,ZATCA production integration,deployment,external sending,
+payment or physical device acceptance. The invoice editor was previously delivered;
+it is not a next phase to restart. No third scope starts automatically.
+API/native writes use separate synthetic PostgreSQL only. The user's independently
+reported41743 arithmetic cases are not tests executed by us or added to our counts.
+The three-invoice penny-discount browser journey was not repeated this round;
+its accepted historical evidence is retained and its permanent API regressions reran.
+No separate native direct-invoice-form/device/paper/mobile acceptance is claimed.
+This is not a claim that the entire ERP is defect-free.
+
+---
+## Historical discount delivery — retained; not the new summary-fix source
+
 # Sales-order agreed pricing and trusted partial invoice conversion
 
 ## Two-regression fix delivery — 30 October 2026
