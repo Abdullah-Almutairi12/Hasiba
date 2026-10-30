@@ -13,9 +13,10 @@ import {TaxPreviewPanel} from "@/components/tax-preview-panel";
 import {IntentRecoveryPanel} from "@/components/intent-recovery-panel";
 import {InvoiceSellerFields,useInvoiceSellers} from "@/components/sellers/invoice-seller-fields";
 
-type OrderLine={id:number;description:string;quantity:number;deliveredQty:number;invoicedQty:number;unitPrice:number};
+type OrderLine={id:number;description:string;quantity:number;deliveredQty:number;invoicedQty:number;unitPrice:number;discountPct:number};
 type Order={id:number;reference:string;branchId:number|null;total:number;currencyCode:string;
-  pricingBasis:{priceIncludesVat:boolean}|null;lines:OrderLine[]};
+  pricingBasis:{version:1|2;priceIncludesVat:boolean;orderDiscount:number;
+    lines:Array<{discountPct:number}>;storedPrecisionReview?:unknown}|null;lines:OrderLine[]};
 type Created={id:number;reference?:string};
 const valid=(r:unknown):r is Created=>!!r&&typeof r==="object"&&Number.isInteger((r as Created).id);
 const quote=(body:Record<string,unknown>)=>apiPost<TaxPreview>("/sales/invoices/tax-preview",body);
@@ -30,6 +31,8 @@ export function OrderInvoiceDialog({id,open,onOpenChange,onSaved}:{
   const [review,setReview]=useState({inclusive:false,discount:"0",reason:"",password:"",factor:""});
   const [factorMode,setFactorMode]=useState<FactorMode>("totp");
   const [reviewBusy,setReviewBusy]=useState(false);
+  const precisionReview=order?.pricingBasis?.version===1&&!order.pricingBasis.storedPrecisionReview&&
+    order.lines.some((l,i)=>order.pricingBasis!.lines[i]?.discountPct!==Number(l.discountPct));
   const sellers=useInvoiceSellers(open);
   useEffect(()=>{if(order)sellers.setBranchId(order.branchId);},[order?.id,order?.branchId]);
   const intent=useDurableIntent<Record<string,unknown>,Created>({
@@ -66,8 +69,10 @@ export function OrderInvoiceDialog({id,open,onOpenChange,onSaved}:{
   async function reviewLegacy(){
     setReviewBusy(true);
     try{
-      await apiPost(`/sales/orders/${id}/review-price-basis`,{priceIncludesVat:review.inclusive,
-        currencyCode:"SAR",orderDiscount:Number(review.discount),reason:review.reason,
+      await apiPost(`/sales/orders/${id}/review-price-basis`,{
+        priceIncludesVat:precisionReview?order!.pricingBasis!.priceIncludesVat:review.inclusive,
+        currencyCode:"SAR",orderDiscount:precisionReview?order!.pricingBasis!.orderDiscount:Number(review.discount),
+        ...(precisionReview?{confirmStoredPrecision:true}:{}),reason:review.reason,
         proof:{currentPassword:review.password,...(review.factor?factorMode==="totp"?{token:review.factor}:{recoveryCode:review.factor}:{})}});
       setReview(r=>({...r,password:"",factor:""}));setMessage("حُفظ دليل المراجعة دون تغيير الإجماليات التاريخية.");void refetch();tp.retry();
     }catch(e){setMessage(e instanceof Error?e.message:String(e));}
@@ -87,12 +92,14 @@ export function OrderInvoiceDialog({id,open,onOpenChange,onSaved}:{
       {order&&<>
         <p>إجمالي الأمر: {order.total} {order.currencyCode} — سعر الاتفاق {order.pricingBasis?order.pricingBasis.priceIncludesVat?"شامل":"غير شامل":"غير مثبت"} الضريبة.
           المعاينة تخص الكميات المختارة؛ المعاملة الضريبية ليست مجمدة بتاريخ الاتفاق.</p>
-        {!order.pricingBasis&&<fieldset disabled={reviewBusy||frozen} className="space-y-2 rounded border p-3">
-          <p role="alert">أساس السعر القديم غير مثبت. راجع أصل الاتفاق قبل التصريح؛ لا يغيّر هذا الإجراء التاريخ أو الأسعار.
-            الأوامر المفوترة جزئيًا بلا دليل تبقى محجوبة للمصالحة.</p>
-          <label><input type="checkbox" checked={review.inclusive} onChange={e=>setReview(r=>({...r,inclusive:e.target.checked}))}/>أُثبت أن أسعار الاتفاق شاملة الضريبة</label>
+        {(!order.pricingBasis||precisionReview)&&<fieldset disabled={reviewBusy||frozen} className="space-y-2 rounded border p-3">
+          <p role="alert">{precisionReview?
+            "يوجد اختلاف بين دقة الاتفاق المحفوظ ودقة التخزين القديم. راجع الدليل وأكّد أن الاختلاف نتيجة حفظ منزلتين فقط؛ لا يتغير الاتفاق أو بند المصدر أو أي قيد سابق.":
+            "أساس السعر القديم غير مثبت. راجع أصل الاتفاق قبل التصريح؛ لا يغيّر هذا الإجراء التاريخ أو الأسعار."}
+            {" "}الأوامر المفوترة جزئيًا بلا دليل تبقى محجوبة للمصالحة.</p>
+          {!precisionReview&&<><label><input type="checkbox" checked={review.inclusive} onChange={e=>setReview(r=>({...r,inclusive:e.target.checked}))}/>أُثبت أن أسعار الاتفاق شاملة الضريبة</label>
           <label className="block">خصم الأمر المتفق عليه (غير خصم نسب البنود)
-            <Input type="number" min="0" step="0.01" value={review.discount} onChange={e=>setReview(r=>({...r,discount:e.target.value}))}/></label>
+            <Input type="number" min="0" step="0.01" value={review.discount} onChange={e=>setReview(r=>({...r,discount:e.target.value}))}/></label></>}
           <label className="block">مرجع الدليل وسبب المراجعة<Input value={review.reason} onChange={e=>setReview(r=>({...r,reason:e.target.value}))}/></label>
           <label className="block">كلمة مرور حسابك لتأكيد الهوية<Input type="password" autoComplete="current-password" value={review.password}
             onChange={e=>setReview(r=>({...r,password:e.target.value}))}/></label>

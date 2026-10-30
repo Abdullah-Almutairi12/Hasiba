@@ -16,7 +16,9 @@ Object.assign(process.env,state.env,{NODE_ENV:"test",VITEST:"true",LOG_LEVEL:"er
 const {pool}=await import("@workspace/db");
 const account=state.accounts.find((a:{role:string,posSession?:unknown})=>a.role==="owner"&&a.posSession);
 assert.ok(account);
-const dir=resolve(import.meta.dirname,"../../../../generated-artifacts/sales-order-pricing");
+const discountFixes=process.argv.includes("--discount-fixes");
+const dir=resolve(import.meta.dirname,discountFixes?
+  "../../../../generated-artifacts/sales-order-discount-fixes":"../../../../generated-artifacts/sales-order-pricing");
 mkdirSync(dir,{recursive:true});
 const file=resolve(dir,"browser-proxy.json");
 const q=async(s:string,p:unknown[]=[]) => (await pool.query(s,p)).rows;
@@ -25,7 +27,7 @@ async function snapshot(query=q){
   return {
     orders:await query("SELECT id,reference,total,pricing_basis,status,created_by FROM sales_orders WHERE company_id=$1 ORDER BY id",[id]),
     lines:await query(`SELECT l.* FROM sales_order_lines l JOIN sales_orders s ON s.id=l.so_id WHERE s.company_id=$1 ORDER BY l.id`,[id]),
-    invoices:await query("SELECT id,reference,total,subtotal,discount,vat,so_id FROM customer_invoices WHERE company_id=$1 ORDER BY id",[id]),
+    invoices:await query("SELECT id,reference,total,subtotal,discount,vat,so_id,applied_discounts FROM customer_invoices WHERE company_id=$1 ORDER BY id",[id]),
     quants:await query("SELECT quantity,avg_cost FROM stock_quants WHERE product_id=$1",[account.productId]),
     layers:await query("SELECT remaining_qty,unit_cost FROM stock_layers WHERE product_id=$1",[account.productId]),
     moves:await query("SELECT id,kind,quantity,unit_cost,journal_entry_id FROM stock_moves WHERE product_id=$1 ORDER BY id",[account.productId]),
@@ -37,8 +39,13 @@ async function snapshot(query=q){
       WHERE e.company_id=$1 GROUP BY e.id HAVING sum(l.debit-l.credit)<>0`,[id]),
     receipts:await query("SELECT operation,request_key,result->'value' AS value FROM financial_requests WHERE company_id=$1",[id]),
     sellers:await query("SELECT employee_id,seller_name,invoice_id,invoice_line_id FROM invoice_seller_lines WHERE company_id=$1 ORDER BY invoice_id,invoice_line_id",[id]),
-    identities:await query("SELECT document_kind,document_id,issuer->'saleIdentity' AS identity FROM document_issuer_snapshots WHERE company_id=$1",[id]),
+    identities:await query("SELECT document_kind,document_id,issuer->'saleIdentity' AS identity,issuer->'taxCalculation' AS tax FROM document_issuer_snapshots WHERE company_id=$1",[id]),
   };
+}
+if(discountFixes&&process.argv.includes("--penny-setup")){
+  await q("UPDATE discount_rules SET is_active=(scope='order') WHERE name LIKE 'SO-FIX-%'");
+  console.log("[so-browser] isolated penny fixture activated; no document API invoked");
+  await pool.end();process.exit(0);
 }
 if(process.argv.includes("--capture")){
   const c=await pool.connect();
@@ -46,26 +53,39 @@ if(process.argv.includes("--capture")){
     await c.query("BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY");
     const saved=JSON.parse(readFileSync(file,"utf8"));
     const current=await snapshot(async(s,p=[]) => (await c.query(s,p)).rows);
-    assert.equal(current.orders.length,1);assert.equal(current.invoices.length,2);
-    assert.deepEqual(current.invoices.map(i=>Number(i.total)).sort((a,b)=>a-b),[115,230]);
-    assert.equal(current.lines.reduce((s,l)=>s+Number(l.invoiced_qty),0),3);
-    assert.equal(current.lines.reduce((s,l)=>s+Number(l.delivered_qty),0),3);
-    assert.equal(current.quants.reduce((s,l)=>s+Number(l.quantity),0),17);
-    assert.equal(current.quants.reduce((s,l)=>s+Number(l.quantity)*Number(l.avg_cost),0),850);
-    assert.equal(current.layers.reduce((s,l)=>s+Number(l.remaining_qty),0),17);
-    assert.equal(current.layers.reduce((s,l)=>s+Number(l.remaining_qty)*Number(l.unit_cost),0),850);
+    assert.equal(current.orders.length,discountFixes?2:1);assert.equal(current.invoices.length,discountFixes?5:2);
+    assert.deepEqual(current.invoices.map(i=>Number(i.total)).sort((a,b)=>a-b),discountFixes?[.99,.99,1,114.67,229.33]:[115,230]);
+    assert.equal(current.lines.reduce((s,l)=>s+Number(l.invoiced_qty),0),discountFixes?6:3);
+    assert.equal(current.lines.reduce((s,l)=>s+Number(l.delivered_qty),0),discountFixes?6:3);
+    assert.equal(current.quants.reduce((s,l)=>s+Number(l.quantity),0),discountFixes?14:17);
+    assert.equal(current.quants.reduce((s,l)=>s+Number(l.quantity)*Number(l.avg_cost),0),discountFixes?700:850);
+    assert.equal(current.layers.reduce((s,l)=>s+Number(l.remaining_qty),0),discountFixes?14:17);
+    assert.equal(current.layers.reduce((s,l)=>s+Number(l.remaining_qty)*Number(l.unit_cost),0),discountFixes?700:850);
     const balance=(key:string)=>Number(current.ledger.find(l=>l.system_key===key)?.balance??0);
-    assert.equal(balance("inventory"),850);assert.equal(balance("cogs"),150);
-    assert.equal(balance("ar"),345);assert.equal(balance("vat_output"),-45);
-    assert.equal(balance("sales_revenue"),-300);assert.deepEqual(current.unbalanced,[]);
+    assert.equal(balance("inventory"),discountFixes?700:850);assert.equal(balance("cogs"),discountFixes?300:150);
+    assert.equal(balance("ar"),discountFixes?346.98:345);assert.equal(balance("vat_output"),discountFixes?-45.26:-45);
+    assert.equal(balance("sales_revenue"),discountFixes?-302.61:-300);assert.deepEqual(current.unbalanced,[]);
     const issued=saved.events.filter((e:{kind:string})=>e.kind==="invoice");
-    assert.equal(issued.length,3);assert.equal(issued[0].droppedAfterCommit,true);
+    assert.equal(issued.length,discountFixes?6:3);assert.equal(issued[0].droppedAfterCommit,true);
     assert.equal(issued[0].key,issued[1].key);assert.equal(issued[0].bodyHash,issued[1].bodyHash);
     assert.equal(issued[0].id,issued[1].id);
     assert.deepEqual(issued[0].after,issued[1].after);
-    assert.equal(current.sellers.length,2);
+    assert.equal(current.sellers.length,discountFixes?5:2);
     const invoices=current.invoices.map(i=>i.id);
-    assert.equal(current.receipts.filter(r=>invoices.includes(r.value?.inv?.id)).length,2);
+    assert.equal(current.receipts.filter(r=>invoices.includes(r.value?.inv?.id)).length,discountFixes?5:2);
+    if(discountFixes){
+      assert.equal(Number(current.lines[0].discount_pct),.2899);
+      const sources=new Map<number,number>();
+      for(const inv of current.invoices.slice(2)){
+        const allocation=current.identities.find(d=>d.document_kind==="invoice"&&d.document_id===inv.id)!.tax.discountAllocation.lines[0];
+        assert.equal(allocation.manualGrossDiscount,0);assert.equal(allocation.grossDiscount,Number(inv.discount));
+        for(const a of inv.applied_discounts){assert.ok(a.amount>=0);sources.set(a.id,(sources.get(a.id)??0)+Math.round(a.amount*100));}
+        assert.equal(inv.applied_discounts.reduce((n:number,a:{amount:number})=>n+Math.round(a.amount*100),0),Math.round(Number(inv.discount)*100));
+      }
+      assert.deepEqual([...sources.values()],[1,1]);
+      assert.equal(current.moves.filter(m=>m.kind==="issue").length,2);
+      assert.equal(balance("sales_discount"),.89);
+    }
     writeFileSync(resolve(dir,"browser-reconciliation.json"),JSON.stringify({passed:true,source:saved.source,current},null,2));
     console.log("[so-browser] independent reconciliation passed");
   }finally{await c.query("ROLLBACK");c.release();await pool.end();}
@@ -73,6 +93,16 @@ if(process.argv.includes("--capture")){
 }
 const {default:app,assertApplicationReady}=await import("../app");
 await assertApplicationReady();
+if(discountFixes){
+  const {db,discountRulesTable}=await import("@workspace/db");
+  await q("UPDATE discount_rules SET is_active=false");
+  await q("DELETE FROM discount_rules WHERE name LIKE 'SO-FIX-%'");
+  await db.insert(discountRulesTable).values([
+    {name:"SO-FIX-LINE",nameAr:"إثبات خصم البند ريال",reasonCode:"test",kind:"fixed",scope:"line",value:"1",isActive:true,accountSystemKey:"sales_discount"},
+    {name:"SO-FIX-PENNY-A",nameAr:"إثبات قاعدة الهللة ألف",reasonCode:"test",kind:"fixed",scope:"order",value:".01",isActive:false,accountSystemKey:"sales_discount"},
+    {name:"SO-FIX-PENNY-B",nameAr:"إثبات قاعدة الهللة باء",reasonCode:"test",kind:"fixed",scope:"order",value:".01",isActive:false,accountSystemKey:"sales_discount"},
+  ]);
+}
 const {verificationSource}=await import(new URL("../../../../scripts/verification-source.mjs",import.meta.url).href);
 const evidence={source:await verificationSource(resolve(import.meta.dirname,"../../../..")),baseline:await snapshot(),
   events:[] as Record<string,unknown>[]};

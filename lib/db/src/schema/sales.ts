@@ -232,7 +232,7 @@ export const salesOrderLinesTable = pgTable("sales_order_lines", {
     .notNull()
     .default("0"),
   unitPrice: numeric("unit_price", { precision: 30, scale: 12 }).notNull(),
-  discountPct: numeric("discount_pct", { precision: 5, scale: 2 })
+  discountPct: numeric("discount_pct", { precision: 7, scale: 4 })
     .notNull()
     .default("0"),
   taxRate: numeric("tax_rate", { precision: 5, scale: 2 }).notNull().default("15"),

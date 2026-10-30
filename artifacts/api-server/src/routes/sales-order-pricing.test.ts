@@ -12,7 +12,8 @@ import {submitForApproval,actOnApproval} from "../lib/workflow-engine";
 const q=async(s:string,p:unknown[]=[]) => (await pool.query(s,p)).rows;
 beforeAll(assertApplicationReady);
 let ip=145;
-async function fixture(inclusive:boolean,price=115,quantity=3,discount=1,namedRule=false,lineCount=1){
+async function fixture(inclusive:boolean,price=115,quantity=3,discount=1,namedRule=false,lineCount=1,
+  options:{lineFixed?:number;linePercent?:number;orderRules?:number[];distinctRuleAccounts?:boolean}={}){
   if(process.env.ACCOUNT_ISOLATED_TEST!=="true")throw new Error("Isolated PostgreSQL required");
   const tag=randomUUID(),password=`Synthetic-${tag}`;
   const [c]=await db.insert(companiesTable).values({name:tag,vatRegistrationStatus:"not_registered"}).returning();
@@ -34,6 +35,19 @@ async function fixture(inclusive:boolean,price=115,quantity=3,discount=1,namedRu
     [c.id,randomUUID(),riyadhDate(),inclusive,JSON.stringify([{productId:p.id,rule:{category:"standard"}}]),u.id]);
   const a=request.agent(app).set("X-Forwarded-For",`198.51.100.${ip++}`);
   expect((await a.post("/api/auth/login").send({email:u.email,password})).status).toBe(200);
+  const extraRules:Array<typeof discountRulesTable.$inferSelect>=[];
+  for(const [scope,kind,value] of [
+    ...(options.lineFixed!=null?[["line","fixed",options.lineFixed] as const]:[]),
+    ...(options.linePercent!=null?[["line","percent",options.linePercent] as const]:[]),
+    ...(options.orderRules??[]).map(v=>["order","fixed",v] as const),
+  ]){
+    const accountSystemKey=options.distinctRuleAccounts?`test_discount_${tag}_${extraRules.length}`:"sales_discount";
+    if(options.distinctRuleAccounts)await q(`INSERT INTO accounts(code,name,name_ar,type,system_key)
+      VALUES($1,'Synthetic rule discount','خصم قاعدة مصطنع','expense',$1)`,[accountSystemKey]);
+    const [r]=await db.insert(discountRulesTable).values({name:`${tag}-${extraRules.length}`,nameAr:`قاعدة ${extraRules.length}`,
+      kind,scope,value:String(value),reasonCode:"test",accountSystemKey}).returning();
+    extraRules.push(r);
+  }
   const rule=namedRule?(await db.insert(discountRulesTable).values({name:tag,nameAr:tag,kind:"fixed",scope:"order",
     value:"11.50",reasonCode:"test",accountSystemKey:"sales_discount"}).returning())[0]:null;
   const created=await a.post("/api/sales/orders").send({customerId:customer.id,branchId:b.id,warehouseId:w.id,
@@ -41,11 +55,12 @@ async function fixture(inclusive:boolean,price=115,quantity=3,discount=1,namedRu
       quantity,unitPrice:price,discountPct:0,taxRate:15}))});
   expect(created.status,JSON.stringify(created.body)).toBe(201);
   if(rule)await q("UPDATE discount_rules SET is_active=false WHERE id=$1",[rule.id]);
+  for(const r of extraRules)await q("UPDATE discount_rules SET is_active=false WHERE id=$1",[r.id]);
   const order=created.body;
   const delivery=await a.post("/api/sales/deliveries").send({soId:order.id});
   expect(delivery.status,JSON.stringify(delivery.body)).toBe(201);
   const lines=await q("SELECT * FROM sales_order_lines WHERE so_id=$1 ORDER BY id",[order.id]);
-  return {a,c,u,b,w,p,customer,order,line:lines[0],lines,password,rule};
+  return {a,c,u,b,w,p,customer,order,line:lines[0],lines,password,rule,extraRules};
 }
 type F=Awaited<ReturnType<typeof fixture>>;
 async function quote(f:F,quantity:number){
@@ -63,6 +78,161 @@ async function state(f:F){
     (SELECT count(*)::int FROM financial_requests WHERE company_id=$1) AS receipts`,[f.c.id,f.p.id]))[0];
 }
 describe("sales order fixed commercial basis, trusted partial invoice",()=>{
+  it("legacy precision needs explicit identity-proved evidence; never rewrites source rows or issued history",async()=>{
+    const f=await fixture(true,115,3,0,false,1,{lineFixed:1});
+    await q("UPDATE sales_orders SET pricing_basis=jsonb_set(pricing_basis,'{version}','1') WHERE id=$1",[f.order.id]);
+    await q("UPDATE sales_order_lines SET discount_pct=round(discount_pct,2) WHERE so_id=$1",[f.order.id]);
+    const before=await state(f),source=await q("SELECT * FROM sales_order_lines WHERE so_id=$1",[f.order.id]);
+    expect((await f.a.post("/api/sales/invoices/tax-preview").send({soId:f.order.id})).status).toBe(409);
+    const review={priceIncludesVat:true,currencyCode:"SAR",orderDiscount:0,confirmStoredPrecision:true,
+      reason:"دليل مصطنع لمراجعة فرق دقة التخزين دون تغيير الاتفاق",proof:{currentPassword:"wrong"}};
+    expect((await f.a.post(`/api/sales/orders/${f.order.id}/review-price-basis`).send(review)).status).toBeGreaterThanOrEqual(400);
+    expect((await f.a.post(`/api/sales/orders/${f.order.id}/review-price-basis`).send({
+      ...review,orderDiscount:1,proof:{currentPassword:f.password}})).status).toBe(409);
+    const result=await f.a.post(`/api/sales/orders/${f.order.id}/review-price-basis`).send({
+      ...review,proof:{currentPassword:f.password}});
+    expect(result.status,JSON.stringify(result.body)).toBe(200);
+    expect(await q("SELECT * FROM sales_order_lines WHERE so_id=$1",[f.order.id])).toEqual(source);
+    expect(await state(f)).toEqual(before);
+    expect((await q("SELECT count(*)::int AS n FROM audit_logs WHERE company_id=$1 AND action='sales_order.stored_precision_reviewed'",[f.c.id]))[0].n).toBe(1);
+    for(const quantity of [1,2]){
+      const v=await quote(f,quantity),r=await f.a.post("/api/sales/invoices").set("Idempotency-Key",randomUUID()).send(v.body);
+      expect(r.status,JSON.stringify(r.body)).toBe(201);
+    }
+    expect((await f.a.post(`/api/sales/orders/${f.order.id}/review-price-basis`).send({
+      ...review,proof:{currentPassword:f.password}})).status).toBe(409);
+    expect(Number((await q("SELECT sum(total) AS n FROM customer_invoices WHERE so_id=$1",[f.order.id]))[0].n)).toBe(344);
+  });
+  it("a pre-fix partly invoiced rule allocation stays blocked without source evidence",async()=>{
+    const f=await fixture(false,1,3,0,false,1,{orderRules:[.01,.01]});
+    await q("UPDATE sales_orders SET pricing_basis=jsonb_set(pricing_basis,'{version}','1') WHERE id=$1",[f.order.id]);
+    const first=await quote(f,1);
+    const r=await f.a.post("/api/sales/invoices").set("Idempotency-Key",randomUUID()).send(first.body);
+    expect(r.status).toBe(201);
+    // Reproduce the old issued snapshot, which never stored gross-source allocation.
+    await q(`UPDATE document_issuer_snapshots SET issuer=issuer #- '{taxCalculation,discountAllocation}'
+      WHERE document_kind='invoice' AND document_id=$1 AND company_id=$2`,[r.body.id,f.c.id]);
+    const before=await state(f);
+    const next=await f.a.post("/api/sales/invoices/tax-preview").send({soId:f.order.id,soQuantities:[{soLineId:f.line.id,quantity:1}]});
+    expect(next.status).toBe(409);expect(next.body.error).toContain("مصالحة");expect(await state(f)).toEqual(before);
+  });
+  it("four-decimal storage and legacy review never authorize true commercial tampering",async()=>{
+    const f=await fixture(false,115,3,0,false,1,{lineFixed:1}),before=await state(f);
+    for(const [column,value] of [["discount_pct",.2900],["unit_price",116],["quantity",4]] as const){
+      const old=f.line[column];
+      await q(`UPDATE sales_order_lines SET ${column}=$2 WHERE id=$1`,[f.line.id,value]);
+      expect((await f.a.post("/api/sales/invoices/tax-preview").send({soId:f.order.id})).status).toBe(409);
+      await q(`UPDATE sales_order_lines SET ${column}=$2 WHERE id=$1`,[f.line.id,old]);
+    }
+    expect(await state(f)).toEqual(before);
+  });
+  for(const inclusive of [true,false])
+    it(`stacked line rules, manual discount and two order rules reconcile fractional portions (inclusive=${inclusive})`,async()=>{
+      const f=await fixture(inclusive,115,3,.07,false,1,{lineFixed:1,linePercent:2.5,orderRules:[.01,.02]});
+      const before=await state(f);
+      for(const quantity of [.5,1,1.5]){
+        const v=await quote(f,quantity),r=await f.a.post("/api/sales/invoices").set("Idempotency-Key",randomUUID()).send(v.body);
+        expect(r.status,JSON.stringify(r.body)).toBe(201);
+      }
+      const rows=await q(`SELECT i.id,i.subtotal,i.total,i.discount,i.vat,i.applied_discounts,
+        d.issuer->'taxCalculation'->'discountAllocation' AS allocation
+        FROM customer_invoices i JOIN document_issuer_snapshots d ON d.document_kind='invoice' AND d.document_id=i.id
+        AND d.company_id=i.company_id WHERE i.so_id=$1 ORDER BY i.id`,[f.order.id]);
+      const rawSources=new Map(f.extraRules.map(r=>[r.id,0]));let manual=0,total=0,vat=0,netDiscount=0;
+      const roundRatio=(n:number,d:number)=>Math.floor((2*n+d)/(2*d));
+      for(const r of rows){
+        const l=r.allocation.lines[0],gross=Math.round(l.quantity*11500);
+        const rawBase=inclusive?roundRatio(gross*100,115):gross;
+        manual+=Math.round(l.manualGrossDiscount*100);
+        let payable=gross-Math.round(l.manualGrossDiscount*100);
+        let prev=inclusive?roundRatio(payable*100,115):payable;
+        let namedNet=0;
+        for(const a of l.rules){
+          expect(a.grossDiscount).toBeGreaterThanOrEqual(0);
+          rawSources.set(a.id,rawSources.get(a.id)!+Math.round(a.grossDiscount*100));
+          payable-=Math.round(a.grossDiscount*100);
+          const next=inclusive?roundRatio(payable*100,115):payable;
+          const saved=r.applied_discounts.find((x:{id:number})=>x.id===a.id);
+          expect(Math.round(saved.amount*100)).toBe(prev-next);namedNet+=prev-next;prev=next;
+        }
+        const expectedVat=inclusive?payable-prev:roundRatio(prev*15,100);
+        expect(Math.round(Number(r.subtotal)*100)).toBe(rawBase);
+        expect(Math.round(Number(r.vat)*100)).toBe(expectedVat);
+        expect(Math.round(Number(r.discount)*100)).toBe(rawBase-prev);
+        expect(namedNet).toBeLessThanOrEqual(rawBase-prev);
+        expect(Math.round(Number(r.total)*100)).toBe(prev+expectedVat);
+        total+=prev+expectedVat;vat+=expectedVat;netDiscount+=rawBase-prev;
+      }
+      expect([...rawSources.values()]).toEqual([100,860,1,2]);expect(manual).toBe(7);
+      const ledger=await q(`SELECT a.system_key,sum(l.debit-l.credit) AS balance FROM journal_entries e
+        JOIN journal_entry_lines l ON l.entry_id=e.id JOIN accounts a ON a.id=l.account_id
+        WHERE e.company_id=$1 GROUP BY a.system_key`,[f.c.id]);
+      const balance=(key:string)=>Math.round(Number(ledger.find(r=>r.system_key===key)?.balance??0)*100);
+      expect(balance("ar")).toBe(total);expect(balance("vat_output")).toBe(-vat);expect(balance("sales_discount")).toBe(netDiscount);
+      expect(balance("inventory")).toBe(85000);expect(balance("cogs")).toBe(15000);
+      expect((await state(f)).moves).toBe(before.moves);
+      expect(ledger.reduce((s,r)=>s+Math.round(Number(r.balance)*100),0)).toBe(0);
+      console.info("[stacked-independent-reconciliation]",JSON.stringify({inclusive,rawSources:[...rawSources],manual,total,vat,netDiscount,ledger}));
+    });
+  for(const inclusive of [true,false])for(const partial of [true,false])
+    it(`fixed line discount survives PostgreSQL storage and conversion (inclusive=${inclusive},partial=${partial})`,async()=>{
+      const f=await fixture(inclusive,115,3,0,false,1,{lineFixed:1});
+      const [saved]=await q("SELECT pricing_basis FROM sales_orders WHERE id=$1",[f.order.id]);
+      expect(saved.pricing_basis.lines[0].discountPct).toBe(.2899);
+      console.info("[precision-storage-evidence]",JSON.stringify({agreed:saved.pricing_basis.lines[0].discountPct,stored:f.line.discount_pct}));
+      await quote(f,partial?1:3);
+      expect(Number(f.line.discount_pct)).toBe(saved.pricing_basis.lines[0].discountPct);
+      const before=await state(f),ids=[];
+      for(const quantity of partial?[1,2]:[3]){
+        const v=await quote(f,quantity);
+        const r=await f.a.post("/api/sales/invoices").set("Idempotency-Key",randomUUID()).send(v.body);
+        expect(r.status,JSON.stringify(r.body)).toBe(201);ids.push(r.body.id);
+      }
+      const invoices=await q("SELECT total,discount,applied_discounts FROM customer_invoices WHERE so_id=$1",[f.order.id]);
+      expect(invoices).toHaveLength(partial?2:1);
+      expect(Math.round(invoices.reduce((s,i)=>s+Number(i.total),0)*100)).toBe(inclusive?34400:39560);
+      expect(invoices.every(i=>i.applied_discounts.every((a:{amount:number})=>a.amount>=0))).toBe(true);
+      expect((await state(f)).moves).toBe(before.moves);
+      const [balance]=await q(`SELECT sum(l.debit-l.credit) AS n FROM journal_entry_lines l
+        JOIN journal_entries e ON e.id=l.entry_id WHERE e.company_id=$1`,[f.c.id]);
+      expect(Number(balance.n)).toBe(0);
+    });
+  for(const inclusive of [true,false])for(const manual of [0,.01])
+    it(`two penny rules retain sources through three actual invoices (inclusive=${inclusive},manual=${manual})`,async()=>{
+      const f=await fixture(inclusive,1,3,manual,false,1,{orderRules:[.01,.01],distinctRuleAccounts:true});
+      const results=[];
+      for(let part=0;part<3;part++){
+        const v=await quote(f,1);
+        const r=await f.a.post("/api/sales/invoices").set("Idempotency-Key",randomUUID()).send(v.body);
+        expect(r.status,JSON.stringify(r.body)).toBe(201);results.push(r.body.id);
+      }
+      const invoices=await q("SELECT total,vat,discount,applied_discounts FROM customer_invoices WHERE so_id=$1 ORDER BY id",[f.order.id]);
+      const byRule=new Map(f.extraRules.map(r=>[r.id,0]));
+      let actualManual=0;
+      for(const inv of invoices){
+        const named=inv.applied_discounts.reduce((sum:number,r:{id:number;amount:number})=>{
+          expect(r.amount).toBeGreaterThanOrEqual(0);expect(byRule.has(r.id)).toBe(true);
+          byRule.set(r.id,byRule.get(r.id)!+Math.round(r.amount*100));return sum+Math.round(r.amount*100);
+        },0);
+        const manualPart=Math.round(Number(inv.discount)*100)-named;
+        expect(manualPart).toBeGreaterThanOrEqual(0);actualManual+=manualPart;
+      }
+      expect([...byRule.values()]).toEqual([1,1]);expect(actualManual).toBe(Math.round(manual*100));
+      const total=invoices.reduce((s,i)=>s+Math.round(Number(i.total)*100),0);
+      const vat=invoices.reduce((s,i)=>s+Math.round(Number(i.vat)*100),0);
+      const discount=invoices.reduce((s,i)=>s+Math.round(Number(i.discount)*100),0);
+      expect(discount).toBe(2+Math.round(manual*100));expect(total).toBe(inclusive?300-discount:345-discount);
+      expect(vat).toBe(inclusive?39:45);
+      const ledger=await q(`SELECT a.system_key,sum(l.debit-l.credit) AS balance FROM journal_entries e
+        JOIN journal_entry_lines l ON l.entry_id=e.id JOIN accounts a ON a.id=l.account_id
+        WHERE e.company_id=$1 GROUP BY a.system_key`,[f.c.id]);
+      const cents=(key:string)=>Math.round(Number(ledger.find(a=>a.system_key===key)?.balance??0)*100);
+      expect(cents("ar")).toBe(total);expect(cents("vat_output")).toBe(-vat);
+      expect(cents("sales_discount")).toBe(actualManual);
+      for(const rule of f.extraRules)expect(cents(rule.accountSystemKey)).toBe(byRule.get(rule.id));
+      expect(ledger.reduce((s,a)=>s+Math.round(Number(a.balance)*100),0)).toBe(0);
+      console.info("[discount-independent-reconciliation]",JSON.stringify({inclusive,manual,byRule:[...byRule],actualManual,total,vat,discount,ledger}));
+    });
   it("multiple tiny lines use grouped invoice VAT and disclose the final rounding difference",async()=>{
     const f=await fixture(false,.01,1,0,false,4);
     for(const ids of [f.lines.slice(0,2),f.lines.slice(2)]){
@@ -231,6 +401,35 @@ describe("sales order fixed commercial basis, trusted partial invoice",()=>{
     await q("UPDATE users SET is_active=false WHERE id=$1",[reviewer.id]);
     const r=await f.a.post("/api/sales/invoices").set("Idempotency-Key",randomUUID()).send(v.body);
     expect(r.status,JSON.stringify(r.body)).toBe(403);expect(await state(f)).toEqual(before);
+  });
+  it.each(["executor","approver"] as const)("withdrawn %s wins while conversion waits behind a real PostgreSQL fence",async(who)=>{
+    const f=await fixture(false),tag=randomUUID();
+    const [reviewer]=await db.insert(usersTable).values({name:"مراجع انتظار مصطنع",email:`waiting-${tag}@example.invalid`,
+      passwordHash:await bcrypt.hash(`Synthetic-${tag}`,4),role:"manager",isActive:true}).returning();
+    await db.insert(userCompaniesTable).values({companyId:f.c.id,userId:reviewer.id,role:"manager"});
+    const submitted=await submitForApproval({companyId:f.c.id,docType:"sales_order",recordId:f.order.id,
+      recordRef:f.order.reference,amount:Number(f.order.total),branchId:f.b.id,submittedByUserId:f.u.id,forceRoles:["manager"]});
+    await actOnApproval(submitted.requestId!,reviewer.id,reviewer.name,"approve",f.c.id);
+    const v=await quote(f,1),key=randomUUID(),before=await state(f),blocker=await pool.connect();
+    try{
+      await blocker.query("BEGIN");
+      await blocker.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))",
+        [JSON.stringify([f.c.id,f.u.id,"POST:/api:/sales/invoices",key])]);
+      const [{pid}]=(await blocker.query("SELECT pg_backend_pid() AS pid")).rows;
+      const pending=f.a.post("/api/sales/invoices").set("Idempotency-Key",key).send(v.body).then(r=>r);
+      let observed=false;
+      for(let i=0;i<150;i++){
+        const [r]=await q("SELECT count(*)::int AS n FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid))",[pid]);
+        if(r.n>0){observed=true;break;}await new Promise(r=>setTimeout(r,10));
+      }
+      expect(observed).toBe(true);
+      if(who==="executor")await q("UPDATE user_companies SET role='employee' WHERE company_id=$1 AND user_id=$2",[f.c.id,f.u.id]);
+      else await q("UPDATE users SET is_active=false WHERE id=$1",[reviewer.id]);
+      await blocker.query("COMMIT");
+      const result=await pending;expect(result.status,JSON.stringify(result.body)).toBe(403);
+      expect(await state(f)).toEqual(before);
+      console.info("[order-waiting-revocation]",JSON.stringify({who,blockerPid:pid,waiterObserved:observed,status:result.status,noFinancialEffect:true}));
+    }finally{await blocker.query("ROLLBACK");blocker.release();}
   });
   it.each([false,true])("a material source/tax change invalidates old approval (inclusive=%s)",async(inclusive)=>{
     const f=await fixture(inclusive),tag=randomUUID();

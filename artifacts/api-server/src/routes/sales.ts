@@ -38,7 +38,7 @@ import { saleDocumentHistory } from "../lib/sale-document-history";
 import { checkDocumentPrint } from "../lib/print-permissions";
 import { randomUUID } from "node:crypto";
 import {directInvoiceTaxAuthority,prepareDirectInvoiceTax} from "../lib/direct-invoice-tax";
-import {prepareOrderInvoice,assertOrderInvoiceAccess,type OrderPriceBasis} from "../lib/sales-order-pricing";
+import {prepareOrderInvoice,assertOrderInvoiceAccess,reviewStoredPrecision,type OrderPriceBasis} from "../lib/sales-order-pricing";
 import {withAccountProof} from "../lib/account-security";
 import {issueTaxPreview,verifyTaxPreview} from "../lib/tax-preview";
 import {closeSaleIntent} from "../lib/close-sale-intent";
@@ -1195,6 +1195,7 @@ router.post("/sales/orders/:id/review-price-basis",financeGuard,async(req,res)=>
   try{
     const input=z.object({priceIncludesVat:z.boolean(),orderDiscount:z.number().finite().min(0),
       currencyCode:z.literal("SAR"),reason:z.string().trim().min(10).max(1000),
+      confirmStoredPrecision:z.boolean().optional(),
       proof:z.object({currentPassword:z.string().min(1).max(200),token:z.string().max(20).optional(),
         recoveryCode:z.string().max(100).optional()})}).parse(req.body);
     const cid=getCompanyId(req),id=Number(req.params.id);
@@ -1204,11 +1205,22 @@ router.post("/sales/orders/:id/review-price-basis",financeGuard,async(req,res)=>
         eq(salesOrdersTable.companyId,cid))).for("update");
       if(!order)throw new FinancialRequestError("أمر البيع غير موجود",404);
       await assertOrderInvoiceAccess(tx,req,order.id);
-      if(order.pricingBasis)throw new FinancialRequestError("أساس السعر مثبت بالفعل ولا يُستبدل بهذا المسار",409);
       if(order.currencyCode!=="SAR")throw new FinancialRequestError("لا تُحوّل العملة التاريخية افتراضيًا",422);
       const lines=await tx.select().from(salesOrderLinesTable).where(eq(salesOrderLinesTable.soId,id)).orderBy(salesOrderLinesTable.id);
+      if(order.pricingBasis){
+        const original=order.pricingBasis as OrderPriceBasis;
+        if(!input.confirmStoredPrecision||input.priceIncludesVat!==original.priceIncludesVat||input.orderDiscount!==original.orderDiscount)
+          throw new FinancialRequestError("لا يُستبدل الاتفاق المثبت؛ مراجعة دقة الحفظ تحتاج تصريحًا صريحًا بنفس حقائقه",409);
+        const reviewed=reviewStoredPrecision(original,lines,req.session.userId!,input.reason);
+        await tx.update(salesOrdersTable).set({pricingBasis:reviewed}).where(eq(salesOrdersTable.id,id));
+        await tx.execute(sql`INSERT INTO audit_logs(company_id,user_id,user_name,action,entity,details)
+          SELECT ${cid},id,name,'sales_order.stored_precision_reviewed','sales_order',
+          ${JSON.stringify({orderId:id,reason:input.reason,before:original,after:reviewed,identityConfirmed:true,
+            sourceRowsAndHistoricalTotalsUnchanged:true})} FROM users WHERE id=${req.session.userId!}`);
+        return;
+      }
       if(lines.some(l=>Number(l.invoicedQty)!==0))throw new FinancialRequestError("أمر مفوتر جزئيًا بلا دليل سعر؛ يحتاج مصالحة تاريخية مستقلة ولا يُعاد تفسيره",409);
-      const basis:OrderPriceBasis={version:1,priceIncludesVat:input.priceIncludesVat,currencyCode:"SAR",
+      const basis:OrderPriceBasis={version:2,priceIncludesVat:input.priceIncludesVat,currencyCode:"SAR",
         orderDiscount:input.orderDiscount,source:"reviewed_legacy",recordedBy:req.session.userId!,
         recordedAt:new Date().toISOString(),lines:lines.map(l=>({productId:l.productId,description:l.description,
           quantity:Number(l.quantity),unitPrice:Number(l.unitPrice),discountPct:Number(l.discountPct),taxRate:Number(l.taxRate),priceSource:"reviewed_legacy"}))};
@@ -1257,6 +1269,8 @@ router.post("/sales/orders", salesWriteGuard, async (req, res) => {
           throw new FinancialRequestError("صنف أمر البيع خارج المنشأة",403);
         if(Math.abs(ln.quantity*10000-Math.round(ln.quantity*10000))>1e-6)
           throw new FinancialRequestError("كمية الأمر تدعم أربع منازل عشرية",422);
+        if(Math.abs(ln.discountPct*10000-Math.round(ln.discountPct*10000))>1e-6)
+          throw new FinancialRequestError("نسبة خصم الأمر تدعم أربع منازل عشرية دون تقريب صامت",422);
         let unitPrice = ln.unitPrice;
         let priceSource:OrderPriceBasis["lines"][number]["priceSource"]="manual";
         if (unitPrice == null && ln.productId) {
@@ -1297,7 +1311,7 @@ router.post("/sales/orders", salesWriteGuard, async (req, res) => {
         enriched,
         agreedOrderDiscount,{priceIncludesVat},
       );
-      const pricingBasis:OrderPriceBasis={version:1,priceIncludesVat,currencyCode:body.currencyCode,
+      const pricingBasis:OrderPriceBasis={version:2,priceIncludesVat,currencyCode:body.currencyCode,
         orderDiscount:agreedOrderDiscount,source:"explicit_order",recordedBy:req.session.userId!,
         recordedAt:new Date().toISOString(),lines:enriched.map((l,i)=>({...l,
           productId:l.productId??null,discountPct:l.discountPct??0,taxRate:l.taxRate??0,priceSource:priceSources[i]!})),

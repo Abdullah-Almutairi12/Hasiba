@@ -45,6 +45,12 @@ An agreed sales-order price basis is distinct from the legal tax treatment.
 
 **How to apply:** Preserve evidence of the commercial agreement and determine tax using evidenced supply facts. Round each actual invoice with the canonical calculator; disclose differences from an order's estimate. Unknown legacy agreements require explicit audited review, not automatic historical backfilling.
 
+Partial discount totals and their named/manual sources must use a joint monotone cumulative allocation, not independently rounded quotas.
+
+**Why:** Two valid one-halalah rule budgets can independently claim two halalahs in a portion whose total discount is zero. Reassigning the difference to manual discount changes financial attribution rather than fixing it.
+
+**How to apply:** Preserve each full source budget, allocate only the cumulative total actually available, and retain allocation-method/source evidence at issuance. Do not retrospectively apply a new schedule to already-issued portions without evidence of their original source allocations.
+
 Output retries and deliberate reprints are different logical requests.
 
 **Why:** A lost response must not duplicate the audit event, but retaining the same identity after acknowledged success silently collapses a later intentional print into the first event. Neither event proves paper output.

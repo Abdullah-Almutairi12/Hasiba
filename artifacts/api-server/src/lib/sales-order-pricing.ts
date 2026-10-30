@@ -10,11 +10,13 @@ import {assertDeferredSalesOrderApproval} from "./workflow-engine";
 import {returnActor} from "./return-access";
 
 export type OrderPriceBasis={
-  version:1;priceIncludesVat:boolean;currencyCode:"SAR";orderDiscount:number;
+  version:1|2;priceIncludesVat:boolean;currencyCode:"SAR";orderDiscount:number;
   source:"explicit_order"|"reviewed_legacy";recordedBy:number;recordedAt:string;
   lines:Array<{productId:number|null;description:string;quantity:number;unitPrice:number;discountPct:number;
     taxRate:number;priceSource:"manual"|"product"|"pricelist"|"reviewed_legacy"}>;
   ruleBudgets?:Array<{id:number;name:string;reasonCode:string|null;accountSystemKey:string;amounts:number[]}>;
+  storedPrecisionReview?:{by:number;at:string;reason:string;
+    lines:Array<{lineId:number;agreedDiscountPct:number;storedDiscountPct:number}>};
 };
 type Order=typeof salesOrdersTable.$inferSelect;
 type Line=typeof salesOrderLinesTable.$inferSelect;
@@ -29,6 +31,45 @@ export async function assertOrderInvoiceAccess(tx:DbOrTx,req:Request,orderId:num
     throw fail("أمر البيع خارج نطاق فروع المستخدم",403);
 }
 const money=(n:number)=>Math.round((n+Number.EPSILON)*100)/100;
+const ALLOCATION_METHOD="nested_cumulative_cents_v1";
+/** Explicit legacy acknowledgement, not a tolerance on current documents.
+ * Only the exact old two-decimal projection is reviewable; no source row or
+ * agreed amount is rewritten and every other commercial fact stays exact. */
+export function reviewStoredPrecision(basis:OrderPriceBasis,lines:Line[],by:number,reason:string):OrderPriceBasis{
+  if(basis.version!==1||basis.storedPrecisionReview||lines.some(l=>Number(l.invoicedQty)!==0))
+    throw fail("مراجعة دقة الحفظ مخصصة لأمر قديم غير مفوتر؛ يلزم مصالحة مستقلة للتاريخ المنفذ",409);
+  if(lines.length!==basis.lines.length)throw fail("تغيرت بنود الاتفاق",409);
+  const observations=lines.flatMap((line,i)=>{
+    const original=basis.lines[i]!;
+    if(original.productId!==line.productId||original.quantity!==Number(line.quantity)||
+      original.unitPrice!==Number(line.unitPrice)||original.taxRate!==Number(line.taxRate))
+      throw fail("لا تعالج مراجعة الدقة تغيير السعر أو الكمية أو الصنف أو الضريبة",409);
+    if(original.discountPct===Number(line.discountPct))return [];
+    if(Number(original.discountPct.toFixed(2))!==Number(line.discountPct))
+      throw fail("الخصم ليس نتيجة الحفظ القديم ذي المنزلتين؛ لا يجوز تغيير الاتفاق",409);
+    return [{lineId:line.id,agreedDiscountPct:original.discountPct,storedDiscountPct:Number(line.discountPct)}];
+  });
+  if(!observations.length)throw fail("لا يوجد فرق دقة حفظ قديم قابل للمراجعة",409);
+  return {...basis,storedPrecisionReview:{by,at:new Date().toISOString(),reason,lines:observations}};
+}
+
+/** Nested proportional rounding is monotone in the cumulative target. Unlike
+ * independently rounded source quotas, its source deltas sum to that target
+ * and can never be negative. End-of-order allocation equals every full budget. */
+function cumulativeSources(target:number,budgets:number[]){
+  let remaining=BigInt(target.toFixed(2).replace(".",""));
+  const weights=budgets.map(v=>{
+    if(!Number.isFinite(v)||v<0)throw fail("ميزانية مصدر الخصم غير متسقة؛ لا يُصفّر فرقها",409);
+    return BigInt(v.toFixed(2).replace(".",""));
+  });
+  let weight=weights.reduce((a,b)=>a+b,0n);
+  if(remaining<0n||remaining>weight)throw fail("مخصص الخصم يتجاوز ميزانية مصادره",409);
+  return weights.map((w,i)=>{
+    const assigned=i===weights.length-1?remaining:weight?(remaining*w*2n+weight)/(weight*2n):0n;
+    remaining-=assigned;weight-=w;
+    return Number(assigned)/100;
+  });
+}
 function prorate(budget:number,quantity:number,total:number){
   const units=(q:number)=>{
     if(!Number.isFinite(q)||q<0||Math.abs(q*10000-Math.round(q*10000))>1e-6)
@@ -47,8 +88,10 @@ export function orderPortion(basis:OrderPriceBasis,lines:Line[],quantities:Map<n
   const budget=computeTotals(basis.lines.map(l=>({...l,taxRate:0})),basis.orderDiscount,{priceIncludesVat:false});
   return lines.map((line,index)=>{
     const original=basis.lines[index];
+    const reviewed=basis.version===1&&basis.storedPrecisionReview?.lines.some(r=>r.lineId===line.id&&
+      r.agreedDiscountPct===original?.discountPct&&r.storedDiscountPct===Number(line.discountPct));
     if(!original||original.productId!==line.productId||original.quantity!==Number(line.quantity)||
-      original.unitPrice!==Number(line.unitPrice)||original.discountPct!==Number(line.discountPct))
+      original.unitPrice!==Number(line.unitPrice)||original.discountPct!==Number(line.discountPct)&&!reviewed)
       throw fail("تغيرت حقائق أسعار الأمر؛ يلزم مراجعة موثقة ولا يُعاد تفسير الاتفاق",409);
     const quantity=quantities.get(line.id)??0,before=Number(line.invoicedQty),after=before+quantity;
     if(!Number.isFinite(quantity)||quantity<0||quantity>Number(line.deliveredQty)-before+1e-8||
@@ -65,7 +108,7 @@ export async function prepareOrderInvoice(tx:DbOrTx,req:Request,so:Order,lines:L
   lines?:Array<{productId?:number|null;quantity:number;unitPrice?:number;discountPct:number}>;
 }){
   const cid=getCompanyId(req),basis=so.pricingBasis as OrderPriceBasis|null;
-  if(!basis||basis.version!==1||typeof basis.priceIncludesVat!=="boolean")
+  if(!basis||![1,2].includes(basis.version)||typeof basis.priceIncludesVat!=="boolean")
     throw fail("أساس سعر الأمر القديم غير مثبت؛ يلزم مراجعة صريحة ومدققة قبل التحويل");
   if(so.currencyCode!=="SAR"||basis.currencyCode!=="SAR")
     throw fail("هذه الشريحة تدعم SAR فقط؛ لم تُنفذ فاتورة بعملة مفترضة");
@@ -122,11 +165,25 @@ export async function prepareOrderInvoice(tx:DbOrTx,req:Request,so:Order,lines:L
   const calculation=await calculate(enriched),totals=calculation.totals;
   const totalsList=totals.lines,classified=calculation.policy?.snapshot.lines??totalsList;
   const budgets=basis.ruleBudgets??[];
-  const allocations=budgets.map(rule=>portions.map(p=>{
-    const index=lines.findIndex(l=>l.id===p.line.id),budget=rule.amounts[index]??0;
-    return money(prorate(budget,p.after,p.original.quantity)-prorate(budget,p.before,p.original.quantity));
-  }));
-  const stage=enriched.map((l,i)=>({...l,discountAmount:money((l.discountAmount??0)-allocations.reduce((s,a)=>s+a[i]!,0))}));
+  if(basis.version===1&&budgets.length&&lines.some(l=>Number(l.invoicedQty)>0)){
+    const [history]=(await tx.execute(sql`SELECT count(*)::int AS total,
+      count(*) FILTER(WHERE d.issuer->'taxCalculation'->'discountAllocation'->>'method'
+        IS DISTINCT FROM ${ALLOCATION_METHOD})::int AS unsupported
+      FROM customer_invoices i LEFT JOIN document_issuer_snapshots d ON d.document_kind='invoice'
+        AND d.document_id=i.id AND d.company_id=i.company_id
+      WHERE i.so_id=${so.id} AND i.company_id=${cid} AND i.status NOT IN ('cancelled','draft')`)).rows;
+    if(!Number(history?.total)||Number(history?.unsupported))
+      throw fail("تخصيص خصومات الفواتير القديمة غير مثبت بهذه الطريقة؛ يلزم مصالحة مدققة دون تعديل التاريخ",409);
+  }
+  const fullBudget=computeTotals(basis.lines.map(l=>({...l,taxRate:0})),basis.orderDiscount,{priceIncludesVat:false});
+  const sourceDeltas=portions.map(p=>{
+    const index=lines.findIndex(l=>l.id===p.line.id),named=budgets.map(r=>r.amounts[index]??0);
+    const sourceBudgets=[money(fullBudget.lines[index]!.lineDiscount-named.reduce((a,b)=>a+b,0)),...named];
+    const before=cumulativeSources(p.discountBefore,sourceBudgets),after=cumulativeSources(p.discountAfter,sourceBudgets);
+    return after.map((v,i)=>money(v-before[i]!));
+  });
+  const allocations=budgets.map((_,i)=>sourceDeltas.map(d=>d[i+1]!));
+  const stage=enriched.map((l,i)=>({...l,discountAmount:sourceDeltas[i]![0]!}));
   let previous=(await calculate(stage)).totals.discount;
   const applied:Array<{id:number;name:string;reasonCode:string|null;accountSystemKey:string;amount:number}>=[];
   for(let i=0;i<budgets.length;i++){
@@ -156,7 +213,10 @@ export async function prepareOrderInvoice(tx:DbOrTx,req:Request,so:Order,lines:L
     throw fail("الأمر يحمل خصومات قواعد ذات حسابات مستقلة؛ يلزم إثبات توزيعها الضريبي على الفواتير الجزئية قبل التحويل");
   if(applied.some(r=>r.amount<0)||money(applied.reduce((s,r)=>s+r.amount,0))>totals.discount)
     throw fail("توزيع تقريب خصومات القواعد يحتاج مراجعة؛ لم تُرحّل حسابات غير متوازنة",409);
-  const snapshot={context:publicTaxContext(context),agreedBasis:basis,lines:totalsList.map((l,i)=>({...classified[i],...l})),
+  const discountAllocation={method:ALLOCATION_METHOD,lines:portions.map((p,i)=>({soLineId:p.line.id,quantity:p.quantity,
+    grossDiscount:enriched[i]!.discountAmount,manualGrossDiscount:sourceDeltas[i]![0],
+    rules:budgets.map((r,j)=>({id:r.id,grossDiscount:allocations[j]![i]}))}))};
+  const snapshot={context:publicTaxContext(context),agreedBasis:basis,discountAllocation,lines:totalsList.map((l,i)=>({...classified[i],...l})),
     totals:{subtotal:totals.subtotal,discount:totals.discount,vat:totals.vat,total:totals.total}};
   const [issued]=(await tx.execute(sql`SELECT coalesce(sum(total),0) AS total FROM customer_invoices
     WHERE so_id=${so.id} AND company_id=${cid} AND status NOT IN ('cancelled','draft')`)).rows;

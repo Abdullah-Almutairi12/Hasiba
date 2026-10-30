@@ -84,6 +84,9 @@ orderPriceReview:
               priceIncludesVat: {type: boolean}
               currencyCode: {type: string, enum: [SAR]}
               orderDiscount: {type: number, minimum: 0}
+              confirmStoredPrecision:
+                type: boolean
+                description: Explicit identity-proved acknowledgement of evidenced legacy two-decimal storage only; does not replace agreed values or issued history.
               reason: {type: string, minLength: 10, maxLength: 1000}
               proof:
                 type: object

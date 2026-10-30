@@ -149,6 +149,7 @@ export const ReviewLegacySalesOrderPriceBasisBody = zod.object({
   "priceIncludesVat": zod.boolean(),
   "currencyCode": zod.enum(['SAR']),
   "orderDiscount": zod.number().min(reviewLegacySalesOrderPriceBasisBodyOrderDiscountMin),
+  "confirmStoredPrecision": zod.boolean().optional().describe('Explicit identity-proved acknowledgement of evidenced legacy two-decimal storage only; does not replace agreed values or issued history.'),
   "reason": zod.string().min(reviewLegacySalesOrderPriceBasisBodyReasonMin).max(reviewLegacySalesOrderPriceBasisBodyReasonMax),
   "proof": zod.object({
   "currentPassword": zod.string(),

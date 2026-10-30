@@ -3850,6 +3850,8 @@ export type ReviewLegacySalesOrderPriceBasisBody = {
   currencyCode: ReviewLegacySalesOrderPriceBasisBodyCurrencyCode;
   /** @minimum 0 */
   orderDiscount: number;
+  /** Explicit identity-proved acknowledgement of evidenced legacy two-decimal storage only; does not replace agreed values or issued history. */
+  confirmStoredPrecision?: boolean;
   /**
      * @minLength 10
      * @maxLength 1000
