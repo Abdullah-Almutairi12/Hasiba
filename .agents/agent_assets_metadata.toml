@@ -1400,3 +1400,17 @@ mtime_ms = 1793382929064
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/74677947-8fc3-4f17-b541-89a697195cbf/848d21d6-dad6-4d55-ad98-17b14bd6f5b3"
 storage_version_token = "1793382953603366"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "wjb1hqk5LFpnU7K_ELvih"
+uri = "file://generated-artifacts/verification-closure/Hasiba-verification-closure-AR-EN.zip"
+type = "unspecified"
+title = "حاسبة — أدلة إغلاق التحقق والتقرير العربي والإنجليزي"
+description = "تشغيل كامل موثق على c5ced6a: 15/15 بوابة،1110 اختبار خادم و342 واجهة، مع سجلات التشغيل المنقطع منفصلة وبصمات الملفات. لا إعادة لرحلة المتصفح أو نشر إنتاجي."
+logical_id = "3e815e28-9021-48f5-b64c-3d9d0da4af22"
+content_hash = "sha256:3a26e1b5c8e8f1335cc0062b2e15847e348dc2080db25af1dc00bd00c2d41eed"
+size = 175313
+mtime_ms = 1793390628586
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/3e815e28-9021-48f5-b64c-3d9d0da4af22/11658af2-8ec6-4a5d-b92f-1da9ca9b4ca4"
+storage_version_token = "1793390638511031"
+content_type = "application/octet-stream"
