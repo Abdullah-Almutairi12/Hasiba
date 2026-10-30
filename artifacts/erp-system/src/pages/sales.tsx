@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { CustomerInvoiceDetails } from "@/components/customer-invoice-details";
+import { OrderAgreementReview } from "@/components/sales/order-agreement-review";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -410,6 +411,7 @@ function SalesOrdersTab() {
 function SoActions({ so, onChange }: { so: SalesOrder; onChange: () => void }) {
   const qc = useQueryClient();
   const [invoiceOpen,setInvoiceOpen]=useState(false);
+  const [agreementOpen,setAgreementOpen]=useState(false);
   const { toast } = useToast();
   const { canManageFinance, canManageInventory } = usePermissions();
   async function deliver() {
@@ -426,19 +428,23 @@ function SoActions({ so, onChange }: { so: SalesOrder; onChange: () => void }) {
   }
   async function transition(to: string) {
     try {
-      await apiPost(`/sales/orders/${so.id}/transition`, { to });
-      toast({ title: `تم الانتقال إلى ${to}` });
+      const result=await apiPost<{pendingApproval?:boolean;message?:string}>(`/sales/orders/${so.id}/transition`, { to });
+      toast({ title: result.pendingApproval ? (result.message??"أمر البيع بانتظار الاعتماد") : `تم الانتقال إلى ${to}` });
       onChange();
+      return true;
     } catch (e) {
       toast({ title: "تعذر الانتقال", description: errMsg(e), variant: "destructive" });
+      return false;
     }
   }
   if (["done", "cancelled"].includes(so.status)) return null;
   return (
     <div className="flex gap-1 flex-wrap">
       {so.status === "draft" && (
-        <Button size="sm" variant="outline" onClick={() => transition("confirmed")}>تأكيد</Button>
+        <Button size="sm" variant="outline" onClick={() => setAgreementOpen(true)}>تأكيد</Button>
       )}
+      {agreementOpen&&<OrderAgreementReview id={so.id} onClose={()=>setAgreementOpen(false)}
+        onConfirm={async()=>{if(await transition("confirmed"))setAgreementOpen(false);}}/>}
       {canManageInventory && ["confirmed", "partially_delivered"].includes(so.status) && (
         <Button size="sm" variant="outline" onClick={deliver}>تسليم</Button>
       )}
@@ -1573,10 +1579,10 @@ function DocumentFormDialog({
     try {
       const path = kind === "quotation" ? "/sales/quotations" : kind === "order" ? "/sales/orders" : "/sales/invoices";
       const body: { customerId: number; lines: typeof cleanLines; notes: string; validUntil?: string } & Record<string, unknown> = { customerId, lines: cleanLines, notes, ...sellerFields };
-      if(kind==="order"){body.priceIncludesVat=orderPriceIncludesVat;body.currencyCode="SAR";}
+      if(kind==="order"){body.priceIncludesVat=orderPriceIncludesVat;body.currencyCode="SAR";body.status="draft";}
       if (kind === "quotation" && validUntil) body.validUntil = validUntil;
       await apiPost(path, body);
-      toast({ title: kind === "quotation" ? "تم إنشاء عرض السعر" : kind === "order" ? "تم إنشاء أمر البيع" : "تم إنشاء الفاتورة" });
+      toast({ title: kind === "quotation" ? "تم إنشاء عرض السعر" : kind === "order" ? "حُفظت مسودة الأمر؛ راجع اتفاق الخادم قبل التأكيد" : "تم إنشاء الفاتورة" });
       onSuccess();
     } catch (e) {
       toast({ title: "خطأ", description: errMsg(e), variant: "destructive" });
@@ -1658,12 +1664,20 @@ function DocumentFormDialog({
         {isInvoice && !frozen && <TaxPreviewPanel tp={tp} />}
         {isInvoice ? (
           tp.preview && !frozen && <div className="text-end font-bold">الإجمالي (من الخادم): <Money value={Number(tp.preview.totals.total)} /></div>
-        ) : (
+        ) : kind==="order"?(
+          <div className="space-y-2">
+            <div className="text-end font-bold">تقدير الإدخال قبل قواعد الخادم: <Money value={+total.toFixed(2)} /></div>
+            <p role="note" className="text-sm text-muted-foreground">
+              الحفظ ينشئ مسودة ولا يؤكد اتفاق السعر. قد تغيّر قواعد الخصم الآلية والمعالجة الضريبية هذا التقدير.
+              بعد الحفظ اختر «تأكيد» لمراجعة مبلغ الخادم ومصادر الخصم قبل تأكيد الاتفاق.
+            </p>
+          </div>
+        ):(
           <div className="text-end font-bold">{vatEnabled ? "الإجمالي مع الضريبة" : "الإجمالي"}: <Money value={+total.toFixed(2)} /></div>
         )}
       </fieldset>
       <DialogFooter>
-        <Button onClick={submit} disabled={isInvoice && (intent.busy || !intent.ready || (!!frozen && (intent.recoveryRejected || intent.scopeMismatch)))}>حفظ</Button>
+        <Button onClick={submit} disabled={isInvoice && (intent.busy || !intent.ready || (!!frozen && (intent.recoveryRejected || intent.scopeMismatch)))}>{kind==="order"?"حفظ مسودة للمراجعة":"حفظ"}</Button>
       </DialogFooter>
     </DialogContent>
   );
