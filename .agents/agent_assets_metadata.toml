@@ -1372,3 +1372,31 @@ mtime_ms = 1793355996339
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/c60788f8-8392-4e27-bd7c-4d7e022c4202/f681e3f5-83e1-42dc-b6b3-4421fb88397b"
 storage_version_token = "1793356101905461"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "d0k5FfhnN9mJdDtbaJ4nX"
+uri = "file://generated-artifacts/sales-summary-refresh/Hasiba-summary-acceptance-report-AR-EN.docx"
+type = "word_document"
+title = "تقرير إغلاق الخصومات وتصحيح ملخص المبيعات — عربي وإنجليزي"
+description = "المصدر المختبر، نتائج التحقق الفعلية، الرحلة الأصلية والمصالحة، وحدود ما لم يُختبر."
+logical_id = "09f541ed-8b31-4cae-addf-b0fbd93322c5"
+content_hash = "sha256:aa13a52518d806e00a1ab5dc8ccdf04b3226ffba7f07814c7e90138f79f8c4bf"
+size = 25032
+mtime_ms = 1793382701211
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/09f541ed-8b31-4cae-addf-b0fbd93322c5/bc31832a-1fd0-4fe5-b019-ecaa6b6216d6"
+storage_version_token = "1793382949713537"
+content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
+[[outputs]]
+id = "eehpv667F9-HcGG7L8Mmt"
+uri = "file://generated-artifacts/sales-summary-refresh/Hasiba-summary-acceptance-evidence.zip"
+type = "unspecified"
+title = "حزمة الأدلة المنقحة — ملخص المبيعات"
+description = "سجلات قبل/بعد الإصلاح والبوابات،15 لقطة شاشة، أدلة فقد الرد والاسترجاع والمصالحة المستقلة، وبصمات الملفات. الأدلة التاريخية مفصولة."
+logical_id = "74677947-8fc3-4f17-b541-89a697195cbf"
+content_hash = "sha256:8515700cac1e3ad9507180451d7f451e8c5d76fec9b926b19859e83a5a041517"
+size = 3540544
+mtime_ms = 1793382929064
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/74677947-8fc3-4f17-b541-89a697195cbf/848d21d6-dad6-4d55-ad98-17b14bd6f5b3"
+storage_version_token = "1793382953603366"
+content_type = "application/octet-stream"
