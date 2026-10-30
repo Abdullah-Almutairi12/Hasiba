@@ -1,4 +1,45 @@
-# Current round — close discount fixes; correct sales summary,30 October2026
+# Verification evidence closure — 30 October2026,20:02UTC
+
+**Closed successfully within the two discount fixes and sales-summary scope only.**
+No executable change, weakened test, production action, or new feature scope.
+
+- The existing verifier has no stage-resume interface. Exactly one complete new run
+  started at `2026-10-30T19:41:51.976935+00:00` and finished at
+  `2026-10-30T20:02:28.402591+00:00`, with a recorded **exit code0**.
+- Tested commit: `c5ced6a42a0478f6474e0022dfc8621264a61441`;
+  executable SHA256:
+  `27ed596634ac2be9a15909535d792419aa1614ed9deb7ce3479ab5a1b7d2aad5`.
+  This matches accepted executable source`e9ca70a`. The working tree was clean
+  before and after the run, and source-unchanged passed.
+- Actual new results: **15/15 gates; API1110 passed,0 failed,1 skipped;
+  UI342 passed,0 failed across62 files**. The API skip requires the separate
+  upgrade fixture: that independent gate passed **1 test,0 failed,38 excluded
+  by its selection**. Subsets and earlier runs are not added to these totals.
+- Type checking, isolated-runner tests, existing invoice/receipt/return cleanup
+  evidence tests, migration upgrade, API/UI suites, all five builds, dependency
+  audit and source identity passed. Existing return-cleanup checks are mandatory
+  project gates, not a new returns feature task. The dependency audit reported
+  zero advisories; that is not a claim of whole-system security.
+- The interrupted earlier run is preserved unchanged under
+  `generated-artifacts/verification-closure/interrupted-mixed-output/`.
+  Six stages completed, ending with upgrade around18:30UTC. No final exit code
+  or termination timestamp exists. Its cause is **not established**, neither
+  application failure nor environment failure. Its retained17:40 summary belongs
+  to the older accepted`e9ca70a` run and is not its own result.
+- New evidence is separate: `start.json`, `finish.json`, `runner.log` and
+  `completed-output/` under`generated-artifacts/verification-closure/`.
+  The supervisor preserved start/end/exit evidence and began with an empty result
+  directory. A sanitized addendum ZIP with hashes supplements, not replaces,
+  the previous acceptance package.
+- Permanent discount/summary regressions reran in the complete suites.
+  **No new browser journey or database reconciliation was run in this closure.**
+  Those earlier acceptance artifacts below remain tied to`e9ca70a`, with the
+  same executable hash; they are not relabelled as newly executed.
+- No final established failure or acceptance blocker remains within this scope.
+  `TAX_POLICY_NOT_READY`, safe legacy blocks and all documented device/paper/mobile
+  and order-draft-preview limitations remain. No third scope starts automatically.
+
+# Earlier round — close discount fixes; correct sales summary,30 October2026
 
 ## Scope and source identities
 The two discount defects are closed within their evidenced scope, not rebuilt.

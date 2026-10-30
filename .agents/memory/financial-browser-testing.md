@@ -27,6 +27,16 @@ Select evidence belonging to the actual run and source; do not relabel every fil
 
 **How to apply:** Bind gate outputs to the recorded source and run boundary, preserve prior evidence explicitly as historical, and verify native artifacts separately. If a gate emits only a text log, derive its totals from that raw log rather than assuming an adjacent machine-readable report exists.
 
+An interrupted verifier without a persisted exit record is incomplete evidence,
+not an application failure. Preserve its outputs before a replacement run.
+
+**Why:** A stopped run retained six successful stages beside a prior run's final
+summary; neither its termination cause nor an overall result could be established.
+
+**How to apply:** Capture start/source/end/exit status with an external supervisor,
+use a fresh output directory, and wait for actual completion. Do not claim stage
+resumption unless the verifier implements it, or rerun again after a successful closure.
+
 ## Evidence database lifetime
 
 Keep the isolated browser database alive until independent financial reconciliation has been captured, then stop it explicitly.
