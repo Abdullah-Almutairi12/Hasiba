@@ -61,3 +61,14 @@ That can silently omit attachments rather than throw a useful error.
 ignores through each installed consumer, as well as workbook import/export.
 If incompatible, retain the rejected experiment as evidence and restore the
 lockfile; migrate the archive consumer deliberately rather than waive the audit.
+
+Migrate and verify both workbook writer and extractor chains, including legacy
+non-native stream contracts. A small buffered round-trip is insufficient.
+
+**Why:** Updating the writer left a vulnerable reader chain; strict stream
+recognition broke a legacy input, and tiny worksheets missed Arabic corruption
+at ZIP/XML chunk boundaries. An audit pass alone cannot detect content loss.
+
+**How to apply:** Verify actual archive entries and bytes, buffered and streaming
+writers/readers, and long Unicode text crossing64KiB plus individual byte
+boundaries. Require content equality, not just successful parsing or row counts.

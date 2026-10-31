@@ -200,3 +200,16 @@ the client when it freezes, while the server commit and later replay remain vali
 **How to apply:** Observe both the initial unknown-result state and same-tab
 recovery. Reproduce the observed DOM ownership condition, and keep the failed
 native trace separate from acceptance evidence for the corrected source.
+
+## UTF-8 source binding and disposable previews
+
+Decode base64 sourcemap bytes as UTF-8 before parsing and hashing sourcesContent.
+
+**Why:** Browser atob returns a binary Latin-1 string. Parsing that directly
+produced a reproducible false hash mismatch for Arabic source despite identical
+served and on-disk bytes; rebuilding would not have fixed the measurement.
+
+**How to apply:** Compare UTF-8 bytes after TextDecoder, preserve the failed
+measurement separately, and restart only if a real runtime difference remains.
+Use a fresh private browser context when switching a preview to a disposable
+database; do not delete normal-browser unknown financial intents for a demo.

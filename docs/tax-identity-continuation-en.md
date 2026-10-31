@@ -1,5 +1,12 @@
 # Dated legal-company tax identity — continuation delivery
 
+> Closing update,31 October2026: the archive blocker documented below was
+> resolved compatibly on2fdfe868. A new run passed15/15 gates,1123 API tests
+> with one conditional case covered by independent upgrade, and349 UI tests,
+> plus new native journeys/reconciliations. Current record:
+> [meeting readiness](meeting-readiness-en.md). The sections below preserve the
+> previous14/15 delivery, not the new run. General tax activation remains gated.
+
 ## Outcome
 **The scoped tax functionality is verified. Overall completion is blocked by the
 dependency-audit gate: 14/15 gates passed, final exit 1. This is not a 15/15 acceptance.**

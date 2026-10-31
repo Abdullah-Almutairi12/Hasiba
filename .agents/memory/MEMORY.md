@@ -1,5 +1,5 @@
 - [Expired lot arrivals](expired-lot-arrivals.md) — record physical arrival but block all use and exclude expired stock from usable quantities; no automatic write-off.
-- [Dependency compatibility](dependency-compatibility.md) — keep Vite consumers aligned; avoid security upgrades that silently split plugin type versions.
+- [Dependency compatibility](dependency-compatibility.md) — align Vite consumers; test archive traversal and large Unicode workbooks across writer/reader migrations.
 - [Tenant authorization](tenant-authorization.md) — bind actions to their responsibility scope; shared identities and legacy integrations must not inherit company-local authority.
 - [Financial retry retention](financial-retry-policy.md) — retry receipts are commit evidence, not an expiring cache; late retries must not create new invoices.
 - [Historical upgrade evidence](historical-upgrade-evidence.md) — seed with a coherent pinned previous application, not new handlers that already require new tables.
