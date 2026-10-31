@@ -32,6 +32,16 @@ not something inferred from a revenue threshold, a printed VAT number, or a
 successful XML/PDF build. Branches inherit it; historical issued facts do not
 change when the current configuration changes.
 
+The effective date of an application policy revision is not automatically the
+registration date on the authority's certificate. Keep those facts separate.
+
+**Why:** A later policy may change pricing or classification while registration
+continues unchanged; deriving a new registration date would invent legal history.
+
+**How to apply:** Display the current policy's effective date explicitly.
+Preserve independently recorded registration evidence, and leave missing
+certificate facts unknown rather than deriving them from a configuration save.
+
 **Why:** The approved tax-unification scope preserves existing companies until
 their transition is explicitly reviewed, and distinguishes implementation from
 tax-registry verification and live ZATCA acceptance.

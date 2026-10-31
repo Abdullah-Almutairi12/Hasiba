@@ -72,8 +72,6 @@ router.get("/vat/status", async (req, res) => {
     const snap = await getVatThresholdSnapshot(companyId);
     const legal=publicTaxContext(await taxContext(companyId));
     res.json({...snap,status:legal.status,vatNumber:legal.vatNumber,
-      vatRegistrationDate:legal.mode==="unified"?(legal.registered?`${legal.effectiveFrom}T00:00:00+03:00`:null):snap.vatRegistrationDate,
-      vatDeregistrationDate:legal.mode==="unified"&&!legal.registered?`${legal.effectiveFrom}T00:00:00+03:00`:null,
       registrationVerification:legal.registrationVerification,policyRevision:legal.revision,
       policyEffectiveFrom:legal.effectiveFrom,priceIncludesVat:legal.priceIncludesVat});
   } catch (err) {

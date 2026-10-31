@@ -109,7 +109,9 @@ describe("guarded company tax request lifecycle on isolated PostgreSQL",()=>{
     expect(await taxContext(a.company.id,"2099-01-01")).toMatchObject({registered:false,vatNumber:null,revision:2});
     const current=await a.a.get("/api/vat/status");
     expect(current.body).toMatchObject({status:"registered",policyRevision:1,policyEffectiveFrom:riyadhDate()});
-    expect(current.body.vatRegistrationDate).toBe(`${riyadhDate()}T00:00:00+03:00`);
+    // A policy's effective date is not evidence of the registration date on
+    // a ZATCA certificate. Never manufacture that separate legal fact.
+    expect(current.body.vatRegistrationDate).toBeNull();
   });
   it("preserves unmigrated legacy editing and refuses publication through the live gate",async()=>{
     const f=await fixture();
