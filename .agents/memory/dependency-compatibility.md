@@ -49,3 +49,15 @@ Check generated path-parameter validators before consuming a new UUID route.
 **Why:** The installed generator/Zod combination emitted a UUID method on a coerced string that the installed Zod type does not support. Generating files succeeded, but the shared-library build failed.
 
 **How to apply:** Keep strict UUID validation at the server boundary and a compatible path-string contract when necessary; compile generated output before running consumers. Do not patch generated validators by hand or weaken server validation.
+
+Do not assume that a newer Minimatch is compatible with a legacy archive
+consumer merely because it still exports Minimatch and GLOBSTAR.
+
+**Why:** A global upgrade cleared an audit but made legacy glob traversal return
+an empty file set, while an Excel workbook buffer round-trip still passed.
+That can silently omit attachments rather than throw a useful error.
+
+**How to apply:** Test real traversal with braces, globstar, hidden files and
+ignores through each installed consumer, as well as workbook import/export.
+If incompatible, retain the rejected experiment as evidence and restore the
+lockfile; migrate the archive consumer deliberately rather than waive the audit.
