@@ -5,8 +5,15 @@ generated = []
 id = "8F5NDbjIgcIVibVfeUTZw"
 uri = "file://.local/outputs/Hasiba-AI-ERP.pdf"
 type = "pdf"
-title = "Hasiba-AI-ERP.pdf"
+title = "حاسبة.AI — عرض الشريك المحدث (PDF)"
+description = "العرض التعريفي الأصلي، محدث بتاريخ31أكتوبر2026 وفق الإمكانات المثبتة وحدود الجاهزية، مع بقاء الدمج المعلق والقبول الضريبي الإنتاجي موضحين."
 logical_id = "0ce4de3a-d36b-4dc2-82ab-497129cd21b0"
+content_hash = "sha256:ced48ec677f3cebac2cc81a319c63da4aa5602e623ad454ccfefb4a38c73f2c1"
+size = 446921
+mtime_ms = 1793450053170
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/0ce4de3a-d36b-4dc2-82ab-497129cd21b0/6d65b104-c810-4173-9f77-d79b2bba8b5b"
+storage_version_token = "1793450057297870"
+content_type = "application/pdf"
 
 [[outputs]]
 id = "Gnqx-0afug7h86ViUV141"
