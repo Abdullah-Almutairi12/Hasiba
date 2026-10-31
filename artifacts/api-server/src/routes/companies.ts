@@ -16,6 +16,8 @@ import { assertAnotherActiveOwner } from "../lib/company-ownership";
 import { handleRouteError } from "../lib/handle-error";
 import { requireAdministrative } from "../lib/administration-authority";
 import { recordAudit } from "../lib/audit";
+import {assertLegacyTaxWritable,taxContext} from "../lib/vat-policy";
+import {FinancialRequestError} from "../lib/financial-transaction";
 import {
   countActiveCompanies,
   countActiveDataForCompany,
@@ -179,7 +181,12 @@ router.get("/admin/companies", ownerOnly, async (req, res) => {
       .where(and(eq(userCompaniesTable.userId, req.session.userId!),
         eq(userCompaniesTable.role, "owner")))
       .orderBy(asc(companiesTable.name));
-    res.json(rows.map((row) => row.company));
+    res.json(await Promise.all(rows.map(async({company})=>{
+      if(!company.isActive)return company;
+      const identity=await taxContext(company.id);
+      if(identity.mode==="legacy")return company;
+      return {...company,vatNumber:identity.vatNumber,vatRegistrationStatus:identity.status};
+    })));
   } catch (err) {
     req.log.error({ err }, "List companies failed");
     handleRouteError(err, res);
@@ -281,17 +288,21 @@ router.patch("/admin/companies/:id", ownerOnly, async (req, res) => {
     if (body.logoUrl !== undefined) patch["logoUrl"] = body.logoUrl;
     if (body.address !== undefined) patch["address"] = body.address;
 
-    const [updated] = await db
-      .update(companiesTable)
-      .set(patch)
-      .where(eq(companiesTable.id, id))
-      .returning();
-
-    await recordAudit(req, {
-      action: "company.update",
-      entity: `company#${id}`,
-      details: `تحديث بيانات الشركة (${Object.keys(patch).filter((k) => k !== "updatedAt").join(", ")})`,
-      severity: "info",
+    const updated=await db.transaction(async tx=>{
+      await lockApprovalAuthorityWrite(tx);
+      await tx.execute(sql`SELECT id FROM companies WHERE id=${id} FOR UPDATE`);
+      await requireAdministrative(id,req.session.userId!,"settings",tx);
+      const membership=await tx.execute(sql`SELECT 1 FROM user_companies WHERE
+        company_id=${id} AND user_id=${req.session.userId!} AND role='owner'`);
+      if(!membership.rows.length)throw new FinancialRequestError("سحبت صلاحية إدارة المنشأة",403);
+      if(body.vatNumber!==undefined)await assertLegacyTaxWritable(tx,id);
+      const [saved]=await tx.update(companiesTable).set(patch).where(eq(companiesTable.id,id)).returning();
+      await tx.execute(sql`INSERT INTO audit_logs(company_id,user_id,user_name,action,entity,details,severity)
+        SELECT ${id},id,name,'company.update',${`company#${id}`},
+          ${JSON.stringify({fields:Object.keys(patch).filter(k=>k!=="updatedAt"),source:"company_administration"})},'info'
+        FROM users WHERE id=${req.session.userId!}`);
+      const identity=await taxContext(id,undefined,tx);
+      return identity.mode==="unified"?{...saved,vatNumber:identity.vatNumber,vatRegistrationStatus:identity.status}:saved;
     });
 
     res.json(updated);

@@ -51,6 +51,13 @@ function dateValue(v:unknown){return v instanceof Date?riyadhDate(v):String(v).s
 type TaxTx=Pick<typeof db,"execute">;
 const rows=async(tx:TaxTx,q:SQL)=>(await tx.execute(q)).rows as Record<string,any>[];
 function hash(value:unknown){return createHash("sha256").update(canonical(value)).digest("hex");}
+/** Call after acquiring the company row lock in every legacy identity writer.
+ * Future publication is already adoption: its frozen legacy baseline must not
+ * change while the first effective date is still pending. */
+export async function assertLegacyTaxWritable(tx:TaxTx,companyId:number){
+  if((await rows(tx,sql`SELECT 1 FROM company_tax_policy_versions WHERE company_id=${companyId} LIMIT 1`)).length)
+    throw new FinancialRequestError("اعتمدت المنشأة سياسة ضريبية مؤرخة؛ عدّل الهوية من إعداد الضريبة الموحد، لا من الإعداد القديم",409);
+}
 export async function taxContext(companyId:number,at=riyadhDate(),tx:TaxTx=db){
   const [c]=await rows(tx,sql`SELECT * FROM companies WHERE id=${companyId} AND is_active`);
   if(!c)throw new FinancialRequestError("الشركة غير متاحة",404);

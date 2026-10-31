@@ -15,6 +15,7 @@ import { requireSameOrigin } from "../middlewares/require-same-origin";
 import { FinancialRequestError } from "../lib/financial-transaction";
 import { requireAdministrative, administrativeRights } from "../lib/administration-authority";
 import { getCompanyId } from "../lib/scoped-db";
+import {taxContext} from "../lib/vat-policy";
 import { scopedIncomingTransfers } from "../lib/scoped-inventory-receipts";
 import { LegacyConversionInput, legacyTeamUsers, previewLegacyTeamConversion, applyLegacyTeamConversion,
   previewLegacyTeamRollback, rollbackLegacyTeamConversion } from "../lib/legacy-team-conversion";
@@ -195,11 +196,10 @@ export function makeTeamRouter(getStack: () => unknown[]) {
   router.get("/workspace/access", wrap(async (req, res) => {
     const companyId = getCompanyId(req), userId = req.session.userId!;
     const profile = await managedProfile(userId, companyId);
-    const [company] = await teamRows<{ vat_registration_status: string }>(db,
-      sql`SELECT vat_registration_status FROM companies WHERE id=${companyId}`);
+    const identity=await taxContext(companyId);
     res.json({ managed: !!profile, status: profile?.status ?? "legacy", revision: profile?.revision ?? 0,
       deniedActions: profile?.deniedActions ?? [], grants: profile ? await currentResponsibilities(userId, companyId) : [],
-      vatRegistered: ["registered","voluntary"].includes(company?.vat_registration_status) });
+      vatRegistered: identity.registered });
   }));
   router.get("/workspace/inventory", wrap(async (_req, res) => {
     const grant = await requireResponsibility("inventory.read");

@@ -76,8 +76,13 @@ export function CompanySettingsTab() {
   const vatRegistered = profile?.vatEnabled === true;
   useEffect(() => {
     if (!profile) return;
-    const k = `${profile.companyId}:${profile.revision}`;
+    const k = `${profile.companyId}:${profile.revision}:${profile.vatNumber}:${profile.vatEnabled}`;
     if (initRev.current === k) return;
+    if(initRev.current?.startsWith(`${profile.companyId}:${profile.revision}:`)){
+      initRev.current=k;
+      setForm(f=>f?{...f,vatNumber:profile.vatNumber??""}:fromProfile(profile));
+      return;
+    }
     initRev.current = k;
     setForm(fromProfile(profile));
   }, [profile]);

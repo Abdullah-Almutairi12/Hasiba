@@ -8,6 +8,7 @@ import {FinancialRequestError} from "./financial-transaction";
 import {currentResponsibilities,managedProfile} from "./responsibility-context";
 import type {DbOrTx} from "./journal-posting";
 import {validateDesignAssets} from "./invoice-design";
+import {assertLegacyTaxWritable,taxContext,publicTaxContext} from "./vat-policy";
 
 export const settingSections=["company","tax","branches","pos","permissions","accounting","integrations","notifications",
  "localization","numbering","appearance","backup","templates"] as const;
@@ -79,17 +80,17 @@ function scrub(value:unknown):unknown{
   .map(([k,v])=>[k,scrub(v)]));
 }
 function serialize(root:Row,branch:Row|undefined,canManage:boolean){
- const sections=Object.fromEntries(settingSections.map(s=>[s,{...(root[s] as object),...(branch?.[s] as object??{})}]));
+ const sections=Object.fromEntries(settingSections.map(s=>[s,{...(root[s] as object),...(branch?.[s] as object??{})}])) as Record<string,Record<string,unknown>>;
  if(!canManage){
   for(const s of settingSections)if(!["company","localization","appearance"].includes(s))sections[s]={};
   sections.company=Object.fromEntries(Object.entries(sections.company).filter(([k])=>regional.has(k)));
-  for(const s of settingSections)sections[s]=scrub(sections[s]) as object;
+  for(const s of settingSections)sections[s]=scrub(sections[s]) as Record<string,unknown>;
   const publicKeys:Record<string,string[]>={
    localization:["dateFormat","timeFormat","calendar","weekStart","firstDayOfWeek","timezone","language","currency","locale","rtl"],
    appearance:["theme","primaryColor","accentColor","logoSize","tableDensity","fontSize","fontFamily","borderRadius","darkMode","sidebarCollapsed","compactTables"]};
   for(const [s,keys] of Object.entries(publicKeys))sections[s]=Object.fromEntries(Object.entries(sections[s]).filter(([k])=>keys.includes(k)));
  }
- return {...sections,updatedAt:(branch?.updatedAt??root.updatedAt).toISOString(),
+ return {...sections,tax:sections.tax,updatedAt:(branch?.updatedAt??root.updatedAt).toISOString(),
   scope:{companyId:root.companyId,branchId:branch?.branchId??null,revision:branch?.revision??root.revision,
    parentRevision:root.revision,canManage,
    overrides:Object.fromEntries(settingSections.map(s=>[s,canManage?Object.keys((branch?.[s]??{}) as object):[]])),
@@ -110,6 +111,7 @@ export async function readScopedSettings(req:Request){
   if(branchId!=null&&!branch)result.scope.revision=0;
   result.scope.history=await versions(tx,actor.companyId,branchId,fresh.canManage);
   result.scope.availableBranches=await availableBranches(tx,actor.companyId,fresh.canManage);
+  if(fresh.canManage)result.tax={...result.tax,legalIdentity:publicTaxContext(await taxContext(actor.companyId,undefined,tx))};
   return result;
  });
 }
@@ -122,6 +124,10 @@ export async function patchScopedSettings(req:Request){
   if(body.expectedCompanyId!==actor.companyId)throw new FinancialRequestError("تغيرت المنشأة النشطة؛ أعد فتح إعدادات المنشأة المطلوبة قبل الحفظ",409);
   await tx.execute(sql`SELECT id FROM companies WHERE id=${actor.companyId} FOR UPDATE`);
   await access(req,tx,branchId,true);
+  const identityKeys=/^(vat|tax)(number|registrationstatus|registrationdate|deregistrationdate|enabled)$|^effectivefrom$/i;
+  if(body.tax!==undefined||(body.reset?.tax?.length??0)>0||
+    [...Object.keys(body.company??{}),...(body.reset?.company??[])].some(k=>identityKeys.test(k.replace(/_/g,""))))
+    await assertLegacyTaxWritable(tx,actor.companyId);
   if (body.templates && Object.hasOwn(body.templates,"invoiceDesign"))
    body.templates.invoiceDesign=await validateDesignAssets(tx,actor.companyId,body.templates.invoiceDesign);
   const root=await ensureCompany(tx,actor.companyId);
@@ -158,6 +164,7 @@ export async function patchScopedSettings(req:Request){
    action:"settings.scope.updated",entity:`app_settings#${saved!.id}`,details:JSON.stringify({
     branchId,revision:saved!.revision,parentRevision:root.revision,sections:changed,reset:!!body.reset})});
   const result=serialize(branchId==null?saved!:root,branchId==null?undefined:saved,true);
+  result.tax={...result.tax,legalIdentity:publicTaxContext(await taxContext(actor.companyId,undefined,tx))};
   result.scope.history=await versions(tx,actor.companyId,branchId,true);
   result.scope.availableBranches=await availableBranches(tx,actor.companyId,true);
   return result;

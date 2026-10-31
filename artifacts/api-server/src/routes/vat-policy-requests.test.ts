@@ -3,10 +3,10 @@ import request from "supertest";
 import {randomUUID} from "node:crypto";
 import bcrypt from "bcryptjs";
 import type {Request} from "express";
-import {db,pool,companiesTable,usersTable,userCompaniesTable} from "@workspace/db";
+import {db,pool,companiesTable,usersTable,userCompaniesTable,customerInvoicesTable,customersTable} from "@workspace/db";
 import app,{assertApplicationReady} from "../app";
-import {taxPolicySchema,publishTaxPolicy,riyadhDate,calculatePolicySale} from "../lib/vat-policy";
-import {captureIssuer} from "../lib/document-identity";
+import {taxPolicySchema,publishTaxPolicy,riyadhDate,calculatePolicySale,taxContext} from "../lib/vat-policy";
+import {captureIssuer,saveIssuer} from "../lib/document-identity";
 import {PrintProfilePatch} from "./print-profile";
 
 // The publish HTTP route is deliberately gated until all issuer consumers
@@ -47,6 +47,122 @@ async function waitForCompanyBarrier(pid:number){
   throw new Error("No PostgreSQL company-row barrier was observed");
 }
 describe("guarded company tax request lifecycle on isolated PostgreSQL",()=>{
+  it("blocks the general company VAT writer after dated adoption, including a future policy",async()=>{
+    const f=await fixture();
+    await q("UPDATE company_administrators SET responsibilities=ARRAY['tax','settings','administrators'] WHERE company_id=$1",[f.company.id]);
+    await publishTaxPolicy(f.req,{...f.input,effectiveFrom:"2099-01-01"});
+    const before=await q("SELECT vat_number FROM companies WHERE id=$1",[f.company.id]);
+    const result=await f.a.patch(`/api/admin/companies/${f.company.id}`).send({vatNumber:"300000000000003"});
+    expect(result.status,JSON.stringify(result.body)).toBe(409);
+    expect(await q("SELECT vat_number FROM companies WHERE id=$1",[f.company.id])).toEqual(before);
+  });
+  it("the workspace portal reads the effective policy, not the legacy registration flag",async()=>{
+    const f=await fixture();
+    await publishTaxPolicy(f.req,{...f.input,status:"registered",vatNumber:"300000000000003"});
+    expect((await f.a.get("/api/workspace/access")).body.vatRegistered).toBe(true);
+    expect((await f.a.get("/api/vat/status")).body.vatNumber).toBe("300000000000003");
+    expect((await f.a.get("/api/print/profile")).body.profile.vatNumber).toBe("300000000000003");
+  });
+  it("company administration reads effective identity without rewriting legacy storage",async()=>{
+    const f=await fixture();
+    await q("UPDATE company_administrators SET responsibilities=ARRAY['tax','settings','administrators'] WHERE company_id=$1",[f.company.id]);
+    await publishTaxPolicy(f.req,{...f.input,status:"registered",vatNumber:"300000000000003"});
+    const listed=await f.a.get("/api/admin/companies");
+    expect(listed.status).toBe(200);
+    expect(listed.body.find((c:{id:number})=>c.id===f.company.id).vatNumber).toBe("300000000000003");
+    expect((await q("SELECT vat_number FROM companies WHERE id=$1",[f.company.id]))[0].vat_number).toBeNull();
+  });
+  it("rejects legacy tax preferences after adoption without blocking unrelated preferences",async()=>{
+    const f=await fixture();
+    await q("UPDATE company_administrators SET responsibilities=ARRAY['tax','settings','administrators'] WHERE company_id=$1",[f.company.id]);
+    await publishTaxPolicy(f.req,f.input);
+    const settings=await f.a.get("/api/settings");
+    const result=await f.a.patch("/api/settings").send({
+      expectedCompanyId:f.company.id,expectedRevision:settings.body.scope.revision,
+      tax:{vatNumber:"300000000000003",vatEnabled:true}});
+    expect(result.status,JSON.stringify(result.body)).toBe(409);
+    expect((await f.a.patch("/api/settings").send({
+      expectedCompanyId:f.company.id,expectedRevision:settings.body.scope.revision,
+      appearance:{theme:"dark"}})).status).toBe(200);
+  });
+  it("keeps two legal companies and multiple branch views separate across current and future identity",async()=>{
+    const a=await fixture(),b=await fixture();
+    for(const f of [a,b])await q("UPDATE company_administrators SET responsibilities=ARRAY['tax','settings','administrators'] WHERE company_id=$1",[f.company.id]);
+    const branches=await q(`INSERT INTO branches(company_id,name,name_ar,city)
+      VALUES($1,'A1','أ١','الرياض'),($1,'A2','أ٢','جدة'),($2,'B1','ب١','الدمام') RETURNING id,company_id`,[a.company.id,b.company.id]);
+    await publishTaxPolicy(a.req,{...a.input,status:"registered",vatNumber:"300000000000003"});
+    await publishTaxPolicy(a.req,{...a.input,requestId:randomUUID(),revision:1,effectiveFrom:"2099-01-01"});
+    await publishTaxPolicy(b.req,b.input);
+    for(const branch of branches.filter(v=>v.company_id===a.company.id)){
+      const settings=await a.a.get(`/api/settings?branchId=${branch.id}`);
+      expect(settings.status).toBe(200);
+      expect(settings.body.tax.legalIdentity).toMatchObject({
+        companyId:a.company.id,status:"registered",vatNumber:"300000000000003",revision:1});
+      const rejected=await a.a.patch(`/api/settings?branchId=${branch.id}`).send({
+        expectedCompanyId:a.company.id,expectedRevision:settings.body.scope.revision,
+        expectedParentRevision:settings.body.scope.parentRevision,company:{vat_number:"300000000000013"}});
+      expect(rejected.status).toBe(409);
+    }
+    expect((await a.a.get(`/api/settings?branchId=${branches.find(v=>v.company_id===b.company.id)!.id}`)).status).toBe(404);
+    expect((await b.a.get("/api/workspace/access")).body.vatRegistered).toBe(false);
+    expect((await b.a.get("/api/print/profile")).body.profile.vatNumber).toBe("");
+    expect(await taxContext(a.company.id,"2099-01-01")).toMatchObject({registered:false,vatNumber:null,revision:2});
+    const current=await a.a.get("/api/vat/status");
+    expect(current.body).toMatchObject({status:"registered",policyRevision:1,policyEffectiveFrom:riyadhDate()});
+    expect(current.body.vatRegistrationDate).toBe(`${riyadhDate()}T00:00:00+03:00`);
+  });
+  it("preserves unmigrated legacy editing and refuses publication through the live gate",async()=>{
+    const f=await fixture();
+    await q("UPDATE company_administrators SET responsibilities=ARRAY['tax','settings','administrators'] WHERE company_id=$1",[f.company.id]);
+    expect((await f.a.patch(`/api/admin/companies/${f.company.id}`).send({vatNumber:"300000000000003"})).status).toBe(200);
+    expect((await f.a.patch("/api/vat/registration").send({status:"registered",vatNumber:"300000000000003"})).status).toBe(200);
+    expect((await f.a.get("/api/workspace/access")).body.vatRegistered).toBe(true);
+    const blocked=await f.a.put("/api/vat/policy").send(f.input);
+    expect(blocked.status).toBe(503);expect(blocked.body.code).toBe("TAX_POLICY_NOT_READY");
+    expect(await q("SELECT id FROM company_tax_policy_versions WHERE company_id=$1",[f.company.id])).toEqual([]);
+  });
+  it("adoption changes no stock, ledger, document snapshot or financial request evidence",async()=>{
+    const f=await fixture();
+    const [customer]=await db.insert(customersTable).values({companyId:f.company.id,name:"عميل تاريخي مصطنع"}).returning();
+    const [invoice]=await db.insert(customerInvoicesTable).values({
+      companyId:f.company.id,customerId:customer.id,customerName:customer.name,reference:`HIST-${randomUUID()}`,
+      status:"open",subtotal:"100",total:"100",amountPaid:"0",invoiceDate:riyadhDate(),createdBy:f.u.id}).returning();
+    await db.transaction(async tx=>saveIssuer(tx,"invoice",invoice.id,await captureIssuer(tx,f.company.id)));
+    const snapshot=async()=>{
+      const data:Record<string,unknown>={};
+      for(const table of ["stock_quants","stock_layers","stock_moves","journal_entries","journal_entry_lines",
+        "document_issuer_snapshots","customer_invoices","financial_requests"])
+        data[table]=await q(`SELECT to_jsonb(t) AS row FROM ${table} t ORDER BY to_jsonb(t)::text`);
+      return data;
+    };
+    const before=await snapshot();
+    await publishTaxPolicy(f.req,{...f.input,status:"registered",vatNumber:"300000000000003"});
+    await publishTaxPolicy(f.req,{...f.input,requestId:randomUUID(),revision:1,effectiveFrom:"2099-01-01"});
+    expect(await snapshot()).toEqual(before);
+    expect((await q("SELECT count(*)::int AS n FROM audit_logs WHERE company_id=$1 AND action='vat.policy.published'",[f.company.id]))[0].n).toBe(2);
+  });
+  it("rechecks legacy company tax writes after waiting behind policy adoption",async()=>{
+    const f=await fixture();
+    await q("UPDATE company_administrators SET responsibilities=ARRAY['tax','settings','administrators'] WHERE company_id=$1",[f.company.id]);
+    const blocker=await pool.connect();
+    try{
+      await blocker.query("BEGIN");
+      await blocker.query("SELECT id FROM companies WHERE id=$1 FOR UPDATE",[f.company.id]);
+      // Establish adoption under the same company fence, then release a legacy
+      // writer that entered before the new version was visible.
+      const delayed=f.a.patch(`/api/admin/companies/${f.company.id}`)
+        .send({vatNumber:"300000000000013"}).then(r=>r);
+      const {rows:[{pid}]}=await blocker.query<{pid:number}>("SELECT pg_backend_pid() AS pid");
+      await waitForCompanyBarrier(pid);
+      await blocker.query(`INSERT INTO company_tax_policy_versions(company_id,revision,request_id,request_hash,
+        effective_from,status,vat_number,price_includes_vat,product_rules,service_rule,legacy_state,reason,created_by)
+        VALUES($1,1,$2,'isolated-adoption-race','2099-01-01','not_registered',NULL,false,'[]','{"category":"standard"}','{}',
+        'Explicit synthetic concurrent adoption',$3)`,[f.company.id,randomUUID(),f.u.id]);
+      await blocker.query("COMMIT");
+      expect((await delayed).status).toBe(409);
+      expect((await q("SELECT vat_number FROM companies WHERE id=$1",[f.company.id]))[0].vat_number).toBeNull();
+    }finally{await blocker.query("ROLLBACK");blocker.release();}
+  });
   it("keeps new company status unresolved, with no implicit tax administration",async()=>{
     const f=await fixture();
     expect(f.company.vatRegistrationStatus).toBe("unresolved");

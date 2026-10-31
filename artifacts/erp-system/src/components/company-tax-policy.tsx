@@ -237,8 +237,12 @@ export function CompanyTaxPolicyPanel({ readOnly }: { readOnly: boolean }) {
             <Fact label="الحالة المعلنة" value={STATUS_LABEL[cur.status]?.title ?? cur.status} testId="text-tax-status" />
             <Fact label="الرقم الضريبي" value={cur.vatNumber ?? "—"} ltr testId="text-tax-vat" />
             <Fact label="الأسعار" value={cur.status === "unresolved" ? "غير محسوم" : cur.priceIncludesVat ? "شاملة الضريبة" : "غير شاملة"} testId="text-tax-inclusive" />
-            <Fact label="النسخة / السريان" value={`${p.revision} — ${cur.effectiveFrom ?? "لم تُنشر"}`} testId="text-tax-revision" />
+            <Fact label="النسخة السارية / السريان" value={`${cur.revision} — ${cur.effectiveFrom ?? "الإعداد السابق"}`} testId="text-tax-revision" />
           </div>
+          <p className="text-sm text-muted-foreground" data-testid="text-tax-identity-source">
+            هوية الشركة القانونية، موروثة لجميع فروعها؛ المصدر: {cur.mode === "unified" ? "السياسة المؤرخة السارية" : "الإعداد السابق قبل سريان السياسة"}.
+            أحدث نسخة محفوظة: {p.revision}. لا تعني الصيغة الصحيحة للرقم تحقق التسجيل لدى الهيئة.
+          </p>
           {cur.mode === "legacy" && (
             <Notice tone="amber" icon={<History className="size-4" />} testId="notice-tax-legacy" title="المنشأة تعمل بالإعداد القديم">
               لم يُنقل أي شيء تلقائيًا. {p.transition.legacyUnchanged ? "الإعداد القديم باقٍ كما هو" : "أبلغ الخادم بتغيّر في الإعداد القديم"}، {p.transition.historicalDocumentsUnchanged ? "والمستندات التاريخية دون تغيير." : "وأبلغ الخادم بأثر على مستندات تاريخية."} تبدأ السياسة الموحدة فقط بعد نشر صريح منك بتاريخ سريان.
