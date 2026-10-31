@@ -1498,3 +1498,31 @@ mtime_ms = 1793430902911
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/1300164d-4fd2-4d31-aa9c-c48c62a3fd98/3108ca1a-d6f3-4fa4-ab0a-8d7dba53d0cd"
 storage_version_token = "1793430940609218"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "lKVu16vlPQOoHRv_NeE-e"
+uri = "file://generated-artifacts/meeting-readiness/Hasiba-Meeting-Readiness-AR-EN.docx"
+type = "word_document"
+title = "حاسبة — تقرير جاهزية الاجتماع بالعربية والإنجليزية"
+description = "نتائج التشغيل الجديد، الإصلاحات، مسار العرض الآمن، وحدود القبول الضريبي والأجهزة والتنزيل."
+logical_id = "0ae32742-20d4-4702-bcc9-df5e5014cfc5"
+content_hash = "sha256:60b5409964889c8e922bb676d32649c04b42a746ee622f22dee2efab1249bdd6"
+size = 9468
+mtime_ms = 1793437196555
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/0ae32742-20d4-4702-bcc9-df5e5014cfc5/82464de3-47a8-4e66-81e1-85f4723cceb3"
+storage_version_token = "1793437213209000"
+content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
+[[outputs]]
+id = "yJB_x1fw3VKMzk5GbYShV"
+uri = "file://generated-artifacts/meeting-readiness/Hasiba-Meeting-Evidence.zip"
+type = "unspecified"
+title = "حاسبة — حزمة الأدلة المنقحة"
+description = "93 ملفًا: سجلات15بوابة و1123خادم/349واجهة، مصالحتان، صور الرحلات، XLSX فعلي وبصمات التحقق؛ بلا كلمات مرور."
+logical_id = "ef430c9b-fb87-4497-8a80-aa5fe20bf357"
+content_hash = "sha256:3b1e04153f5edb61c879fb0dcc9357dd0fa6db219ea1fe4c394cc5b328c62486"
+size = 1955523
+mtime_ms = 1793437197046
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/ef430c9b-fb87-4497-8a80-aa5fe20bf357/0241081b-1145-4cfc-8613-68e7c54306f5"
+storage_version_token = "1793437216939908"
+content_type = "application/octet-stream"
