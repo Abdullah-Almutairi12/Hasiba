@@ -56,3 +56,9 @@ Finish deliverable registration before the final tracked-file synchronization ch
 **Why:** Registering downloadable assets changes tracked asset metadata after a previously clean push, even when the tested executable source is unchanged.
 
 **How to apply:** Check and safely synchronize registration metadata after presenting files. Distinguish the immutable tested code, the report/package checkpoint, and any later metadata-only tip instead of pretending their commit identifiers are identical.
+
+Applying task source changes must not implicitly migrate or backfill the default database.
+
+**Why:** The meeting demonstration explicitly uses an isolated synthetic database, while the inherited post-merge hook targeted the ordinary default connection. Applying code is not authorization to mutate customer or ordinary development records.
+
+**How to apply:** Keep automatic post-merge reconciliation limited to dependencies. Handle schema upgrades and backfills as explicitly authorized operations against a named environment, with independent upgrade evidence; do not restore an unconditional database push or authenticated capture in the hook.

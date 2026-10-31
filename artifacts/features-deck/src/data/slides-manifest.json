@@ -4,7 +4,7 @@
     "position": 1,
     "filepath": "src/pages/slides/Title.tsx",
     "title": "صفحة العنوان",
-    "description": "غلاف العرض مع نظام الألوان.",
+    "description": "غلاف العرض بحالة تنفيذ مؤرخة.",
     "speakerNotes": ""
   },
   {
@@ -12,7 +12,7 @@
     "position": 2,
     "filepath": "src/pages/slides/TableOfContents.tsx",
     "title": "فهرس الوحدات",
-    "description": "فهرس كل الوحدات المتاحة.",
+    "description": "اثنتان وعشرون وحدة في أربع مجموعات.",
     "speakerNotes": ""
   },
   {
@@ -28,7 +28,7 @@
     "position": 4,
     "filepath": "src/pages/slides/Dashboard.tsx",
     "title": "01. لوحة القيادة التنفيذية",
-    "description": "لوحة قيادة Glassmorphism.",
+    "description": "مؤشرات من بيانات النظام وملخص مبيعات موثّق.",
     "speakerNotes": ""
   },
   {
@@ -36,7 +36,7 @@
     "position": 5,
     "filepath": "src/pages/slides/POS.tsx",
     "title": "02. نقطة البيع (POS)",
-    "description": "نظام نقطة البيع.",
+    "description": "جلسات الكاشير؛ الأجهزة لم تُقبل حيًا.",
     "speakerNotes": ""
   },
   {
@@ -44,15 +44,15 @@
     "position": 6,
     "filepath": "src/pages/slides/Inventory.tsx",
     "title": "03. المنتجات والمخزون",
-    "description": "المنتجات وتتبع المخزون.",
+    "description": "FIFO ومصالحة 850 مع الأستاذ.",
     "speakerNotes": ""
   },
   {
     "id": "5b8d00f2-8516-4eb5-8329-098531a31c59",
     "position": 7,
     "filepath": "src/pages/slides/Accounting.tsx",
-    "title": "04. المحاسبة والامتثال",
-    "description": "محاسبة بالقيد المزدوج وZATCA.",
+    "title": "04. المحاسبة وأمر البيع",
+    "description": "رحلة 3×115: مسودة 344، تسليم واحد، فاتورتان.",
     "speakerNotes": ""
   },
   {
@@ -60,15 +60,15 @@
     "position": 8,
     "filepath": "src/pages/slides/Reports.tsx",
     "title": "05. التقارير والتحليلات",
-    "description": "مكتبة تقارير قابلة للتصدير.",
+    "description": "تقارير وتصدير XLSX مثبت عبر HTTP.",
     "speakerNotes": ""
   },
   {
     "id": "30ad5757-823f-42d4-b881-2e0a7b8c66d6",
     "position": 9,
     "filepath": "src/pages/slides/Customers.tsx",
-    "title": "06. العملاء",
-    "description": "ملف عميل موحَّد.",
+    "title": "06. العملاء والذمم",
+    "description": "ذمم 344 ليست تحصيلًا.",
     "speakerNotes": ""
   },
   {
@@ -84,23 +84,23 @@
     "position": 11,
     "filepath": "src/pages/slides/InvoiceAI.tsx",
     "title": "07. فواتير الموردين بالذكاء الاصطناعي",
-    "description": "وكيل مسح الفواتير.",
+    "description": "استخراج مقترح ومراجعة بشرية.",
     "speakerNotes": ""
   },
   {
     "id": "2d114da9-5033-4ef7-a801-5dcc8554d1ab",
     "position": 12,
     "filepath": "src/pages/slides/SmartReports.tsx",
-    "title": "08. التقارير الذكية وكشف الاحتيال",
-    "description": "مساعد ذكي وكشف شذوذ.",
+    "title": "08. التقارير الذكية وإشارات الشذوذ",
+    "description": "مساعد وتوقعات وإشارات للمراجعة.",
     "speakerNotes": ""
   },
   {
     "id": "945aa159-0283-4761-8c2b-74459b5e2d36",
     "position": 13,
     "filepath": "src/pages/slides/AIModels.tsx",
-    "title": "09. نماذج الذكاء الاصطناعي الخمسة",
-    "description": "النماذج المسجَّلة في النظام.",
+    "title": "09. النماذج التحليلية المسجّلة",
+    "description": "خمسة نماذج بمخرجات إرشادية.",
     "speakerNotes": ""
   },
   {
@@ -115,24 +115,24 @@
     "id": "1c092145-3514-4a05-a49c-379744478eef",
     "position": 15,
     "filepath": "src/pages/slides/BranchesUsers.tsx",
-    "title": "10. الفروع والمستخدمون والإعدادات",
-    "description": "إدارة متعددة الفروع وNCA ECC.",
+    "title": "10. الشركات والفروع والمستخدمون",
+    "description": "عزل البيانات وضوابط مطبّقة دون ادعاء شهادة.",
     "speakerNotes": ""
   },
   {
     "id": "0de63e9d-bf42-4ef4-ac41-1283175d5405",
     "position": 16,
     "filepath": "src/pages/slides/RolesMatrix.tsx",
-    "title": "11. الأدوار وحرّاس الصلاحيات",
-    "description": "ثمانية أدوار وأربعة عشر حارسًا.",
+    "title": "11. الأدوار والمسؤوليات المقيّدة",
+    "description": "نطاق شركة وفروع ولا منح ضمني.",
     "speakerNotes": ""
   },
   {
     "id": "46ddea87-7666-42d3-bb59-80475ca99a90",
     "position": 17,
     "filepath": "src/pages/slides/LoyaltyZATCA.tsx",
-    "title": "12. برامج الولاء وعلامة ZATCA",
-    "description": "نقاط ولاء ورمز QR متوافق.",
+    "title": "12. الولاء وبيانات الفاتورة الضريبية",
+    "description": "الفوترة الإلكترونية غير مقبولة إنتاجيًا.",
     "speakerNotes": ""
   },
   {
@@ -140,7 +140,7 @@
     "position": 18,
     "filepath": "src/pages/slides/Intercompany.tsx",
     "title": "13. المعاملات بين الشركات",
-    "description": "انعكاس تلقائي للفواتير.",
+    "description": "انعكاس الفواتير داخل معاملة واحدة.",
     "speakerNotes": ""
   },
   {
@@ -148,7 +148,7 @@
     "position": 19,
     "filepath": "src/pages/slides/TransferPricing.tsx",
     "title": "14. تسعير التحويل والزكاة",
-    "description": "محرّك زكاة وتنبيهات TP.",
+    "description": "تنبيهات مساعدة للمراجعة.",
     "speakerNotes": ""
   },
   {
@@ -156,23 +156,23 @@
     "position": 20,
     "filepath": "src/pages/slides/ZakatEngine.tsx",
     "title": "15. محرّك الزكاة السنوي",
-    "description": "وعاء زكوي وتذكير بموعد التقديم.",
+    "description": "تقدير توضيحي للوعاء الزكوي.",
     "speakerNotes": ""
   },
   {
     "id": "a1d4f8e2-6c93-4b51-8e7a-9f3c2b6d4a17",
     "position": 21,
     "filepath": "src/pages/slides/VatThreshold.tsx",
-    "title": "16. عدّاد التسجيل في ضريبة القيمة المضافة",
-    "description": "تنبيه مبكّر عند 80% وسقف 375K.",
+    "title": "16. الهوية الضريبية: الحالية والمستقبلية",
+    "description": "نسخ مؤرخة؛ لا تسجيل تلقائي.",
     "speakerNotes": ""
   },
   {
     "id": "b2e5a9f3-7d84-4c62-9a1b-0e4d3c7f8b29",
     "position": 22,
     "filepath": "src/pages/slides/VatAutoHide.tsx",
-    "title": "17. إخفاء تلقائي لحقول الضريبة",
-    "description": "قبل/بعد للكاشير للمنشأة غير المسجَّلة.",
+    "title": "17. وراثة الفروع وحماية السجل الضريبي",
+    "description": "حجب الكاتب القديم وحفظ التاريخ.",
     "speakerNotes": ""
   },
   {
@@ -188,7 +188,7 @@
     "position": 24,
     "filepath": "src/pages/slides/Onboarding.tsx",
     "title": "18. التسجيل والإعداد الموجَّه",
-    "description": "معالج إعداد من 5 خطوات.",
+    "description": "معالج من خمس خطوات.",
     "speakerNotes": ""
   },
   {
@@ -196,7 +196,7 @@
     "position": 25,
     "filepath": "src/pages/slides/Landing.tsx",
     "title": "19. صفحة البداية",
-    "description": "صفحة /welcome التسويقية.",
+    "description": "صفحة /welcome العامة.",
     "speakerNotes": ""
   },
   {
@@ -227,9 +227,9 @@
     "id": "a7e2d18c-9b41-4f3a-8c25-7b1d4f5e6a02",
     "position": 29,
     "filepath": "src/pages/slides/UxImprovements.tsx",
-    "title": "تحسينات تجربة الاستخدام — مايو 2026",
-    "description": "ترتيب الإعدادات، تفعيل الأزرار، واتجاه يتبع اللغة.",
-    "speakerNotes": "تنظيم ١٥ تبويبًا في ٤ مجموعات داخل الإعدادات، ربط ٦ أزرار رئيسية، وتثبيت اتجاه شريط التبويبات حسب لغة الواجهة."
+    "title": "حالة التنفيذ — 31 أكتوبر 2026",
+    "description": "ما ثبت وما هو قائم وما بقي.",
+    "speakerNotes": "حالة 31 أكتوبر 2026: قبول موثّق لرحلة أمر البيع والهوية الضريبية فقط؛ المعلّق: الأجهزة والدفع والبريد والقبول الضريبي الإنتاجي. الدمج الجديد لم يُطبّق بعد."
   },
   {
     "id": "83e1c2b0-5d54-4813-8513-03a6296ba0ab",
@@ -243,8 +243,8 @@
     "id": "c4f1e07a-9b32-4a8d-8e1c-2f6a1b3d5e90",
     "position": 31,
     "filepath": "src/pages/slides/FAQ.tsx",
-    "title": "الأسئلة الشائعة — الصفحة 1",
-    "description": "ستّة أسئلة شائعة قبل الاشتراك.",
+    "title": "الأسئلة الشائعة",
+    "description": "ستة أسئلة بإجابات دقيقة.",
     "speakerNotes": ""
   },
   {
@@ -252,7 +252,7 @@
     "position": 32,
     "filepath": "src/pages/slides/Closing.tsx",
     "title": "صفحة الختام",
-    "description": "خاتمة وشكر.",
+    "description": "شكر وخطوات تالية.",
     "speakerNotes": ""
   }
 ]

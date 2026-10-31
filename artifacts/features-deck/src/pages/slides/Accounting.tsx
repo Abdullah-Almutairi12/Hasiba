@@ -1,63 +1,31 @@
+import { SlideFrame, Point, Panel, Row, Note } from "../../components/deck";
+
 export default function Accounting() {
   return (
-    <div
-      dir="rtl"
-      className="w-screen h-screen overflow-hidden relative bg-bg text-text font-body"
-      style={{ padding: "7vh 7vw", paddingTop: "14vh" }}
-    >
-      <div className="absolute top-[7vh] left-[7vw] text-[1vw] font-semibold tracking-[0.18em] uppercase text-text">
-        FEATURES OVERVIEW / 2026
-      </div>
-
-      <div className="max-w-[86vw]">
-        <div className="text-[0.95vw] font-semibold text-accent tracking-[0.18em] uppercase mb-[1.5vh]">
-          الوحدة 04 — المنصّة الأساسية
+    <SlideFrame page="07" kicker="الوحدة 04 — المنصّة الأساسية" title="المحاسبة وأمر البيع" lead="قيد مزدوج لكل عملية. رحلة أمر بيع موثّقة من المسودة حتى فاتورتين، بمبالغ يراجعها المستخدم قبل التأكيد.">
+      <div className="grid grid-cols-2 gap-[3.5vw] h-full">
+        <div className="flex flex-col gap-[2.6vh]">
+          <Point n="01" title="مسودة لا تُلزم">
+            3 × 115 شامل الضريبة: التقدير 345 معلن أنه غير مُلزم، وتُحفظ المسودة 344 بعد خصم البند الثابت 1.
+          </Point>
+          <Point n="02" title="مراجعة ثم تأكيد">
+            يعرض الأمر المحفوظ السعر ومصدر الخصم 0.2899% والضريبة 44.87؛ لا تأكيد قبل إقرار المستخدم.
+          </Point>
+          <Point n="03" title="تسليم ثم فوترة جزئية">
+            تسليم واحد لـ3 وحدات، ثم فاتورة 114.67 للوحدة و229.33 للباقي.
+          </Point>
         </div>
-        <h2 className="font-display font-bold text-[3.6vw] leading-[1.1] tracking-tight text-text m-0 mb-[2vh]">
-          المحاسبة والامتثال
-        </h2>
-        <p className="text-[1.3vw] text-muted max-w-[62vw] leading-[1.6] mb-[5vh]">
-          محاسبة قائمة على القيد المزدوج، جاهزة لمتطلبات هيئة الزكاة والضريبة (ZATCA) من اليوم الأول.
-        </p>
-
-        <div className="flex gap-[2.5vw] mb-[4vh]">
-          <div className="flex-1">
-            <div className="text-[1.3vw] font-semibold text-text mb-[1.5vh]">01. قيود مزدوجة</div>
-            <div className="w-[2vw] h-[3px] bg-accent mb-[2vh]" />
-            <p className="text-[1.05vw] leading-[1.7] text-muted m-0">
-              دفتر يومية كامل لكل عملية: مبيعات، مشتريات، مصاريف، ومخزون — مع جدول <span className="font-semibold text-text">journal_entries</span> مفهرس بالكامل.
-            </p>
-          </div>
-          <div className="flex-1">
-            <div className="text-[1.3vw] font-semibold text-text mb-[1.5vh]">02. التدفق النقدي</div>
-            <div className="w-[2vw] h-[3px] bg-accent mb-[2vh]" />
-            <p className="text-[1.05vw] leading-[1.7] text-muted m-0">
-              رؤية لحظية للسيولة الداخلة والخارجة وحالة الأرصدة عبر كل البنوك والصناديق.
-            </p>
-          </div>
-          <div className="flex-1">
-            <div className="text-[1.3vw] font-semibold text-text mb-[1.5vh]">03. تكامل ZATCA</div>
-            <div className="w-[2vw] h-[3px] bg-accent mb-[2vh]" />
-            <p className="text-[1.05vw] leading-[1.7] text-muted m-0">
-              توليد رمز QR متوافق مع منصّة فاتورة على كل عملية بيع وعلى الفواتير القائمة.
-            </p>
-          </div>
-        </div>
-
-        <div className="bg-primary p-[2vw]" style={{ direction: "ltr" }}>
-          <div className="text-[0.8vw] uppercase tracking-[0.15em] text-cream/60 mb-[1.5vh]">مثال قيد يومية</div>
-          <div className="font-mono text-[1.05vw] text-cream leading-[1.8]">
-            <span className="text-sage">Dr</span> 1101 المخزون &nbsp;&nbsp; <span className="text-accent">100.00</span> &nbsp;&nbsp;&nbsp; <span className="text-cream/40">/</span>
-            &nbsp;&nbsp; <span className="text-sage">Dr</span> 1402 ضريبة المدخلات &nbsp;&nbsp; <span className="text-accent">15.00</span>
-            &nbsp;&nbsp;&nbsp; <span className="text-cream/40">/</span> &nbsp;&nbsp; <span className="text-sage">Cr</span> 2102 الموردين &nbsp;&nbsp; <span className="text-accent">115.00</span>
-          </div>
+        <div>
+          <Panel label="مصالحة الأستاذ · قيود متوازنة">
+            <Row k="مدين الذمم المدينة" v="344.00" strong />
+            <Row k="مدين خصم المبيعات" v="0.87" />
+            <Row k="دائن إيراد المبيعات" v="300.00" />
+            <Row k="دائن ضريبة المخرجات" v="44.87" />
+            <Row k="تكلفة المبيعات مقابل المخزون" v="150.00" />
+            <Note>صافي الإيراد 299.13. المدفوع صفر؛ الفاتورتان غير مدفوعتين وغير مرسلتين.</Note>
+          </Panel>
         </div>
       </div>
-
-      <div className="absolute bottom-[7vh] right-[7vw] text-[1vw] text-muted">
-        حاسبة.AI — منصّة تخطيط موارد المؤسسات
-      </div>
-      <div className="absolute bottom-[7vh] left-[7vw] text-[1vw] font-semibold text-text">07</div>
-    </div>
+    </SlideFrame>
   );
 }

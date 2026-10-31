@@ -1,32 +1,12 @@
+import { SectionFrame } from "../../components/deck";
+
 export default function SectionGrowth() {
   return (
-    <div
-      dir="rtl"
-      className="w-screen h-screen overflow-hidden relative bg-warm text-text font-body flex flex-col justify-center"
-      style={{ padding: "8vh 8vw" }}
-    >
-      <div className="absolute top-[8vh] left-[8vw] text-[1vw] font-semibold tracking-[0.18em] uppercase text-text">
-        FEATURES OVERVIEW / 2026
-      </div>
-
-      <div className="max-w-[80vw]">
-        <div className="flex items-baseline gap-[1.5vw] mb-[3vh]">
-          <span className="font-display text-[10vw] font-bold leading-none text-accent" style={{ direction: "ltr" }}>04</span>
-          <span className="text-[2vw] text-muted" style={{ direction: "ltr" }}>/ 04</span>
-        </div>
-        <h2 className="font-display font-bold text-[5.5vw] leading-[1.05] tracking-tight text-text m-0 mb-[3vh]">
-          النمو والإدارة
-        </h2>
-        <div className="w-[10vw] h-[3px] bg-accent mb-[3vh]" />
-        <p className="text-[1.5vw] text-muted max-w-[55vw] leading-[1.55] m-0">
-          خمس وحدات لإدارة عمليات النمو والعملاء والإشراف: الإعداد الموجَّه، صفحة البداية، المشاريع، التسويق، ولوحة المدير.
-        </p>
-      </div>
-
-      <div className="absolute bottom-[8vh] right-[8vw] text-[1vw] text-muted">
-        حاسبة.AI — منصّة تخطيط موارد المؤسسات
-      </div>
-      <div className="absolute bottom-[8vh] left-[8vw] text-[1vw] font-semibold text-text">20</div>
-    </div>
+    <SectionFrame
+      num="04"
+      page="23"
+      title="النمو والإدارة"
+      text="الإعداد الموجَّه، صفحة البداية، المشاريع، التسويق، ولوحة المدير، ثم حالة التنفيذ وما تبقّى قبل التشغيل الحي."
+    />
   );
 }
