@@ -41,12 +41,21 @@ if(process.argv.includes("--capture")){
         WHERE a.system_key='inventory') AS inventory_ledger,
       (SELECT count(*) FROM document_issuer_snapshots) AS historical_snapshots`);
     assert.ok(Number(summaries.rows[0].historical_snapshots)>0);
-    assert.equal(Number(summaries.rows[0].inventory),Number(summaries.rows[0].layers));
+    // Average/standard products do not require FIFO layers. Reconcile each
+    // product according to its existing valuation method, never manufacture
+    // layers or change the fixture's method to make evidence pass.
+    const valuation=await client.query(`SELECT p.id,p.costing_method,
+      coalesce((SELECT sum(quantity*avg_cost) FROM stock_quants WHERE product_id=p.id),0) AS carrying,
+      coalesce((SELECT sum(remaining_qty*unit_cost) FROM stock_layers WHERE product_id=p.id),0) AS layers
+      FROM products p ORDER BY p.id`);
+    for(const product of valuation.rows){
+      if(product.costing_method==="fifo")assert.equal(Number(product.carrying),Number(product.layers));
+    }
     assert.equal(Number(summaries.rows[0].inventory),Number(summaries.rows[0].inventory_ledger));
     await client.query("COMMIT");
     writeFileSync(resolve(dir,"browser-reconciliation.json"),JSON.stringify({
       at:new Date().toISOString(),passed:true,readOnlySnapshot:true,unchangedTables:Object.keys(after),
-      summary:summaries.rows[0],
+      summary:summaries.rows[0],valuation:valuation.rows,
       beforeSha256:createHash("sha256").update(JSON.stringify(before)).digest("hex"),
       afterSha256:createHash("sha256").update(JSON.stringify(after)).digest("hex"),
     },null,2));
