@@ -8,7 +8,8 @@ import {resolve} from "node:path";
 import {randomUUID,createHash} from "node:crypto";
 import type {Request} from "express";
 const root=resolve(import.meta.dirname,"../../../..");
-const dir=resolve(root,"generated-artifacts/tax-identity-continuation");
+const dir=resolve(root,process.env.HASBA_MEETING_EVIDENCE==="true"?
+  "generated-artifacts/meeting-readiness/identity":"generated-artifacts/tax-identity-continuation");
 mkdirSync(dir,{recursive:true});
 const state=JSON.parse(readFileSync("/tmp/hasba-browser-state.json","utf8"));
 const url=new URL(state.env.TEST_DATABASE_URL);
@@ -65,7 +66,13 @@ if(process.argv.includes("--capture")){
 const {default:app,assertApplicationReady}=await import("../app");
 await assertApplicationReady();
 const account=state.accounts.find((a:{role:string})=>a.role==="owner");
-assert.ok(account?.receiptInvoice,"--browser --pos --receipts fixture is required");
+assert.ok(account,"An isolated owner fixture is required");
+if(process.env.HASBA_MEETING_EVIDENCE==="true"&&!account.receiptInvoice){
+  const [invoice]=await q("SELECT id FROM customer_invoices WHERE company_id=$1 ORDER BY id LIMIT 1",[account.companyId]);
+  assert.ok(invoice,"Complete the isolated sales journey before the identity journey");
+  account.receiptInvoice=invoice;
+}
+assert.ok(account.receiptInvoice,"--receipts or a completed isolated sales journey is required");
 const {captureIssuer,saveIssuer,documentIssuer}=await import("../lib/document-identity");
 await db.transaction(async tx=>{
   await saveIssuer(tx,"invoice",account.receiptInvoice.id,await captureIssuer(tx,account.companyId));

@@ -43,6 +43,13 @@ onlyBuiltDependencies:
   - unrs-resolver
 
 overrides:
+  # ExcelJS keeps its synchronous ZIP factory; migrate its archive consumer,
+  # not legacy glob's matcher. The local adapter is covered by real traversal
+  # and streaming/buffered XLSX round-trip tests.
+  'exceljs>archiver': 'workspace:@workspace/excel-archive-compat@*'
+  # The old extractor retains fstream/rimraf/glob7 even after the writer moves.
+  'exceljs>unzipper': 0.12.5
+  'readdir-glob@3>minimatch': 11.0.3
   # Keep shared dev-server plugins and Vitest on the same compatible Vite major.
   vite: 7.3.7
   # Typography still pins vulnerable 6.x; 7.x preserves the parser API it uses.

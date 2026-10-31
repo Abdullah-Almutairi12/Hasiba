@@ -1,0 +1,8 @@
+{
+  "name": "@workspace/excel-archive-compat",
+  "version": "1.0.0",
+  "private": true,
+  "main": "index.cjs",
+  "engines": { "node": ">=22.12" },
+  "dependencies": { "archiver": "8.0.0" }
+}

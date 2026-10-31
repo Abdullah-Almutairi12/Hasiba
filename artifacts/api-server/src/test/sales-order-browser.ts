@@ -18,7 +18,7 @@ const account=state.accounts.find((a:{role:string,posSession?:unknown})=>a.role=
 assert.ok(account);
 const summaryRefresh=process.argv.includes("--summary-refresh");
 const discountFixes=summaryRefresh||process.argv.includes("--discount-fixes");
-const dir=resolve(import.meta.dirname,summaryRefresh?"../../../../generated-artifacts/sales-summary-refresh":discountFixes?
+const dir=process.env.HASBA_MEETING_EVIDENCE==="true"?resolve(import.meta.dirname,"../../../../generated-artifacts/meeting-readiness/sales"):resolve(import.meta.dirname,summaryRefresh?"../../../../generated-artifacts/sales-summary-refresh":discountFixes?
   "../../../../generated-artifacts/sales-order-discount-fixes":"../../../../generated-artifacts/sales-order-pricing");
 mkdirSync(dir,{recursive:true});
 const file=resolve(dir,"browser-proxy.json");
