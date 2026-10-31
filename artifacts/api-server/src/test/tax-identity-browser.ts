@@ -65,16 +65,18 @@ if(process.argv.includes("--capture")){
 }
 const {default:app,assertApplicationReady}=await import("../app");
 await assertApplicationReady();
-const account=state.accounts.find((a:{role:string})=>a.role==="owner");
-assert.ok(account,"An isolated owner fixture is required");
-if(process.env.HASBA_MEETING_EVIDENCE==="true"&&!account.receiptInvoice){
-  const [invoice]=await q("SELECT id FROM customer_invoices WHERE company_id=$1 ORDER BY id LIMIT 1",[account.companyId]);
-  assert.ok(invoice,"Complete the isolated sales journey before the identity journey");
-  account.receiptInvoice=invoice;
-}
-assert.ok(account.receiptInvoice,"--receipts or a completed isolated sales journey is required");
+const meeting=process.env.HASBA_MEETING_EVIDENCE==="true";
+// Keep the sales-demo company on its original legacy policy. Demonstrate the
+// gated dated policy in the SECOND synthetic company, not by unlocking HTTP.
+const account=state.accounts.find((a:{role:string})=>a.role===(meeting?"sales":"owner"));
+assert.ok(account,"An isolated account fixture is required");
+if(meeting){
+  await q("UPDATE users SET role='owner' WHERE email=$1",[account.email]);
+  await q(`UPDATE user_companies SET role='owner' WHERE company_id=$1
+    AND user_id=(SELECT id FROM users WHERE email=$2)`,[account.companyId,account.email]);
+}else assert.ok(account.receiptInvoice,"--receipts fixture is required");
 const {captureIssuer,saveIssuer,documentIssuer}=await import("../lib/document-identity");
-await db.transaction(async tx=>{
+if(!meeting)await db.transaction(async tx=>{
   await saveIssuer(tx,"invoice",account.receiptInvoice.id,await captureIssuer(tx,account.companyId));
 });
 const before=await snapshot();
@@ -101,7 +103,7 @@ await publishTaxPolicy(req,input);
 await publishTaxPolicy(req,{...input,requestId:randomUUID(),revision:1,effectiveFrom:"2099-01-01",
   status:"not_registered",vatNumber:null,priceIncludesVat:false});
 assert.deepEqual(await snapshot(),before);
-assert.deepEqual(await documentIssuer(account.companyId,"invoice",account.receiptInvoice.id),
+if(!meeting)assert.deepEqual(await documentIssuer(account.companyId,"invoice",account.receiptInvoice.id),
   (before.document_issuer_snapshots as {row:{issuer:unknown}}[])[0].row.issuer);
 const {verificationSource}=await import(new URL("../../../../scripts/verification-source.mjs",import.meta.url).href);
 const source=await verificationSource(root);
