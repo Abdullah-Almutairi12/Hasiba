@@ -19,6 +19,15 @@ function metadata(entry:string):{name:string;version:string}{
   }
 }
 describe("Excel archive installed-consumer compatibility",()=>{
+  it("decodes Arabic XML across every UTF-8 byte boundary",async()=>{
+    const parse=excel("exceljs/lib/utils/parse-sax");
+    const xml=Buffer.from("<root>نص عربي محفوظ بلا تلف</root>");
+    const chunks=Array.from(xml,b=>Buffer.from([b]));
+    let text="";
+    for await(const events of parse(Readable.from(chunks)))
+      for(const event of events)if(event.eventType==="text")text+=event.value;
+    expect(text).toBe("نص عربي محفوظ بلا تلف");
+  });
   it("uses a patched matcher through the actual archive reader",()=>{
     const owner=createRequire(factoryPath);
     const engine=metadata(factoryPath).name==="@workspace/excel-archive-compat"?
@@ -63,12 +72,16 @@ describe("Excel archive installed-consumer compatibility",()=>{
     sheet.addRow(["مرجع عربي / ABC",100,14.67,{formula:"B2+C2",result:114.67},new Date("2026-10-31T00:00:00Z")]);
     sheet.getCell("E2").numFmt="yyyy-mm-dd";
     sheet.getCell("C2").numFmt="0.00";
+    // Cross StreamBuf's 64KB batching boundary; tiny workbooks alone cannot
+    // prove the legacy pipe bridge preserves backpressure and all rows.
+    const payload="محتوى عربي محفوظ ".repeat(20);
+    for(let n=0;n<600;n++)sheet.addRow([`${n}: ${payload}`,n]);
     if(streaming)await (book as ExcelJS.stream.xlsx.WorkbookWriter).commit();
     else output.end(await (book as ExcelJS.Workbook).xlsx.writeBuffer());
     const bytes=await done;
     const loaded=new ExcelJS.Workbook();await loaded.xlsx.load(Uint8Array.from(bytes).buffer);
     const read=loaded.getWorksheet("البيانات")!;
-    expect(read.rowCount).toBe(2);expect(read.getCell("A2").value).toBe("مرجع عربي / ABC");
+    expect(read.rowCount).toBe(602);expect(read.getCell("A2").value).toBe("مرجع عربي / ABC");
     expect(read.getCell("B2").value).toBe(100);expect(read.getCell("C2").value).toBe(14.67);
     expect(read.getCell("D2").value).toEqual({formula:"B2+C2",result:114.67});
     expect((read.getCell("E2").value as Date).toISOString()).toBe("2026-10-31T00:00:00.000Z");
@@ -76,8 +89,13 @@ describe("Excel archive installed-consumer compatibility",()=>{
     const imported:unknown[][]=[];
     const reader=new ExcelJS.stream.xlsx.WorkbookReader(Readable.from(bytes),{sharedStrings:"cache",styles:"cache",worksheets:"emit"});
     for await(const worksheet of reader)for await(const row of worksheet)imported.push(row.values as unknown[]);
-    expect(imported.length).toBe(2);
+    expect(imported.length).toBe(602);
     expect(imported[1][1]).toBe("مرجع عربي / ABC");
     expect(imported[1][2]).toBe(100);
+    for(let n=0;n<600;n++){
+      expect(read.getCell(`A${n+3}`).value).toBe(`${n}: ${payload}`);
+      expect(imported[n+2][1]).toBe(`${n}: ${payload}`);
+      expect(imported[n+2][2]).toBe(n);
+    }
   });
 });

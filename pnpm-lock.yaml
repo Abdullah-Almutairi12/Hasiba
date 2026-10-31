@@ -177,6 +177,11 @@ overrides:
   uuid@9: 11.1.1
   yaml@2: 2.9.0
 
+patchedDependencies:
+  exceljs@4.4.0:
+    hash: 5b362995f93cc998d0c01c65ba506f3d7b1ef23494a3f2cf5148f299880375ea
+    path: patches/exceljs@4.4.0.patch
+
 importers:
 
   .:
@@ -237,7 +242,7 @@ importers:
         version: 0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.18.0)(pg@8.20.0)
       exceljs:
         specifier: ^4.4.0
-        version: 4.4.0
+        version: 4.4.0(patch_hash=5b362995f93cc998d0c01c65ba506f3d7b1ef23494a3f2cf5148f299880375ea)
       express:
         specifier: ^5.3.0
         version: 5.3.0
@@ -7342,7 +7347,7 @@ snapshots:
 
   events@3.3.0: {}
 
-  exceljs@4.4.0:
+  exceljs@4.4.0(patch_hash=5b362995f93cc998d0c01c65ba506f3d7b1ef23494a3f2cf5148f299880375ea):
     dependencies:
       archiver: link:lib/excel-archive-compat
       dayjs: 1.11.20

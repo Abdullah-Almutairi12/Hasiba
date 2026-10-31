@@ -1,0 +1,42 @@
+diff --git a/lib/utils/parse-sax.js b/lib/utils/parse-sax.js
+index 14c682a731b5e51f999859a03ce4dd4e0bfcbb26..df25653f3236b55e83a3592cdb101aa4a7c751d6 100644
+--- a/lib/utils/parse-sax.js
++++ b/lib/utils/parse-sax.js
+@@ -1,6 +1,5 @@
+ const {SaxesParser} = require('saxes');
+ const {PassThrough} = require('readable-stream');
+-const {bufferToString} = require('./browser-buffer-decode');
+ 
+ module.exports = async function* (iterable) {
+   // TODO: Remove once node v8 is deprecated
+@@ -9,6 +8,9 @@ module.exports = async function* (iterable) {
+     iterable = iterable.pipe(new PassThrough());
+   }
+   const saxesParser = new SaxesParser();
++  // Decoder state belongs to this XML stream. Decoding each ZIP chunk
++  // independently corrupts a multibyte character split across chunks.
++  const decoder = new TextDecoder('utf-8');
+   let error;
+   saxesParser.on('error', err => {
+     error = err;
+@@ -18,7 +20,8 @@ module.exports = async function* (iterable) {
+   saxesParser.on('text', value => events.push({eventType: 'text', value}));
+   saxesParser.on('closetag', value => events.push({eventType: 'closetag', value}));
+   for await (const chunk of iterable) {
+-    saxesParser.write(bufferToString(chunk));
++    saxesParser.write(typeof chunk === 'string' ? decoder.decode() + chunk :
++      decoder.decode(chunk, {stream: true}));
+     // saxesParser.write and saxesParser.on() are synchronous,
+     // so we can only reach the below line once all events have been emitted
+     if (error) throw error;
+@@ -27,4 +30,10 @@ module.exports = async function* (iterable) {
+     yield events;
+     events = [];
+   }
++  const tail = decoder.decode();
++  if (tail) {
++    saxesParser.write(tail);
++    if (error) throw error;
++    yield events;
++  }
+ };
