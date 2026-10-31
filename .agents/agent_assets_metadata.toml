@@ -1470,3 +1470,31 @@ mtime_ms = 1793404625252
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/40c0af50-0c68-4d31-ac5f-fc950e129a73/6f178f9b-5f63-4183-b048-045edd1aaf4b"
 storage_version_token = "1793404637942397"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "Vawv9UAFPRMTy0aSedPGI"
+uri = "file://generated-artifacts/tax-identity-continuation/Hasiba-tax-identity-report-AR-EN.docx"
+type = "word_document"
+title = "تقرير الهوية الضريبية — عربي / English"
+description = "المنفذ ونتائج التشغيل الجديد، مع توضيح بوابة الاعتماديات غير المغلقة وتجربة الترقية المرفوضة."
+logical_id = "3fda465f-bc05-49c0-b862-4a887de87e4a"
+content_hash = "sha256:e3b612e95de1049b728a093759a6331704bac00f55bf403e17de61a8e1f7cb72"
+size = 10410
+mtime_ms = 1793430902478
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/3fda465f-bc05-49c0-b862-4a887de87e4a/d32c6424-32a5-4cea-8644-c32e8e770de8"
+storage_version_token = "1793430937082436"
+content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
+[[outputs]]
+id = "vyVbELawLPgysfnopR_8O"
+uri = "file://generated-artifacts/tax-identity-continuation/Hasiba-tax-identity-evidence.zip"
+type = "unspecified"
+title = "حزمة أدلة الهوية الضريبية — ZIP"
+description = "124 ملفًا موثقًا ببصمات، تشمل السجلات الخام المنقحة والرحلة والمصالحة والتشغيل المنقطع والنتيجة النهائية14/15."
+logical_id = "1300164d-4fd2-4d31-aa9c-c48c62a3fd98"
+content_hash = "sha256:cd88b260f809ee15bd87a9485d1937bb464423cdcc918122953651df8c34fef8"
+size = 2015076
+mtime_ms = 1793430902911
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/1300164d-4fd2-4d31-aa9c-c48c62a3fd98/3108ca1a-d6f3-4fa4-ab0a-8d7dba53d0cd"
+storage_version_token = "1793430940609218"
+content_type = "application/octet-stream"
