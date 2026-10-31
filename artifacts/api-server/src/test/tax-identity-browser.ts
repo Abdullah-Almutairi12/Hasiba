@@ -90,6 +90,8 @@ await q(`INSERT INTO company_administrators(company_id,user_id,responsibilities)
   ON CONFLICT(company_id,user_id) DO UPDATE SET active=true,responsibilities=EXCLUDED.responsibilities`,[account.companyId,u.id]);
 await q(`INSERT INTO branches(company_id,name,name_ar,city)
   VALUES($1,'Identity second branch','فرع الهوية الثاني','جدة')`,[account.companyId]);
+if(meeting)await q(`INSERT INTO branches(company_id,name,name_ar,city)
+  VALUES($1,'Identity first branch','فرع الهوية الأول','الرياض')`,[account.companyId]);
 const [session]=await q(`SELECT sess FROM "session" WHERE sess->>'userId'=$1 ORDER BY expire DESC LIMIT 1`,[String(u.id)]);
 const req={session:{...session.sess,save:(cb:()=>void)=>cb()},headers:{},ip:"198.51.100.240",
   get:()=>undefined} as unknown as Request;
