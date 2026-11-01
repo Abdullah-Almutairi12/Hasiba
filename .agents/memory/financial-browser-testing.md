@@ -213,3 +213,27 @@ served and on-disk bytes; rebuilding would not have fixed the measurement.
 measurement separately, and restart only if a real runtime difference remains.
 Use a fresh private browser context when switching a preview to a disposable
 database; do not delete normal-browser unknown financial intents for a demo.
+
+### Browser audit continuity
+
+An automation context reset or stale snapshot reference is not evidence of an
+application defect. Use a stable keyboard/locator path before changing the UI.
+
+**Why:** Snapshot-based clicks failed repeatedly on an enabled, unobscured
+control, while real keyboard actions completed it. A later notebook reset lost
+cookies without any application logout.
+
+**How to apply:** Keep authorized synthetic access in an ignored private handoff,
+never in evidence. Restore normal sign-in rather than resetting accounts or
+injecting sessions. If another fixture is used, separate its acceptance from the
+unfinished original journey; do not merge their financial evidence.
+
+Vite transformed sourcemaps can legitimately differ from raw source, and a raw
+module may export a single-quoted JavaScript string rather than JSON.
+
+**Why:** Naive comparison and JSON-only parsing produced measurement failures
+despite matching served/local UTF-8 bytes.
+
+**How to apply:** Decode the actual validated raw string format, compare bytes,
+and retain the failed measurement as a tooling limitation rather than rebuilding
+or declaring an application mismatch without evidence.
