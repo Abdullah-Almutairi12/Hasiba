@@ -1831,6 +1831,51 @@ paths:
                   $ref: "#/components/schemas/BranchPerformance"
 
   # Products
+  /products/imports:
+    get:
+      operationId: getProductImportOptions
+      tags: [products]
+      summary: Authorized create-only catalogue import fields, categories, units and limits
+      responses:
+        "200":
+          description: Existing catalogue defaults; no quantities or financial import
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        "403": { description: No current catalogue creation authority }
+    post:
+      operationId: runProductImport
+      tags: [products]
+      summary: Parse, preview, atomically commit, recover or safely close a catalogue import
+      description: |
+        CSV UTF-8 or one-sheet XLSX, at most256KiB/500rows/12columns/128characters per cell.
+        Supported fields:nameAr,name,sku,categoryId,price,costPrice,unit,optional barcode.
+        Every source column must be explicitly mapped. No updates, balances, tax,
+        variants or tracking. Preview never persists records. All rows must be valid.
+        commit/recover/close require the exact original token and Idempotency-Key.
+        Recovery never executes absent work. Safe closure is durable and prevents
+        delayed execution. An authorization denial does not prove nonexecution.
+      parameters:
+        - in: header
+          name: Idempotency-Key
+          required: false
+          schema: { type: string, minLength: 8, maxLength: 128 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProductImportInput"
+      responses:
+        "200":
+          description: Parsed cells, row-level preview, durable saved outcome or confirmed closure
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        "400": { description: "Invalid or unsupported file, mapping, fields or values" }
+        "403": { description: "Current identity, company or catalogue permission denied" }
+        "409": { description: "Changed facts, duplicates, expiry, unresolved or closed attempt" }
+        "503": { description: Outcome cannot be confirmed; preserve original intent }
   /products:
     get:
       operationId: listProducts
@@ -5399,6 +5444,40 @@ paths:
 
 components:
   schemas:
+    ProductImportInput:
+      type: object
+      additionalProperties: false
+      required: [action]
+      properties:
+        action: { type: string, enum: [parse, preview, commit, recover, close] }
+        fileName: { type: string, minLength: 1, maxLength: 180 }
+        base64: { type: string, maxLength: 349528 }
+        token: { type: string, minLength: 10, maxLength: 900000 }
+        document:
+          type: object
+          additionalProperties: false
+          required: [headers, rows, mapping]
+          properties:
+            headers:
+              type: array
+              minItems: 1
+              maxItems: 12
+              items: { type: string, minLength: 1, maxLength: 128 }
+            rows:
+              type: array
+              minItems: 1
+              maxItems: 500
+              items:
+                type: array
+                maxItems: 12
+                items:
+                  anyOf:
+                    - { type: string, maxLength: 128 }
+                    - { type: number }
+                    - { type: "null" }
+            mapping:
+              type: object
+              additionalProperties: { type: integer, minimum: 0, maximum: 11 }
     InventoryAttemptClosureInput:
       type: object
       required: [transfer, body]

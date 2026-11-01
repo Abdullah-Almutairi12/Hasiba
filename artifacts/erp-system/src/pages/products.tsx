@@ -30,8 +30,9 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Search, Plus, Package, AlertTriangle, DollarSign, Pencil, Trash2, Download, Warehouse } from "lucide-react";
+import { Search, Plus, Package, AlertTriangle, DollarSign, Pencil, Trash2, Download, Warehouse, Upload } from "lucide-react";
 import { ProductFormDialog } from "@/components/product-form-dialog";
+import { ProductImportDialog } from "@/components/product-import-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useQuery } from "@tanstack/react-query";
@@ -195,6 +196,7 @@ export default function Products() {
   const [editing, setEditing] = useState<ProductFormState | null>(null);
   const [deleteId, setDeleteId] = useState<number | null>(null);
   const [panelProductId, setPanelProductId] = useState<number | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const deleteMutation = useDeleteProduct();
@@ -238,6 +240,10 @@ export default function Products() {
             <Download className="size-4" />
             تصدير CSV
           </Button>
+          <Button variant="outline" className="gap-2" onClick={() => setImportOpen(true)} data-testid="button-open-product-import">
+            <Upload className="size-4" />
+            استيراد CSV / XLSX
+          </Button>
           <Button
             className="gap-2"
             onClick={() => {
@@ -259,6 +265,8 @@ export default function Products() {
         }}
         initialData={editing}
       />
+
+      <ProductImportDialog open={importOpen} onOpenChange={setImportOpen} />
 
       <AlertDialog open={deleteId !== null} onOpenChange={(o) => !o && setDeleteId(null)}>
         <AlertDialogContent dir="rtl">

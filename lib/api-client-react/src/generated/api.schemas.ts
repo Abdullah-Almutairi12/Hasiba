@@ -5,6 +5,53 @@
  * حاسبة.AI - ERP System API
  * OpenAPI spec version: 0.1.0
  */
+export type ProductImportInputAction = typeof ProductImportInputAction[keyof typeof ProductImportInputAction];
+
+
+export const ProductImportInputAction = {
+  parse: 'parse',
+  preview: 'preview',
+  commit: 'commit',
+  recover: 'recover',
+  close: 'close',
+} as const;
+
+export type ProductImportInputDocumentMapping = {[key: string]: number};
+
+export type ProductImportInputDocument = {
+  /**
+     * @minItems 1
+     * @maxItems 12
+     * @items.minLength 1
+     * @items.maxLength 128
+     */
+  headers: string[];
+  /**
+     * @minItems 1
+     * @maxItems 500
+     * @items.maxItems 12
+     */
+  rows: ((string | number | null)[])[];
+  mapping: ProductImportInputDocumentMapping;
+};
+
+export interface ProductImportInput {
+  action: ProductImportInputAction;
+  /**
+     * @minLength 1
+     * @maxLength 180
+     */
+  fileName?: string;
+  /** @maxLength 349528 */
+  base64?: string;
+  /**
+     * @minLength 10
+     * @maxLength 900000
+     */
+  token?: string;
+  document?: ProductImportInputDocument;
+}
+
 export type InventoryAttemptClosureInputBody = { [key: string]: unknown };
 
 export interface InventoryAttemptClosureInput {
@@ -4949,6 +4996,10 @@ key: string;
 export type UndismissDashboardAlert200 = {
   ok: boolean;
 };
+
+export type GetProductImportOptions200 = { [key: string]: unknown };
+
+export type RunProductImport200 = { [key: string]: unknown };
 
 export type ListProductsParams = {
 category?: string;

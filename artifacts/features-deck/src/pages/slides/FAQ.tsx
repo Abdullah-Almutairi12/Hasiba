@@ -44,7 +44,7 @@ export default function FAQ() {
             <span dir="ltr" className="text-[1.5vw] font-semibold text-accent">06</span>
             <span className="text-[1.7vw] font-semibold text-text">هل يمكن تجربته اليوم؟</span>
           </div>
-          <p className="text-[1.5vw] leading-[1.45] text-muted m-0">على بيئة عرض ببيانات مصطنعة. سجل سابق: 15/15 بوابة، API 1123 ناجحًا، الواجهة 349، لرحلة أمر البيع فقط. إعداد المتجر والدفع والأجهزة غير مقبولة.</p>
+          <p className="text-[1.5vw] leading-[1.45] text-muted m-0">على بيئة عرض ببيانات مصطنعة. نتائج القبول مرتبطة بمصدرها في تقرير التسليم، وليست ضمانًا لكل النظام. استيراد كتالوج أساسي CSV/XLSX لإنشاء أصناف جديدة فقط، بمعاينة وتأكيد؛ لا أرصدة ولا تحديث قائم. إعداد المتجر والدفع والأجهزة غير مقبولة.</p>
         </div>
       </div>
     </SlideFrame>

@@ -3366,6 +3366,68 @@ export const GetBranchPerformanceResponse = zod.array(GetBranchPerformanceRespon
 
 
 /**
+ * @summary Authorized create-only catalogue import fields, categories, units and limits
+ */
+export const GetProductImportOptionsResponse = zod.record(zod.string(), zod.unknown())
+
+
+/**
+ * CSV UTF-8 or one-sheet XLSX, at most256KiB/500rows/12columns/128characters per cell.
+ * Supported fields:nameAr,name,sku,categoryId,price,costPrice,unit,optional barcode.
+ * Every source column must be explicitly mapped. No updates, balances, tax,
+ * variants or tracking. Preview never persists records. All rows must be valid.
+ * commit/recover/close require the exact original token and Idempotency-Key.
+ * Recovery never executes absent work. Safe closure is durable and prevents
+ * delayed execution. An authorization denial does not prove nonexecution.
+ * @summary Parse, preview, atomically commit, recover or safely close a catalogue import
+ */
+export const runProductImportHeaderIdempotencyKeyMin = 8;
+export const runProductImportHeaderIdempotencyKeyMax = 128;
+
+
+
+export const RunProductImportHeader = zod.object({
+  "Idempotency-Key": zod.string().min(runProductImportHeaderIdempotencyKeyMin).max(runProductImportHeaderIdempotencyKeyMax).optional()
+})
+
+export const runProductImportBodyFileNameMax = 180;
+
+export const runProductImportBodyBase64Max = 349528;
+
+export const runProductImportBodyTokenMin = 10;
+export const runProductImportBodyTokenMax = 900000;
+
+export const runProductImportBodyDocumentHeadersItemMax = 128;
+
+export const runProductImportBodyDocumentHeadersMax = 12;
+
+export const runProductImportBodyDocumentRowsItemItemOneMax = 128;
+
+export const runProductImportBodyDocumentRowsItemMax = 12;
+
+export const runProductImportBodyDocumentRowsMax = 500;
+
+export const runProductImportBodyDocumentMappingMinOne = 0;
+export const runProductImportBodyDocumentMappingMaxOne = 11;
+
+
+
+export const RunProductImportBody = zod.object({
+  "action": zod.enum(['parse', 'preview', 'commit', 'recover', 'close']),
+  "fileName": zod.string().min(1).max(runProductImportBodyFileNameMax).optional(),
+  "base64": zod.string().max(runProductImportBodyBase64Max).optional(),
+  "token": zod.string().min(runProductImportBodyTokenMin).max(runProductImportBodyTokenMax).optional(),
+  "document": zod.object({
+  "headers": zod.array(zod.string().min(1).max(runProductImportBodyDocumentHeadersItemMax)).min(1).max(runProductImportBodyDocumentHeadersMax),
+  "rows": zod.array(zod.array(zod.union([zod.string().max(runProductImportBodyDocumentRowsItemItemOneMax),zod.number(),zod.null()])).max(runProductImportBodyDocumentRowsItemMax)).min(1).max(runProductImportBodyDocumentRowsMax),
+  "mapping": zod.record(zod.string(), zod.number().int().min(runProductImportBodyDocumentMappingMinOne).max(runProductImportBodyDocumentMappingMaxOne))
+}).optional()
+})
+
+export const RunProductImportResponse = zod.record(zod.string(), zod.unknown())
+
+
+/**
  * @summary List all products
  */
 export const ListProductsQueryParams = zod.object({

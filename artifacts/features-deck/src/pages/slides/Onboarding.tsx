@@ -26,7 +26,7 @@ export default function Onboarding() {
             {[
               ["المعالج المصحَّح", "منفّذ، جزئي", true],
               ["إعداد المتجر كاملًا", "غير مكتمل", false],
-              ["استيراد كتالوج عام", "غير منفّذ", false],
+              ["كتالوج أساسي CSV/XLSX", "جديد فقط؛ بمعاينة وتأكيد", false],
               ["الرقم الضريبي المدخل", "معلن غير متحقق", false],
             ].map(([k, v, strong]) => (
               <div key={String(k)} className="flex justify-between items-baseline gap-[1vw] border-b border-current/15 py-[0.45vh] text-[1.5vw]">
@@ -34,7 +34,7 @@ export default function Onboarding() {
                 <span className={strong ? "font-bold text-accent" : "font-semibold"}>{v}</span>
               </div>
             ))}
-            <p className="text-[1.35vw] leading-[1.4] opacity-75 mt-[0.8vh] mb-0">استيراد كشوف البنوك CSV ميزة منفصلة. إعداد المتجر الكامل لم يُقبل بعد.</p>
+            <p className="text-[1.35vw] leading-[1.4] opacity-75 mt-[0.8vh] mb-0">استيراد المنتجات الجديدة فقط، لا تحديث ولا مخزون؛ ليس استيراداً عاماً. كشوف البنوك ميزة منفصلة. إعداد المتجر الكامل لم يُقبل بعد.</p>
           </div>
         </div>
       </div>

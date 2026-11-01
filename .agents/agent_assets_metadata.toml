@@ -5,14 +5,14 @@ generated = []
 id = "8F5NDbjIgcIVibVfeUTZw"
 uri = "file://.local/outputs/Hasiba-AI-ERP.pdf"
 type = "pdf"
-title = "حاسبة.AI — عرض الشريك المحدث (PDF)"
-description = "العرض التعريفي الأصلي، محدث بتاريخ31أكتوبر2026 وفق الإمكانات المثبتة وحدود الجاهزية، مع بقاء الدمج المعلق والقبول الضريبي الإنتاجي موضحين."
+title = "حاسبة.AI — عرض المميزات المحدّث"
+description = "العرض الأصلي، 32 صفحة؛ تحديث واقعي للمزايا وحدود الجاهزية، مع فحص بصري لجميع الصفحات."
 logical_id = "0ce4de3a-d36b-4dc2-82ab-497129cd21b0"
-content_hash = "sha256:ced48ec677f3cebac2cc81a319c63da4aa5602e623ad454ccfefb4a38c73f2c1"
-size = 446921
-mtime_ms = 1793450053170
-storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/0ce4de3a-d36b-4dc2-82ab-497129cd21b0/6d65b104-c810-4173-9f77-d79b2bba8b5b"
-storage_version_token = "1793450057297870"
+content_hash = "sha256:d4911d3d306a8e12b6f1eb3ab115546f5a518e7f8165b29d7ca4c30db8795024"
+size = 529647
+mtime_ms = 1793509597482
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/0ce4de3a-d36b-4dc2-82ab-497129cd21b0/ce5e8058-96e9-4a86-9922-fa4b717c6322"
+storage_version_token = "1793512485957986"
 content_type = "application/pdf"
 
 [[outputs]]
@@ -1532,4 +1532,32 @@ size = 1955523
 mtime_ms = 1793437197046
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/ef430c9b-fb87-4497-8a80-aa5fe20bf357/0241081b-1145-4cfc-8613-68e7c54306f5"
 storage_version_token = "1793437216939908"
+content_type = "application/octet-stream"
+
+[[outputs]]
+id = "eke8Oq_NZDmekrUZx0JwC"
+uri = "file://.local/outputs/Hasiba-Store-Review.docx"
+type = "word_document"
+title = "تقرير المراجعة والإصلاحات — عربي وإنجليزي"
+description = "ملف Word يوضح الإصلاحات والاختبارات الفعلية، والمصدر المختبر، ومطابقة GitHub، والمتبقي وحدود الأدلة."
+logical_id = "7a818ea6-eaa4-4b7a-b9dc-3802e1ffe07f"
+content_hash = "sha256:354496f9d9128d26b9cecfab2a1ce662d689a40ca39c6edf0de6bed96ab15149"
+size = 461440
+mtime_ms = 1793512429593
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/7a818ea6-eaa4-4b7a-b9dc-3802e1ffe07f/bc1b5200-1ff6-41c3-bd4a-810e7938aab3"
+storage_version_token = "1793512488641267"
+content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
+[[outputs]]
+id = "A2YMXAWF6brG0HlZXXZZs"
+uri = "file://.local/outputs/Hasiba-Store-Review-Evidence.zip"
+type = "unspecified"
+title = "حزمة أدلة المراجعة والاختبارات"
+description = "سجلات قبل/بعد، و15 بوابة نهائية، والمصالحة المستقلة، و23 صورة فعلية، وقائمة مراجع الصور غير المتاحة، وبيان البصمات؛ دون بيانات الدخول."
+logical_id = "f20cf363-b030-4579-acaf-6751eea0dfad"
+content_hash = "sha256:56444163f1554c2e75c42b80fdc8dec4a250bab7e4f32243a2a965deb1c030e6"
+size = 4504585
+mtime_ms = 1793512430301
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/f20cf363-b030-4579-acaf-6751eea0dfad/cf90e835-f284-4b22-8790-8dc6fea2488c"
+storage_version_token = "1793512493100709"
 content_type = "application/octet-stream"

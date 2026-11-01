@@ -187,6 +187,7 @@ import type {
   GetPosTaxContext200,
   GetPrintProfile200,
   GetProcurementReceivingPolicy200,
+  GetProductImportOptions200,
   GetProductRecommendations200,
   GetProductRecommendationsParams,
   GetProfitLossParams,
@@ -278,6 +279,7 @@ import type {
   PreviewPosTaxBody,
   PrimaryOwnerAppointmentInput,
   Product,
+  ProductImportInput,
   ProductStats,
   ProfitLoss,
   PublishCompanyTaxPolicy200,
@@ -308,6 +310,7 @@ import type {
   RollbackLegacyTeamConversion200,
   RollbackLegacyTeamConversionBody,
   RunAlertsCleanupNow200,
+  RunProductImport200,
   RunVatThresholdCheck200,
   SalesChartPoint,
   SalesReport,
@@ -10397,6 +10400,202 @@ export function useGetBranchPerformance<TData = Awaited<ReturnType<typeof getBra
 
 
 
+
+export const getGetProductImportOptionsUrl = () => {
+
+
+
+
+  return `/api/products/imports`
+}
+
+/**
+ * @summary Authorized create-only catalogue import fields, categories, units and limits
+ */
+export const getProductImportOptions = async ( options?: Parameters<typeof customFetch>[1]): Promise<GetProductImportOptions200> => {
+
+  return customFetch<GetProductImportOptions200>(getGetProductImportOptionsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetProductImportOptionsQueryKey = () => {
+    return [
+    `/api/products/imports`
+    ] as const;
+    }
+
+
+export const getGetProductImportOptionsQueryOptions = <TData = Awaited<ReturnType<typeof getProductImportOptions>>, TError = ErrorType<void>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getProductImportOptions>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetProductImportOptionsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getProductImportOptions>>> = ({ signal }) => getProductImportOptions({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getProductImportOptions>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetProductImportOptionsQueryResult = NonNullable<Awaited<ReturnType<typeof getProductImportOptions>>>
+export type GetProductImportOptionsQueryError = ErrorType<void>
+
+
+export function useGetProductImportOptions<TData = Awaited<ReturnType<typeof getProductImportOptions>>, TError = ErrorType<void>>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getProductImportOptions>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getProductImportOptions>>,
+          TError,
+          Awaited<ReturnType<typeof getProductImportOptions>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetProductImportOptions<TData = Awaited<ReturnType<typeof getProductImportOptions>>, TError = ErrorType<void>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getProductImportOptions>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getProductImportOptions>>,
+          TError,
+          Awaited<ReturnType<typeof getProductImportOptions>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetProductImportOptions<TData = Awaited<ReturnType<typeof getProductImportOptions>>, TError = ErrorType<void>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getProductImportOptions>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Authorized create-only catalogue import fields, categories, units and limits
+ */
+
+export function useGetProductImportOptions<TData = Awaited<ReturnType<typeof getProductImportOptions>>, TError = ErrorType<void>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getProductImportOptions>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetProductImportOptionsQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getRunProductImportUrl = () => {
+
+
+
+
+  return `/api/products/imports`
+}
+
+/**
+ * CSV UTF-8 or one-sheet XLSX, at most256KiB/500rows/12columns/128characters per cell.
+ * Supported fields:nameAr,name,sku,categoryId,price,costPrice,unit,optional barcode.
+ * Every source column must be explicitly mapped. No updates, balances, tax,
+ * variants or tracking. Preview never persists records. All rows must be valid.
+ * commit/recover/close require the exact original token and Idempotency-Key.
+ * Recovery never executes absent work. Safe closure is durable and prevents
+ * delayed execution. An authorization denial does not prove nonexecution.
+ * @summary Parse, preview, atomically commit, recover or safely close a catalogue import
+ */
+export const runProductImport = async (productImportInput: ProductImportInput, options?: Parameters<typeof customFetch>[1]): Promise<RunProductImport200> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<RunProductImport200>(getRunProductImportUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(productImportInput)
+  }
+);}
+
+
+
+
+
+export const getRunProductImportMutationKey = () => ['runProductImport'] as const;
+
+export const getRunProductImportMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof runProductImport>>, TError,RunProductImportMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof runProductImport>>, TError,RunProductImportMutationVariables, TContext> => {
+
+const mutationKey = getRunProductImportMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof runProductImport>>, RunProductImportMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  runProductImport(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RunProductImportMutationResult = NonNullable<Awaited<ReturnType<typeof runProductImport>>>
+    export type RunProductImportMutationBody = BodyType<ProductImportInput>
+    export type RunProductImportMutationError = ErrorType<void>
+    export type RunProductImportMutationVariables = {data: BodyType<ProductImportInput>}
+
+    /**
+ * @summary Parse, preview, atomically commit, recover or safely close a catalogue import
+ */
+export const useRunProductImport = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof runProductImport>>, TError,RunProductImportMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof runProductImport>>,
+        TError,
+        RunProductImportMutationVariables,
+        TContext
+      > => {
+      return useMutation(getRunProductImportMutationOptions(options), queryClient);
+    }
 
 export const getListProductsUrl = (params?: ListProductsParams,) => {
   const normalizedParams = new URLSearchParams();

@@ -5,6 +5,7 @@ import accountSecurityRouter from "./account-security";
 import {accountSessionGate} from "../middlewares/account-session";
 import dashboardRouter from "./dashboard";
 import productsRouter from "./products";
+import productImportsRouter from "./product-imports";
 import posRouter from "./pos";
 import returnSettlementRouter from "./return-settlement";
 import invoicesRouter from "./invoices";
@@ -165,6 +166,7 @@ router.use(async(req,res,next)=>{
 });
 
 router.use(dashboardRouter);
+router.use(productImportsRouter);
 router.use(productsRouter);
 router.use(posRouter);
 router.use(returnSettlementRouter);
