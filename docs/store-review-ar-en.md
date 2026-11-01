@@ -1,3 +1,13 @@
+# إضافة قبول لاحقة — Basic catalogue import / 2026-11-01
+
+تبقى نتائج مراجعة المتجر السابقة أدناه مرتبطة بمصدرها؛ لا تُنسب لهذه الإضافة.
+أُضيفت شريحة إنشاء أصناف جديدة CSV/XLSX فقط في المنتجات الأصلية، بدليل جديد
+على`d4dca522`:15/15 بوابة،1160API ناجح/1 مشروط،377UI ناجح؛ رحلة أصلية
+ومصالحة4 أصناف مخزونها صفر وإيصالين، بلا تغيير مالي/مخزني. التقرير:
+`docs/product-import-ar-en.md`. لا يعني ذلك اكتمال الإعداد التجاري أو المستورد العام.
+This later acceptance is distinct from the historical store review below;
+the basic catalogue path is new, not evidence that all store setup is complete.
+
 # مراجعة تجربة المتجر والعرض الاستثماري — Store experience review
 
 ## النطاق والحالة / Scope and status
