@@ -5,14 +5,14 @@ generated = []
 id = "8F5NDbjIgcIVibVfeUTZw"
 uri = "file://.local/outputs/Hasiba-AI-ERP.pdf"
 type = "pdf"
-title = "حاسبة.AI — عرض المميزات المحدّث"
-description = "العرض الأصلي، 32 صفحة؛ تحديث واقعي للمزايا وحدود الجاهزية، مع فحص بصري لجميع الصفحات."
+title = "عرض حاسبة المحدّث — PDF"
+description = "نفس العرض الأصلي، 32 صفحة؛ تحديث حالة استيراد الأصناف وحدود الجاهزية، مع فحص الصفحات بصريًا."
 logical_id = "0ce4de3a-d36b-4dc2-82ab-497129cd21b0"
-content_hash = "sha256:d4911d3d306a8e12b6f1eb3ab115546f5a518e7f8165b29d7ca4c30db8795024"
-size = 529647
-mtime_ms = 1793509597482
-storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/0ce4de3a-d36b-4dc2-82ab-497129cd21b0/ce5e8058-96e9-4a86-9922-fa4b717c6322"
-storage_version_token = "1793512485957986"
+content_hash = "sha256:a11e876fc3bd41bb73490c9e0c98d09b80e4816e89b9690722497365d1d11ecc"
+size = 531463
+mtime_ms = 1793515251517
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/0ce4de3a-d36b-4dc2-82ab-497129cd21b0/9b23488a-bd36-4898-ae0a-196ef65d364c"
+storage_version_token = "1793516648589371"
 content_type = "application/pdf"
 
 [[outputs]]
@@ -1560,4 +1560,32 @@ size = 4504585
 mtime_ms = 1793512430301
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/f20cf363-b030-4579-acaf-6751eea0dfad/cf90e835-f284-4b22-8790-8dc6fea2488c"
 storage_version_token = "1793512493100709"
+content_type = "application/octet-stream"
+
+[[outputs]]
+id = "OE5N4O63tBYodXYRv6G0U"
+uri = "file://.local/outputs/Hasiba-Product-Import-Report.docx"
+type = "word_document"
+title = "تقرير الاستيراد ودليل الاستخدام — Word"
+description = "تقرير عربي وإنجليزي بالمنفذ، الاختبارات الجديدة، رحلة المتصفح، المصالحة والحدود المتبقية."
+logical_id = "c7bb0e5e-fb87-479c-9b43-0bbd7176d1fd"
+content_hash = "sha256:9289ca402efb4451ce3910ce223b89ac3f800aaf7d6bdfc278ecdecf48fed01e"
+size = 8374
+mtime_ms = 1793516586757
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/c7bb0e5e-fb87-479c-9b43-0bbd7176d1fd/24789605-754e-4af5-a6af-8ae498da74c4"
+storage_version_token = "1793516649792840"
+content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
+[[outputs]]
+id = "0Vwt_VEv37faPdQt53ubB"
+uri = "file://.local/outputs/Hasiba-Product-Import-Evidence.zip"
+type = "unspecified"
+title = "حزمة أدلة الاستيراد المنقّحة — ZIP"
+description = "130 ملفًا، نحو 4.7 MB؛ سجلات التحقق، 8 صور فعلية، أدلة الأقفال والمصالحة، التقرير والدليل وPDF. بلا بيانات الوصول الخاصة."
+logical_id = "ae47bac0-47b0-4bbf-82ff-89d35c694496"
+content_hash = "sha256:42593be35c99092cc6d9888b26df3d8da312390d0538751443e558572bb400cc"
+size = 4735195
+mtime_ms = 1793516592305
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/ae47bac0-47b0-4bbf-82ff-89d35c694496/edc4f6bd-cf94-4238-b1da-1a1c07dfaaab"
+storage_version_token = "1793516653836938"
 content_type = "application/octet-stream"
