@@ -228,6 +228,12 @@ never in evidence. Restore normal sign-in rather than resetting accounts or
 injecting sessions. If another fixture is used, separate its acceptance from the
 unfinished original journey; do not merge their financial evidence.
 
+Persist screenshot files and verify their existence during a long audit; a
+returned screenshot ID is not proof of a durable downloadable asset.
+**Why:** Older IDs survived in the report after their image lookup stopped
+working. **How to apply:** Record missing artifacts explicitly rather than
+claiming a bundle contains every cited image or silently recapturing history.
+
 Vite transformed sourcemaps can legitimately differ from raw source, and a raw
 module may export a single-quoted JavaScript string rather than JSON.
 

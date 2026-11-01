@@ -239,6 +239,12 @@ HASBA_MIGRATION_REFERENCE؛ شُغّل بنجاح في بوابة الترقية
 مصادر sourcemap المحولة ليست نسخة الملف الخام؛ لم يُعامل اختلافها على
 أنه عيب تطبيق. `native-acceptance.json` يحفظ التفاصيل والصور.
 
+سجل المتصفح يذكر 68 معرف صورة، لكن **23 ملف صورة فعليًا فقط** متاح
+للتنزيل من المشروع؛ 45 مرجعًا من المراجعة الأوسع لم يتوفر ملفه محليًا.
+أعادت محاولة استرجاع المرجع 64ilk8 «image not found». لا تُقدَّم هذه
+المراجع على أنها 68 صورة مرفقة؛ تحفظ الحزمة قائمتها وحدود إتاحتها.
+صور القبول المستهدف الست وصور الإعداد والتقارير قبل/بعد موجودة فعليًا.
+
 العرض الأصلي بقي **32 شريحة و22 وحدة**، بالمعرفات والترتيب نفسيهما؛
 حُدث الإعداد والتقارير وحدود القبول دون تحويل العرض إلى تقرير اختبارات.
 أُعيد توليد `Hasiba-AI-ERP.pdf` وفُحصت الصفحات الـ32 بصريًا:
@@ -302,6 +308,10 @@ of unsupported static analytics/fraud claims. No replacement analytics engine,
 new tax engine, financial posting engine, migration or production activation was added.
 
 Permanent PostgreSQL regressions first failed **7 of 13**, then passed **13/13**.
+Of68 cited screenshot IDs,23 actual files are materialized and bundled;
+45 older broad-audit references are unavailable locally. Retrieval of one
+returned image-not-found. These are not described as68 downloadable images;
+all six final targeted-acceptance screenshots and key before/after images exist.
 New UI suites passed 7/7, 4/4 and 4/4 as subsets of the final total. A fresh
 native fixture-2 login, reports unavailability, mobile/tablet warehouse dialog
 and exactly one successful POST201/list refresh were observed. Company4's
