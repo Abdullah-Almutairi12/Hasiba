@@ -25,3 +25,16 @@ The unified enterprise scope must use one requirements register and bounded batc
 **Why:** The user explicitly constrained the development scope and delivery process in the enterprise requirements attachment on 2026-10-23.
 
 **How to apply:** Track the original scope and evidence in `docs/enterprise-requirements-ar.md`. Preserve history when grouping overlapping work; do not automatically reopen archived tasks or generate two follow-up tasks after each batch. Distinguish actual payroll disbursement from approval; AI must not determine disciplinary penalties. Track seller separately from cashier, configurable as hidden/optional/required and attributed per invoice or line, including commissions and return effects. Government/customer supply-contract references are manual in this stage; do not add an Etimad integration. Obtain permission before production changes, real payments or external sends.
+
+Investor presentations must reflect actual product readiness, with real synthetic-data
+screenshots for valuable new capabilities and explicit tested/partially tested/planned
+status. Preserve the original deck identity and slide identifiers; update an existing
+feature slide rather than duplicating it for a small repair.
+
+**Why:** The user explicitly requires the investor deck to match the reviewed store
+experience, not marketing promises, and forbids presenting synthetic activity as
+real customers/revenue or unproven tax/device/AI acceptance.
+
+**How to apply:** Pair changes to store capabilities with an accurate presentation
+update. Keep technical test details in an appendix and distinguish code inspection,
+real browser interaction, and independently reconciled financial operations.

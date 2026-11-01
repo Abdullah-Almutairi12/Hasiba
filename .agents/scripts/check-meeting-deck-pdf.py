@@ -4,9 +4,14 @@ import json
 from pathlib import Path
 
 import fitz
+import argparse
 
-source = Path(".local/outputs/Hasiba-AI-ERP.pdf")
-out = Path("generated-artifacts/meeting-update/pdf-review")
+parser = argparse.ArgumentParser(description="Render an exported deck without overwriting another run's evidence.")
+parser.add_argument("--source", default=".local/outputs/Hasiba-AI-ERP.pdf")
+parser.add_argument("--output", default="generated-artifacts/meeting-update/pdf-review")
+args = parser.parse_args()
+source = Path(args.source)
+out = Path(args.output)
 out.mkdir(parents=True, exist_ok=True)
 doc = fitz.open(source)
 inventory = []

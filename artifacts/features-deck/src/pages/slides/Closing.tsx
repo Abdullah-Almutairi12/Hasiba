@@ -12,6 +12,8 @@ export default function Closing() {
         <div className="w-full h-px bg-line mb-[3vh]" />
         <div className="text-[1.8vw] font-semibold text-text mb-[1.4vh]">الخطوات التالية المقترحة</div>
         <div className="flex flex-wrap gap-x-[2.4vw] gap-y-[1vh] text-[1.7vw] text-muted">
+          <div>إكمال إعداد المتجر من البداية للنهاية</div>
+          <div className="text-line">·</div>
           <div>قبول ضريبي إنتاجي</div>
           <div className="text-line">·</div>
           <div>اختبار أجهزة الشريك</div>

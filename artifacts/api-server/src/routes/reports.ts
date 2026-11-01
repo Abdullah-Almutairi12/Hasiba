@@ -1,10 +1,19 @@
-import { Router } from "express";
+import { Router, type RequestHandler } from "express";
 import { db, posOrdersTable, productsTable } from "@workspace/db";
 import { sql, gte, and, eq } from "drizzle-orm";
 import { reportReadGuard } from "../middlewares/require-role";
 import { getCompanyId } from "../lib/scoped-db";
 
 const router = Router();
+
+// These former responses were illustrations, not tenant-derived analyses.
+// Keep genuine financial reports separate; never invent profits or accuse staff.
+const unavailableAnalytics: RequestHandler = (_req, res) => {
+  res.status(503).json({
+    code: "REPORT_ANALYTICS_NOT_READY",
+    error: "الملخص والتحليلات التلقائية غير متاحة حاليًا؛ لم تُربط بمصادر معتمدة لمنشأتك، ولا تُعرض أرقام أو تنبيهات افتراضية.",
+  });
+};
 
 // Scope the guard to /reports/* paths only. Using router.use(guard) without a
 // path would block requests to OTHER routers mounted after this one in the
@@ -106,141 +115,9 @@ router.get("/reports/sales", async (req, res) => {
   }
 });
 
-router.get("/reports/ai-summary", async (req, res) => {
-  try {
-    const companyId = getCompanyId(req);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const yesterday = new Date(today);
-    yesterday.setDate(yesterday.getDate() - 1);
-
-    const [todayAgg] = await db
-      .select({
-        total: sql<string>`coalesce(sum(${posOrdersTable.total}::numeric), 0)`,
-      })
-      .from(posOrdersTable)
-      .where(and(gte(posOrdersTable.createdAt, today), eq(posOrdersTable.companyId, companyId)));
-
-    const [marginRow] = await db
-      .select({
-        avgMargin: sql<string>`coalesce(avg((${productsTable.price}::numeric - ${productsTable.costPrice}::numeric) / nullif(${productsTable.price}::numeric, 0)), 0.30)`,
-      })
-      .from(productsTable)
-      .where(and(sql`${productsTable.isActive} = true`, eq(productsTable.companyId, companyId)));
-
-    const sales = Number(todayAgg.total);
-    const margin = Number(marginRow.avgMargin);
-    const netProfit = Math.round(sales * margin * 0.7);
-
-    res.json({
-      summary:
-        'لاحظت انخفاضًا في مبيعات فرع "الرياض - العليا" بنسبة 12% مقارنة بالأسبوع الماضي، بينما حقق فرع "جدة" نموًا مفاجئًا بنسبة 8% بفضل العروض الجديدة. هناك 3 عمليات مشبوهة تتطلب مراجعتك في قسم كشف الاحتيال. يُنصح بمراجعة مستوى مخزون منتجات القهوة المختصة.',
-      updatedAt: new Date().toISOString(),
-      netProfitToday: netProfit,
-      profitChange: 4.2,
-    });
-  } catch (err) {
-    req.log.error({ err }, "Error fetching AI summary");
-    res.status(500).json({ error: "Internal server error" });
-  }
-});
-
-router.get("/reports/insights", async (req, res) => {
-  let forecastNextWeek = 0;
-  let forecastConfidence = 0;
-  try {
-    const { predictSalesNext7Days, modelKey } = await import("../lib/ai-models");
-    const { db: _db, aiModelsTable } = await import("@workspace/db");
-    const { eq } = await import("drizzle-orm");
-    const forecast = await predictSalesNext7Days(req.session.companyId!);
-    forecastNextWeek = forecast.reduce((s, d) => s + d.predicted, 0);
-    const [model] = await _db.select().from(aiModelsTable).where(eq(aiModelsTable.key, modelKey(req.session.companyId!, "sales_forecast"))).limit(1);
-    forecastConfidence = Math.round((model?.accuracy ?? 0) * 100);
-  } catch {
-    // model not trained yet
-  }
-
-  res.json({
-    netProfitToday: 12450,
-    profitChange: 4.2,
-    customerLifetimeValue: 1840,
-    clvChange: 8.5,
-    avgBenchmark: 1620,
-    forecastNextWeek,
-    forecastConfidence,
-    anomalies: [
-      {
-        title: "ارتفاع غير معتاد في طلبات القهوة المختصة",
-        description: "زيادة 38% خلال الـ 24 ساعة الماضية مقارنة بالمعدل الطبيعي",
-        severity: "positive",
-        action: "اقتراح: زيادة المخزون قبل نهاية الأسبوع",
-      },
-      {
-        title: "انخفاض في متوسط قيمة الفاتورة - فرع العليا",
-        description: "متوسط الفاتورة 64 ر.س مقارنة بـ 82 ر.س الشهر الماضي",
-        severity: "warning",
-        action: "اقتراح: مراجعة عروض البيع المتقاطع",
-      },
-      {
-        title: "نمو قاعدة العملاء الجدد",
-        description: "23 عميل جديد مسجل هذا الأسبوع - أعلى من المتوسط بنسبة 18%",
-        severity: "positive",
-        action: "اقتراح: إطلاق برنامج ولاء للمحافظة عليهم",
-      },
-    ],
-    benchmarks: [
-      { metric: "هامش الربح", you: 41, industry: 35 },
-      { metric: "نسبة العائد", you: 18, industry: 22 },
-      { metric: "رضا العملاء", you: 4.7, industry: 4.2 },
-      { metric: "سرعة دوران المخزون", you: 12, industry: 9 },
-    ],
-  });
-});
-
-router.get("/reports/fraud-detection", async (_req, res) => {
-  res.json([
-    {
-      id: 1,
-      type: "خصم مرتفع",
-      description: "خصم 35% على فاتورة #1842 - يتجاوز الحد المسموح",
-      branch: "فرع الرياض - العليا",
-      cashier: "خالد العنزي",
-      amount: 234.5,
-      time: "قبل 12 دقيقة",
-      severity: "high",
-    },
-    {
-      id: 2,
-      type: "إلغاء فاتورة",
-      description: "إلغاء فاتورة بقيمة 1,250 ر.س بدون سبب موثّق",
-      branch: "فرع جدة - التحلية",
-      cashier: "نوره الحربي",
-      amount: 1250,
-      time: "قبل 47 دقيقة",
-      severity: "critical",
-    },
-    {
-      id: 3,
-      type: "مرتجع غير مطابق",
-      description: "مرتجع لمنتج لم يظهر في فاتورة الشراء الأصلية",
-      branch: "فرع الدمام",
-      cashier: "أحمد بن خالد",
-      amount: 89,
-      time: "قبل ساعتين",
-      severity: "medium",
-    },
-    {
-      id: 4,
-      type: "نمط غير معتاد",
-      description: "5 فواتير متتالية بنفس القيمة بالضبط من نفس الكاشير",
-      branch: "فرع الرياض - الملز",
-      cashier: "فيصل المطيري",
-      amount: 45,
-      time: "قبل 3 ساعات",
-      severity: "medium",
-    },
-  ]);
-});
+router.get("/reports/ai-summary", unavailableAnalytics);
+router.get("/reports/insights", unavailableAnalytics);
+router.get("/reports/fraud-detection", unavailableAnalytics);
 
 router.get("/reports/top-products", async (req, res) => {
   try {

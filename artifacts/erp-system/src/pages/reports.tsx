@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "wouter";
 import { Money } from "@/components/riyal";
+import { verifiedReportAnalytics } from "@/lib/report-analytics-readiness";
 import { VatReturnCard } from "@/components/vat-return-card";
 import { useVatEnabled } from "@/hooks/use-vat-status";
 import {
@@ -887,11 +888,11 @@ export default function Reports() {
   const [chartPeriod] = useState<"weekly" | "monthly" | "yearly">("monthly");
   const [chartTab, setChartTab] = useState<"sales" | "inventory">("sales");
 
-  const { data: aiSummary } = useGetAiReportSummary();
+  const { data: aiSummary, isError: summaryError } = useGetAiReportSummary();
   const { data: salesChart, isLoading: isLoadingChart } =
     useGetDashboardSalesChart({ period: chartPeriod });
   const { data: topProducts } = useGetTopProducts();
-  const { data: insights } = useGetReportInsights();
+  const { data: insights, isError: insightsError } = useGetReportInsights();
   const insightsExt = insights as
     | (typeof insights & {
         slowMoversCount?: number;
@@ -899,7 +900,7 @@ export default function Reports() {
         acquisitionCost?: number;
       })
     | undefined;
-  const { data: fraud } = useGetFraudDetection();
+  const { data: fraud, isError: fraudError } = useGetFraudDetection();
   const { data: zatca } = useGetZatcaStatus();
   const zatcaExt = zatca as
     | (typeof zatca & {
@@ -910,6 +911,33 @@ export default function Reports() {
     | undefined;
 
   const bestSeller = topProducts?.[0];
+
+  // Do not render the old illustrative KPIs while these endpoints are absent,
+  // loading, or explicitly unavailable. Unknown is not zero or a sample figure.
+  if (!verifiedReportAnalytics([
+    { data: aiSummary, isError: summaryError }, { data: insights, isError: insightsError },
+    { data: fraud, isError: fraudError },
+  ]) || !aiSummary || !insights || !fraud) {
+    return (
+      <div dir="rtl" className="space-y-6 font-sans text-neutral-900">
+        <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h1 className="text-2xl font-bold">مركز التقارير والتحليلات</h1>
+            <p className="mt-1 text-sm text-neutral-600">القوائم المالية المتاحة أدناه مستقلة عن التحليلات التلقائية.</p>
+          </div>
+          <div className="flex flex-wrap gap-2"><ExportMenu /><VatReturnHeaderButton /></div>
+        </header>
+        <section role="status" data-testid="report-analytics-unavailable" className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm leading-7 text-amber-950">
+          <h2 className="font-bold">الملخص والتحليلات التلقائية غير متاحة حاليًا</h2>
+          <p>لم تُربط هذه الوظائف بمصادر معتمدة لمنشأتك. لا تُعرض أرقام أرباح أو تنبيهات احتيال أو أعداد فواتير معتمدة افتراضية.</p>
+          <p>هذا لا يعني أن الأرباح أو المخاطر تساوي صفرًا، ولا يثبت قبولًا ضريبيًا. راجع التقارير المالية الفعلية بحسب صلاحيتك.</p>
+        </section>
+        <FinancialStatementsSection />
+        <ConsolidatedReportsSection />
+        <Button asChild variant="outline"><Link href="/reports/builder">فتح منشئ التقارير</Link></Button>
+      </div>
+    );
+  }
 
   return (
     <div

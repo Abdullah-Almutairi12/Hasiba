@@ -3,9 +3,9 @@ import type { ReactNode } from "react";
 export function StatusStrip() {
   return (
     <div className="flex items-center gap-[1.2vw] bg-warm px-[1.4vw] py-[0.9vh] text-[1.5vw] leading-[1.35] text-text">
-      <span className="font-semibold text-accent whitespace-nowrap">الحالة · 31 أكتوبر 2026</span>
+      <span className="font-semibold text-accent whitespace-nowrap">الحالة · 1 نوفمبر 2026</span>
       <span className="text-muted">
-        قبول موثّق: رحلة أمر البيع والهوية الضريبية · معلّق: أجهزة حية، دفع، بريد، قبول ضريبي إنتاجي
+        قبول تاريخي موثّق: رحلة أمر البيع والهوية الضريبية · معلّق: إعداد المتجر، أجهزة حية، دفع، بريد، قبول ضريبي إنتاجي
       </span>
     </div>
   );

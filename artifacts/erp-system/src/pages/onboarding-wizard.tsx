@@ -15,12 +15,17 @@ import {
   Wrench,
   Info,
   Receipt,
-  FileText,
   ArrowLeft,
+  AlertCircle,
+  Building2,
+  Users,
+  Settings as SettingsIcon,
+  Package,
   TrendingUp,
 } from "lucide-react";
 import { VatSimulatorBody } from "@/components/vat-simulator-dialog";
 import { useLanguage } from "@/hooks/use-language";
+import { saveOnboardingBusinessType } from "@/lib/onboarding-save";
 
 const BUSINESS_TYPES = [
   {
@@ -49,11 +54,11 @@ const BUSINESS_TYPES = [
   },
 ];
 
-const CURRENCIES = [
-  { code: "SAR", label: "ريال سعودي (SAR)" },
-  { code: "AED", label: "درهم إماراتي (AED)" },
-  { code: "KWD", label: "دينار كويتي (KWD)" },
-  { code: "USD", label: "دولار أمريكي (USD)" },
+const NEXT_SCREENS = [
+  { href: "/branches", icon: Building2, title: "الفروع والمستودعات", desc: "أضف كل فرع فعلياً من شاشة الفروع. لا يُنشئ المعالج أي فرع." },
+  { href: "/team-setup", icon: Users, title: "الفريق والصلاحيات", desc: "ادعُ الموظفين وحدّد صلاحياتهم." },
+  { href: "/settings", icon: SettingsIcon, title: "إعدادات المنشأة", desc: "العملة، قوالب الفواتير، والسياسة الضريبية." },
+  { href: "/products", icon: Package, title: "المنتجات", desc: "أضف الأصناف قبل البدء في البيع." },
 ];
 
 export default function OnboardingWizard() {
@@ -62,11 +67,22 @@ export default function OnboardingWizard() {
   const { t } = useLanguage();
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [businessType, setBusinessType] = useState<string>("retail");
-  const [invoiceType, setInvoiceType] = useState<"simplified" | "standard">(
-    "simplified"
-  );
-  const [currency, setCurrency] = useState("SAR");
-  const [branches, setBranches] = useState(3);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  const handleSave = async () => {
+    if (saving) return;
+    setSaving(true);
+    setSaveError(null);
+    const result = await saveOnboardingBusinessType(import.meta.env.BASE_URL, businessType);
+    if (!result.ok) {
+      setSaveError(result.message);
+      setSaving(false);
+      return;
+    }
+    await qc.invalidateQueries({ queryKey: ME_KEY });
+    setLocation("/");
+  };
 
   return (
     <div
@@ -75,7 +91,7 @@ export default function OnboardingWizard() {
     >
       {/* Top Bar */}
       <header className="sticky top-0 z-30 border-b border-neutral-200 bg-white/90 backdrop-blur-md">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-3">
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-2 px-4 py-3 sm:px-6">
           <div className="flex items-center gap-3">
             <div className="grid size-9 place-items-center rounded-lg bg-[#2563EB] text-white shadow">
               <Calculator className="size-4" />
@@ -90,7 +106,7 @@ export default function OnboardingWizard() {
             </div>
           </div>
           <div className="flex items-center gap-3 text-xs text-neutral-500">
-            <span className="hidden md:inline">يحتاج 5 دقائق فقط</span>
+            <span className="hidden md:inline">يحفظ نوع النشاط فقط</span>
             <Button
               variant="ghost"
               size="sm"
@@ -104,14 +120,14 @@ export default function OnboardingWizard() {
       </header>
 
       {/* Main */}
-      <main className="mx-auto max-w-[900px] px-6 py-10">
+      <main className="mx-auto max-w-[900px] px-4 py-8 sm:px-6 sm:py-10">
         {/* Step indicator */}
         <div className="mb-8">
           <div className="mx-auto flex max-w-md items-center justify-between">
             {[
               { n: 1, label: "نشاطك" },
-              { n: 2, label: "الفروع" },
-              { n: 3, label: "الإطلاق" },
+              { n: 2, label: "الخطوات التالية" },
+              { n: 3, label: "المراجعة والحفظ" },
             ].map((s, i, arr) => {
               const active = step === s.n;
               const done = step > s.n;
@@ -130,7 +146,7 @@ export default function OnboardingWizard() {
                       {done ? <Check className="size-4" /> : s.n}
                     </div>
                     <span
-                      className={`mt-2 whitespace-nowrap text-[11px] font-bold ${
+                      className={`mt-2 max-w-[5.5rem] text-center text-[11px] leading-tight font-bold ${
                         active ? "text-neutral-900" : "text-neutral-400"
                       }`}
                     >
@@ -151,26 +167,26 @@ export default function OnboardingWizard() {
         </div>
 
         {/* Glass card */}
-        <div className="rounded-[2.5rem] border border-white/60 bg-white/80 p-8 shadow-xl shadow-blue-900/5 backdrop-blur-xl md:p-10">
+        <div className="min-w-0 rounded-3xl border border-white/60 bg-white/80 p-4 sm:rounded-[2.5rem] sm:p-8 shadow-xl shadow-blue-900/5 backdrop-blur-xl md:p-10">
           {/* Header */}
           <div className="mb-8 text-center">
             <div className="mb-3 inline-flex items-center gap-1.5 rounded-full bg-blue-100 px-3 py-1 text-[11px] font-bold text-[#1D4ED8]">
               <Sparkles className="size-3" />
               الخطوة {step} من 3
             </div>
-            <h1 className="text-3xl font-extrabold leading-tight text-neutral-900">
+            <h1 className="text-2xl font-extrabold leading-tight sm:text-3xl text-neutral-900">
               {step === 1
                 ? "لنخصّص حاسبتك حسب نشاطك"
                 : step === 2
-                  ? "أضف فروعك ومستودعاتك"
-                  : "كل شيء جاهز للإطلاق"}
+                  ? "ما يُضبط من شاشاته الفعلية"
+                  : "راجع ما سيُحفظ فعلاً"}
             </h1>
             <p className="mt-2 text-sm text-neutral-500">
               {step === 1
-                ? "اختياراتك تساعدنا على تجهيز الحسابات والوحدات المناسبة لمنشأتك تلقائياً."
+                ? "يحفظ هذا المعالج نوع النشاط فقط، ويُستخدم لتهيئة شكل نقطة البيع."
                 : step === 2
-                  ? "حدّد عدد الفروع والمستودعات لتوزيع المخزون وإدارة الكاشيرات."
-                  : "راجع الإعدادات ثم أطلق نظامك في دقائق."}
+                  ? "الفروع والعملة والفواتير والفريق لا تُحفظ هنا. اضبطها من شاشاتها بعد الحفظ."
+                  : "سيُحفظ نوع النشاط فقط. بقية الإعداد يتم من الشاشات المخصصة."}
             </p>
           </div>
 
@@ -268,111 +284,6 @@ export default function OnboardingWizard() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-              <div>
-                <p className="mb-2 text-xs font-bold text-neutral-700">نوع الفاتورة</p>
-                <div className="space-y-2">
-                  {[
-                    {
-                      key: "simplified",
-                      icon: Receipt,
-                      label: "فاتورة مبسطة",
-                      sub: "B2C — تجزئة ونقاط بيع",
-                    },
-                    {
-                      key: "standard",
-                      icon: FileText,
-                      label: "فاتورة ضريبية قياسية",
-                      sub: "B2B — مع بيانات المشتري",
-                    },
-                  ].map((opt) => {
-                    const selected = invoiceType === opt.key;
-                    const Icon = opt.icon;
-                    return (
-                      <label
-                        key={opt.key}
-                        className={`flex cursor-pointer items-center gap-3 rounded-xl border p-3 transition-all ${
-                          selected
-                            ? "border-[#2563EB] bg-blue-50/50"
-                            : "border-neutral-200 bg-white hover:border-neutral-300"
-                        }`}
-                      >
-                        <div
-                          className={`grid size-9 shrink-0 place-items-center rounded-lg ${
-                            selected
-                              ? "bg-[#2563EB] text-white"
-                              : "bg-neutral-100 text-neutral-500"
-                          }`}
-                        >
-                          <Icon className="size-4" />
-                        </div>
-                        <div className="flex-1">
-                          <p className="text-sm font-bold text-neutral-900">
-                            {opt.label}
-                          </p>
-                          <p className="text-[11px] text-neutral-500">{opt.sub}</p>
-                        </div>
-                        <input
-                          type="radio"
-                          checked={selected}
-                          onChange={() =>
-                            setInvoiceType(opt.key as typeof invoiceType)
-                          }
-                          className="hidden"
-                        />
-                      </label>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-          </section>
-
-          {/* Section: currency + branches */}
-          <section className="mb-8">
-            <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-              <div>
-                <label className="mb-2 block text-xs font-bold text-neutral-700">
-                  العملة الأساسية
-                </label>
-                <select
-                  value={currency}
-                  onChange={(e) => setCurrency(e.target.value)}
-                  className="h-12 w-full appearance-none rounded-xl border border-neutral-200 bg-white px-4 text-sm font-medium focus:border-[#2563EB] focus:outline-none focus:ring-2 focus:ring-blue-200"
-                >
-                  {CURRENCIES.map((c) => (
-                    <option key={c.code} value={c.code}>
-                      {c.label}
-                    </option>
-                  ))}
-                </select>
-                <p className="mt-2 text-[11px] text-neutral-500">
-                  يمكنك إضافة عملات أخرى لاحقاً من الإعدادات.
-                </p>
-              </div>
-
-              <div>
-                <label className="mb-2 flex items-center justify-between text-xs font-bold text-neutral-700">
-                  <span>عدد الفروع المتوقع</span>
-                  <span className="rounded-md bg-blue-100 px-2 py-0.5 font-mono text-[#1D4ED8]">
-                    {branches}
-                  </span>
-                </label>
-                <input
-                  type="range"
-                  min={1}
-                  max={20}
-                  value={branches}
-                  onChange={(e) => setBranches(Number(e.target.value))}
-                  className="h-2 w-full cursor-pointer appearance-none rounded-full bg-neutral-200 accent-[#2563EB]"
-                />
-                <div className="mt-1.5 flex justify-between text-[10px] text-neutral-400">
-                  <span>1</span>
-                  <span>10</span>
-                  <span>20+</span>
-                </div>
-              </div>
-            </div>
           </section>
 
           {/* Info banner */}
@@ -381,10 +292,9 @@ export default function OnboardingWizard() {
               <Info className="size-4" />
             </div>
             <div>
-              <p className="text-sm font-bold text-blue-900">إعداد ذكي تلقائي</p>
+              <p className="text-sm font-bold text-blue-900">ما الذي يُحفظ هنا</p>
               <p className="mt-1 text-xs leading-relaxed text-blue-800">
-                بناءً على اختياراتك، سنقوم بإعداد دليل الحسابات، تجهيز قوالب الفواتير
-                المتوافقة مع ZATCA، وتفعيل الوحدات المناسبة لنشاطك تلقائياً.
+                نوع النشاط فقط. لا يُنشئ المعالج فروعاً ولا يغيّر العملة أو نوع الفاتورة أو الحالة الضريبية.
               </p>
             </div>
           </div>
@@ -392,125 +302,114 @@ export default function OnboardingWizard() {
           )}
 
           {step === 2 && (
-            <section className="space-y-6">
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-                {Array.from({ length: Math.min(branches, 6) }).map((_, idx) => (
-                  <div
-                    key={idx}
-                    className="rounded-2xl border-2 border-dashed border-blue-200 bg-blue-50/40 p-5 text-right"
+            <section className="grid grid-cols-1 gap-4 md:grid-cols-2" data-testid="panel-onboarding-next-screens">
+              {NEXT_SCREENS.map((n) => {
+                const Icon = n.icon;
+                return (
+                  <button
+                    key={n.href}
+                    type="button"
+                    onClick={() => setLocation(n.href)}
+                    className="flex items-start gap-3 rounded-2xl border border-neutral-200 bg-white p-4 text-right transition-all hover:border-[#2563EB] hover:shadow-sm"
                   >
-                    <div className="mb-3 grid size-10 place-items-center rounded-xl bg-[#2563EB] text-white">
-                      <Store className="size-5" />
-                    </div>
-                    <p className="text-sm font-bold text-neutral-900">
-                      الفرع #{idx + 1}
-                    </p>
-                    <p className="mt-1 text-[11px] text-neutral-500">
-                      اضبط الاسم والعنوان والمستودع لاحقاً
-                    </p>
-                  </div>
-                ))}
-              </div>
-              <div className="flex items-start gap-3 rounded-2xl border border-blue-200 bg-blue-50/70 p-4">
-                <div className="grid size-9 shrink-0 place-items-center rounded-xl bg-[#2563EB] text-white">
-                  <Info className="size-4" />
-                </div>
-                <p className="text-xs leading-relaxed text-blue-800">
-                  سنُنشئ {branches} فرع/فروع افتراضياً. يمكنك تعديل التفاصيل وإضافة
-                  مستودعات من شاشة الفروع لاحقاً.
-                </p>
-              </div>
+                    <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-blue-100 text-[#2563EB]">
+                      <Icon className="size-5" />
+                    </span>
+                    <span>
+                      <span className="block text-sm font-bold text-neutral-900">{n.title}</span>
+                      <span className="mt-1 block text-[11px] leading-snug text-neutral-500">{n.desc}</span>
+                    </span>
+                  </button>
+                );
+              })}
+              <p className="text-[11px] text-neutral-500 md:col-span-2">
+                فتح أي شاشة الآن يغادر المعالج دون حفظ نوع النشاط.
+              </p>
             </section>
           )}
 
           {step === 3 && (
             <section className="space-y-4">
               {[
-                { label: "نوع النشاط", value: BUSINESS_TYPES.find((b) => b.key === businessType)?.title },
-                { label: "ضريبة القيمة المضافة", value: "غير محسومة — تُضبط من السياسة الضريبية" },
-                { label: "نوع الفاتورة", value: invoiceType === "simplified" ? "فاتورة مبسطة" : "فاتورة قياسية" },
-                { label: "العملة الأساسية", value: currency },
-                { label: "عدد الفروع", value: `${branches} فرع` },
+                { label: "نوع النشاط", value: BUSINESS_TYPES.find((b) => b.key === businessType)?.title, saved: true },
+                { label: "الفروع", value: "لا تُنشأ هنا — من شاشة الفروع", saved: false },
+                { label: "العملة ونوع الفاتورة", value: "بدون تغيير — من الإعدادات", saved: false },
+                { label: "ضريبة القيمة المضافة", value: "غير محسومة — من السياسة الضريبية", saved: false },
               ].map((row) => (
                 <div
                   key={row.label}
                   className="flex items-center justify-between rounded-xl border border-neutral-200 bg-white px-4 py-3"
                 >
-                  <span className="text-sm font-bold text-neutral-900">
+                  <span className={`text-sm font-bold ${row.saved ? "text-neutral-900" : "text-neutral-500"}`}>
                     {row.value}
                   </span>
-                  <span className="text-xs text-neutral-500">{row.label}</span>
+                  <span className="text-xs text-neutral-500">
+                    {row.label} {row.saved ? "(سيُحفظ)" : "(لا يُحفظ هنا)"}
+                  </span>
                 </div>
               ))}
-              <div className="flex items-start gap-3 rounded-2xl border border-emerald-200 bg-emerald-50/70 p-4">
-                <div className="grid size-9 shrink-0 place-items-center rounded-xl bg-emerald-600 text-white">
-                  <Check className="size-4" />
+              <div className="flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50/70 p-4">
+                <div className="grid size-9 shrink-0 place-items-center rounded-xl bg-amber-500 text-white">
+                  <Info className="size-4" />
                 </div>
-                <p className="text-xs leading-relaxed text-emerald-800">
-                  جاهز للإطلاق. سننقلك إلى لوحة التحكم لبدء استخدام النظام.
+                <p className="text-xs leading-relaxed text-amber-900">
+                  حفظ النشاط لا يعني أن المتجر جاهز للبيع. أكمل الفروع والفريق والإعدادات والمنتجات من شاشاتها.
                 </p>
               </div>
+              {saveError && (
+                <div role="alert" className="flex items-start gap-3 rounded-2xl border border-red-200 bg-red-50 p-4" data-testid="text-onboarding-save-error">
+                  <AlertCircle className="mt-0.5 size-4 shrink-0 text-red-600" />
+                  <p className="text-xs font-bold leading-relaxed text-red-800">{saveError}</p>
+                </div>
+              )}
             </section>
           )}
         </div>
 
         {/* Footer actions */}
-        <div className="mt-6 flex items-center justify-between">
+        <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
           <Button
             variant="ghost"
-            disabled={step === 1}
+            disabled={step === 1 || saving}
             onClick={() => setStep((step - 1) as 1 | 2 | 3)}
-            className="text-neutral-500 hover:text-neutral-800 disabled:text-neutral-300"
+            className="w-full text-neutral-500 hover:text-neutral-800 disabled:text-neutral-300 sm:w-auto"
             size="lg"
             data-testid="button-back"
           >
             <ChevronRight className="ms-1 size-4" />
             رجوع
           </Button>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center">
             <Button
               variant="ghost"
               size="lg"
               onClick={() => setLocation("/")}
-              className="text-neutral-500 hover:text-neutral-800"
+              className="w-full text-neutral-500 hover:text-neutral-800 sm:w-auto"
               data-testid="button-skip"
             >
               تخطي الإعداد
             </Button>
             <Button
               size="lg"
+              disabled={saving}
+              aria-busy={saving}
               onClick={() => {
                 if (step < 3) {
                   setStep((step + 1) as 1 | 2 | 3);
                   return;
                 }
-                // Persist VAT registration + business sector choices in
-                // parallel before finishing. Business sector drives the
-                // POS layout (retail → iconic grid, fb → photo tiles).
-                const base = import.meta.env.BASE_URL;
-                void Promise.allSettled([
-                  fetch(`${base}api/companies/me`, {
-                    method: "PATCH",
-                    credentials: "include",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ businessType }),
-                  }),
-                ]).finally(() => {
-                  // Refetch /auth/me so the new businessType (and VAT
-                  // status) flows into AuthUser BEFORE the POS variant
-                  // switcher reads it on the next route.
-                  void qc.invalidateQueries({ queryKey: ME_KEY });
-                  setLocation("/");
-                });
+                void handleSave();
               }}
-              className="h-12 bg-neutral-900 px-6 font-bold text-white shadow-lg shadow-neutral-900/20 hover:bg-neutral-800"
+              className="h-12 w-full whitespace-normal bg-neutral-900 px-6 sm:w-auto font-bold text-white shadow-lg shadow-neutral-900/20 hover:bg-neutral-800"
               data-testid="button-next"
             >
               {step === 1
-                ? "التالي: الفروع والمستودعات"
+                ? "التالي: الخطوات التالية"
                 : step === 2
-                  ? "التالي: مراجعة وإطلاق"
-                  : "ابدأ الاستخدام"}
+                  ? "التالي: المراجعة"
+                  : saving
+                    ? "جارٍ الحفظ..."
+                    : "حفظ نوع النشاط"}
               <ArrowLeft className="me-2 size-4" />
             </Button>
           </div>

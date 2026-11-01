@@ -4,7 +4,7 @@
     "position": 1,
     "filepath": "src/pages/slides/Title.tsx",
     "title": "صفحة العنوان",
-    "description": "غلاف العرض بحالة تنفيذ مؤرخة.",
+    "description": "غلاف العرض بحالة تنفيذ مؤرخة 1 نوفمبر 2026.",
     "speakerNotes": ""
   },
   {
@@ -188,7 +188,7 @@
     "position": 24,
     "filepath": "src/pages/slides/Onboarding.tsx",
     "title": "18. التسجيل والإعداد الموجَّه",
-    "description": "معالج من خمس خطوات.",
+    "description": "معالج يحفظ النشاط فقط ويوجّه لبقية الإعداد؛ جزئي.",
     "speakerNotes": ""
   },
   {
@@ -228,7 +228,7 @@
     "position": 29,
     "filepath": "src/pages/slides/UxImprovements.tsx",
     "title": "حالة التنفيذ — 31 أكتوبر 2026",
-    "description": "ما ثبت وما هو قائم وما بقي.",
+    "description": "قبول تاريخي ومراجعة متجر غير مكتملة.",
     "speakerNotes": "حالة 31 أكتوبر 2026: قبول موثّق لرحلة أمر البيع والهوية الضريبية فقط؛ المعلّق: الأجهزة والدفع والبريد والقبول الضريبي الإنتاجي. الدمج الجديد لم يُطبّق بعد."
   },
   {

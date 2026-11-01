@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/table";
 import { Building2, Warehouse, Plus, MapPin, Package, TrendingUp } from "lucide-react";
 import { BranchFormDialog } from "@/components/branch-form-dialog";
+import { WarehouseFormDialog } from "@/components/warehouse-form-dialog";
 
 interface WarehouseSummaryRow {
   warehouse_id: number;
@@ -34,6 +35,7 @@ export default function BranchesPage() {
     queryFn: () => apiGet("/inventory/warehouse-summary"),
   });
   const [createOpen, setCreateOpen] = useState(false);
+  const [warehouseOpen, setWarehouseOpen] = useState(false);
 
   const branchList = branches ?? [];
   const warehouseList = warehouses ?? [];
@@ -50,7 +52,7 @@ export default function BranchesPage() {
           </p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline">
+          <Button variant="outline" onClick={() => setWarehouseOpen(true)} data-testid="button-new-warehouse">
             <Warehouse className="ms-2 size-4" />
             مستودع جديد
           </Button>
@@ -62,6 +64,7 @@ export default function BranchesPage() {
       </div>
 
       <BranchFormDialog open={createOpen} onOpenChange={setCreateOpen} />
+      <WarehouseFormDialog open={warehouseOpen} onOpenChange={setWarehouseOpen} branches={branchList} />
 
       {/* KPIs */}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-4">

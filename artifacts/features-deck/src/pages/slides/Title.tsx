@@ -30,7 +30,7 @@ export default function Title() {
       <StatusStrip />
       <div className="flex justify-between items-baseline mt-[1.2vh] text-[1.5vw] text-muted">
         <span>حاسبة.AI — منصّة تخطيط موارد المؤسسات</span>
-        <span>اجتماع الشركاء · 31 أكتوبر 2026 · الرياض</span>
+        <span>اجتماع الشركاء · 1 نوفمبر 2026 · الرياض</span>
       </div>
     </div>
   );
