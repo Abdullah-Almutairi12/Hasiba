@@ -1,5 +1,15 @@
 # استيراد الأصناف الأساسية — Basic catalogue import
 
+## تحديث تفرد SKU داخل الشركة / Company-local SKU update
+
+أصبح رمز الصنف الأساسي فريدًا داخل الشركة، لا النظام كله؛ راجع
+[تقرير الترحيل وأدلة القبول](company-sku-ar-en.md). لا بادئات أو تغيير
+تلقائي للأكواد. قيد المتغيرات المستقل والتصنيفات المشتركة لم يتغيرا.
+ما يرد أدناه عن القيد العام يصف قبول1 نوفمبر التاريخي فقط.
+
+Base-product SKU uniqueness is now company-local. See the migration report
+above. No code prefixes or automatic renaming; variant constraints are unchanged.
+
 ## تصحيح CSV — 2 نوفمبر2026 / CSV correction
 
 إصلاح اكتشاف الفاصل موثق بصورة مستقلة في
@@ -100,7 +110,8 @@ results are not attributed to this implementation.
 جميع صلاحيات الكتالوج إلى القوالب المفوضة، ولا تمنح إنشاءً بسبب صلاحية حركة مخزون.
 لا JSON أو عملاء أو موردون أو أرصدة أو فواتير مستوردة؛ ولا تحديث لأصناف موجودة
 أو استيراد دفعات/متغيرات/تتبع. هذه حدود صريحة وليست وظائف مكتملة.
-يبقى قيدSKU العام موروثًا كما هو، وتصنيفات النظام مشتركة. لا قبول لمتجر كامل
+عند قبول1 نوفمبر كان قيدSKU العام موروثًا؛ تغيّر لاحقًا وفق التقرير أعلاه.
+تصنيفات النظام مشتركة. لا قبول لمتجر كامل
 أو ضريبة إنتاجية أو أجهزة فعلية. بيئة الرحلة اصطناعية مؤقتة وليست مخزن بيانات متجر حي.
 
 حُدّث **ملف العرض الأصلي**`.local/outputs/Hasiba-AI-ERP.pdf` من مصدره،
@@ -131,7 +142,8 @@ identified, not falsely described as zero changes to every table.
 The frontend served source map, host and test fingerprints agree. The original
 32-slide PDF was regenerated and visually checked. No dependencies, database
 migrations, main changes, production deployment, external mail/payment or tax-gate
-bypass. Legacy global SKU uniqueness and shared categories remain explicit limits.
+bypass. Global SKU uniqueness was a limit of the1 November acceptance and was
+subsequently replaced as documented above; shared categories remain unchanged.
 No general importer, existing-product update, full-store readiness, device test or
 production ZATCA acceptance is claimed. Later delivery commits contain reports
 and asset bookkeeping only; the executable fingerprint remains the tested one.
