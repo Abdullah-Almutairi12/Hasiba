@@ -1617,3 +1617,31 @@ mtime_ms = 1793635133619
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/a8497363-602f-4930-9de0-f90a65f9f4a3/cff09485-40df-44ee-8f6f-706c7763bd2a"
 storage_version_token = "1793635145773034"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "NZ9_H5880SKjO7LkH6CMF"
+uri = "file://.local/outputs/Hasiba-Company-SKU-Report.docx"
+type = "word_document"
+title = "تقرير SKU داخل الشركة — عربي وإنجليزي"
+description = "التنفيذ والاختبارات الجديدة والمصالحة وحدود الرجوع، مع الفصل بين مصادر التشغيل والمتصفح."
+logical_id = "81d1875a-b8c3-4628-89e8-f896b4bb472c"
+content_hash = "sha256:3b20a17450259edd18bf5581a2c175be07229b548438f9084f5145428c87b9b8"
+size = 9085
+mtime_ms = 1793638605488
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/81d1875a-b8c3-4628-89e8-f896b4bb472c/299b0bf1-7015-401c-83f9-8da8024306c5"
+storage_version_token = "1793638621629513"
+content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
+[[outputs]]
+id = "0F_-PCm_gBDuBg0xLyamE"
+uri = "file://.local/outputs/Hasiba-Company-SKU-Evidence.zip"
+type = "unspecified"
+title = "حزمة أدلة SKU داخل الشركة"
+description = "سجلات قبل/بعد، تشغيل15/15 مكتمل، صور حسابَي الشركتين، مصالحة مستقلة وبصمات الملفات. خالية من بيانات الدخول."
+logical_id = "a55f00ea-9a93-4493-95d4-f9e0214f3ebd"
+content_hash = "sha256:dac42d0211a9301d4c7822b2987bc4f6988b3b25872ad219194713385ce8d3f6"
+size = 906866
+mtime_ms = 1793638606883
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/a55f00ea-9a93-4493-95d4-f9e0214f3ebd/1d549262-37a3-4491-b456-e1231c9f59ec"
+storage_version_token = "1793638624589391"
+content_type = "application/octet-stream"
