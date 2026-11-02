@@ -58,11 +58,14 @@ function inspectWorkbookZip(bytes: Buffer) {
   }
 }
 
-function csvRows(text: string): string[][] {
-  const first = text.split(/\r?\n/, 1)[0];
-  const separator = (first.match(/;/g)?.length ?? 0) > (first.match(/,/g)?.length ?? 0) ? ";" : ",";
-  const rows: string[][] = []; let row: string[] = [], cell = "", quoted = false, ended = false;
-  const addCell = () => { if (cell.length > 128) throw importError("طول الخلية يتجاوز 128 حرفًا"); row.push(cell); cell = ""; ended = false; };
+function csvCandidate(text: string, separator: "," | ";"): string[][] {
+  const rows: string[][] = []; let row: string[] = [], cell = "", quoted = false, ended = false, otherDelimiter = false;
+  const addCell = () => {
+    if (cell.length > 128) throw importError("طول الخلية يتجاوز 128 حرفًا");
+    row.push(cell);
+    if (row.length > 12) throw importError("الحد الأقصى 12 عمودًا");
+    cell = ""; ended = false;
+  };
   const addRow = () => { addCell(); rows.push(row); row = []; if (rows.length > 501) throw importError("الحد الأقصى 500 صف بيانات"); };
   for (let i = 0; i < text.length; i++) {
     const c = text[i];
@@ -72,12 +75,40 @@ function csvRows(text: string): string[][] {
     } else if (c === '"' && !cell && !ended) quoted = true;
     else if (c === separator) addCell();
     else if (c === "\n" || c === "\r") { if (c === "\r" && text[i + 1] === "\n") i++; addRow(); }
-    else { if (ended || c === '"') throw importError("اقتباس CSV غير صحيح"); cell += c; }
+    else {
+      if (ended || c === '"') throw importError("اقتباس CSV غير صحيح");
+      if (c === (separator === "," ? ";" : ",")) otherDelimiter = true;
+      cell += c;
+    }
     if (row.length > 12 || cell.length > 128) throw importError("الملف يتجاوز حدود الأعمدة أو الخلايا");
   }
   if (quoted) throw importError("اقتباس CSV غير مغلق");
   if (cell || row.length || ended) addRow();
+  while (rows.length && rows.at(-1)!.every(value => value === "")) rows.pop();
+  if (rows.some(record => record.length !== rows[0].length)) throw importError("عدد أعمدة CSV غير متسق بين السجلات");
+  // Do not rescue an invalid multi-column file by treating its delimiter as
+  // ordinary text in a fallback one-column parse (including column-limit errors).
+  if (rows[0]?.length === 1 && otherDelimiter) throw importError("فاصل CSV غير صالح أو عدد أعمدته غير متسق");
   return rows;
+}
+
+function csvRows(text: string): string[][] {
+  // Parse complete logical records for each supported delimiter. Quoted delimiters,
+  // escaped quotes and embedded newlines must never be delimiter votes.
+  const candidates: string[][][] = [], errors: unknown[] = [];
+  for (const separator of [",", ";"] as const) {
+    try { candidates.push(csvCandidate(text, separator)); }
+    catch (error) { errors.push(error); }
+  }
+  // A one-column interpretation is not delimiter evidence when a valid
+  // multi-column interpretation exists. Identical one-column parses are safe.
+  const multiple = candidates.filter(rows => (rows[0]?.length ?? 0) > 1);
+  const viable = multiple.length ? multiple : candidates;
+  if (!viable.length) throw errors[0];
+  if (viable.length > 1 && JSON.stringify(viable[0]) !== JSON.stringify(viable[1])) {
+    throw importError("فاصل CSV ملتبس؛ استخدم فاصلًا واحدًا واقتبس الفواصل التي تنتمي إلى قيم الخلايا");
+  }
+  return viable[0];
 }
 
 export async function parseImportFile(fileName: string, base64: string) {

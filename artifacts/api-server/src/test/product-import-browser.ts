@@ -16,7 +16,7 @@ await assertApplicationReady();
 const { db, companiesTable, usersTable, userCompaniesTable, categoriesTable } = await import("@workspace/db");
 const { default: bcrypt } = await import("bcryptjs");
 const { default: ExcelJS } = await import("exceljs");
-const dir = resolve(import.meta.dirname, "../../../../generated-artifacts/product-import");
+const dir = process.argv[2] ? resolve(process.argv[2]) : resolve(import.meta.dirname, "../../../../generated-artifacts/product-import");
 mkdirSync(resolve(dir, "fixtures"), { recursive: true });
 mkdirSync(resolve(dir, "screenshots"), { recursive: true });
 const privateFile = resolve(dir, "private-access.json");

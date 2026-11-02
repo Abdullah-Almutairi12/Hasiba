@@ -84,6 +84,30 @@ describe("basic catalogue import: original products, atomic receipts and tenant 
     expect(p).toMatchObject({ companyId: companies[0], nameAr: "قهوة عربية", sku: doc.rows[0][2], barcode: doc.rows[0][7], price: "12.30", costPrice: "4.56", stock: "0.0000", trackingMode: "none" });
     expect(await counts()).toEqual(before);
   });
+  it.each([",", ";"])("parses, maps, previews and commits quoted-punctuation CSV (%s) without stock or GL", async sep => {
+    const doc = document(), other = sep === "," ? ";" : ",";
+    doc.headers[0] = `الاسم${other} العربي${other} حسب${other} المورد${other.repeat(8)}`;
+    doc.rows[0][0] = `قهوة "${other}عربية"\nحسب المورد`;
+    const encode = (value: unknown) => `"${String(value).replace(/"/g, '""')}"`;
+    const csv = [doc.headers, ...doc.rows].map(row => row.map(encode).join(sep)).join("\r\n");
+    const initial = await db.select().from(productsTable).where(eq(productsTable.companyId, companies[0]));
+    const protectedBefore = await counts();
+    const parsed = await upload("quoted.csv", Buffer.from(csv));
+    expect(parsed.status).toBe(200);
+    expect(parsed.body).toEqual({ headers: doc.headers, rows: doc.rows.map(row => row.map(String)) });
+    const r = await reviewed({ ...parsed.body, mapping: doc.mapping });
+    expect(await db.select().from(productsTable).where(eq(productsTable.companyId, companies[0]))).toEqual(initial);
+    expect(await counts()).toEqual(protectedBefore);
+    const saved = await send("commit", r.token, r.key).expect(200);
+    expect(saved.body.accepted).toBe(1);
+    const [p] = await db.select().from(productsTable).where(eq(productsTable.id, saved.body.products[0].id));
+    expect(p).toMatchObject({ nameAr: doc.rows[0][0], name: doc.rows[0][1], sku: doc.rows[0][2],
+      barcode: doc.rows[0][7], companyId: companies[0], price: "12.30", costPrice: "4.56", stock: "0.0000" });
+    expect(await counts()).toEqual(protectedBefore);
+    expect((await send("recover", r.token, r.key).expect(200)).body).toEqual(saved.body);
+    expect(await db.select().from(productsTable).where(eq(productsTable.companyId, companies[0]))).toHaveLength(initial.length + 1);
+    expect(await counts()).toEqual(protectedBefore);
+  });
   it("rejects numeric spreadsheet codes instead of guessing lost zeroes", async () => {
     const doc = document(); doc.rows[0][2] = 123;
     const r = await agents[0].post(path).send({ action: "preview", document: doc }).expect(200);

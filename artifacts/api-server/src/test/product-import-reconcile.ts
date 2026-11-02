@@ -10,7 +10,7 @@ assert.equal(url.pathname, "/hasba_test_verify"); assert.equal(state.env.ACCOUNT
 assert.equal(state.env.DATABASE_URL, state.env.TEST_DATABASE_URL);
 Object.assign(process.env, state.env);
 const { pool } = await import("@workspace/db");
-const dir = resolve(import.meta.dirname, "../../../../generated-artifacts/product-import");
+const dir = process.argv[3] ? resolve(process.argv[3]) : resolve(import.meta.dirname, "../../../../generated-artifacts/product-import");
 const phase = process.argv[2]; assert.ok(phase === "before" || phase === "after");
 const names = (await pool.query("SELECT tablename FROM pg_tables WHERE schemaname='public' ORDER BY tablename")).rows;
 const tables: Record<string, { rows: string; hash: string | null }> = {};
