@@ -17,6 +17,7 @@
 - [Approval evidence](approval-evidence.md) — invalidate authority without rewriting a decision; reviewer assignment or delegation does not grant source access.
 - [Cash accountability](cash-accountability.md) — recording, reviewing and assigning responsibility are separate; a decision never automatically creates employee debt or a payroll deduction.
 - [PostgreSQL array binding](sql-array-binding.md) — Drizzle SQL templates expand JS arrays into tuples; use typed ARRAY or a bound array literal for ANY.
+- [Exact SQL reconciliation](sql-reconciliation-evidence.md) — read decimal columns as SQL text for exact comparisons; JSONB numeric decoding can cause false mismatches or precision loss.
 - [System administration](system-administration-policy.md) — administrators need authorization, not legal ownership; last-admin handover needs an activated, eligible replacement.
 - [Credential evidence](credential-evidence-policy.md) — deleting unsafe login challenges does not revoke old copies; incident recovery and financial evidence retention remain separate.
 - [MFA key lifecycle](account-mfa-key-policy.md) — use a dedicated external encryption root, not the session-cookie secret; provisioning and rotation are separate from test-only keys.

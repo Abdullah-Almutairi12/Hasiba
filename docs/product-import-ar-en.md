@@ -1,5 +1,24 @@
 # استيراد الأصناف الأساسية — Basic catalogue import
 
+## تصحيح CSV — 2 نوفمبر2026 / CSV correction
+
+إصلاح اكتشاف الفاصل موثق بصورة مستقلة في
+[`csv-delimiter-fix-ar-en.md`](csv-delimiter-fix-ar-en.md). نتائج1 نوفمبر أدناه
+تبقى قبولًا تاريخيًا وليست نتائج تشغيل الإصلاح الجديد.
+
+CSV يدعم الفاصلة العادية`,` أو المنقوطة`;`، مع علامات اقتباس ASCII`"` حول
+القيم التي تتضمن فاصلًا أو سطرًا جديدًا، ومضاعفة الاقتباس الداخلي`""`.
+يُختبر الملف كسجلات منطقية كاملة، لا بعدّ علامات أول سطر نصي.
+يلزم اتساق عدد الأعمدة. إذا نتج تفسيران صحيحان مختلفان، يُرفض الملف برسالة
+«فاصل CSV ملتبس»؛ وحّد الفاصل واقتبس علامات الفصل التي تنتمي إلى القيم.
+لا تغيّر الأكواد النصية أو أصفارها البادئة أثناء التصحيح.
+
+CSV accepts comma or semicolon separators, ASCII double-quoted fields, doubled
+embedded quotes and embedded line endings. Detection validates complete logical
+records and consistent widths. Two different valid interpretations are rejected
+explicitly rather than guessed. Quote punctuation belonging to cell values.
+All previous size limits, create-only scope, authority and retry rules remain.
+
 ## نطاق العمل وحالته / Scope and status
 
 اكتملت هذه الشريحة المحددة برمجيًا وبالأدلة أدناه على المشروع القائم وفرع `sync/hasiba-erp-20261023`.
