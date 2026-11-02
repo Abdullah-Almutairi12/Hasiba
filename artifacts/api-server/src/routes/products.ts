@@ -128,7 +128,7 @@ router.post("/products", inventoryGuard, async (req, res) => {
 
     const category = await db.select().from(categoriesTable).where(eq(categoriesTable.id, product.categoryId)).limit(1);
 
-    res.status(201).json({
+    return res.status(201).json({
       ...product,
       price: Number(product.price),
       costPrice: Number(product.costPrice),
@@ -140,7 +140,7 @@ router.post("/products", inventoryGuard, async (req, res) => {
     if (skuConflict(err)) return res.status(409).json({ error: "رمز الصنف مستخدم داخل الشركة الحالية؛ اختر رمزًا آخر" });
     if (err instanceof ZodError) return res.status(400).json({ error: "بيانات الصنف غير صالحة" });
     req.log.error({ err }, "Error creating product");
-    res.status(500).json({ error: "Internal server error" });
+    return res.status(500).json({ error: "Internal server error" });
   }
 });
 
