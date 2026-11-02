@@ -1589,3 +1589,31 @@ mtime_ms = 1793516592305
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/ae47bac0-47b0-4bbf-82ff-89d35c694496/edc4f6bd-cf94-4238-b1da-1a1c07dfaaab"
 storage_version_token = "1793516653836938"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "EoS6HoJ2zmeiYfQ60Y4s1"
+uri = "file://.local/outputs/Hasiba-CSV-Delimiter-Report.docx"
+type = "word_document"
+title = "تقرير تصحيح CSV — عربي / English"
+description = "السبب والإصلاح وأدلة الفشل قبل التصحيح والنجاح بعده وحدود التحقق على المصدر c278944."
+logical_id = "57ac6833-5d2f-4106-8074-9d1048ef1650"
+content_hash = "sha256:a858820d3882b4f88e6c701644f2dd357c04fe0f398aa40aa99c2728cf903440"
+size = 8247
+mtime_ms = 1793635132044
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/57ac6833-5d2f-4106-8074-9d1048ef1650/e19ef7dc-a311-4f96-85e4-0c8c2267de55"
+storage_version_token = "1793635142751919"
+content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
+[[outputs]]
+id = "WS-v1RAehsFzb2pxj4ehI"
+uri = "file://.local/outputs/Hasiba-CSV-Delimiter-Evidence.zip"
+type = "unspecified"
+title = "حزمة أدلة تصحيح CSV"
+description = "السجلات الجديدة، ونتائج البوابات، و8 صور رحلة أصلية، والمصالحة المستقلة، والتقرير ودليل الاستخدام؛ دون بيانات الدخول الخاصة."
+logical_id = "a8497363-602f-4930-9de0-f90a65f9f4a3"
+content_hash = "sha256:c30729012dbd81c54ff181eedcc4e6945e9eb4568992746020829befc6de6079"
+size = 902587
+mtime_ms = 1793635133619
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/a8497363-602f-4930-9de0-f90a65f9f4a3/cff09485-40df-44ee-8f6f-706c7763bd2a"
+storage_version_token = "1793635145773034"
+content_type = "application/octet-stream"
