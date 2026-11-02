@@ -1572,6 +1572,8 @@ export const UpdateProductBodyCostingMethod = {
 } as const;
 
 export interface UpdateProductBody {
+  /** @minLength 1 */
+  sku?: string;
   name?: string;
   nameAr?: string;
   price?: number;

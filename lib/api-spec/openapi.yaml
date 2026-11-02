@@ -6689,6 +6689,9 @@ components:
     UpdateProductBody:
       type: object
       properties:
+        sku:
+          type: string
+          minLength: 1
         name:
           type: string
         nameAr:

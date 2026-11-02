@@ -1,4 +1,4 @@
-import { pgTable, serial, text, integer, numeric, boolean, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, integer, numeric, boolean, timestamp, unique } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { categoriesTable } from "./categories";
@@ -8,7 +8,7 @@ export const productsTable = pgTable("products", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
   nameAr: text("name_ar").notNull(),
-  sku: text("sku").notNull().unique(),
+  sku: text("sku").notNull(),
   categoryId: integer("category_id").notNull().references(() => categoriesTable.id),
   price: numeric("price", { precision: 10, scale: 2 }).notNull(),
   costPrice: numeric("cost_price", { precision: 10, scale: 2 }).notNull(),
@@ -33,7 +33,7 @@ export const productsTable = pgTable("products", {
   /** Nullable in Phase 1; becomes NOT NULL in Phase 2 once tenant scoping lands. */
   companyId: integer("company_id").notNull().references(() => companiesTable.id, { onDelete: "restrict" }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, table => [unique("products_company_sku_unique").on(table.companyId, table.sku)]);
 
 export const insertProductSchema = createInsertSchema(productsTable).omit({ id: true, createdAt: true });
 export type InsertProduct = z.infer<typeof insertProductSchema>;

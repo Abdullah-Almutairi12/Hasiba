@@ -29,7 +29,7 @@ function fail(res: import("express").Response, error: unknown) {
   if (error instanceof FinancialRequestError) return res.status(error.status).json({ error: error.message });
   if (error instanceof z.ZodError) return res.status(400).json({ error: "الحقول أو قيم الملف غير صالحة؛ لا يُحفظ أي صنف", issues: error.issues.map(i => ({ path: i.path, message: i.message })) });
   const code = (error as { cause?: { code?: string }; code?: string })?.cause?.code ?? (error as { code?: string })?.code;
-  if (code === "23505") return res.status(409).json({ error: "تعارض في أحد أكواد الأصناف؛ لم تُحفظ الدفعة. أغلق المحاولة بأمان ثم راجع الملف. الأكواد في النموذج الحالي فريدة على مستوى النظام." });
+  if (code === "23505") return res.status(409).json({ error: "تعارض في أحد أكواد الأصناف داخل الشركة الحالية؛ لم تُحفظ الدفعة. أغلق المحاولة بأمان ثم راجع الملف." });
   return res.status(503).json({ error: "تعذر تأكيد نتيجة الاستيراد. احتفظ بالمحاولة واسترجعها أو أغلقها بأمان قبل بدء غيرها." });
 }
 router.get("/products/imports", async (req, res) => {

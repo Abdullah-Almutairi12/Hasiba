@@ -6,8 +6,14 @@ import { inventoryGuard } from "../middlewares/require-role";
 import { recordStockMove, getDefaultWarehouseId } from "../lib/stock-engine";
 import { ScopedDb, getCompanyId } from "../lib/scoped-db";
 import { parsePagination } from "../lib/pagination";
+import { ZodError } from "zod/v4";
 
 const router = Router();
+function skuConflict(err: unknown): boolean {
+  const outer = err as { code?: string; constraint?: string; cause?: { code?: string; constraint?: string } };
+  const error = outer.cause ?? outer;
+  return error.code === "23505" && error.constraint === "products_company_sku_unique";
+}
 
 router.get("/products", async (req, res) => {
   try {
@@ -48,7 +54,7 @@ router.get("/products", async (req, res) => {
           scoped.scope(productsTable),
           sql`${productsTable.isActive} = true
             ${category ? sql`and ${categoriesTable.id} = ${Number(category)}` : sql``}
-            ${search ? sql`and (${productsTable.nameAr} ilike ${'%' + search + '%'} or ${productsTable.name} ilike ${'%' + search + '%'})` : sql``}
+            ${search ? sql`and (${productsTable.nameAr} ilike ${'%' + search + '%'} or ${productsTable.name} ilike ${'%' + search + '%'} or ${productsTable.sku} ilike ${'%' + search + '%'})` : sql``}
             ${lowStock === 'true' ? sql`and ${productsTable.stock} <= ${productsTable.minStock}` : sql``}
           `,
         ),
@@ -74,7 +80,9 @@ router.get("/products", async (req, res) => {
 
 router.post("/products", inventoryGuard, async (req, res) => {
   try {
+    if (Object.hasOwn(req.body ?? {}, "companyId")) return res.status(400).json({ error: "تُحدد الشركة من الجلسة؛ لا يمكن إرسال companyId" });
     const body = CreateProductBody.parse(req.body);
+    if (!body.sku.length) return res.status(400).json({ error: "رمز الصنف مطلوب" });
     const scoped = new ScopedDb(getCompanyId(req));
     const { broadcastProductChange } = await import("../lib/integrations/marketplaces");
     const product = await db.transaction(async (tx) => {
@@ -129,6 +137,8 @@ router.post("/products", inventoryGuard, async (req, res) => {
       createdAt: product.createdAt.toISOString(),
     });
   } catch (err) {
+    if (skuConflict(err)) return res.status(409).json({ error: "رمز الصنف مستخدم داخل الشركة الحالية؛ اختر رمزًا آخر" });
+    if (err instanceof ZodError) return res.status(400).json({ error: "بيانات الصنف غير صالحة" });
     req.log.error({ err }, "Error creating product");
     res.status(500).json({ error: "Internal server error" });
   }
@@ -231,10 +241,12 @@ router.get("/products/:id", async (req, res) => {
 router.patch("/products/:id", inventoryGuard, async (req, res) => {
   try {
     const id = Number(req.params.id);
+    if (Object.hasOwn(req.body ?? {}, "companyId")) return res.status(400).json({ error: "تُحدد الشركة من الجلسة؛ لا يمكن إرسال companyId" });
     const body = UpdateProductBody.parse(req.body);
     const scoped = new ScopedDb(getCompanyId(req));
 
     const updateData: Record<string, unknown> = {};
+    if (body.sku !== undefined) updateData.sku = body.sku;
     if (body.name !== undefined) updateData.name = body.name;
     if (body.nameAr !== undefined) updateData.nameAr = body.nameAr;
     if (body.price !== undefined) updateData.price = String(body.price);
@@ -270,6 +282,8 @@ router.patch("/products/:id", inventoryGuard, async (req, res) => {
       createdAt: updated.createdAt.toISOString(),
     });
   } catch (err) {
+    if (skuConflict(err)) return res.status(409).json({ error: "رمز الصنف مستخدم داخل الشركة الحالية؛ اختر رمزًا آخر" });
+    if (err instanceof ZodError) return res.status(400).json({ error: "بيانات الصنف غير صالحة" });
     req.log.error({ err }, "Error updating product");
     return res.status(500).json({ error: "Internal server error" });
   }

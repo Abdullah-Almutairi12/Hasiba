@@ -3530,7 +3530,11 @@ export const UpdateProductParams = zod.object({
   "id": zod.coerce.number().int()
 })
 
+
+
+
 export const UpdateProductBody = zod.object({
+  "sku": zod.string().min(1).optional(),
   "name": zod.string().optional(),
   "nameAr": zod.string().optional(),
   "price": zod.number().optional(),

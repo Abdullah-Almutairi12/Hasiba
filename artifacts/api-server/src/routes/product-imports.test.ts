@@ -60,6 +60,58 @@ async function upload(name: string, bytes: Uint8Array) {
   return agents[0].post(path).send({ action: "parse", fileName: name, base64: Buffer.from(bytes).toString("base64") });
 }
 describe("basic catalogue import: original products, atomic receipts and tenant safety", () => {
+  it("allows the same literal SKU in independent companies and isolates search and scanner lookup", async () => {
+    const sku = `000${tag}-shared`;
+    const body = { name: "Independent SKU", nameAr: "صنف مستقل", sku, categoryId: category,
+      price: 12.30, costPrice: 4.56, stock: 0, minStock: 5, unit: "قطعة" };
+    const a = await agents[0].post("/api/products").send(body).expect(201);
+    const b = await agents[1].post("/api/products").send(body).expect(201);
+    expect(a.body.id).not.toBe(b.body.id);
+    for (const [agent, own, foreign] of [[agents[0], a, b], [agents[1], b, a]] as const) {
+      const found = await agent.get("/api/products").query({ search: sku, companyId: foreign.body.companyId }).expect(200);
+      expect(found.body.map((p: { id: number }) => p.id)).toEqual([own.body.id]);
+      const scan = await agent.get("/api/inventory/lookup").query({ code: sku, companyId: foreign.body.companyId }).expect(200);
+      expect(scan.body.productId).toBe(own.body.id);
+      await agent.get(`/api/products/${foreign.body.id}`).expect(404);
+      await agent.patch(`/api/products/${foreign.body.id}`).send({ sku: `${sku}-attack` }).expect(404);
+    }
+    await agents[0].post("/api/products").send({ ...body, sku: `${sku}-spoof`, companyId: companies[1] }).expect(400);
+    await agents[0].patch(`/api/products/${a.body.id}`).send({ companyId: companies[1] }).expect(400);
+  });
+  it("enforces same-company SKU uniqueness on concurrent create and update without changing references", async () => {
+    const sku = `000${tag}-race`;
+    const body = { name: "Concurrent SKU", nameAr: "صنف تزامن", sku, categoryId: category,
+      price: 1, costPrice: 0, stock: 0, minStock: 5, unit: "piece" };
+    const before = await counts();
+    const results = await Promise.all(Array.from({ length: 3 }, () => agents[0].post("/api/products").send(body)));
+    expect(results.map(r => r.status).sort()).toEqual([201, 409, 409]);
+    const original = results.find(r => r.status === 201)!.body;
+    const other = await agents[0].post("/api/products").send({ ...body, sku: `${sku}-other` }).expect(201);
+    await agents[0].patch(`/api/products/${other.body.id}`).send({ sku }).expect(409);
+    const changed = await agents[0].patch(`/api/products/${other.body.id}`).send({ sku: `${sku}-new` }).expect(200);
+    expect(changed.body.sku).toBe(`${sku}-new`); expect(changed.body.id).toBe(other.body.id);
+    const updates = await Promise.all([original.id, other.body.id].map(id =>
+      agents[0].patch(`/api/products/${id}`).send({ sku: `${sku}-target` })));
+    expect(updates.map(r => r.status).sort()).toEqual([200, 409]);
+    expect(await counts()).toEqual(before);
+  });
+  it("imports the same SKU in two companies, rejects local duplicates and isolates recovered receipts", async () => {
+    const doc = document();
+    const previewA = await agents[0].post(path).send({ action: "preview", document: doc }).expect(200);
+    const previewB = await agents[1].post(path).send({ action: "preview", document: doc }).expect(200);
+    expect(previewA.body.canCommit).toBe(true); expect(previewB.body.canCommit).toBe(true);
+    const key = `${tag}-shared-import`;
+    const savedA = await send("commit", previewA.body.token, key, agents[0]).expect(200);
+    const savedB = await send("commit", previewB.body.token, key, agents[1]).expect(200);
+    expect(savedA.body.products[0].id).not.toBe(savedB.body.products[0].id);
+    expect((await send("recover", previewA.body.token, key, agents[0]).expect(200)).body).toEqual(savedA.body);
+    expect((await send("recover", previewB.body.token, key, agents[1]).expect(200)).body).toEqual(savedB.body);
+    await send("recover", previewA.body.token, key, agents[1]).expect(409);
+    for (const agent of [agents[0], agents[1]]) {
+      const repeat = await agent.post(path).send({ action: "preview", document: doc }).expect(200);
+      expect(repeat.body.canCommit).toBe(false);
+    }
+  });
   it("requires authentication and existing catalogue-create authority", async () => {
     await request(app).get(path).expect(401);
     await agents[2].get(path).expect(403);
