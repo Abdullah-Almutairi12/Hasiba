@@ -240,6 +240,7 @@ describe("original POS invoice: independent linked return lifecycle", () => {
       "0069_company_tax_policy_request_closures.sql",
       "0070_sales_order_pricing_basis.sql",
       "0071_sales_order_discount_precision.sql",
+      "0072_company_product_sku.sql",
     ]);
     expect(first.skipped).toHaveLength(26);
     // Installing a policy schema is not acceptance of a company's tax facts.
