@@ -1831,6 +1831,50 @@ paths:
                   $ref: "#/components/schemas/BranchPerformance"
 
   # Products
+  /suppliers/imports:
+    get:
+      operationId: getSupplierImportOptions
+      tags: [suppliers]
+      summary: Supplier create-only import fields and safe file limits
+      responses:
+        "200":
+          description: Import fields and limits; requires current supplier-create authority
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        "403": { description: Supplier creation not permitted }
+    post:
+      operationId: runSupplierImport
+      tags: [suppliers]
+      summary: Parse, review, atomically create or reconcile a supplier directory import
+      description: |
+        CSV UTF-8 or one-sheet XLSX with existing safe file limits. Create-only,
+        company and actor from trusted session. No balances, invoices or links.
+        Text identifiers preserve leading zeroes; numeric Excel identifiers rejected.
+        Preview is read-only. Similar names require explicit confirmation and are
+        never merged. Signed preview binds company, actor, rows and reviewed matches.
+        commit/recover/close share original token and Idempotency-Key. Authorization
+        denial does not prove nonexecution. Closure is durable; recovery never executes.
+      parameters:
+        - in: header
+          name: Idempotency-Key
+          required: false
+          schema: { type: string, minLength: 8, maxLength: 128 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SupplierImportInput" }
+      responses:
+        "200":
+          description: Parsed table, row-level preview, saved outcome or safe closure
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        "400": { description: "Invalid file, mapping, forbidden fields or non-text identifier" }
+        "403": { description: Current supplier authority denied }
+        "409": { description: "Conflict, changed review, expiry, absent or closed attempt" }
+        "503": { description: Outcome unknown; retain original intent }
   /products/imports:
     get:
       operationId: getProductImportOptions
@@ -5444,6 +5488,18 @@ paths:
 
 components:
   schemas:
+    SupplierImportInput:
+      type: object
+      additionalProperties: false
+      required: [action]
+      properties:
+        action: { type: string, enum: [parse, preview, commit, recover, close] }
+        fileName: { type: string, minLength: 1, maxLength: 180 }
+        base64: { type: string, maxLength: 349528 }
+        token: { type: string, minLength: 10, maxLength: 900000 }
+        confirmSimilarNames: { type: boolean, default: false }
+        document:
+          $ref: "#/components/schemas/ProductImportInput/properties/document"
     ProductImportInput:
       type: object
       additionalProperties: false

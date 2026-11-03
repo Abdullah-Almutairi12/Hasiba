@@ -3366,6 +3366,70 @@ export const GetBranchPerformanceResponse = zod.array(GetBranchPerformanceRespon
 
 
 /**
+ * @summary Supplier create-only import fields and safe file limits
+ */
+export const GetSupplierImportOptionsResponse = zod.record(zod.string(), zod.unknown())
+
+
+/**
+ * CSV UTF-8 or one-sheet XLSX with existing safe file limits. Create-only,
+ * company and actor from trusted session. No balances, invoices or links.
+ * Text identifiers preserve leading zeroes; numeric Excel identifiers rejected.
+ * Preview is read-only. Similar names require explicit confirmation and are
+ * never merged. Signed preview binds company, actor, rows and reviewed matches.
+ * commit/recover/close share original token and Idempotency-Key. Authorization
+ * denial does not prove nonexecution. Closure is durable; recovery never executes.
+ * @summary Parse, review, atomically create or reconcile a supplier directory import
+ */
+export const runSupplierImportHeaderIdempotencyKeyMin = 8;
+export const runSupplierImportHeaderIdempotencyKeyMax = 128;
+
+
+
+export const RunSupplierImportHeader = zod.object({
+  "Idempotency-Key": zod.string().min(runSupplierImportHeaderIdempotencyKeyMin).max(runSupplierImportHeaderIdempotencyKeyMax).optional()
+})
+
+export const runSupplierImportBodyFileNameMax = 180;
+
+export const runSupplierImportBodyBase64Max = 349528;
+
+export const runSupplierImportBodyTokenMin = 10;
+export const runSupplierImportBodyTokenMax = 900000;
+
+export const runSupplierImportBodyConfirmSimilarNamesDefault = false;
+export const runSupplierImportBodyDocumentHeadersItemMax = 128;
+
+export const runSupplierImportBodyDocumentHeadersMax = 12;
+
+export const runSupplierImportBodyDocumentRowsItemItemOneMax = 128;
+
+export const runSupplierImportBodyDocumentRowsItemMax = 12;
+
+export const runSupplierImportBodyDocumentRowsMax = 500;
+
+export const runSupplierImportBodyDocumentMappingMinOne = 0;
+export const runSupplierImportBodyDocumentMappingMaxOne = 11;
+
+
+
+export const RunSupplierImportBody = zod.object({
+  "action": zod.enum(['parse', 'preview', 'commit', 'recover', 'close']),
+  "fileName": zod.string().min(1).max(runSupplierImportBodyFileNameMax).optional(),
+  "base64": zod.string().max(runSupplierImportBodyBase64Max).optional(),
+  "token": zod.string().min(runSupplierImportBodyTokenMin).max(runSupplierImportBodyTokenMax).optional(),
+  "confirmSimilarNames": zod.boolean().default(runSupplierImportBodyConfirmSimilarNamesDefault),
+  "document": zod.object({
+  "headers": zod.array(zod.string().min(1).max(runSupplierImportBodyDocumentHeadersItemMax)).min(1).max(runSupplierImportBodyDocumentHeadersMax),
+  "rows": zod.array(zod.array(zod.union([zod.string().max(runSupplierImportBodyDocumentRowsItemItemOneMax),zod.number(),zod.null()])).max(runSupplierImportBodyDocumentRowsItemMax)).min(1).max(runSupplierImportBodyDocumentRowsMax),
+  "mapping": zod.record(zod.string(), zod.number().int().min(runSupplierImportBodyDocumentMappingMinOne).max(runSupplierImportBodyDocumentMappingMaxOne))
+}).optional()
+})
+
+export const RunSupplierImportResponse = zod.record(zod.string(), zod.unknown())
+
+
+/**
  * @summary Authorized create-only catalogue import fields, categories, units and limits
  */
 export const GetProductImportOptionsResponse = zod.record(zod.string(), zod.unknown())

@@ -30,12 +30,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Search, Plus, Truck, Pencil, Building2 } from "lucide-react";
+import { Search, Plus, Truck, Pencil, Building2, FileSpreadsheet } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import {usePermissions} from "@/hooks/use-permissions";
 import {getWorkspaceResponsibility,WORKSPACE_RESPONSIBILITY_HEADER} from "@workspace/api-client-react";
 import {downloadPdf} from "@/lib/download-file";
+import {useAuth} from "@/hooks/use-auth";
+import {SupplierImportDialog,hasSupplierImportIntent} from "@/components/supplier-import-dialog";
 
 interface SupplierRow {
   id: number;
@@ -224,6 +226,11 @@ export default function Suppliers() {
   const [linkedOnly, setLinkedOnly] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
+  const {user}=useAuth();
+  const [importOpen,setImportOpen]=useState(false);
+  const canImport=canProcurement("suppliers.create");
+  // Read-only users only see recovery for an existing scoped saved intent.
+  const importRecoveryOnly=!canImport&&hasSupplierImportIntent(user?.id,user?.companyId);
 
   const { data: rows, isLoading, refetch } = useQuery<SupplierRow[]>({
     queryKey: ["/suppliers", search, linkedOnly],
@@ -255,6 +262,11 @@ export default function Suppliers() {
           <Button variant="outline" disabled={exporting} onClick={()=>void exportDirectory("xlsx")}>تصدير Excel</Button>
           <Button variant="outline" disabled={exporting} onClick={()=>void exportDirectory("pdf")}>تصدير PDF</Button>
         </div>}
+        {(canImport||importRecoveryOnly)&&<Button variant="outline" className="gap-2" onClick={()=>setImportOpen(true)} data-testid="button-import-suppliers">
+          <FileSpreadsheet className="size-4" />
+          {canImport?"استيراد موردين":"استرداد محاولة استيراد"}
+        </Button>}
+        <SupplierImportDialog open={importOpen} onOpenChange={setImportOpen} />
         <Dialog open={addOpen&&canProcurement("suppliers.create")} onOpenChange={setAddOpen}>
           <DialogTrigger asChild>
             <Button hidden={!canProcurement("suppliers.create")} className="gap-2" data-testid="button-add-supplier">

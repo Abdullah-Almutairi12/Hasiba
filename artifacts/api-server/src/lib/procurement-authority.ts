@@ -11,6 +11,9 @@ import { lockApprovalAuthority } from "./approval-authority";
 import { authorityFingerprint } from "./approval-authority";
 
 export const procurementAction = (method: string, path: string): string | null => {
+  // Recovery is directory reading; fresh execution is authorized separately
+  // inside its transaction. Do not treat "imports" as a supplier numeric id.
+  if (path === "/suppliers/imports" && ["GET", "POST"].includes(method)) return "procurement.suppliers.read";
   if(method==="GET"&&path==="/invoices/draft-options")return "procurement.invoices.read";
   if(method==="POST"&&path==="/invoices/drafts")return "procurement.invoices.create";
   if(method==="PATCH"&&/^\/invoices\/\d+\/draft$/.test(path))return "procurement.invoices.edit";

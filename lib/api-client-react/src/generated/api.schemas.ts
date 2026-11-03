@@ -5,6 +5,54 @@
  * حاسبة.AI - ERP System API
  * OpenAPI spec version: 0.1.0
  */
+export type SupplierImportInputAction = typeof SupplierImportInputAction[keyof typeof SupplierImportInputAction];
+
+
+export const SupplierImportInputAction = {
+  parse: 'parse',
+  preview: 'preview',
+  commit: 'commit',
+  recover: 'recover',
+  close: 'close',
+} as const;
+
+export type SupplierImportInputDocumentMapping = {[key: string]: number};
+
+export type SupplierImportInputDocument = {
+  /**
+     * @minItems 1
+     * @maxItems 12
+     * @items.minLength 1
+     * @items.maxLength 128
+     */
+  headers: string[];
+  /**
+     * @minItems 1
+     * @maxItems 500
+     * @items.maxItems 12
+     */
+  rows: ((string | number | null)[])[];
+  mapping: SupplierImportInputDocumentMapping;
+};
+
+export interface SupplierImportInput {
+  action: SupplierImportInputAction;
+  /**
+     * @minLength 1
+     * @maxLength 180
+     */
+  fileName?: string;
+  /** @maxLength 349528 */
+  base64?: string;
+  /**
+     * @minLength 10
+     * @maxLength 900000
+     */
+  token?: string;
+  confirmSimilarNames?: boolean;
+  document?: SupplierImportInputDocument;
+}
+
 export type ProductImportInputAction = typeof ProductImportInputAction[keyof typeof ProductImportInputAction];
 
 
@@ -4998,6 +5046,10 @@ key: string;
 export type UndismissDashboardAlert200 = {
   ok: boolean;
 };
+
+export type GetSupplierImportOptions200 = { [key: string]: unknown };
+
+export type RunSupplierImport200 = { [key: string]: unknown };
 
 export type GetProductImportOptions200 = { [key: string]: unknown };
 

@@ -187,20 +187,23 @@ export function validateImport(doc: ImportDocument, categoryIds: Set<number>, ex
 }
 
 function secret() { if (!process.env.SESSION_SECRET) throw new Error("Import signing is not configured"); return process.env.SESSION_SECRET; }
-export function signImport(companyId: number, userId: number, document: ImportDocument) {
+export function signImport(companyId: number, userId: number, document: ImportDocument, purpose = "products", reviewFacts?: string) {
   // Bound the signed body too: escaped CSV cells must not produce an intent
   // that exceeds the JSON transport/token limit and cannot later be recovered.
   if (Buffer.byteLength(JSON.stringify(document), "utf8") > 450000)
     throw new FinancialRequestError("بيانات المعاينة بعد الترميز تتجاوز 450000 بايت؛ قسّم الملف إلى دفعات أصغر", 413);
-  const payload = Buffer.from(canonical({ companyId, userId, document, expires: Date.now() + 900000 })).toString("base64url");
+  const payload = Buffer.from(canonical({ companyId, userId, document, purpose, reviewFacts, expires: Date.now() + 900000 })).toString("base64url");
   return `${payload}.${createHmac("sha256", secret()).update(payload).digest("hex")}`;
 }
-export function readImport(token: string, companyId: number, userId: number, allowExpired = false): ImportDocument {
+export function readImport(token: string, companyId: number, userId: number, allowExpired = false, purpose = "products", reviewFacts?: string): ImportDocument {
   const [payload, signature, extra] = token.split(".");
   const expected = createHmac("sha256", secret()).update(payload ?? "").digest("hex");
   if (extra || !signature || !/^[a-f0-9]{64}$/.test(signature) || !timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) throw importError("دليل المعاينة غير صالح");
   const saved = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
   if (saved.companyId !== companyId || saved.userId !== userId) throw importError("المعاينة لا تخص الحساب والشركة الحاليين", 403);
+  // Old product previews did not carry a purpose; preserve their recovery.
+  if ((saved.purpose ?? "products") !== purpose) throw importError("دليل المعاينة لا يخص نوع هذا الاستيراد", 400);
+  if (reviewFacts !== undefined && saved.reviewFacts !== reviewFacts) throw importError("تغيرت نتائج التشابه بعد المراجعة؛ أغلق المحاولة بأمان ثم أعد المعاينة", 409);
   if (!allowExpired && saved.expires < Date.now()) throw importError("انتهت المعاينة؛ أغلق المحاولة بأمان ثم أعد المراجعة", 409);
   return importDocument.parse(saved.document);
 }

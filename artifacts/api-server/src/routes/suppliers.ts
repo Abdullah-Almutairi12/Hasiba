@@ -11,6 +11,7 @@ import { and } from "drizzle-orm";
 import { requestProcurementActor, procurementAudit } from "../lib/procurement-authority";
 import { FinancialRequestError } from "../lib/financial-transaction";
 import { managedProfile } from "../lib/responsibility-context";
+import supplierImportsRouter from "./supplier-imports";
 const managedSupplier=async(req:Request)=>!!await managedProfile(req.session.userId!,getCompanyId(req));
 
 const router = Router();
@@ -22,6 +23,7 @@ const supplierWriteGuard = requireRole("owner", "manager", "accountant", "invent
 // must not see this list. Mount with explicit prefix so the middleware only
 // fires for /suppliers/* requests, not unrelated traffic that passes through.
 router.use("/suppliers", supplierReadGuard);
+router.use(supplierImportsRouter);
 
 const CreateSupplierBody = z.object({
   name: z.string().min(1),

@@ -201,6 +201,7 @@ import type {
   GetSellerWorkspaceParams,
   GetStocktakeSeparationPolicy200,
   GetSupplier200,
+  GetSupplierImportOptions200,
   GetSupplierInvoiceDraftOptionsParams,
   GetTrialBalanceParams,
   GetVatReturnParams,
@@ -311,6 +312,7 @@ import type {
   RollbackLegacyTeamConversionBody,
   RunAlertsCleanupNow200,
   RunProductImport200,
+  RunSupplierImport200,
   RunVatThresholdCheck200,
   SalesChartPoint,
   SalesReport,
@@ -323,6 +325,7 @@ import type {
   SetPermissionCellBody,
   SimulateVatTrajectoryBody,
   Supplier,
+  SupplierImportInput,
   SupplierInvoiceComparison,
   SupplierInvoiceComparisonInput,
   SupplierInvoiceDraftInput,
@@ -10400,6 +10403,202 @@ export function useGetBranchPerformance<TData = Awaited<ReturnType<typeof getBra
 
 
 
+
+export const getGetSupplierImportOptionsUrl = () => {
+
+
+
+
+  return `/api/suppliers/imports`
+}
+
+/**
+ * @summary Supplier create-only import fields and safe file limits
+ */
+export const getSupplierImportOptions = async ( options?: Parameters<typeof customFetch>[1]): Promise<GetSupplierImportOptions200> => {
+
+  return customFetch<GetSupplierImportOptions200>(getGetSupplierImportOptionsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetSupplierImportOptionsQueryKey = () => {
+    return [
+    `/api/suppliers/imports`
+    ] as const;
+    }
+
+
+export const getGetSupplierImportOptionsQueryOptions = <TData = Awaited<ReturnType<typeof getSupplierImportOptions>>, TError = ErrorType<void>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getSupplierImportOptions>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetSupplierImportOptionsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getSupplierImportOptions>>> = ({ signal }) => getSupplierImportOptions({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getSupplierImportOptions>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetSupplierImportOptionsQueryResult = NonNullable<Awaited<ReturnType<typeof getSupplierImportOptions>>>
+export type GetSupplierImportOptionsQueryError = ErrorType<void>
+
+
+export function useGetSupplierImportOptions<TData = Awaited<ReturnType<typeof getSupplierImportOptions>>, TError = ErrorType<void>>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getSupplierImportOptions>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getSupplierImportOptions>>,
+          TError,
+          Awaited<ReturnType<typeof getSupplierImportOptions>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetSupplierImportOptions<TData = Awaited<ReturnType<typeof getSupplierImportOptions>>, TError = ErrorType<void>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getSupplierImportOptions>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getSupplierImportOptions>>,
+          TError,
+          Awaited<ReturnType<typeof getSupplierImportOptions>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetSupplierImportOptions<TData = Awaited<ReturnType<typeof getSupplierImportOptions>>, TError = ErrorType<void>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getSupplierImportOptions>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Supplier create-only import fields and safe file limits
+ */
+
+export function useGetSupplierImportOptions<TData = Awaited<ReturnType<typeof getSupplierImportOptions>>, TError = ErrorType<void>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getSupplierImportOptions>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetSupplierImportOptionsQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getRunSupplierImportUrl = () => {
+
+
+
+
+  return `/api/suppliers/imports`
+}
+
+/**
+ * CSV UTF-8 or one-sheet XLSX with existing safe file limits. Create-only,
+ * company and actor from trusted session. No balances, invoices or links.
+ * Text identifiers preserve leading zeroes; numeric Excel identifiers rejected.
+ * Preview is read-only. Similar names require explicit confirmation and are
+ * never merged. Signed preview binds company, actor, rows and reviewed matches.
+ * commit/recover/close share original token and Idempotency-Key. Authorization
+ * denial does not prove nonexecution. Closure is durable; recovery never executes.
+ * @summary Parse, review, atomically create or reconcile a supplier directory import
+ */
+export const runSupplierImport = async (supplierImportInput: SupplierImportInput, options?: Parameters<typeof customFetch>[1]): Promise<RunSupplierImport200> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<RunSupplierImport200>(getRunSupplierImportUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(supplierImportInput)
+  }
+);}
+
+
+
+
+
+export const getRunSupplierImportMutationKey = () => ['runSupplierImport'] as const;
+
+export const getRunSupplierImportMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof runSupplierImport>>, TError,RunSupplierImportMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof runSupplierImport>>, TError,RunSupplierImportMutationVariables, TContext> => {
+
+const mutationKey = getRunSupplierImportMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof runSupplierImport>>, RunSupplierImportMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  runSupplierImport(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RunSupplierImportMutationResult = NonNullable<Awaited<ReturnType<typeof runSupplierImport>>>
+    export type RunSupplierImportMutationBody = BodyType<SupplierImportInput>
+    export type RunSupplierImportMutationError = ErrorType<void>
+    export type RunSupplierImportMutationVariables = {data: BodyType<SupplierImportInput>}
+
+    /**
+ * @summary Parse, review, atomically create or reconcile a supplier directory import
+ */
+export const useRunSupplierImport = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof runSupplierImport>>, TError,RunSupplierImportMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof runSupplierImport>>,
+        TError,
+        RunSupplierImportMutationVariables,
+        TContext
+      > => {
+      return useMutation(getRunSupplierImportMutationOptions(options), queryClient);
+    }
 
 export const getGetProductImportOptionsUrl = () => {
 
