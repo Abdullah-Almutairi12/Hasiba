@@ -107,6 +107,7 @@ describe.sequential("POS device software proof and cashier-only identity",()=>{
     const p=await proof(device,"request","/api/products?search=allowed",{},"GET");
     ok(await first.agent.get("/api/products?search=changed").set("X-POS-Proof",Buffer.from(JSON.stringify(p)).toString("base64url")),403);
     const shiftBody={branchId:f.branches[0].id,openingCash:0,cashierName:"غير قابل للتبديل"};
+    expect(ok(await call(first.agent,device,"get","/pos/session-branches")).map((b:any)=>b.id)).toEqual([f.branches[0].id]);
     const shiftProof=await proof(device,"request","/api/pos/sessions",shiftBody);
     ok(await first.agent.post("/api/pos/sessions").set("X-POS-Proof",Buffer.from(JSON.stringify(shiftProof)).toString("base64url"))
       .set("X-Workspace-Responsibility",String(person.grants[0].id)).send({...shiftBody,openingCash:1}),403);

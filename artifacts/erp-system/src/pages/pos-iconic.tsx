@@ -1,6 +1,7 @@
 import { canReachReturns, scopedBodyDiscount, scopedCheckoutCaps, type PosTender } from "@/lib/pos-actions";
 import { clearSessionIntent, isConfirmedRejection, readSessionIntent, saveSessionIntent, type SessionIntent } from "@/lib/pos-session-intent";
-import { useState, useMemo, useEffect } from "react";
+import { readShiftSelection, saveShiftSelection, selectedPosSession, type ShiftSelection } from "@/lib/pos-session-context";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { PosSessionContext } from "@/components/pos-session-context";
 import { PosDeviceControls } from "@/components/pos-device-controls";
 import { useLocation } from "wouter";
@@ -23,10 +24,11 @@ import {
   useListProducts,
   useListProductCategories,
   useListPosSessions,
+  useListPosShiftBranches,
   useGetPrintProfile,
   useGetSellerWorkspace,
 } from "@workspace/api-client-react";
-import { createPosSession, getWorkspaceResponsibility, useGetApprovalRequest, useGetPosTaxContext, getGetApprovalRequestQueryKey, type CreatePosOrderBody } from "@workspace/api-client-react";
+import { createPosSession, getWorkspaceResponsibility, useGetApprovalRequest, useGetPosTaxContext, getGetApprovalRequestQueryKey, type CreatePosOrderBody, type PosSession } from "@workspace/api-client-react";
 import { usePermissions } from "@/hooks/use-permissions";
 import { useLiveScopedAccess } from "@/lib/scoped-access";
 import { useQueryClient } from "@tanstack/react-query";
@@ -104,6 +106,18 @@ export default function PosIconic({
   const scopedCaps = scopedCheckoutCaps(isScoped ? selectedResp?.resource === "pos" ? selectedResp.actions : [] : null);
   const discountAllowed = !isScoped || scopedCaps.discount || selectedResp?.actions.includes("pos.discount.request");
   const scopedBranchId = isScoped ? (selectedResp?.resource === "pos" ? selectedResp.branchId : -1) : null;
+  const shiftScope = `${user?.id ?? ""}:${user?.companyId ?? ""}:${isScoped ? selectedResp?.id ?? "none" : "legacy"}`;
+  const [shiftChoice, setShiftChoice] = useState<{ scope: string; value: ShiftSelection | null }>(() => ({ scope: shiftScope, value: readShiftSelection(shiftScope) }));
+  const [openingState, setOpeningState] = useState({ scope: shiftScope, pending: !!readSessionIntent(user?.companyId ? `${user.id}:${user.companyId}` : null) });
+  useEffect(() => { setShiftChoice({ scope: shiftScope, value: readShiftSelection(shiftScope) }); }, [shiftScope]);
+  const choice = shiftChoice.scope === shiftScope ? shiftChoice.value : null;
+  const fixedBranchId = isScoped ? scopedBranchId : user?.branchId ?? null;
+  const selectedBranchId = fixedBranchId ?? choice?.branchId ?? null;
+  const branches = useListPosShiftBranches({ query: {
+    enabled: canOpenPosShift,
+    queryKey: ["/api/pos/session-branches", shiftScope],
+    retry: false, staleTime: 0, refetchOnWindowFocus: true,
+  } });
   const queryClient = useQueryClient();
   const checkout = usePosCheckout(user?.companyId ? `${user.id}:${user.companyId}` : null);
 
@@ -146,14 +160,20 @@ export default function PosIconic({
   });
   const { data: categories } = useListProductCategories();
   const { data: sessions, refetch: refetchSessions } = useListPosSessions({
-    query: { refetchInterval: 15_000, staleTime: 0, refetchOnWindowFocus: true },
+    query: { queryKey: ["/api/pos/sessions", shiftScope], refetchInterval: 15_000, staleTime: 0, refetchOnWindowFocus: true },
   });
-  const activeSession = sessions?.find((s) => s.status === "open" && (scopedBranchId === null || s.branchId === scopedBranchId));
+  const activeSession = selectedPosSession(sessions, selectedBranchId, user?.id, choice?.branchId === selectedBranchId ? choice.sessionId : undefined);
+  const chooseShift = (value: ShiftSelection) => {
+    saveShiftSelection(shiftScope, value);
+    setShiftChoice({ scope: shiftScope, value });
+  };
   const checkoutLocked = !!checkout.attempt || checkout.isPending || !checkout.ready;
   // Why paying is blocked for a scoped member (null = allowed). Recovery of an
   // existing attempt re-sends its frozen body, so VAT/sell checks apply only
   // to new sales; a responsibility mismatch blocks recovery as well.
-  const payBlock: string | null = !isScoped ? null
+  const payBlock: string | null = openingState.scope === shiftScope && openingState.pending && !checkout.attempt
+    ? "استرجع نتيجة طلب فتح الوردية المعلق قبل بدء بيع جديد."
+    : !isScoped ? null
     : checkout.scopeMismatch ? "عملية البيع المعلقة تخص مسؤولية أخرى. ارجع إلى «عملي» واختر المسؤولية الأصلية لاسترجاعها."
     : checkout.attempt ? null
     : !canUsePos ? "مسؤوليتك للعرض فقط: البيع غير مسموح لك في هذا الفرع."
@@ -506,16 +526,32 @@ export default function PosIconic({
 
       <PosSessionContext session={activeSession} />
       <div className="grid min-h-[calc(100vh-2.25rem)] grid-cols-1 gap-3 px-3 pb-4 lg:h-[calc(100vh-2.25rem)] lg:grid-cols-[minmax(0,1fr)_360px] lg:pb-28">
-        {(isScoped || (!activeSession && !!user?.branchId)) && (
+        {(
           <ScopedPosNotice
-            branchId={isScoped?scopedBranchId:user?.branchId??null}
+            key={shiftScope}
+            branchId={selectedBranchId}
+            fixedBranch={fixedBranchId !== null}
+            branches={branches.data ?? []}
+            branchesLoading={branches.isLoading}
+            branchesError={branches.isError}
+            onRefreshBranches={() => void branches.refetch()}
+            onSelectBranch={(branchId) => {
+              chooseShift({ branchId });
+              setCart([]); setSellerWhole(null); setSellerLines({});
+            }}
+            contextLocked={checkoutLocked || cart.length > 0}
+            onPendingChange={pending => setOpeningState(old => old.scope === shiftScope && old.pending === pending ? old : { scope: shiftScope, pending })}
             hasSession={!!activeSession}
             canOpenShift={canOpenPosShift}
             cashierName={user?.name ?? ""}
             intentScope={user?.companyId ? `${user.id}:${user.companyId}` : null}
             caps={scopedCaps}
             scoped={isScoped}
-            onOpened={() => void refetchSessions()}
+            onOpened={(session) => {
+              chooseShift({ branchId: session.branchId, sessionId: session.id });
+              queryClient.setQueryData<PosSession[]>(["/api/pos/sessions", shiftScope], old => [session, ...(old ?? []).filter(s => s.id !== session.id)]);
+              void refetchSessions();
+            }}
           />
         )}
         {/* LEFT: search + categories + product grid */}
@@ -1321,36 +1357,48 @@ function ParkedOverlay({
  * honest list of what this responsibility cannot do. No closing, refunds,
  * parking, discounts, barcode lookup or non-cash tenders.
  */
-function ScopedPosNotice({ branchId, hasSession, canOpenShift, cashierName, onOpened, intentScope, caps, scoped=true }: {
-  branchId: number | null; hasSession: boolean; canOpenShift: boolean; cashierName: string; onOpened: () => void;
+function ScopedPosNotice({ branchId, hasSession, canOpenShift, cashierName, onOpened, intentScope, caps, scoped=true,
+  fixedBranch, branches, branchesLoading, branchesError, onSelectBranch, onRefreshBranches, contextLocked, onPendingChange }: {
+  branchId: number | null; hasSession: boolean; canOpenShift: boolean; cashierName: string; onOpened: (session: PosSession) => void;
   intentScope: string | null; caps: ReturnType<typeof scopedCheckoutCaps>;
   scoped?:boolean;
+  fixedBranch: boolean; branches: Array<{ id: number; name: string }>; branchesLoading: boolean; branchesError: boolean;
+  onSelectBranch: (branchId: number) => void; onRefreshBranches: () => void; contextLocked: boolean;
+  onPendingChange: (pending: boolean) => void;
 }) {
   const { toast } = useToast();
   const [cash, setCash] = useState("");
   const [busy, setBusy] = useState(false);
+  const inFlight = useRef(false);
   const [cleanupPending, setCleanupPending] = useState(false);
   const [pending, setPending] = useState<SessionIntent | null | "unreadable">(() => readSessionIntent(intentScope));
   useEffect(() => { setPending(readSessionIntent(intentScope)); }, [intentScope]);
+  useEffect(() => { onPendingChange(!!pending); }, [pending, onPendingChange]);
   const usable = branchId !== null && branchId > 0;
   const mismatch = !!pending && pending !== "unreadable" && pending.responsibility !== getWorkspaceResponsibility();
   const open = async () => {
-    if (!intentScope || busy || pending === "unreadable" || mismatch) return;
+    if (!intentScope || inFlight.current || busy || pending === "unreadable" || mismatch) return;
     let intent = pending;
     if (!intent) {
       const n = Number(cash || "0");
-      if (!usable || !Number.isFinite(n) || n < 0) return;
+      if (!usable || !canOpenShift || !Number.isFinite(n) || n < 0 || n > 99999999.99 || Math.abs(n * 100 - Math.round(n * 100)) > 0.000001) {
+        toast({ title: "أدخل نقدًا افتتاحيًا صحيحًا غير سالب بمنزلتين عشريتين كحد أقصى.", variant: "destructive" }); return;
+      }
       // cashierName is replaced server-side with the canonical person name.
       intent = { key: crypto.randomUUID(), body: { branchId: branchId!, cashierName, openingCash: n }, responsibility: getWorkspaceResponsibility() };
       if (!saveSessionIntent(intentScope, intent)) { toast({ title: "تعذر حفظ طلب فتح الوردية بأمان. فعّل تخزين الجلسة ثم أعد المحاولة.", variant: "destructive" }); return; }
       setPending(intent);
     }
     const wasRecovery = !!pending;
+    inFlight.current = true;
     setBusy(true);
     try {
-      await createPosSession(intent.body, { headers: { "Idempotency-Key": intent.key } });
-      onOpened();
-      if (!clearSessionIntent(intentScope)) {
+      const session = await createPosSession(intent.body, { headers: { "Idempotency-Key": intent.key } });
+      if (!Number.isSafeInteger(session?.id) || session.branchId !== intent.body.branchId || session.status !== "open") {
+        throw new Error("تعذر قراءة نتيجة فتح الوردية المؤكدة");
+      }
+      onOpened(session);
+      if (!clearSessionIntent(intentScope, intent.key)) {
         // Confirmed by the server, but local evidence remains: never a new intent.
         setCleanupPending(true);
         toast({ title: "فُتحت الوردية، لكن تعذر تنظيف الطلب المحفوظ. فعّل تخزين الجلسة ثم اضغط الاسترجاع.", variant: "destructive" });
@@ -1361,7 +1409,7 @@ function ScopedPosNotice({ branchId, hasSession, canOpenShift, cashierName, onOp
       toast({ title: "فُتحت الوردية" });
     } catch (err) {
       const msg = err instanceof Error ? err.message : "";
-      if (!wasRecovery && isConfirmedRejection(err) && clearSessionIntent(intentScope)) {
+      if (!wasRecovery && isConfirmedRejection(err) && clearSessionIntent(intentScope, intent.key)) {
         setPending(null);
         toast({ title: "رفض الخادم فتح الوردية", description: msg, variant: "destructive" });
       } else {
@@ -1369,6 +1417,7 @@ function ScopedPosNotice({ branchId, hasSession, canOpenShift, cashierName, onOp
         toast({ title: "تعذر تأكيد فتح الوردية", description: "أعد المحاولة بالطلب نفسه؛ لن تُفتح وردية مكررة.", variant: "destructive" });
       }
     } finally {
+      inFlight.current = false;
       setBusy(false);
     }
   };
@@ -1398,10 +1447,22 @@ function ScopedPosNotice({ branchId, hasSession, canOpenShift, cashierName, onOp
   ) : null;
   return (
     <div className="col-span-full rounded-2xl border border-amber-200 bg-amber-50/80 p-3 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100" data-testid="panel-scoped-pos">
-      {!usable ? (
-        <p data-testid="text-scoped-pos-no-selection">اختر مسؤولية نقطة بيع من صفحة «عملي» أولًا.</p>
-      ) : recovery ? (
-        recovery
+      {!fixedBranch && canOpenShift && <label className="mb-2 flex items-center gap-2">فرع الوردية
+        <select aria-label="فرع الوردية" value={branchId ?? ""} disabled={busy || !!pending || contextLocked || branchesLoading || branchesError}
+          onChange={e => { if (e.target.value) onSelectBranch(Number(e.target.value)); }}
+          className="rounded border bg-white p-2 text-neutral-900" data-testid="select-pos-shift-branch">
+          <option value="">اختر الفرع المسموح</option>
+          {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+        </select>
+      </label>}
+      {recovery ? recovery : !canOpenShift && !hasSession ? (
+        <p data-testid="text-scoped-no-shift-permission">لا توجد وردية متاحة، وفتح الوردية غير ممنوح لك. اطلب مسؤولية فتح الوردية من المسؤول.</p>
+      ) : !fixedBranch && branchesError ? (
+        <p>تعذر التحقق من فروعك المسموحة. <button onClick={onRefreshBranches}>إعادة تحميل الفروع</button></p>
+      ) : !fixedBranch && !branchesLoading && branches.length === 0 ? (
+        <p>لا توجد فروع نشطة متاحة لفتح وردية. راجع المسؤول عن الفروع والصلاحيات.</p>
+      ) : !usable ? (
+        <p data-testid="text-scoped-pos-no-selection">{scoped ? "اختر مسؤولية نقطة بيع من صفحة «عملي» أولًا." : branchesLoading ? "جارٍ التحقق من الفروع المسموحة…" : "اختر فرع الوردية من القائمة أولًا؛ لن يُختار فرع تلقائيًا."}</p>
       ) : !hasSession && !canOpenShift ? (
         <p data-testid="text-scoped-no-shift-permission">لا توجد وردية مفتوحة في فرعك، وفتح الوردية غير مسموح لمسؤوليتك. اطلب من المسؤول فتحها.</p>
       ) : !hasSession ? (

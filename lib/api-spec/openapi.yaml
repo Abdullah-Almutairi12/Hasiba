@@ -2101,6 +2101,20 @@ paths:
                 $ref: "#/components/schemas/ProductStats"
 
   # POS
+  /pos/session-branches:
+    get:
+      operationId: listPosShiftBranches
+      tags: [pos]
+      summary: Active branches authorized for opening a shift in the current responsibility and device
+      responses:
+        "200":
+          description: Available branches; an empty list grants no authority
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PosShiftBranch"
   /pos/sessions:
     get:
       operationId: listPosSessions
@@ -7007,6 +7021,12 @@ components:
           type: integer
       required: [totalProducts, lowStockCount, totalInventoryValue, outOfStockCount]
 
+    PosShiftBranch:
+      type: object
+      required: [id, name]
+      properties:
+        id: { type: integer }
+        name: { type: string }
     PosSession:
       type: object
       properties:
@@ -7020,6 +7040,10 @@ components:
           type: string
         cashierName:
           type: string
+        cashierUserId:
+          type: [integer, "null"]
+        posStationId:
+          type: [integer, "null"]
         openedAt:
           type: string
         closedAt:
@@ -7043,6 +7067,9 @@ components:
           type: string
         openingCash:
           type: number
+          minimum: 0
+          maximum: 99999999.99
+          multipleOf: 0.01
       required: [branchId, cashierName, openingCash]
 
     PosOrder:

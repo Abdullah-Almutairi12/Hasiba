@@ -6,5 +6,6 @@ export function PosSessionContext({ session }: { session?: PosSession }) {
     <span>{session.branchName || "تعذر تحديد الفرع"}</span>
     <span>{session.cashierName || "تعذر تحديد صاحب الوردية"}</span>
     <span dir="ltr">{session.sessionNumber}</span>
+    <span>{session.status === "open" ? "الوردية مفتوحة" : "الوردية مغلقة"}</span>
   </div>;
 }

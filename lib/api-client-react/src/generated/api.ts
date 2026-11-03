@@ -271,6 +271,7 @@ import type {
   PosOrder,
   PosPinInput,
   PosSession,
+  PosShiftBranch,
   PosSummary,
   PosUnlockInput,
   PostJournalEntry200,
@@ -11622,6 +11623,107 @@ export function useGetProductStats<TData = Awaited<ReturnType<typeof getProductS
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getGetProductStatsQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getListPosShiftBranchesUrl = () => {
+
+
+
+
+  return `/api/pos/session-branches`
+}
+
+/**
+ * @summary Active branches authorized for opening a shift in the current responsibility and device
+ */
+export const listPosShiftBranches = async ( options?: Parameters<typeof customFetch>[1]): Promise<PosShiftBranch[]> => {
+
+  return customFetch<PosShiftBranch[]>(getListPosShiftBranchesUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListPosShiftBranchesQueryKey = () => {
+    return [
+    `/api/pos/session-branches`
+    ] as const;
+    }
+
+
+export const getListPosShiftBranchesQueryOptions = <TData = Awaited<ReturnType<typeof listPosShiftBranches>>, TError = ErrorType<unknown>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listPosShiftBranches>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListPosShiftBranchesQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listPosShiftBranches>>> = ({ signal }) => listPosShiftBranches({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listPosShiftBranches>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type ListPosShiftBranchesQueryResult = NonNullable<Awaited<ReturnType<typeof listPosShiftBranches>>>
+export type ListPosShiftBranchesQueryError = ErrorType<unknown>
+
+
+export function useListPosShiftBranches<TData = Awaited<ReturnType<typeof listPosShiftBranches>>, TError = ErrorType<unknown>>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listPosShiftBranches>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listPosShiftBranches>>,
+          TError,
+          Awaited<ReturnType<typeof listPosShiftBranches>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useListPosShiftBranches<TData = Awaited<ReturnType<typeof listPosShiftBranches>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listPosShiftBranches>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listPosShiftBranches>>,
+          TError,
+          Awaited<ReturnType<typeof listPosShiftBranches>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useListPosShiftBranches<TData = Awaited<ReturnType<typeof listPosShiftBranches>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listPosShiftBranches>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Active branches authorized for opening a shift in the current responsibility and device
+ */
+
+export function useListPosShiftBranches<TData = Awaited<ReturnType<typeof listPosShiftBranches>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listPosShiftBranches>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getListPosShiftBranchesQueryOptions(options)
 
   const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 

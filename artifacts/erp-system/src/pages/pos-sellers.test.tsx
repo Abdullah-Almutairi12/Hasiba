@@ -9,7 +9,7 @@ const review = async (u: { click: (el: Element) => Promise<void> }) => u.click(a
 
 const ws = vi.hoisted(() => ({ policy: { mode: "hidden", granularity: "invoice" } as Record<string, unknown>, error: false, refetch: vi.fn(), names: { 7: "سارة البائعة", 8: "خالد" } as Record<number, string> }));
 const auth = vi.hoisted(() => ({ user: { id: 11, companyId: 21 } }));
-vi.mock("@/hooks/use-auth", () => ({ useAuth: () => auth }));
+vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { ...auth.user, role: "owner", branchId: 3 } }) }));
 vi.mock("@/hooks/use-vat-status", () => ({ useVatEnabled: () => false }));
 vi.mock("@/hooks/use-language", () => ({
   useLanguage: () => ({ language: "ar", t: (k: string) => k.startsWith("pos_iconic.") ? (ar.pos_iconic as Record<string, string>)[k.slice(11)] ?? k : k }),

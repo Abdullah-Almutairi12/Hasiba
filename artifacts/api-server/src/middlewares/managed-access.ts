@@ -44,9 +44,12 @@ export const SCOPED_ROUTES = [
   ["GET", "/products/categories", "catalog"],
   ["GET", "/print/profile", "pos.read"],
   ["GET", "/sales/sellers/workspace", "pos.read"],
+  ["GET", "/pos/session-branches", "pos.shift.open"],
   ["GET", "/pos/sessions", "pos.read"],
   ["GET", "/pos/sessions/:id", "pos.read"],
-  ["POST", "/pos/sessions", "pos.shift.open"],
+  // A saved opening result is recoverable with current source read authority.
+  // New opening still requires pos.shift.open inside the fenced transaction.
+  ["POST", "/pos/sessions", "pos.read"],
   // A committed response is recoverable with current source read authority.
   // Fresh checkout rechecks sell and tender/discount authority inside its
   // financial transaction, after receipt lookup and under the authority fence.

@@ -5,11 +5,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import PosIconic from "./pos-iconic";
 import { beforeEach } from "vitest";
 
-const sessionMock = vi.hoisted(() => ({ id:9,status: "open", refetch: vi.fn(),branchId:null as number|null }));
+const sessionMock = vi.hoisted(() => ({ id:9,status: "open", refetch: vi.fn(),branchId:7 as number|null,
+  role: null as string | null, branchOptions: [{ id: 7, name: "فرع تجربة المالك" }], branchError: false }));
 beforeEach(() => {
   sessionMock.status = "open";
   sessionMock.id=9;
-  sessionMock.branchId=null;
+  sessionMock.branchId=7;
+  sessionMock.role=null; sessionMock.branchOptions=[{ id: 7, name: "فرع تجربة المالك" }]; sessionMock.branchError=false;
   sessionMock.refetch.mockClear();
 });
 import { usePosCheckout } from "@/hooks/use-pos-checkout";
@@ -17,7 +19,7 @@ import ar from "@/i18n/ar.json";
 import { posPreviewServer } from "@/lib/tax-preview-mock";
 
 vi.mock("@/hooks/use-auth", () => ({
-  useAuth: () => ({ user: { id: 11, companyId: 21,...(sessionMock.branchId?{role:"cashier",branchId:sessionMock.branchId}:{} )} }),
+  useAuth: () => ({ user: { id: 11, companyId: 21,role:sessionMock.role ?? (sessionMock.branchId?"cashier":"owner"),branchId:sessionMock.branchId} }),
 }));
 vi.mock("@/hooks/use-vat-status", () => ({ useVatEnabled: () => false }));
 vi.mock("@/hooks/use-language", () => ({
@@ -31,7 +33,8 @@ vi.mock("@workspace/api-client-react", async (original) => ({
   ...await original<typeof import("@workspace/api-client-react")>(),
   useListProducts: () => ({ data: [{ id: 5, name: "منتج تجريبي", nameAr: "منتج تجريبي", price: 100, stock: 20 }] }),
   useListProductCategories: () => ({ data: [] }),
-  useListPosSessions: () => ({ data: [{ id: sessionMock.id, status: sessionMock.status }], refetch: sessionMock.refetch }),
+  useListPosSessions: () => ({ data: [{ id: sessionMock.id, status: sessionMock.status, branchId: sessionMock.branchId ?? 7, cashierUserId: 11 }], refetch: sessionMock.refetch }),
+  useListPosShiftBranches: () => ({ data: sessionMock.branchOptions, isLoading: false, isError: sessionMock.branchError, refetch: vi.fn() }),
 }));
 
 const storageKey = "hasba:pos-checkout:11:21";
@@ -90,6 +93,63 @@ function saleTransport(fault?: "lost" | "502" | "malformed" | "incomplete" | "re
 }
 
 describe("POS inline tender and durable checkout recovery", () => {
+  it("offers explicit branch selection and shift opening for an authorized unbound legacy owner",async()=>{
+    sessionMock.status="closed";sessionMock.branchId=null;
+    saleTransport();
+    mount();
+    expect(await screen.findByLabelText("فرع الوردية")).toBeTruthy();
+    expect(screen.queryByTestId("button-scoped-open-shift")).toBeNull();
+    await userEvent.selectOptions(screen.getByLabelText("فرع الوردية"), "7");
+    expect(screen.getByTestId("button-scoped-open-shift")).toBeTruthy();
+  });
+  it("opens from the native branch picker with frozen cash and recovers the exact shift after a lost reply and reload",async()=>{
+    sessionMock.status="closed";sessionMock.branchId=null;
+    saleTransport();
+    const baseFetch=globalThis.fetch;
+    const attempts:Array<{key:string|null;body:string}>=[];
+    const saved=new Map<string,object>();
+    vi.stubGlobal("fetch",vi.fn(async(input:RequestInfo|URL,init?:RequestInit)=>{
+      if(!String(input).endsWith("/api/pos/sessions")||init?.method!=="POST")return baseFetch(input,init);
+      const key=new Headers(init.headers).get("Idempotency-Key");
+      attempts.push({key,body:String(init.body)});
+      if(!saved.has(key!))saved.set(key!,{id:17,branchId:7,status:"open",cashierUserId:11,cashierName:"هوية الخادم",branchName:"فرع تجربة المالك",sessionNumber:"WRD-17"});
+      sessionMock.status="open";sessionMock.id=17;
+      if(attempts.length===1)throw new TypeError("reply lost AFTER commit");
+      return Response.json(saved.get(key!),{status:201});
+    }));
+    const u=userEvent.setup(),view=mount();
+    await u.selectOptions(await screen.findByLabelText("فرع الوردية"),"7");
+    await u.type(screen.getByTestId("input-scoped-opening-cash"),"125.50");
+    await u.dblClick(screen.getByTestId("button-scoped-open-shift"));
+    expect(await screen.findByTestId("button-scoped-open-retry")).toBeTruthy();
+    expect(attempts.length).toBe(1);
+    const frozen=sessionStorage.getItem("hasba:pos-session-open:11:21");
+    expect(JSON.parse(frozen!).body).toMatchObject({branchId:7,openingCash:125.5});
+    view.unmount();mount();
+    expect(sessionStorage.getItem("hasba:pos-session-open:11:21")).toBe(frozen);
+    await u.click(await screen.findByTestId("button-scoped-open-retry"));
+    await waitFor(()=>expect(sessionStorage.getItem("hasba:pos-session-open:11:21")).toBeNull());
+    expect(attempts[1]).toEqual(attempts[0]);expect(saved.size).toBe(1);
+    expect(screen.getByTestId("pos-active-session-context").textContent).toContain("الوردية مفتوحة");
+  });
+  it.each(["-1","abc","0.001","100000000"])("rejects invalid opening cash %s without an HTTP attempt",async(cash)=>{
+    sessionMock.status="closed";saleTransport();mount();
+    const u=userEvent.setup();
+    await u.type(await screen.findByTestId("input-scoped-opening-cash"),cash);
+    await u.click(screen.getByTestId("button-scoped-open-shift"));
+    expect(sessionStorage.getItem("hasba:pos-session-open:11:21")).toBeNull();
+    expect(vi.mocked(fetch).mock.calls.some(([input,init])=>String(input).endsWith("/pos/sessions")&&init?.method==="POST")).toBe(false);
+  });
+  it("shows denial, empty branch and loading failure reasons without choosing a branch",async()=>{
+    sessionMock.status="closed";sessionMock.branchId=null;sessionMock.role="auditor";saleTransport();
+    let v=mount();
+    expect(await screen.findByTestId("text-scoped-no-shift-permission")).toBeTruthy();
+    expect(screen.queryByLabelText("فرع الوردية")).toBeNull();
+    v.unmount();sessionMock.role="owner";sessionMock.branchOptions=[];v=mount();
+    expect(await screen.findByText(/لا توجد فروع نشطة متاحة/)).toBeTruthy();
+    v.unmount();sessionMock.branchError=true;mount();
+    expect(await screen.findByText(/تعذر التحقق من فروعك المسموحة/)).toBeTruthy();
+  });
   it("shows the existing shift-opening control to an authorized legacy cashier assigned to a branch",async()=>{
     sessionMock.status="closed";sessionMock.branchId=7;
     saleTransport();

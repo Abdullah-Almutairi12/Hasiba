@@ -1849,6 +1849,11 @@ export interface ProductStats {
   outOfStockCount: number;
 }
 
+export interface PosShiftBranch {
+  id: number;
+  name: string;
+}
+
 export type PosSessionStatus = typeof PosSessionStatus[keyof typeof PosSessionStatus];
 
 
@@ -1863,6 +1868,10 @@ export interface PosSession {
   branchId: number;
   branchName: string;
   cashierName: string;
+  /** @nullable */
+  cashierUserId?: number | null;
+  /** @nullable */
+  posStationId?: number | null;
   openedAt: string;
   /** @nullable */
   closedAt?: string | null;
@@ -1874,6 +1883,10 @@ export interface PosSession {
 export interface CreatePosSessionBody {
   branchId: number;
   cashierName: string;
+  /**
+     * @minimum 0
+     * @maximum 99999999.99
+     */
   openingCash: number;
 }
 

@@ -3865,6 +3865,16 @@ export const GetProductStatsResponse = zod.object({
 
 
 /**
+ * @summary Active branches authorized for opening a shift in the current responsibility and device
+ */
+export const ListPosShiftBranchesResponseItem = zod.object({
+  "id": zod.number().int(),
+  "name": zod.string()
+})
+export const ListPosShiftBranchesResponse = zod.array(ListPosShiftBranchesResponseItem)
+
+
+/**
  * @summary List POS sessions
  */
 export const ListPosSessionsResponseItem = zod.object({
@@ -3873,6 +3883,8 @@ export const ListPosSessionsResponseItem = zod.object({
   "branchId": zod.number().int(),
   "branchName": zod.string(),
   "cashierName": zod.string(),
+  "cashierUserId": zod.number().int().nullish(),
+  "posStationId": zod.number().int().nullish(),
   "openedAt": zod.string(),
   "closedAt": zod.string().nullish(),
   "totalSales": zod.number(),
@@ -3885,10 +3897,16 @@ export const ListPosSessionsResponse = zod.array(ListPosSessionsResponseItem)
 /**
  * @summary Open new POS session
  */
+export const createPosSessionBodyOpeningCashMin = 0;
+export const createPosSessionBodyOpeningCashMax = 99999999.99;
+export const createPosSessionBodyOpeningCashMultipleOf = 0.01;
+
+
+
 export const CreatePosSessionBody = zod.object({
   "branchId": zod.number().int(),
   "cashierName": zod.string(),
-  "openingCash": zod.number()
+  "openingCash": zod.number().min(createPosSessionBodyOpeningCashMin).max(createPosSessionBodyOpeningCashMax).multipleOf(createPosSessionBodyOpeningCashMultipleOf)
 })
 
 export const CreatePosSessionResponse = zod.object({
@@ -3897,6 +3915,8 @@ export const CreatePosSessionResponse = zod.object({
   "branchId": zod.number().int(),
   "branchName": zod.string(),
   "cashierName": zod.string(),
+  "cashierUserId": zod.number().int().nullish(),
+  "posStationId": zod.number().int().nullish(),
   "openedAt": zod.string(),
   "closedAt": zod.string().nullish(),
   "totalSales": zod.number(),

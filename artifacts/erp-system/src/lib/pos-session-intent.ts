@@ -27,8 +27,14 @@ export function saveSessionIntent(scope: string, intent: SessionIntent): boolean
   try { sessionStorage.setItem(sessionIntentKey(scope), JSON.stringify(intent)); return true; } catch { return false; }
 }
 
-export function clearSessionIntent(scope: string): boolean {
-  try { sessionStorage.removeItem(sessionIntentKey(scope)); return true; } catch { return false; }
+export function clearSessionIntent(scope: string, expectedKey?: string): boolean {
+  try {
+    if (expectedKey) {
+      const current = readSessionIntent(scope);
+      if (current === "unreadable" || current && current.key !== expectedKey) return false;
+    }
+    sessionStorage.removeItem(sessionIntentKey(scope)); return true;
+  } catch { return false; }
 }
 
 /** A fresh 4xx (not 408/429) is a confirmed rejection; anything else is unknown. */

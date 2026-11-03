@@ -7,7 +7,7 @@ import ar from "@/i18n/ar.json";
 import { posPreviewServer } from "@/lib/tax-preview-mock";
 
 const m = vi.hoisted(() => ({ reviewStatus: "pending" as string }));
-vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { id: 11, companyId: 21, role: "cashier" } }) }));
+vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { id: 11, companyId: 21, role: "cashier", branchId: 1 } }) }));
 vi.mock("@/hooks/use-vat-status", () => ({ useVatEnabled: () => false }));
 vi.mock("@/hooks/use-language", () => ({
   useLanguage: () => ({

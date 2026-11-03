@@ -314,6 +314,34 @@ router.get("/pos/payment/intent/:id", posReadGuard, async (req, res) => {
   }
 });
 
+router.get("/pos/session-branches", posGuard, async (req, res) => {
+  try {
+    const companyId = getCompanyId(req);
+    let allowed: number[] | null;
+    if (await managedProfile(req.session.userId!, companyId)) {
+      const grant = await selectedResponsibility(req.session.userId!, companyId);
+      if (!grant || grant.resource !== "pos" || !grant.actions.includes("pos.shift.open")) {
+        throw new FinancialRequestError("فتح الوردية غير ممنوح في المسؤولية الحالية", 403);
+      }
+      allowed = [grant.branchId];
+    } else {
+      allowed = (await returnAuthorize(req.session.userId!, companyId, "sell")).branches;
+    }
+    const device = posDeviceAuthority.getStore();
+    const rows = await db.select({ id: branchesTable.id, name: branchesTable.nameAr })
+      .from(branchesTable).where(and(
+        eq(branchesTable.companyId, companyId), eq(branchesTable.isActive, true),
+        allowed ? inArray(branchesTable.id, allowed) : undefined,
+        device ? eq(branchesTable.id, device.branchId) : undefined,
+      )).orderBy(branchesTable.id);
+    res.json(rows);
+  } catch (err) {
+    if (err instanceof FinancialRequestError) { res.status(err.status).json({ error: err.message }); return; }
+    req.log.error({ err }, "Error fetching shift branches");
+    res.status(500).json({ error: "تعذر تحميل فروع فتح الوردية" });
+  }
+});
+
 router.get("/pos/sessions", posReadGuard, async (req, res) => {
   try {
     // Tenant scope: pos_sessions has no direct company_id, so we
@@ -371,7 +399,12 @@ router.get("/pos/sessions", posReadGuard, async (req, res) => {
 
 router.post("/pos/sessions", posGuard, async (req, res) => {
   try {
-    const body = CreatePosSessionBody.parse(req.body);
+    const parsed = CreatePosSessionBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "بيانات فتح الوردية غير صحيحة؛ النقد الافتتاحي غير سالب وبمنزلتين عشريتين." });
+      return;
+    }
+    const body = parsed.data;
     const sessionNumber = `WRD-${Date.now()}-${randomUUID().slice(0,8)}`;
     // Tenant ownership: refuse to open a POS session on a branch
     // that belongs to a different company. Returns 404 to hide
@@ -379,7 +412,7 @@ router.post("/pos/sessions", posGuard, async (req, res) => {
     const companyId = getCompanyId(req);
     const { session, branch } = await financialTransaction(req, async tx => {
     await lockApprovalAuthority(tx);
-    let cashierName = body.cashierName;
+    let cashierName: string;
     if (await managedProfile(req.session.userId!, companyId, tx)) {
       const grant = await selectedResponsibility(req.session.userId!, companyId, tx);
       if (!grant || grant.resource !== "pos" || !grant.actions.includes("pos.shift.open") || grant.branchId !== body.branchId) {
@@ -390,11 +423,17 @@ router.post("/pos/sessions", posGuard, async (req, res) => {
         WHERE a.user_id=${req.session.userId!} AND a.company_id=${companyId}`);
       cashierName = String(names.rows[0]?.name_ar ?? "");
       if (!cashierName) throw new FinancialRequestError("تعذر إثبات هوية فاتح الوردية", 403);
-    } else await returnAuthorize(req.session.userId!, companyId, "sell", body.branchId, tx);
+    } else {
+      await returnAuthorize(req.session.userId!, companyId, "sell", body.branchId, tx);
+      const [person] = await tx.select({ name: usersTable.name }).from(usersTable)
+        .where(eq(usersTable.id, req.session.userId!)).limit(1);
+      if (!person?.name) throw new FinancialRequestError("تعذر إثبات هوية فاتح الوردية", 403);
+      cashierName = person.name;
+    }
     const [branchRow] = await tx
       .select()
       .from(branchesTable)
-      .where(and(eq(branchesTable.id, body.branchId), eq(branchesTable.companyId, companyId)))
+      .where(and(eq(branchesTable.id, body.branchId), eq(branchesTable.companyId, companyId), eq(branchesTable.isActive, true)))
       .limit(1);
     if (!branchRow) {
       throw new FinancialRequestError("الفرع غير موجود", 404);
@@ -413,6 +452,13 @@ router.post("/pos/sessions", posGuard, async (req, res) => {
       .returning();
 
     return { session, branch: [branchRow] };
+    }, async (tx, saved) => {
+      await lockApprovalAuthority(tx);
+      await returnAuthorize(req.session.userId!, companyId, "view", saved.session.branchId, tx);
+      const device = posDeviceAuthority.getStore();
+      if (device && (saved.session.posStationId !== device.stationId || saved.session.cashierUserId !== device.userId)) {
+        throw new FinancialRequestError("الوردية تخص سياق جهاز آخر", 403);
+      }
     });
 
     res.status(201).json({
