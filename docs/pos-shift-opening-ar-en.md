@@ -2,18 +2,22 @@
 
 تاريخ الجولة: 3 نوفمبر 2026. هذا التقرير يخص شريحة فتح الوردية وسياقها واسترجاعها فقط، وليس قبول ERP كاملًا.
 
-## حالة التقرير أثناء التحقق
+## النتيجة النهائية
 
-التنفيذ والرحلة الأصلية والمصالحة اكتملت. انتهى التشغيل الشامل الأول بخروج1:14/15؛1251 خادم ناجحة وحالة ترقية مشروطة، و421 واجهة ناجحة/فشل واحد. الفشل توقع نص قديم لا يشمل حالة الوردية الجديدة. أضيفت العبارة إلى التوقع الكامل، دون إزالة حالة الوردية أو إضعاف التحقق من الفرع والكاشير والمرجع. ستضاف نتيجة البوابات النهائية بعد إعادة التحقق.
+أُغلقت الشريحة المحددة بنجاح ضمن أدلتها. انتهى التشغيل النهائي الجديد14:22:49–14:42:21UTC بخروج0 على المصدر18f1bfc:15/15 بوابة،1251 خادم ناجحة/0فشل/1حالة ترقية مشروطة،422 واجهة ناجحة/0فشل/0تجاوز. نُفذت حالة الترقية مستقلًا ونجحت1/1، مع38 حالة أخرى خارج مرشح الترقية. نجحت الأنواع والبناء لكل التطبيقات والتدقيق824 اعتمادًا بلا تنبيهات وثبات بصمة المصدر. لا نجمع12 و43 الموجهة أو2 اختبار السياق إلى هذه الإجماليات.
+
+التشغيل الأول منفصل ومحفوظ: خروج1،14/15؛1251 خادم ناجحة وحالة ترقية مشروطة، و421 واجهة ناجحة/فشل واحد. الفشل توقع نص قديم لا يشمل حالة الوردية الجديدة. أضيفت العبارة إلى التوقع الكامل، دون إزالة حالة الوردية أو إضعاف التحقق من الفرع والكاشير والمرجع. لم يُخف الإخفاق أو يوصف التشغيل الأول بالنجاح.
 
 ## النسخة وحدود الحفظ
 
 - المستودع: `Abdullah-Almutairi12/Hasiba`.
 - الفرع: `sync/hasiba-erp-20261023`؛ لم يُعدل `main` ولم يحدث نشر إنتاجي.
 - التسليم السابق المحفوظ في التاريخ: `96a9a52e3b076f5c82b71b2b8ba7f68d8b96ac7d`.
-- المصدر التنفيذي الجديد: `e26afef820fa155838f9903aa475107d0b8402f7`.
-- بصمة التنفيذ: `a6354f4e1ed32d0506a45632d16d5bd38fcea19cf6ba3c12c7d3b8e7d0145abc`.
+- مصدر التطبيق ورحلة المتصفح: `e26afef820fa155838f9903aa475107d0b8402f7`، بصمة `a6354f4e1ed32d0506a45632d16d5bd38fcea19cf6ba3c12c7d3b8e7d0145abc`.
+- مصدر البوابات النهائية بعد تحديث توقع اختبار حالة الوردية: `18f1bfcebde4f5faa4a8ce2d5222c75641931258`، بصمة `d1565e094508e86d4acad319e2c241e451bd8ea5575e8c53cd4bea73dc3f8983`.
+- `source-equivalence.json` يثبت أن الفرق في المصادر التنفيذية بينهما صفر: الفرق الوحيد داخل مسارات التطبيق هو توقع نص كامل في `pos-session-context.test.tsx`؛ بقية الفروق توثيق وذاكرة. لا أعرض SHA رحلة المتصفح كأنه SHA تشغيل البوابات اللاحق.
 - `source.json` و`host-source.json` و`browser-source.json` تربط المصدر بالخادم المعزول وملف الواجهة المخدوم. لا ندعي وجود SHA مضمن داخل حزمة المتصفح.
+- نتيجة كل بوابة في `final-verification/summary.json`، والسجلات والتوقيتات ورمز الخروج في `verify.*`. دليل الرفع ومساواة المحلي والبعيد في `git-sync.json` بالحزمة. ملفات الأدلة المولدة مستثناة منGit ومقدمة منفصلة، وليست مرفوعة لمجرد وجود التقرير في المستودع.
 - أرقام قبول استيراد العملاء السابقة 15/1239/412 تخص مصدرها القديم، وليست نتائج هذه الجولة.
 
 ## العيب المثبت والتعديل
@@ -50,6 +54,7 @@
 - `api-directed.*`: 27 نجاحًا وفشلان أثناء الربط؛ كُشف نقص إدراج المسار الجديد في بوابة المسؤوليات ونقص تمكين قراءة الإيصال المحفوظ بعد سحب الفتح. عولجا في البوابة والمسار مع استمرار منع التنفيذ الجديد.
 - `api-directed-2.*`: 29 نجاحًا وفشل fixture واحد؛ تحديث صلاحيات الشخص يستبدل منحته، وكان الاختبار يرسل معرف المنحة القديمة. صحح الاختبار لقراءة المنحة البديلة الحالية، لا لتجاوز سحب الصلاحية.
 - `api-final-directed.*`: 12/12 ناجحة على قاعدة PostgreSQL مستقلة. منها انتظار حقيقي لقفل PostgreSQL ثم سحب الإذن قبل التنفيذ، ورفض دون إنشاء وردية أو إيصال.
+- `first-verification/` و`first-verify.*`: التشغيل الشامل الأول14:01:56–14:21:01Z، خروج1،14/15؛1251API ناجحة/0فشل/1ترقية مشروطة،421UI ناجحة/1فشل. كل بوابات الأنواع والبناء والتدقيق والترقية نجحت؛ الفشل الوحيد توقع النص القديم في اختبار سياق الوردية. أصبح التوقع الكامل يشمل «الوردية مفتوحة» مع المحافظة على الفرع والكاشير والمرجع حرفيًا؛ `context-after.*` نجحت2/2. لم تتغير شيفرة التطبيق بعد رحلة المتصفح.
 - هذه نتائج مجموعات موجهة، وليست أعدادًا تضاف إلى الإجمالي الشامل.
 
 ## رحلة المتصفح الأصلية الجديدة
@@ -87,6 +92,7 @@
 - لا إعادة رحلة استيراد الأصناف أو الموردين أو العملاء من المتصفح في هذه الشريحة. بقيت خدماتها دون إعادة بناء، وتغطي البوابات الجديدة اختبارات الانحدار القائمة.
 - لا اختبارات كتابة على بيانات العملاء، ولا إرسال أو دفع خارجي أو نشر. `TAX_POLICY_NOT_READY` باقٍ.
 - ملف Word يتحقق من بنيته وXML وZIP؛ لا ادعاء فتحه على Microsoft Word مكتبي.
+- لا مانع قبول باقٍ مثبت داخل شريحة فتح الوردية بعد التصحيح والتحقق النهائي. هذا ليس ضمانًا لخلو بقية النظام من الأخطاء، ولا إغلاقًا لجميع متطلباتPOS أوERP. أول خطوة لاحقة تتطلب نطاقًا يحدده المستخدم؛ لا يبدأ نطاق جديد تلقائيًا.
 
 ## English report
 
@@ -96,12 +102,16 @@ The accepted baseline hid the opening action for that operator and could select 
 
 The existing opening endpoint, financial receipt engine, authority fence and device verification remain in use. New opening rechecks its live grant after locks. A saved result is recoverable with current source-read authority, without granting new execution. Cash is validated; legacy cashier identity is derived by the server. A persisted request freezes branch, cash, key and responsibility before sending; an unrelated open session cannot clear it.
 
-Executable source: `e26afef820fa155838f9903aa475107d0b8402f7`, fingerprint `a6354f4e1ed32d0506a45632d16d5bd38fcea19cf6ba3c12c7d3b8e7d0145abc`. Reports and asset-registration commits may follow without changing executable bytes. Final GitHub equality is recorded separately, not inferred from a local checkpoint.
+Application/browser source: `e26afef820fa155838f9903aa475107d0b8402f7`, fingerprint `a6354f4e1ed32d0506a45632d16d5bd38fcea19cf6ba3c12c7d3b8e7d0145abc`. Final gate source: `18f1bfcebde4f5faa4a8ce2d5222c75641931258`, fingerprint `d1565e094508e86d4acad319e2c241e451bd8ea5575e8c53cd4bea73dc3f8983`. The only application-tree difference is the full-text assertion in a unit test; runtime code, schemas and generated clients are identical. Reports and asset-registration commits may follow without changing those bytes. Final GitHub equality is recorded separately, not inferred from a local checkpoint.
 
 Fresh native browser evidence: login, explicitly select branch6, enter 125.50, click opening once, lose the response after a committed201, reload and replay the exact opening. Then explicitly confirm the real tax preview, sell one10.00 item for cash once, lose its response after commit, reload and replay the same sale. Switching to branch7 does not borrow branch6's shift; switching back restores the confirmed context. No API/SQL opening workaround was used.
 
 Independent reconciliation passed14/14: one new shift, one sale/invoice/stock issue, two execution receipts only, original protected rows unchanged, warehouse and FIFO19 units/value57, company inventory117 equals GL117, revenue10/cash10/AR0/VAT0/COGS3/inventory-3, and all three new journals balanced.
 
-Directed development results and failures remain separate in the evidence. Final corrected directed API tests passed12/12; directed UI tests passed43/43. These subsets are not added to the full suite total. The fresh full-gate run's actual terminal result will be recorded before delivery; previous15/1239/412 acceptance is not reused as a new result.
+Directed development results and failures remain separate in the evidence. Final corrected directed API tests passed12/12; directed UI tests passed43/43. These subsets are not added to the full suite total. Previous15/1239/412 acceptance is not reused as a new result.
+
+The first full run ended14:21:01Z with exit1 and14/15 gates:1251 API passed/0failed/1conditional upgrade case;421 UI passed/1failed. Its only failure was an exact text expectation that omitted the newly required visible shift status. The corrected expectation still asserts branch, cashier and shift reference exactly, and now also asserts the status. Focused context tests then passed2/2. No runtime application code was changed after the browser journey.
+
+The final full run actually completed2026-11-03T14:22:49Z–14:42:21Z, exit0:15/15 gates,1251 API passed/0failed/1conditional upgrade case,422 UI passed/0failed/0skipped. Independent upgrade passed1/1;38 unrelated tests were excluded by its title filter. Type checking, all application builds,824-dependency audit and unchanged-source gate passed. The new full run is preserved separately from both the failed run and the older accepted import work. No remaining acceptance blocker was established in this bounded slice. Generated evidence is excluded from Git and delivered as a separate downloadable package; branch equality is recorded in git-sync.json. No subsequent test cycle or feature was started.
 
 Boundaries: synthetic PostgreSQL only; no native company-switch journey, real POS hardware, production deployment/payment/tax integration, or new import-browser journey. Software device scope and company/responsibility isolation have automated coverage. `TAX_POLICY_NOT_READY` remains. No claim that the entire ERP is defect-free.
