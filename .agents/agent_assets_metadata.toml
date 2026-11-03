@@ -1785,3 +1785,31 @@ mtime_ms = 1793711066145
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/9167a736-a3e6-454e-a571-e158fae48960/dab32ebe-6f36-42db-b59f-cefbd4efbeef"
 storage_version_token = "1793711082753140"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "J4vgFFkx74TD5SfuOwVVP"
+uri = "file://generated-artifacts/pos-shift-opening/Hasiba-POS-Shift-Opening.docx"
+type = "word_document"
+title = "تقرير فتح الوردية — عربي / English"
+description = "المنفذ، والإخفاق الأول وتصحيحه، ونتائج 15/15 و1251 API و422 UI، والرحلة والمصالحة وحدود التحقق."
+logical_id = "8cb09c6f-e506-4579-bc08-81ff99480b1f"
+content_hash = "sha256:693a8a00a368f079e927b0be4deadef5ebaebec898b274a588fc66f64fbc973f"
+size = 8991
+mtime_ms = 1793717018489
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/8cb09c6f-e506-4579-bc08-81ff99480b1f/ade180fc-16ec-4d80-80b2-64c52ba93615"
+storage_version_token = "1793717033718861"
+content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
+[[outputs]]
+id = "HNBQ6-52fLWJVqdexFVtg"
+uri = "file://generated-artifacts/pos-shift-opening/Hasiba-POS-Shift-Opening-Evidence.zip"
+type = "unspecified"
+title = "حزمة أدلة فتح الوردية واسترجاع البيع"
+description = "115 ملفًا منقحًا: السجلات والتوقيتات والمصدر، التشغيلان منفصلان، 9 صور، ومصالحة 14/14 وبصمات الملفات ودليل GitHub."
+logical_id = "d63f4e23-9999-4c6b-8318-f90205a6313b"
+content_hash = "sha256:1c3dab3a9f79e27149ea286d20767de79dbe842c3d2ed96e82fc4245fb445569"
+size = 820912
+mtime_ms = 1793717020815
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/d63f4e23-9999-4c6b-8318-f90205a6313b/59b0b39e-d68b-4bbb-83f5-48e25cdacef4"
+storage_version_token = "1793717036997078"
+content_type = "application/octet-stream"
