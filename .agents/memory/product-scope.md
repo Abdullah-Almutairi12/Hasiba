@@ -26,6 +26,12 @@ The unified enterprise scope must use one requirements register and bounded batc
 
 **How to apply:** Track the original scope and evidence in `docs/enterprise-requirements-ar.md`. Preserve history when grouping overlapping work; do not automatically reopen archived tasks or generate two follow-up tasks after each batch. Distinguish actual payroll disbursement from approval; AI must not determine disciplinary penalties. Track seller separately from cashier, configurable as hidden/optional/required and attributed per invoice or line, including commissions and return effects. Government/customer supply-contract references are manual in this stage; do not add an Etimad integration. Obtain permission before production changes, real payments or external sends.
 
+An authorized operator may work across branches without a permanent account-to-branch assignment. Branch selection for cashier work must not change that person's permanent affiliation, infer authority from a title, or borrow the first available shift.
+
+**Why:** The user explicitly requires the original POS interface to support an authorized unbound account, with branch choice and recoverable opening, rather than an API-only setup workaround.
+
+**How to apply:** Preserve the distinction between selecting an operating context and granting access. Native shift-opening acceptance must click the opening control itself; seeding a shift through API or SQL is not evidence that its interface works.
+
 Investor presentations must reflect actual product readiness, with real synthetic-data
 screenshots for valuable new capabilities and explicit tested/partially tested/planned
 status. Preserve the original deck identity and slide identifiers; update an existing
