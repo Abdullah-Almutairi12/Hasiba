@@ -5,6 +5,111 @@
  * حاسبة.AI - ERP System API
  * OpenAPI spec version: 0.1.0
  */
+export interface SupplierImportIssue {
+  /** @minimum 1 */
+  row: number;
+  field: string;
+  message: string;
+}
+
+export interface SupplierImportMatch {
+  id: number;
+  name: string;
+  /** @nullable */
+  vatNumber: string | null;
+}
+
+export interface SupplierImportRowValues {
+  /** @nullable */
+  name: string | number | null;
+  /** @nullable */
+  vatNumber: string | number | null;
+  /** @nullable */
+  email: string | number | null;
+  /** @nullable */
+  phone: string | number | null;
+  /** @nullable */
+  address: string | number | null;
+  /** @nullable */
+  notes: string | number | null;
+}
+
+export type SupplierImportPreviewRowStatus = typeof SupplierImportPreviewRowStatus[keyof typeof SupplierImportPreviewRowStatus];
+
+
+export const SupplierImportPreviewRowStatus = {
+  valid: 'valid',
+  error: 'error',
+} as const;
+
+export interface SupplierImportPreviewRow {
+  /**
+     * Original record number; header is row 1
+     * @minimum 2
+     */
+  row: number;
+  values: SupplierImportRowValues;
+  status: SupplierImportPreviewRowStatus;
+  errors: SupplierImportIssue[];
+}
+
+export interface SupplierImportSupplier {
+  name: string;
+  /** @nullable */
+  vatNumber: string | null;
+  /** @nullable */
+  email: string | null;
+  /** @nullable */
+  phone: string | null;
+  /** @nullable */
+  address: string | null;
+  /** @nullable */
+  notes: string | null;
+}
+
+export interface SupplierImportParsed {
+  headers: string[];
+  rows: ((string | number | null)[])[];
+}
+
+export type SupplierImportPreviewWarningsItem = {
+  /** @minimum 2 */
+  row: number;
+  name: string;
+  matches: SupplierImportMatch[];
+};
+
+export interface SupplierImportPreview {
+  errors: SupplierImportIssue[];
+  warnings: SupplierImportPreviewWarningsItem[];
+  suppliers: SupplierImportSupplier[];
+  previewRows: SupplierImportPreviewRow[];
+  /** @minimum 0 */
+  total: number;
+  /** @minimum 0 */
+  validRows: number;
+  canCommit: boolean;
+  /** @nullable */
+  token: string | null;
+}
+
+export type SupplierImportOutcomeState = typeof SupplierImportOutcomeState[keyof typeof SupplierImportOutcomeState];
+
+
+export const SupplierImportOutcomeState = {
+  completed: 'completed',
+  closed: 'closed',
+} as const;
+
+export interface SupplierImportOutcome {
+  state: SupplierImportOutcomeState;
+  /** @minimum 0 */
+  accepted: number;
+  /** @minimum 0 */
+  rejected: number;
+  suppliers?: SupplierImportMatch[];
+}
+
 export type SupplierImportInputAction = typeof SupplierImportInputAction[keyof typeof SupplierImportInputAction];
 
 
@@ -5048,8 +5153,6 @@ export type UndismissDashboardAlert200 = {
 };
 
 export type GetSupplierImportOptions200 = { [key: string]: unknown };
-
-export type RunSupplierImport200 = { [key: string]: unknown };
 
 export type GetProductImportOptions200 = { [key: string]: unknown };
 

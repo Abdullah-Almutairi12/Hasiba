@@ -46,6 +46,41 @@ beforeAll(async () => {
   }
 });
 describe.sequential("create-only supplier directory import on isolated PostgreSQL", () => {
+  it.each(["اسم الشركة", "Company Name", "Supplier Company Name"])("correction: accepts natural supplier name header %s", async (header) => {
+    const p = await preview({ headers: [header], rows: [[`شركة مورد ${randomUUID()}`]], mapping: { name: 0 } });
+    expect(p.canCommit).toBe(true);
+    const result = await send(p.token).expect(200);
+    expect(result.body.accepted).toBe(1);
+    expect((await rows("SELECT company_id FROM suppliers WHERE id=$1", [result.body.suppliers[0].id]))[0].company_id).toBe(companies[0]);
+  });
+  it.each(["companyId", "balance", "iban"])("correction: still rejects ownership or financial header %s", async (header) => {
+    const before = await facts();
+    expect((await preview({ headers: [header], rows: [["not allowed"]], mapping: { name: 0 } })).canCommit).toBe(false);
+    expect((await preview({ headers: ["name"], rows: [["not allowed"]], mapping: { unsupportedField: 0 } })).canCommit).toBe(false);
+    expect((await preview({ headers: ["name", "Company Name"], rows: [["valid name", "not a name mapping"]], mapping: { name: 0, notes: 1 } })).canCommit).toBe(false);
+    expect(await facts()).toEqual(before);
+  });
+  it.each(["mixed", "invalid", "valid"])("correction: previews every source row independently of insertable records: %s", async (kind) => {
+    const before = await facts();
+    const input = { headers: ["name", "email"], rows: [
+      [`أول ${tag}`, kind === "valid" ? "first@example.invalid" : "bad-email"],
+      [`ثاني ${tag}`, kind === "invalid" ? "also-bad" : "second@example.invalid"],
+      [`ثالث ${tag}`, kind === "valid" ? "third@example.invalid" : "bad-again"],
+    ], mapping: { name: 0, email: 1 } };
+    const p = await preview(input);
+    expect(p.previewRows).toHaveLength(3);
+    expect(p.previewRows.map((r: any) => r.row)).toEqual([2, 3, 4]);
+    for (let i = 0; i < 3; i++) {
+      expect(p.previewRows[i].values).toMatchObject({ name: input.rows[i][0], email: input.rows[i][1] });
+      expect(p.previewRows[i].errors).toEqual(p.errors.filter((e: any) => e.row === i + 2));
+      expect(p.previewRows[i].status).toBe(p.previewRows[i].errors.length ? "error" : "valid");
+    }
+    expect(p.suppliers).toHaveLength(kind === "valid" ? 3 : kind === "invalid" ? 0 : 1);
+    expect(p.canCommit).toBe(kind === "valid");
+    expect(await facts()).toEqual(before);
+    if (kind === "valid") expect((await send(p.token).expect(200)).body.accepted).toBe(3);
+    else expect(p.token).toBeNull();
+  });
   it("uses supplier route ordering and original safe limits without creating anything in parse/preview", async () => {
     const before = await facts();
     const options = await agents[0].get(endpoint).expect(200);

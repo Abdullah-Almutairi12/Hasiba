@@ -26,9 +26,13 @@ const intent = (key: string, token: string) => JSON.stringify({ v: 1, key, endpo
 
 function handler(over: Partial<Record<string, (b: any) => unknown>> = {}) {
   mocks.call.mockImplementation(async (body: { action: string }) => {
-    if (over[body.action]) return over[body.action]!(body);
+    if (over[body.action]) {
+      const result: any = over[body.action]!(body);
+      if (body.action === "preview") return { ...result, previewRows: result.previewRows ?? result.suppliers.map((values: unknown, i: number) => ({ row: i + 2, values, status: "valid", errors: [] })) };
+      return result;
+    }
     if (body.action === "parse") return { headers: HEADERS, rows: [["مؤسسة الندى", "300047125600003", "0551240387"]] };
-    if (body.action === "preview") return { errors: [], warnings: [], suppliers: [ROW], total: 1, validRows: 1, canCommit: true, token: "tok-1" };
+    if (body.action === "preview") return { errors: [], warnings: [], suppliers: [ROW], previewRows: [{ row: 2, values: ROW, status: "valid", errors: [] }], total: 1, validRows: 1, canCommit: true, token: "tok-1" };
     throw new Error("unexpected " + body.action);
   });
 }
@@ -86,6 +90,42 @@ describe("SupplierImportDialog", () => {
     await screen.findByText(/تأكيد استيراد 1 مورد/);
     await vi.waitFor(() => expect((screen.getByTestId("button-import-commit") as HTMLButtonElement).disabled).toBe(false));
     expect(mocks.call.mock.calls.at(-1)![0].confirmSimilarNames).toBe(true);
+    fireEvent.click(screen.getByTestId("checkbox-confirm-similar"));
+    expect((screen.getByTestId("checkbox-confirm-similar") as HTMLInputElement).checked).toBe(false);
+    expect((screen.getByTestId("button-import-commit") as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByTestId("button-import-commit"));
+    expect(actions()).not.toContain("commit");
+    fireEvent.click(screen.getByTestId("checkbox-confirm-similar"));
+    expect((screen.getByTestId("button-import-commit") as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByTestId("button-repreview-confirm"));
+    await vi.waitFor(() => expect((screen.getByTestId("button-import-commit") as HTMLButtonElement).disabled).toBe(false));
+  });
+  it("missing VAT is unavailable evidence, never an unregistered-tax assertion", async () => {
+    handler({ preview: () => ({ errors: [], warnings: [{ ...WARN[0], matches: [{ id: 9, name: "مطابق", vatNumber: null }] }],
+      suppliers: [ROW], previewRows: [{ row: 2, values: ROW, status: "valid", errors: [] }], total: 1, validRows: 1, canCommit: false, token: null }) });
+    await toPreview();
+    expect(screen.getByTestId("panel-similar-warnings").textContent).toContain("الرقم الضريبي غير متوفر");
+    expect(screen.getByTestId("panel-similar-warnings").textContent).not.toContain("غير مسجل");
+  });
+  it.each(["mixed", "invalid", "valid"])("shows every source row, original numbering, values and errors: %s", async (kind) => {
+    const issue = { row: 2, field: "email", message: "البريد الإلكتروني غير صالح" };
+    const good = { ...ROW, name: "المورد الثاني", email: "ok@example.invalid" };
+    const firstBad = kind !== "valid", secondBad = kind === "invalid";
+    const issues = [...(firstBad ? [issue] : []), ...(secondBad ? [{ ...issue, row: 3 }] : [])];
+    handler({ preview: () => ({
+      errors: issues, warnings: [], suppliers: kind === "valid" ? [ROW, good] : kind === "mixed" ? [good] : [],
+      previewRows: [
+        { row: 2, values: { ...ROW, email: firstBad ? "bad-email" : "first@example.invalid" }, status: firstBad ? "error" : "valid", errors: firstBad ? [issue] : [] },
+        { row: 3, values: { ...good, email: secondBad ? "bad-again" : good.email }, status: secondBad ? "error" : "valid", errors: secondBad ? [{ ...issue, row: 3 }] : [] },
+      ], total: 2, validRows: kind === "valid" ? 2 : kind === "mixed" ? 1 : 0, canCommit: kind === "valid", token: kind === "valid" ? "valid" : null,
+    }) });
+    await toPreview();
+    expect(screen.getByTestId("row-preview-0").textContent).toContain("2");
+    expect(screen.getByTestId("row-preview-0").textContent).toContain(firstBad ? "bad-email" : "first@example.invalid");
+    expect(screen.getByTestId("row-preview-1").textContent).toContain("3");
+    expect(screen.getByTestId("row-preview-1").textContent).toContain(secondBad ? "bad-again" : "ok@example.invalid");
+    if (firstBad) expect(screen.getByTestId("row-preview-0").textContent).toContain(issue.message);
+    expect((screen.getByTestId("button-import-commit") as HTMLButtonElement).disabled).toBe(kind !== "valid");
   });
 
   it("persists exact intent + responsibility before send, guards double click, unknown failure keeps it", async () => {
@@ -114,6 +154,26 @@ describe("SupplierImportDialog", () => {
     fireEvent.click(screen.getByTestId("button-import-commit"));
     await screen.findByTestId("text-import-error");
     expect(actions()).not.toContain("commit");
+  });
+  it("withdrawing similarity consent cannot erase or change an already sent unknown attempt", async () => {
+    handler({
+      preview: b => ({ errors: [], warnings: WARN, suppliers: [ROW], total: 1, validRows: 1,
+        canCommit: b.confirmSimilarNames, token: b.confirmSimilarNames ? "reviewed-token" : null }),
+      commit: () => { throw new Error("response lost"); },
+    });
+    await toPreview();
+    fireEvent.click(screen.getByTestId("checkbox-confirm-similar"));
+    fireEvent.click(screen.getByTestId("button-repreview-confirm"));
+    await vi.waitFor(() => expect((screen.getByTestId("button-import-commit") as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByTestId("button-import-commit"));
+    await screen.findByTestId("text-import-error");
+    const saved = sessionStorage.getItem(SK);
+    expect(saved).toContain("reviewed-token");
+    const checkbox = screen.getByTestId("checkbox-confirm-similar") as HTMLInputElement;
+    expect(checkbox.disabled).toBe(true);
+    fireEvent.click(checkbox);
+    expect(sessionStorage.getItem(SK)).toBe(saved);
+    expect(actions().filter(a => a === "commit")).toHaveLength(1);
   });
 
   it("after reload with options 403: recover 409 keeps intent, pending header kept, safe close clears", async () => {

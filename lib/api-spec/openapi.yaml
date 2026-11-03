@@ -1870,7 +1870,11 @@ paths:
           description: Parsed table, row-level preview, saved outcome or safe closure
           content:
             application/json:
-              schema: { type: object, additionalProperties: true }
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/SupplierImportParsed"
+                  - $ref: "#/components/schemas/SupplierImportPreview"
+                  - $ref: "#/components/schemas/SupplierImportOutcome"
         "400": { description: "Invalid file, mapping, forbidden fields or non-text identifier" }
         "403": { description: Current supplier authority denied }
         "409": { description: "Conflict, changed review, expiry, absent or closed attempt" }
@@ -5488,6 +5492,85 @@ paths:
 
 components:
   schemas:
+    SupplierImportIssue:
+      type: object
+      required: [row, field, message]
+      properties:
+        row: { type: integer, minimum: 1 }
+        field: { type: string }
+        message: { type: string }
+    SupplierImportMatch:
+      type: object
+      required: [id, name, vatNumber]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        vatNumber: { type: [string, "null"] }
+    SupplierImportRowValues:
+      type: object
+      additionalProperties: false
+      required: [name, vatNumber, email, phone, address, notes]
+      properties:
+        name: { type: [string, number, "null"] }
+        vatNumber: { type: [string, number, "null"] }
+        email: { type: [string, number, "null"] }
+        phone: { type: [string, number, "null"] }
+        address: { type: [string, number, "null"] }
+        notes: { type: [string, number, "null"] }
+    SupplierImportPreviewRow:
+      type: object
+      required: [row, values, status, errors]
+      properties:
+        row: { type: integer, minimum: 2, description: "Original record number; header is row 1" }
+        values: { $ref: "#/components/schemas/SupplierImportRowValues" }
+        status: { type: string, enum: [valid, error] }
+        errors: { type: array, items: { $ref: "#/components/schemas/SupplierImportIssue" } }
+    SupplierImportSupplier:
+      type: object
+      required: [name, vatNumber, email, phone, address, notes]
+      properties:
+        name: { type: string }
+        vatNumber: { type: [string, "null"] }
+        email: { type: [string, "null"] }
+        phone: { type: [string, "null"] }
+        address: { type: [string, "null"] }
+        notes: { type: [string, "null"] }
+    SupplierImportParsed:
+      type: object
+      required: [headers, rows]
+      properties:
+        headers: { type: array, items: { type: string } }
+        rows:
+          type: array
+          items: { type: array, items: { type: [string, number, "null"] } }
+    SupplierImportPreview:
+      type: object
+      required: [errors, warnings, suppliers, previewRows, total, validRows, canCommit, token]
+      properties:
+        errors: { type: array, items: { $ref: "#/components/schemas/SupplierImportIssue" } }
+        warnings:
+          type: array
+          items:
+            type: object
+            required: [row, name, matches]
+            properties:
+              row: { type: integer, minimum: 2 }
+              name: { type: string }
+              matches: { type: array, items: { $ref: "#/components/schemas/SupplierImportMatch" } }
+        suppliers: { type: array, items: { $ref: "#/components/schemas/SupplierImportSupplier" } }
+        previewRows: { type: array, items: { $ref: "#/components/schemas/SupplierImportPreviewRow" } }
+        total: { type: integer, minimum: 0 }
+        validRows: { type: integer, minimum: 0 }
+        canCommit: { type: boolean }
+        token: { type: [string, "null"] }
+    SupplierImportOutcome:
+      type: object
+      required: [state, accepted, rejected]
+      properties:
+        state: { type: string, enum: [completed, closed] }
+        accepted: { type: integer, minimum: 0 }
+        rejected: { type: integer, minimum: 0 }
+        suppliers: { type: array, items: { $ref: "#/components/schemas/SupplierImportMatch" } }
     SupplierImportInput:
       type: object
       additionalProperties: false

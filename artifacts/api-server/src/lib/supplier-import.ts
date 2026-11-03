@@ -11,6 +11,8 @@ export function validateSupplierImport(doc: ImportDocument, existing: ExistingSu
   const errors: ImportIssue[] = [];
   const warnings: { row: number; name: string; matches: ExistingSupplier[] }[] = [];
   const suppliers: DirectorySupplier[] = [];
+  const previewRows: { row: number; values: Record<typeof SUPPLIER_IMPORT_FIELDS[number], string | number | null>;
+    status: "valid" | "error"; errors: ImportIssue[] }[] = [];
   const issue = (row: number, field: string, message: string) => errors.push({ row, field, message });
   const mapping = Object.entries(doc.mapping), indices = mapping.map(([, c]) => c);
   if (new Set(indices).size !== indices.length) issue(1, "mapping", "لا يمكن ربط العمود نفسه بحقلين");
@@ -21,7 +23,11 @@ export function validateSupplierImport(doc: ImportDocument, existing: ExistingSu
   if (doc.mapping.name === undefined) issue(1, "name", "ربط اسم المورد مطلوب");
   doc.headers.forEach((header, col) => {
     if (!indices.includes(col)) issue(1, header, "عمود غير مربوط؛ أزله من الملف بدل إسقاطه بصمت");
-    if (/company|tenant|balance|invoice|bank|iban|account|linked|رصيد|فاتورة|شركة|شركات|بنك|بنكي|حساب|قيد/i.test(header))
+    // An explicitly mapped supplier name is data, never tenant ownership.
+    // Keep ownership/financial identifiers blocked even when mapped to name.
+    const naturalName = doc.mapping.name === col &&
+      /^(?:اسم\s+(?:الشركة(?:\s+الموردة)?|شركة\s+المورد)|(?:supplier\s+)?company\s+name)$/i.test(header.trim());
+    if (!naturalName && /company|tenant|balance|invoice|bank|iban|account|linked|رصيد|فاتورة|شركة|شركات|بنك|بنكي|حساب|قيد/i.test(header))
       issue(1, header, "الشركات والأرصدة والفواتير والبنوك والقيود ليست ضمن استيراد الدليل");
   });
   const seenVat = new Set(existing.flatMap(s => s.vatNumber === null ? [] : [s.vatNumber]));
@@ -57,9 +63,14 @@ export function validateSupplierImport(doc: ImportDocument, existing: ExistingSu
     const matches = prior.filter(p => p.name.trim() === s.name && (s.vatNumber === null || p.vatNumber !== s.vatNumber));
     if (matches.length) warnings.push({ row, name: s.name, matches });
     prior.push({ id: -row, name: s.name, vatNumber: s.vatNumber });
+    const rowErrors = errors.slice(start);
+    previewRows.push({
+      row, values: Object.fromEntries(SUPPLIER_IMPORT_FIELDS.map(field => [field, cells[doc.mapping[field]] ?? null])) as typeof previewRows[number]["values"],
+      status: rowErrors.length ? "error" : "valid", errors: rowErrors,
+    });
     if (errors.length === start) suppliers.push(s);
   });
-  return { errors, warnings, suppliers, total: doc.rows.length, validRows: suppliers.length,
+  return { errors, warnings, suppliers, previewRows, total: doc.rows.length, validRows: suppliers.length,
     canCommit: errors.length === 0 && suppliers.length === doc.rows.length };
 }
 export const supplierReviewFacts = (value: ReturnType<typeof validateSupplierImport>) =>

@@ -312,7 +312,6 @@ import type {
   RollbackLegacyTeamConversionBody,
   RunAlertsCleanupNow200,
   RunProductImport200,
-  RunSupplierImport200,
   RunVatThresholdCheck200,
   SalesChartPoint,
   SalesReport,
@@ -326,6 +325,9 @@ import type {
   SimulateVatTrajectoryBody,
   Supplier,
   SupplierImportInput,
+  SupplierImportOutcome,
+  SupplierImportParsed,
+  SupplierImportPreview,
   SupplierInvoiceComparison,
   SupplierInvoiceComparisonInput,
   SupplierInvoiceDraftInput,
@@ -10523,7 +10525,7 @@ export const getRunSupplierImportUrl = () => {
  * denial does not prove nonexecution. Closure is durable; recovery never executes.
  * @summary Parse, review, atomically create or reconcile a supplier directory import
  */
-export const runSupplierImport = async (supplierImportInput: SupplierImportInput, options?: Parameters<typeof customFetch>[1]): Promise<RunSupplierImport200> => {
+export const runSupplierImport = async (supplierImportInput: SupplierImportInput, options?: Parameters<typeof customFetch>[1]): Promise<SupplierImportParsed | SupplierImportPreview | SupplierImportOutcome> => {
 
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
@@ -10539,7 +10541,7 @@ export const runSupplierImport = async (supplierImportInput: SupplierImportInput
     }
     return headers;
   };
-return customFetch<RunSupplierImport200>(getRunSupplierImportUrl(),
+return customFetch<SupplierImportParsed | SupplierImportPreview | SupplierImportOutcome>(getRunSupplierImportUrl(),
   {
     ...options,
     method: 'POST',

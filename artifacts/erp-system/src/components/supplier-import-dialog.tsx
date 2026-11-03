@@ -276,7 +276,7 @@ export function SupplierImportDialog({ open, onOpenChange }: { open: boolean; on
     }
   };
 
-  const canCommit = !!preview?.canCommit && !!preview.token && (!preview.warnings.length || previewConfirmed);
+  const canCommit = !!preview?.canCommit && !!preview.token && (!preview.warnings.length || (confirmSimilar && previewConfirmed));
 
   const commit = () => {
     if (!preview || !canCommit || !preview.token || blocked) return;
@@ -522,7 +522,7 @@ export function SupplierImportDialog({ open, onOpenChange }: { open: boolean; on
               <section className="space-y-3" data-testid="panel-import-preview">
                 <div className="flex flex-wrap items-center gap-2 text-sm">
                   <p className="font-semibold">٣. المعاينة</p>
-                  <span className="text-xs text-muted-foreground basis-full sm:basis-auto">أرقام الصفوف تعدّ السجلات بعد سطر العناوين.</span>
+                  <span className="text-xs text-muted-foreground basis-full sm:basis-auto">العناوين في الصف 1؛ أول سجل في الصف 2. الأرقام موحدة مع الأخطاء والتحذيرات.</span>
                   <Badge variant="outline">الإجمالي {preview.total}</Badge>
                   <Badge variant="outline" className="border-emerald-500/40 text-emerald-700">صالح {preview.validRows}</Badge>
                   <Badge variant="outline" className="border-destructive/40 text-destructive">أخطاء {preview.errors.length}</Badge>
@@ -545,7 +545,7 @@ export function SupplierImportDialog({ open, onOpenChange }: { open: boolean; on
                       {preview.warnings.map((w) => (
                         <li key={w.row} data-testid={`text-warning-${w.row}`}>
                           <span className="font-mono">صف {w.row}</span> «{w.name}» يشبه:{" "}
-                          {w.matches.map((m) => `${m.name} (#${m.id}، ضريبي ${m.vatNumber ?? "غير مسجل"})`).join("، ")}
+                          {w.matches.map((m) => `${m.name} (#${m.id}، ${m.vatNumber === null ? "الرقم الضريبي غير متوفر" : `الرقم الضريبي ${m.vatNumber}`})`).join("، ")}
                         </li>
                       ))}
                     </ul>
@@ -555,7 +555,11 @@ export function SupplierImportDialog({ open, onOpenChange }: { open: boolean; on
                         className="mt-1"
                         checked={confirmSimilar}
                         disabled={blocked || !!busy}
-                        onChange={(e) => setConfirmSimilar(e.target.checked)}
+                        onChange={(e) => {
+                          if (blocked || busy) return;
+                          setConfirmSimilar(e.target.checked);
+                          setPreviewConfirmed(false);
+                        }}
                         data-testid="checkbox-confirm-similar"
                       />
                       <span>أؤكد إنشاء هذه الصفوف كموردين جدد منفصلين رغم تشابه الأسماء.</span>
@@ -568,21 +572,26 @@ export function SupplierImportDialog({ open, onOpenChange }: { open: boolean; on
                     </Button>
                   </div>
                 )}
-                {preview.suppliers.length > 0 && (
+                {preview.previewRows.length > 0 && (
                   <div className="max-h-80 overflow-auto rounded border" data-testid="table-preview-suppliers">
                     <table className="w-full text-sm">
                       <thead className="bg-muted/50 sticky top-0">
-                        <tr><th className="p-2 text-right">#</th>{fields.map((f) => <th key={f} className="p-2 text-right whitespace-nowrap">{label(f)}</th>)}</tr>
+                        <tr><th className="p-2 text-right">صف المصدر</th>{fields.map((f) => <th key={f} className="p-2 text-right whitespace-nowrap">{label(f)}</th>)}<th className="p-2 text-right">الحالة والأخطاء</th></tr>
                       </thead>
                       <tbody>
-                        {preview.suppliers.map((s, i) => (
-                          <tr key={i} className="border-t" data-testid={`row-preview-${i}`}>
-                            <td className="p-2 font-mono text-muted-foreground">{i + 1}</td>
+                        {preview.previewRows.map((r, i) => (
+                          <tr key={r.row} className="border-t" data-testid={`row-preview-${i}`}>
+                            <td className="p-2 font-mono text-muted-foreground">{r.row}</td>
                             {fields.map((f) => (
                               <td key={f} className="p-2 whitespace-nowrap" dir={f === "vatNumber" || f === "phone" || f === "email" ? "ltr" : undefined}>
-                                {(s as Record<string, string | null>)[f] ?? ""}
+                                {r.values[f as keyof typeof r.values] ?? ""}
                               </td>
                             ))}
+                            <td className="p-2 min-w-48">
+                              <span className={r.status === "error" ? "text-destructive" : "text-emerald-700"}>{r.status === "error" ? "غير صالح" : "صالح"}</span>
+                              {r.errors.map((e, index) => <p key={index} className="text-destructive">{label(e.field)}: {e.message}</p>)}
+                              {preview.warnings.some(w => w.row === r.row) && <p className="text-amber-700">اسم مشابه؛ راجع التحذير لهذا الصف</p>}
+                            </td>
                           </tr>
                         ))}
                       </tbody>

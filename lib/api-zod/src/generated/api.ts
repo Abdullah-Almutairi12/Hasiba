@@ -3426,7 +3426,79 @@ export const RunSupplierImportBody = zod.object({
 }).optional()
 })
 
-export const RunSupplierImportResponse = zod.record(zod.string(), zod.unknown())
+
+export const runSupplierImportResponseTwoWarningsItemRowMin = 2;
+
+export const runSupplierImportResponseTwoPreviewRowsItemRowMin = 2;
+
+
+export const runSupplierImportResponseTwoTotalMin = 0;
+
+export const runSupplierImportResponseTwoValidRowsMin = 0;
+
+export const runSupplierImportResponseThreeAcceptedMin = 0;
+
+export const runSupplierImportResponseThreeRejectedMin = 0;
+
+
+
+export const RunSupplierImportResponse = zod.union([zod.object({
+  "headers": zod.array(zod.string()),
+  "rows": zod.array(zod.array(zod.union([zod.string(),zod.number()]).nullable()))
+}),zod.object({
+  "errors": zod.array(zod.object({
+  "row": zod.number().int().min(1),
+  "field": zod.string(),
+  "message": zod.string()
+})),
+  "warnings": zod.array(zod.object({
+  "row": zod.number().int().min(runSupplierImportResponseTwoWarningsItemRowMin),
+  "name": zod.string(),
+  "matches": zod.array(zod.object({
+  "id": zod.number().int(),
+  "name": zod.string(),
+  "vatNumber": zod.string().nullable()
+}))
+})),
+  "suppliers": zod.array(zod.object({
+  "name": zod.string(),
+  "vatNumber": zod.string().nullable(),
+  "email": zod.string().nullable(),
+  "phone": zod.string().nullable(),
+  "address": zod.string().nullable(),
+  "notes": zod.string().nullable()
+})),
+  "previewRows": zod.array(zod.object({
+  "row": zod.number().int().min(runSupplierImportResponseTwoPreviewRowsItemRowMin).describe('Original record number; header is row 1'),
+  "values": zod.object({
+  "name": zod.union([zod.string(),zod.number()]).nullable(),
+  "vatNumber": zod.union([zod.string(),zod.number()]).nullable(),
+  "email": zod.union([zod.string(),zod.number()]).nullable(),
+  "phone": zod.union([zod.string(),zod.number()]).nullable(),
+  "address": zod.union([zod.string(),zod.number()]).nullable(),
+  "notes": zod.union([zod.string(),zod.number()]).nullable()
+}),
+  "status": zod.enum(['valid', 'error']),
+  "errors": zod.array(zod.object({
+  "row": zod.number().int().min(1),
+  "field": zod.string(),
+  "message": zod.string()
+}))
+})),
+  "total": zod.number().int().min(runSupplierImportResponseTwoTotalMin),
+  "validRows": zod.number().int().min(runSupplierImportResponseTwoValidRowsMin),
+  "canCommit": zod.boolean(),
+  "token": zod.string().nullable()
+}),zod.object({
+  "state": zod.enum(['completed', 'closed']),
+  "accepted": zod.number().int().min(runSupplierImportResponseThreeAcceptedMin),
+  "rejected": zod.number().int().min(runSupplierImportResponseThreeRejectedMin),
+  "suppliers": zod.array(zod.object({
+  "id": zod.number().int(),
+  "name": zod.string(),
+  "vatNumber": zod.string().nullable()
+})).optional()
+})])
 
 
 /**

@@ -1,4 +1,5 @@
 import { getWorkspaceResponsibility, WORKSPACE_RESPONSIBILITY_HEADER } from "@workspace/api-client-react";
+import type { SupplierImportPreview as ReviewedSupplierImport } from "@workspace/api-client-react";
 
 export const SUPPLIER_IMPORT_PATH = "/api/suppliers/imports";
 const endpoint = () => `${import.meta.env.BASE_URL.replace(/\/$/, "")}${SUPPLIER_IMPORT_PATH}`;
@@ -15,15 +16,7 @@ export type SupplierImportOptions = {
 };
 export type SupplierImportDocument = { headers: string[]; rows: SupplierCell[][]; mapping: Record<string, number> };
 export type SupplierMatch = { id: number; name: string; vatNumber: string | null };
-export type SupplierImportPreview = {
-  errors: { row: number; field: string; message: string }[];
-  warnings: { row: number; name: string; matches: SupplierMatch[] }[];
-  suppliers: Record<SupplierField, string | null>[];
-  total: number;
-  validRows: number;
-  canCommit: boolean;
-  token: string | null;
-};
+export type SupplierImportPreview = ReviewedSupplierImport;
 export type SupplierImportOutcome = {
   state: "completed" | "closed";
   accepted: number;
