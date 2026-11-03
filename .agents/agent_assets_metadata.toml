@@ -1645,3 +1645,31 @@ mtime_ms = 1793638606883
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/a55f00ea-9a93-4493-95d4-f9e0214f3ebd/1d549262-37a3-4491-b456-e1231c9f59ec"
 storage_version_token = "1793638624589391"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "h52gq05ILBfonRJy1yZiH"
+uri = "file://.local/outputs/Hasiba-Supplier-VAT-Report.docx"
+type = "word_document"
+title = "حاسبة — تقرير تصحيح الرقم الضريبي للمورد"
+description = "تقرير عربي وإنجليزي بالنطاق المنجز، الاختبارات الجديدة، المصالحة وحدود القبول."
+logical_id = "54c3ae2e-f2cd-439d-96c4-8e3e89e37e91"
+content_hash = "sha256:e2c2187ab36eb7718adaa4d984a17fb762c956ef2e37bb41b5ac81e811d7e16f"
+size = 10243
+mtime_ms = 1793680765620
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/54c3ae2e-f2cd-439d-96c4-8e3e89e37e91/47fe0fb3-fbe3-4e04-9920-821abe5cf6c3"
+storage_version_token = "1793680783439084"
+content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
+[[outputs]]
+id = "7sbxPYkDP61C8A1yeKCVD"
+uri = "file://.local/outputs/Hasiba-Supplier-VAT-Evidence.zip"
+type = "unspecified"
+title = "حاسبة — حزمة أدلة تفرد المورد داخل الشركة"
+description = "حزمة ZIP منقحة: نتائج ما قبل/بعد الإصلاح، 15 بوابة، رحلة الحسابين، المصالحة ومصدر الاختبار."
+logical_id = "e42012a6-6990-4872-a089-274a86ed6b1e"
+content_hash = "sha256:3acd9ab3375bdf97a738ab1c42c71462d08feb6eff5bbde8a5467130240c0fc9"
+size = 580325
+mtime_ms = 1793680766749
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/e42012a6-6990-4872-a089-274a86ed6b1e/1e70838e-fc90-4421-a011-a6166adbe455"
+storage_version_token = "1793680786585722"
+content_type = "application/octet-stream"
