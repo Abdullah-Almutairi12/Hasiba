@@ -250,7 +250,7 @@ describe.sequential("customer directory import on disposable PostgreSQL", () => 
     }));
     const header = String(enabled.grants[0].id);
     ok(await f.actors[0].get(endpoint).set("X-Workspace-Responsibility", header));
-    await rows("UPDATE responsibility_grants SET ends_at=clock_timestamp()-interval '1 second' WHERE id=$1", [enabled.grants[0].id]);
+    await rows("UPDATE responsibility_grants SET starts_at=clock_timestamp()-interval '2 days',ends_at=clock_timestamp()-interval '1 day' WHERE id=$1", [enabled.grants[0].id]);
     ok(await f.actors[0].get(endpoint).set("X-Workspace-Responsibility", header), 403);
     await rows("UPDATE responsibility_grants SET ends_at=NULL WHERE id=$1", [enabled.grants[0].id]);
     await rows("UPDATE employee_access SET status='suspended' WHERE company_id=$1 AND employee_id=$2", [f.companies[0].id, person.personId]);

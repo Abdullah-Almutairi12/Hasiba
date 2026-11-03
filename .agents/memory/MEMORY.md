@@ -28,4 +28,5 @@
 - [Settings ownership](settings-ownership-policy.md) — never guess the owner of shared legacy preferences or treat a stored toggle as operating-service activation.
 - [Commercial agreement review](sales-agreement-review.md) — local entry estimates are not confirmed agreements; users review persisted amounts and discount sources first.
 - [Supplier identity](supplier-identity-policy.md) — company-local VAT reuse preserves separate histories; missing VAT is not registration evidence or authority to replace a similar-name record.
+- [Customer identity](customer-identity-policy.md) — shared contact or tax details require review, not forced uniqueness or automatic merging; preserve cash-customer identity.
 - [Test lifecycle proofs](test-lifecycle-proofs.md) — snapshot after initializers; prove original-row hashes after restart metadata additions, and verify allocated loopback listeners.
