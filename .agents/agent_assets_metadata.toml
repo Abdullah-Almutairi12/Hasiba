@@ -1757,3 +1757,31 @@ mtime_ms = 1793705869886
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/b053001b-fdbd-4d38-a523-bdbc2129989f/12f51892-d2d9-4b76-b025-f8240010ed42"
 storage_version_token = "1793705906362438"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "s_ISnACnZ-Jh5Vp35oLMD"
+uri = "file://generated-artifacts/customer-import-fixes/Hasiba-Customer-Import-Fixes.docx"
+type = "word_document"
+title = "تقرير إصلاح استيراد العملاء — عربي / English"
+description = "التغييرات، نتائج الانحدار قبل/بعد، البوابات الجديدة، رحلة POS والمصالحة وحدود الاختبار."
+logical_id = "77d817b9-9b2d-46e6-b2f5-a5c3f902c18c"
+content_hash = "sha256:7f7bbad9cb20a46584bca24d7633f1c5cf23523166eb953a314fdeb4a7662bcb"
+size = 11056
+mtime_ms = 1793711065305
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/77d817b9-9b2d-46e6-b2f5-a5c3f902c18c/a4786a8e-fc61-4e3c-b9ed-9547c3c3f5ac"
+storage_version_token = "1793711079238113"
+content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
+[[outputs]]
+id = "06iWwcLhtzSXyoxfWLd7A"
+uri = "file://generated-artifacts/customer-import-fixes/Hasiba-Customer-Import-Fixes-Evidence.zip"
+type = "unspecified"
+title = "حزمة أدلة إصلاح استيراد العملاء"
+description = "120 ملفًا منقحًا: السجلات الجديدة وصور المتصفح والمصالحة ومصادر الاختبارات وبصمات SHA256، مع فصل التعثر الأول عن النجاح النهائي."
+logical_id = "9167a736-a3e6-454e-a571-e158fae48960"
+content_hash = "sha256:d3943a6045297ad584ac8c54519f5f32de89554dfb08935fca983f1d742edb08"
+size = 1566522
+mtime_ms = 1793711066145
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/9167a736-a3e6-454e-a571-e158fae48960/dab32ebe-6f36-42db-b59f-cefbd4efbeef"
+storage_version_token = "1793711082753140"
+content_type = "application/octet-stream"
