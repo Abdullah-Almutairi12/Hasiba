@@ -5,11 +5,106 @@
  * حاسبة.AI - ERP System API
  * OpenAPI spec version: 0.1.0
  */
+export interface CustomerImportMatch {
+  id: number;
+  name: string;
+  /** @nullable */
+  phone: string | null;
+  /** @nullable */
+  email: string | null;
+  /** @nullable */
+  taxNumber: string | null;
+}
+
+export interface CustomerImportValues {
+  /** @nullable */
+  name: string | number | null;
+  /** @nullable */
+  phone: string | number | null;
+  /** @nullable */
+  email: string | number | null;
+  /** @nullable */
+  taxNumber: string | number | null;
+  /** @nullable */
+  billingAddress: string | number | null;
+  /** @nullable */
+  shippingAddress: string | number | null;
+}
+
+export type CustomerImportPreviewWarningsItem = {
+  /** @minimum 2 */
+  row: number;
+  name: string;
+  matches: CustomerImportMatch[];
+};
+
+export type CustomerImportPreviewCustomersItem = {
+  name: string;
+  /** @nullable */
+  phone: string | null;
+  /** @nullable */
+  email: string | null;
+  /** @nullable */
+  taxNumber: string | null;
+  /** @nullable */
+  billingAddress: string | null;
+  /** @nullable */
+  shippingAddress: string | null;
+};
+
+export type CustomerImportPreviewPreviewRowsItemStatus = typeof CustomerImportPreviewPreviewRowsItemStatus[keyof typeof CustomerImportPreviewPreviewRowsItemStatus];
+
+
+export const CustomerImportPreviewPreviewRowsItemStatus = {
+  valid: 'valid',
+  error: 'error',
+} as const;
+
 export interface SupplierImportIssue {
   /** @minimum 1 */
   row: number;
   field: string;
   message: string;
+}
+
+export type CustomerImportPreviewPreviewRowsItem = {
+  /** @minimum 2 */
+  row: number;
+  values: CustomerImportValues;
+  status: CustomerImportPreviewPreviewRowsItemStatus;
+  errors: SupplierImportIssue[];
+};
+
+export interface CustomerImportPreview {
+  errors: SupplierImportIssue[];
+  warnings: CustomerImportPreviewWarningsItem[];
+  customers: CustomerImportPreviewCustomersItem[];
+  previewRows: CustomerImportPreviewPreviewRowsItem[];
+  total: number;
+  validRows: number;
+  canCommit: boolean;
+  /** @nullable */
+  token: string | null;
+}
+
+export type CustomerImportOutcomeState = typeof CustomerImportOutcomeState[keyof typeof CustomerImportOutcomeState];
+
+
+export const CustomerImportOutcomeState = {
+  completed: 'completed',
+  closed: 'closed',
+} as const;
+
+export type CustomerImportOutcomeCustomersItem = {
+  id: number;
+  name: string;
+};
+
+export interface CustomerImportOutcome {
+  state: CustomerImportOutcomeState;
+  accepted: number;
+  rejected: number;
+  customers?: CustomerImportOutcomeCustomersItem[];
 }
 
 export interface SupplierImportMatch {
@@ -2734,6 +2829,14 @@ export interface TopProduct {
 }
 
 export interface Customer {
+  /** False for directory-only grants; zero sales totals are redacted, not financial facts. */
+  financialDetailsAvailable?: boolean;
+  /** @nullable */
+  taxNumber?: string | null;
+  /** @nullable */
+  billingAddress?: string | null;
+  /** @nullable */
+  shippingAddress?: string | null;
   id: number;
   name: string;
   /** @nullable */
@@ -5150,6 +5253,30 @@ key: string;
 
 export type UndismissDashboardAlert200 = {
   ok: boolean;
+};
+
+export type GetCustomerImportOptions200Limits = {
+  bytes: number;
+  rows: number;
+  columns: number;
+  cellLength: number;
+};
+
+export type GetCustomerImportOptions200Mode = typeof GetCustomerImportOptions200Mode[keyof typeof GetCustomerImportOptions200Mode];
+
+
+export const GetCustomerImportOptions200Mode = {
+  'create-only': 'create-only',
+} as const;
+
+export type GetCustomerImportOptions200 = {
+  fields: string[];
+  required: string[];
+  limits: GetCustomerImportOptions200Limits;
+  mode: GetCustomerImportOptions200Mode;
+  atomic: boolean;
+  /** Scoped directory access; no invoice, credit or receipt authority */
+  directoryOnly: boolean;
 };
 
 export type GetSupplierImportOptions200 = { [key: string]: unknown };

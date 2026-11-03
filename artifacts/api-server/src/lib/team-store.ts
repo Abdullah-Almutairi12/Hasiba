@@ -4,7 +4,7 @@ import { sql, type SQL } from "drizzle-orm";
 import { lockApprovalAuthorityWrite } from "./approval-authority";
 import { FinancialRequestError } from "./financial-transaction";
 import type { DbOrTx } from "./journal-posting";
-import { TEAM_MODULES, type TeamPerson } from "./team-catalog";
+import { TEAM_MODULES, responsibilityReadAllowed, type TeamPerson } from "./team-catalog";
 import { validateTemplateBinding } from "./team-template-binding";
 import { requireAdministrative, protectLastAdministrator, initializeLegacyAdministration, type AdminResponsibility } from "./administration-authority";
 
@@ -88,7 +88,7 @@ export async function previewTeamPerson(companyId: number, person: TeamPerson, c
     if (duplicates.length) throw new FinancialRequestError("يوجد سجل بهذا البريد في الشركة؛ لا يدمج تلقائيًا", 409);
   }
   return {
-    grants: person.grants.map(g => ({ ...g, actions: g.actions.filter(a => !person.deniedActions.includes(`${g.resource}.read`) && !person.deniedActions.includes(a) &&
+    grants: person.grants.map(g => ({ ...g, actions: g.actions.filter(a => responsibilityReadAllowed(g.resource,g.actions,person.deniedActions) && !person.deniedActions.includes(a) &&
       (!g.startsAt || new Date(g.startsAt).getTime() <= Date.now()) && (!g.endsAt || new Date(g.endsAt).getTime() > Date.now())) })),
     reservesAccessSlot: reserving,
     warnings: [

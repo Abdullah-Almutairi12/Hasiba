@@ -9,6 +9,9 @@ import { assertSupplierInvoice } from "../lib/supplier-invoice-access";
 import { FinancialRequestError } from "../lib/financial-transaction";
 
 export const SCOPED_ROUTES = [
+  ["GET", "/customers", "sales.customers.read"],
+  ["GET", "/customers/imports", "sales.customers.read"],
+  ["POST", "/customers/imports", "sales.customers.read"],
   ["GET", "/sales/invoices", "sales.read"],
   ["GET", "/sales/invoices/:id", "sales.read"],
   ["GET", "/sales/invoices/:id/history", "sales.read"],

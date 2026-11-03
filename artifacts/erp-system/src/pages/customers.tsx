@@ -24,7 +24,7 @@ import {
 } from "@/components/ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { Search, Plus, UserCircle, Users, Phone, Mail, FileText, Receipt, Target, Building2, Pencil } from "lucide-react";
+import { Search, Plus, UserCircle, Users, Phone, Mail, FileText, Receipt, Target, Building2, Pencil, FileSpreadsheet } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { format } from "date-fns";
 import { arSA } from "date-fns/locale";
@@ -33,6 +33,10 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { apiPost, apiPatch } from "@/hooks/use-api";
 import { useToast } from "@/hooks/use-toast";
+import { useQuery } from "@tanstack/react-query";
+import { useAuth } from "@/hooks/use-auth";
+import { CustomerImportDialog, hasCustomerImportIntent } from "@/components/customer-import-dialog";
+import { customerImportOptions, CustomerImportError } from "@/lib/customer-import-api";
 
 /**
  * Initial values for {@link CustomerFormDialog} in edit mode. When omitted,
@@ -449,6 +453,26 @@ export default function Customers() {
   // the customer. Kept as a separate state slice from the create dialog so
   // both can coexist if the user re-opens the sheet after closing the editor.
   const [editInitial, setEditInitial] = useState<CustomerFormInitial | null>(null);
+  // Customer import permission is authoritative from GET /customers/imports
+  // (never inferred from invoice/customer read access). 403 hides the button
+  // unless a saved unresolved attempt still needs recovery or safe closure.
+  const { user } = useAuth();
+  const [importOpen, setImportOpen] = useState(false);
+  const importAccess = useQuery({
+    queryKey: ["customer-import-options", user?.id ?? null, user?.companyId ?? null],
+    queryFn: customerImportOptions,
+    enabled: user?.id != null && user?.companyId != null,
+    retry: false,
+  });
+  const importDenied = importAccess.error instanceof CustomerImportError && importAccess.error.status === 403;
+  const canImport = importAccess.isSuccess;
+  const importRecoveryOnly = !canImport && hasCustomerImportIntent(user?.id, user?.companyId);
+  // Directory-only (managed) users: six directory fields only. No 360, manual
+  // create, edit, invoices or finance columns; zeros from the server are not real
+  // figures so they are never displayed.
+  const directoryOnly = importAccess.isLoading || importDenied || importAccess.isError ||
+    importAccess.data?.directoryOnly === true ||
+    (customers ?? []).some((c) => (c as { financialDetailsAvailable?: boolean }).financialDetailsAvailable === false);
 
   return (
     <div className="space-y-6 pb-8 max-w-7xl mx-auto">
@@ -457,6 +481,14 @@ export default function Customers() {
           <h1 className="text-3xl font-bold tracking-tight">العملاء</h1>
           <p className="text-muted-foreground">إدارة بيانات العملاء وتتبع سجلات الشراء</p>
         </div>
+        <div className="flex flex-wrap gap-2">
+        {(canImport || importRecoveryOnly || (!importDenied && importAccess.isError)) && (
+          <Button variant="outline" className="gap-2" onClick={() => setImportOpen(true)} data-testid="button-import-customers">
+            <FileSpreadsheet className="size-4" />
+            {canImport || (!importDenied && importAccess.isError) ? "استيراد عملاء" : "استرداد محاولة استيراد"}
+          </Button>
+        )}
+        {!directoryOnly && (
         <Dialog open={addOpen} onOpenChange={setAddOpen}>
           <DialogTrigger asChild>
             <Button className="gap-2" data-testid="button-add-customer">
@@ -466,7 +498,11 @@ export default function Customers() {
           </DialogTrigger>
           <CustomerFormDialog onSuccess={() => { setAddOpen(false); refetch(); }} />
         </Dialog>
+        )}
+        </div>
       </div>
+
+      <CustomerImportDialog open={importOpen} onOpenChange={setImportOpen} />
 
       <Dialog open={!!editInitial} onOpenChange={(v) => { if (!v) setEditInitial(null); }}>
         {editInitial && (
@@ -490,14 +526,14 @@ export default function Customers() {
               />
             </div>
           </div>
-          <label className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer select-none">
+          {!directoryOnly && <label className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer select-none">
             <Switch
               checked={linkedOnly}
               onCheckedChange={setLinkedOnly}
               data-testid="switch-customers-linked-only"
             />
             مرتبطة بشركة شقيقة فقط
-          </label>
+          </label>}
         </CardHeader>
         <CardContent className="p-0">
           <Table>
@@ -506,9 +542,13 @@ export default function Customers() {
                 <TableHead>العميل</TableHead>
                 <TableHead>رقم الهاتف</TableHead>
                 <TableHead>البريد الإلكتروني</TableHead>
+                {directoryOnly ? (
+                  <TableHead>الرقم الضريبي</TableHead>
+                ) : (<>
                 <TableHead>الشركة المرتبطة</TableHead>
                 <TableHead className="text-center">إجمالي الطلبات</TableHead>
                 <TableHead className="text-left">إجمالي الإنفاق</TableHead>
+                </>)}
                 <TableHead className="text-left">تاريخ الانضمام</TableHead>
               </TableRow>
             </TableHeader>
@@ -520,14 +560,14 @@ export default function Customers() {
                     <TableCell><Skeleton className="h-5 w-24" /></TableCell>
                     <TableCell><Skeleton className="h-5 w-40" /></TableCell>
                     <TableCell><Skeleton className="h-5 w-24" /></TableCell>
-                    <TableCell className="text-center"><Skeleton className="h-5 w-12 mx-auto" /></TableCell>
-                    <TableCell className="text-left"><Skeleton className="h-5 w-24 ml-auto" /></TableCell>
+                    {!directoryOnly && <TableCell className="text-center"><Skeleton className="h-5 w-12 mx-auto" /></TableCell>}
+                    {!directoryOnly && <TableCell className="text-left"><Skeleton className="h-5 w-24 ml-auto" /></TableCell>}
                     <TableCell className="text-left"><Skeleton className="h-5 w-24 ml-auto" /></TableCell>
                   </TableRow>
                 ))
               ) : customers?.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="h-32 text-center text-muted-foreground">
+                  <TableCell colSpan={directoryOnly ? 5 : 7} className="h-32 text-center text-muted-foreground">
                     <div className="flex flex-col items-center justify-center">
                       <Users className="size-8 mb-2 opacity-20" />
                       لا يوجد عملاء مطابقين للبحث
@@ -538,8 +578,8 @@ export default function Customers() {
                 customers?.map((customer) => (
                   <TableRow
                     key={customer.id}
-                    className="cursor-pointer hover:bg-muted/40"
-                    onClick={() => setSelectedId(customer.id)}
+                    className={directoryOnly ? "" : "cursor-pointer hover:bg-muted/40"}
+                    onClick={directoryOnly ? undefined : () => setSelectedId(customer.id)}
                     data-testid={`row-customer-${customer.id}`}
                   >
                     <TableCell className="font-medium flex items-center gap-3">
@@ -550,6 +590,11 @@ export default function Customers() {
                     </TableCell>
                     <TableCell dir="ltr" className="text-right text-muted-foreground">{customer.phone || '---'}</TableCell>
                     <TableCell className="text-muted-foreground">{customer.email || '---'}</TableCell>
+                    {directoryOnly ? (
+                      <TableCell dir="ltr" className="text-right text-muted-foreground" data-testid={`text-customer-tax-${customer.id}`}>
+                        {(customer as { taxNumber?: string | null }).taxNumber || '---'}
+                      </TableCell>
+                    ) : (<>
                     <TableCell>
                       {customer.linkedCompanyName ? (
                         <Badge variant="outline" className="gap-1 font-normal">
@@ -564,6 +609,7 @@ export default function Customers() {
                     <TableCell className="text-left font-bold text-primary">
                       <Money value={customer.totalSpent} />
                     </TableCell>
+                    </>)}
                     <TableCell className="text-left text-sm text-muted-foreground">
                       {format(new Date(customer.createdAt), 'dd MMM yyyy', { locale: arSA })}
                     </TableCell>
@@ -575,12 +621,12 @@ export default function Customers() {
         </CardContent>
       </Card>
 
-      <Customer360Sheet
+      {!directoryOnly && <Customer360Sheet
         customerId={selectedId}
         open={selectedId !== null}
         onOpenChange={(v) => { if (!v) setSelectedId(null); }}
         onEdit={(init) => { setSelectedId(null); setEditInitial(init); }}
-      />
+      />}
     </div>
   );
 }

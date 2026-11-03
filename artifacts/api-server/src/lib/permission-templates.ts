@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import { z } from "zod";
-import { GrantInput } from "./team-catalog";
+import { GrantInput, responsibilityReadAllowed } from "./team-catalog";
 import { teamRows, teamWrite, teamOwner, teamPolicy, teamAudit } from "./team-store";
 import { FinancialRequestError } from "./financial-transaction";
 import type { DbOrTx } from "./journal-posting";
@@ -67,7 +67,7 @@ async function impact(tx:DbOrTx,companyId:number,id:number,edit:Edit) {
     const blocked=r.status!=="active"||!r.role||!r.identity_active||r.employee_user_id!==r.user_id||
       !["active","on_leave","probation","preboarding"].includes(r.employment)||!r.in_period||!r.scope_valid;
     const afterActions=r.mode==="inherit"?actions:r.actions;
-    const effective=(aa:string[])=>blocked||r.deniedActions.includes(`${t.resource}.read`)?[]:aa.filter(a=>!r.deniedActions.includes(a));
+    const effective=(aa:string[])=>blocked||!responsibilityReadAllowed(t.resource,aa,r.deniedActions)?[]:aa.filter(a=>!r.deniedActions.includes(a));
     return {personId:r.personId,name:r.name,status:r.status,grantId:r.grantId,mode:r.mode,
       branchId:r.branchId,warehouseIds:r.warehouseIds,amountLimit:r.amountLimit,startsAt:r.startsAt,endsAt:r.endsAt,
       beforeActions:r.actions,afterActions,effectiveBefore:effective(r.actions),effectiveAfter:effective(afterActions),

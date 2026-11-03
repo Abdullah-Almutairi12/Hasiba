@@ -1831,6 +1831,57 @@ paths:
                   $ref: "#/components/schemas/BranchPerformance"
 
   # Products
+  /customers/imports:
+    get:
+      operationId: getCustomerImportOptions
+      tags: [customers]
+      summary: Create-only customer directory import options with live authority
+      responses:
+        "200":
+          description: Supported fields and safe file limits
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [fields, required, limits, mode, atomic, directoryOnly]
+                properties:
+                  fields: { type: array, items: { type: string } }
+                  required: { type: array, items: { type: string } }
+                  limits:
+                    type: object
+                    required: [bytes, rows, columns, cellLength]
+                    properties:
+                      bytes: { type: integer }
+                      rows: { type: integer }
+                      columns: { type: integer }
+                      cellLength: { type: integer }
+                  mode: { type: string, enum: [create-only] }
+                  atomic: { type: boolean }
+                  directoryOnly: { type: boolean, description: "Scoped directory access; no invoice, credit or receipt authority" }
+    post:
+      operationId: runCustomerImport
+      tags: [customers]
+      summary: Parse, review, atomically create, recover or safely close a customer directory import
+      parameters:
+        - in: header
+          name: Idempotency-Key
+          required: false
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SupplierImportInput" }
+      responses:
+        "200":
+          description: Parsed source rows, reviewed facts, or durable result
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/SupplierImportParsed"
+                  - $ref: "#/components/schemas/CustomerImportPreview"
+                  - $ref: "#/components/schemas/CustomerImportOutcome"
   /suppliers/imports:
     get:
       operationId: getSupplierImportOptions
@@ -5492,6 +5543,81 @@ paths:
 
 components:
   schemas:
+    CustomerImportMatch:
+      type: object
+      required: [id, name, phone, email, taxNumber]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        phone: { type: [string, "null"] }
+        email: { type: [string, "null"] }
+        taxNumber: { type: [string, "null"] }
+    CustomerImportValues:
+      type: object
+      additionalProperties: false
+      required: [name, phone, email, taxNumber, billingAddress, shippingAddress]
+      properties:
+        name: { type: [string, number, "null"] }
+        phone: { type: [string, number, "null"] }
+        email: { type: [string, number, "null"] }
+        taxNumber: { type: [string, number, "null"] }
+        billingAddress: { type: [string, number, "null"] }
+        shippingAddress: { type: [string, number, "null"] }
+    CustomerImportPreview:
+      type: object
+      required: [errors, warnings, customers, previewRows, total, validRows, canCommit, token]
+      properties:
+        errors: { type: array, items: { $ref: "#/components/schemas/SupplierImportIssue" } }
+        warnings:
+          type: array
+          items:
+            type: object
+            required: [row, name, matches]
+            properties:
+              row: { type: integer, minimum: 2 }
+              name: { type: string }
+              matches: { type: array, items: { $ref: "#/components/schemas/CustomerImportMatch" } }
+        customers:
+          type: array
+          items:
+            type: object
+            required: [name, phone, email, taxNumber, billingAddress, shippingAddress]
+            properties:
+              name: { type: string }
+              phone: { type: [string, "null"] }
+              email: { type: [string, "null"] }
+              taxNumber: { type: [string, "null"] }
+              billingAddress: { type: [string, "null"] }
+              shippingAddress: { type: [string, "null"] }
+        previewRows:
+          type: array
+          items:
+            type: object
+            required: [row, values, status, errors]
+            properties:
+              row: { type: integer, minimum: 2 }
+              values: { $ref: "#/components/schemas/CustomerImportValues" }
+              status: { type: string, enum: [valid, error] }
+              errors: { type: array, items: { $ref: "#/components/schemas/SupplierImportIssue" } }
+        total: { type: integer }
+        validRows: { type: integer }
+        canCommit: { type: boolean }
+        token: { type: [string, "null"] }
+    CustomerImportOutcome:
+      type: object
+      required: [state, accepted, rejected]
+      properties:
+        state: { type: string, enum: [completed, closed] }
+        accepted: { type: integer }
+        rejected: { type: integer }
+        customers:
+          type: array
+          items:
+            type: object
+            required: [id, name]
+            properties:
+              id: { type: integer }
+              name: { type: string }
     SupplierImportIssue:
       type: object
       required: [row, field, message]
@@ -7878,6 +8004,15 @@ components:
     Customer:
       type: object
       properties:
+        financialDetailsAvailable:
+          type: boolean
+          description: False for directory-only grants; zero sales totals are redacted, not financial facts.
+        taxNumber:
+          type: [string, "null"]
+        billingAddress:
+          type: [string, "null"]
+        shippingAddress:
+          type: [string, "null"]
         id:
           type: integer
         name:

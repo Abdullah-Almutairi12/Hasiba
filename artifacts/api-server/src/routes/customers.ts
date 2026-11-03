@@ -27,6 +27,7 @@ import { ScopedDb, getCompanyId } from "../lib/scoped-db";
 import { parsePagination } from "../lib/pagination";
 import { assertLinkedCompanyAllowed } from "../lib/assert-linked-company";
 import { recordAudit } from "../lib/audit";
+import { managedProfile } from "../lib/responsibility-context";
 
 const router = Router();
 
@@ -136,6 +137,7 @@ router.get("/customers", customerReadGuard, async (req, res) => {
 
     const consent = await loadCompanyOwnerConsent(getCompanyId(req));
     const role = req.session?.role;
+    const directoryOnly = !!await managedProfile(req.session.userId!, getCompanyId(req));
     // Task #259 — journal a read event so /security/audit-access
     // ("who viewed your data") can reconstruct the actual access
     // trail. Owners are excluded: owner reads are bookkeeping, not
@@ -148,7 +150,13 @@ router.get("/customers", customerReadGuard, async (req, res) => {
       });
     }
     res.json(
-      customers.map(({ row: c, linkedCompanyName }) =>
+      customers.map(({ row: c, linkedCompanyName }) => directoryOnly ? redactCustomer({
+        id: c.id, name: c.name, phone: c.phone, email: c.email, taxNumber: c.taxNumber,
+        billingAddress: c.billingAddress, shippingAddress: c.shippingAddress,
+        createdAt: c.createdAt.toISOString(),
+        // No sales/credit authority is implied by directory read.
+        totalSpent: 0, totalOrders: 0, financialDetailsAvailable: false,
+      }, consent, role) :
         redactCustomer(
           {
             ...c,

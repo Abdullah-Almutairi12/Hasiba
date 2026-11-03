@@ -3366,6 +3366,135 @@ export const GetBranchPerformanceResponse = zod.array(GetBranchPerformanceRespon
 
 
 /**
+ * @summary Create-only customer directory import options with live authority
+ */
+export const GetCustomerImportOptionsResponse = zod.object({
+  "fields": zod.array(zod.string()),
+  "required": zod.array(zod.string()),
+  "limits": zod.object({
+  "bytes": zod.number().int(),
+  "rows": zod.number().int(),
+  "columns": zod.number().int(),
+  "cellLength": zod.number().int()
+}),
+  "mode": zod.enum(['create-only']),
+  "atomic": zod.boolean(),
+  "directoryOnly": zod.boolean().describe('Scoped directory access; no invoice, credit or receipt authority')
+})
+
+
+/**
+ * @summary Parse, review, atomically create, recover or safely close a customer directory import
+ */
+export const RunCustomerImportHeader = zod.object({
+  "Idempotency-Key": zod.string().optional()
+})
+
+export const runCustomerImportBodyFileNameMax = 180;
+
+export const runCustomerImportBodyBase64Max = 349528;
+
+export const runCustomerImportBodyTokenMin = 10;
+export const runCustomerImportBodyTokenMax = 900000;
+
+export const runCustomerImportBodyConfirmSimilarNamesDefault = false;
+export const runCustomerImportBodyDocumentHeadersItemMax = 128;
+
+export const runCustomerImportBodyDocumentHeadersMax = 12;
+
+export const runCustomerImportBodyDocumentRowsItemItemOneMax = 128;
+
+export const runCustomerImportBodyDocumentRowsItemMax = 12;
+
+export const runCustomerImportBodyDocumentRowsMax = 500;
+
+export const runCustomerImportBodyDocumentMappingMinOne = 0;
+export const runCustomerImportBodyDocumentMappingMaxOne = 11;
+
+
+
+export const RunCustomerImportBody = zod.object({
+  "action": zod.enum(['parse', 'preview', 'commit', 'recover', 'close']),
+  "fileName": zod.string().min(1).max(runCustomerImportBodyFileNameMax).optional(),
+  "base64": zod.string().max(runCustomerImportBodyBase64Max).optional(),
+  "token": zod.string().min(runCustomerImportBodyTokenMin).max(runCustomerImportBodyTokenMax).optional(),
+  "confirmSimilarNames": zod.boolean().default(runCustomerImportBodyConfirmSimilarNamesDefault),
+  "document": zod.object({
+  "headers": zod.array(zod.string().min(1).max(runCustomerImportBodyDocumentHeadersItemMax)).min(1).max(runCustomerImportBodyDocumentHeadersMax),
+  "rows": zod.array(zod.array(zod.union([zod.string().max(runCustomerImportBodyDocumentRowsItemItemOneMax),zod.number(),zod.null()])).max(runCustomerImportBodyDocumentRowsItemMax)).min(1).max(runCustomerImportBodyDocumentRowsMax),
+  "mapping": zod.record(zod.string(), zod.number().int().min(runCustomerImportBodyDocumentMappingMinOne).max(runCustomerImportBodyDocumentMappingMaxOne))
+}).optional()
+})
+
+
+export const runCustomerImportResponseTwoWarningsItemRowMin = 2;
+
+export const runCustomerImportResponseTwoPreviewRowsItemRowMin = 2;
+
+
+
+
+export const RunCustomerImportResponse = zod.union([zod.object({
+  "headers": zod.array(zod.string()),
+  "rows": zod.array(zod.array(zod.union([zod.string(),zod.number()]).nullable()))
+}),zod.object({
+  "errors": zod.array(zod.object({
+  "row": zod.number().int().min(1),
+  "field": zod.string(),
+  "message": zod.string()
+})),
+  "warnings": zod.array(zod.object({
+  "row": zod.number().int().min(runCustomerImportResponseTwoWarningsItemRowMin),
+  "name": zod.string(),
+  "matches": zod.array(zod.object({
+  "id": zod.number().int(),
+  "name": zod.string(),
+  "phone": zod.string().nullable(),
+  "email": zod.string().nullable(),
+  "taxNumber": zod.string().nullable()
+}))
+})),
+  "customers": zod.array(zod.object({
+  "name": zod.string(),
+  "phone": zod.string().nullable(),
+  "email": zod.string().nullable(),
+  "taxNumber": zod.string().nullable(),
+  "billingAddress": zod.string().nullable(),
+  "shippingAddress": zod.string().nullable()
+})),
+  "previewRows": zod.array(zod.object({
+  "row": zod.number().int().min(runCustomerImportResponseTwoPreviewRowsItemRowMin),
+  "values": zod.object({
+  "name": zod.union([zod.string(),zod.number()]).nullable(),
+  "phone": zod.union([zod.string(),zod.number()]).nullable(),
+  "email": zod.union([zod.string(),zod.number()]).nullable(),
+  "taxNumber": zod.union([zod.string(),zod.number()]).nullable(),
+  "billingAddress": zod.union([zod.string(),zod.number()]).nullable(),
+  "shippingAddress": zod.union([zod.string(),zod.number()]).nullable()
+}),
+  "status": zod.enum(['valid', 'error']),
+  "errors": zod.array(zod.object({
+  "row": zod.number().int().min(1),
+  "field": zod.string(),
+  "message": zod.string()
+}))
+})),
+  "total": zod.number().int(),
+  "validRows": zod.number().int(),
+  "canCommit": zod.boolean(),
+  "token": zod.string().nullable()
+}),zod.object({
+  "state": zod.enum(['completed', 'closed']),
+  "accepted": zod.number().int(),
+  "rejected": zod.number().int(),
+  "customers": zod.array(zod.object({
+  "id": zod.number().int(),
+  "name": zod.string()
+})).optional()
+})])
+
+
+/**
  * @summary Supplier create-only import fields and safe file limits
  */
 export const GetSupplierImportOptionsResponse = zod.record(zod.string(), zod.unknown())
@@ -5133,6 +5262,10 @@ export const ListCustomersQueryParams = zod.object({
 })
 
 export const ListCustomersResponseItem = zod.object({
+  "financialDetailsAvailable": zod.boolean().optional().describe('False for directory-only grants; zero sales totals are redacted, not financial facts.'),
+  "taxNumber": zod.string().nullish(),
+  "billingAddress": zod.string().nullish(),
+  "shippingAddress": zod.string().nullish(),
   "id": zod.number().int(),
   "name": zod.string(),
   "phone": zod.string().nullish(),
@@ -5156,6 +5289,10 @@ export const CreateCustomerBody = zod.object({
 })
 
 export const CreateCustomerResponse = zod.object({
+  "financialDetailsAvailable": zod.boolean().optional().describe('False for directory-only grants; zero sales totals are redacted, not financial facts.'),
+  "taxNumber": zod.string().nullish(),
+  "billingAddress": zod.string().nullish(),
+  "shippingAddress": zod.string().nullish(),
   "id": zod.number().int(),
   "name": zod.string(),
   "phone": zod.string().nullish(),

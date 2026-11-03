@@ -5,6 +5,7 @@ import { teamRows } from "./team-store";
 import { FinancialRequestError } from "./financial-transaction";
 import { isPrimarySystemOwner } from "./primary-system-owner";
 import { posDeviceAuthority } from "./pos-device-authority";
+import { responsibilityReadAllowed } from "./team-catalog";
 
 export const responsibilityContext = new AsyncLocalStorage<{ userId: number; companyId: number; grantId: number }>();
 export type Responsibility = {
@@ -46,7 +47,7 @@ export async function currentResponsibilities(userId: number, companyId: number,
         AND wh.company_id=g.company_id AND wh.branch_id=g.branch_id WHERE wh.id IS NULL)`);
   const device = posDeviceAuthority.getStore();
   return rows.filter(g => !device || (device.userId === userId && device.companyId === companyId &&
-    g.resource === "pos" && g.branchId === device.branchId)).map(g => ({ ...g, actions: !g.actions.includes(`${g.resource}.read`) || profile.deniedActions.includes(`${g.resource}.read`) ? [] :
+    g.resource === "pos" && g.branchId === device.branchId)).map(g => ({ ...g, actions: !responsibilityReadAllowed(g.resource, g.actions, profile.deniedActions) ? [] :
     g.actions.filter(a => !profile.deniedActions.includes(a)) }));
 }
 export async function selectedResponsibility(userId: number, companyId: number, connection: Pick<typeof db, "execute"> = db) {

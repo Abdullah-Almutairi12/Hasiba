@@ -1,6 +1,13 @@
 import { z } from "zod";
 
+export function responsibilityReadAllowed(resource: string, actions: readonly string[], denied: readonly string[]) {
+  return actions.includes(`${resource}.read`) && !denied.includes(`${resource}.read`) ||
+    resource === "sales" && actions.includes("sales.customers.read") && !denied.includes("sales.customers.read");
+}
+
 export const TEAM_ACTIONS = [
+  {key:"sales.customers.read",label:"عرض دليل العملاء على مستوى الشركة — دون فواتير أو أرصدة أو تحصيل",resource:"sales",available:true},
+  {key:"sales.customers.create",label:"إنشاء عملاء جدد واستيراد دليلهم — يحتاج عرض الدليل، لا تعديل أو دمج أو حقول مالية",resource:"sales",available:true},
   {key:"sales.read",label:"عرض فواتير العملاء وتفاصيلها ضمن الفرع — لا PDF أو طباعة أو تصدير ضمني",resource:"sales",available:true},
   {key:"sales.invoices.print",label:"معاينة PDF للطباعة وطباعة فاتورة عميل — يحتاج عرض الفواتير، لا تصدير ضمني",resource:"sales",available:true},
   {key:"sales.invoices.export",label:"تصدير PDF لفاتورة عميل — يحتاج عرض الفواتير، لا طباعة ضمنية",resource:"sales",available:true},
@@ -84,7 +91,9 @@ export const GrantInput = z.object({
       "inventory.stocktake.approve","inventory.stocktake.post"].includes(a))) {
     ctx.addIssue({ code: "custom", message: "سقف قيمة المخزون يحتاج إذن حركة صريحًا؛ لا يخص القراءة وحدها" });
   }
-  if (!g.actions.includes(`${g.resource}.read`)) {
+  const customerDirectoryOnly = g.resource === "sales" && g.actions.includes("sales.customers.read") &&
+    g.actions.every(a => ["sales.customers.read", "sales.customers.create"].includes(a));
+  if (!g.actions.includes(`${g.resource}.read`) && !customerDirectoryOnly) {
     ctx.addIssue({ code: "custom", message: "عرض نطاق المسؤولية شرط للأفعال التابعة له؛ لا يضاف ضمنيًا" });
   }
   if (g.actions.includes("pos.return.direct") && !g.actions.includes("pos.return.request")) {

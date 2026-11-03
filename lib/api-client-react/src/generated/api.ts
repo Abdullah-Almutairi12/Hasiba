@@ -142,6 +142,8 @@ import type {
   CreateWarehouseBody,
   Currency,
   Customer,
+  CustomerImportOutcome,
+  CustomerImportPreview,
   DashboardSummary,
   DeleteAnnouncement200,
   DeleteApprovalRule200,
@@ -178,6 +180,7 @@ import type {
   GetCompanyTaxPolicy200,
   GetCompanyTaxPolicyRequestStatus200,
   GetCountSession200,
+  GetCustomerImportOptions200,
   GetDashboardSalesChartParams,
   GetFraudAnomalies200,
   GetFraudAnomaliesParams,
@@ -10405,6 +10408,195 @@ export function useGetBranchPerformance<TData = Awaited<ReturnType<typeof getBra
 
 
 
+
+export const getGetCustomerImportOptionsUrl = () => {
+
+
+
+
+  return `/api/customers/imports`
+}
+
+/**
+ * @summary Create-only customer directory import options with live authority
+ */
+export const getCustomerImportOptions = async ( options?: Parameters<typeof customFetch>[1]): Promise<GetCustomerImportOptions200> => {
+
+  return customFetch<GetCustomerImportOptions200>(getGetCustomerImportOptionsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetCustomerImportOptionsQueryKey = () => {
+    return [
+    `/api/customers/imports`
+    ] as const;
+    }
+
+
+export const getGetCustomerImportOptionsQueryOptions = <TData = Awaited<ReturnType<typeof getCustomerImportOptions>>, TError = ErrorType<unknown>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getCustomerImportOptions>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetCustomerImportOptionsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getCustomerImportOptions>>> = ({ signal }) => getCustomerImportOptions({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getCustomerImportOptions>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetCustomerImportOptionsQueryResult = NonNullable<Awaited<ReturnType<typeof getCustomerImportOptions>>>
+export type GetCustomerImportOptionsQueryError = ErrorType<unknown>
+
+
+export function useGetCustomerImportOptions<TData = Awaited<ReturnType<typeof getCustomerImportOptions>>, TError = ErrorType<unknown>>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getCustomerImportOptions>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getCustomerImportOptions>>,
+          TError,
+          Awaited<ReturnType<typeof getCustomerImportOptions>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetCustomerImportOptions<TData = Awaited<ReturnType<typeof getCustomerImportOptions>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getCustomerImportOptions>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getCustomerImportOptions>>,
+          TError,
+          Awaited<ReturnType<typeof getCustomerImportOptions>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetCustomerImportOptions<TData = Awaited<ReturnType<typeof getCustomerImportOptions>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getCustomerImportOptions>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Create-only customer directory import options with live authority
+ */
+
+export function useGetCustomerImportOptions<TData = Awaited<ReturnType<typeof getCustomerImportOptions>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getCustomerImportOptions>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetCustomerImportOptionsQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getRunCustomerImportUrl = () => {
+
+
+
+
+  return `/api/customers/imports`
+}
+
+/**
+ * @summary Parse, review, atomically create, recover or safely close a customer directory import
+ */
+export const runCustomerImport = async (supplierImportInput: SupplierImportInput, options?: Parameters<typeof customFetch>[1]): Promise<SupplierImportParsed | CustomerImportPreview | CustomerImportOutcome> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<SupplierImportParsed | CustomerImportPreview | CustomerImportOutcome>(getRunCustomerImportUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(supplierImportInput)
+  }
+);}
+
+
+
+
+
+export const getRunCustomerImportMutationKey = () => ['runCustomerImport'] as const;
+
+export const getRunCustomerImportMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof runCustomerImport>>, TError,RunCustomerImportMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof runCustomerImport>>, TError,RunCustomerImportMutationVariables, TContext> => {
+
+const mutationKey = getRunCustomerImportMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof runCustomerImport>>, RunCustomerImportMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  runCustomerImport(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RunCustomerImportMutationResult = NonNullable<Awaited<ReturnType<typeof runCustomerImport>>>
+    export type RunCustomerImportMutationBody = BodyType<SupplierImportInput>
+    export type RunCustomerImportMutationError = ErrorType<unknown>
+    export type RunCustomerImportMutationVariables = {data: BodyType<SupplierImportInput>}
+
+    /**
+ * @summary Parse, review, atomically create, recover or safely close a customer directory import
+ */
+export const useRunCustomerImport = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof runCustomerImport>>, TError,RunCustomerImportMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof runCustomerImport>>,
+        TError,
+        RunCustomerImportMutationVariables,
+        TContext
+      > => {
+      return useMutation(getRunCustomerImportMutationOptions(options), queryClient);
+    }
 
 export const getGetSupplierImportOptionsUrl = () => {
 

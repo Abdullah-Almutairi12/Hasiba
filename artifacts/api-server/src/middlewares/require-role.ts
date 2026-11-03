@@ -5,6 +5,7 @@ import { returnActor } from "../lib/return-access";
 import { managedProfile, selectedResponsibility } from "../lib/responsibility-context";
 import { procurementAction, requestProcurementActor } from "../lib/procurement-authority";
 import { customerInvoiceAction,customerInvoiceGrant } from "../lib/customer-invoice-access";
+import { customerDirectoryActor } from "../lib/customer-directory-access";
 
 export const ALL_ROLES = [
   "owner",
@@ -51,6 +52,11 @@ export function requireRole(...roles: Role[]) {
     req.session.role = userRole;
     let effectiveRole: Role = userRole;
     if (await managedProfile(req.session.userId, req.session.companyId ?? -1)) {
+      if (req.method === "GET" && req.originalUrl.split("?")[0] === "/api/customers") {
+        try { await customerDirectoryActor(req, false); next(); }
+        catch { res.status(403).json({ error: "دليل العملاء غير ممنوح في المسؤولية الحالية" }); }
+        return;
+      }
       const invoiceAction=customerInvoiceAction(req.method,req.originalUrl.split("?")[0].replace(/^\/api/,""),req.query.download);
       if(invoiceAction){
         try{await customerInvoiceGrant(req,invoiceAction);next();}
