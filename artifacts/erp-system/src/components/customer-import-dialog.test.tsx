@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { CustomerImportDialog, CUSTOMER_IMPORT_ENDPOINT, buildCustomerTemplateCsv, hasCustomerImportIntent } from "./customer-import-dialog";
 import { intentStorageKey } from "@/lib/durable-intent";
 
-const mocks = vi.hoisted(() => ({ options: vi.fn(), call: vi.fn(), resp: { v: "77" as string | null }, user: { id: 5, companyId: 3 } }));
+const mocks = vi.hoisted(() => ({ options: vi.fn(), call: vi.fn(), resp: { v: "77" as string | null }, user: { id: 5, companyId: 3, role: "owner" } }));
 vi.mock("@/lib/customer-import-api", () => {
   class CustomerImportError extends Error { constructor(message: string, public status: number) { super(message); } }
   return {
@@ -53,7 +53,7 @@ const actions = () => mocks.call.mock.calls.map((c) => c[0].action);
 afterEach(cleanup);
 beforeEach(() => {
   sessionStorage.clear();
-  mocks.user = { id: 5, companyId: 3 };
+  mocks.user = { id: 5, companyId: 3, role: "owner" };
   mocks.resp.v = "77";
   vi.restoreAllMocks();
   mocks.options.mockReset().mockResolvedValue(OPTIONS);
@@ -287,5 +287,34 @@ describe("Customers page import button", () => {
     await screen.findByTestId("button-import-customers");
     expect(screen.getByTestId("button-add-customer")).toBeTruthy();
     expect(screen.getByText("إجمالي الإنفاق")).toBeTruthy();
+  });
+  it("an import-create denial does not hide a legacy user's existing financial read view", async () => {
+    mocks.options.mockRejectedValue(await err(403));
+    await renderPage([]);
+    await vi.waitFor(() => expect(mocks.options).toHaveBeenCalled());
+    await new Promise((r) => setTimeout(r, 0));
+    expect(screen.queryByTestId("button-import-customers")).toBeNull();
+    expect(screen.getByText("إجمالي الإنفاق")).toBeTruthy();
+  });
+  it("an import-service failure does not replace a legacy user's existing read view", async () => {
+    mocks.options.mockRejectedValue(await err(503));
+    await renderPage([]);
+    await vi.waitFor(() => expect(mocks.options).toHaveBeenCalled());
+    await new Promise((r) => setTimeout(r, 0));
+    expect(screen.getByText("إجمالي الإنفاق")).toBeTruthy();
+  });
+  it("managed users keep directory-only guards before import options settle and on denial", async () => {
+    mocks.user.role = "scoped";
+    mocks.options.mockImplementation(() => new Promise(() => {}));
+    await renderPage([]);
+    expect(screen.queryByText("إجمالي الإنفاق")).toBeNull();
+    expect(screen.queryByTestId("button-add-customer")).toBeNull();
+    cleanup();
+    mocks.options.mockRejectedValue(await err(403));
+    await renderPage([]);
+    await vi.waitFor(() => expect(mocks.options).toHaveBeenCalled());
+    await new Promise((r) => setTimeout(r, 0));
+    expect(screen.queryByText("إجمالي الإنفاق")).toBeNull();
+    expect(screen.queryByTestId("button-add-customer")).toBeNull();
   });
 });

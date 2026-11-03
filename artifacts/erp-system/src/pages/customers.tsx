@@ -470,7 +470,7 @@ export default function Customers() {
   // Directory-only (managed) users: six directory fields only. No 360, manual
   // create, edit, invoices or finance columns; zeros from the server are not real
   // figures so they are never displayed.
-  const directoryOnly = importAccess.isLoading || importDenied || importAccess.isError ||
+  const directoryOnly = !user || user.role === "scoped" ||
     importAccess.data?.directoryOnly === true ||
     (customers ?? []).some((c) => (c as { financialDetailsAvailable?: boolean }).financialDetailsAvailable === false);
 
