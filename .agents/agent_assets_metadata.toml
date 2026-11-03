@@ -1701,3 +1701,31 @@ mtime_ms = 1793686313079
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/9db5857a-406c-439a-b348-8901a0d34a6b/e0ff3e3e-68b6-4fda-b88f-faa1c9bb8b81"
 storage_version_token = "1793686339629926"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "PGw9rijkfRC-Zo9pVBST7"
+uri = "file://generated-artifacts/supplier-import-corrections/Hasiba-Supplier-Import-Corrections.docx"
+type = "word_document"
+title = "تقرير إصلاح مراجعة استيراد الموردين — عربي وإنجليزي"
+description = "الإصلاحات الأربع وأدلة قبل/بعد، نتيجة15/15 و1210API و390UI، رحلة الواجهة والمصالحة وحدود القبول."
+logical_id = "06db3a42-9fa7-4126-952b-e8d692cdf8a8"
+content_hash = "sha256:308a3e4cd1967c3b74c862d2f073e60f744815a43de9795d910763fd16a1554c"
+size = 9131
+mtime_ms = 1793688437808
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/06db3a42-9fa7-4126-952b-e8d692cdf8a8/bc24fa81-ab4b-42d5-b943-2467c7a42530"
+storage_version_token = "1793688461031075"
+content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
+[[outputs]]
+id = "slKt9pZvkiKau8nsbjaK5"
+uri = "file://generated-artifacts/supplier-import-corrections/Hasiba-Supplier-Import-Corrections-Evidence.zip"
+type = "unspecified"
+title = "حزمة الأدلة المنقحة — إصلاحات استيراد الموردين"
+description = "78 ملفًا: السجلات الخام المنقحة، صور الواجهة، فقد الرد والاسترجاع، مصالحةPostgreSQL وبصمات الملفات. حجم1.64MB."
+logical_id = "6b97426e-eeef-47dc-83a0-4cc01ae38f4a"
+content_hash = "sha256:1e8a83943bd6986c61b2b7413ab306a106e4e6260bcb1ba58c9cfb3dddd7c0b0"
+size = 1637779
+mtime_ms = 1793688439211
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/6b97426e-eeef-47dc-83a0-4cc01ae38f4a/48eba843-2f4d-4a14-9c2b-567615601b9c"
+storage_version_token = "1793688464363666"
+content_type = "application/octet-stream"
