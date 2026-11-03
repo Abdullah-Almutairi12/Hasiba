@@ -1,4 +1,4 @@
-import { pgTable, serial, text, numeric, integer, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, numeric, integer, timestamp, unique } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { companiesTable } from "./companies";
@@ -6,10 +6,8 @@ import { companiesTable } from "./companies";
 export const suppliersTable = pgTable("suppliers", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
-  // Postgres treats each NULL as distinct in a UNIQUE constraint, so this still
-  // allows multiple "informal" suppliers without a VAT number while preventing
-  // duplicate registered suppliers (used by the OCR find-or-create flow).
-  vatNumber: text("vat_number").unique(),
+  // Identity is company-local. NULL is missing evidence, not registration status.
+  vatNumber: text("vat_number"),
   email: text("email"),
   phone: text("phone"),
   address: text("address"),
@@ -30,7 +28,7 @@ export const suppliersTable = pgTable("suppliers", {
    */
   linkedCompanyId: integer("linked_company_id").references(() => companiesTable.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (table) => [unique("suppliers_company_vat_number_unique").on(table.companyId, table.vatNumber)]);
 
 export const insertSupplierSchema = createInsertSchema(suppliersTable).omit({
   id: true,

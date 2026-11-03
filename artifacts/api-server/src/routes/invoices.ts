@@ -1,4 +1,5 @@
 import express, { Router } from "express";
+import { resolveSupplier } from "../lib/supplier-identity";
 import { z, ZodError } from "zod";
 import rateLimit from "express-rate-limit";
 import QRCode from "qrcode";
@@ -942,55 +943,13 @@ router.post("/invoices/from-scan", supplierInvoiceAgent, async (req, res) => {
       if(body.poId&&!branch)throw new FinancialRequestError("مصدر الفاتورة غير متاح في الشركة والفرع",404);
       await assertLegacyInvoiceCommitAllowed(tx,scanCompanyId,body.total,branch?Number(branch.branch_id):null);
 
-      // 0) Find or create the supplier so the invoice can be linked to a supplier record.
-      // VAT number has a UNIQUE constraint, so we use ON CONFLICT DO UPDATE to
-      // make this race-safe under concurrent imports (the conflicting row is
-      // returned with its existing id). When VAT is absent we fall back to a
-      // name lookup; concurrent name-only inserts may still create duplicates,
-      // but those are easy to merge later by hand.
+      // 0) Company-local identity, serialized lookup/create without changing an
+      // existing supplier's VAT/contact data or matching a numbered row by name.
       const trimmedSupplier = body.supplierName.trim();
       const companyId = getCompanyId(req);
       let supplierId: number | null = null;
       if (trimmedSupplier) {
-        if (body.supplierVatNumber) {
-          // VAT lookup must be tenant-scoped to avoid cross-tenant collisions
-          // on the (companyId, vatNumber) compound uniqueness.
-          const [byVat] = await tx
-            .select({ id: suppliersTable.id })
-            .from(suppliersTable)
-            .where(and(
-              eq(suppliersTable.companyId, companyId),
-              eq(suppliersTable.vatNumber, body.supplierVatNumber),
-            ))
-            .limit(1);
-          if (byVat) {
-            supplierId = byVat.id;
-          } else {
-            const [created] = await tx
-              .insert(suppliersTable)
-              .values({ companyId, name: trimmedSupplier, vatNumber: body.supplierVatNumber })
-              .returning({ id: suppliersTable.id });
-            supplierId = created?.id ?? null;
-          }
-        } else {
-          const [byName] = await tx
-            .select({ id: suppliersTable.id })
-            .from(suppliersTable)
-            .where(and(
-              eq(suppliersTable.companyId, companyId),
-              eq(suppliersTable.name, trimmedSupplier),
-            ))
-            .limit(1);
-          if (byName) {
-            supplierId = byName.id;
-          } else {
-            const [created] = await tx
-              .insert(suppliersTable)
-              .values({ companyId, name: trimmedSupplier })
-              .returning({ id: suppliersTable.id });
-            supplierId = created?.id ?? null;
-          }
-        }
+        supplierId = await resolveSupplier(tx, { companyId, name: trimmedSupplier, vatNumber: body.supplierVatNumber });
       }
 
       // 1) Insert the invoice header — DB unique constraint on invoice_number guards against races.

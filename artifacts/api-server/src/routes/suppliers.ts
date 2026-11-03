@@ -1,6 +1,7 @@
 import { Router, type Request } from "express";
 import { z, ZodError } from "zod";
 import { db, suppliersTable, invoicesTable, companiesTable } from "@workspace/db";
+import { resolveSupplier, supplierVat, supplierVatConflict } from "../lib/supplier-identity";
 import { eq, ilike, or, sql, desc, isNotNull } from "drizzle-orm";
 import { requireRole, supplierReadGuard } from "../middlewares/require-role";
 import { recordAudit } from "../lib/audit";
@@ -101,6 +102,7 @@ router.get("/suppliers", async (req, res) => {
 
 router.post("/suppliers", supplierWriteGuard, async (req, res) => {
   try {
+    if (Object.prototype.hasOwnProperty.call(req.body ?? {}, "companyId")) return res.status(400).json({ error: "تُحدد الشركة من جلسة المستخدم فقط" });
     const body = CreateSupplierBody.parse(req.body);
     const scoped = new ScopedDb(getCompanyId(req));
     const userId = req.session?.userId;
@@ -113,7 +115,7 @@ router.post("/suppliers", supplierWriteGuard, async (req, res) => {
       .insert(suppliersTable)
       .values(scoped.stamp({
         name: body.name,
-        vatNumber: body.vatNumber || null,
+        vatNumber: supplierVat(body.vatNumber),
         email: body.email || null,
         phone: body.phone || null,
         address: body.address || null,
@@ -134,13 +136,7 @@ router.post("/suppliers", supplierWriteGuard, async (req, res) => {
   } catch (err) {
     if(err instanceof FinancialRequestError) return res.status(err.status).json({error:err.message});
     if (err instanceof ZodError) return res.status(400).json({ error: "بيانات غير صالحة", details: err.issues });
-    // PG unique-violation on suppliers_vat_number_unique → 409 instead of 500.
-    const code = (err as { code?: string; cause?: { code?: string } })?.code
-      ?? (err as { cause?: { code?: string } })?.cause?.code;
-    const message = err instanceof Error ? err.message : "";
-    if (code === "23505" || /duplicate key value|suppliers_vat_number_unique/i.test(message)) {
-      return res.status(409).json({ error: "يوجد مورد آخر بنفس الرقم الضريبي." });
-    }
+    if (supplierVatConflict(err)) return res.status(409).json({ error: "يوجد مورد آخر بنفس الرقم الضريبي داخل هذه الشركة." });
     req.log.error({ err }, "create supplier failed");
     return res.status(500).json({ error: "internal" });
   }
@@ -153,6 +149,7 @@ router.post("/suppliers", supplierWriteGuard, async (req, res) => {
  */
 router.patch("/suppliers/:id", supplierWriteGuard, async (req, res) => {
   try {
+    if (Object.prototype.hasOwnProperty.call(req.body ?? {}, "companyId")) return res.status(400).json({ error: "تُحدد الشركة من جلسة المستخدم فقط" });
     const id = Number(req.params["id"]);
     if (!Number.isFinite(id)) return res.status(400).json({ error: "bad id" });
     const Body = z.object({
@@ -177,7 +174,7 @@ router.patch("/suppliers/:id", supplierWriteGuard, async (req, res) => {
     }
     const patch: Partial<typeof suppliersTable.$inferInsert> = {};
     if (b.name !== undefined) patch.name = b.name;
-    if (b.vatNumber !== undefined) patch.vatNumber = b.vatNumber || null;
+    if (b.vatNumber !== undefined) patch.vatNumber = supplierVat(b.vatNumber);
     if (b.email !== undefined) patch.email = b.email || null;
     if (b.phone !== undefined) patch.phone = b.phone || null;
     if (b.address !== undefined) patch.address = b.address || null;
@@ -216,6 +213,7 @@ router.patch("/suppliers/:id", supplierWriteGuard, async (req, res) => {
   } catch (err) {
     if(err instanceof FinancialRequestError) return res.status(err.status).json({error:err.message});
     if (err instanceof ZodError) return res.status(400).json({ error: "بيانات غير صالحة", details: err.issues });
+    if (supplierVatConflict(err)) return res.status(409).json({ error: "يوجد مورد آخر بنفس الرقم الضريبي داخل هذه الشركة." });
     req.log.error({ err }, "update supplier failed");
     return res.status(500).json({ error: "internal" });
   }
@@ -284,53 +282,14 @@ router.get("/suppliers/:id", async (req, res) => {
 });
 
 /**
- * Find or create a supplier by name (used by invoice scanner agent).
- * Returns the supplier id. Optionally accepts vatNumber to enrich an existing record.
+ * Resolve company-local supplier identity; never enrich by name alone.
  */
 export async function findOrCreateSupplier(opts: {
   companyId: number;
   name: string;
   vatNumber?: string | null;
 }): Promise<number> {
-  const trimmed = opts.name.trim();
-  if (!trimmed) throw new Error("supplier name required");
-
-  // Lookups MUST be tenant-scoped — two different tenants can legitimately
-  // have a supplier with the same VAT or name, and bleeding rows across
-  // tenants would create cross-tenant journal postings.
-  if (opts.vatNumber) {
-    const [byVat] = await db
-      .select({ id: suppliersTable.id })
-      .from(suppliersTable)
-      .where(and(
-        eq(suppliersTable.companyId, opts.companyId),
-        eq(suppliersTable.vatNumber, opts.vatNumber),
-      ))
-      .limit(1);
-    if (byVat) return byVat.id;
-  }
-
-  const [byName] = await db
-    .select({ id: suppliersTable.id })
-    .from(suppliersTable)
-    .where(and(
-      eq(suppliersTable.companyId, opts.companyId),
-      eq(suppliersTable.name, trimmed),
-    ))
-    .limit(1);
-  if (byName) {
-    if (opts.vatNumber) {
-      await db.update(suppliersTable).set({ vatNumber: opts.vatNumber }).where(eq(suppliersTable.id, byName.id));
-    }
-    return byName.id;
-  }
-
-  const [created] = await db
-    .insert(suppliersTable)
-    .values({ companyId: opts.companyId, name: trimmed, vatNumber: opts.vatNumber ?? null })
-    .returning({ id: suppliersTable.id });
-  if (!created) throw new Error("failed to create supplier");
-  return created.id;
+  return db.transaction(tx => resolveSupplier(tx, opts));
 }
 
 export default router;
