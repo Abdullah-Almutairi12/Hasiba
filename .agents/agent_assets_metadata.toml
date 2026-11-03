@@ -1673,3 +1673,31 @@ mtime_ms = 1793680766749
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/e42012a6-6990-4872-a089-274a86ed6b1e/1e70838e-fc90-4421-a011-a6166adbe455"
 storage_version_token = "1793680786585722"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "3_JeE-TLpS5g4Nnv-USaC"
+uri = "file://generated-artifacts/supplier-import/Hasiba-Supplier-Import-Report.docx"
+type = "word_document"
+title = "تقرير استيراد الموردين — عربي وإنجليزي"
+description = "ما نُفّذ، الاختبارات الجديدة، رحلة الاستيراد وفقد الرد، المصالحة وحدود الإثبات."
+logical_id = "f84f49bd-8529-4ee7-bfa2-d7ec43f714c5"
+content_hash = "sha256:63c5c905b6d613e43a96a2dc6abded7c1a1d4a9c7873ed6770b33cb75cbe9c95"
+size = 9803
+mtime_ms = 1793686311199
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/f84f49bd-8529-4ee7-bfa2-d7ec43f714c5/4ad6edc1-022a-4592-a5b7-f1684c0df923"
+storage_version_token = "1793686336176374"
+content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
+[[outputs]]
+id = "I9UCn3puxLJ9HX1LvxbSl"
+uri = "file://generated-artifacts/supplier-import/Hasiba-Supplier-Import-Evidence.zip"
+type = "unspecified"
+title = "حزمة أدلة استيراد الموردين"
+description = "91 ملفًا منقحًا: السجلات قبل/بعد،15 بوابة، نتائج API/UI، الصور، إيصالات الاسترجاع والمصالحة وSHA256."
+logical_id = "9db5857a-406c-439a-b348-8901a0d34a6b"
+content_hash = "sha256:66310c498c7ecec07b8db8249ab38fc4fffb02bc375f64d7edf5e066cba382d4"
+size = 1668641
+mtime_ms = 1793686313079
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/9db5857a-406c-439a-b348-8901a0d34a6b/e0ff3e3e-68b6-4fda-b88f-faa1c9bb8b81"
+storage_version_token = "1793686339629926"
+content_type = "application/octet-stream"
