@@ -28,6 +28,7 @@ import { parsePagination } from "../lib/pagination";
 import { assertLinkedCompanyAllowed } from "../lib/assert-linked-company";
 import { recordAudit } from "../lib/audit";
 import { managedProfile } from "../lib/responsibility-context";
+import { isReservedPosCustomerTaxNumber } from "../lib/pos-walkin-customer";
 
 const router = Router();
 
@@ -183,7 +184,8 @@ router.post("/customers", salesWriteGuard, async (req, res) => {
       defaultPricelistId: z.number().int().nullable().optional(),
       paymentTermsDays: z.number().int().min(0).optional(),
       creditLimit: z.number().min(0).optional(),
-      taxNumber: z.string().nullable().optional(),
+      taxNumber: z.string().nullable().optional().refine(v => !isReservedPosCustomerTaxNumber(v),
+        "الرمز محجوز لهوية العميل النقدي الداخلية"),
       billingAddress: z.string().nullable().optional(),
       shippingAddress: z.string().nullable().optional(),
       // Phase-5: when set, sales invoices to this customer are mirrored
@@ -235,13 +237,21 @@ router.patch("/customers/:id", salesWriteGuard, async (req, res) => {
       defaultPricelistId: z.number().int().nullable().optional(),
       paymentTermsDays: z.number().int().min(0).optional(),
       creditLimit: z.number().min(0).optional(),
-      taxNumber: z.string().nullable().optional(),
+      taxNumber: z.string().nullable().optional().refine(v => !isReservedPosCustomerTaxNumber(v),
+        "الرمز محجوز لهوية العميل النقدي الداخلية"),
       billingAddress: z.string().nullable().optional(),
       shippingAddress: z.string().nullable().optional(),
       linkedCompanyId: z.number().int().nullable().optional(),
     });
     const b = Body.parse(req.body);
     const scoped = new ScopedDb(getCompanyId(req));
+    if (b.taxNumber !== undefined) {
+      const [current] = await db.select({ taxNumber: customersTable.taxNumber }).from(customersTable)
+        .where(and(eq(customersTable.id, id), scoped.scope(customersTable)));
+      if (isReservedPosCustomerTaxNumber(current?.taxNumber)) {
+        res.status(400).json({ error: "لا يمكن تغيير هوية العميل النقدي الداخلية" }); return;
+      }
+    }
     const userId = req.session?.userId;
     if (!userId) { res.status(401).json({ error: "غير مسجل دخول" }); return; }
     // Validate the link target before touching the row so a forbidden link

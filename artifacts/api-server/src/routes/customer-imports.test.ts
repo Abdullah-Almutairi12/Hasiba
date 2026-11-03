@@ -2,11 +2,13 @@ import { beforeAll, describe, it, expect, vi } from "vitest";
 import request from "supertest";
 import bcrypt from "bcryptjs";
 import ExcelJS from "exceljs";
-import { randomUUID } from "node:crypto";
-import { db, pool, companiesTable, usersTable, userCompaniesTable } from "@workspace/db";
+import { randomUUID, createHash } from "node:crypto";
+import { db, pool, companiesTable, usersTable, userCompaniesTable, financialRequestsTable } from "@workspace/db";
 import app, { assertApplicationReady } from "../app";
 import { type ImportDocument, signImport } from "../lib/product-import";
 import { posTemplateFixture, accepted as ok, personInput } from "../test/pos-template-fixture";
+import { ensurePosWalkinCustomer, isReservedPosCustomerTaxNumber } from "../lib/pos-walkin-customer";
+import { canonical } from "../lib/financial-transaction";
 
 const endpoint = "/api/customers/imports", tag = randomUUID();
 const agents: request.Agent[] = [], companies: number[] = [], users: number[] = [];
@@ -44,6 +46,82 @@ beforeAll(async () => {
   }
 });
 describe.sequential("customer directory import on disposable PostgreSQL", () => {
+  it.each(["csv", "xlsx"])("rejects reserved walk-in identity in mixed %s batches regardless of consent", async format => {
+    const values = [["الاسم", "الرقم الضريبي"], ["عميل صالح", ""], ["خارجي", " \tpos-walkin　"]];
+    let base64: string;
+    if (format === "csv") base64 = Buffer.from(values.map(r => r.join(",")).join("\n")).toString("base64");
+    else {
+      const wb = new ExcelJS.Workbook(); const sheet = wb.addWorksheet("عملاء");
+      values.forEach(r => sheet.addRow(r));
+      base64 = Buffer.from(await wb.xlsx.writeBuffer()).toString("base64");
+    }
+    const before = await facts();
+    const parsed = await agents[0].post(endpoint).send({ action: "parse", fileName: `reserved.${format}`, base64 }).expect(200);
+    for (const confirm of [false, true]) {
+      const p = await preview({ ...parsed.body, mapping: { name: 0, taxNumber: 1 } }, 0, confirm);
+      expect(p.canCommit).toBe(false); expect(p.token).toBeNull();
+      expect(p.errors).toEqual(expect.arrayContaining([expect.objectContaining({ row: 3, field: "taxNumber" })]));
+    }
+    expect(await facts()).toEqual(before);
+  });
+  it.each([
+    ["Company", "name"], ["Company Address", "billingAddress"], ["عنوان الشركة", "shippingAddress"],
+  ])("accepts natural mapped header %s as %s", async (header, field) => {
+    const document: ImportDocument = field === "name"
+      ? { headers: [header], rows: [[`طبيعي ${randomUUID()}`]], mapping: { name: 0 } }
+      : { headers: ["الاسم", header], rows: [[`طبيعي ${randomUUID()}`, "الرياض"]], mapping: { name: 0, [field]: 1 } };
+    expect((await preview(document)).canCommit).toBe(true);
+  });
+  it("rejects a previously signed reserved preview without partial writes", async () => {
+    const before = await facts();
+    const document = { ...doc(), rows: [[`خارجي ${tag}`, null, "POS-WALKIN"]] };
+    // Actual pre-fix reviewed facts: no matches. Do not rely on a missing-facts signature rejection.
+    const token = signImport(companies[0], users[0], document, "customers",
+      createHash("sha256").update(canonical([])).digest("hex"));
+    await send(token).expect(409);
+    expect(await facts()).toEqual(before);
+  });
+  it("rejects direct manual creation and patching of the normalized reserved identity", async () => {
+    const before = await facts();
+    await agents[0].post("/api/customers").send({ name: "خارجي", taxNumber: " POS-WALKIN " }).expect(400);
+    const valid = await agents[0].post("/api/customers").send({ name: `عادي ${randomUUID()}` }).expect(201);
+    await agents[0].patch(`/api/customers/${valid.body.id}`).send({ taxNumber: "ＰＯＳ－ＷＡＬＫＩＮ" }).expect(400);
+    const now = await facts();
+    expect(now.filter((r: any) => r.id !== valid.body.id)).toEqual(before);
+  });
+  it("preserves internal creation, company isolation and completed pre-fix receipt recovery", async () => {
+    const first = await db.transaction(tx => ensurePosWalkinCustomer(tx, companies[0]));
+    const again = await db.transaction(tx => ensurePosWalkinCustomer(tx, companies[0]));
+    const other = await db.transaction(tx => ensurePosWalkinCustomer(tx, companies[1]));
+    expect(again).toEqual(first); expect(other.id).not.toBe(first.id);
+    expect(await rows("SELECT id FROM customers WHERE company_id=$1 AND tax_number='POS-WALKIN'", [companies[0]]))
+      .toEqual([{ id: first.id }]);
+    await agents[0].patch(`/api/customers/${first.id}`).send({ taxNumber: null }).expect(400);
+    const document: ImportDocument = { headers: ["الاسم", "الرقم"], rows: [[first.name, "POS-WALKIN"]],
+      mapping: { name: 0, taxNumber: 1 } };
+    const token = signImport(companies[0], users[0], document, "customers", "previous-reviewed-facts");
+    const key = randomUUID(), saved = { state: "completed", accepted: 1, rejected: 0, customers: [first] };
+    // Representative persisted old receipt, not execution of a forbidden new import.
+    await db.insert(financialRequestsTable).values({ companyId: companies[0], userId: users[0],
+      operation: "POST:/api:/customers/imports", requestKey: key,
+      requestHash: createHash("sha256").update(canonical({ params: {}, query: {}, body: { action: "commit", token } })).digest("hex"),
+      result: { value: saved, dates: [] } });
+    const before = await facts();
+    for (const action of ["recover", "commit"]) {
+      const r = await send(token, key, action).expect(200);
+      expect(r.headers["idempotency-replayed"]).toBe("true"); expect(r.body).toEqual(saved);
+    }
+    expect(await facts()).toEqual(before);
+    for (const v of ["POS-WALKIN", " pos-walkin ", "ＰＯＳ－ＷＡＬＫＩＮ", " P O S - WALKIN "])
+      expect(isReservedPosCustomerTaxNumber(v)).toBe(true);
+    expect(isReservedPosCustomerTaxNumber("000123")).toBe(false);
+  });
+  it("keeps ownership, finance and wrongly mapped company headers forbidden", async () => {
+    for (const header of ["Company Address", "tenantId", "companyId", "linkedCompanyId", "Company Balance", "رصيد الشركة"]) {
+      const p = await preview({ headers: [header], rows: [["قيمة"]], mapping: { name: 0 } });
+      expect(p.canCommit).toBe(false);
+    }
+  });
   it.each(["اسم الشركة", "Company Name", "Customer Company Name"])("accepts mapped natural name %s; directory only", async header => {
     const p = await preview({ headers: [header], rows: [[`منشأة ${randomUUID()}`]], mapping: { name: 0 } });
     const result = await send(p.token).expect(200);

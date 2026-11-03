@@ -2,6 +2,7 @@ import { z } from "zod/v4";
 import { createHash } from "node:crypto";
 import { canonical } from "./financial-transaction";
 import type { ImportDocument, ImportIssue } from "./product-import";
+import { isReservedPosCustomerTaxNumber } from "./pos-walkin-customer";
 
 export const CUSTOMER_IMPORT_FIELDS = ["name", "phone", "email", "taxNumber", "billingAddress", "shippingAddress"] as const;
 export type CustomerDirectoryRecord = Record<typeof CUSTOMER_IMPORT_FIELDS[number], string | null> & { name: string };
@@ -19,9 +20,12 @@ export function validateCustomerImport(doc: ImportDocument, existing: CustomerMa
   if (doc.mapping.name === undefined) issue(1, "name", "ربط اسم العميل مطلوب");
   doc.headers.forEach((header, col) => {
     if (!indices.includes(col)) issue(1, header, "عمود غير مربوط؛ أزله من الملف بدل إسقاطه بصمت");
+    const title = header.normalize("NFKC").trim().replace(/\s+/gu, " ");
     const naturalName = doc.mapping.name === col &&
-      /^(?:اسم\s+(?:الشركة|شركة\s+العميل)|(?:(?:customer|client)\s+)?company\s+name)$/i.test(header.trim());
-    if (!naturalName && /company|tenant|balance|invoice|bank|iban|account|linked|credit|payment|price.?list|total.?spent|total.?orders|رصيد|فاتورة|شركة|شركات|بنك|بنكي|حساب|قيد|ائتمان|تحصيل|دفع|قائمة.*سعر/i.test(header))
+      /^(?:اسم (?:الشركة|شركة العميل)|(?:(?:customer|client) )?company(?: name)?)$/i.test(title);
+    const naturalAddress = (doc.mapping.billingAddress === col || doc.mapping.shippingAddress === col) &&
+      /^(?:(?:(?:customer|client) )?company (?:(?:billing|shipping) )?address|عنوان (?:الشركة|شركة العميل))$/i.test(title);
+    if (!naturalName && !naturalAddress && /company|tenant|balance|invoice|bank|iban|account|linked|credit|payment|price.?list|total.?spent|total.?orders|رصيد|فاتورة|شركة|شركات|بنك|بنكي|حساب|قيد|ائتمان|تحصيل|دفع|قائمة.*سعر/i.test(header))
       issue(1, header, "الملكية والأرصدة والفواتير والحقول المالية ليست ضمن استيراد دليل العملاء");
   });
   const prior: CustomerMatch[] = [...existing].sort((a, b) => a.id - b.id);
@@ -46,6 +50,8 @@ export function validateCustomerImport(doc: ImportDocument, existing: CustomerMa
     const c: CustomerDirectoryRecord = { name: text("name") ?? "", phone: text("phone"), email: text("email"),
       taxNumber: text("taxNumber"), billingAddress: text("billingAddress"), shippingAddress: text("shippingAddress") };
     if (!c.name) issue(row, "name", "اسم العميل مطلوب");
+    if (isReservedPosCustomerTaxNumber(c.taxNumber))
+      issue(row, "taxNumber", "هذا الرمز محجوز للعميل النقدي الداخلي؛ لا يمكن استيراده أو تجاوزه بتأكيد التشابه");
     if (c.email && !z.email().safeParse(c.email).success) issue(row, "email", "البريد الإلكتروني غير صالح");
     const matches = prior.filter(p => (["name", "phone", "email", "taxNumber"] as const)
       .some(f => normalized(c[f]) !== null && normalized(c[f]) === normalized(p[f])));

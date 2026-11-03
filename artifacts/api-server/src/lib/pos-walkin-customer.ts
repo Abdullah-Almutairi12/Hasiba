@@ -3,12 +3,19 @@ import { and, eq, sql } from "drizzle-orm";
 
 type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
+export const POS_WALKIN_TAX_NUMBER = "POS-WALKIN";
+/** Reserved internal identity, not an externally supplied tax identifier. */
+export function isReservedPosCustomerTaxNumber(value: string | null | undefined) {
+  return typeof value === "string" &&
+    value.normalize("NFKC").replace(/\s+/gu, "").toUpperCase() === POS_WALKIN_TAX_NUMBER;
+}
+
 /** Explicit tenant-owned default, never a customer borrowed from another tenant. */
 export async function ensurePosWalkinCustomer(tx: Transaction, companyId: number) {
   if (!Number.isSafeInteger(companyId) || companyId <= 0) throw new Error("Invalid company scope");
   const find = () => tx.select({ id: customersTable.id, name: customersTable.name })
     .from(customersTable)
-    .where(and(eq(customersTable.companyId, companyId), eq(customersTable.taxNumber, "POS-WALKIN")))
+    .where(and(eq(customersTable.companyId, companyId), eq(customersTable.taxNumber, POS_WALKIN_TAX_NUMBER)))
     .orderBy(customersTable.id).limit(1);
   const [existing] = await find();
   if (existing) return existing;
@@ -18,7 +25,7 @@ export async function ensurePosWalkinCustomer(tx: Transaction, companyId: number
   const [createdByAnotherTill] = await find();
   if (createdByAnotherTill) return createdByAnotherTill;
   const [created] = await tx.insert(customersTable).values({
-    companyId, name: "عميل نقدي - نقطة بيع", taxNumber: "POS-WALKIN",
+    companyId, name: "عميل نقدي - نقطة بيع", taxNumber: POS_WALKIN_TAX_NUMBER,
     segment: "retail", paymentTermsDays: 0, creditLimit: "0",
   }).returning({ id: customersTable.id, name: customersTable.name });
   return created;
