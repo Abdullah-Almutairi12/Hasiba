@@ -12,6 +12,20 @@ const counts=()=>rows(`SELECT (SELECT count(*)::int FROM pos_sessions) sessions,
   (SELECT count(*)::int FROM journal_entries) journals,(SELECT count(*)::int FROM stock_moves) moves`);
 describe.sequential("native shift-opening scope, cash and durable request authority",()=>{
   beforeAll(async()=>{f=await posTemplateFixture();},60000);
+  it("recovers an authorized open shift older than twenty history rows without opening another",async()=>{
+    const opened=ok(await f.owner.post(path).set("Idempotency-Key",randomUUID()).send(body()),201);
+    const histories=await rows(`INSERT INTO pos_sessions(session_number,branch_id,cashier_user_id,cashier_name,opening_cash,status,opened_at,closed_at)
+      SELECT 'history-' || $3 || '-' || n,$1,$2,'history',0,'closed',now()+n*interval '1 second',now()+n*interval '1 second'
+      FROM generate_series(1,25) n RETURNING id`,[f.branches[0].id,f.ownerUser.id,randomUUID()]);
+    const before=await counts();
+    const listed=ok(await f.owner.get(path));
+    expect(listed.some((s:any)=>s.id===opened.id&&s.status==="open"&&s.cashierUserId===f.ownerUser.id)).toBe(true);
+    expect(await counts()).toEqual(before);
+    const other=ok(await f.actors[0].get(path).set("X-Workspace-Responsibility",String(f.people[0].grants[0].id)));
+    expect(other.every((s:any)=>s.branchId===f.branches[0].id)).toBe(true);
+    // Keep the shared fixture's later opening assertions independent.
+    await rows("DELETE FROM pos_sessions WHERE id = ANY($1::int[])",[`{${histories.map((s:any)=>s.id).concat(opened.id).join(",")}}`]);
+  });
   it("lists only active current-company branches for an unbound owner, without rebinding the account",async()=>{
     const before=await rows("SELECT branch_id FROM users WHERE id=$1",[f.ownerUser.id]);
     expect(before[0].branch_id).toBeNull();

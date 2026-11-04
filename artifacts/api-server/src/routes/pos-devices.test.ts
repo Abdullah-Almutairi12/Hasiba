@@ -183,16 +183,21 @@ describe.sequential("POS device software proof and cashier-only identity",()=>{
     expect((await rows("SELECT quantity::text FROM stock_quants WHERE product_id=$1 AND warehouse_id=$2",[f.products[0].id,f.warehouses[0].id]))[0].quantity).toBe("19.0000");
     device=reader;
   });
-  it("filters company, station and cashier in SQL before the twenty-shift result limit",async()=>{
+  it("preserves an old open shift beyond twenty own-device histories and filters company, station and cashier in SQL",async()=>{
     const cashier=await unlock(device);ok(cashier.response);
     const shift=ok(await call(cashier.agent,device,"post","/pos/sessions",
       {branchId:f.branches[0].id,openingCash:0,cashierName:"موظفي"}),201);
     await rows(`INSERT INTO pos_sessions(branch_id,session_number,cashier_name,opened_at,cashier_user_id,pos_station_id)
       SELECT $1,'other-'||gen_random_uuid(),'موظف آخر',now()+interval '1 minute',$2,NULL FROM generate_series(1,25)`,
       [f.branches[0].id,other.userId]);
+    await rows(`INSERT INTO pos_sessions(branch_id,session_number,cashier_name,opened_at,closed_at,status,cashier_user_id,pos_station_id)
+      SELECT $1,'own-history-'||gen_random_uuid(),'موظفي',now()+interval '2 minutes',now()+interval '2 minutes','closed',$2,$3
+      FROM generate_series(1,25)`,[f.branches[0].id,person.userId,shift.posStationId]);
+    const before=(await rows("SELECT count(*)::int n FROM pos_sessions"))[0].n;
     const visible=ok(await call(cashier.agent,device,"get","/pos/sessions"));
     expect(visible.some((s:any)=>s.id===shift.id)).toBe(true);
     expect(visible.every((s:any)=>s.cashierUserId===person.userId && s.posStationId===shift.posStationId)).toBe(true);
+    expect((await rows("SELECT count(*)::int n FROM pos_sessions"))[0].n).toBe(before);
   });
   it("routes granted device close actions to the existing authority service, without implicit approval or configuration",async()=>{
     const cashier=await unlock(device);ok(cashier.response);

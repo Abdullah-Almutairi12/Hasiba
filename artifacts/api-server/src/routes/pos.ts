@@ -31,7 +31,7 @@ import { parsePagination } from "../lib/pagination";
 import { processInvoiceForZatca } from "../lib/integrations/zatca-phase2";
 import { recordStockMove,StockAvailabilityError } from "../lib/stock-engine";
 import { stockMovesTable } from "@workspace/db";
-import { eq, gte, sql, desc, inArray, and, isNull } from "drizzle-orm";
+import { eq, gte, sql, desc, inArray, and, or, isNull } from "drizzle-orm";
 import { CreatePosSessionBody, CreatePosOrderBody } from "@workspace/api-zod";
 import { posGuard, posReadGuard } from "../middlewares/require-role";
 import { postJournalEntry } from "../lib/journal-posting";
@@ -350,6 +350,18 @@ router.get("/pos/sessions", posReadGuard, async (req, res) => {
     const companyId = getCompanyId(req);
     const actor = await returnAuthorize(req.session.userId!, companyId, "view");
     const device = posDeviceAuthority.getStore();
+    const scope = and(
+      actor.branches ? inArray(posSessionsTable.branchId, actor.branches) : undefined,
+      device ? eq(posSessionsTable.branchId, device.branchId) : undefined,
+      device ? eq(posSessionsTable.posStationId, device.stationId) : undefined,
+      device ? eq(posSessionsTable.cashierUserId, device.userId) : undefined,
+    );
+    // Recent history is bounded; an authorized open shift is not history and
+    // must never disappear because newer (possibly other-cashier) rows exist.
+    // One SQL statement gives both sets the same PostgreSQL read snapshot.
+    const historyIds = db.select({ id: posSessionsTable.id }).from(posSessionsTable)
+      .innerJoin(branchesTable, and(eq(posSessionsTable.branchId, branchesTable.id), eq(branchesTable.companyId, companyId)))
+      .where(scope).orderBy(desc(posSessionsTable.openedAt), desc(posSessionsTable.id)).limit(20);
     const sessions = await db
       .select({
         id: posSessionsTable.id,
@@ -373,14 +385,8 @@ router.get("/pos/sessions", posReadGuard, async (req, res) => {
           eq(branchesTable.companyId, companyId),
         ),
       )
-      .where(and(
-        actor.branches ? inArray(posSessionsTable.branchId, actor.branches) : undefined,
-        device ? eq(posSessionsTable.branchId, device.branchId) : undefined,
-        device ? eq(posSessionsTable.posStationId, device.stationId) : undefined,
-        device ? eq(posSessionsTable.cashierUserId, device.userId) : undefined,
-      ))
-      .orderBy(desc(posSessionsTable.openedAt))
-      .limit(20);
+      .where(and(scope, or(eq(posSessionsTable.status, "open"), inArray(posSessionsTable.id, historyIds))))
+      .orderBy(desc(posSessionsTable.openedAt), desc(posSessionsTable.id));
 
     res.json(
       sessions.map((s) => ({

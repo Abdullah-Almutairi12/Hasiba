@@ -32,6 +32,12 @@ An authorized operator may work across branches without a permanent account-to-b
 
 **How to apply:** Preserve the distinction between selecting an operating context and granting access. Native shift-opening acceptance must click the opening control itself; seeding a shift through API or SQL is not evidence that its interface works.
 
+An incomplete or failed shift read is unknown state, not evidence that no shift exists. Current open shifts must not be displaced by the recent-history window.
+
+**Why:** A cashier must recover the same authorized shift after reload even when many newer history rows exist; an unavailable read must not authorize a fresh opening.
+
+**How to apply:** Keep fresh opening fail-closed until a successful state read, while preserving immutable saved-attempt replay. Bound historical lists separately from active operational state, with the same tenant/device filters.
+
 Investor presentations must reflect actual product readiness, with real synthetic-data
 screenshots for valuable new capabilities and explicit tested/partially tested/planned
 status. Preserve the original deck identity and slide identifiers; update an existing

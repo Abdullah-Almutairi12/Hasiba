@@ -159,7 +159,7 @@ export default function PosIconic({
     category: categoryId?.toString(),
   });
   const { data: categories } = useListProductCategories();
-  const { data: sessions, refetch: refetchSessions } = useListPosSessions({
+  const { data: sessions, refetch: refetchSessions, isLoading: sessionsLoading, isFetching: sessionsFetching, isError: sessionsError } = useListPosSessions({
     query: { queryKey: ["/api/pos/sessions", shiftScope], refetchInterval: 15_000, staleTime: 0, refetchOnWindowFocus: true },
   });
   const activeSession = selectedPosSession(sessions, selectedBranchId, user?.id, choice?.branchId === selectedBranchId ? choice.sessionId : undefined);
@@ -542,6 +542,9 @@ export default function PosIconic({
             contextLocked={checkoutLocked || cart.length > 0}
             onPendingChange={pending => setOpeningState(old => old.scope === shiftScope && old.pending === pending ? old : { scope: shiftScope, pending })}
             hasSession={!!activeSession}
+            sessionsChecking={!!sessionsLoading || !!sessionsFetching || !sessions && !sessionsError}
+            sessionsError={!!sessionsError}
+            onRefreshSessions={() => void refetchSessions()}
             canOpenShift={canOpenPosShift}
             cashierName={user?.name ?? ""}
             intentScope={user?.companyId ? `${user.id}:${user.companyId}` : null}
@@ -1358,13 +1361,15 @@ function ParkedOverlay({
  * parking, discounts, barcode lookup or non-cash tenders.
  */
 function ScopedPosNotice({ branchId, hasSession, canOpenShift, cashierName, onOpened, intentScope, caps, scoped=true,
-  fixedBranch, branches, branchesLoading, branchesError, onSelectBranch, onRefreshBranches, contextLocked, onPendingChange }: {
+  fixedBranch, branches, branchesLoading, branchesError, onSelectBranch, onRefreshBranches, contextLocked, onPendingChange,
+  sessionsChecking, sessionsError, onRefreshSessions }: {
   branchId: number | null; hasSession: boolean; canOpenShift: boolean; cashierName: string; onOpened: (session: PosSession) => void;
   intentScope: string | null; caps: ReturnType<typeof scopedCheckoutCaps>;
   scoped?:boolean;
   fixedBranch: boolean; branches: Array<{ id: number; name: string }>; branchesLoading: boolean; branchesError: boolean;
   onSelectBranch: (branchId: number) => void; onRefreshBranches: () => void; contextLocked: boolean;
   onPendingChange: (pending: boolean) => void;
+  sessionsChecking: boolean; sessionsError: boolean; onRefreshSessions: () => void;
 }) {
   const { toast } = useToast();
   const [cash, setCash] = useState("");
@@ -1380,6 +1385,9 @@ function ScopedPosNotice({ branchId, hasSession, canOpenShift, cashierName, onOp
     if (!intentScope || inFlight.current || busy || pending === "unreadable" || mismatch) return;
     let intent = pending;
     if (!intent) {
+      // An absent/failed list is not evidence that no shift exists. A saved
+      // intent is different: replaying its immutable identity remains safe.
+      if (sessionsChecking || sessionsError || hasSession) return;
       const n = Number(cash || "0");
       if (!usable || !canOpenShift || !Number.isFinite(n) || n < 0 || n > 99999999.99 || Math.abs(n * 100 - Math.round(n * 100)) > 0.000001) {
         toast({ title: "أدخل نقدًا افتتاحيًا صحيحًا غير سالب بمنزلتين عشريتين كحد أقصى.", variant: "destructive" }); return;
@@ -1455,7 +1463,13 @@ function ScopedPosNotice({ branchId, hasSession, canOpenShift, cashierName, onOp
           {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
         </select>
       </label>}
-      {recovery ? recovery : !canOpenShift && !hasSession ? (
+      {recovery ? recovery : sessionsError ? (
+        <p role="alert">تعذر التحقق من حالة الوردية. لن يُرسل طلب فتح جديد قبل نجاح التحقق.
+          <button data-testid="button-pos-session-recheck" onClick={onRefreshSessions}>إعادة التحقق من الوردية</button>
+        </p>
+      ) : sessionsChecking ? (
+        <p data-testid="text-pos-session-checking">جارٍ التحقق من حالة الوردية؛ فتح وردية جديدة غير متاح حتى اكتمال القراءة.</p>
+      ) : !canOpenShift && !hasSession ? (
         <p data-testid="text-scoped-no-shift-permission">لا توجد وردية متاحة، وفتح الوردية غير ممنوح لك. اطلب مسؤولية فتح الوردية من المسؤول.</p>
       ) : !fixedBranch && branchesError ? (
         <p>تعذر التحقق من فروعك المسموحة. <button onClick={onRefreshBranches}>إعادة تحميل الفروع</button></p>

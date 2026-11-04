@@ -6,13 +6,15 @@ import PosIconic from "./pos-iconic";
 import { beforeEach } from "vitest";
 
 const sessionMock = vi.hoisted(() => ({ id:9,status: "open", refetch: vi.fn(),branchId:7 as number|null,
-  role: null as string | null, branchOptions: [{ id: 7, name: "فرع تجربة المالك" }], branchError: false }));
+  role: null as string | null, branchOptions: [{ id: 7, name: "فرع تجربة المالك" }], branchError: false,
+  loading: false, error: false }));
 beforeEach(() => {
   sessionMock.status = "open";
   sessionMock.id=9;
   sessionMock.branchId=7;
   sessionMock.role=null; sessionMock.branchOptions=[{ id: 7, name: "فرع تجربة المالك" }]; sessionMock.branchError=false;
   sessionMock.refetch.mockClear();
+  sessionMock.loading=false; sessionMock.error=false;
 });
 import { usePosCheckout } from "@/hooks/use-pos-checkout";
 import ar from "@/i18n/ar.json";
@@ -33,7 +35,7 @@ vi.mock("@workspace/api-client-react", async (original) => ({
   ...await original<typeof import("@workspace/api-client-react")>(),
   useListProducts: () => ({ data: [{ id: 5, name: "منتج تجريبي", nameAr: "منتج تجريبي", price: 100, stock: 20 }] }),
   useListProductCategories: () => ({ data: [] }),
-  useListPosSessions: () => ({ data: [{ id: sessionMock.id, status: sessionMock.status, branchId: sessionMock.branchId ?? 7, cashierUserId: 11 }], refetch: sessionMock.refetch }),
+  useListPosSessions: () => ({ data: sessionMock.loading || sessionMock.error ? undefined : [{ id: sessionMock.id, sessionNumber: `SHIFT-${sessionMock.id}`, status: sessionMock.status, branchId: sessionMock.branchId ?? 7, cashierUserId: 11 }], isLoading: sessionMock.loading, isFetching: sessionMock.loading, isError: sessionMock.error, refetch: sessionMock.refetch }),
   useListPosShiftBranches: () => ({ data: sessionMock.branchOptions, isLoading: false, isError: sessionMock.branchError, refetch: vi.fn() }),
 }));
 
@@ -47,6 +49,51 @@ function mount() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(<QueryClientProvider client={client}><PosIconic variant="retail" /></QueryClientProvider>);
 }
+describe("shift state must be established before a fresh opening", () => {
+  it("blocks a new opening while the session read is loading", async () => {
+    sessionMock.status="closed"; sessionMock.loading=true;
+    const fetcher=vi.fn(async()=>Response.json([])); vi.stubGlobal("fetch",fetcher);
+    const view=mount();
+    expect(screen.queryByTestId("button-scoped-open-shift")).toBeNull();
+    expect(await screen.findByTestId("text-pos-session-checking")).toBeTruthy();
+    expect(fetcher.mock.calls.some(([url,init]:any[])=>String(url).endsWith("/pos/sessions")&&init?.method==="POST")).toBe(false);
+    view.unmount();
+    sessionMock.loading=false; sessionMock.status="open"; sessionMock.id=123;
+    mount();
+    expect(await screen.findByTestId("text-scoped-pos-ready")).toBeTruthy();
+    expect(screen.getByTestId("pos-active-session-context").textContent).toContain("SHIFT-123");
+    expect(screen.queryByTestId("button-scoped-open-shift")).toBeNull();
+  });
+  it("blocks a new opening after a failed session read and permits explicit recheck", async () => {
+    sessionMock.status="closed"; sessionMock.error=true;
+    mount();
+    expect(screen.queryByTestId("button-scoped-open-shift")).toBeNull();
+    await userEvent.click(await screen.findByTestId("button-pos-session-recheck"));
+    expect(sessionMock.refetch).toHaveBeenCalledOnce();
+  });
+  it("keeps saved opening recovery available despite a failed session read", async () => {
+    sessionMock.error=true;
+    const attempts: Array<{key: string|null; body: unknown}>=[];
+    vi.stubGlobal("fetch",vi.fn(async (url:RequestInfo|URL,init?:RequestInit)=>{
+      if(String(url).endsWith("/api/pos/sessions")&&init?.method==="POST"){
+        attempts.push({key:new Headers(init.headers).get("Idempotency-Key"),body:JSON.parse(String(init.body))});
+        return Response.json({id:123,branchId:7,status:"open",cashierUserId:11},{status:201});
+      }
+      return Response.json([]);
+    }));
+    // Use the same public persistence helper as the original opening interface.
+    const { saveSessionIntent }=await import("@/lib/pos-session-intent");
+    saveSessionIntent("11:21", {key:"saved-opening",body:{branchId:7,cashierName:"test",openingCash:12},responsibility:null});
+    mount();
+    expect(await screen.findByTestId("button-scoped-open-retry")).toBeTruthy();
+    expect(screen.queryByTestId("button-scoped-open-shift")).toBeNull();
+    await userEvent.click(screen.getByTestId("button-scoped-open-retry"));
+    await waitFor(()=>expect(attempts).toHaveLength(1));
+    expect(attempts[0]).toEqual({key:"saved-opening",body:{branchId:7,cashierName:"test",openingCash:12}});
+    await waitFor(()=>expect(sessionStorage.getItem("hasba:pos-session-open:11:21")).toBeNull());
+    expect(screen.queryByTestId("button-scoped-open-shift")).toBeNull();
+  });
+});
 function saleTransport(fault?: "lost" | "502" | "malformed" | "incomplete" | "reject") {
   const attempts: Array<{ key: string; body: string }> = [];
   const committed = new Map<string, { id: number; orderNumber: string; total: number }>();
