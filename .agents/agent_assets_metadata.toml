@@ -1967,3 +1967,17 @@ mtime_ms = 1793799187504
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/1c423915-f64f-4092-8b69-ae54eba67ef0/6e42fcc7-4071-42a2-91a3-4c83507e8527"
 storage_version_token = "1793799232588100"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "ReA_8znIG_mY16seMjqwu"
+uri = "file://generated-artifacts/pos-resumed-revisions/Hasiba-Resumed-Basket-Revisions-Evidence.zip"
+type = "unspecified"
+title = "أدلة إصلاح نسخ السلة المسترجعة — حاسبة"
+description = "79 ملفًا، منها22 صورة، ونتائج15 بوابة و1278 API و490 UI، ومصالحة مستقلة وتقرير عربي/إنجليزي. المصدر9ebb23e؛ بيانات اصطناعية وقيم المحاولات الحساسة منقحة."
+logical_id = "748c006f-d5a9-4457-a21a-a80388639bca"
+content_hash = "sha256:6c6a9d85004fb6c4d1d441418231c02ea6737779e2a37ab567f455b533ab4ba5"
+size = 1323608
+mtime_ms = 1793805410674
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/748c006f-d5a9-4457-a21a-a80388639bca/efbe2be2-cac1-4ea1-9fa8-8c9af6121d44"
+storage_version_token = "1793805446034375"
+content_type = "application/octet-stream"

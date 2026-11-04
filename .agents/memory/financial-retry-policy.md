@@ -130,3 +130,11 @@ The cashier may change permitted items, quantities and customer, including remov
 **Why:** The user requires the edited basket and customer to survive refresh. Restoring the original claim's contents can silently invoice the wrong quantity or customer; replacing an uncertain financial request with newer edits creates a different, unsafe retry.
 
 **How to apply:** Keep the source identity and shift fixed while preserving the latest permitted working edits. Do not require the final customer or quantities to equal the original resume claim. Once payment is sent, the original financial request remains authoritative until its outcome is safely resolved, even if a newer local working copy exists.
+
+## Local durability is not confirmation of the shared draft version
+
+A newer server-confirmed working version must fence both stale edits and stale checkout under the same source serialization. Compare version and financial contents; guessing the latest version must not authorize older quantities or customer. An older tab must explicitly load and review the newer basket, never silently adopt it and collect payment.
+
+**Why:** A single final sale per draft prevents duplicate sales, but still permits the wrong old tab to win first unless the latest confirmed edit is authoritative. The user explicitly distinguishes a locally saved edit from server confirmation.
+
+**How to apply:** Keep the immutable resume identity and original financial request. Confirm editable contents separately before new checkout; retain unknown save/payment attempts exactly. If checkout won before a late edit, show the original outcome without changing the invoice.
