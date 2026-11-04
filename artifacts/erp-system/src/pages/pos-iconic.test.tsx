@@ -304,6 +304,44 @@ describe("safe native parked basket resume",()=>{
       serverCustomer={id:17,name:"عميل تجربة السوبرماركت"};
     }};
   }
+  it("ends only a reconciled continuation with an empty customer-free basket, never after a denial alone",async()=>{
+    const t=resumeTransport(false,false,2),u=userEvent.setup();
+    const previous=globalThis.fetch;
+    let resolved=false;
+    vi.stubGlobal("fetch",vi.fn(async(input:RequestInfo|URL,init?:RequestInit)=>{
+      const path=String(input);
+      if(path.endsWith("/81/resumed-basket/resolve")){
+        if(!resolved)return Response.json({error:"تعذر التحقق"},{status:403});
+        return Response.json({state:"closed_without_execution",id:81,sessionId:9});
+      }
+      if(path.endsWith("/81/resumed-basket")&&JSON.parse(String(init?.body)).action==="save")
+        return Response.json({error:"الوردية مغلقة"},{status:409});
+      return previous(input,init);
+    }));
+    let view=mount();
+    await u.click(await screen.findByTestId("dock-parking"));await u.click(await screen.findByTestId("button-resume-81"));
+    await waitFor(()=>expect(screen.getByTestId("cart-row-unit-5")).toBeTruthy());
+    await u.click(screen.getByTestId("product-icon-5"));
+    expect(screen.getByTestId("button-end-resumed-continuation").matches(":disabled")).toBe(true);
+    await u.click(screen.getByTestId("button-confirm-resumed-edits"));
+    view.unmount();view=mount();
+    await waitFor(()=>expect(screen.getByTestId("button-confirm-resumed-edits").textContent).toContain("الأصلية"));
+    await u.click(screen.getByTestId("button-confirm-resumed-edits")); //403 is NOT proof of nonexecution.
+    expect(screen.getByTestId("button-end-resumed-continuation").matches(":disabled")).toBe(true);
+    expect(screen.getByTestId("cart-row-unit-5").parentElement!.textContent).toContain("× 3");
+    resolved=true;await u.click(screen.getByTestId("button-confirm-resumed-edits"));
+    await waitFor(()=>expect(screen.getByTestId("button-end-resumed-continuation").matches(":disabled")).toBe(false));
+    await u.click(screen.getByTestId("button-end-resumed-continuation"));
+    expect(screen.queryByTestId("cart-row-unit-5")).toBeNull();
+    expect(screen.queryByTestId("resumed-source")).toBeNull();
+    expect(screen.getByTestId("dock-customer").getAttribute("aria-label")).not.toBe("أ");
+    expect(t.sales.attempts).toHaveLength(0);
+    await u.click(screen.getByTestId("product-icon-5"));
+    await u.click(screen.getByTestId("button-pay-cash"));await review(u);await u.click(screen.getByTestId("button-pay-rail"));
+    await waitFor(()=>expect(t.sales.attempts).toHaveLength(1));
+    expect(JSON.parse(t.sales.attempts[0].body).resumedDraft).toBeUndefined();
+    expect(JSON.parse(t.sales.attempts[0].body).customerId??null).toBeNull();
+  });
   it("stale tab pays FIRST: shows conflict, seals the original attempt, and requires explicit newer-basket review",async()=>{
     const t=resumeTransport(false,false,2),u=userEvent.setup();mount();
     await u.click(await screen.findByTestId("dock-parking"));await u.click(await screen.findByTestId("button-resume-81"));

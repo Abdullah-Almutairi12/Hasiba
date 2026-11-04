@@ -11,6 +11,7 @@ export type ResumedBasket={
   serverDirty?:boolean;
   serverConflict?:boolean;
   serverFinalized?:boolean;
+  continuationResolved?:boolean;
   syncIntent?:{key:string;body:PosResumedBasketInput;responsibility:string|null};
 };
 export function usePosResumedBasket(scope:string){

@@ -303,6 +303,7 @@ import type {
   ResendCleanupReport404,
   ResendCleanupReportBody,
   ResetAccountPasswordBody,
+  ResolvePosResumedBasketBody,
   ResumedSaleLookupInput,
   RetryInvoiceSendFailure200,
   RetryInvoiceSendFailure404,
@@ -27266,6 +27267,89 @@ export const useRunVatThresholdCheck = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getRunVatThresholdCheckMutationOptions(options), queryClient);
+    }
+
+export const getResolvePosResumedBasketUrl = (id: number,) => {
+
+
+
+
+  return `/api/pos/orders/${id}/resumed-basket/resolve`
+}
+
+export const resolvePosResumedBasket = async (id: number,
+    resolvePosResumedBasketBody: ResolvePosResumedBasketBody, options?: Parameters<typeof customFetch>[1]): Promise<PosResumedBasketState> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<PosResumedBasketState>(getResolvePosResumedBasketUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(resolvePosResumedBasketBody)
+  }
+);}
+
+
+
+
+
+export const getResolvePosResumedBasketMutationKey = () => ['resolvePosResumedBasket'] as const;
+
+export const getResolvePosResumedBasketMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof resolvePosResumedBasket>>, TError,ResolvePosResumedBasketMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof resolvePosResumedBasket>>, TError,ResolvePosResumedBasketMutationVariables, TContext> => {
+
+const mutationKey = getResolvePosResumedBasketMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof resolvePosResumedBasket>>, ResolvePosResumedBasketMutationVariables> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  resolvePosResumedBasket(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ResolvePosResumedBasketMutationResult = NonNullable<Awaited<ReturnType<typeof resolvePosResumedBasket>>>
+    export type ResolvePosResumedBasketMutationBody = BodyType<ResolvePosResumedBasketBody>
+    export type ResolvePosResumedBasketMutationError = ErrorType<void>
+    export type ResolvePosResumedBasketMutationVariables = {id: number;data: BodyType<ResolvePosResumedBasketBody>}
+
+    export const useResolvePosResumedBasket = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof resolvePosResumedBasket>>, TError,ResolvePosResumedBasketMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof resolvePosResumedBasket>>,
+        TError,
+        ResolvePosResumedBasketMutationVariables,
+        TContext
+      > => {
+      return useMutation(getResolvePosResumedBasketMutationOptions(options), queryClient);
     }
 
 export const getSyncPosResumedBasketUrl = (id: number,) => {

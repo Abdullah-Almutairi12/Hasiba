@@ -26,6 +26,56 @@ async function fixture(){
   return {...f,companyId,source,initial,latest,edit,sale,evidence};
 }
 describe("server-confirmed resumed basket revisions on PostgreSQL",()=>{
+  for(const savedFirst of [false,true])it(`reconciles the exact edit after source closure; saved first=${savedFirst}`,async()=>{
+    const f=await fixture(),key=randomUUID();
+    const body={...f.source,action:"save",...f.latest};
+    const resolve=()=>f.owner.post(`/api/pos/orders/${f.source.id}/resumed-basket/resolve`).send({requestKey:key,body});
+    if(savedFirst)expect(ok(await f.edit(0,f.latest,key)).version).toBe(1);
+    // Isolated state transition only; the browser exercises the native shift close.
+    await rows("UPDATE pos_sessions SET status='closed',closed_at=now() WHERE id=$1",[f.source.sessionId]);
+    if(!savedFirst)ok(await f.edit(0,f.latest,key),409);
+    const outcome=ok(await resolve());
+    expect(outcome.state).toBe(savedFirst?"current":"closed_without_execution");
+    if(savedFirst){
+      expect(outcome.cart[0].quantity).toBe(3);expect(outcome.customer.id).toBe(f.latest.customerId);
+    }
+    expect(ok(await resolve())).toEqual(outcome); // Lost resolution reply is recoverable.
+    const late=await f.edit(0,f.latest,key);
+    if(savedFirst)expect(ok(late).version).toBe(1);
+    else ok(late,409); // A late original request is permanently fenced.
+    expect(await f.evidence()).toEqual({invoices:0,payments:0,issues:0});
+    const next=ok(await f.owner.post("/api/pos/sessions").set("Idempotency-Key",randomUUID()).send({
+      branchId:f.branches[0].id,cashierName:"وردية جديدة",openingCash:100}),201);
+    const payKey=randomUUID(),pay=()=>f.owner.post("/api/pos/orders").set("Idempotency-Key",payKey).send({
+      sessionId:next.id,paymentMethod:"cash",...f.latest});
+    const paid=ok(await pay(),201);expect(ok(await pay(),201).id).toBe(paid.id);
+    expect(paid.sessionId).toBe(next.id);
+    expect(await f.evidence()).toEqual({invoices:1,payments:1,issues:1});
+    expect((await rows("SELECT count(*)::int n FROM pos_orders WHERE session_id=$1 AND status='paid'",[f.source.sessionId]))[0].n).toBe(0);
+  });
+  for(const first of ["save","resolve"] as const)it(`serializes edit resolution and original save: ${first} first`,async()=>{
+    const f=await fixture(),key=randomUUID();
+    const body={...f.source,action:"save",...f.latest};
+    const lock=JSON.stringify([f.companyId,f.ownerUser.id,"POST:/api:/pos/orders/:id/resumed-basket",key]);
+    const blocker=await pool.connect();
+    const wait=async(n:number)=>{
+      for(let i=0;i<150;i++){
+        if((await rows("SELECT count(*)::int n FROM pg_stat_activity WHERE datname=current_database() AND wait_event='advisory'"))[0].n>=n)return;
+        await new Promise(r=>setTimeout(r,20));
+      }throw Error("Expected real PostgreSQL intent waiters");
+    };
+    const resolve=()=>f.owner.post(`/api/pos/orders/${f.source.id}/resumed-basket/resolve`).send({requestKey:key,body});
+    let a:Promise<any>|undefined,b:Promise<any>|undefined;
+    try{
+      await blocker.query("SELECT pg_advisory_lock(hashtextextended($1,0))",[lock]);
+      a=(first==="save"?f.edit(0,f.latest,key):resolve()).then(r=>r);await wait(1);
+      b=(first==="save"?resolve():f.edit(0,f.latest,key)).then(r=>r);await wait(2);
+    }finally{await blocker.query("SELECT pg_advisory_unlock(hashtextextended($1,0))",[lock]);blocker.release();}
+    const [one,two]=await Promise.all([a!,b!]);
+    if(first==="save"){expect(ok(one).state).toBe("current");expect(ok(two)).toEqual(one.body);}
+    else{expect(ok(one).state).toBe("closed_without_execution");ok(two,409);}
+    expect(await f.evidence()).toEqual({invoices:0,payments:0,issues:0});
+  });
   it("rejects stale payment FIRST and stale edits, then invoices exactly the reviewed 3/B revision once",async()=>{
     const f=await fixture(),key=randomUUID();
     expect(ok(await f.edit(0,f.latest,key)).version).toBe(1);

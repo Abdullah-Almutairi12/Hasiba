@@ -5577,6 +5577,30 @@ paths:
                     enum: [near80, mandatory]
                 required: [snapshot]
 
+  /pos/orders/{id}/resumed-basket/resolve:
+    post:
+      operationId: resolvePosResumedBasket
+      tags: [POS]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, minimum: 1 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [requestKey, body]
+              properties:
+                requestKey: { type: string, minLength: 8, maxLength: 128 }
+                body: { $ref: "#/components/schemas/PosResumedBasketInput" }
+      responses:
+        "200":
+          description: Original saved result or durable closure without execution under its original lock.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PosResumedBasketState" }
+        "403": { description: Current source read authority denied; no inference about execution }
+        "409": { description: Original identity or body mismatch }
   /pos/orders/{id}/resumed-basket:
     post:
       operationId: syncPosResumedBasket
@@ -5621,7 +5645,7 @@ components:
       type: object
       required: [state, id, sessionId]
       properties:
-        state: { type: string, enum: [current, conflict, completed] }
+        state: { type: string, enum: [current, conflict, completed, closed_without_execution] }
         id: { type: integer }
         sessionId: { type: integer }
         version: { type: integer }

@@ -7875,6 +7875,56 @@ export const RunVatThresholdCheckResponse = zod.object({
 
 
 
+export const ResolvePosResumedBasketParams = zod.object({
+  "id": zod.coerce.number().int().min(1)
+})
+
+export const resolvePosResumedBasketBodyRequestKeyMin = 8;
+export const resolvePosResumedBasketBodyRequestKeyMax = 128;
+
+
+export const resolvePosResumedBasketBodyBodyRequestIdMin = 8;
+export const resolvePosResumedBasketBodyBodyRequestIdMax = 128;
+
+export const resolvePosResumedBasketBodyBodyVersionMin = 0;
+
+
+export const resolvePosResumedBasketBodyBodyItemsItemQuantityExclusiveMin = 0;
+
+export const resolvePosResumedBasketBodyBodyItemsMax = 500;
+
+
+
+
+export const ResolvePosResumedBasketBody = zod.object({
+  "requestKey": zod.string().min(resolvePosResumedBasketBodyRequestKeyMin).max(resolvePosResumedBasketBodyRequestKeyMax),
+  "body": zod.object({
+  "sessionId": zod.number().int().min(1),
+  "requestId": zod.string().min(resolvePosResumedBasketBodyBodyRequestIdMin).max(resolvePosResumedBasketBodyBodyRequestIdMax),
+  "version": zod.number().int().min(resolvePosResumedBasketBodyBodyVersionMin),
+  "action": zod.enum(['read', 'save']),
+  "items": zod.array(zod.object({
+  "productId": zod.number().int().min(1),
+  "quantity": zod.number().gt(resolvePosResumedBasketBodyBodyItemsItemQuantityExclusiveMin)
+})).max(resolvePosResumedBasketBodyBodyItemsMax).optional(),
+  "customerId": zod.number().int().min(1).nullish()
+})
+})
+
+export const ResolvePosResumedBasketResponse = zod.object({
+  "state": zod.enum(['current', 'conflict', 'completed', 'closed_without_execution']),
+  "id": zod.number().int(),
+  "sessionId": zod.number().int(),
+  "version": zod.number().int().optional(),
+  "cart": zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+  "customer": zod.record(zod.string(), zod.unknown()).nullish(),
+  "order": zod.record(zod.string(), zod.unknown()).optional()
+})
+
+
+
+
+
 export const SyncPosResumedBasketParams = zod.object({
   "id": zod.coerce.number().int().min(1)
 })
@@ -7910,7 +7960,7 @@ export const SyncPosResumedBasketBody = zod.object({
 })
 
 export const SyncPosResumedBasketResponse = zod.object({
-  "state": zod.enum(['current', 'conflict', 'completed']),
+  "state": zod.enum(['current', 'conflict', 'completed', 'closed_without_execution']),
   "id": zod.number().int(),
   "sessionId": zod.number().int(),
   "version": zod.number().int().optional(),

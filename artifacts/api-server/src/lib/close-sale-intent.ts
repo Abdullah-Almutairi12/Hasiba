@@ -10,12 +10,12 @@ const inputSchema=z.object({requestKey:z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_
   body:z.record(z.string(),z.unknown())}).strict();
 /** Reuse the ORIGINAL engine, fingerprint, receipt and transaction fence.
  * No absence-only "cancel", new ledger, changed body or expiring tombstone. */
-export async function closeSaleIntent(req:Request,path:"/pos/orders"|"/sales/invoices"|"/pos/orders/park",
-  authorize:(tx:DbOrTx,body:Record<string,unknown>,saved:unknown)=>Promise<void>){
+export async function closeSaleIntent(req:Request,path:"/pos/orders"|"/sales/invoices"|"/pos/orders/park"|"/pos/orders/:id/resumed-basket",
+  authorize:(tx:DbOrTx,body:Record<string,unknown>,saved:unknown)=>Promise<void>,params:Request["params"]={}){
   const input=inputSchema.parse(req.body);
   const original=Object.create(req) as Request;
   Object.defineProperties(original,{
-    body:{value:input.body},route:{value:{path}},params:{value:{}},query:{value:{}},
+    body:{value:input.body},route:{value:{path}},params:{value:params},query:{value:{}},
     headers:{value:{...req.headers,"idempotency-key":input.requestKey}},
   });
   const saved=await financialTransaction<unknown>(original,async tx=>{

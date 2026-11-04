@@ -47,6 +47,7 @@ export const PosResumedBasketStateState = {
   current: 'current',
   conflict: 'conflict',
   completed: 'completed',
+  closed_without_execution: 'closed_without_execution',
 } as const;
 
 export type PosResumedBasketStateCartItem = { [key: string]: unknown };
@@ -6671,5 +6672,14 @@ export type RunVatThresholdCheck200 = {
   snapshot: VatStatusResponse;
   /** @nullable */
   alertEmitted?: RunVatThresholdCheck200AlertEmitted;
+};
+
+export type ResolvePosResumedBasketBody = {
+  /**
+     * @minLength 8
+     * @maxLength 128
+     */
+  requestKey: string;
+  body: PosResumedBasketInput;
 };
 

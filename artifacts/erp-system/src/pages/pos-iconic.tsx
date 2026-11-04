@@ -862,8 +862,21 @@ export default function PosIconic({
             ?"التعديلات محفوظة محليًا فقط؛ لم يتأكد حفظها لدى الخادم."
             :`نسخة السلة المؤكدة لدى الخادم: ${resumedBasket.value.source.version??0}`)}</p>
           <Button data-testid="button-confirm-resumed-edits" disabled={!!checkout.attempt||resumedBasket.dirty||resumedVersion.busy}
-            onClick={async()=>{const out=await resumedVersion.confirm();if(out?.state==="completed")void lookupResumedSale();}}>
+            onClick={async()=>{const out=await resumedVersion.confirm();if(out?.state==="completed")void lookupResumedSale();
+              if(out?.basket){setCart(out.basket.cart);setCustomerChoice({scope:shiftScope,customer:out.basket.customer});setReview(null);}}}>
             {resumedVersion.pending?"تحقق من محاولة الحفظ الأصلية":"تأكيد حفظ التعديلات لدى الخادم"}
+          </Button>
+          <Button data-testid="button-end-resumed-continuation"
+            disabled={!!checkout.attempt||checkout.isPending||resumedVersion.busy||resumedVersion.pending||
+              resumedBasket.dirty||!resumedBasket.value.continuationResolved}
+            onClick={()=>{
+              if(checkout.attempt||checkout.isPending||resumedVersion.busy||resumedVersion.pending||
+                !resumedBasket.value?.continuationResolved||!resumedBasket.clear())return;
+              setCart([]);setCustomerChoice({scope:shiftScope,customer:null});setReview(null);
+              setDiscountPct("");setSellerWhole(null);setSellerLines({});
+              toast({title:"انتهت متابعة المسودة؛ السلة الجديدة فارغة. سجل المسودة ونتيجتها محفوظان."});
+            }}>
+            إنهاء المتابعة وبدء سلة جديدة
           </Button>
           <Button data-testid="button-refresh-resumed-edits" disabled={!!checkout.attempt||resumedVersion.pending||resumedVersion.busy}
             onClick={async()=>{const out=await resumedVersion.refresh();if(out?.state==="completed"){void lookupResumedSale();return;}

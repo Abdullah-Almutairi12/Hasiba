@@ -1997,6 +1997,25 @@ router.post("/pos/orders/:id/cancel",posGuard,parkedDelivery("cancel"));
 
 // Read-only recovery of the source's final outcome. A closed source shift or
 // a replacement selected in the UI must not force another tender or reopen it.
+router.post("/pos/orders/:id/resumed-basket/resolve",posReadGuard,async(req,res)=>{
+  try{
+    const body=SyncPosResumedBasketBody.parse(req.body?.body);
+    if(body.action!=="save"||!body.items)throw new FinancialRequestError("يلزم طلب الحفظ الأصلي كاملًا",400);
+    const source={id:z.coerce.number().int().positive().parse(req.params.id),
+      sessionId:body.sessionId,requestId:body.requestId,version:body.version};
+    // The original intent lock is taken first by the existing engine, exactly as
+    // for save. Its durable closure blocks a delayed original write forever.
+    const result=await closeSaleIntent(req,"/pos/orders/:id/resumed-basket",async tx=>{
+      await lockResumedSale(tx as Parameters<Parameters<typeof db.transaction>[0]>[0],req,source,source.sessionId);
+    },{id:String(source.id)});
+    res.json(result.state==="completed"?result.result:{
+      state:"closed_without_execution",id:source.id,sessionId:source.sessionId});
+  }catch(err){
+    if(err instanceof FinancialRequestError){res.status(err.status).json({error:err.message});return;}
+    if(err instanceof z.ZodError){res.status(400).json({error:"يلزم معرّف ومحتوى محاولة الحفظ الأصلية"});return;}
+    req.log.error({err},"Error resolving resumed basket save");res.status(500).json({error:"تعذر حسم محاولة الحفظ؛ احتفظ بالمحاولة الأصلية"});
+  }
+});
 router.post("/pos/orders/:id/resumed-basket",posReadGuard,async(req,res)=>{
   try{
     const body=SyncPosResumedBasketBody.parse(req.body);
