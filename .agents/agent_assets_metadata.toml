@@ -1883,3 +1883,17 @@ mtime_ms = 1793771374548
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/8fcf7362-dee3-4cef-a46f-4ebdedc0f614/790e2ee7-5569-43c3-ae78-0298fcbdb2d3"
 storage_version_token = "1793771418785228"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "UE6NM7_YaFIK4ZK4G8epz"
+uri = "file://generated-artifacts/pos-park-customer/Hasiba_POS_Parked_Customer_Evidence_2026-11-04.zip"
+type = "unspecified"
+title = "أدلة إصلاح عميل الطلب المعلّق في POS"
+description = "38 ملفًا: تقرير عربي/إنجليزي، نتائج البوابات الجديدة، اختبارات قبل/بعد الإصلاح، مصالحة PostgreSQL ومراجع صور المتصفح. لا تتضمن بيانات الدخول أو الصور الثنائية البعيدة."
+logical_id = "6cd9619e-09a4-42bd-9e84-b29d1991a37c"
+content_hash = "sha256:ca0d5ee92a3690f02bc77326cf2b1e7d93a2b857894cd86ec9d521a377aeaaed"
+size = 152591
+mtime_ms = 1793774597240
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/6cd9619e-09a4-42bd-9e84-b29d1991a37c/d3a01fe7-f790-4818-bff7-fa2be4bea7a9"
+storage_version_token = "1793774605057358"
+content_type = "application/octet-stream"
