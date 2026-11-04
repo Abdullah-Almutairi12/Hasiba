@@ -20,7 +20,7 @@ vi.mock("@workspace/api-client-react", async (original) => ({
   ...await original<typeof import("@workspace/api-client-react")>(),
   useListProducts: () => ({ data: [{ id: 5, name: "سلة", nameAr: "سلة", price: 100, stock: 20 }] }),
   useListProductCategories: () => ({ data: [] }),
-  useListPosSessions: () => ({ data: [{ id: 9, status: "open", branchId: 1 }], refetch: vi.fn() }),
+  useListPosSessions: () => ({ data: [{ id: 9, status: "open", branchId: 1, cashierUserId: 11 }], refetch: vi.fn() }),
   useGetSellerWorkspace: () => ({ data: { policy: { mode: "hidden", granularity: "order" }, sellers: [] }, isError: false, refetch: vi.fn() }),
   useGetApprovalRequest: (id: number) => ({ data: id ? { id, status: m.reviewStatus } : undefined, isFetching: false, refetch: vi.fn() }),
 }));

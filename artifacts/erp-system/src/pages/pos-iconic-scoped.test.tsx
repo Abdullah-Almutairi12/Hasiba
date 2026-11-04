@@ -25,7 +25,7 @@ vi.mock("@workspace/api-client-react", async (original) => ({
   useGetWorkspaceAccess: () => ({ data: access.data, isLoading: false, isError: access.isError, refetch: vi.fn() }),
   useListProducts: () => ({ data: [{ id: 5, name: "تمر", nameAr: "تمر", price: 20, stock: 9 }] }),
   useListProductCategories: () => ({ data: [] }),
-  useListPosSessions: () => ({ data: [{ id: 8, status: "open", branchId: 99 }, { id: 9, status: "open", branchId: 3 }], refetch: vi.fn() }),
+  useListPosSessions: () => ({ data: [{ id: 8, status: "open", branchId: 99, cashierUserId: 31 }, { id: 9, status: "open", branchId: 3, cashierUserId: 31 }], refetch: vi.fn() }),
 }));
 
 const grant = (actions: string[]) => ({ id: 77, resource: "pos", branchId: 3, warehouseIds: [], actions, amountLimit: null, startsAt: null, endsAt: null });

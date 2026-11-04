@@ -18,7 +18,7 @@ vi.mock("@workspace/api-client-react", async (original) => ({
   ...await original<typeof import("@workspace/api-client-react")>(),
   useListProducts: () => ({ data: [{ id: 5, name: "قلم", price: 100, stock: 20 }, { id: 6, name: "دفتر", price: 50, stock: 20 }] }),
   useListProductCategories: () => ({ data: [] }),
-  useListPosSessions: () => ({ data: [{ id: 9, status: "open", branchId: 3 }], refetch: vi.fn() }),
+  useListPosSessions: () => ({ data: [{ id: 9, status: "open", branchId: 3, cashierUserId: auth.user.id }], refetch: vi.fn() }),
   useGetPrintProfile: () => ({ data: undefined }),
   useGetSellerWorkspace: () => ws.error ? { data: undefined, isError: true, refetch: ws.refetch }
     : { data: { policy: ws.policy, sellers: [{ id: 7, name: ws.names[7] }, { id: 8, name: ws.names[8] }], branches: [] }, isError: false, refetch: ws.refetch },
