@@ -1827,3 +1827,17 @@ mtime_ms = 1793754878732
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/4fd21e4d-5b88-4a2d-a234-ceaf69d104c3/bdaa487b-5a16-42d6-8c5c-114569eb3a95"
 storage_version_token = "1793754888571409"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "Vz3bdMFoHB6Dn0ZIb2sWP"
+uri = "file://generated-artifacts/pos-shift-selection/Hasiba-Shift-Selection-Evidence.zip"
+type = "unspecified"
+title = "أدلة تصحيح تحديد الوردية — عربي / English"
+description = "التقرير الثنائي اللغة، إخفاقات قبل الإصلاح ونجاح الاختبارات الجديدة، 15 بوابة، صور الاختيار وإعادة التحميل، ومصالحة PostgreSQL المنقحة."
+logical_id = "3ccf7030-fd03-4ed1-9652-98ef0b3ea0ad"
+content_hash = "sha256:6e5f8b380299e13c9e2648ed45c6d2a84b81879a1c7a99e579bc3506d60367d9"
+size = 396408
+mtime_ms = 1793757830368
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/3ccf7030-fd03-4ed1-9652-98ef0b3ea0ad/de4d1f84-a6aa-4fda-83b2-e0bc6ad57b88"
+storage_version_token = "1793757839124260"
+content_type = "application/octet-stream"
