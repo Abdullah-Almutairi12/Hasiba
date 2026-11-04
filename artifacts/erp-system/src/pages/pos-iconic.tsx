@@ -325,7 +325,9 @@ export default function PosIconic({
     if (isScoped || checkoutLocked || !activeSession || cart.length === 0) return;
     const base = import.meta.env.BASE_URL;
     const label = (labelOverride ?? parkLabel).trim();
-    const res = await fetch(`${base}api/pos/orders/park`, {
+    let res: Response;
+    try {
+      res = await fetch(`${base}api/pos/orders/park`, {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
@@ -344,12 +346,20 @@ export default function PosIconic({
         discount: 0,
         total: Number(total.toFixed(2)),
       }),
-    });
+      });
+    } catch {
+      // A lost response does not prove rejection. Keep the basket and its
+      // customer intact so the cashier can verify the parked list first.
+      void refreshParked();
+      toast({ title: "تعذر تأكيد التعليق. احتُفظ بالسلة والعميل؛ تحقّق من الطلبات المعلّقة قبل إعادة المحاولة.", variant: "destructive" });
+      return;
+    }
     if (!res.ok) {
       toast({ title: t("pos_iconic.park_failed"), variant: "destructive" });
       return;
     }
     setCart([]);
+    setCustomerChoice(current => current.scope === shiftScope ? { scope: shiftScope, customer: null } : current);
     setParkLabel("");
     void refreshParked();
     setIsParkingActive(true);

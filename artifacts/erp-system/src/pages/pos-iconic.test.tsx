@@ -227,6 +227,71 @@ function saleTransport(fault?: "lost" | "502" | "malformed" | "incomplete" | "re
   return { attempts, committed,seals };
 }
 
+function parkingTransport(failure?: "rejected" | "unknown") {
+  const sales = saleTransport();
+  const original = globalThis.fetch;
+  let parked: any[] = [];
+  const parks: any[] = [];
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const path = String(input).split("?")[0];
+    if (path.endsWith("/api/pos/orders/park") && init?.method === "POST") {
+      const body = JSON.parse(String(init.body)); parks.push(body);
+      if (failure === "rejected") return Response.json({error:"رفض التعليق"},{status:409});
+      parked = [{...body,id:71,parkedLabel:body.label,createdAt:new Date().toISOString()}];
+      if (failure === "unknown") throw new TypeError("Response lost after parking");
+      return Response.json(parked[0],{status:201});
+    }
+    if (path.endsWith("/api/pos/orders/parked")) return Response.json(parked);
+    if (path.endsWith("/api/pos/orders/71/resume")) {
+      const saved=parked[0];parked=[];return Response.json(saved);
+    }
+    return original(input,init);
+  }));
+  return {...sales,parks};
+}
+
+describe("parked customer belongs only to the parked basket",()=>{
+  async function selectAndPark(u:ReturnType<typeof userEvent.setup>){
+    await u.click(await screen.findByTestId("dock-customer"));
+    await u.click(await screen.findByTestId("pos-customer-17"));
+    await u.click(screen.getByTestId("product-icon-5"));
+    await u.click(screen.getByTestId("dock-parking"));
+    await u.click(await screen.findByTestId("button-park-now"));
+    await u.click(screen.getByTestId("overlay-parked"));
+  }
+  it("parks A, sells anonymously, then resumes and sells A without another sale at parking",async()=>{
+    const transport=parkingTransport(),u=userEvent.setup(),view=mount();
+    await selectAndPark(u);
+    await waitFor(()=>expect(transport.parks).toHaveLength(1));
+    expect(transport.parks[0].customerId).toBe(17);
+    expect(transport.attempts).toHaveLength(0);
+    expect(screen.getByTestId("dock-customer").getAttribute("aria-label")).toBe(ar.pos_iconic.customer);
+    await u.click(screen.getByTestId("product-icon-5"));await review(u);
+    await u.click(screen.getByTestId("button-pay-rail"));
+    await screen.findByText("ORD-TEST-1");
+    expect(JSON.parse(transport.attempts[0].body)).not.toHaveProperty("customerId");
+    view.unmount();mount();
+    await u.click(await screen.findByTestId("dock-parking"));
+    await u.click(await screen.findByTestId("button-resume-71"));
+    await waitFor(()=>expect(screen.getByTestId("dock-customer").getAttribute("aria-label")).toBe("عميل #17"));
+    await review(u);await u.click(screen.getByTestId("button-pay-rail"));
+    await screen.findByText("ORD-TEST-2");
+    expect(JSON.parse(transport.attempts[1].body).customerId).toBe(17);
+    expect(transport.committed.size).toBe(2);
+    expect(transport.attempts[0].key).not.toBe(transport.attempts[1].key);
+  });
+  it.each(["rejected","unknown"]as const)("keeps A and the original basket when parking is %s",async(failure)=>{
+    const transport=parkingTransport(failure),u=userEvent.setup();mount();
+    await selectAndPark(u);
+    await waitFor(()=>expect(transport.parks).toHaveLength(1));
+    expect(screen.getByTestId("dock-customer").getAttribute("aria-label")).toBe("عميل تجربة السوبرماركت");
+    await review(u);
+    expect(screen.getByTestId("button-pay-rail").matches(":disabled")).toBe(false);
+    expect(transport.attempts).toHaveLength(0);
+    expect(previews.length).toBeGreaterThan(0);
+  });
+});
+
 describe("POS inline tender and durable checkout recovery", () => {
   it("offers explicit branch selection and shift opening for an authorized unbound legacy owner",async()=>{
     sessionMock.status="closed";sessionMock.branchId=null;

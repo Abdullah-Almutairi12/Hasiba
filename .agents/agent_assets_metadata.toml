@@ -1855,3 +1855,31 @@ mtime_ms = 1793763192472
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/169b283c-a3d5-4074-bfa1-04c13e564014/00791052-4766-4bd0-93ef-19434b775457"
 storage_version_token = "1793763203318726"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "dW0sTgSUyZ-DX5DJr3cPX"
+uri = "file://generated-artifacts/supermarket-v2/Hasiba_Supermarket_V2_Report_AR_EN.html"
+type = "html"
+title = "تقرير السوبرماركت V2 — عربي وإنجليزي"
+description = "المتوقع والفعلي، مراجع المستندات، الإصلاحات والاختبارات الجديدة وحدود الإثبات."
+logical_id = "41b0a2f3-1bbf-4ac8-9aa5-07f505de7e32"
+content_hash = "sha256:1c8f97c56838e59b1173736145d2607ec5e834bb03dce88530db1e20b2a9e9d2"
+size = 143338
+mtime_ms = 1793771374197
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/41b0a2f3-1bbf-4ac8-9aa5-07f505de7e32/9eda398e-40b9-4e91-9f33-cb1658881413"
+storage_version_token = "1793771415184854"
+content_type = "text/html"
+
+[[outputs]]
+id = "sXTlV5Uldm9TakmII1F1A"
+uri = "file://generated-artifacts/supermarket-v2/Hasiba_Supermarket_V2_Evidence_2026-11-04.zip"
+type = "unspecified"
+title = "حزمة أدلة السوبرماركت V2"
+description = "91 ملفًا تشمل النتائج الخام والصور والمصالحة ومطابقة GitHub وملف بصمات SHA-256، دون بيانات الدخول."
+logical_id = "8fcf7362-dee3-4cef-a46f-4ebdedc0f614"
+content_hash = "sha256:dfefdf067ae2f57f89d92065b224b3ff65c09387ba354ece77d93f7e71350255"
+size = 1681039
+mtime_ms = 1793771374548
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/8fcf7362-dee3-4cef-a46f-4ebdedc0f614/790e2ee7-5569-43c3-ae78-0298fcbdb2d3"
+storage_version_token = "1793771418785228"
+content_type = "application/octet-stream"
