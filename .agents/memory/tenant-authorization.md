@@ -104,3 +104,9 @@ Receiving custody of an already-dispatched internal transfer is distinct from is
 **Why:** Independent branch staff must be able to acknowledge goods without acquiring authority over the sending branch or choosing a new quantity or valuation. The issued movement supplies that evidence; physical receipt is not a new spending approval.
 
 **How to apply:** Keep receipt as an explicit action on an existing movement with fixed source values. Manual receipts, issues, adjustments and stocktake approval still need their own authorization and valuation policies; do not enable a generic inventory-write privilege as a shortcut.
+
+Prove the positive native journey for delegated staff as well as denial cases when extending routes used by an existing screen.
+
+**Why:** A valid sales responsibility can satisfy the handler's checks yet be rejected by an earlier route allowlist. Passing only negative permission tests can leave an authorized cashier unable to obtain the calculation required for payment.
+
+**How to apply:** Exercise the actual HTTP paths with a live scoped responsibility, wrong responsibility, revoked execution authority, and read-only recovery. Keep monetary caps and operational policies explicit; do not broaden roles to make the journey pass.
