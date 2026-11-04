@@ -1925,3 +1925,17 @@ mtime_ms = 1793783205700
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/dce4ae9d-9b1a-43c4-afdf-ebed929dfb40/6bb984e7-3c9e-4634-9adf-dcc954600def"
 storage_version_token = "1793783222322852"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "lYIRl2-StmlV7We69z61r"
+uri = "file://generated-artifacts/pos-resume-safe/Hasiba_POS_Safe_Resume_09f0fad.zip"
+type = "unspecified"
+title = "حاسبة — تقرير وأدلة تأمين استئناف السلة"
+description = "تقرير عربي/إنجليزي، اختبارات قبل/بعد، سجلات التحقق النهائي، صور الواجهة والمصالحة المستقلة. المصدر المختبر 09f0fad؛ 15/15 بوابة ناجحة."
+logical_id = "9b338874-80e4-4962-880d-e1cf86999e5c"
+content_hash = "sha256:13f5f3f3a1bb20cd526f27c733fee2f13f6bb7f9d048ffde59425a34f53710d0"
+size = 955919
+mtime_ms = 1793787686752
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/9b338874-80e4-4962-880d-e1cf86999e5c/0b771267-87f7-4165-9cea-048c2e890ffe"
+storage_version_token = "1793787712495416"
+content_type = "application/octet-stream"

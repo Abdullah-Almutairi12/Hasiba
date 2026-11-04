@@ -108,3 +108,9 @@ Keep the outcome evidence for a parked-order attempt after its draft has been re
 **Why:** A late original request can arrive after resume. The missing draft is not proof that parking never succeeded; forgetting its receipt can recreate an already-consumed basket.
 
 **How to apply:** Replays return the original saved outcome rather than creating another draft. Treat the draft's lifecycle separately from the attempt's evidence, and never clear an uncertain basket merely because a response was successful but lacked a matching saved identifier.
+
+Claiming a draft also needs durable outcome evidence, even though the claim posts no money. Keep deliberate cancellation distinct from retrieval.
+
+**Why:** A destructive read can transfer the only copy of a cashier's work. Losing its response loses the work just as surely as losing a financial commit response; sharing cancellation semantics makes recovery ambiguous.
+
+**How to apply:** Apply the existing atomic receipt lifecycle to ownership handoffs, not just payment. Repeated delivery of one saved outcome is recovery; competing claims must not each acquire the source.
