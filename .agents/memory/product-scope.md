@@ -38,6 +38,12 @@ An incomplete or failed shift read is unknown state, not evidence that no shift 
 
 **How to apply:** Keep fresh opening fail-closed until a successful state read, while preserving immutable saved-attempt replay. Bound historical lists separately from active operational state, with the same tenant/device filters.
 
+Multiple authorized open shifts are not prohibited by a global uniqueness policy. A stale selection is not proof of absence: recover a sole eligible shift, or require explicit selection among several.
+
+**Why:** The user explicitly requires flexible shift selection without changing historical rows or imposing a new multiple-shift restriction.
+
+**How to apply:** Preserve company, branch, cashier, device and responsibility scope. Only a successful read showing zero eligible shifts may expose fresh opening; persist the selected operating context without treating it as authority.
+
 Investor presentations must reflect actual product readiness, with real synthetic-data
 screenshots for valuable new capabilities and explicit tested/partially tested/planned
 status. Preserve the original deck identity and slide identifiers; update an existing

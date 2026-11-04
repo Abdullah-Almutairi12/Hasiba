@@ -7,14 +7,14 @@ import { beforeEach } from "vitest";
 
 const sessionMock = vi.hoisted(() => ({ id:9,status: "open", refetch: vi.fn(),branchId:7 as number|null,
   role: null as string | null, branchOptions: [{ id: 7, name: "فرع تجربة المالك" }], branchError: false,
-  loading: false, error: false }));
+  loading: false, error: false, rows: null as null | Array<Record<string, unknown>> }));
 beforeEach(() => {
   sessionMock.status = "open";
   sessionMock.id=9;
   sessionMock.branchId=7;
   sessionMock.role=null; sessionMock.branchOptions=[{ id: 7, name: "فرع تجربة المالك" }]; sessionMock.branchError=false;
   sessionMock.refetch.mockClear();
-  sessionMock.loading=false; sessionMock.error=false;
+  sessionMock.loading=false; sessionMock.error=false; sessionMock.rows=null;
 });
 import { usePosCheckout } from "@/hooks/use-pos-checkout";
 import ar from "@/i18n/ar.json";
@@ -35,7 +35,7 @@ vi.mock("@workspace/api-client-react", async (original) => ({
   ...await original<typeof import("@workspace/api-client-react")>(),
   useListProducts: () => ({ data: [{ id: 5, name: "منتج تجريبي", nameAr: "منتج تجريبي", price: 100, stock: 20 }] }),
   useListProductCategories: () => ({ data: [] }),
-  useListPosSessions: () => ({ data: sessionMock.loading || sessionMock.error ? undefined : [{ id: sessionMock.id, sessionNumber: `SHIFT-${sessionMock.id}`, status: sessionMock.status, branchId: sessionMock.branchId ?? 7, cashierUserId: 11 }], isLoading: sessionMock.loading, isFetching: sessionMock.loading, isError: sessionMock.error, refetch: sessionMock.refetch }),
+  useListPosSessions: () => ({ data: sessionMock.loading || sessionMock.error ? undefined : sessionMock.rows ?? [{ id: sessionMock.id, sessionNumber: `SHIFT-${sessionMock.id}`, status: sessionMock.status, branchId: sessionMock.branchId ?? 7, cashierUserId: 11 }], isLoading: sessionMock.loading, isFetching: sessionMock.loading, isError: sessionMock.error, refetch: sessionMock.refetch }),
   useListPosShiftBranches: () => ({ data: sessionMock.branchOptions, isLoading: false, isError: sessionMock.branchError, refetch: vi.fn() }),
 }));
 
@@ -50,12 +50,41 @@ function mount() {
   return render(<QueryClientProvider client={client}><PosIconic variant="retail" /></QueryClientProvider>);
 }
 describe("shift state must be established before a fresh opening", () => {
+  const shiftRow = (id:number,status="open") => ({id,status,branchId:7,cashierUserId:11,sessionNumber:`SHIFT-${id}`,openedAt:"2026-11-04T02:00:00Z"});
+  it("replaces a closed saved selection with the single eligible open shift without any opening POST", async()=>{
+    sessionStorage.setItem("hasba:pos-shift-selection:11:21:legacy",JSON.stringify({branchId:7,sessionId:9}));
+    sessionMock.rows=[shiftRow(9,"closed"),shiftRow(42)];
+    const fetcher=vi.fn(async()=>Response.json([]));vi.stubGlobal("fetch",fetcher);
+    mount();
+    const fresh=screen.queryByTestId("button-scoped-open-shift");if(fresh)await userEvent.click(fresh);
+    expect(fetcher.mock.calls.filter(([,i]:any[])=>i?.method==="POST")).toHaveLength(0);
+    expect(screen.getByTestId("pos-active-session-context").textContent).toContain("SHIFT-42");
+    await waitFor(()=>expect(JSON.parse(sessionStorage.getItem("hasba:pos-shift-selection:11:21:legacy")!).sessionId).toBe(42));
+  });
+  it("requires explicit selection among eligible shifts, persists it across reload, and never posts an opening", async()=>{
+    sessionMock.rows=[shiftRow(42),shiftRow(43),{...shiftRow(44),cashierUserId:22},{...shiftRow(45),branchId:8}];
+    const fetcher=vi.fn(async()=>Response.json([]));vi.stubGlobal("fetch",fetcher);
+    const view=mount();
+    const fresh=screen.queryByTestId("button-scoped-open-shift");if(fresh)await userEvent.click(fresh);
+    expect(fetcher.mock.calls.filter(([,i]:any[])=>i?.method==="POST")).toHaveLength(0);
+    expect(screen.getByTestId("pos-shift-status").textContent).toBe("اختر الوردية");
+    const select=screen.getByRole("combobox",{name:"اختر الوردية"});
+    expect(select.textContent).toContain("SHIFT-42");expect(select.textContent).toContain("SHIFT-43");
+    expect(select.textContent).not.toContain("SHIFT-44");expect(select.textContent).not.toContain("SHIFT-45");
+    await userEvent.selectOptions(select,"43");
+    expect(screen.getByTestId("pos-active-session-context").textContent).toContain("SHIFT-43");
+    view.unmount();mount();
+    expect(screen.getByTestId("pos-active-session-context").textContent).toContain("SHIFT-43");
+    expect(screen.queryByTestId("button-scoped-open-shift")).toBeNull();
+    expect(fetcher.mock.calls.filter(([,i]:any[])=>i?.method==="POST")).toHaveLength(0);
+  });
   it("blocks a new opening while the session read is loading", async () => {
     sessionMock.status="closed"; sessionMock.loading=true;
     const fetcher=vi.fn(async()=>Response.json([])); vi.stubGlobal("fetch",fetcher);
     const view=mount();
     expect(screen.queryByTestId("button-scoped-open-shift")).toBeNull();
     expect(await screen.findByTestId("text-pos-session-checking")).toBeTruthy();
+    expect(screen.getByTestId("pos-shift-status").textContent).toBe("جارٍ التحقق من الوردية");
     expect(fetcher.mock.calls.some(([url,init]:any[])=>String(url).endsWith("/pos/sessions")&&init?.method==="POST")).toBe(false);
     view.unmount();
     sessionMock.loading=false; sessionMock.status="open"; sessionMock.id=123;
@@ -66,10 +95,13 @@ describe("shift state must be established before a fresh opening", () => {
   });
   it("blocks a new opening after a failed session read and permits explicit recheck", async () => {
     sessionMock.status="closed"; sessionMock.error=true;
+    const fetcher=vi.fn(async()=>Response.json([]));vi.stubGlobal("fetch",fetcher);
     mount();
+    expect(screen.getByTestId("pos-shift-status").textContent).toBe("تعذر التحقق");
     expect(screen.queryByTestId("button-scoped-open-shift")).toBeNull();
     await userEvent.click(await screen.findByTestId("button-pos-session-recheck"));
     expect(sessionMock.refetch).toHaveBeenCalledOnce();
+    expect(fetcher.mock.calls.filter(([,i]:any[])=>i?.method==="POST")).toHaveLength(0);
   });
   it("keeps saved opening recovery available despite a failed session read", async () => {
     sessionMock.error=true;
@@ -269,7 +301,7 @@ describe("POS inline tender and durable checkout recovery", () => {
     expect(screen.getByTestId("button-pay-cash").matches(":disabled")).toBe(true);
     expect(JSON.parse(sessionStorage.getItem(storageKey)!).key).toBe(transport.attempts[0].key);
     expect(screen.queryByText(ar.pos_iconic.cart_empty)).toBeNull();
-    expect(screen.getByText(ar.pos_iconic.session_closed).isConnected).toBe(true);
+    expect(screen.getByTestId("pos-shift-status").textContent).toBe("لا توجد وردية مفتوحة");
     expect(sessionMock.refetch).toHaveBeenCalled();
     await user.click(screen.getByTestId("button-pos-close-intent"));
     await waitFor(()=>expect(sessionStorage.getItem(storageKey)).toBeNull());

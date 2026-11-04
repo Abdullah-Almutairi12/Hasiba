@@ -1,6 +1,6 @@
 import { canReachReturns, scopedBodyDiscount, scopedCheckoutCaps, type PosTender } from "@/lib/pos-actions";
 import { clearSessionIntent, isConfirmedRejection, readSessionIntent, saveSessionIntent, type SessionIntent } from "@/lib/pos-session-intent";
-import { readShiftSelection, saveShiftSelection, selectedPosSession, type ShiftSelection } from "@/lib/pos-session-context";
+import { eligiblePosSessions, readShiftSelection, saveShiftSelection, selectedPosSession, type ShiftSelection } from "@/lib/pos-session-context";
 import { useState, useMemo, useEffect, useRef } from "react";
 import { PosSessionContext } from "@/components/pos-session-context";
 import { PosDeviceControls } from "@/components/pos-device-controls";
@@ -162,7 +162,19 @@ export default function PosIconic({
   const { data: sessions, refetch: refetchSessions, isLoading: sessionsLoading, isFetching: sessionsFetching, isError: sessionsError } = useListPosSessions({
     query: { queryKey: ["/api/pos/sessions", shiftScope], refetchInterval: 15_000, staleTime: 0, refetchOnWindowFocus: true },
   });
-  const activeSession = selectedPosSession(sessions, selectedBranchId, user?.id, choice?.branchId === selectedBranchId ? choice.sessionId : undefined);
+  const sessionsChecking = !!sessionsLoading || !!sessionsFetching || !sessions && !sessionsError;
+  const eligibleSessions = eligiblePosSessions(sessions, selectedBranchId, user?.id);
+  const activeSession = sessionsChecking || sessionsError ? undefined
+    : selectedPosSession(sessions, selectedBranchId, user?.id, choice?.branchId === selectedBranchId ? choice.sessionId : undefined);
+  const shiftStatus = sessionsError ? "تعذر التحقق" : sessionsChecking ? "جارٍ التحقق من الوردية"
+    : activeSession ? t("pos_iconic.session_open") : eligibleSessions.length ? "اختر الوردية"
+    : selectedBranchId === null ? "اختر فرع الوردية" : "لا توجد وردية مفتوحة";
+  useEffect(() => {
+    if (!activeSession || choice?.branchId === activeSession.branchId && choice.sessionId === activeSession.id) return;
+    const value = { branchId: activeSession.branchId, sessionId: activeSession.id };
+    saveShiftSelection(shiftScope, value);
+    setShiftChoice({ scope: shiftScope, value });
+  }, [activeSession?.id, activeSession?.branchId, choice?.branchId, choice?.sessionId, shiftScope]);
   const chooseShift = (value: ShiftSelection) => {
     saveShiftSelection(shiftScope, value);
     setShiftChoice({ scope: shiftScope, value });
@@ -495,11 +507,9 @@ export default function PosIconic({
     >
       {/* Status strip */}
       <div className="flex items-center gap-3 px-4 py-2 text-xs text-neutral-500 dark:text-neutral-400">
-        <span className="inline-flex items-center gap-1.5">
+        <span className="inline-flex items-center gap-1.5" data-testid="pos-shift-status" role="status">
           <span className={cn("size-2 rounded-full", activeSession ? "bg-emerald-500" : "bg-neutral-400")} />
-          {activeSession
-            ? t("pos_iconic.session_open")
-            : t("pos_iconic.session_closed")}
+          {shiftStatus}
         </span>
         <span>•</span>
         <span>
@@ -542,7 +552,12 @@ export default function PosIconic({
             contextLocked={checkoutLocked || cart.length > 0}
             onPendingChange={pending => setOpeningState(old => old.scope === shiftScope && old.pending === pending ? old : { scope: shiftScope, pending })}
             hasSession={!!activeSession}
-            sessionsChecking={!!sessionsLoading || !!sessionsFetching || !sessions && !sessionsError}
+            eligibleSessions={eligibleSessions}
+            onSelectSession={sessionId => {
+              if (sessionsChecking || sessionsError || !eligibleSessions.some(s => s.id === sessionId) || checkoutLocked || cart.length > 0) return;
+              chooseShift({ branchId: selectedBranchId!, sessionId });
+            }}
+            sessionsChecking={sessionsChecking}
             sessionsError={!!sessionsError}
             onRefreshSessions={() => void refetchSessions()}
             canOpenShift={canOpenPosShift}
@@ -1362,7 +1377,7 @@ function ParkedOverlay({
  */
 function ScopedPosNotice({ branchId, hasSession, canOpenShift, cashierName, onOpened, intentScope, caps, scoped=true,
   fixedBranch, branches, branchesLoading, branchesError, onSelectBranch, onRefreshBranches, contextLocked, onPendingChange,
-  sessionsChecking, sessionsError, onRefreshSessions }: {
+  sessionsChecking, sessionsError, onRefreshSessions, eligibleSessions, onSelectSession }: {
   branchId: number | null; hasSession: boolean; canOpenShift: boolean; cashierName: string; onOpened: (session: PosSession) => void;
   intentScope: string | null; caps: ReturnType<typeof scopedCheckoutCaps>;
   scoped?:boolean;
@@ -1370,6 +1385,7 @@ function ScopedPosNotice({ branchId, hasSession, canOpenShift, cashierName, onOp
   onSelectBranch: (branchId: number) => void; onRefreshBranches: () => void; contextLocked: boolean;
   onPendingChange: (pending: boolean) => void;
   sessionsChecking: boolean; sessionsError: boolean; onRefreshSessions: () => void;
+  eligibleSessions: PosSession[]; onSelectSession: (sessionId: number) => void;
 }) {
   const { toast } = useToast();
   const [cash, setCash] = useState("");
@@ -1387,7 +1403,7 @@ function ScopedPosNotice({ branchId, hasSession, canOpenShift, cashierName, onOp
     if (!intent) {
       // An absent/failed list is not evidence that no shift exists. A saved
       // intent is different: replaying its immutable identity remains safe.
-      if (sessionsChecking || sessionsError || hasSession) return;
+      if (sessionsChecking || sessionsError || hasSession || eligibleSessions.length > 0) return;
       const n = Number(cash || "0");
       if (!usable || !canOpenShift || !Number.isFinite(n) || n < 0 || n > 99999999.99 || Math.abs(n * 100 - Math.round(n * 100)) > 0.000001) {
         toast({ title: "أدخل نقدًا افتتاحيًا صحيحًا غير سالب بمنزلتين عشريتين كحد أقصى.", variant: "destructive" }); return;
@@ -1469,6 +1485,18 @@ function ScopedPosNotice({ branchId, hasSession, canOpenShift, cashierName, onOp
         </p>
       ) : sessionsChecking ? (
         <p data-testid="text-pos-session-checking">جارٍ التحقق من حالة الوردية؛ فتح وردية جديدة غير متاح حتى اكتمال القراءة.</p>
+      ) : !hasSession && eligibleSessions.length > 0 ? (
+        <label className="flex flex-wrap items-center gap-2">اختر الوردية
+          <select aria-label="اختر الوردية" data-testid="select-pos-existing-shift" value=""
+            disabled={busy || contextLocked}
+            onChange={e => { if (e.target.value) onSelectSession(Number(e.target.value)); }}
+            className="rounded border bg-white p-2 text-neutral-900">
+            <option value="">اختر الوردية</option>
+            {eligibleSessions.map(s => <option key={s.id} value={s.id}>
+              {s.sessionNumber} — {new Date(s.openedAt).toLocaleString("ar-SA", { timeZone: "Asia/Riyadh" })} (الرياض)
+            </option>)}
+          </select>
+        </label>
       ) : !canOpenShift && !hasSession ? (
         <p data-testid="text-scoped-no-shift-permission">لا توجد وردية متاحة، وفتح الوردية غير ممنوح لك. اطلب مسؤولية فتح الوردية من المسؤول.</p>
       ) : !fixedBranch && branchesError ? (

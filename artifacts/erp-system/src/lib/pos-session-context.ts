@@ -13,12 +13,13 @@ export function saveShiftSelection(scope: string, value: ShiftSelection): void {
   try { sessionStorage.setItem(shiftSelectionKey(scope), JSON.stringify(value)); } catch { /* Selection is not execution evidence. */ }
 }
 /** A list position or another branch's shift is never a context selector. */
+export function eligiblePosSessions(sessions: PosSession[] | undefined, branchId: number | null, userId: number | undefined) {
+  return (sessions ?? []).filter(s => s.status === "open" && s.branchId === branchId &&
+    (s.cashierUserId == null || s.cashierUserId === userId));
+}
 export function selectedPosSession(sessions: PosSession[] | undefined, branchId: number | null, userId: number | undefined, preferredId?: number) {
-  const candidates = (sessions ?? []).filter(s => s.status === "open" && s.branchId === branchId);
-  if (preferredId) return candidates.find(s => s.id === preferredId && (s.cashierUserId == null || s.cashierUserId === userId));
-  const own = candidates.filter(s => s.cashierUserId === userId);
-  if (own.length === 1) return own[0];
-  // Preserve a single pre-identity legacy shift only in an explicitly bound branch.
-  const legacy = candidates.filter(s => s.cashierUserId == null);
-  return candidates.length === 1 && legacy.length === 1 ? legacy[0] : undefined;
+  const candidates = eligiblePosSessions(sessions, branchId, userId);
+  const preferred = candidates.find(s => s.id === preferredId);
+  // An invalid/stale preference is not evidence that the branch has no shift.
+  return preferred ?? (candidates.length === 1 ? candidates[0] : undefined);
 }
