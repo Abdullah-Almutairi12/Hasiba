@@ -1911,3 +1911,17 @@ mtime_ms = 1793778989804
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/5f2820ed-2f10-45a2-8529-d63bcdd91c8c/505962b5-0fe0-4a98-a5a2-b6ff307e0d49"
 storage_version_token = "1793779034956191"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "yV6O283txcGg9ay08yiHe"
+uri = "file://generated-artifacts/pos-park-name/Hasiba_POS_Parking_Label_Recovery_Evidence_2026-11-04.zip"
+type = "unspecified"
+title = "أدلة إصلاح تعليق السلة واسم المسودة — عربي/إنجليزي"
+description = "تشغيل جديد ناجح: 15 بوابة، 1263 اختبار خادم و464 واجهة، مع رحلة POS ومصالحة مستقلة وسجلات ما قبل الإصلاح. المصدر المختبر f54af6b؛ لا تتضمن الحزمة بيانات الدخول أو الملفات الخاصة."
+logical_id = "dce4ae9d-9b1a-43c4-afdf-ebed929dfb40"
+content_hash = "sha256:82b08be456b3d1b1e9f8fc0ce6409653dcdbde862efde9f5d9642c241ce49a19"
+size = 202016
+mtime_ms = 1793783205700
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/dce4ae9d-9b1a-43c4-afdf-ebed929dfb40/6bb984e7-3c9e-4634-9adf-dcc954600def"
+storage_version_token = "1793783222322852"
+content_type = "application/octet-stream"
