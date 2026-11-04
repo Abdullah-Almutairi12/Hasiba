@@ -122,3 +122,11 @@ Bind a recovered draft to its source shift and allow at most one final sale for 
 **Why:** Two tabs can legitimately recover the same claim key, then create different checkout keys. Transport-level idempotency alone accepts both. Deduplicating by products or amounts would instead block legitimate independent sales.
 
 **How to apply:** Preserve the source identity through recovery and checkout; serialize finalization by that source and return its original outcome under current read authority. A shift change must not turn the source basket into a new-shift sale. An intentional independent basket remains a separate sale even with identical items.
+
+## A recovered draft is editable before payment, not after sending it
+
+The cashier may change permitted items, quantities and customer, including removing the customer, after recovering a parked draft. Its original claim is historical handoff evidence, not an agreement freezing those working contents.
+
+**Why:** The user requires the edited basket and customer to survive refresh. Restoring the original claim's contents can silently invoice the wrong quantity or customer; replacing an uncertain financial request with newer edits creates a different, unsafe retry.
+
+**How to apply:** Keep the source identity and shift fixed while preserving the latest permitted working edits. Do not require the final customer or quantities to equal the original resume claim. Once payment is sent, the original financial request remains authoritative until its outcome is safely resolved, even if a newer local working copy exists.
