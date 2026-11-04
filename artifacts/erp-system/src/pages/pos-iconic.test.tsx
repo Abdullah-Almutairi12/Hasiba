@@ -7,14 +7,14 @@ import { beforeEach } from "vitest";
 
 const sessionMock = vi.hoisted(() => ({ id:9,status: "open", refetch: vi.fn(),branchId:7 as number|null,
   role: null as string | null, branchOptions: [{ id: 7, name: "فرع تجربة المالك" }], branchError: false,
-  loading: false, error: false, rows: null as null | Array<Record<string, unknown>> }));
+  loading: false, fetching: false, error: false, rows: null as null | Array<Record<string, unknown>> }));
 beforeEach(() => {
   sessionMock.status = "open";
   sessionMock.id=9;
   sessionMock.branchId=7;
   sessionMock.role=null; sessionMock.branchOptions=[{ id: 7, name: "فرع تجربة المالك" }]; sessionMock.branchError=false;
   sessionMock.refetch.mockClear();
-  sessionMock.loading=false; sessionMock.error=false; sessionMock.rows=null;
+  sessionMock.loading=false; sessionMock.fetching=false; sessionMock.error=false; sessionMock.rows=null;
 });
 import { usePosCheckout } from "@/hooks/use-pos-checkout";
 import ar from "@/i18n/ar.json";
@@ -35,7 +35,7 @@ vi.mock("@workspace/api-client-react", async (original) => ({
   ...await original<typeof import("@workspace/api-client-react")>(),
   useListProducts: () => ({ data: [{ id: 5, name: "منتج تجريبي", nameAr: "منتج تجريبي", price: 100, stock: 20 }] }),
   useListProductCategories: () => ({ data: [] }),
-  useListPosSessions: () => ({ data: sessionMock.loading || sessionMock.error ? undefined : sessionMock.rows ?? [{ id: sessionMock.id, sessionNumber: `SHIFT-${sessionMock.id}`, status: sessionMock.status, branchId: sessionMock.branchId ?? 7, cashierUserId: 11 }], isLoading: sessionMock.loading, isFetching: sessionMock.loading, isError: sessionMock.error, refetch: sessionMock.refetch }),
+  useListPosSessions: () => ({ data: sessionMock.loading || sessionMock.error ? undefined : sessionMock.rows ?? [{ id: sessionMock.id, sessionNumber: `SHIFT-${sessionMock.id}`, status: sessionMock.status, branchId: sessionMock.branchId ?? 7, cashierUserId: 11 }], isLoading: sessionMock.loading, isFetching: sessionMock.loading || sessionMock.fetching, isError: sessionMock.error, refetch: sessionMock.refetch }),
   useListPosShiftBranches: () => ({ data: sessionMock.branchOptions, isLoading: false, isError: sessionMock.branchError, refetch: vi.fn() }),
 }));
 
@@ -47,10 +47,63 @@ const review = async (u: { click: (el: Element) => Promise<void> }) => u.click(a
 afterEach(() => vi.restoreAllMocks());
 function mount() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(<QueryClientProvider client={client}><PosIconic variant="retail" /></QueryClientProvider>);
+  const tree = () => <QueryClientProvider client={client}><PosIconic variant="retail" /></QueryClientProvider>;
+  const view = render(tree());
+  return { ...view, refresh: () => view.rerender(tree()) };
 }
 describe("shift state must be established before a fresh opening", () => {
   const shiftRow = (id:number,status="open") => ({id,status,branchId:7,cashierUserId:11,sessionNumber:`SHIFT-${id}`,openedAt:"2026-11-04T02:00:00Z"});
+  it("retains a reviewed sale across an unchanged background shift refresh, but invalidates it on closure", async()=>{
+    const transport=saleTransport(),u=userEvent.setup();
+    const view=mount();
+    await u.click(await screen.findByTestId("product-icon-5"));
+    await review(u);
+    expect(screen.getByTestId("tax-preview-status").textContent).toBe("تمت المراجعة");
+    const previewCount=previews.length;
+    sessionMock.fetching=true;view.refresh();
+    expect(screen.getByTestId("pos-active-session-context").textContent).toContain("SHIFT-9");
+    expect(screen.queryByTestId("button-scoped-open-shift")).toBeNull();
+    sessionMock.fetching=false;view.refresh();
+    expect(screen.getByTestId("tax-preview-status").textContent).toBe("تمت المراجعة");
+    expect(previews).toHaveLength(previewCount);
+    await u.click(screen.getByTestId("product-icon-5"));
+    await waitFor(()=>expect(screen.getByTestId("tax-preview-status").textContent).not.toBe("تمت المراجعة"));
+    await review(u);
+    sessionMock.rows=[shiftRow(9,"closed"),shiftRow(42)];view.refresh();
+    expect(screen.queryByTestId("pos-active-session-context")).toBeNull();
+    expect(JSON.parse(sessionStorage.getItem("hasba:pos-shift-selection:11:21:legacy")!).sessionId).toBe(9);
+    sessionMock.rows=null;view.refresh();
+    await waitFor(()=>expect(screen.getByTestId("tax-preview-status").textContent).not.toBe("تمت المراجعة"));
+    await review(u);
+    await u.click(screen.getByTestId("button-pay-rail"));
+    await waitFor(()=>expect(transport.committed.size).toBe(1));
+    expect(transport.attempts).toHaveLength(1);
+  });
+  it("cannot start a cart before explicit shift choice or lock the choice with an orphan cart",async()=>{
+    sessionMock.rows=[shiftRow(42),shiftRow(43)];
+    const transport=saleTransport(),u=userEvent.setup();
+    mount();
+    await u.click(await screen.findByTestId("product-icon-5"));
+    const select=screen.getByRole("combobox",{name:"اختر الوردية"});
+    expect(select.matches(":disabled")).toBe(false);
+    expect(previews).toHaveLength(0);
+    await u.selectOptions(select,"43");
+    await u.click(screen.getByTestId("product-icon-5"));
+    await review(u);
+    await u.click(screen.getByTestId("button-pay-rail"));
+    await waitFor(()=>expect(transport.committed.size).toBe(1));
+    expect(JSON.parse(transport.attempts[0].body)).toMatchObject({sessionId:43,items:[{productId:5,quantity:1}]});
+  });
+  it("never attributes an unidentified legacy shift to the current cashier or opens a replacement",async()=>{
+    sessionMock.rows=[{...shiftRow(41),cashierUserId:22},{...shiftRow(42),cashierUserId:null}];
+    const fetcher=vi.fn(async()=>Response.json([]));vi.stubGlobal("fetch",fetcher);
+    mount();
+    expect(screen.queryByTestId("pos-active-session-context")).toBeNull();
+    expect(screen.getByTestId("text-pos-unidentified-shift")).toBeTruthy();
+    expect(screen.queryByTestId("button-scoped-open-shift")).toBeNull();
+    expect(sessionStorage.getItem("hasba:pos-shift-selection:11:21:legacy")).toBeNull();
+    expect(fetcher.mock.calls.filter(([,i]:any[])=>i?.method==="POST")).toHaveLength(0);
+  });
   it("replaces a closed saved selection with the single eligible open shift without any opening POST", async()=>{
     sessionStorage.setItem("hasba:pos-shift-selection:11:21:legacy",JSON.stringify({branchId:7,sessionId:9}));
     sessionMock.rows=[shiftRow(9,"closed"),shiftRow(42)];

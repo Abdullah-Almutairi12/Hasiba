@@ -19,6 +19,12 @@ describe("explicit POS shift context",()=>{
     expect(selectedPosSession([closed,shift(42,7),shift(43,7)],7,11,9)).toBeUndefined();
     expect(selectedPosSession([shift(42,7),shift(43,7)],7,11,43)?.id).toBe(43);
   });
+  it("does not infer cashier ownership from a legacy null identity, even with a saved preference",()=>{
+    const unknown=shift(42,7,null);
+    expect(selectedPosSession([shift(41,7,22),unknown],7,11)).toBeUndefined();
+    expect(selectedPosSession([unknown],7,11,42)).toBeUndefined();
+    expect(selectedPosSession([unknown,shift(43,7)],7,11)?.id).toBe(43);
+  });
   it("isolates persisted choices by user, company and responsibility",()=>{
     sessionStorage.clear();saveShiftSelection("11:21:legacy",{branchId:7,sessionId:3});
     expect(readShiftSelection("11:21:legacy")).toEqual({branchId:7,sessionId:3});

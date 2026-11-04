@@ -15,7 +15,7 @@ export function saveShiftSelection(scope: string, value: ShiftSelection): void {
 /** A list position or another branch's shift is never a context selector. */
 export function eligiblePosSessions(sessions: PosSession[] | undefined, branchId: number | null, userId: number | undefined) {
   return (sessions ?? []).filter(s => s.status === "open" && s.branchId === branchId &&
-    (s.cashierUserId == null || s.cashierUserId === userId));
+    userId != null && s.cashierUserId === userId);
 }
 export function selectedPosSession(sessions: PosSession[] | undefined, branchId: number | null, userId: number | undefined, preferredId?: number) {
   const candidates = eligiblePosSessions(sessions, branchId, userId);

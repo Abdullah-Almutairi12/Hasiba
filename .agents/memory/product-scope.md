@@ -44,6 +44,18 @@ Multiple authorized open shifts are not prohibited by a global uniqueness policy
 
 **How to apply:** Preserve company, branch, cashier, device and responsibility scope. Only a successful read showing zero eligible shifts may expose fresh opening; persist the selected operating context without treating it as authority.
 
+A successful shift background refresh must not erase an unchanged reviewed sale.
+Require a verified shift before starting a cart, and never infer cashier ownership
+from a legacy null cashier identifier.
+
+**Why:** The user requires uninterrupted valid reviews without orphan carts or
+silent assignment of ambiguous historical shifts.
+
+**How to apply:** Preserve confirmed context while rechecking, but block new
+actions during uncertainty. Invalidate on actual closure/error/context changes;
+never move an existing cart or immutable pending payment to a different shift.
+Leave historical records and server-side legacy recovery intact.
+
 Investor presentations must reflect actual product readiness, with real synthetic-data
 screenshots for valuable new capabilities and explicit tested/partially tested/planned
 status. Preserve the original deck identity and slide identifiers; update an existing

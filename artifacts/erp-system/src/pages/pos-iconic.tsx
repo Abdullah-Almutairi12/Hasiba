@@ -164,10 +164,17 @@ export default function PosIconic({
   });
   const sessionsChecking = !!sessionsLoading || !!sessionsFetching || !sessions && !sessionsError;
   const eligibleSessions = eligiblePosSessions(sessions, selectedBranchId, user?.id);
-  const activeSession = sessionsChecking || sessionsError ? undefined
-    : selectedPosSession(sessions, selectedBranchId, user?.id, choice?.branchId === selectedBranchId ? choice.sessionId : undefined);
+  // A background refresh does not erase the last successful context or its
+  // reviewed quote. Fresh actions wait for the read; closure/errors still
+  // invalidate context. Saved financial attempts retain their immutable body.
+  const candidateSession = selectedPosSession(sessions, selectedBranchId, user?.id, choice?.branchId === selectedBranchId ? choice.sessionId : undefined);
+  const activeSession = sessionsLoading || !sessions || sessionsError ||
+    cart.length > 0 && candidateSession?.id !== choice?.sessionId ? undefined : candidateSession;
+  const unidentifiedShift = !activeSession && eligibleSessions.length === 0 &&
+    !!sessions?.some(s => s.status === "open" && s.branchId === selectedBranchId && s.cashierUserId == null);
   const shiftStatus = sessionsError ? "تعذر التحقق" : sessionsChecking ? "جارٍ التحقق من الوردية"
     : activeSession ? t("pos_iconic.session_open") : eligibleSessions.length ? "اختر الوردية"
+    : unidentifiedShift ? "تعذر تحديد صاحب الوردية"
     : selectedBranchId === null ? "اختر فرع الوردية" : "لا توجد وردية مفتوحة";
   useEffect(() => {
     if (!activeSession || choice?.branchId === activeSession.branchId && choice.sessionId === activeSession.id) return;
@@ -185,6 +192,7 @@ export default function PosIconic({
   // to new sales; a responsibility mismatch blocks recovery as well.
   const payBlock: string | null = openingState.scope === shiftScope && openingState.pending && !checkout.attempt
     ? "استرجع نتيجة طلب فتح الوردية المعلق قبل بدء بيع جديد."
+    : !checkout.attempt && (sessionsChecking || sessionsError) ? "انتظر نجاح التحقق من الوردية قبل بدء بيع جديد."
     : !isScoped ? null
     : checkout.scopeMismatch ? "عملية البيع المعلقة تخص مسؤولية أخرى. ارجع إلى «عملي» واختر المسؤولية الأصلية لاسترجاعها."
     : checkout.attempt ? null
@@ -283,6 +291,10 @@ export default function PosIconic({
 
   const addToCart = (p: Product) => {
     if (checkoutLocked || review) return;
+    if (!activeSession || sessionsChecking || sessionsError || openingState.scope === shiftScope && openingState.pending) {
+      toast({ title: unidentifiedShift ? "تعذر تحديد صاحب الوردية. راجع المسؤول." : "اختر وردية مؤكدة أولًا قبل إضافة الأصناف.", variant: "destructive" });
+      return;
+    }
     setCart((prev) => {
       const ex = prev.find((c) => c.product.id === p.id);
       if (ex) {
@@ -553,6 +565,7 @@ export default function PosIconic({
             onPendingChange={pending => setOpeningState(old => old.scope === shiftScope && old.pending === pending ? old : { scope: shiftScope, pending })}
             hasSession={!!activeSession}
             eligibleSessions={eligibleSessions}
+            unidentifiedShift={unidentifiedShift}
             onSelectSession={sessionId => {
               if (sessionsChecking || sessionsError || !eligibleSessions.some(s => s.id === sessionId) || checkoutLocked || cart.length > 0) return;
               chooseShift({ branchId: selectedBranchId!, sessionId });
@@ -1377,7 +1390,7 @@ function ParkedOverlay({
  */
 function ScopedPosNotice({ branchId, hasSession, canOpenShift, cashierName, onOpened, intentScope, caps, scoped=true,
   fixedBranch, branches, branchesLoading, branchesError, onSelectBranch, onRefreshBranches, contextLocked, onPendingChange,
-  sessionsChecking, sessionsError, onRefreshSessions, eligibleSessions, onSelectSession }: {
+  sessionsChecking, sessionsError, onRefreshSessions, eligibleSessions, onSelectSession, unidentifiedShift }: {
   branchId: number | null; hasSession: boolean; canOpenShift: boolean; cashierName: string; onOpened: (session: PosSession) => void;
   intentScope: string | null; caps: ReturnType<typeof scopedCheckoutCaps>;
   scoped?:boolean;
@@ -1386,6 +1399,7 @@ function ScopedPosNotice({ branchId, hasSession, canOpenShift, cashierName, onOp
   onPendingChange: (pending: boolean) => void;
   sessionsChecking: boolean; sessionsError: boolean; onRefreshSessions: () => void;
   eligibleSessions: PosSession[]; onSelectSession: (sessionId: number) => void;
+  unidentifiedShift: boolean;
 }) {
   const { toast } = useToast();
   const [cash, setCash] = useState("");
@@ -1403,7 +1417,7 @@ function ScopedPosNotice({ branchId, hasSession, canOpenShift, cashierName, onOp
     if (!intent) {
       // An absent/failed list is not evidence that no shift exists. A saved
       // intent is different: replaying its immutable identity remains safe.
-      if (sessionsChecking || sessionsError || hasSession || eligibleSessions.length > 0) return;
+      if (sessionsChecking || sessionsError || hasSession || eligibleSessions.length > 0 || unidentifiedShift) return;
       const n = Number(cash || "0");
       if (!usable || !canOpenShift || !Number.isFinite(n) || n < 0 || n > 99999999.99 || Math.abs(n * 100 - Math.round(n * 100)) > 0.000001) {
         toast({ title: "أدخل نقدًا افتتاحيًا صحيحًا غير سالب بمنزلتين عشريتين كحد أقصى.", variant: "destructive" }); return;
@@ -1497,6 +1511,10 @@ function ScopedPosNotice({ branchId, hasSession, canOpenShift, cashierName, onOp
             </option>)}
           </select>
         </label>
+      ) : unidentifiedShift ? (
+        <p role="alert" data-testid="text-pos-unidentified-shift">توجد وردية قديمة لا يُعرف صاحبها؛ لن تُنسب إليك تلقائيًا ولن تُفتح وردية بديلة. راجع المسؤول للتحقق من سجل الوردية.
+          <button data-testid="button-pos-session-recheck" onClick={onRefreshSessions}>إعادة التحقق من الوردية</button>
+        </p>
       ) : !canOpenShift && !hasSession ? (
         <p data-testid="text-scoped-no-shift-permission">لا توجد وردية متاحة، وفتح الوردية غير ممنوح لك. اطلب مسؤولية فتح الوردية من المسؤول.</p>
       ) : !fixedBranch && branchesError ? (
