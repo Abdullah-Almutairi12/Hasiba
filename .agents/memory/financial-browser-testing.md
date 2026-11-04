@@ -15,9 +15,9 @@ An expired testing notebook can create a new browser context and lose cookies/se
 
 A clean working-tree fingerprint and passing gates do not prove a long-running browser server loaded that build.
 
-**Why:** A native invoice captured new metadata while its receipt route still used an older in-memory bundle. The final source and direct rendering tests were correct, but those first browser PDFs were not final-source evidence.
+**Why:** A native invoice captured new metadata while its receipt route still used an older in-memory bundle. The final source and direct rendering tests were correct, but those first browser PDFs were not final-source evidence. Editing during a BEFORE journey can also hot-reload the new UI against the old API, invalidating whole-source attribution.
 
-**How to apply:** After the coherent source batch, restart the relevant test service from the verified build before native acceptance. Bind its loaded artifact digest to the source receipt. Preserve stale-run results separately; reprint the same confirmed documents, without creating replacement sales, then reconcile.
+**How to apply:** Finish the native BEFORE capture before editing, or use a separately pinned fixture; a dispatched tester has not necessarily captured anything yet. After the coherent source batch, restart the relevant test service from the verified build before native acceptance. Bind its loaded artifact digest to the source receipt. Preserve stale-run results separately; reprint the same confirmed documents, without creating replacement sales, then reconcile.
 
 ## A completed verifier does not refresh every retained artifact
 

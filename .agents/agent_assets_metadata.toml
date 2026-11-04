@@ -1981,3 +1981,17 @@ mtime_ms = 1793805410674
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/748c006f-d5a9-4457-a21a-a80388639bca/efbe2be2-cac1-4ea1-9fa8-8c9af6121d44"
 storage_version_token = "1793805446034375"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "fN9p7gbOjJDHDlSVWaDfZ"
+uri = "file://generated-artifacts/pos-resumed-close/Hasiba-Closed-Shift-Edit-Recovery-Evidence.zip"
+type = "unspecified"
+title = "أدلة إصلاح متابعة السلة بعد إقفال الوردية"
+description = "تقرير عربي/إنجليزي، سجلات 15 بوابة ناجحة، 1282 اختبار خادم و493 واجهة، صور ومصالحة مستقلة. 92 ملفًا و25 صورة؛ بيانات اصطناعية منقحة."
+logical_id = "78c5f921-fbb3-428e-8d9c-ced32a274e45"
+content_hash = "sha256:7df00b1f2d48a61219bf82e3ae9b5ea9b9be6bfb8d6df4cc0cd61e61f5532b40"
+size = 1656531
+mtime_ms = 1793814723107
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/78c5f921-fbb3-428e-8d9c-ced32a274e45/d8c876ac-e4c5-403f-8474-73c929dc63a1"
+storage_version_token = "1793814750044679"
+content_type = "application/octet-stream"
