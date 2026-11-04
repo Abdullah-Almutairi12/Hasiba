@@ -248,12 +248,89 @@ function parkingTransport(failure?: "rejected" | "unknown" | "empty" | "delayed"
     }
     if (path.endsWith("/api/pos/orders/parked")) return Response.json(parked);
     if (path.endsWith("/api/pos/orders/71/resume")) {
-      const saved=parked[0];parked=[];return Response.json(saved);
+      const saved=parked[0];parked=[];return Response.json({...saved,state:"resumed",requestId:new Headers(init?.headers).get("Idempotency-Key")});
     }
     return original(input,init);
   }));
   return {...sales,parks,release};
 }
+
+describe("safe native parked basket resume",()=>{
+  function resumeTransport(lost=false,delay=false) {
+    saleTransport();
+    const original=globalThis.fetch,posts:{key:string|null;body:string}[]=[];
+    const saved={id:81,sessionId:9,customerId:27,parkedLabel:"عميل ب",orderNumber:"PARK-B",
+      items:[{productId:5,quantity:3,priceSnapshot:100,nameSnapshot:"منتج تجريبي"}],subtotal:300,tax:0,discount:0,total:300};
+    let present=true,release!:()=>void;
+    const gate=new Promise<void>(resolve=>{release=resolve;});
+    const receipts=new Map<string,unknown>();
+    vi.stubGlobal("fetch",vi.fn(async(input:RequestInfo|URL,init?:RequestInit)=>{
+      const path=String(input).split("?")[0];
+      if(path.endsWith("/api/pos/orders/parked"))return Response.json(present?[saved]:[]);
+      if(path.endsWith("/api/pos/orders/81/resume")){
+        const key=new Headers(init?.headers).get("Idempotency-Key");
+        posts.push({key,body:String(init?.body)});
+        if(delay)await gate;
+        let result=key?receipts.get(key):null;
+        if(!result){if(!present)return Response.json({error:"gone"},{status:404});
+          present=false;result={...saved,state:"resumed",requestId:key};if(key)receipts.set(key,result);}
+        if(lost&&posts.length===1)return new Response("Lost after commit",{status:502});
+        return Response.json(result);
+      }
+      return original(input,init);
+    }));
+    return {posts,release,receipts};
+  }
+  it("never sends resume or overwrites customer A when the active basket is nonempty",async()=>{
+    const t=resumeTransport(),u=userEvent.setup();mount();
+    await u.click(await screen.findByTestId("dock-customer"));
+    await u.click(await screen.findByTestId("pos-customer-17"));
+    await u.click(screen.getByTestId("product-icon-5"));
+    await u.click(screen.getByTestId("dock-parking"));
+    await u.click(await screen.findByTestId("button-resume-81"));
+    expect(t.posts).toHaveLength(0);
+    expect(screen.getByTestId("dock-customer").getAttribute("aria-label")).toBe("عميل تجربة السوبرماركت");
+    expect(screen.getByTestId("cart-row-unit-5").parentElement!.textContent).toContain("× 1");
+    expect(screen.getByTestId("parked-81")).toBeTruthy();
+  });
+  it("recovers the same saved B once after a lost reply and reload",async()=>{
+    const t=resumeTransport(true),u=userEvent.setup();let view=mount();
+    await u.click(await screen.findByTestId("dock-parking"));
+    await u.click(await screen.findByTestId("button-resume-81"));
+    await waitFor(()=>expect(t.posts).toHaveLength(1));
+    await waitFor(()=>expect(sessionStorage.getItem("hasba:pos-resume:11:21:legacy")).not.toBeNull());
+    view.unmount();view=mount();
+    await u.click(await screen.findByTestId("button-recover-resume"));
+    await waitFor(()=>expect(screen.getByTestId("cart-row-unit-5").parentElement!.textContent).toContain("× 3"));
+    expect(screen.getByTestId("dock-customer").getAttribute("aria-label")).toBe("عميل #27");
+    expect(t.posts).toHaveLength(2);expect(t.posts[1]).toEqual(t.posts[0]);
+    expect(t.posts[0].key).toBeTruthy();expect(t.receipts.size).toBe(1);
+  });
+  it("does not apply a delayed B response over a newer A cart and customer",async()=>{
+    const t=resumeTransport(false,true),u=userEvent.setup();mount();
+    await u.click(await screen.findByTestId("dock-parking"));
+    fireEvent.click(await screen.findByTestId("button-resume-81"));
+    await waitFor(()=>expect(t.posts).toHaveLength(1));
+    await u.click(screen.getByLabelText("إغلاق الطلبات المعلقة"));
+    await u.click(screen.getByTestId("dock-customer"));
+    await u.click(await screen.findByTestId("pos-customer-17"));
+    await u.click(screen.getByTestId("product-icon-5"));
+    t.release();
+    await waitFor(()=>expect(screen.getByTestId("resume-recovery")).toBeTruthy());
+    expect(screen.getByTestId("dock-customer").getAttribute("aria-label")).toBe("عميل تجربة السوبرماركت");
+    expect(screen.getByTestId("cart-row-unit-5").parentElement!.textContent).toContain("× 1");
+    expect(sessionStorage.getItem("hasba:pos-resume:11:21:legacy")).not.toBeNull();
+    expect(screen.getByTestId("button-recover-resume").matches(":disabled")).toBe(true);
+  });
+  it("sends only once when resume is double-clicked before its delayed response",async()=>{
+    const t=resumeTransport(false,true),u=userEvent.setup();mount();
+    await u.click(await screen.findByTestId("dock-parking"));
+    const b=await screen.findByTestId("button-resume-81");
+    fireEvent.click(b);fireEvent.click(b);
+    try{await waitFor(()=>expect(t.posts).toHaveLength(1));}finally{t.release();}
+    await waitFor(()=>expect(screen.getByTestId("dock-customer").getAttribute("aria-label")).toBe("عميل #27"));
+  });
+});
 
 describe("one durable parking intent",()=>{
   async function prepare(u:ReturnType<typeof userEvent.setup>){

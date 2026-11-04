@@ -36,6 +36,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
 import { usePosCheckout, readPendingPosAttempt, type PosProduct as Product, type PosCartItem as CartItem } from "@/hooks/use-pos-checkout";
 import { usePosParking, parkingLabelError } from "@/hooks/use-pos-parking";
+import { usePosResume } from "@/hooks/use-pos-resume";
 import { useToast } from "@/hooks/use-toast";
 import { useTaxPreview } from "@/hooks/use-tax-preview";
 import { previewPosTax, previewUnitPrices, type PosTaxPreviewBody } from "@/lib/tax-preview";
@@ -126,6 +127,7 @@ export default function PosIconic({
   const queryClient = useQueryClient();
   const checkout = usePosCheckout(user?.companyId ? `${user.id}:${user.companyId}` : null);
   const parking = usePosParking(shiftScope);
+  const resuming = usePosResume(shiftScope);
 
   const [cart, setCart] = useState<CartItem[]>([]);
   const [search, setSearch] = useState("");
@@ -385,31 +387,40 @@ export default function PosIconic({
     toast({ title: t("pos_iconic.parked_ok") });
   };
 
-  const handleResume = async (id: number) => {
-    if (isScoped || checkoutLocked) return;
-    if (!activeSession) {
+  const handleResume = async (id?: number) => {
+    if (isScoped || checkoutLocked || !resuming.ready || resuming.busy) return;
+    // Neither a fresh request nor recovery may replace the cashier's work.
+    if (cart.length) {
+      toast({title:"أكمل السلة الحالية أو علّقها أولًا؛ لم تتغير السلة أو عميلها أو المسودة.",variant:"destructive"});
+      return;
+    }
+    if (id !== undefined && !activeSession) {
       toast({ title: t("pos_iconic.no_session"), variant: "destructive" });
       return;
     }
-    const base = import.meta.env.BASE_URL;
-    const res = await fetch(`${base}api/pos/orders/${id}/resume`, {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sessionId: activeSession.id }),
-    });
-    if (!res.ok) {
-      toast({ title: t("pos_iconic.resume_failed"), variant: "destructive" });
+    const revision=basketVersion.current.revision;
+    const outcome=await resuming.submit(id,activeSession?.id);
+    if(!outcome)return;
+    if(outcome.result.state==="unavailable"||outcome.result.state==="cancelled"){
+      if(!resuming.acknowledge(outcome.intent))return;
+      void refreshParked();
+      toast({title:outcome.result.state==="cancelled"?"أُلغيت المسودة عمدًا؛ السلة الحالية لم تتغير.":"المسودة غير متاحة لهذه المحاولة؛ لم تُستبدل السلة الحالية."});
       return;
     }
-    const data = (await res.json()) as ParkedOrder;
+    // The user can edit while the response is delayed. Keep the recoverable
+    // identity instead of letting a stale success clobber that newer work.
+    if(basketVersion.current.revision!==revision){
+      toast({title:"تغيّرت السلة أثناء الانتظار؛ احتُفظ بنتيجة المسودة للاسترجاع. أكمل السلة الحالية أو علّقها أولًا.",variant:"destructive"});
+      return;
+    }
+    const data=outcome.result;
     // Rehydrate cart from parked snapshot. We map back into the
     // `products` cache when available so the live price/name reflect
     // current state; fall back to snapshot for missing products.
     const productMap = new Map<number, Product>(
       (products ?? []).map((p) => [p.id, p as Product]),
     );
-    const restored: CartItem[] = data.items.map((it) => {
+    const restored: CartItem[] = data.items!.map((it) => {
       const live = productMap.get(it.productId);
       const fallback: Product = {
         id: it.productId,
@@ -418,6 +429,7 @@ export default function PosIconic({
       };
       return { product: live ?? fallback, quantity: it.quantity };
     });
+    if(!resuming.acknowledge(outcome.intent))return;
     setCart(restored);
     setCustomerChoice({scope:shiftScope,customer:data.customerId ? {id:data.customerId,name:`عميل #${data.customerId}`} : null});
     setParkedOpen(false);
@@ -426,16 +438,9 @@ export default function PosIconic({
   };
 
   const handleCancelParked = async (id: number) => {
-    // Cancel == resume + discard (the resume endpoint deletes the row).
-    if (isScoped || checkoutLocked || !activeSession) return;
-    const base = import.meta.env.BASE_URL;
-    const res = await fetch(`${base}api/pos/orders/${id}/resume`, {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sessionId: activeSession.id }),
-    });
-    if (res.ok) {
+    if (isScoped || checkoutLocked || !activeSession || resuming.busy || !resuming.ready) return;
+    const outcome=await resuming.submit(id,activeSession.id,"cancel");
+    if(outcome&&(outcome.result.state==="cancelled"||outcome.result.state==="unavailable")&&resuming.acknowledge(outcome.intent)){
       void refreshParked();
       toast({ title: t("pos_iconic.cancelled_ok") });
     }
@@ -777,6 +782,12 @@ export default function PosIconic({
       </div>
 
       {/* Floating dock */}
+      {resuming.intent || resuming.error ? <div role="status" className="fixed bottom-24 inset-x-4 z-[110] rounded-xl border bg-white p-3 shadow" data-testid="resume-recovery">
+        <p>{resuming.error || "محاولة فتح أو إلغاء مسودة محفوظة؛ تحقق من نتيجتها الأصلية."}</p>
+        {cart.length>0?<p>أكمل السلة الحالية أو علّقها أولًا؛ لن تُستبدل أصنافها أو عميلها.</p>:null}
+        <Button data-testid="button-recover-resume" disabled={!resuming.ready||resuming.busy||!resuming.intent||cart.length>0}
+          onClick={()=>void handleResume()}>استرجاع نتيجة المسودة</Button>
+      </div>:null}
       {parking.intent || parking.error ? <div role="status" className="fixed top-16 inset-x-4 z-[110] rounded-xl border bg-white p-3 shadow" data-testid="parking-recovery">
         <p>{parking.error || "محاولة تعليق محفوظة؛ تحقّق من نتيجتها قبل متابعة العمل."}</p>
         <Button data-testid="button-recover-parking" disabled={parking.busy || !parking.ready || !parking.intent}
@@ -1365,6 +1376,7 @@ function ParkedOverlay({
           </h2>
           <button
             onClick={onClose}
+            aria-label="إغلاق الطلبات المعلقة"
             className="grid size-8 place-items-center rounded-full hover:bg-neutral-100 dark:hover:bg-neutral-800"
           >
             <X className="size-4" />

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {posTaxPreviewBody,preparePosTaxPreview,posTaxFacts,posIntentRead} from "../lib/pos-tax-preview";
 import {closeSaleIntent} from "../lib/close-sale-intent";
+import {authorizeParkedSource} from "../lib/pos-parked-access";
 import {issueTaxPreview,verifyTaxPreview} from "../lib/tax-preview";
 import { returnAuthorize } from "../lib/return-access";
 import { scopedPosOrderVisible } from "../lib/scoped-pos-operations";
@@ -10,6 +11,7 @@ import {
   db,
   posSessionsTable,
   posOrdersTable,
+  auditLogsTable,
   branchesTable,
   productsTable,
   warehousesTable,
@@ -1869,7 +1871,15 @@ router.get("/pos/orders/parked", posReadGuard, async (req, res) => {
       res.status(400).json({ error: "sessionId مطلوب" });
       return;
     }
-    const rows = await db
+    const rows = await db.transaction(async tx=>{
+      // Preserve a non-disclosing empty list for a foreign tenant, then enforce
+      // present source authority for company-local branches/cashiers/devices.
+      const owned=await tx.select({id:posSessionsTable.id}).from(posSessionsTable)
+        .innerJoin(branchesTable,eq(branchesTable.id,posSessionsTable.branchId))
+        .where(and(eq(posSessionsTable.id,sessionId),eq(branchesTable.companyId,companyId))).limit(1);
+      if(!owned.length)return [];
+      await authorizeParkedSource(tx,req,sessionId);
+      return tx
       .select()
       .from(posOrdersTable)
       .where(
@@ -1881,6 +1891,7 @@ router.get("/pos/orders/parked", posReadGuard, async (req, res) => {
       )
       .orderBy(desc(posOrdersTable.createdAt))
       .limit(50);
+    });
     res.json(
       rows.map((r) => ({
         id: r.id,
@@ -1896,6 +1907,7 @@ router.get("/pos/orders/parked", posReadGuard, async (req, res) => {
       })),
     );
   } catch (err) {
+    if(err instanceof FinancialRequestError){res.status(err.status).json({error:err.message});return;}
     req.log.error({ err }, "List parked POS orders failed");
     res.status(500).json({ error: "Internal server error" });
   }
@@ -1905,7 +1917,9 @@ const ResumeOrderBody = z.object({
   sessionId: z.number().int().positive(),
 });
 
-router.post("/pos/orders/:id/resume", posGuard, async (req, res) => {
+// Resume and deliberate discard are separate durable operations. The original
+// row is consumed atomically with its receipt, so loss of the response is safe.
+const parkedDelivery = (kind:"resume"|"cancel"):import("express").RequestHandler => async (req, res) => {
   try {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id <= 0) {
@@ -1919,11 +1933,20 @@ router.post("/pos/orders/:id/resume", posGuard, async (req, res) => {
     }
     const { sessionId } = parsed.data;
     const companyId = getCompanyId(req);
-    // Atomic resume: only deletes a row that is still parked, belongs
-    // to this tenant AND belongs to the caller's stated session —
-    // prevents double-resume races and cross-session resume of a
-    // parked order from another station/branch in the same company.
-    const deleted = await db
+    const key=req.get("Idempotency-Key");
+    if(!key){res.status(400).json({error:"يلزم معرّف ثابت لمحاولة فتح أو إلغاء المسودة"});return;}
+    const authorize=async(tx:Parameters<Parameters<typeof db.transaction>[0]>[0])=>{
+      await authorizeParkedSource(tx,req,sessionId);
+    };
+    const result=await financialTransaction(req,async tx=>{
+      await authorize(tx);
+      const [shift]=await tx.select().from(posSessionsTable)
+        .where(eq(posSessionsTable.id,sessionId)).limit(1).for("share");
+      if(!shift||shift.status!=="open")throw new FinancialRequestError("الوردية مغلقة؛ لا يمكن فتح مسودة جديدة منها",409);
+      // Re-read current branch/device/user authority after any shift-lock wait.
+      await authorize(tx);
+      await returnAuthorize(req.session.userId!,companyId,"sell",shift.branchId,tx);
+      const deleted = await tx
       .delete(posOrdersTable)
       .where(
         and(
@@ -1934,18 +1957,19 @@ router.post("/pos/orders/:id/resume", posGuard, async (req, res) => {
         ),
       )
       .returning();
-    if (deleted.length === 0) {
-      res.status(404).json({ error: "الطلب غير موجود أو تم استئنافه" });
-      return;
-    }
-    const row = deleted[0];
-    await recordAudit(req, {
-      action: "delete",
-      entity: `pos_order#${row.id}`,
-      details: `resumed parked label=${row.parkedLabel ?? ""}`,
-    });
-    res.json({
-      id: row.id,
+      // A rival attempt can win. Persist this attempt's explicit non-delivery
+      // too; a client must not infer that fact from a bare HTTP 404.
+      if(!deleted.length)return {id,sessionId,requestId:key,state:"unavailable" as const};
+      const row=deleted[0];
+      const [actor]=await tx.select({name:usersTable.name}).from(usersTable).where(eq(usersTable.id,req.session.userId!)).limit(1);
+      await tx.insert(auditLogsTable).values({
+        companyId,userId:req.session.userId!,userName:actor?.name??"كاشير",
+        action:kind==="resume"?"pos.park.resumed":"pos.park.cancelled",
+        entity:`pos_order#${row.id}`,details:JSON.stringify({requestId:key,sessionId,customerId:row.customerId}),
+      });
+      const common={id:row.id,sessionId,requestId:key};
+      if(kind==="cancel")return {...common,state:"cancelled" as const};
+      return {...common,state:"resumed" as const,
       orderNumber: row.orderNumber,
       parkedLabel: row.parkedLabel,
       customerId: row.customerId,
@@ -1954,12 +1978,17 @@ router.post("/pos/orders/:id/resume", posGuard, async (req, res) => {
       tax: Number(row.tax),
       discount: Number(row.discount),
       total: Number(row.total),
-    });
+      };
+    },authorize);
+    res.status(result.state==="unavailable"?404:200).json(result);
   } catch (err) {
+    if(err instanceof FinancialRequestError){res.status(err.status).json({error:err.message});return;}
     req.log.error({ err }, "Resume parked POS order failed");
     res.status(500).json({ error: "Internal server error" });
   }
-});
+};
+router.post("/pos/orders/:id/resume",posGuard,parkedDelivery("resume"));
+router.post("/pos/orders/:id/cancel",posGuard,parkedDelivery("cancel"));
 
 router.get("/pos/summary", posReadGuard, async (req, res) => {
   try {
