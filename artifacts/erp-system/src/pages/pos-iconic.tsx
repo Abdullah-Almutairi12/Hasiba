@@ -132,6 +132,13 @@ export default function PosIconic({
   const resumedBasket=usePosResumedBasket(shiftScope);
 
   const [cart, setCart] = useState<CartItem[]>([]);
+  const workingBasket=useRef({cart,customer});
+  workingBasket.current={cart,customer};
+  const editBasket=(nextCart:CartItem[],nextCustomer:PosCustomerChoice|null)=>{
+    if(resumedBasket.value)resumedBasket.update(nextCart,nextCustomer);
+    workingBasket.current={cart:nextCart,customer:nextCustomer};
+    setCart(nextCart);setCustomerChoice({scope:shiftScope,customer:nextCustomer});
+  };
   const [search, setSearch] = useState("");
   const [categoryId, setCategoryId] = useState<number | null>(null);
   const [parkedOpen, setParkedOpen] = useState(false);
@@ -229,6 +236,7 @@ export default function PosIconic({
     ? "استرجع نتيجة طلب فتح الوردية المعلق قبل بدء بيع جديد."
     : !checkout.attempt && (sessionsChecking || sessionsError) ? "انتظر نجاح التحقق من الوردية قبل بدء بيع جديد."
     : !checkout.attempt && !resumedBasket.ready ? "تعذر التحقق من ربط السلة بالمسودة؛ لا تبدأ تحصيلًا جديدًا."
+    : !checkout.attempt && resumedBasket.error ? resumedBasket.error
     : !checkout.attempt && resumedBasket.value && activeSession?.id!==resumedBasket.value.source.sessionId
     ? `السلة المسترجعة تخص الوردية #${resumedBasket.value.source.sessionId}؛ لا يمكن تحصيلها على وردية أخرى. تحقق من نتيجتها السابقة دون إعادة فتح وردية مغلقة.`
     : !isScoped ? null
@@ -249,13 +257,18 @@ export default function PosIconic({
     if (!checkout.attempt) return;
     setCart(checkout.attempt.cart);
     setPaymentMethod(checkout.attempt.body.paymentMethod as typeof paymentMethod);
+    const originalCustomer=checkout.attempt.body.customerId;
+    setCustomerChoice({scope:shiftScope,customer:originalCustomer?{
+      id:originalCustomer,name:resumedBasket.value?.customer?.id===originalCustomer
+        ?resumedBasket.value.customer.name:`عميل #${originalCustomer}`,
+    }:null});
     // Restore the exact saved seller selection; never re-derive it.
     const saved = selectionFromBody(checkout.attempt.body);
     setSellerWhole(saved.whole);
     const byProduct: Record<number, number | undefined> = {};
     checkout.attempt.cart.forEach((ci, idx) => { if (saved.lines[idx] !== undefined) byProduct[ci.product.id] = saved.lines[idx]; });
     setSellerLines(byProduct);
-  }, [checkout.attempt]);
+  }, [checkout.attempt,resumedBasket.ready,shiftScope]);
 
   // Live tally of parked orders for the Dock badge
   const refreshParked = useMemo(
@@ -332,7 +345,8 @@ export default function PosIconic({
       toast({ title: unidentifiedShift ? "تعذر تحديد صاحب الوردية. راجع المسؤول." : "اختر وردية مؤكدة أولًا قبل إضافة الأصناف.", variant: "destructive" });
       return;
     }
-    setCart((prev) => {
+    const next=(() => {
+      const prev=workingBasket.current.cart;
       const ex = prev.find((c) => c.product.id === p.id);
       if (ex) {
         return prev.map((c) =>
@@ -340,17 +354,18 @@ export default function PosIconic({
         );
       }
       return [...prev, { product: p, quantity: 1 }];
-    });
+    })();
+    editBasket(next,workingBasket.current.customer);
   };
 
-  const bump = (id: number, delta: number) =>
-    setCart((prev) =>
-      checkoutLocked || review ? prev : prev.flatMap((c) => {
+  const bump = (id: number, delta: number) => {
+    if(checkoutLocked||review)return;
+    editBasket(workingBasket.current.cart.flatMap((c) => {
         if (c.product.id !== id) return [c];
         const q = c.quantity + delta;
         return q <= 0 ? [] : [{ ...c, quantity: q }];
-      }),
-    );
+      }),workingBasket.current.customer);
+  };
 
   const clearCart = () => {
     if(!checkoutLocked&&!review){
@@ -837,6 +852,7 @@ export default function PosIconic({
       {/* Floating dock */}
       {resumedBasket.value||resumedBasket.error||resuming.intent?.meta?.kind==="resume"?<div role="status" className="mx-4 rounded border bg-white p-3" data-testid="resumed-source">
         <p>{resumedBasket.error||`المسودة #${resumedBasket.value?.source.id??resuming.intent?.meta?.id} مرتبطة بالوردية #${resumedBasket.value?.source.sessionId??resuming.intent?.body.sessionId}. أي نتيجة محفوظة تُسترجع دون تحصيل جديد.`}</p>
+        {resumedBasket.dirty?<Button data-testid="button-save-resumed-edits" disabled={!!checkout.attempt} onClick={()=>resumedBasket.retry()}>إعادة حفظ التعديلات</Button>:null}
         <Button data-testid="button-lookup-resumed-sale" disabled={checkingResumedSale} onClick={()=>void lookupResumedSale()}>تحقق من نتيجة بيع المسودة</Button>
       </div>:null}
       {resuming.intent || resuming.error ? <div role="status" className="fixed bottom-24 inset-x-4 z-[110] rounded-xl border bg-white p-3 shadow" data-testid="resume-recovery">
@@ -854,7 +870,7 @@ export default function PosIconic({
       </div> : null}
       <PosCustomerPicker key={shiftScope} scope={shiftScope} scoped={isScoped} open={customerOpen} onOpenChange={setCustomerOpen}
         disabled={checkoutLocked || !!review} selected={customer}
-        onSelect={choice=>setCustomerChoice({scope:shiftScope,customer:choice})} />
+        onSelect={choice=>{if(!checkoutLocked&&!review)editBasket(workingBasket.current.cart,choice);}} />
       <FloatingDock
         onCustomer={()=>setCustomerOpen(true)}
         customerDisabled={checkoutLocked || !!review}

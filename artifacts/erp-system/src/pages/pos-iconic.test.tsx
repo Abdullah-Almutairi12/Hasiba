@@ -256,11 +256,11 @@ function parkingTransport(failure?: "rejected" | "unknown" | "empty" | "delayed"
 }
 
 describe("safe native parked basket resume",()=>{
-  function resumeTransport(lost=false,delay=false) {
-    const sales=saleTransport();
+  function resumeTransport(lost=false,delay=false,quantity=3,saleFault?:"lost") {
+    const sales=saleTransport(saleFault);
     const original=globalThis.fetch,posts:{key:string|null;body:string}[]=[];
     const saved={id:81,sessionId:9,customerId:27,parkedLabel:"عميل ب",orderNumber:"PARK-B",
-      items:[{productId:5,quantity:3,priceSnapshot:100,nameSnapshot:"منتج تجريبي"}],subtotal:300,tax:0,discount:0,total:300};
+      items:[{productId:5,quantity,priceSnapshot:100,nameSnapshot:"منتج تجريبي"}],subtotal:quantity*100,tax:0,discount:0,total:quantity*100};
     let present=true,release!:()=>void;
     const gate=new Promise<void>(resolve=>{release=resolve;});
     const receipts=new Map<string,unknown>();
@@ -318,6 +318,84 @@ describe("safe native parked basket resume",()=>{
     await waitFor(()=>expect(t.posts).toHaveLength(2));
     expect(screen.queryByTestId("cart-row-unit-5")).toBeNull();
     expect(sessionStorage.getItem("hasba:pos-resume:11:21:legacy")).not.toBeNull();
+  });
+  it("persists the edited three-unit basket and replacement customer across reload before quoting and paying",async()=>{
+    const t=resumeTransport(false,false,2),u=userEvent.setup();let view=mount();
+    await u.click(await screen.findByTestId("dock-parking"));
+    await u.click(await screen.findByTestId("button-resume-81"));
+    await waitFor(()=>expect(screen.getByTestId("cart-row-unit-5").parentElement!.textContent).toContain("× 2"));
+    const source=JSON.parse(sessionStorage.getItem("hasba:pos-resumed-basket:11:21:legacy")!).source;
+    await u.click(screen.getByTestId("product-icon-5"));
+    await u.click(screen.getByTestId("dock-customer"));
+    await u.click(await screen.findByTestId("pos-customer-17"));
+    view.unmount();view=mount();
+    await waitFor(()=>expect(screen.getByTestId("cart-row-unit-5").parentElement!.textContent).toContain("× 3"));
+    expect(screen.getByTestId("dock-customer").getAttribute("aria-label")).toBe("عميل تجربة السوبرماركت");
+    await u.click(screen.getByTestId("button-pay-cash"));await review(u);
+    await u.click(screen.getByTestId("button-pay-rail"));
+    await waitFor(()=>expect(t.sales.attempts).toHaveLength(1));
+    expect(JSON.parse(t.sales.attempts[0].body)).toMatchObject({customerId:17,items:[{productId:5,quantity:3}],resumedDraft:source});
+    expect(previews.some(p=>(p as {items?:{quantity:number}[]}).items?.[0]?.quantity===3)).toBe(true);
+  });
+  it("persists explicit customer removal rather than resurrecting the draft customer",async()=>{
+    const t=resumeTransport(),u=userEvent.setup();let view=mount();
+    await u.click(await screen.findByTestId("dock-parking"));
+    await u.click(await screen.findByTestId("button-resume-81"));
+    await waitFor(()=>expect(screen.getByTestId("cart-row-unit-5")).toBeTruthy());
+    await u.click(screen.getByTestId("dock-customer"));
+    await u.click(await screen.findByRole("button",{name:"عميل نقدي دون اختيار عميل مسجل"}));
+    view.unmount();view=mount();
+    await waitFor(()=>expect(screen.getByTestId("cart-row-unit-5")).toBeTruthy());
+    expect(screen.getByTestId("dock-customer").getAttribute("aria-label")).not.toBe("عميل #27");
+    await u.click(screen.getByTestId("button-pay-cash"));await review(u);
+    await u.click(screen.getByTestId("button-pay-rail"));
+    await waitFor(()=>expect(t.sales.attempts).toHaveLength(1));
+    expect(JSON.parse(t.sales.attempts[0].body).customerId).toBeUndefined();
+  });
+  it("blocks stale payment when saving an edit fails, keeps the new UI and retries the latest snapshot",async()=>{
+    const t=resumeTransport(false,false,2),u=userEvent.setup();let view=mount();
+    await u.click(await screen.findByTestId("dock-parking"));
+    await u.click(await screen.findByTestId("button-resume-81"));
+    await waitFor(()=>expect(screen.getByTestId("cart-row-unit-5")).toBeTruthy());
+    const key="hasba:pos-resumed-basket:11:21:legacy",original=sessionStorage.getItem(key);
+    const write=Storage.prototype.setItem;
+    const fault=vi.spyOn(Storage.prototype,"setItem").mockImplementation(function(this:Storage,k:string,v:string){
+      if(k===key)throw new DOMException("Synthetic edit storage fault","QuotaExceededError");
+      return write.call(this,k,v);
+    });
+    await u.click(screen.getByTestId("product-icon-5"));
+    await u.click(screen.getByTestId("dock-customer"));await u.click(await screen.findByTestId("pos-customer-17"));
+    expect(screen.getByTestId("cart-row-unit-5").parentElement!.textContent).toContain("× 3");
+    expect(screen.getByTestId("resumed-source").textContent).toContain("تعذر حفظ آخر تعديلات السلة");
+    expect(sessionStorage.getItem(key)).toBe(original);
+    await u.click(screen.getByTestId("button-pay-cash"));await review(u);
+    expect(screen.getByTestId("button-pay-rail").matches(":disabled")).toBe(true);
+    expect(t.sales.attempts).toHaveLength(0);
+    const leaving=new Event("beforeunload",{cancelable:true});window.dispatchEvent(leaving);expect(leaving.defaultPrevented).toBe(true);
+    fault.mockRestore();
+    await u.click(screen.getByTestId("button-save-resumed-edits"));
+    expect(JSON.parse(sessionStorage.getItem(key)!)).toMatchObject({cart:[{quantity:3}],customer:{id:17},source:JSON.parse(original!).source});
+    view.unmount();view=mount();
+    await waitFor(()=>expect(screen.getByTestId("cart-row-unit-5").parentElement!.textContent).toContain("× 3"));
+    expect(screen.getByTestId("dock-customer").getAttribute("aria-label")).toBe("عميل تجربة السوبرماركت");
+  });
+  it("recovers the frozen checkout body and customer, never a later local edit",async()=>{
+    const t=resumeTransport(false,false,2,"lost"),u=userEvent.setup();let view=mount();
+    await u.click(await screen.findByTestId("dock-parking"));await u.click(await screen.findByTestId("button-resume-81"));
+    await waitFor(()=>expect(screen.getByTestId("cart-row-unit-5")).toBeTruthy());
+    await u.click(screen.getByTestId("product-icon-5"));await u.click(screen.getByTestId("dock-customer"));
+    await u.click(await screen.findByTestId("pos-customer-17"));
+    await u.click(screen.getByTestId("button-pay-cash"));await review(u);await u.click(screen.getByTestId("button-pay-rail"));
+    await waitFor(()=>expect(t.sales.attempts).toHaveLength(1));
+    const key="hasba:pos-resumed-basket:11:21:legacy",later=JSON.parse(sessionStorage.getItem(key)!);
+    later.cart[0].quantity=4;later.customer={id:27,name:"تعديل لاحق لا يبدل البيع المرسل"};sessionStorage.setItem(key,JSON.stringify(later));
+    view.unmount();view=mount();
+    await waitFor(()=>expect(screen.getByTestId("cart-row-unit-5").parentElement!.textContent).toContain("× 3"));
+    expect(screen.getByTestId("dock-customer").getAttribute("aria-label")).toBe("عميل العملية المحفوظة #17");
+    await u.click(screen.getByTestId("button-pay-rail"));
+    await waitFor(()=>expect(t.sales.attempts).toHaveLength(2));
+    expect(t.sales.attempts[1]).toEqual(t.sales.attempts[0]);expect(t.sales.committed.size).toBe(1);
+    expect(JSON.parse(t.sales.attempts[1].body)).toMatchObject({customerId:17,items:[{quantity:3}]});
   });
   it("retains the draft source through reload and sends it with checkout, then permits an independent next sale",async()=>{
     const t=resumeTransport(),u=userEvent.setup();let view=mount();
