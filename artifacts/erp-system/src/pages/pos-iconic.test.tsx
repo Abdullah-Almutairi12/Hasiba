@@ -257,7 +257,7 @@ function parkingTransport(failure?: "rejected" | "unknown" | "empty" | "delayed"
 
 describe("safe native parked basket resume",()=>{
   function resumeTransport(lost=false,delay=false) {
-    saleTransport();
+    const sales=saleTransport();
     const original=globalThis.fetch,posts:{key:string|null;body:string}[]=[];
     const saved={id:81,sessionId:9,customerId:27,parkedLabel:"عميل ب",orderNumber:"PARK-B",
       items:[{productId:5,quantity:3,priceSnapshot:100,nameSnapshot:"منتج تجريبي"}],subtotal:300,tax:0,discount:0,total:300};
@@ -279,7 +279,7 @@ describe("safe native parked basket resume",()=>{
       }
       return original(input,init);
     }));
-    return {posts,release,receipts};
+    return {posts,release,receipts,sales};
   }
   it("never sends resume or overwrites customer A when the active basket is nonempty",async()=>{
     const t=resumeTransport(),u=userEvent.setup();mount();
@@ -305,6 +305,38 @@ describe("safe native parked basket resume",()=>{
     expect(screen.getByTestId("dock-customer").getAttribute("aria-label")).toBe("عميل #27");
     expect(t.posts).toHaveLength(2);expect(t.posts[1]).toEqual(t.posts[0]);
     expect(t.posts[0].key).toBeTruthy();expect(t.receipts.size).toBe(1);
+  });
+  it("never installs a saved source-shift 9 resume into shift 42 after reload",async()=>{
+    const t=resumeTransport(true),u=userEvent.setup();let view=mount();
+    await u.click(await screen.findByTestId("dock-parking"));
+    await u.click(await screen.findByTestId("button-resume-81"));
+    await waitFor(()=>expect(t.posts).toHaveLength(1));
+    view.unmount();
+    sessionMock.id=42;
+    view=mount();
+    await u.click(await screen.findByTestId("button-recover-resume"));
+    await waitFor(()=>expect(t.posts).toHaveLength(2));
+    expect(screen.queryByTestId("cart-row-unit-5")).toBeNull();
+    expect(sessionStorage.getItem("hasba:pos-resume:11:21:legacy")).not.toBeNull();
+  });
+  it("retains the draft source through reload and sends it with checkout, then permits an independent next sale",async()=>{
+    const t=resumeTransport(),u=userEvent.setup();let view=mount();
+    await u.click(await screen.findByTestId("dock-parking"));
+    await u.click(await screen.findByTestId("button-resume-81"));
+    await waitFor(()=>expect(screen.getByTestId("cart-row-unit-5")).toBeTruthy());
+    const source=JSON.parse(sessionStorage.getItem("hasba:pos-resumed-basket:11:21:legacy")!).source;
+    expect(source).toEqual({id:81,sessionId:9,requestId:t.posts[0].key});
+    view.unmount();view=mount();
+    await waitFor(()=>expect(screen.getByTestId("cart-row-unit-5")).toBeTruthy());
+    await u.click(screen.getByTestId("button-pay-cash"));
+    await review(u);await u.click(screen.getByTestId("button-pay-rail"));
+    await waitFor(()=>expect(t.sales.attempts).toHaveLength(1));
+    expect(JSON.parse(t.sales.attempts[0].body).resumedDraft).toEqual(source);
+    await waitFor(()=>expect(sessionStorage.getItem("hasba:pos-resumed-basket:11:21:legacy")).toBeNull());
+    await u.click(screen.getByTestId("product-icon-5"));await review(u);
+    await u.click(screen.getByTestId("button-pay-rail"));
+    await waitFor(()=>expect(t.sales.attempts).toHaveLength(2));
+    expect(JSON.parse(t.sales.attempts[1].body).resumedDraft).toBeUndefined();
   });
   it("does not apply a delayed B response over a newer A cart and customer",async()=>{
     const t=resumeTransport(false,true),u=userEvent.setup();mount();

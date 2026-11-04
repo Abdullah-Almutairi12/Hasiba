@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import {posTaxPreviewBody,preparePosTaxPreview,posTaxFacts,posIntentRead} from "../lib/pos-tax-preview";
 import {closeSaleIntent} from "../lib/close-sale-intent";
 import {authorizeParkedSource} from "../lib/pos-parked-access";
+import {lockResumedSale,withResumedSale} from "../lib/pos-resumed-sale";
 import {issueTaxPreview,verifyTaxPreview} from "../lib/tax-preview";
 import { returnAuthorize } from "../lib/return-access";
 import { scopedPosOrderVisible } from "../lib/scoped-pos-operations";
@@ -660,6 +661,7 @@ router.post(
     // New intents still validate and consume approval in this transaction.
     const result = await financialTransaction(req, async (tx) => {
       await lockApprovalAuthority(tx);
+      return withResumedSale(tx,req,body.resumedDraft,body.sessionId,async()=>{
       let discount=body.discount??0;
       const taxAt=riyadhDate();
       const issuer = await captureIssuer(tx, companyId,taxAt);
@@ -1534,6 +1536,7 @@ router.post(
           payerName: p.payerName ?? null,
         })),
       };
+      });
     }, async (tx, previous) => {
       await lockApprovalAuthority(tx);
       if (!await managedProfile(req.session.userId!, companyId, tx)) return;
@@ -1557,6 +1560,7 @@ router.post(
 
     if (res.getHeader("Idempotency-Replayed")) {
       res.status(201).json({
+        alreadyFinalized:res.getHeader("X-POS-Already-Finalized")==="true",
         ...result.order, sellerAttribution:result.sellerAttribution,items: result.orderItems, subtotal: result.subtotal,
         tax: result.tax, discount:result.discount??Number(result.order.discount??discount), total: result.total, payments: result.payments,
         createdAt: result.order.createdAt.toISOString(),
@@ -1989,6 +1993,26 @@ const parkedDelivery = (kind:"resume"|"cancel"):import("express").RequestHandler
 };
 router.post("/pos/orders/:id/resume",posGuard,parkedDelivery("resume"));
 router.post("/pos/orders/:id/cancel",posGuard,parkedDelivery("cancel"));
+
+// Read-only recovery of the source's final outcome. A closed source shift or
+// a replacement selected in the UI must not force another tender or reopen it.
+router.post("/pos/orders/:id/resumed-sale",posReadGuard,async(req,res)=>{
+  try{
+    const source=z.object({id:z.coerce.number().int().positive(),sessionId:z.number().int().positive(),
+      requestId:z.string().min(8).max(128)}).parse({...req.body,id:req.params.id});
+    const result=await db.transaction(async tx=>{
+      const claim=await lockResumedSale<{order:typeof posOrdersTable.$inferSelect}>(tx,req,source,source.sessionId);
+      return claim?.previous?.order??null;
+    });
+    res.json(result?{state:"completed",order:{...result,
+      subtotal:Number(result.subtotal),tax:Number(result.tax),discount:Number(result.discount),total:Number(result.total),
+      createdAt:result.createdAt.toISOString()}}:{state:"not_finalized"});
+  }catch(err){
+    if(err instanceof FinancialRequestError){res.status(err.status).json({error:err.message});return;}
+    if(err instanceof z.ZodError){res.status(400).json({error:"مرجع المسودة غير صالح"});return;}
+    req.log.error({err},"Resumed sale lookup failed");res.status(500).json({error:"تعذر التحقق من نتيجة المسودة"});
+  }
+});
 
 router.get("/pos/summary", posReadGuard, async (req, res) => {
   try {

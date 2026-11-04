@@ -2188,6 +2188,28 @@ paths:
               schema:
                 $ref: "#/components/schemas/PosOrder"
 
+  /pos/orders/{id}/resumed-sale:
+    post:
+      operationId: lookupResumedPosSale
+      tags: [POS]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ResumedSaleLookupInput" }
+      responses:
+        "200":
+          description: Original finalized sale, or explicit absence without changing the draft or shift.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [state]
+                properties:
+                  state: { type: string, enum: [completed, not_finalized] }
+                  order: { $ref: "#/components/schemas/PosOrder" }
   /pos/orders/{id}:
     get:
       operationId: getPosOrder
@@ -7149,9 +7171,23 @@ components:
           type: number
       required: [productId, productName, quantity, unitPrice, total]
 
+    ResumedSaleLookupInput:
+      type: object
+      required: [sessionId, requestId]
+      properties:
+        sessionId: { type: integer, minimum: 1 }
+        requestId: { type: string, minLength: 8, maxLength: 128 }
     CreatePosOrderBody:
       type: object
       properties:
+        resumedDraft:
+          type: object
+          description: Durable source claim. A resumed draft can produce at most one sale, irrespective of checkout retry key.
+          required: [id, sessionId, requestId]
+          properties:
+            id: { type: integer, minimum: 1 }
+            sessionId: { type: integer, minimum: 1 }
+            requestId: { type: string, minLength: 8, maxLength: 128 }
         taxPreviewToken:
           type: string
         taxContextToken:

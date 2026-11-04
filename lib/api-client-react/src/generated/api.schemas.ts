@@ -1945,6 +1945,31 @@ export interface PosOrder {
   createdAt: string;
 }
 
+export interface ResumedSaleLookupInput {
+  /** @minimum 1 */
+  sessionId: number;
+  /**
+     * @minLength 8
+     * @maxLength 128
+     */
+  requestId: string;
+}
+
+/**
+ * Durable source claim. A resumed draft can produce at most one sale, irrespective of checkout retry key.
+ */
+export type CreatePosOrderBodyResumedDraft = {
+  /** @minimum 1 */
+  id: number;
+  /** @minimum 1 */
+  sessionId: number;
+  /**
+     * @minLength 8
+     * @maxLength 128
+     */
+  requestId: string;
+};
+
 export type CreatePosOrderBodyLineSellersItem = {
   /** @minimum 0 */
   lineIndex: number;
@@ -1976,6 +2001,8 @@ export const CreatePosOrderBodyPaymentMethod = {
 } as const;
 
 export interface CreatePosOrderBody {
+  /** Durable source claim. A resumed draft can produce at most one sale, irrespective of checkout retry key. */
+  resumedDraft?: CreatePosOrderBodyResumedDraft;
   taxPreviewToken?: string;
   /** Reviewed company tax context; frozen with the financial attempt, never refreshed on an unknown retry. */
   taxContextToken?: string;
@@ -5307,6 +5334,19 @@ lowStock?: boolean;
 export type ListPosOrdersParams = {
 sessionId?: number;
 date?: string;
+};
+
+export type LookupResumedPosSale200State = typeof LookupResumedPosSale200State[keyof typeof LookupResumedPosSale200State];
+
+
+export const LookupResumedPosSale200State = {
+  completed: 'completed',
+  not_finalized: 'not_finalized',
+} as const;
+
+export type LookupResumedPosSale200 = {
+  state: LookupResumedPosSale200State;
+  order?: PosOrder;
 };
 
 export type ListInvoicesParams = {

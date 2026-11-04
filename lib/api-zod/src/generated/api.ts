@@ -3970,6 +3970,11 @@ export const ListPosOrdersResponse = zod.array(ListPosOrdersResponseItem)
 /**
  * @summary Create POS order / sale
  */
+
+
+export const createPosOrderBodyResumedDraftRequestIdMin = 8;
+export const createPosOrderBodyResumedDraftRequestIdMax = 128;
+
 export const createPosOrderBodyLineSellersItemLineIndexMin = 0;
 
 export const createPosOrderBodyItemsItemQuantityExclusiveMin = 0;
@@ -3978,6 +3983,11 @@ export const createPosOrderBodyItemsItemQuantityExclusiveMin = 0;
 
 
 export const CreatePosOrderBody = zod.object({
+  "resumedDraft": zod.object({
+  "id": zod.number().int().min(1),
+  "sessionId": zod.number().int().min(1),
+  "requestId": zod.string().min(createPosOrderBodyResumedDraftRequestIdMin).max(createPosOrderBodyResumedDraftRequestIdMax)
+}).optional().describe('Durable source claim. A resumed draft can produce at most one sale, irrespective of checkout retry key.'),
   "taxPreviewToken": zod.string().optional(),
   "taxContextToken": zod.string().optional().describe('Reviewed company tax context; frozen with the financial attempt, never refreshed on an unknown retry.'),
   "sellerEmployeeId": zod.number().int().nullish().describe('Employee seller, never implicitly the cashier.'),
@@ -4033,6 +4043,57 @@ export const CreatePosOrderResponse = zod.object({
 })).optional(),
   "customerId": zod.number().int().nullish(),
   "createdAt": zod.string()
+})
+
+
+export const LookupResumedPosSaleParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+
+export const lookupResumedPosSaleBodyRequestIdMin = 8;
+export const lookupResumedPosSaleBodyRequestIdMax = 128;
+
+
+
+export const LookupResumedPosSaleBody = zod.object({
+  "sessionId": zod.number().int().min(1),
+  "requestId": zod.string().min(lookupResumedPosSaleBodyRequestIdMin).max(lookupResumedPosSaleBodyRequestIdMax)
+})
+
+export const LookupResumedPosSaleResponse = zod.object({
+  "state": zod.enum(['completed', 'not_finalized']),
+  "order": zod.object({
+  "sellerAttribution": zod.array(zod.object({
+  "invoiceLineId": zod.number().int(),
+  "employeeId": zod.number().int().nullable(),
+  "sellerName": zod.string(),
+  "revision": zod.number().int()
+})).optional().describe('Saved seller names and IDs from the committed sale, not today\'s employee picker.'),
+  "id": zod.number().int(),
+  "orderNumber": zod.string(),
+  "sessionId": zod.number().int(),
+  "items": zod.array(zod.object({
+  "productId": zod.number().int(),
+  "productName": zod.string(),
+  "quantity": zod.number(),
+  "unitPrice": zod.number(),
+  "total": zod.number()
+})),
+  "subtotal": zod.number(),
+  "tax": zod.number(),
+  "discount": zod.number(),
+  "total": zod.number(),
+  "paymentMethod": zod.enum(['cash', 'card', 'transfer', 'stc', 'deferred', 'split']),
+  "payments": zod.array(zod.object({
+  "method": zod.enum(['cash', 'card', 'transfer', 'stc', 'deferred']),
+  "amount": zod.number(),
+  "reference": zod.string().nullish(),
+  "payerName": zod.string().nullish()
+})).optional(),
+  "customerId": zod.number().int().nullish(),
+  "createdAt": zod.string()
+}).optional()
 })
 
 

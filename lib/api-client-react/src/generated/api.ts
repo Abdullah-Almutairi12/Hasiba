@@ -250,6 +250,7 @@ import type {
   ListWarehousesParams,
   LookupCountProduct200,
   LookupCountProductParams,
+  LookupResumedPosSale200,
   ManagerKpiBar,
   MarkAllInboxRead200,
   MarkInboxRead200,
@@ -300,6 +301,7 @@ import type {
   ResendCleanupReport404,
   ResendCleanupReportBody,
   ResetAccountPasswordBody,
+  ResumedSaleLookupInput,
   RetryInvoiceSendFailure200,
   RetryInvoiceSendFailure404,
   RetryInvoiceSendFailure409,
@@ -12119,6 +12121,89 @@ export const useCreatePosOrder = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getCreatePosOrderMutationOptions(options), queryClient);
+    }
+
+export const getLookupResumedPosSaleUrl = (id: number,) => {
+
+
+
+
+  return `/api/pos/orders/${id}/resumed-sale`
+}
+
+export const lookupResumedPosSale = async (id: number,
+    resumedSaleLookupInput: ResumedSaleLookupInput, options?: Parameters<typeof customFetch>[1]): Promise<LookupResumedPosSale200> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<LookupResumedPosSale200>(getLookupResumedPosSaleUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(resumedSaleLookupInput)
+  }
+);}
+
+
+
+
+
+export const getLookupResumedPosSaleMutationKey = () => ['lookupResumedPosSale'] as const;
+
+export const getLookupResumedPosSaleMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof lookupResumedPosSale>>, TError,LookupResumedPosSaleMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof lookupResumedPosSale>>, TError,LookupResumedPosSaleMutationVariables, TContext> => {
+
+const mutationKey = getLookupResumedPosSaleMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof lookupResumedPosSale>>, LookupResumedPosSaleMutationVariables> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  lookupResumedPosSale(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type LookupResumedPosSaleMutationResult = NonNullable<Awaited<ReturnType<typeof lookupResumedPosSale>>>
+    export type LookupResumedPosSaleMutationBody = BodyType<ResumedSaleLookupInput>
+    export type LookupResumedPosSaleMutationError = ErrorType<unknown>
+    export type LookupResumedPosSaleMutationVariables = {id: number;data: BodyType<ResumedSaleLookupInput>}
+
+    export const useLookupResumedPosSale = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof lookupResumedPosSale>>, TError,LookupResumedPosSaleMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof lookupResumedPosSale>>,
+        TError,
+        LookupResumedPosSaleMutationVariables,
+        TContext
+      > => {
+      return useMutation(getLookupResumedPosSaleMutationOptions(options), queryClient);
     }
 
 export const getGetPosOrderUrl = (id: number,) => {

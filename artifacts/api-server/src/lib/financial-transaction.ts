@@ -17,7 +17,7 @@ export function canonical(value: unknown): string {
   ).join(",")}}`;
   return JSON.stringify(value) ?? "null";
 }
-function snapshot(value: unknown): Snapshot {
+export function snapshot(value: unknown): Snapshot {
   const dates: string[][] = [];
   function visit(item: unknown, path: string[]): unknown {
     if (item instanceof Date) { dates.push(path); return item.toISOString(); }
@@ -29,7 +29,7 @@ function snapshot(value: unknown): Snapshot {
   }
   return { value: visit(value, []), dates };
 }
-function restore<T>(saved: Snapshot): T {
+export function restore<T>(saved: Snapshot): T {
   let value = saved.value;
   for (const path of saved.dates) {
     if (!path.length) { value = new Date(value as string); continue; }

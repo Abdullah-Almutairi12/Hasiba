@@ -5,6 +5,7 @@ import { useState, useMemo, useEffect, useRef } from "react";
 import { PosSessionContext } from "@/components/pos-session-context";
 import { PosDeviceControls } from "@/components/pos-device-controls";
 import { PosCustomerPicker, type PosCustomerChoice } from "@/components/pos-customer-picker";
+import {usePosResumedBasket} from "@/hooks/use-pos-resumed-basket";
 import { useLocation } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -128,6 +129,7 @@ export default function PosIconic({
   const checkout = usePosCheckout(user?.companyId ? `${user.id}:${user.companyId}` : null);
   const parking = usePosParking(shiftScope);
   const resuming = usePosResume(shiftScope);
+  const resumedBasket=usePosResumedBasket(shiftScope);
 
   const [cart, setCart] = useState<CartItem[]>([]);
   const [search, setSearch] = useState("");
@@ -178,6 +180,8 @@ export default function PosIconic({
   const candidateSession = selectedPosSession(sessions, selectedBranchId, user?.id, choice?.branchId === selectedBranchId ? choice.sessionId : undefined);
   const activeSession = sessionsLoading || !sessions || sessionsError ||
     cart.length > 0 && candidateSession?.id !== choice?.sessionId ? undefined : candidateSession;
+  const activeSessionRef=useRef<number|undefined>(activeSession?.id);
+  activeSessionRef.current=activeSession?.id;
   const unidentifiedShift = !activeSession && eligibleSessions.length === 0 &&
     !!sessions?.some(s => s.status === "open" && s.branchId === selectedBranchId && s.cashierUserId == null);
   const shiftStatus = sessionsError ? "تعذر التحقق" : sessionsChecking ? "جارٍ التحقق من الوردية"
@@ -195,10 +199,15 @@ export default function PosIconic({
     setShiftChoice({ scope: shiftScope, value });
   };
   const checkoutLocked = !!checkout.attempt || checkout.isPending || !checkout.ready ||
-    !parking.ready || !!parking.intent || parking.busy;
+    !parking.ready || !!parking.intent || parking.busy || !resumedBasket.ready;
   // Reset identity-local work BEFORE rehydrating a durable basket. A remount/
   // refreshed effect cycle must never erase the cart restored by the next effect.
   useEffect(() => { setCart([]); }, [user?.id, user?.companyId]);
+  useEffect(()=>{
+    if(!resumedBasket.value||checkout.attempt||parking.intent)return;
+    setCart(resumedBasket.value.cart);
+    setCustomerChoice({scope:shiftScope,customer:resumedBasket.value.customer});
+  },[resumedBasket.ready,resumedBasket.value?.source.requestId,shiftScope]);
   useEffect(() => {
     if (parking.intent?.meta && !checkout.attempt) {
       setCart(parking.intent.meta.cart);
@@ -219,6 +228,9 @@ export default function PosIconic({
     : openingState.scope === shiftScope && openingState.pending && !checkout.attempt
     ? "استرجع نتيجة طلب فتح الوردية المعلق قبل بدء بيع جديد."
     : !checkout.attempt && (sessionsChecking || sessionsError) ? "انتظر نجاح التحقق من الوردية قبل بدء بيع جديد."
+    : !checkout.attempt && !resumedBasket.ready ? "تعذر التحقق من ربط السلة بالمسودة؛ لا تبدأ تحصيلًا جديدًا."
+    : !checkout.attempt && resumedBasket.value && activeSession?.id!==resumedBasket.value.source.sessionId
+    ? `السلة المسترجعة تخص الوردية #${resumedBasket.value.source.sessionId}؛ لا يمكن تحصيلها على وردية أخرى. تحقق من نتيجتها السابقة دون إعادة فتح وردية مغلقة.`
     : !isScoped ? null
     : checkout.scopeMismatch ? "عملية البيع المعلقة تخص مسؤولية أخرى. ارجع إلى «عملي» واختر المسؤولية الأصلية لاسترجاعها."
     : checkout.attempt ? null
@@ -340,9 +352,18 @@ export default function PosIconic({
       }),
     );
 
-  const clearCart = () => { if (!checkoutLocked && !review) setCart([]); };
+  const clearCart = () => {
+    if(!checkoutLocked&&!review){
+      if(resumedBasket.value&&!resumedBasket.clear())return;
+      setCart([]);
+    }
+  };
 
   const handlePark = async (labelOverride?: string, resolve = false) => {
+    if(resumedBasket.value&&!parking.intent){
+      toast({title:"هذه سلة مسترجعة مرتبطة بمسودتها وورديتها. أكمل بيعها أو تحقق من نتيجتها؛ لن تُنشأ نسخة معلّقة تفقد هذا الربط.",variant:"destructive"});
+      return;
+    }
     if (isScoped || checkout.attempt || checkout.isPending ||
       readPendingPosAttempt(user?.companyId ? `${user.id}:${user.companyId}` : null)) return;
     if (!parking.intent && (checkoutLocked || !activeSession || cart.length === 0)) return;
@@ -414,6 +435,10 @@ export default function PosIconic({
       return;
     }
     const data=outcome.result;
+    if(activeSessionRef.current!==data.sessionId){
+      toast({title:`المسودة تخص الوردية #${data.sessionId}، وليست الوردية الحالية. احتُفظ بنتيجة الاسترجاع؛ لم تتغير السلة ولن يُسمح بتحصيلها على وردية أخرى.`,variant:"destructive"});
+      return;
+    }
     // Rehydrate cart from parked snapshot. We map back into the
     // `products` cache when available so the live price/name reflect
     // current state; fall back to snapshot for missing products.
@@ -429,9 +454,12 @@ export default function PosIconic({
       };
       return { product: live ?? fallback, quantity: it.quantity };
     });
+    const restoredCustomer=data.customerId ? {id:data.customerId,name:`عميل #${data.customerId}`} : null;
+    if(!resumedBasket.save({source:{id:data.id,sessionId:data.sessionId,requestId:data.requestId},
+      cart:restored,customer:restoredCustomer}))return;
     if(!resuming.acknowledge(outcome.intent))return;
     setCart(restored);
-    setCustomerChoice({scope:shiftScope,customer:data.customerId ? {id:data.customerId,name:`عميل #${data.customerId}`} : null});
+    setCustomerChoice({scope:shiftScope,customer:restoredCustomer});
     setParkedOpen(false);
     void refreshParked();
     toast({ title: t("pos_iconic.resumed_ok") });
@@ -493,6 +521,7 @@ export default function PosIconic({
       })),
       discount: bodyDiscount,
       ...(customer ? {customerId:customer.id} : {}),
+      ...(resumedBasket.value?{resumedDraft:resumedBasket.value.source}:{}),
       paymentMethod,
       ...tp.tokens(),
       ...sellerFields,
@@ -524,6 +553,9 @@ export default function PosIconic({
   };
 
   const finishSale = (created: NonNullable<Awaited<ReturnType<typeof checkout.pay>>>, body: CreatePosOrderBody) => {
+    if((created as {alreadyFinalized?:boolean}).alreadyFinalized)
+      toast({title:"المسودة بيعت بالفعل؛ هذه نتيجة البيع الأصلية. لا تستلم مبلغًا جديدًا.",description:created.orderNumber});
+    if(body.resumedDraft&&resumedBasket.value?.source.id===body.resumedDraft.id)resumedBasket.clear();
     setSuccess({ orderNumber: created.orderNumber, total: Number(created.total) });
     setLastReceipt({ id: created.id, orderNumber: created.orderNumber, total: Number(created.total), seller: "sellerAttribution" in created || body.sellerEmployeeId !== undefined || body.lineSellers !== undefined
       ? savedSellerLabel((created as { sellerAttribution?: unknown }).sellerAttribution) : null });
@@ -535,6 +567,27 @@ export default function PosIconic({
     setReview(null);
     void queryClient.invalidateQueries();
     setTimeout(() => setSuccess(null), 2200);
+  };
+
+  const [checkingResumedSale,setCheckingResumedSale]=useState(false);
+  const lookupResumedSale=async()=>{
+    const source=resumedBasket.value?.source??(resuming.intent?.meta?.kind==="resume"
+      ?{id:resuming.intent.meta.id,sessionId:resuming.intent.body.sessionId,requestId:resuming.intent.key}:null);
+    if(!source||checkingResumedSale)return;
+    setCheckingResumedSale(true);
+    try{
+      const r=await fetch(`${import.meta.env.BASE_URL}api/pos/orders/${source.id}/resumed-sale`,{
+        method:"POST",credentials:"include",headers:{"Content-Type":"application/json"},body:JSON.stringify({sessionId:source.sessionId,requestId:source.requestId})});
+      const result=await r.json();
+      if(!r.ok)throw Error(result.error??"تعذر التحقق؛ احتُفظ بالمسودة ومحاولتها.");
+      if(result.state==="completed"&&result.order?.id){
+        setLastReceipt({id:result.order.id,orderNumber:result.order.orderNumber,total:Number(result.order.total),seller:null});
+        toast({title:"هذه نتيجة البيع السابق؛ لا تعاود التحصيل.",description:`${result.order.orderNumber} — ${Number(result.order.total).toFixed(2)} ريال، الوردية #${source.sessionId}. لم تتغير السلة الحالية.`});
+      }else if(result.state==="not_finalized"){
+        toast({title:`لم يثبت بيع نهائي للمسودة #${source.id}. لا يُسمح بتحصيلها إلا في ورديتها الأصلية المفتوحة؛ لا تفتح وردية مغلقة لاسترجاع نتيجة.`});
+      }else throw Error("تعذر تأكيد النتيجة؛ احتُفظ بالمحاولة.");
+    }catch(e){toast({title:e instanceof Error?e.message:"تعذر التحقق؛ حاول مجددًا دون تحصيل.",variant:"destructive"});}
+    finally{setCheckingResumedSale(false);}
   };
 
   // Narrow server check for the saved unknown attempt; never a new sale.
@@ -782,6 +835,10 @@ export default function PosIconic({
       </div>
 
       {/* Floating dock */}
+      {resumedBasket.value||resumedBasket.error||resuming.intent?.meta?.kind==="resume"?<div role="status" className="mx-4 rounded border bg-white p-3" data-testid="resumed-source">
+        <p>{resumedBasket.error||`المسودة #${resumedBasket.value?.source.id??resuming.intent?.meta?.id} مرتبطة بالوردية #${resumedBasket.value?.source.sessionId??resuming.intent?.body.sessionId}. أي نتيجة محفوظة تُسترجع دون تحصيل جديد.`}</p>
+        <Button data-testid="button-lookup-resumed-sale" disabled={checkingResumedSale} onClick={()=>void lookupResumedSale()}>تحقق من نتيجة بيع المسودة</Button>
+      </div>:null}
       {resuming.intent || resuming.error ? <div role="status" className="fixed bottom-24 inset-x-4 z-[110] rounded-xl border bg-white p-3 shadow" data-testid="resume-recovery">
         <p>{resuming.error || "محاولة فتح أو إلغاء مسودة محفوظة؛ تحقق من نتيجتها الأصلية."}</p>
         {cart.length>0?<p>أكمل السلة الحالية أو علّقها أولًا؛ لن تُستبدل أصنافها أو عميلها.</p>:null}
