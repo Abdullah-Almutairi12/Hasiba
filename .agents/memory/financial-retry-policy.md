@@ -56,6 +56,17 @@ An absence check is not sufficient permission to erase an uncertain intent.
 Serialize with the original execution and persist terminal nonexecution before
 allowing correction under a new identity. Never recycle the old identity.
 
+Releasing a confirmed closed intent must also restore its editable display snapshot,
+not merely remove its key and assume the currently rendered basket is complete.
+
+**Why:** A native POS recovery showed that identity initialization and restored-basket
+effects can run in the same lifecycle cycle; the key and customer survived while a
+later reset erased the visible items. Sealing the server intent alone did not recover
+the cashier's work.
+
+**How to apply:** Order scope resets before durable restoration, and return the original
+basket/customer/name explicitly when confirmed nonexecution permits correction.
+
 **Why:** The original request may still be delayed before its transaction lock.
 Deleting local evidence after a read-only absence check lets that delayed request
 commit after the employee starts a replacement, duplicating stock or money.
