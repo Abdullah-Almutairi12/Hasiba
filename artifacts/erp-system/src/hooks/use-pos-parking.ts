@@ -79,7 +79,9 @@ export function usePosParking(scope: string) {
       // Old/unmounted callers and late responses cannot erase newer evidence.
       if (!alive.current || scopeRef.current !== originalScope) return null;
       if (clearIntentIfKey(parkingStorageKey(originalScope), intent.key) !== "cleared") {
-        throw Error("تم حفظ المسودة، لكن توجد محاولة أحدث أو تعذر تنظيف التخزين. لم تُمسح السلة.");
+        throw Error(closed
+          ? "أُغلقت المحاولة دون تنفيذ، لكن توجد محاولة أحدث أو تعذر تنظيف التخزين. احتُفظ بالسلة؛ أعد التحقق."
+          : "تم حفظ المسودة، لكن توجد محاولة أحدث أو تعذر تنظيف التخزين. لم تُمسح السلة.");
       }
       update({intent:null,busy:false,error:""});
       return {intent,result,closed};

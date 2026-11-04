@@ -76,6 +76,21 @@ describe("durable parking storage and response binding",()=>{
     });
     expect(sessionStorage.getItem(storage)).toBeNull();
   });
+  it("retains evidence and describes closure truthfully if cleanup fails after server sealing",async()=>{
+    const input=snapshot(),old={v:1,key:crypto.randomUUID(),endpoint:"pos/orders/park",responsibility:null,
+      body:input.body,meta:input.meta,createdAt:new Date().toISOString()} as ParkingIntent;
+    saveIntent(storage,old);
+    vi.stubGlobal("fetch",vi.fn(async()=>Response.json({state:"closed_without_execution",requestId:old.key})));
+    const remove=vi.spyOn(Storage.prototype,"removeItem").mockImplementation(()=>{throw Error("denied");});
+    const h=renderHook(()=>usePosParking(scope));
+    await act(async()=>{expect(await h.result.current.submit(undefined,true)).toBeNull();});
+    expect(saved().key).toBe(old.key);
+    expect(h.result.current.error).toContain("أُغلقت المحاولة دون تنفيذ");
+    expect(h.result.current.error).not.toContain("تم حفظ المسودة");
+    remove.mockRestore();
+    await act(async()=>{expect((await h.result.current.submit(undefined,true))?.closed).toBe(true);});
+    expect(sessionStorage.getItem(storage)).toBeNull();
+  });
   it("fences synchronous duplicate submissions and freezes the body before sending",async()=>{
     let resolve!:(value:Response)=>void;
     const fetcher=vi.fn(()=>new Promise<Response>(r=>{resolve=r}));vi.stubGlobal("fetch",fetcher);
