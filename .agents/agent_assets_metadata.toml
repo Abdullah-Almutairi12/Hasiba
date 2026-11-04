@@ -1939,3 +1939,17 @@ mtime_ms = 1793787686752
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/9b338874-80e4-4962-880d-e1cf86999e5c/0b771267-87f7-4165-9cea-048c2e890ffe"
 storage_version_token = "1793787712495416"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "SP_k1sCnrDEctEXSC8nPr"
+uri = "file://generated-artifacts/pos-resume-sale/Hasiba_POS_Resumed_Basket_One_Sale_db48041.zip"
+type = "unspecified"
+title = "حاسبة — أدلة ربط السلة بورديتها ومنع البيع المكرر"
+description = "التقرير العربي والإنجليزي، 15 بوابة ناجحة، نتائج API/UI، أدلة التبويبين وفقد الرد، و42 تحقق مصالحة مستقلة. المصدر db48041."
+logical_id = "b6cc150d-5d76-4f21-b043-e202f9aa73d4"
+content_hash = "sha256:c61c6c789deec77d0c8e643ccded5ca9d9add1406c1bb4d675c175fe88a2cb12"
+size = 874440
+mtime_ms = 1793794303345
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/b6cc150d-5d76-4f21-b043-e202f9aa73d4/99590cbb-757a-4f27-a816-bb773d4c3c53"
+storage_version_token = "1793794341990523"
+content_type = "application/octet-stream"
