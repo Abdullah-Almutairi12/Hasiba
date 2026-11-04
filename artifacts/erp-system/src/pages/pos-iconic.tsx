@@ -194,6 +194,9 @@ export default function PosIconic({
   };
   const checkoutLocked = !!checkout.attempt || checkout.isPending || !checkout.ready ||
     !parking.ready || !!parking.intent || parking.busy;
+  // Reset identity-local work BEFORE rehydrating a durable basket. A remount/
+  // refreshed effect cycle must never erase the cart restored by the next effect.
+  useEffect(() => { setCart([]); }, [user?.id, user?.companyId]);
   useEffect(() => {
     if (parking.intent?.meta && !checkout.attempt) {
       setCart(parking.intent.meta.cart);
@@ -228,7 +231,6 @@ export default function PosIconic({
   const sellerPolicy = sellerData?.policy ?? null;
   const sellerVisible = !!sellerPolicy && sellerPolicy.mode !== "hidden";
 
-  useEffect(() => { setCart([]); }, [user?.id, user?.companyId]);
   useEffect(() => {
     if (!checkout.attempt) return;
     setCart(checkout.attempt.cart);
@@ -364,6 +366,11 @@ export default function PosIconic({
     }, resolve);
     if (!confirmed) return;
     if (confirmed.closed) {
+      // Recover the original editable basket, not whatever transient state a
+      // reload rendered while identity/attempt storage was being hydrated.
+      setCart(confirmed.intent.meta!.cart);
+      setCustomerChoice({scope:shiftScope,customer:confirmed.intent.meta!.customer});
+      setParkLabel(confirmed.intent.body.label ?? "");
       setParkedOpen(true);
       toast({title:"أُغلقت المحاولة دون حفظ مسودة. السلة والعميل محفوظان؛ صحح الاسم ثم علّق من جديد."});
       return;

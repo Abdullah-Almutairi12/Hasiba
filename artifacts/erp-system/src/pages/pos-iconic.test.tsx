@@ -19,6 +19,7 @@ beforeEach(() => {
 import { usePosCheckout } from "@/hooks/use-pos-checkout";
 import ar from "@/i18n/ar.json";
 import { posPreviewServer } from "@/lib/tax-preview-mock";
+import * as parkingModule from "@/hooks/use-pos-parking";
 
 vi.mock("@/hooks/use-auth", () => ({
   useAuth: () => ({ user: { id: 11, companyId: 21,role:sessionMock.role ?? (sessionMock.branchId?"cashier":"owner"),branchId:sessionMock.branchId} }),
@@ -261,6 +262,23 @@ describe("one durable parking intent",()=>{
     await u.click(screen.getByTestId("product-icon-5"));
     await u.click(screen.getByTestId("dock-parking"));
   }
+  it("does not erase a rehydrated pending basket when identity reset effects run in the same commit",async()=>{
+    parkingTransport();
+    const intent={
+      v:1 as const,key:crypto.randomUUID(),endpoint:"pos/orders/park",responsibility:null,createdAt:new Date().toISOString(),
+      body:{sessionId:9,customerId:17,label:"س".repeat(61),
+        items:[{productId:5,quantity:1,priceSnapshot:100,nameSnapshot:"منتج تجريبي"}],subtotal:100,tax:0,discount:0,total:100},
+      meta:{cart:[{product:{id:5,name:"منتج تجريبي",price:100},quantity:1}],customer:{id:17,name:"عميل أ"}},
+    };
+    const hook=vi.spyOn(parkingModule,"usePosParking").mockReturnValue({
+      scope:"11:21:legacy",ready:true,intent,busy:false,error:"",submit:vi.fn(),isLocked:()=>true,
+    });
+    const view=mount();
+    try{
+      expect(await screen.findByTestId("cart-row-unit-5")).toBeTruthy();
+      expect(screen.getByTestId("dock-customer").getAttribute("aria-label")).toBe("عميل أ");
+    }finally{view.unmount();hook.mockRestore();}
+  });
   it("sends only once when two clicks precede a delayed parking response",async()=>{
     const transport=parkingTransport("delayed"),u=userEvent.setup();mount();await prepare(u);
     const button=await screen.findByTestId("button-park-now");
