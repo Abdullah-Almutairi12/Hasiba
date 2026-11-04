@@ -47,6 +47,10 @@ export const SCOPED_ROUTES = [
   ["GET", "/pos/session-branches", "pos.shift.open"],
   ["GET", "/pos/sessions", "pos.read"],
   ["GET", "/pos/sessions/:id", "pos.read"],
+  ["GET", "/pos/tax-context", "pos.read"],
+  ["POST", "/pos/tax-preview", "pos.sell"],
+  // Recovery seals/returns the original attempt; it never grants a new sale.
+  ["POST", "/pos/tax-preview/close-intent", "pos.read"],
   // A saved opening result is recoverable with current source read authority.
   // New opening still requires pos.shift.open inside the fenced transaction.
   ["POST", "/pos/sessions", "pos.read"],

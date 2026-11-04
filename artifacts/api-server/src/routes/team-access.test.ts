@@ -164,6 +164,24 @@ describe("resumable people and paired responsibility access", () => {
     sessionId = ok(await scoped("post", "/pos/sessions", grants[1].id).send({
       ...body, branchId: jeddah, cashierName: input.name }), 201).id;
   });
+  it("permits native POS tax context and preview through the live sales grant, while recovery remains read-only", async () => {
+    const before=await totals();
+    const body={sessionId,items:[{productId,quantity:1}],paymentMethod:"cash",discount:0};
+    expect(ok(await scoped("get","/pos/tax-context",grants[1].id)).registered).toBe(false);
+    const quote=ok(await scoped("post","/pos/tax-preview",grants[1].id).send(body));
+    expect(Number(quote.totals.total)).toBe(10);
+    ok(await scoped("post","/pos/tax-preview",grants[0].id).send(body),403);
+    await rows("UPDATE responsibility_grants SET actions=ARRAY['pos.read']::text[] WHERE id=$1",[grants[1].id]);
+    try{
+      ok(await scoped("post","/pos/tax-preview",grants[1].id).send(body),403);
+      const closed=ok(await scoped("post","/pos/tax-preview/close-intent",grants[1].id)
+        .send({requestKey:randomUUID(),body}));
+      expect(closed.state).toBe("closed_without_execution");
+    }finally{
+      await rows("UPDATE responsibility_grants SET actions=$2::text[] WHERE id=$1",[grants[1].id,grants[1].actions]);
+    }
+    expect(await totals()).toEqual(before);
+  });
   it("sells in Jeddah once with a stable receipt, rejects excess/discount/wrong responsibility without effects", async () => {
     const body = { sessionId, items: [{ productId, quantity: 1 }], paymentMethod: "cash", discount: 0 };
     const before = await totals();
