@@ -1728,7 +1728,7 @@ router.post(
 
 const ParkOrderBody = z.object({
   sessionId: z.number().int().positive(),
-  label: z.string().trim().min(1).max(60).optional().nullable(),
+  label: z.string().trim().max(60).optional().nullable(),
   customerId: z.number().int().positive().optional().nullable(),
   items: z
     .array(
@@ -1744,6 +1744,34 @@ const ParkOrderBody = z.object({
   tax: z.number().nonnegative().default(0),
   discount: z.number().nonnegative().default(0),
   total: z.number().nonnegative(),
+});
+
+function parkedResult(row: typeof posOrdersTable.$inferSelect, key: string) {
+  return {id:row.id,requestId:key,sessionId:row.sessionId,customerId:row.customerId,
+    orderNumber:row.orderNumber,parkedLabel:row.parkedLabel,total:Number(row.total),
+    createdAt:row.createdAt.toISOString()};
+}
+
+// Reconcile under the ORIGINAL attempt lock, not by inferring absence from 400.
+// The relaxed label is intentional: old, invalid names must still be sealable.
+router.post("/pos/orders/park/resolve", posReadGuard, async (req,res) => {
+  try {
+    const input=z.object({requestKey:z.string(),body:ParkOrderBody.extend({
+      label:z.string().optional().nullable(),
+    })}).parse(req.body);
+    const outcome=await closeSaleIntent(req,"/pos/orders/park",async(tx,body)=>{
+      await assertPosDeviceAuthority(tx);
+      await posIntentRead(tx,req,body,null);
+    });
+    res.json(outcome.state==="completed"
+      ? {state:"completed",result:parkedResult(outcome.result as typeof posOrdersTable.$inferSelect,input.requestKey)}
+      : {state:"closed_without_execution",requestId:input.requestKey});
+  } catch(error) {
+    if(error instanceof FinancialRequestError){res.status(error.status).json({error:error.message});return;}
+    if(error instanceof z.ZodError){res.status(400).json({error:"بيانات محاولة التعليق غير صحيحة؛ احتفظ بها"});return;}
+    req.log.error({err:error},"Resolve parked attempt failed");
+    res.status(500).json({error:"تعذر التحقق من نتيجة التعليق؛ احتفظ بالمحاولة"});
+  }
 });
 
 router.post("/pos/orders/park", posGuard, async (req, res) => {
@@ -1812,7 +1840,7 @@ router.post("/pos/orders/park", posGuard, async (req, res) => {
           total: body.total.toFixed(2),
           paymentMethod: "cash",
           status: "parked",
-          parkedLabel: body.label ?? null,
+          parkedLabel: body.label || null,
           companyId,
         })
         .returning();
@@ -1823,16 +1851,7 @@ router.post("/pos/orders/park", posGuard, async (req, res) => {
       details:`parked request=${req.get("Idempotency-Key")} label=${body.label ?? ""} items=${body.items.length}`,
     });
 
-    res.status(201).json({
-      id: inserted.id,
-      requestId:req.get("Idempotency-Key"),
-      sessionId:inserted.sessionId,
-      customerId:inserted.customerId,
-      orderNumber: inserted.orderNumber,
-      parkedLabel: inserted.parkedLabel,
-      total: Number(inserted.total),
-      createdAt: inserted.createdAt.toISOString(),
-    });
+    res.status(201).json(parkedResult(inserted,req.get("Idempotency-Key")!));
   } catch (err) {
     if (err instanceof FinancialRequestError) {res.status(err.status).json({error:err.message});return;}
     req.log.error({ err }, "Park POS order failed");

@@ -13,6 +13,69 @@ const confirmed=(key:string)=>Response.json({id:71,requestId:key,orderNumber:"PA
 beforeEach(()=>sessionStorage.clear());
 afterEach(()=>{vi.restoreAllMocks();vi.unstubAllGlobals();sessionStorage.clear();});
 describe("durable parking storage and response binding",()=>{
+  it("rejects a 61-character name before saving or sending, leaving a correctable basket",async()=>{
+    const fetcher=vi.fn();vi.stubGlobal("fetch",fetcher);
+    const h=renderHook(()=>usePosParking(scope)),input=snapshot();
+    input.body.label="س".repeat(61);
+    await act(async()=>{expect(await h.result.current.submit(input)).toBeNull();});
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(sessionStorage.getItem(storage)).toBeNull();
+    expect(h.result.current.intent).toBeNull();
+    expect(h.result.current.error).toContain("60");
+  });
+  it.each(["","س".repeat(60)])("allows an optional/max length name %j",async label=>{
+    const fetcher=vi.fn(async()=>confirmed(saved().key));vi.stubGlobal("fetch",fetcher);
+    const h=renderHook(()=>usePosParking(scope)),input=snapshot();input.body.label=label;
+    await act(async()=>{expect((await h.result.current.submit(input))?.result?.id).toBe(71);});
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+  it("rehydrates a legacy rejected name, seals it, and corrects using a fresh identity",async()=>{
+    const input=snapshot();input.body.label="س".repeat(61);
+    const old={v:1,key:crypto.randomUUID(),endpoint:"pos/orders/park",responsibility:null,
+      body:input.body,meta:input.meta,createdAt:new Date().toISOString()} as ParkingIntent;
+    saveIntent(storage,old);
+    const fetcher=vi.fn(async(url:string)=>{
+      if(url.endsWith("/resolve"))return Response.json({state:"closed_without_execution",requestId:old.key});
+      return confirmed(saved().key);
+    });vi.stubGlobal("fetch",fetcher);
+    const h=renderHook(()=>usePosParking(scope));
+    expect(h.result.current.intent?.meta?.customer?.id).toBe(17);
+    await act(async()=>{expect((await h.result.current.submit(undefined,true))?.closed).toBe(true);});
+    expect(sessionStorage.getItem(storage)).toBeNull();
+    const originalBody=JSON.parse(JSON.stringify(old.body));
+    input.body.label="س".repeat(60);
+    await act(async()=>{expect((await h.result.current.submit(input))?.result.id).toBe(71);});
+    const calls=fetcher.mock.calls as unknown as [string,RequestInit][];
+    expect(JSON.parse(String(calls[0][1].body))).toEqual({requestKey:old.key,body:originalBody});
+    expect(new Headers(calls[1][1].headers).get("Idempotency-Key")).not.toBe(old.key);
+  });
+  it.each(["denied","lost","empty","wrong-key"] as const)("keeps legacy evidence if resolution is %s",async fault=>{
+    const input=snapshot();input.body.label="س".repeat(61);
+    const old={v:1,key:crypto.randomUUID(),endpoint:"pos/orders/park",responsibility:null,
+      body:input.body,meta:input.meta,createdAt:new Date().toISOString()} as ParkingIntent;
+    saveIntent(storage,old);
+    vi.stubGlobal("fetch",vi.fn(async()=>{
+      if(fault==="lost")throw new TypeError("lost");
+      if(fault==="empty")return new Response(null,{status:204});
+      if(fault==="denied")return Response.json({error:"denied"},{status:403});
+      return Response.json({state:"closed_without_execution",requestId:"another-key"});
+    }));
+    const h=renderHook(()=>usePosParking(scope));
+    await act(async()=>{expect(await h.result.current.submit(undefined,true)).toBeNull();});
+    expect(saved()).toEqual(old);
+  });
+  it("recovers a committed draft through resolution and never treats it as editable rejection",async()=>{
+    const input=snapshot(),old={v:1,key:crypto.randomUUID(),endpoint:"pos/orders/park",responsibility:null,
+      body:input.body,meta:input.meta,createdAt:new Date().toISOString()} as ParkingIntent;
+    saveIntent(storage,old);
+    vi.stubGlobal("fetch",vi.fn(async()=>Response.json({state:"completed",result:await confirmed(old.key).json()})));
+    const h=renderHook(()=>usePosParking(scope));
+    await act(async()=>{
+      const result=await h.result.current.submit(undefined,true);
+      expect(result?.closed).toBe(false);expect(result?.result.id).toBe(71);
+    });
+    expect(sessionStorage.getItem(storage)).toBeNull();
+  });
   it("fences synchronous duplicate submissions and freezes the body before sending",async()=>{
     let resolve!:(value:Response)=>void;
     const fetcher=vi.fn(()=>new Promise<Response>(r=>{resolve=r}));vi.stubGlobal("fetch",fetcher);

@@ -268,6 +268,20 @@ describe("one durable parking intent",()=>{
     try{await waitFor(()=>expect(transport.parks).toHaveLength(1));}
     finally{transport.release();}
   });
+  it("shows the 61-character field error without sending, then saves all 60 characters",async()=>{
+    const transport=parkingTransport(),u=userEvent.setup();mount();await prepare(u);
+    const input=screen.getByTestId("input-park-label");
+    fireEvent.change(input,{target:{value:"س".repeat(61)}});
+    expect(screen.getByRole("alert").textContent).toContain("60");
+    await u.click(screen.getByTestId("button-park-now"));
+    expect(transport.parks).toHaveLength(0);
+    expect(screen.getByTestId("dock-customer").getAttribute("aria-label")).toBe("عميل تجربة السوبرماركت");
+    expect(screen.getByTestId("cart-row-unit-5")).toBeTruthy();
+    fireEvent.change(input,{target:{value:"س".repeat(60)}});
+    await u.click(screen.getByTestId("button-park-now"));
+    await waitFor(()=>expect(transport.parks).toHaveLength(1));
+    expect(transport.parks[0].label).toBe("س".repeat(60));
+  });
   it("retains the basket and A after an empty204 rather than treating it as saved",async()=>{
     const transport=parkingTransport("empty"),u=userEvent.setup();mount();await prepare(u);
     await u.click(await screen.findByTestId("button-park-now"));

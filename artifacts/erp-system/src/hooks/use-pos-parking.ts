@@ -12,6 +12,8 @@ type Meta = { cart: PosCartItem[]; customer: PosCustomerChoice | null };
 export type ParkingIntent = StoredIntent<ParkBody, Meta>;
 const endpoint = "pos/orders/park";
 export const parkingStorageKey = (scope: string) => `hasba:pos-park:${scope}`;
+export const parkingLabelError = (label: string | null) => (label ?? "").trim().length > 60
+  ? "اسم المسودة يجب ألا يتجاوز 60 حرفًا؛ صحح الاسم دون فقد السلة أو العميل." : "";
 const uncertain = "تعذر تأكيد التعليق؛ احتُفظ بالسلة والعميل. استرجع نتيجة المحاولة نفسها، ولا تنشئ مسودة بديلة.";
 function read(scope: string) {
   const value = readIntent<ParkBody, Meta>(parkingStorageKey(scope), endpoint);
@@ -37,7 +39,7 @@ export function usePosParking(scope: string) {
       error:saved==="unreadable"?"تعذر قراءة محاولة التعليق المحفوظة؛ لم يُرسل طلب جديد. فعّل التخزين ثم أعد تحميل الصفحة.":""});
   }, [scope]);
   const current = state.scope === scope ? state : {ready:false,intent:null,busy:false,error:""};
-  async function submit(snapshot?: {body:ParkBody;meta:Meta}) {
+  async function submit(snapshot?: {body:ParkBody;meta:Meta}, resolve = false) {
     // Synchronous fence: two clicks in the same React batch still send once.
     if (sending.current) return null;
     sending.current = true;
@@ -52,6 +54,8 @@ export function usePosParking(scope: string) {
       intent = saved;
       if (!intent) {
         if (!snapshot) throw Error("لا توجد محاولة تعليق محفوظة للاسترجاع.");
+        const labelError=parkingLabelError(snapshot.body.label);
+        if(labelError)throw Error(labelError);
         const next = JSON.parse(JSON.stringify({v:1,key:crypto.randomUUID(),endpoint,body:snapshot.body,
           meta:snapshot.meta,responsibility:null,createdAt:new Date().toISOString()})) as ParkingIntent;
         // Persist before the first byte is sent. Never retry under a new key.
@@ -60,23 +64,25 @@ export function usePosParking(scope: string) {
         intent = next;
       }
       update({intent,busy:true,error:""});
-      const response = await fetch(`${import.meta.env.BASE_URL}api/${endpoint}`, {
+      const response = await fetch(`${import.meta.env.BASE_URL}api/${endpoint}${resolve?"/resolve":""}`, {
         method:"POST",credentials:"include",
-        headers:{"Content-Type":"application/json","Idempotency-Key":intent.key},
-        body:JSON.stringify(intent.body),
+        headers:{"Content-Type":"application/json",...(!resolve?{"Idempotency-Key":intent.key}:{})},
+        body:JSON.stringify(resolve?{requestKey:intent.key,body:intent.body}:intent.body),
       });
       if (!response.ok) throw Error(uncertain);
-      const result = await response.json();
-      if (!Number.isInteger(result?.id) || result.id <= 0 || result.requestId !== intent.key ||
+      const payload = await response.json();
+      const closed=resolve && payload?.state==="closed_without_execution" && payload.requestId===intent.key;
+      const result=resolve ? payload?.state==="completed"?payload.result:null : payload;
+      if (!closed && (!Number.isInteger(result?.id) || result.id <= 0 || result.requestId !== intent.key ||
         result.sessionId !== intent.body.sessionId || typeof result.orderNumber !== "string" || !result.orderNumber.trim() ||
-        (result.customerId ?? null) !== (intent.body.customerId ?? null)) throw Error(uncertain);
+        (result.customerId ?? null) !== (intent.body.customerId ?? null))) throw Error(uncertain);
       // Old/unmounted callers and late responses cannot erase newer evidence.
       if (!alive.current || scopeRef.current !== originalScope) return null;
       if (clearIntentIfKey(parkingStorageKey(originalScope), intent.key) !== "cleared") {
         throw Error("تم حفظ المسودة، لكن توجد محاولة أحدث أو تعذر تنظيف التخزين. لم تُمسح السلة.");
       }
       update({intent:null,busy:false,error:""});
-      return {intent,result};
+      return {intent,result,closed};
     } catch (error) {
       update({intent,error:error instanceof Error && /[\u0600-\u06ff]/.test(error.message) ? error.message : uncertain});
       return null;

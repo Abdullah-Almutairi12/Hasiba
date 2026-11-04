@@ -204,6 +204,87 @@ afterAll(async () => {
 });
 
 describe("durable parking receipts on PostgreSQL",()=>{
+  it.each(["close-first","execute-first"] as const)("serializes park/resolve %s on the same PostgreSQL lock",async order=>{
+    const key=randomUUID(),body=parkBody({sessionId:sessionAId,label:`race-${order}`});
+    const connection=await pool.connect();
+    const execute=()=>agentA.post("/api/pos/orders/park").set("Idempotency-Key",key).send(body).then(r=>r);
+    const resolve=()=>agentA.post("/api/pos/orders/park/resolve").send({requestKey:key,body}).then(r=>r);
+    let first!:Promise<request.Response>,second!:Promise<request.Response>;
+    async function waitFor(n:number,holder:number){
+      const end=Date.now()+5000;
+      while(Date.now()<end){
+        const result=await connection.query(`SELECT count(*)::int AS n FROM pg_locks w JOIN pg_locks h
+          ON w.locktype=h.locktype AND w.database=h.database AND w.classid=h.classid AND w.objid=h.objid AND w.objsubid=h.objsubid
+          WHERE h.pid=$1 AND h.locktype='advisory' AND h.granted AND NOT w.granted`,[holder]);
+        if(result.rows[0].n===n)return;
+        await new Promise(r=>setTimeout(r,10));
+      }
+      throw Error(`Expected ${n} actual PostgreSQL waiters`);
+    }
+    try{
+      await connection.query("BEGIN");
+      const holder=(await connection.query("SELECT pg_backend_pid() AS pid")).rows[0].pid;
+      await connection.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))",
+        [JSON.stringify([companyAId,userAId,"POST:/api:/pos/orders/park",key])]);
+      first=order==="close-first"?resolve():execute();await waitFor(1,holder);
+      second=order==="close-first"?execute():resolve();await waitFor(2,holder);
+    }finally{await connection.query("COMMIT");connection.release();await Promise.allSettled([first,second]);}
+    const [a,b]=await Promise.all([first,second]);
+    if(order==="close-first"){
+      expect(a.body).toEqual({state:"closed_without_execution",requestId:key});
+      expect(b.status).toBe(409);
+      expect((await execute()).status).toBe(409); // valid delayed original is permanently fenced
+    }else{
+      expect(a.status).toBe(201);
+      expect(b.body).toEqual({state:"completed",result:a.body});
+      expect((await execute()).body).toEqual(a.body);
+    }
+    const rows=await db.select().from(financialRequestsTable).where(eq(financialRequestsTable.requestKey,key));
+    expect(rows).toHaveLength(1);
+  },20000);
+  it.each([""," ".repeat(3),"س".repeat(60)])("accepts an optional or maximum length name (%j)",async label=>{
+    const result=await agentA.post("/api/pos/orders/park").set("Idempotency-Key",randomUUID())
+      .send(parkBody({sessionId:sessionAId,label}));
+    expect(result.status).toBe(201);
+    expect(result.body.parkedLabel).toBe(label.trim()||null);
+  });
+  it("seals an old rejected label, fences delayed originals, then saves one corrected draft without financial effects",async()=>{
+    const key=randomUUID(),body=parkBody({sessionId:sessionAId,label:"س".repeat(61)});
+    const send=()=>agentA.post("/api/pos/orders/park").set("Idempotency-Key",key).send(body);
+    expect((await send()).status).toBe(400);
+    const close=()=>agentA.post("/api/pos/orders/park/resolve").send({requestKey:key,body});
+    const sealed=await close();
+    expect(sealed.status).toBe(200);
+    expect(sealed.body).toEqual({state:"closed_without_execution",requestId:key});
+    expect((await close()).body).toEqual(sealed.body);
+    // Even an invalid old request stays rejected. A valid body cannot reuse its sealed identity either.
+    expect((await send()).status).toBe(400);
+    const corrected={...body,label:"س".repeat(60)};
+    expect((await agentA.post("/api/pos/orders/park").set("Idempotency-Key",key).send(corrected)).status).toBe(409);
+    const nextKey=randomUUID();
+    const results=await Promise.all([1,2].map(()=>agentA.post("/api/pos/orders/park")
+      .set("Idempotency-Key",nextKey).send(corrected)));
+    expect(results.map(r=>r.status)).toEqual([201,201]);
+    expect(results[0].body.id).toBe(results[1].body.id);
+    const facts=(await db.execute(sql`SELECT
+      (SELECT count(*)::int FROM pos_orders WHERE id=${results[0].body.id}) AS drafts,
+      (SELECT count(*)::int FROM pos_order_payments p JOIN pos_orders o ON o.id=p.order_id WHERE o.company_id=${companyAId}) AS payments,
+      (SELECT count(*)::int FROM customer_invoices WHERE company_id=${companyAId}) AS invoices,
+      (SELECT count(*)::int FROM stock_moves m JOIN products p ON p.id=m.product_id WHERE p.company_id=${companyAId}) AS movements,
+      (SELECT count(*)::int FROM journal_entries WHERE company_id=${companyAId}) AS journals`)).rows[0];
+    expect(facts).toEqual({drafts:1,payments:0,invoices:0,movements:0,journals:0});
+  });
+  it("resolves a committed attempt to its original draft instead of closing it",async()=>{
+    const key=randomUUID(),body=parkBody({sessionId:sessionAId,label:"Saved before lost response"});
+    const original=await agentA.post("/api/pos/orders/park").set("Idempotency-Key",key).send(body);
+    expect(original.status).toBe(201);
+    const recovery=await agentA.post("/api/pos/orders/park/resolve").send({requestKey:key,body});
+    expect(recovery.status).toBe(200);
+    expect(recovery.body).toEqual({state:"completed",result:original.body});
+    expect((await agentA.post("/api/pos/orders/park/resolve")
+      .send({requestKey:key,body:{...body,label:"different"}})).status).toBe(409);
+    expect((await agentB.post("/api/pos/orders/park/resolve").send({requestKey:key,body})).status).toBe(403);
+  });
   it("requires an intent key before persisting any draft",async()=>{
     const r=await agentA.post("/api/pos/orders/park").send(parkBody({sessionId:sessionAId}));
     expect(r.status).toBe(400);

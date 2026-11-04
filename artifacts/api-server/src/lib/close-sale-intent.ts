@@ -10,7 +10,7 @@ const inputSchema=z.object({requestKey:z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_
   body:z.record(z.string(),z.unknown())}).strict();
 /** Reuse the ORIGINAL engine, fingerprint, receipt and transaction fence.
  * No absence-only "cancel", new ledger, changed body or expiring tombstone. */
-export async function closeSaleIntent(req:Request,path:"/pos/orders"|"/sales/invoices",
+export async function closeSaleIntent(req:Request,path:"/pos/orders"|"/sales/invoices"|"/pos/orders/park",
   authorize:(tx:DbOrTx,body:Record<string,unknown>,saved:unknown)=>Promise<void>){
   const input=inputSchema.parse(req.body);
   const original=Object.create(req) as Request;

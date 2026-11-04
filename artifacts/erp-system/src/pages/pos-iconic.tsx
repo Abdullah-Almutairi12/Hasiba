@@ -35,7 +35,7 @@ import { useLiveScopedAccess } from "@/lib/scoped-access";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
 import { usePosCheckout, readPendingPosAttempt, type PosProduct as Product, type PosCartItem as CartItem } from "@/hooks/use-pos-checkout";
-import { usePosParking } from "@/hooks/use-pos-parking";
+import { usePosParking, parkingLabelError } from "@/hooks/use-pos-parking";
 import { useToast } from "@/hooks/use-toast";
 import { useTaxPreview } from "@/hooks/use-tax-preview";
 import { previewPosTax, previewUnitPrices, type PosTaxPreviewBody } from "@/lib/tax-preview";
@@ -198,6 +198,7 @@ export default function PosIconic({
     if (parking.intent?.meta && !checkout.attempt) {
       setCart(parking.intent.meta.cart);
       setCustomerChoice({scope:shiftScope,customer:parking.intent.meta.customer});
+      setParkLabel(parking.intent.body.label ?? "");
     }
   }, [parking.intent?.key, shiftScope, !!checkout.attempt]);
   const basketVersion = useRef({signature:"",revision:0});
@@ -337,7 +338,7 @@ export default function PosIconic({
 
   const clearCart = () => { if (!checkoutLocked && !review) setCart([]); };
 
-  const handlePark = async (labelOverride?: string) => {
+  const handlePark = async (labelOverride?: string, resolve = false) => {
     if (isScoped || checkout.attempt || checkout.isPending ||
       readPendingPosAttempt(user?.companyId ? `${user.id}:${user.companyId}` : null)) return;
     if (!parking.intent && (checkoutLocked || !activeSession || cart.length === 0)) return;
@@ -360,8 +361,13 @@ export default function PosIconic({
         discount: 0,
         total: Number(total.toFixed(2)),
       },
-    });
+    }, resolve);
     if (!confirmed) return;
+    if (confirmed.closed) {
+      setParkedOpen(true);
+      toast({title:"أُغلقت المحاولة دون حفظ مسودة. السلة والعميل محفوظان؛ صحح الاسم ثم علّق من جديد."});
+      return;
+    }
     void refreshParked();
     if (basketVersion.current.revision !== revision) return;
     setCart([]);
@@ -768,6 +774,8 @@ export default function PosIconic({
         <p>{parking.error || "محاولة تعليق محفوظة؛ تحقّق من نتيجتها قبل متابعة العمل."}</p>
         <Button data-testid="button-recover-parking" disabled={parking.busy || !parking.ready || !parking.intent}
           onClick={()=>void handlePark()}>استرجاع نتيجة التعليق</Button>
+        <Button data-testid="button-resolve-parking" disabled={parking.busy || !parking.ready || !parking.intent}
+          onClick={()=>void handlePark(undefined,true)}>تحقق من المحاولة وأتح التصحيح إن لم تُنفّذ</Button>
       </div> : null}
       <PosCustomerPicker key={shiftScope} scope={shiftScope} scoped={isScoped} open={customerOpen} onOpenChange={setCustomerOpen}
         disabled={checkoutLocked || !!review} selected={customer}
@@ -1358,13 +1366,19 @@ function ParkedOverlay({
 
         {canPark && (
           <div className="mb-4 flex items-center gap-2 rounded-2xl border border-amber-200 bg-amber-50/60 p-3 dark:border-amber-900/40 dark:bg-amber-950/20">
+            <div className="flex-1">
             <Input
               placeholder={t("pos_iconic.park_label_ph")}
               value={parkLabel}
               onChange={(e) => setParkLabel(e.target.value)}
               className="h-10"
               data-testid="input-park-label"
+              aria-invalid={!!parkingLabelError(parkLabel)}
+              aria-describedby={parkingLabelError(parkLabel)?"park-label-error":undefined}
             />
+            {parkingLabelError(parkLabel)?<p id="park-label-error" role="alert" className="mt-1 text-sm text-red-700">
+              {parkingLabelError(parkLabel)}</p>:null}
+            </div>
             <Button
               onClick={onParkNow}
               data-testid="button-park-now"
