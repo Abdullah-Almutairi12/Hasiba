@@ -114,3 +114,11 @@ Claiming a draft also needs durable outcome evidence, even though the claim post
 **Why:** A destructive read can transfer the only copy of a cashier's work. Losing its response loses the work just as surely as losing a financial commit response; sharing cancellation semantics makes recovery ambiguous.
 
 **How to apply:** Apply the existing atomic receipt lifecycle to ownership handoffs, not just payment. Repeated delivery of one saved outcome is recovery; competing claims must not each acquire the source.
+
+## A recovered basket has one final sale, not one sale per delivery
+
+Bind a recovered draft to its source shift and allow at most one final sale for that source identity. Re-delivering the same claim is not a new authorization to collect payment.
+
+**Why:** Two tabs can legitimately recover the same claim key, then create different checkout keys. Transport-level idempotency alone accepts both. Deduplicating by products or amounts would instead block legitimate independent sales.
+
+**How to apply:** Preserve the source identity through recovery and checkout; serialize finalization by that source and return its original outcome under current read authority. A shift change must not turn the source basket into a new-shift sale. An intentional independent basket remains a separate sale even with identical items.
