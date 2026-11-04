@@ -6,6 +6,7 @@ import { PosSessionContext } from "@/components/pos-session-context";
 import { PosDeviceControls } from "@/components/pos-device-controls";
 import { PosCustomerPicker, type PosCustomerChoice } from "@/components/pos-customer-picker";
 import {usePosResumedBasket} from "@/hooks/use-pos-resumed-basket";
+import {usePosResumedVersion} from "@/hooks/use-pos-resumed-version";
 import { useLocation } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -130,6 +131,7 @@ export default function PosIconic({
   const parking = usePosParking(shiftScope);
   const resuming = usePosResume(shiftScope);
   const resumedBasket=usePosResumedBasket(shiftScope);
+  const resumedVersion=usePosResumedVersion(resumedBasket);
 
   const [cart, setCart] = useState<CartItem[]>([]);
   const workingBasket=useRef({cart,customer});
@@ -205,7 +207,7 @@ export default function PosIconic({
     saveShiftSelection(shiftScope, value);
     setShiftChoice({ scope: shiftScope, value });
   };
-  const checkoutLocked = !!checkout.attempt || checkout.isPending || !checkout.ready ||
+  const checkoutLocked = resumedVersion.busy || resumedVersion.pending || !!checkout.attempt || checkout.isPending || !checkout.ready ||
     !parking.ready || !!parking.intent || parking.busy || !resumedBasket.ready;
   // Reset identity-local work BEFORE rehydrating a durable basket. A remount/
   // refreshed effect cycle must never erase the cart restored by the next effect.
@@ -237,6 +239,8 @@ export default function PosIconic({
     : !checkout.attempt && (sessionsChecking || sessionsError) ? "انتظر نجاح التحقق من الوردية قبل بدء بيع جديد."
     : !checkout.attempt && !resumedBasket.ready ? "تعذر التحقق من ربط السلة بالمسودة؛ لا تبدأ تحصيلًا جديدًا."
     : !checkout.attempt && resumedBasket.error ? resumedBasket.error
+    : !checkout.attempt && (resumedVersion.dirty||resumedVersion.pending||resumedVersion.busy)
+    ? "التعديلات محفوظة محليًا فقط أو تنتظر التحقق. أكّد حفظ السلة لدى الخادم قبل الدفع."
     : !checkout.attempt && resumedBasket.value && activeSession?.id!==resumedBasket.value.source.sessionId
     ? `السلة المسترجعة تخص الوردية #${resumedBasket.value.source.sessionId}؛ لا يمكن تحصيلها على وردية أخرى. تحقق من نتيجتها السابقة دون إعادة فتح وردية مغلقة.`
     : !isScoped ? null
@@ -470,7 +474,7 @@ export default function PosIconic({
       return { product: live ?? fallback, quantity: it.quantity };
     });
     const restoredCustomer=data.customerId ? {id:data.customerId,name:`عميل #${data.customerId}`} : null;
-    if(!resumedBasket.save({source:{id:data.id,sessionId:data.sessionId,requestId:data.requestId},
+    if(!resumedBasket.save({source:{id:data.id,sessionId:data.sessionId,requestId:data.requestId,version:0},
       cart:restored,customer:restoredCustomer}))return;
     if(!resuming.acknowledge(outcome.intent))return;
     setCart(restored);
@@ -853,6 +857,20 @@ export default function PosIconic({
       {resumedBasket.value||resumedBasket.error||resuming.intent?.meta?.kind==="resume"?<div role="status" className="mx-4 rounded border bg-white p-3" data-testid="resumed-source">
         <p>{resumedBasket.error||`المسودة #${resumedBasket.value?.source.id??resuming.intent?.meta?.id} مرتبطة بالوردية #${resumedBasket.value?.source.sessionId??resuming.intent?.body.sessionId}. أي نتيجة محفوظة تُسترجع دون تحصيل جديد.`}</p>
         {resumedBasket.dirty?<Button data-testid="button-save-resumed-edits" disabled={!!checkout.attempt} onClick={()=>resumedBasket.retry()}>إعادة حفظ التعديلات</Button>:null}
+        {resumedBasket.value?<div data-testid="resumed-version">
+          <p>{resumedVersion.message||(resumedVersion.dirty||resumedVersion.pending
+            ?"التعديلات محفوظة محليًا فقط؛ لم يتأكد حفظها لدى الخادم."
+            :`نسخة السلة المؤكدة لدى الخادم: ${resumedBasket.value.source.version??0}`)}</p>
+          <Button data-testid="button-confirm-resumed-edits" disabled={!!checkout.attempt||resumedBasket.dirty||resumedVersion.busy}
+            onClick={async()=>{const out=await resumedVersion.confirm();if(out?.state==="completed")void lookupResumedSale();}}>
+            {resumedVersion.pending?"تحقق من محاولة الحفظ الأصلية":"تأكيد حفظ التعديلات لدى الخادم"}
+          </Button>
+          <Button data-testid="button-refresh-resumed-edits" disabled={!!checkout.attempt||resumedVersion.pending||resumedVersion.busy}
+            onClick={async()=>{const out=await resumedVersion.refresh();if(out?.state==="completed"){void lookupResumedSale();return;}
+              if(out?.basket){setCart(out.basket.cart);setCustomerChoice({scope:shiftScope,customer:out.basket.customer});setReview(null);}}}>
+            اعرض النسخة الأحدث وراجعها
+          </Button>
+        </div>:null}
         <Button data-testid="button-lookup-resumed-sale" disabled={checkingResumedSale} onClick={()=>void lookupResumedSale()}>تحقق من نتيجة بيع المسودة</Button>
       </div>:null}
       {resuming.intent || resuming.error ? <div role="status" className="fixed bottom-24 inset-x-4 z-[110] rounded-xl border bg-white p-3 shadow" data-testid="resume-recovery">

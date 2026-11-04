@@ -5577,8 +5577,65 @@ paths:
                     enum: [near80, mandatory]
                 required: [snapshot]
 
+  /pos/orders/{id}/resumed-basket:
+    post:
+      operationId: syncPosResumedBasket
+      tags: [POS]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, minimum: 1 } }
+        - { name: Idempotency-Key, in: header, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PosResumedBasketInput" }
+      responses:
+        "200":
+          description: Confirmed contents, an explicit stale-write conflict, or the original final sale.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PosResumedBasketState" }
+        "403": { description: Source authority denied }
+        "409": { description: Invalid source or reused attempt with different contents }
 components:
   schemas:
+    PosResumedBasketInput:
+      type: object
+      required: [sessionId, requestId, version, action]
+      properties:
+        sessionId: { type: integer, minimum: 1 }
+        requestId: { type: string, minLength: 8, maxLength: 128 }
+        version: { type: integer, minimum: 0 }
+        action: { type: string, enum: [read, save] }
+        items:
+          type: array
+          maxItems: 500
+          items:
+            type: object
+            required: [productId, quantity]
+            properties:
+              productId: { type: integer, minimum: 1 }
+              quantity: { type: number, exclusiveMinimum: 0 }
+        customerId: { type: [integer, "null"], minimum: 1 }
+    PosResumedBasketState:
+      type: object
+      required: [state, id, sessionId]
+      properties:
+        state: { type: string, enum: [current, conflict, completed] }
+        id: { type: integer }
+        sessionId: { type: integer }
+        version: { type: integer }
+        cart:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        customer:
+          type: [object, "null"]
+          additionalProperties: true
+        order:
+          type: object
+          additionalProperties: true
     CustomerImportMatch:
       type: object
       required: [id, name, phone, email, taxNumber]
@@ -7188,6 +7245,7 @@ components:
             id: { type: integer, minimum: 1 }
             sessionId: { type: integer, minimum: 1 }
             requestId: { type: string, minLength: 8, maxLength: 128 }
+            version: { type: integer, minimum: 0, description: Server-confirmed basket revision. Missing means original claim only. }
         taxPreviewToken:
           type: string
         taxContextToken:

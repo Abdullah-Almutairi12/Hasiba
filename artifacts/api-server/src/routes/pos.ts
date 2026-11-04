@@ -3,6 +3,7 @@ import {posTaxPreviewBody,preparePosTaxPreview,posTaxFacts,posIntentRead} from "
 import {closeSaleIntent} from "../lib/close-sale-intent";
 import {authorizeParkedSource} from "../lib/pos-parked-access";
 import {lockResumedSale,withResumedSale} from "../lib/pos-resumed-sale";
+import {appendBasket,presentBasket} from "../lib/pos-resumed-basket";
 import {issueTaxPreview,verifyTaxPreview} from "../lib/tax-preview";
 import { returnAuthorize } from "../lib/return-access";
 import { scopedPosOrderVisible } from "../lib/scoped-pos-operations";
@@ -35,7 +36,7 @@ import { processInvoiceForZatca } from "../lib/integrations/zatca-phase2";
 import { recordStockMove,StockAvailabilityError } from "../lib/stock-engine";
 import { stockMovesTable } from "@workspace/db";
 import { eq, gte, sql, desc, inArray, and, or, isNull } from "drizzle-orm";
-import { CreatePosSessionBody, CreatePosOrderBody } from "@workspace/api-zod";
+import { CreatePosSessionBody, CreatePosOrderBody, SyncPosResumedBasketBody } from "@workspace/api-zod";
 import { posGuard, posReadGuard } from "../middlewares/require-role";
 import { postJournalEntry } from "../lib/journal-posting";
 import { getCompanyId } from "../lib/scoped-db";
@@ -1536,7 +1537,7 @@ router.post(
           payerName: p.payerName ?? null,
         })),
       };
-      });
+      },{items:body.items,customerId:body.customerId});
     }, async (tx, previous) => {
       await lockApprovalAuthority(tx);
       if (!await managedProfile(req.session.userId!, companyId, tx)) return;
@@ -1996,6 +1997,44 @@ router.post("/pos/orders/:id/cancel",posGuard,parkedDelivery("cancel"));
 
 // Read-only recovery of the source's final outcome. A closed source shift or
 // a replacement selected in the UI must not force another tender or reopen it.
+router.post("/pos/orders/:id/resumed-basket",posReadGuard,async(req,res)=>{
+  try{
+    const body=SyncPosResumedBasketBody.parse(req.body);
+    const source={id:z.coerce.number().int().positive().parse(req.params.id),
+      sessionId:body.sessionId,requestId:body.requestId,version:body.version};
+    if(body.action==="save"&&(!req.get("Idempotency-Key")||!body.items))
+      throw new FinancialRequestError("يلزم محتوى السلة ومعرّف ثابت لتأكيد الحفظ",400);
+    const authorize=async(tx:Parameters<Parameters<typeof db.transaction>[0]>[0])=>{
+      const locked=await lockResumedSale<{order:typeof posOrdersTable.$inferSelect}>(tx,req,source,source.sessionId);
+      if(!locked)throw new FinancialRequestError("تعذر إثبات المسودة",409);
+      return locked;
+    };
+    const work=async(tx:Parameters<Parameters<typeof db.transaction>[0]>[0])=>{
+      const locked=await authorize(tx);
+      if(locked.previous)return {state:"completed" as const,id:source.id,sessionId:source.sessionId,order:locked.previous.order};
+      const current=await locked.current();
+      if(body.action==="read")return presentBasket(tx,req,source,current);
+      // Execution authority is re-read after the common source lock, not inferred from a read grant.
+      const shift=await authorizeParkedSource(tx,req,source.sessionId);
+      if(shift.status!=="open")throw new FinancialRequestError("الوردية مغلقة؛ لا يمكن تعديل المسودة",409);
+      await returnAuthorize(req.session.userId!,getCompanyId(req),"sell",shift.branchId,tx);
+      if(body.version!==current.version)return {state:"conflict" as const,id:source.id,sessionId:source.sessionId,version:current.version};
+      const facts={items:body.items!,customerId:body.customerId??null};
+      if(new Set(facts.items.map(i=>i.productId)).size!==facts.items.length)
+        throw new FinancialRequestError("اجمع كميات الصنف نفسه في سطر واحد",400);
+      // Validate company-local identities before storing any revision.
+      await presentBasket(tx,req,source,{...facts,version:current.version});
+      return presentBasket(tx,req,source,await appendBasket(tx,req,source,current,facts));
+    };
+    const result=body.action==="read"?await db.transaction(work):await financialTransaction(req,work,async tx=>{await authorize(tx);});
+    res.json(result);
+  }catch(err){
+    if(err instanceof FinancialRequestError){res.status(err.status).json({error:err.message});return;}
+    if(err instanceof z.ZodError){res.status(400).json({error:"بيانات نسخة السلة غير صالحة"});return;}
+    req.log.error({err},"Error confirming resumed basket");res.status(500).json({error:"تعذر تأكيد نسخة السلة"});
+  }
+});
+
 router.post("/pos/orders/:id/resumed-sale",posReadGuard,async(req,res)=>{
   try{
     const source=z.object({id:z.coerce.number().int().positive(),sessionId:z.number().int().positive(),

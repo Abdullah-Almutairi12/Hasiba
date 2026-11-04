@@ -3975,6 +3975,8 @@ export const ListPosOrdersResponse = zod.array(ListPosOrdersResponseItem)
 export const createPosOrderBodyResumedDraftRequestIdMin = 8;
 export const createPosOrderBodyResumedDraftRequestIdMax = 128;
 
+export const createPosOrderBodyResumedDraftVersionMin = 0;
+
 export const createPosOrderBodyLineSellersItemLineIndexMin = 0;
 
 export const createPosOrderBodyItemsItemQuantityExclusiveMin = 0;
@@ -3986,7 +3988,8 @@ export const CreatePosOrderBody = zod.object({
   "resumedDraft": zod.object({
   "id": zod.number().int().min(1),
   "sessionId": zod.number().int().min(1),
-  "requestId": zod.string().min(createPosOrderBodyResumedDraftRequestIdMin).max(createPosOrderBodyResumedDraftRequestIdMax)
+  "requestId": zod.string().min(createPosOrderBodyResumedDraftRequestIdMin).max(createPosOrderBodyResumedDraftRequestIdMax),
+  "version": zod.number().int().min(createPosOrderBodyResumedDraftVersionMin).optional().describe('Server-confirmed basket revision. Missing means original claim only.')
 }).optional().describe('Durable source claim. A resumed draft can produce at most one sale, irrespective of checkout retry key.'),
   "taxPreviewToken": zod.string().optional(),
   "taxContextToken": zod.string().optional().describe('Reviewed company tax context; frozen with the financial attempt, never refreshed on an unknown retry.'),
@@ -7866,6 +7869,54 @@ export const RunVatThresholdCheckResponse = zod.object({
   "registrationVerification": zod.enum(['declared_unverified']).optional()
 }),
   "alertEmitted": zod.union([zod.literal('near80'),zod.literal('mandatory'),zod.literal(null)]).nullish()
+})
+
+
+
+
+
+export const SyncPosResumedBasketParams = zod.object({
+  "id": zod.coerce.number().int().min(1)
+})
+
+export const SyncPosResumedBasketHeader = zod.object({
+  "Idempotency-Key": zod.string().optional()
+})
+
+
+export const syncPosResumedBasketBodyRequestIdMin = 8;
+export const syncPosResumedBasketBodyRequestIdMax = 128;
+
+export const syncPosResumedBasketBodyVersionMin = 0;
+
+
+export const syncPosResumedBasketBodyItemsItemQuantityExclusiveMin = 0;
+
+export const syncPosResumedBasketBodyItemsMax = 500;
+
+
+
+
+export const SyncPosResumedBasketBody = zod.object({
+  "sessionId": zod.number().int().min(1),
+  "requestId": zod.string().min(syncPosResumedBasketBodyRequestIdMin).max(syncPosResumedBasketBodyRequestIdMax),
+  "version": zod.number().int().min(syncPosResumedBasketBodyVersionMin),
+  "action": zod.enum(['read', 'save']),
+  "items": zod.array(zod.object({
+  "productId": zod.number().int().min(1),
+  "quantity": zod.number().gt(syncPosResumedBasketBodyItemsItemQuantityExclusiveMin)
+})).max(syncPosResumedBasketBodyItemsMax).optional(),
+  "customerId": zod.number().int().min(1).nullish()
+})
+
+export const SyncPosResumedBasketResponse = zod.object({
+  "state": zod.enum(['current', 'conflict', 'completed']),
+  "id": zod.number().int(),
+  "sessionId": zod.number().int(),
+  "version": zod.number().int().optional(),
+  "cart": zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+  "customer": zod.record(zod.string(), zod.unknown()).nullish(),
+  "order": zod.record(zod.string(), zod.unknown()).optional()
 })
 
 

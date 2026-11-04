@@ -15,7 +15,7 @@ describe("durable edits of a source-bound working basket",()=>{
       expect(view.result.current.update([],null)).toBe(true);
     });
     const stored=JSON.parse(sessionStorage.getItem("hasba:pos-resumed-basket:edits")!);
-    expect(stored).toEqual({source:initial.source,cart:[],customer:null});
+    expect(stored).toEqual({source:initial.source,cart:[],customer:null,serverDirty:true});
     view.unmount();
     const reloaded=renderHook(()=>usePosResumedBasket("edits"));
     await waitFor(()=>expect(reloaded.result.current.ready).toBe(true));

@@ -2,11 +2,16 @@ import {useEffect,useRef,useState} from "react";
 import type {CreatePosOrderBody} from "@workspace/api-client-react";
 import type {PosCartItem} from "./use-pos-checkout";
 import type {PosCustomerChoice} from "@/components/pos-customer-picker";
+import type {PosResumedBasketInput} from "@workspace/api-client-react";
 
 export type ResumedBasket={
   source:NonNullable<CreatePosOrderBody["resumedDraft"]>;
   cart:PosCartItem[];
   customer:PosCustomerChoice|null;
+  serverDirty?:boolean;
+  serverConflict?:boolean;
+  serverFinalized?:boolean;
+  syncIntent?:{key:string;body:PosResumedBasketInput;responsibility:string|null};
 };
 export function usePosResumedBasket(scope:string){
   const key=`hasba:pos-resumed-basket:${scope}`;
@@ -36,9 +41,9 @@ export function usePosResumedBasket(scope:string){
   }
   function update(cart:PosCartItem[],customer:PosCustomerChoice|null){
     const previous=current.current;
-    if(previous.key!==key||!previous.ready||!previous.value)return false;
+    if(previous.key!==key||!previous.ready||!previous.value||previous.value.syncIntent)return false;
     // Source identity never comes from an edit. Only the working contents change.
-    const value={source:previous.value.source,cart,customer};
+    const value={source:previous.value.source,cart,customer,serverDirty:true};
     try{write(value);publish({key,ready:true,value,error:"",dirty:false});return true;}
     catch{publish({key,ready:true,value,dirty:true,error:"تعذر حفظ آخر تعديلات السلة؛ الدفع محجوب. لا تحدّث الصفحة قبل إعادة حفظ التعديلات، وإلا قد تعود النسخة السابقة."});return false;}
   }

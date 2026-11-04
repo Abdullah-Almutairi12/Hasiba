@@ -5,6 +5,70 @@
  * حاسبة.AI - ERP System API
  * OpenAPI spec version: 0.1.0
  */
+export type PosResumedBasketInputAction = typeof PosResumedBasketInputAction[keyof typeof PosResumedBasketInputAction];
+
+
+export const PosResumedBasketInputAction = {
+  read: 'read',
+  save: 'save',
+} as const;
+
+export type PosResumedBasketInputItemsItem = {
+  /** @minimum 1 */
+  productId: number;
+  /** @exclusiveMinimum 0 */
+  quantity: number;
+};
+
+export interface PosResumedBasketInput {
+  /** @minimum 1 */
+  sessionId: number;
+  /**
+     * @minLength 8
+     * @maxLength 128
+     */
+  requestId: string;
+  /** @minimum 0 */
+  version: number;
+  action: PosResumedBasketInputAction;
+  /** @maxItems 500 */
+  items?: PosResumedBasketInputItemsItem[];
+  /**
+     * @minimum 1
+     * @nullable
+     */
+  customerId?: number | null;
+}
+
+export type PosResumedBasketStateState = typeof PosResumedBasketStateState[keyof typeof PosResumedBasketStateState];
+
+
+export const PosResumedBasketStateState = {
+  current: 'current',
+  conflict: 'conflict',
+  completed: 'completed',
+} as const;
+
+export type PosResumedBasketStateCartItem = { [key: string]: unknown };
+
+/**
+ * @nullable
+ */
+export type PosResumedBasketStateCustomer = { [key: string]: unknown } | null;
+
+export type PosResumedBasketStateOrder = { [key: string]: unknown };
+
+export interface PosResumedBasketState {
+  state: PosResumedBasketStateState;
+  id: number;
+  sessionId: number;
+  version?: number;
+  cart?: PosResumedBasketStateCartItem[];
+  /** @nullable */
+  customer?: PosResumedBasketStateCustomer;
+  order?: PosResumedBasketStateOrder;
+}
+
 export interface CustomerImportMatch {
   id: number;
   name: string;
@@ -1968,6 +2032,11 @@ export type CreatePosOrderBodyResumedDraft = {
      * @maxLength 128
      */
   requestId: string;
+  /**
+     * Server-confirmed basket revision. Missing means original claim only.
+     * @minimum 0
+     */
+  version?: number;
 };
 
 export type CreatePosOrderBodyLineSellersItem = {

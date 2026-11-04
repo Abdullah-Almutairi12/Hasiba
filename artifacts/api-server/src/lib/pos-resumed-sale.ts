@@ -5,9 +5,10 @@ import {FinancialRequestError,restore,snapshot} from "./financial-transaction";
 import {getCompanyId} from "./scoped-db";
 import {authorizeParkedSource} from "./pos-parked-access";
 import {posIntentRead} from "./pos-tax-preview";
+import {assertCurrentBasket,currentBasket,type BasketFacts} from "./pos-resumed-basket";
 
 type Tx=Parameters<Parameters<typeof db.transaction>[0]>[0];
-export type ResumedDraft={id:number;sessionId:number;requestId:string};
+export type ResumedDraft={id:number;sessionId:number;requestId:string;version?:number};
 // Uses the existing permanent outcome store, not a second sale engine. The
 // source lock is independent of BOTH transport keys, so cloned tabs serialize.
 export async function lockResumedSale<T>(tx:Tx,req:Request,source:ResumedDraft|undefined,sessionId:number){
@@ -20,7 +21,7 @@ export async function lockResumedSale<T>(tx:Tx,req:Request,source:ResumedDraft|u
     eq(financialRequestsTable.companyId,companyId),eq(financialRequestsTable.userId,userId),
     eq(financialRequestsTable.operation,`POST:${req.baseUrl}:/pos/orders/:id/resume`),
     eq(financialRequestsTable.requestKey,source.requestId)));
-  const result=claim?restore<{id:number;sessionId:number;requestId:string;state:string}>(claim.result as Parameters<typeof restore>[0]):null;
+  const result=claim?restore<{id:number;sessionId:number;requestId:string;state:string}&BasketFacts>(claim.result as Parameters<typeof restore>[0]):null;
   if(!result||result.state!=="resumed"||result.id!==source.id||result.sessionId!==source.sessionId||result.requestId!==source.requestId)
     throw new FinancialRequestError("تعذر إثبات استرجاع هذه المسودة؛ احتفظ بالمحاولة الأصلية وتحقق منها.",409);
   if(sessionId!==source.sessionId)
@@ -33,6 +34,7 @@ export async function lockResumedSale<T>(tx:Tx,req:Request,source:ResumedDraft|u
   if(previous)await posIntentRead(tx,req,{sessionId:source.sessionId},previous);
   return {
     previous,
+    current:()=>currentBasket(tx,req,source,result),
     save:async(value:T)=>{
       await tx.insert(financialRequestsTable).values({companyId,userId,operation,requestKey,
         requestHash:source.requestId,result:snapshot(value)});
@@ -44,13 +46,14 @@ export async function lockResumedSale<T>(tx:Tx,req:Request,source:ResumedDraft|u
   };
 }
 
-export async function withResumedSale<T>(tx:Tx,req:Request,source:ResumedDraft|undefined,sessionId:number,work:()=>Promise<T>):Promise<T>{
+export async function withResumedSale<T>(tx:Tx,req:Request,source:ResumedDraft|undefined,sessionId:number,work:()=>Promise<T>,facts:BasketFacts):Promise<T>{
   const claim=await lockResumedSale<T>(tx,req,source,sessionId);
   if(claim?.previous){
     req.res?.setHeader("Idempotency-Replayed","true");
     req.res?.setHeader("X-POS-Already-Finalized","true");
     return claim.previous;
   }
+  if(claim&&source)assertCurrentBasket(source,await claim.current(),facts);
   const result=await work();
   await claim?.save(result);
   return result;
