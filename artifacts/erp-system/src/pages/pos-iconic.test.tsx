@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, render, renderHook, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import PosIconic from "./pos-iconic";
@@ -227,18 +227,22 @@ function saleTransport(fault?: "lost" | "502" | "malformed" | "incomplete" | "re
   return { attempts, committed,seals };
 }
 
-function parkingTransport(failure?: "rejected" | "unknown") {
+function parkingTransport(failure?: "rejected" | "unknown" | "empty" | "delayed") {
   const sales = saleTransport();
   const original = globalThis.fetch;
+  let release!:()=>void;
+  const gate=new Promise<void>(resolve=>{release=resolve});
   let parked: any[] = [];
   const parks: any[] = [];
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const path = String(input).split("?")[0];
     if (path.endsWith("/api/pos/orders/park") && init?.method === "POST") {
       const body = JSON.parse(String(init.body)); parks.push(body);
+      if(failure==="delayed")await gate;
       if (failure === "rejected") return Response.json({error:"رفض التعليق"},{status:409});
-      parked = [{...body,id:71,parkedLabel:body.label,createdAt:new Date().toISOString()}];
+      parked = [{...body,id:71,requestId:new Headers(init.headers).get("Idempotency-Key"),orderNumber:"PARK-71",parkedLabel:body.label,createdAt:new Date().toISOString()}];
       if (failure === "unknown") throw new TypeError("Response lost after parking");
+      if (failure === "empty") return new Response(null,{status:204});
       return Response.json(parked[0],{status:201});
     }
     if (path.endsWith("/api/pos/orders/parked")) return Response.json(parked);
@@ -247,8 +251,31 @@ function parkingTransport(failure?: "rejected" | "unknown") {
     }
     return original(input,init);
   }));
-  return {...sales,parks};
+  return {...sales,parks,release};
 }
+
+describe("one durable parking intent",()=>{
+  async function prepare(u:ReturnType<typeof userEvent.setup>){
+    await u.click(await screen.findByTestId("dock-customer"));
+    await u.click(await screen.findByTestId("pos-customer-17"));
+    await u.click(screen.getByTestId("product-icon-5"));
+    await u.click(screen.getByTestId("dock-parking"));
+  }
+  it("sends only once when two clicks precede a delayed parking response",async()=>{
+    const transport=parkingTransport("delayed"),u=userEvent.setup();mount();await prepare(u);
+    const button=await screen.findByTestId("button-park-now");
+    fireEvent.click(button);fireEvent.click(button);
+    try{await waitFor(()=>expect(transport.parks).toHaveLength(1));}
+    finally{transport.release();}
+  });
+  it("retains the basket and A after an empty204 rather than treating it as saved",async()=>{
+    const transport=parkingTransport("empty"),u=userEvent.setup();mount();await prepare(u);
+    await u.click(await screen.findByTestId("button-park-now"));
+    await waitFor(()=>expect(transport.parks).toHaveLength(1));
+    expect(screen.getByTestId("dock-customer").getAttribute("aria-label")).toBe("عميل تجربة السوبرماركت");
+    expect(screen.getByTestId("cart-row-unit-5")).toBeTruthy();
+  });
+});
 
 describe("parked customer belongs only to the parked basket",()=>{
   async function selectAndPark(u:ReturnType<typeof userEvent.setup>){
@@ -286,7 +313,7 @@ describe("parked customer belongs only to the parked basket",()=>{
     await waitFor(()=>expect(transport.parks).toHaveLength(1));
     expect(screen.getByTestId("dock-customer").getAttribute("aria-label")).toBe("عميل تجربة السوبرماركت");
     await review(u);
-    expect(screen.getByTestId("button-pay-rail").matches(":disabled")).toBe(false);
+    expect(screen.getByTestId("button-pay-rail").matches(":disabled")).toBe(true);
     expect(transport.attempts).toHaveLength(0);
     expect(previews.length).toBeGreaterThan(0);
   });

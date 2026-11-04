@@ -34,7 +34,8 @@ import { usePermissions } from "@/hooks/use-permissions";
 import { useLiveScopedAccess } from "@/lib/scoped-access";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
-import { usePosCheckout, type PosProduct as Product, type PosCartItem as CartItem } from "@/hooks/use-pos-checkout";
+import { usePosCheckout, readPendingPosAttempt, type PosProduct as Product, type PosCartItem as CartItem } from "@/hooks/use-pos-checkout";
+import { usePosParking } from "@/hooks/use-pos-parking";
 import { useToast } from "@/hooks/use-toast";
 import { useTaxPreview } from "@/hooks/use-tax-preview";
 import { previewPosTax, previewUnitPrices, type PosTaxPreviewBody } from "@/lib/tax-preview";
@@ -124,6 +125,7 @@ export default function PosIconic({
   } });
   const queryClient = useQueryClient();
   const checkout = usePosCheckout(user?.companyId ? `${user.id}:${user.companyId}` : null);
+  const parking = usePosParking(shiftScope);
 
   const [cart, setCart] = useState<CartItem[]>([]);
   const [search, setSearch] = useState("");
@@ -190,11 +192,25 @@ export default function PosIconic({
     saveShiftSelection(shiftScope, value);
     setShiftChoice({ scope: shiftScope, value });
   };
-  const checkoutLocked = !!checkout.attempt || checkout.isPending || !checkout.ready;
+  const checkoutLocked = !!checkout.attempt || checkout.isPending || !checkout.ready ||
+    !parking.ready || !!parking.intent || parking.busy;
+  useEffect(() => {
+    if (parking.intent?.meta && !checkout.attempt) {
+      setCart(parking.intent.meta.cart);
+      setCustomerChoice({scope:shiftScope,customer:parking.intent.meta.customer});
+    }
+  }, [parking.intent?.key, shiftScope, !!checkout.attempt]);
+  const basketVersion = useRef({signature:"",revision:0});
+  const basketSignature = JSON.stringify({cart,customer,scope:shiftScope,session:activeSession?.id});
+  if (basketVersion.current.signature !== basketSignature) basketVersion.current = {
+    signature:basketSignature,revision:basketVersion.current.revision+1,
+  };
   // Why paying is blocked for a scoped member (null = allowed). Recovery of an
   // existing attempt re-sends its frozen body, so VAT/sell checks apply only
   // to new sales; a responsibility mismatch blocks recovery as well.
-  const payBlock: string | null = openingState.scope === shiftScope && openingState.pending && !checkout.attempt
+  const payBlock: string | null = parking.intent || parking.busy || !parking.ready
+    ? "استرجع نتيجة التعليق المحفوظة قبل بدء بيع جديد."
+    : openingState.scope === shiftScope && openingState.pending && !checkout.attempt
     ? "استرجع نتيجة طلب فتح الوردية المعلق قبل بدء بيع جديد."
     : !checkout.attempt && (sessionsChecking || sessionsError) ? "انتظر نجاح التحقق من الوردية قبل بدء بيع جديد."
     : !isScoped ? null
@@ -322,17 +338,15 @@ export default function PosIconic({
   const clearCart = () => { if (!checkoutLocked && !review) setCart([]); };
 
   const handlePark = async (labelOverride?: string) => {
-    if (isScoped || checkoutLocked || !activeSession || cart.length === 0) return;
-    const base = import.meta.env.BASE_URL;
+    if (isScoped || checkout.attempt || checkout.isPending ||
+      readPendingPosAttempt(user?.companyId ? `${user.id}:${user.companyId}` : null)) return;
+    if (!parking.intent && (checkoutLocked || !activeSession || cart.length === 0)) return;
+    const revision = basketVersion.current.revision;
     const label = (labelOverride ?? parkLabel).trim();
-    let res: Response;
-    try {
-      res = await fetch(`${base}api/pos/orders/park`, {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        sessionId: activeSession.id,
+    const confirmed = await parking.submit(parking.intent ? undefined : {
+      meta:{cart,customer},
+      body:{
+        sessionId: activeSession!.id,
         ...(customer ? {customerId:customer.id} : {}),
         label: label || null,
         items: cart.map((c) => ({
@@ -345,23 +359,14 @@ export default function PosIconic({
         tax: Number(tax.toFixed(2)),
         discount: 0,
         total: Number(total.toFixed(2)),
-      }),
-      });
-    } catch {
-      // A lost response does not prove rejection. Keep the basket and its
-      // customer intact so the cashier can verify the parked list first.
-      void refreshParked();
-      toast({ title: "تعذر تأكيد التعليق. احتُفظ بالسلة والعميل؛ تحقّق من الطلبات المعلّقة قبل إعادة المحاولة.", variant: "destructive" });
-      return;
-    }
-    if (!res.ok) {
-      toast({ title: t("pos_iconic.park_failed"), variant: "destructive" });
-      return;
-    }
+      },
+    });
+    if (!confirmed) return;
+    void refreshParked();
+    if (basketVersion.current.revision !== revision) return;
     setCart([]);
     setCustomerChoice(current => current.scope === shiftScope ? { scope: shiftScope, customer: null } : current);
     setParkLabel("");
-    void refreshParked();
     setIsParkingActive(true);
     setTimeout(() => setIsParkingActive(false), 700);
     toast({ title: t("pos_iconic.parked_ok") });
@@ -424,6 +429,7 @@ export default function PosIconic({
   };
 
   const handlePay = async (opts?: { approvalRequestId?: number; freshReview?: boolean }) => {
+    if (parking.isLocked()) return;
     if (discountAllowed && !pctValid) { toast({ title: "نسبة الخصم يجب أن تكون بين 0 و100", variant: "destructive" }); return; }
     // An open review binds the basket; only its explicit resume/fresh path may pay.
     if (review && !opts?.approvalRequestId && !opts?.freshReview && !checkout.attempt) {
@@ -758,6 +764,11 @@ export default function PosIconic({
       </div>
 
       {/* Floating dock */}
+      {parking.intent || parking.error ? <div role="status" className="fixed top-16 inset-x-4 z-[110] rounded-xl border bg-white p-3 shadow" data-testid="parking-recovery">
+        <p>{parking.error || "محاولة تعليق محفوظة؛ تحقّق من نتيجتها قبل متابعة العمل."}</p>
+        <Button data-testid="button-recover-parking" disabled={parking.busy || !parking.ready || !parking.intent}
+          onClick={()=>void handlePark()}>استرجاع نتيجة التعليق</Button>
+      </div> : null}
       <PosCustomerPicker key={shiftScope} scope={shiftScope} scoped={isScoped} open={customerOpen} onOpenChange={setCustomerOpen}
         disabled={checkoutLocked || !!review} selected={customer}
         onSelect={choice=>setCustomerChoice({scope:shiftScope,customer:choice})} />
@@ -787,7 +798,7 @@ export default function PosIconic({
             onCancel={handleCancelParked}
             parkLabel={parkLabel}
             setParkLabel={setParkLabel}
-            canPark={cart.length > 0}
+            canPark={cart.length > 0 && !checkoutLocked && !isScoped}
             onParkNow={() => handlePark()}
           />
         )}

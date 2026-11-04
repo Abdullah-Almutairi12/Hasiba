@@ -12,10 +12,13 @@ import { cleanupCompanyDefaults } from "../test/cleanup-company-defaults";
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import request from "supertest";
+import { randomUUID } from "node:crypto";
 import bcrypt from "bcryptjs";
-import { eq, inArray } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import {
   db,
+  pool,
+  financialRequestsTable,
   companiesTable,
   usersTable,
   userCompaniesTable,
@@ -186,6 +189,7 @@ afterAll(async () => {
   if (productAId) await db.delete(productsTable).where(eq(productsTable.id, productAId));
   if (categoryId) await db.delete(categoriesTable).where(eq(categoriesTable.id, categoryId));
   const uids = [userAId, userBId].filter((n) => n > 0);
+  if(uids.length)await db.delete(financialRequestsTable).where(inArray(financialRequestsTable.userId,uids));
   if (uids.length > 0) {
     await db.delete(userCompaniesTable).where(inArray(userCompaniesTable.userId, uids));
     await db.delete(usersTable).where(inArray(usersTable.id, uids));
@@ -197,6 +201,64 @@ afterAll(async () => {
     await cleanupCompanyDefaults(coIds);
     await db.delete(companiesTable).where(inArray(companiesTable.id, coIds));
   }
+});
+
+describe("durable parking receipts on PostgreSQL",()=>{
+  it("requires an intent key before persisting any draft",async()=>{
+    const r=await agentA.post("/api/pos/orders/park").send(parkBody({sessionId:sessionAId}));
+    expect(r.status).toBe(400);
+  });
+  it("serializes two actual waiters into one draft and rejects changed content",async()=>{
+    const key=randomUUID(), body=parkBody({sessionId:sessionAId,label:"Concurrent durable draft"});
+    const connection=await pool.connect();
+    let a!:Promise<request.Response>,b!:Promise<request.Response>;
+    try{
+      await connection.query("BEGIN");
+      const holder=(await connection.query("SELECT pg_backend_pid() AS pid")).rows[0].pid;
+      await connection.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))",
+        [JSON.stringify([companyAId,userAId,"POST:/api:/pos/orders/park",key])]);
+      a=agentA.post("/api/pos/orders/park").set("Idempotency-Key",key).send(body).then(r=>r);
+      b=agentA.post("/api/pos/orders/park").set("Idempotency-Key",key).send(body).then(r=>r);
+      let waiters=0;
+      const deadline=Date.now()+5000;
+      while(waiters<2&&Date.now()<deadline){
+        const q=await connection.query(`SELECT count(*)::int AS n FROM pg_locks w JOIN pg_locks h
+          ON w.locktype=h.locktype AND w.database=h.database AND w.classid=h.classid AND w.objid=h.objid AND w.objsubid=h.objsubid
+          WHERE h.pid=$1 AND h.locktype='advisory' AND h.granted AND NOT w.granted`,[holder]);
+        waiters=q.rows[0].n;
+        if(waiters<2)await new Promise(r=>setTimeout(r,10));
+      }
+      expect(waiters).toBe(2);
+    }finally{await connection.query("COMMIT");connection.release();await Promise.allSettled([a,b]);}
+    const responses=await Promise.all([a,b]);
+    expect(responses.map(r=>r.status)).toEqual([201,201]);
+    expect(responses[0].body.id).toBe(responses[1].body.id);
+    expect(responses.filter(r=>r.headers["idempotency-replayed"]==="true")).toHaveLength(1);
+    const id=responses[0].body.id;
+    expect(responses[0].body.requestId).toBe(key);
+    const changed=await agentA.post("/api/pos/orders/park").set("Idempotency-Key",key)
+      .send({...body,label:"Changed content"});
+    expect(changed.status).toBe(409);
+    const facts=(await db.execute(sql`SELECT
+      (SELECT count(*)::int FROM pos_orders WHERE id=${id} AND status='parked') AS drafts,
+      (SELECT count(*)::int FROM financial_requests WHERE request_key=${key}) AS receipts,
+      (SELECT count(*)::int FROM pos_order_payments p JOIN pos_orders o ON o.id=p.order_id WHERE o.company_id=${companyAId}) AS payments,
+      (SELECT count(*)::int FROM customer_invoices WHERE company_id=${companyAId}) AS invoices,
+      (SELECT count(*)::int FROM stock_moves m JOIN products p ON p.id=m.product_id WHERE p.company_id=${companyAId}) AS movements,
+      (SELECT count(*)::int FROM journal_entries WHERE company_id=${companyAId}) AS journals`)).rows[0];
+    expect(facts).toEqual({drafts:1,receipts:1,payments:0,invoices:0,movements:0,journals:0});
+  },20000);
+  it("replays a lost result after resume deleted the draft, without recreating it",async()=>{
+    const key=randomUUID(),body=parkBody({sessionId:sessionAId,label:"Lost then resumed"});
+    const send=()=>agentA.post("/api/pos/orders/park").set("Idempotency-Key",key).send(body);
+    const original=await send();
+    expect(original.status).toBe(201);
+    const resumed=await agentA.post(`/api/pos/orders/${original.body.id}/resume`).send({sessionId:sessionAId});
+    expect(resumed.status).toBe(200);
+    const replay=await send();
+    expect(replay.status).toBe(201);expect(replay.body).toEqual(original.body);
+    expect(await db.select().from(posOrdersTable).where(eq(posOrdersTable.id,original.body.id))).toHaveLength(0);
+  });
 });
 
 function parkBody(opts: { sessionId: number; label?: string }) {
@@ -222,6 +284,7 @@ describe("POST /api/pos/orders/park", () => {
   it("parks an order with status='parked' and skips the payment-balance trigger", async () => {
     const res = await agentA
       .post("/api/pos/orders/park")
+      .set("Idempotency-Key",randomUUID())
       .send(parkBody({ sessionId: sessionAId, label: "Table A1" }));
     expect(res.status).toBe(201);
     expect(res.body.parkedLabel).toBe("Table A1");
@@ -238,8 +301,9 @@ describe("POST /api/pos/orders/park", () => {
   it("rejects park into another tenant's session with 404", async () => {
     const res = await agentB
       .post("/api/pos/orders/park")
+      .set("Idempotency-Key",randomUUID())
       .send(parkBody({ sessionId: sessionAId, label: "x-tenant" }));
-    expect(res.status).toBe(404);
+    expect(res.status).toBe(403);
   });
 });
 
@@ -249,6 +313,7 @@ describe("GET /api/pos/orders/parked", () => {
     // the previous block; create another to verify ordering.
     await agentA
       .post("/api/pos/orders/park")
+      .set("Idempotency-Key",randomUUID())
       .send(parkBody({ sessionId: sessionAId, label: "Table A2" }));
 
     const res = await agentA.get(
@@ -276,6 +341,7 @@ describe("POST /api/pos/orders/:id/resume", () => {
   it("resume returns the snapshot, deletes the row, and a second resume returns 404", async () => {
     const created = await agentA
       .post("/api/pos/orders/park")
+      .set("Idempotency-Key",randomUUID())
       .send(parkBody({ sessionId: sessionAId, label: "ToResume" }));
     expect(created.status).toBe(201);
     const id = created.body.id as number;
@@ -304,6 +370,7 @@ describe("POST /api/pos/orders/:id/resume", () => {
   it("tenant B cannot resume tenant A's parked order (404 + row untouched)", async () => {
     const created = await agentA
       .post("/api/pos/orders/park")
+      .set("Idempotency-Key",randomUUID())
       .send(parkBody({ sessionId: sessionAId, label: "Locked-A" }));
     const id = created.body.id as number;
 
@@ -335,6 +402,7 @@ describe("POST /api/pos/orders/:id/resume", () => {
 
     const created = await agentA
       .post("/api/pos/orders/park")
+      .set("Idempotency-Key",randomUUID())
       .send(parkBody({ sessionId: sessionAId, label: "WrongSession" }));
     const id = created.body.id as number;
 
@@ -371,6 +439,7 @@ describe("GET /api/pos/summary excludes parked orders", () => {
     // totalSales and ordersCount will increase by the parked amounts.
     const parked = await agentA
       .post("/api/pos/orders/park")
+      .set("Idempotency-Key",randomUUID())
       .send(parkBody({ sessionId: sessionAId, label: "ShouldNotCount" }));
     expect(parked.status).toBe(201);
 

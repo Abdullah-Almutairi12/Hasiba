@@ -5,7 +5,7 @@ import {issueTaxPreview,verifyTaxPreview} from "../lib/tax-preview";
 import { returnAuthorize } from "../lib/return-access";
 import { scopedPosOrderVisible } from "../lib/scoped-pos-operations";
 import { Router } from "express";
-import { posDeviceAuthority } from "../lib/pos-device-authority";
+import { posDeviceAuthority, assertPosDeviceAuthority } from "../lib/pos-device-authority";
 import {
   db,
   posSessionsTable,
@@ -1756,8 +1756,27 @@ router.post("/pos/orders/park", posGuard, async (req, res) => {
     const body = parsed.data;
     const companyId = getCompanyId(req);
 
-    // Verify the session belongs to the caller's tenant and is open.
-    const [sess] = await db
+    if (!req.get("Idempotency-Key")) {
+      res.status(400).json({error:"يلزم معرّف ثابت لمحاولة التعليق"}); return;
+    }
+    const authorize = async (tx: Parameters<Parameters<typeof db.transaction>[0]>[0]) => {
+      await lockApprovalAuthority(tx);
+      await assertPosDeviceAuthority(tx);
+      await posIntentRead(tx,req,body,null);
+      const member=(await tx.execute(sql`SELECT uc.role FROM user_companies uc JOIN users u ON u.id=uc.user_id
+        WHERE uc.company_id=${companyId} AND uc.user_id=${req.session.userId!} AND u.is_active`)).rows[0];
+      if (!member || !["owner","manager","sales","cashier"].includes(String(member.role))) {
+        throw new FinancialRequestError("صلاحية التعليق لم تعد متاحة",403);
+      }
+      if (await managedProfile(req.session.userId!,companyId,tx)) {
+        const g=await selectedResponsibility(req.session.userId!,companyId,tx);
+        if(g?.resource!=="pos"||!g.actions.includes("pos.sell"))throw new FinancialRequestError("التعليق غير ممنوح",403);
+      }
+    };
+    const inserted = await financialTransaction(req, async (tx) => {
+    await authorize(tx);
+    // A committed replay is resolved before checking whether the shift closed.
+    const [sess] = await tx
       .select({
         id: posSessionsTable.id,
         status: posSessionsTable.status,
@@ -1771,17 +1790,14 @@ router.post("/pos/orders/park", posGuard, async (req, res) => {
           eq(branchesTable.companyId, companyId),
         ),
       )
-      .limit(1);
+      .limit(1).for("share", {of:posSessionsTable});
     if (!sess) {
-      res.status(404).json({ error: "جلسة البيع غير موجودة" });
-      return;
+      throw new FinancialRequestError("جلسة البيع غير موجودة",404);
     }
     if (sess.status !== "open") {
-      res.status(409).json({ error: "جلسة البيع مغلقة" });
-      return;
+      throw new FinancialRequestError("جلسة البيع مغلقة",409);
     }
 
-    const inserted = await db.transaction(async (tx) => {
       const orderNumber = await nextRef(tx, "POS-PARK");
       const [row] = await tx
         .insert(posOrdersTable)
@@ -1801,22 +1817,24 @@ router.post("/pos/orders/park", posGuard, async (req, res) => {
         })
         .returning();
       return row;
-    });
-
-    await recordAudit(req, {
-      action: "create",
-      entity: `pos_order#${inserted.id}`,
-      details: `parked label=${body.label ?? ""} items=${body.items.length}`,
+    },authorize);
+    if (!res.getHeader("Idempotency-Replayed")) await recordAudit(req, {
+      action:"create",entity:`pos_order#${inserted.id}`,
+      details:`parked request=${req.get("Idempotency-Key")} label=${body.label ?? ""} items=${body.items.length}`,
     });
 
     res.status(201).json({
       id: inserted.id,
+      requestId:req.get("Idempotency-Key"),
+      sessionId:inserted.sessionId,
+      customerId:inserted.customerId,
       orderNumber: inserted.orderNumber,
       parkedLabel: inserted.parkedLabel,
       total: Number(inserted.total),
       createdAt: inserted.createdAt.toISOString(),
     });
   } catch (err) {
+    if (err instanceof FinancialRequestError) {res.status(err.status).json({error:err.message});return;}
     req.log.error({ err }, "Park POS order failed");
     res.status(500).json({ error: "Internal server error" });
   }
