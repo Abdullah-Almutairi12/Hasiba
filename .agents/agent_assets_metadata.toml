@@ -1953,3 +1953,17 @@ mtime_ms = 1793794303345
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/b6cc150d-5d76-4f21-b043-e202f9aa73d4/99590cbb-757a-4f27-a816-bb773d4c3c53"
 storage_version_token = "1793794341990523"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "xB_kQl4E3b8tCkjd42f-4"
+uri = "file://generated-artifacts/pos-resumed-edits/Hasiba-Resumed-Basket-Edits-Evidence.zip"
+type = "unspecified"
+title = "أدلة حفظ تعديلات السلة المسترجعة"
+description = "تقرير عربي/إنجليزي، نتائج البوابات، صور الرحلة والمصالحة المستقلة؛ 75 ملفًا منقحًا دون بيانات الدخول."
+logical_id = "1c423915-f64f-4092-8b69-ae54eba67ef0"
+content_hash = "sha256:81df0347bf220863898d7122bf7231d2a9e27d13c32951dd77fc75a784c911a2"
+size = 961410
+mtime_ms = 1793799187504
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/1c423915-f64f-4092-8b69-ae54eba67ef0/6e42fcc7-4071-42a2-91a3-4c83507e8527"
+storage_version_token = "1793799232588100"
+content_type = "application/octet-stream"
