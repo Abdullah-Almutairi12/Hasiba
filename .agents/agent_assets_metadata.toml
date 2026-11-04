@@ -1841,3 +1841,17 @@ mtime_ms = 1793757830368
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/3ccf7030-fd03-4ed1-9652-98ef0b3ea0ad/de4d1f84-a6aa-4fda-83b2-e0bc6ad57b88"
 storage_version_token = "1793757839124260"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "p20wjICVrXkomjnDsFGkT"
+uri = "file://generated-artifacts/pos-shift-continuity/Hasiba-Shift-Continuity-Evidence.zip"
+type = "unspecified"
+title = "أدلة إصلاح سياق الوردية ومراجعة البيع"
+description = "تقرير عربي/English، اختبارات قبل وبعد، سجل الشامل وإخفاقاته واستكمال API، صور الرحلة والمصالحة المعزولة وبصمات المصادر."
+logical_id = "169b283c-a3d5-4074-bfa1-04c13e564014"
+content_hash = "sha256:8497ff9367096d06552df4e3bc1720f1a1b4280701bf71b716a2938d431bde4a"
+size = 716772
+mtime_ms = 1793763192472
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/169b283c-a3d5-4074-bfa1-04c13e564014/00791052-4766-4bd0-93ef-19434b775457"
+storage_version_token = "1793763203318726"
+content_type = "application/octet-stream"
