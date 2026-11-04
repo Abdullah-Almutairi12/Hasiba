@@ -748,7 +748,7 @@ export default function PosIconic({
       </div>
 
       {/* Floating dock */}
-      <PosCustomerPicker key={shiftScope} scope={shiftScope} open={customerOpen} onOpenChange={setCustomerOpen}
+      <PosCustomerPicker key={shiftScope} scope={shiftScope} scoped={isScoped} open={customerOpen} onOpenChange={setCustomerOpen}
         disabled={checkoutLocked || !!review} selected={customer}
         onSelect={choice=>setCustomerChoice({scope:shiftScope,customer:choice})} />
       <FloatingDock
