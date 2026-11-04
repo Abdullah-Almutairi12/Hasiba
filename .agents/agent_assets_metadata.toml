@@ -1813,3 +1813,17 @@ mtime_ms = 1793717020815
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/d63f4e23-9999-4c6b-8318-f90205a6313b/59b0b39e-d68b-4bbb-83f5-48e25cdacef4"
 storage_version_token = "1793717036997078"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "uYHYxLmv6ttY5bkKQpTvp"
+uri = "file://generated-artifacts/pos-shift-state/Hasiba-Shift-State-Evidence.zip"
+type = "unspecified"
+title = "أدلة تحديد حالة الوردية واسترجاعها"
+description = "التقرير العربي والإنجليزي، نتائج جديدة قبل/بعد الإصلاح و15 بوابة ناجحة، صور رحلة الكاشير والمصالحة وشهادات المصدر. منقّحة من بيانات الوصول."
+logical_id = "4fd21e4d-5b88-4a2d-a234-ceaf69d104c3"
+content_hash = "sha256:a56b15efd00b5ccc58e7e70eae8dfde865d27cd2ec6eb7db378dadcd8434cb80"
+size = 363038
+mtime_ms = 1793754878732
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/4fd21e4d-5b88-4a2d-a234-ceaf69d104c3/bdaa487b-5a16-42d6-8c5c-114569eb3a95"
+storage_version_token = "1793754888571409"
+content_type = "application/octet-stream"
