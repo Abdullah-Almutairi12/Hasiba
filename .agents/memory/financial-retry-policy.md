@@ -89,3 +89,11 @@ Freeze the original review token together with the exact financial body; never r
 **Why:** A newly signed preview changes the request fingerprint even when its displayed amounts are unchanged. Reconstructing an uncertain request from the current cart can therefore strand its confirmed receipt or create a second sale under a replacement key.
 
 **How to apply:** Recover the saved outcome before applying current quote expiry or changed prices to fresh execution. If no result exists, close under the original financial fence before preparing a newly reviewed intent. Durable storage must not include a manager's password; protected retries need explicit re-entry instead.
+
+## Resuming a draft does not retire its attempt receipt
+
+Keep the outcome evidence for a parked-order attempt after its draft has been resumed or removed.
+
+**Why:** A late original request can arrive after resume. The missing draft is not proof that parking never succeeded; forgetting its receipt can recreate an already-consumed basket.
+
+**How to apply:** Replays return the original saved outcome rather than creating another draft. Treat the draft's lifecycle separately from the attempt's evidence, and never clear an uncertain basket merely because a response was successful but lacked a matching saved identifier.
