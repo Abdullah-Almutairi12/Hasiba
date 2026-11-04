@@ -4,6 +4,7 @@ import { eligiblePosSessions, readShiftSelection, saveShiftSelection, selectedPo
 import { useState, useMemo, useEffect, useRef } from "react";
 import { PosSessionContext } from "@/components/pos-session-context";
 import { PosDeviceControls } from "@/components/pos-device-controls";
+import { PosCustomerPicker, type PosCustomerChoice } from "@/components/pos-customer-picker";
 import { useLocation } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -107,6 +108,9 @@ export default function PosIconic({
   const discountAllowed = !isScoped || scopedCaps.discount || selectedResp?.actions.includes("pos.discount.request");
   const scopedBranchId = isScoped ? (selectedResp?.resource === "pos" ? selectedResp.branchId : -1) : null;
   const shiftScope = `${user?.id ?? ""}:${user?.companyId ?? ""}:${isScoped ? selectedResp?.id ?? "none" : "legacy"}`;
+  const [customerChoice, setCustomerChoice] = useState<{scope:string;customer:PosCustomerChoice|null}>({scope:shiftScope,customer:null});
+  const [customerOpen, setCustomerOpen] = useState(false);
+  const customer = customerChoice.scope === shiftScope ? customerChoice.customer : null;
   const [shiftChoice, setShiftChoice] = useState<{ scope: string; value: ShiftSelection | null }>(() => ({ scope: shiftScope, value: readShiftSelection(shiftScope) }));
   const [openingState, setOpeningState] = useState({ scope: shiftScope, pending: !!readSessionIntent(user?.companyId ? `${user.id}:${user.companyId}` : null) });
   useEffect(() => { setShiftChoice({ scope: shiftScope, value: readShiftSelection(shiftScope) }); }, [shiftScope]);
@@ -327,6 +331,7 @@ export default function PosIconic({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         sessionId: activeSession.id,
+        ...(customer ? {customerId:customer.id} : {}),
         label: label || null,
         items: cart.map((c) => ({
           productId: c.product.id,
@@ -386,6 +391,7 @@ export default function PosIconic({
       return { product: live ?? fallback, quantity: it.quantity };
     });
     setCart(restored);
+    setCustomerChoice({scope:shiftScope,customer:data.customerId ? {id:data.customerId,name:`عميل #${data.customerId}`} : null});
     setParkedOpen(false);
     void refreshParked();
     toast({ title: t("pos_iconic.resumed_ok") });
@@ -452,6 +458,7 @@ export default function PosIconic({
         quantity: c.quantity,
       })),
       discount: bodyDiscount,
+      ...(customer ? {customerId:customer.id} : {}),
       paymentMethod,
       ...tp.tokens(),
       ...sellerFields,
@@ -487,6 +494,7 @@ export default function PosIconic({
     setLastReceipt({ id: created.id, orderNumber: created.orderNumber, total: Number(created.total), seller: "sellerAttribution" in created || body.sellerEmployeeId !== undefined || body.lineSellers !== undefined
       ? savedSellerLabel((created as { sellerAttribution?: unknown }).sellerAttribution) : null });
     setSellerWhole(null);
+    setCustomerChoice({scope:shiftScope,customer:null});
     setSellerLines({});
     setCart([]);
     setDiscountPct("");
@@ -740,7 +748,13 @@ export default function PosIconic({
       </div>
 
       {/* Floating dock */}
+      <PosCustomerPicker key={shiftScope} scope={shiftScope} open={customerOpen} onOpenChange={setCustomerOpen}
+        disabled={checkoutLocked || !!review} selected={customer}
+        onSelect={choice=>setCustomerChoice({scope:shiftScope,customer:choice})} />
       <FloatingDock
+        onCustomer={()=>setCustomerOpen(true)}
+        customerDisabled={checkoutLocked || !!review}
+        customerLabel={checkout.attempt?.body.customerId ? `عميل العملية المحفوظة #${checkout.attempt.body.customerId}` : customer?.name}
         parkedCount={parkedList.length}
         cartCount={cart.length}
         isParkingActive={isParkingActive}
@@ -1135,6 +1149,9 @@ function Row({ label, value }: { label: string; value: number }) {
 }
 
 function FloatingDock({
+  onCustomer,
+  customerDisabled,
+  customerLabel,
   parkedCount,
   cartCount,
   isParkingActive,
@@ -1146,6 +1163,9 @@ function FloatingDock({
   moreExpanded = false,
   parkingUnavailable = false,
 }: {
+  onCustomer: () => void;
+  customerDisabled: boolean;
+  customerLabel?: string;
   parkingUnavailable?: boolean;
   onMore?: () => void;
   moreExpanded?: boolean;
@@ -1209,7 +1229,7 @@ function FloatingDock({
         >
           <ShoppingCart className="size-5" />
         </DockBtn>
-        <DockBtn label={t("pos_iconic.customer")} testId="dock-customer">
+        <DockBtn label={customerLabel ?? t("pos_iconic.customer")} highlight={!!customerLabel} onClick={onCustomer} disabled={customerDisabled} testId="dock-customer">
           <User className="size-5" />
         </DockBtn>
         <DockBtn

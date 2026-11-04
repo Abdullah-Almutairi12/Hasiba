@@ -185,6 +185,9 @@ function saleTransport(fault?: "lost" | "502" | "malformed" | "incomplete" | "re
   const seals:Array<{requestKey:string;body:unknown}>=[];
   const closed=new Set<string>();
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (String(input).split("?")[0].endsWith("/api/customers")) {
+      return Response.json([{id:17,name:"عميل تجربة السوبرماركت"}]);
+    }
     if(String(input).split("?")[0].endsWith("/api/pos/tax-preview/close-intent")&&init?.method==="POST"){
       const seal=JSON.parse(String(init.body));
       expect(seal.body).toEqual(JSON.parse(attempts.find(a=>a.key===seal.requestKey)!.body));
@@ -308,6 +311,33 @@ describe("POS inline tender and durable checkout recovery", () => {
     expect(JSON.parse(transport.attempts[0].body)).not.toHaveProperty("taxContextToken");
     expect(sessionStorage.getItem(storageKey)).toBeNull();
     expect(screen.getByText(ar.pos_iconic.cart_empty).isConnected).toBe(true);
+  });
+  it("selects the customer through the native dock and sends its identity with the sale",async()=>{
+    const transport=saleTransport(),u=userEvent.setup();mount();
+    await u.click(await screen.findByTestId("dock-customer"));
+    await u.click(await screen.findByTestId("pos-customer-17"));
+    expect(screen.getByTestId("dock-customer").getAttribute("aria-label")).toBe("عميل تجربة السوبرماركت");
+    await u.click(screen.getByTestId("product-icon-5"));await review(u);
+    await u.click(screen.getByTestId("button-pay-rail"));
+    await screen.findByText("ORD-TEST-1");
+    expect(JSON.parse(transport.attempts[0].body).customerId).toBe(17);
+    expect(transport.committed.size).toBe(1);
+  });
+  it("freezes the selected customer in an unknown attempt and recovers the same identity after reload",async()=>{
+    const transport=saleTransport("lost"),u=userEvent.setup();const v=mount();
+    await u.click(await screen.findByTestId("dock-customer"));
+    await u.click(await screen.findByTestId("pos-customer-17"));
+    await u.click(screen.getByTestId("product-icon-5"));await review(u);
+    await u.click(screen.getByTestId("button-pay-rail"));
+    await waitFor(()=>expect(transport.attempts).toHaveLength(1));
+    await waitFor(()=>expect(screen.getByTestId("dock-customer").matches(":disabled")).toBe(true));
+    const saved=JSON.parse(sessionStorage.getItem(storageKey)!);
+    expect(saved.body.customerId).toBe(17);v.unmount();mount();
+    await u.click(await screen.findByTestId("button-pay-rail"));
+    await screen.findByText("ORD-TEST-1");
+    expect(transport.attempts).toHaveLength(2);
+    expect(transport.attempts[1]).toEqual(transport.attempts[0]);
+    expect(transport.committed.size).toBe(1);
   });
 
   it.each(["lost", "502", "malformed", "incomplete"] as const)(
