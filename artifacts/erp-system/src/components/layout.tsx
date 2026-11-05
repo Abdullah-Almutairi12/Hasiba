@@ -1,4 +1,5 @@
 import { Link, useLocation } from "wouter";
+import {canReachWarehouseAlerts} from "@/lib/pos-actions";
 import {
   LayoutDashboard,
   ShoppingCart,
@@ -185,6 +186,7 @@ export function AppSidebar() {
             // POS appears only while a POS responsibility is selected.
             ...(selected?.resource === "pos" ? [{ key: "pos", url: "/pos", icon: ShoppingCart }] : []),
             ...(selected?.resource==="sales"&&selected.actions.includes("sales.read")?[{key:"sales",url:"/sales",icon:FileText}]:[]),
+            ...(canReachWarehouseAlerts(selected,"/inventory/reorder")?[{key:"reorder",url:"/inventory/reorder",icon:TrendingDown}]:[]),
           ], true)
         ) : (
           <>

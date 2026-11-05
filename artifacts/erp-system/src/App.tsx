@@ -1,4 +1,4 @@
-import { canReachReturns,canReachProcurement } from "@/lib/pos-actions";
+import { canReachReturns,canReachProcurement,canReachWarehouseAlerts } from "@/lib/pos-actions";
 import { lazy, Suspense, useEffect } from "react";
 import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
 import { clearActivationToken } from "@/lib/activation-token";
@@ -119,7 +119,7 @@ function ScopedGate({ children, pos = false }: { children: React.ReactNode; pos?
   useEffect(() => {
     if (enrollOnly && location !== "/account/security") setLocation("/account/security", { replace: true });
   }, [enrollOnly, location, setLocation]);
-  const allowed = !scoped || (pos ? posView : SCOPED_PATHS.has(location) || inventoryCountView || canReachProcurement(selected,location) ||
+  const allowed = !scoped || (pos ? posView : SCOPED_PATHS.has(location) || inventoryCountView || canReachWarehouseAlerts(selected,location) || canReachProcurement(selected,location) ||
     (location==="/sales"&&selected?.resource==="sales"&&selected.actions.includes("sales.read")) ||
     (location === SCOPED_RETURNS_PATH && canReachReturns(selected)));
   useEffect(() => {

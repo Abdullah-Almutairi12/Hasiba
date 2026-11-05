@@ -5,6 +5,7 @@
  * (including unavailable catalogue items and legacy previews).
  */
 export const ACTION_LABEL: Record<string, string> = {
+  "inventory.reorder.manage":"إدارة حدود المخزون والتنبيهات الداخلية — دون شراء أو استلام ضمني",
   "sales.read":"عرض فواتير العملاء — لا طباعة أو PDF ضمني",
   "sales.invoices.print":"معاينة وطباعة فاتورة عميل",
   "sales.invoices.export":"تصدير PDF لفاتورة عميل",
@@ -63,6 +64,11 @@ export const ACTION_LABEL: Record<string, string> = {
   "pos.return.payout": "صرف رد نقدي أو طلب رد يدوي",
   "pos.return.external": "تأكيد إثبات رد خارجي",
 };
+
+/** Read-only entry; management remains an independent server-checked action. */
+export function canReachWarehouseAlerts(sel:{resource:string;actions:readonly string[]}|null|undefined,path:string):boolean{
+  return path==="/inventory/reorder" && sel?.resource==="inventory" && sel.actions.includes("inventory.read");
+}
 
 export function canReachProcurement(sel:{resource:string;actions:readonly string[]}|null|undefined,path:string):boolean{
   if(sel?.resource!=="procurement"||!sel.actions.includes("procurement.read"))return false;
