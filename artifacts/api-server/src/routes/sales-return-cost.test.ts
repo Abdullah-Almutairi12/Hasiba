@@ -242,8 +242,12 @@ describe("original POS invoice: independent linked return lifecycle", () => {
       "0071_sales_order_discount_precision.sql",
       "0072_company_product_sku.sql",
       "0073_company_supplier_vat.sql",
+      "0074_warehouse_stock_alerts.sql",
     ]);
     expect(first.skipped).toHaveLength(26);
+    // Installation alone cannot adopt warehouse notifications or add grants.
+    expect(await rows("SELECT count(*)::int AS n FROM reorder_rules WHERE alert_enabled OR alert_adopted_at IS NOT NULL")).toEqual([{n:0}]);
+    expect(await rows("SELECT count(*)::int AS n FROM warehouse_stock_alert_cycles")).toEqual([{n:0}]);
     // Installing a policy schema is not acceptance of a company's tax facts.
     expect(await rows("SELECT count(*)::int AS n FROM company_tax_policy_versions")).toEqual([{n:0}]);
     expect(await rows("SELECT count(*)::int AS n FROM company_tax_policy_request_closures")).toEqual([{n:0}]);

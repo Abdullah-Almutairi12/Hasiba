@@ -21,6 +21,8 @@ async function cycles(f:Fixture){return fixtureRows("SELECT * FROM warehouse_sto
 async function effects(f:Fixture){return fixtureRows(`SELECT
  (SELECT count(*)::int FROM pos_orders WHERE company_id=$1) orders,
  (SELECT count(*)::int FROM invoices WHERE company_id=$1) invoices,
+ (SELECT count(*)::int FROM customer_invoices WHERE company_id=$1) customer_invoices,
+ (SELECT count(*)::int FROM pos_order_payments p JOIN pos_orders o ON o.id=p.order_id WHERE o.company_id=$1) payments,
  (SELECT count(*)::int FROM purchase_orders WHERE company_id=$1) purchases,
  (SELECT count(*)::int FROM stock_moves WHERE product_id=$2) moves,
  (SELECT count(*)::int FROM journal_entries WHERE company_id=$1) journals,
