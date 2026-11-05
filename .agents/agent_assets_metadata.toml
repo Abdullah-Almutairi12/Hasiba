@@ -2009,3 +2009,17 @@ mtime_ms = 1793856435826
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/0013a497-4d50-464b-853e-9ada5a700124/bdd8360c-682a-4b88-b3f0-680c0e36495b"
 storage_version_token = "1793856501871599"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "G5vhqwKH9YKTNnn7cCgSy"
+uri = "file://generated-artifacts/pos-barcode-pending/hasiba-pos-barcode-pending-evidence.zip"
+type = "unspecified"
+title = "أدلة إصلاح مسحات الباركود — ZIP"
+description = "التقرير العربي والإنجليزي، سجلات الفحوص الجديدة، 18 صورة، ومصالحة PostgreSQL المستقلة. المصدر المختبر6e674a1 وآخر رفع77841f5."
+logical_id = "9de255cd-60ff-4adb-b5bc-980728c13738"
+content_hash = "sha256:5b601d8dc222ec5bcaa9a3e516be11f424fc533140c7ae65559e2ae98c50adcb"
+size = 1254511
+mtime_ms = 1793862584069
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/9de255cd-60ff-4adb-b5bc-980728c13738/eff7fad5-68ea-4caa-bb2f-b74bffcca344"
+storage_version_token = "1793862602414783"
+content_type = "application/octet-stream"
