@@ -30,6 +30,71 @@ tags:
   - name: auth
     description: Authentication & session management
 paths:
+  /inventory/reorder-options:
+    get:
+      operationId: getWarehouseAlertOptions
+      summary: Scoped ordinary-product and warehouse selectors with no cost fields
+      responses:
+        "200":
+          description: Authorized selectors only
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [products, warehouses]
+                properties:
+                  products:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, nameAr, sku, unit]
+                      properties:
+                        id: { type: integer }
+                        nameAr: { type: string }
+                        sku: { type: string }
+                        unit: { type: string }
+                  warehouses:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, nameAr]
+                      properties:
+                        id: { type: integer }
+                        nameAr: { type: string }
+  /inventory/reorder-rules:
+    get:
+      operationId: listWarehouseAlertRules
+      summary: Physical warehouse balances, explicitly enabled internal alerts and retained cycle history
+      responses:
+        "200":
+          description: Scoped rules; no costs
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/WarehouseAlertRule" } }
+    post:
+      operationId: saveWarehouseAlertRule
+      summary: Save limits and explicitly opt into internal-only warehouse alerts
+      parameters:
+        - { name: Idempotency-Key, in: header, schema: { type: string, minLength: 8, maxLength: 128 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/WarehouseAlertRuleInput" }
+      responses:
+        "201":
+          description: Saved ID, or persisted no-write rejection for a stale revision; replay returns the same result
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id]
+                properties:
+                  id: { type: [integer, "null"] }
+                  rejected: { type: boolean }
+                  message: { type: string }
+        "403": { description: Outside current read/manage responsibility or warehouse scope }
+        "409": { description: Unsupported tracked product or reused key with different body }
   /pos/barcode-lookup:
     get:
       operationId: lookupPosBarcode
@@ -5640,6 +5705,52 @@ paths:
         "409": { description: Invalid source or reused attempt with different contents }
 components:
   schemas:
+    WarehouseAlertRuleInput:
+      type: object
+      required: [productId, warehouseId, minQty, maxQty]
+      properties:
+        productId: { type: integer, minimum: 1 }
+        warehouseId: { type: integer, minimum: 1 }
+        minQty: { type: number, minimum: 0 }
+        maxQty: { type: number, minimum: 0 }
+        eoq: { type: number, minimum: 0 }
+        isActive: { type: boolean, description: Legacy suggestions flag; not internal alert activation }
+        alertEnabled: { type: boolean, default: false, description: Explicit internal-only adoption; omission preserves existing setting }
+        revision: { type: integer, minimum: 1, description: Required for changing previously adopted rules }
+    WarehouseAlertCycle:
+      type: object
+      required: [id, status, quantity, threshold, evaluated_at]
+      properties:
+        id: { type: integer }
+        status: { type: string, enum: [open, recovered, disabled, unsupported] }
+        quantity: { type: string }
+        threshold: { type: string }
+        evaluated_at: { type: string }
+        opened_at: { type: string }
+        closed_at: { type: [string, "null"] }
+    WarehouseAlertRule:
+      type: object
+      required: [id, productId, productName, sku, unit, warehouseId, warehouseName, branchName, minQty, maxQty, eoq, isActive, alertEnabled, revision, supported, onHand, canManage, cycles]
+      properties:
+        id: { type: integer }
+        productId: { type: integer }
+        productName: { type: string }
+        sku: { type: string }
+        unit: { type: string }
+        warehouseId: { type: integer }
+        warehouseName: { type: string }
+        branchName: { type: string }
+        minQty: { type: number }
+        maxQty: { type: number }
+        eoq: { type: number }
+        isActive: { type: boolean }
+        alertEnabled: { type: boolean }
+        alertAdoptedAt: { type: [string, "null"] }
+        revision: { type: integer }
+        supported: { type: boolean }
+        onHand: { type: number }
+        canManage: { type: boolean }
+        cycles: { type: array, items: { $ref: "#/components/schemas/WarehouseAlertCycle" } }
     PosResumedBasketInput:
       type: object
       required: [sessionId, requestId, version, action]

@@ -208,6 +208,7 @@ import type {
   GetSupplierInvoiceDraftOptionsParams,
   GetTrialBalanceParams,
   GetVatReturnParams,
+  GetWarehouseAlertOptions200,
   GetWorkspaceInventoryMovementOptions200,
   GetWorkspaceInventoryTransfers200,
   HealthStatus,
@@ -325,6 +326,7 @@ import type {
   RunVatThresholdCheck200,
   SalesChartPoint,
   SalesReport,
+  SaveWarehouseAlertRule201,
   SecurityChecklist,
   SendCleanupReportNow200,
   SendCleanupReportNow400,
@@ -413,6 +415,8 @@ import type {
   VatStatusResponse,
   VerifyAccountMfaBody,
   Warehouse,
+  WarehouseAlertRule,
+  WarehouseAlertRuleInput,
   WorkspaceAccess,
   WorkspaceStock,
   ZatcaStatus
@@ -444,6 +448,296 @@ const withQueryKey = <T extends object, K>(query: T, queryKey: K): T & { queryKe
   }
   return result;
 };
+
+export const getGetWarehouseAlertOptionsUrl = () => {
+
+
+
+
+  return `/api/inventory/reorder-options`
+}
+
+/**
+ * @summary Scoped ordinary-product and warehouse selectors with no cost fields
+ */
+export const getWarehouseAlertOptions = async ( options?: Parameters<typeof customFetch>[1]): Promise<GetWarehouseAlertOptions200> => {
+
+  return customFetch<GetWarehouseAlertOptions200>(getGetWarehouseAlertOptionsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetWarehouseAlertOptionsQueryKey = () => {
+    return [
+    `/api/inventory/reorder-options`
+    ] as const;
+    }
+
+
+export const getGetWarehouseAlertOptionsQueryOptions = <TData = Awaited<ReturnType<typeof getWarehouseAlertOptions>>, TError = ErrorType<unknown>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getWarehouseAlertOptions>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetWarehouseAlertOptionsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getWarehouseAlertOptions>>> = ({ signal }) => getWarehouseAlertOptions({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getWarehouseAlertOptions>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetWarehouseAlertOptionsQueryResult = NonNullable<Awaited<ReturnType<typeof getWarehouseAlertOptions>>>
+export type GetWarehouseAlertOptionsQueryError = ErrorType<unknown>
+
+
+export function useGetWarehouseAlertOptions<TData = Awaited<ReturnType<typeof getWarehouseAlertOptions>>, TError = ErrorType<unknown>>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getWarehouseAlertOptions>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getWarehouseAlertOptions>>,
+          TError,
+          Awaited<ReturnType<typeof getWarehouseAlertOptions>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetWarehouseAlertOptions<TData = Awaited<ReturnType<typeof getWarehouseAlertOptions>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getWarehouseAlertOptions>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getWarehouseAlertOptions>>,
+          TError,
+          Awaited<ReturnType<typeof getWarehouseAlertOptions>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetWarehouseAlertOptions<TData = Awaited<ReturnType<typeof getWarehouseAlertOptions>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getWarehouseAlertOptions>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Scoped ordinary-product and warehouse selectors with no cost fields
+ */
+
+export function useGetWarehouseAlertOptions<TData = Awaited<ReturnType<typeof getWarehouseAlertOptions>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getWarehouseAlertOptions>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetWarehouseAlertOptionsQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getListWarehouseAlertRulesUrl = () => {
+
+
+
+
+  return `/api/inventory/reorder-rules`
+}
+
+/**
+ * @summary Physical warehouse balances, explicitly enabled internal alerts and retained cycle history
+ */
+export const listWarehouseAlertRules = async ( options?: Parameters<typeof customFetch>[1]): Promise<WarehouseAlertRule[]> => {
+
+  return customFetch<WarehouseAlertRule[]>(getListWarehouseAlertRulesUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListWarehouseAlertRulesQueryKey = () => {
+    return [
+    `/api/inventory/reorder-rules`
+    ] as const;
+    }
+
+
+export const getListWarehouseAlertRulesQueryOptions = <TData = Awaited<ReturnType<typeof listWarehouseAlertRules>>, TError = ErrorType<unknown>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listWarehouseAlertRules>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListWarehouseAlertRulesQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listWarehouseAlertRules>>> = ({ signal }) => listWarehouseAlertRules({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listWarehouseAlertRules>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type ListWarehouseAlertRulesQueryResult = NonNullable<Awaited<ReturnType<typeof listWarehouseAlertRules>>>
+export type ListWarehouseAlertRulesQueryError = ErrorType<unknown>
+
+
+export function useListWarehouseAlertRules<TData = Awaited<ReturnType<typeof listWarehouseAlertRules>>, TError = ErrorType<unknown>>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listWarehouseAlertRules>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listWarehouseAlertRules>>,
+          TError,
+          Awaited<ReturnType<typeof listWarehouseAlertRules>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useListWarehouseAlertRules<TData = Awaited<ReturnType<typeof listWarehouseAlertRules>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listWarehouseAlertRules>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listWarehouseAlertRules>>,
+          TError,
+          Awaited<ReturnType<typeof listWarehouseAlertRules>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useListWarehouseAlertRules<TData = Awaited<ReturnType<typeof listWarehouseAlertRules>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listWarehouseAlertRules>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Physical warehouse balances, explicitly enabled internal alerts and retained cycle history
+ */
+
+export function useListWarehouseAlertRules<TData = Awaited<ReturnType<typeof listWarehouseAlertRules>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listWarehouseAlertRules>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getListWarehouseAlertRulesQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getSaveWarehouseAlertRuleUrl = () => {
+
+
+
+
+  return `/api/inventory/reorder-rules`
+}
+
+/**
+ * @summary Save limits and explicitly opt into internal-only warehouse alerts
+ */
+export const saveWarehouseAlertRule = async (warehouseAlertRuleInput: WarehouseAlertRuleInput, options?: Parameters<typeof customFetch>[1]): Promise<SaveWarehouseAlertRule201> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<SaveWarehouseAlertRule201>(getSaveWarehouseAlertRuleUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(warehouseAlertRuleInput)
+  }
+);}
+
+
+
+
+
+export const getSaveWarehouseAlertRuleMutationKey = () => ['saveWarehouseAlertRule'] as const;
+
+export const getSaveWarehouseAlertRuleMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof saveWarehouseAlertRule>>, TError,SaveWarehouseAlertRuleMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof saveWarehouseAlertRule>>, TError,SaveWarehouseAlertRuleMutationVariables, TContext> => {
+
+const mutationKey = getSaveWarehouseAlertRuleMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof saveWarehouseAlertRule>>, SaveWarehouseAlertRuleMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  saveWarehouseAlertRule(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SaveWarehouseAlertRuleMutationResult = NonNullable<Awaited<ReturnType<typeof saveWarehouseAlertRule>>>
+    export type SaveWarehouseAlertRuleMutationBody = BodyType<WarehouseAlertRuleInput>
+    export type SaveWarehouseAlertRuleMutationError = ErrorType<void>
+    export type SaveWarehouseAlertRuleMutationVariables = {data: BodyType<WarehouseAlertRuleInput>}
+
+    /**
+ * @summary Save limits and explicitly opt into internal-only warehouse alerts
+ */
+export const useSaveWarehouseAlertRule = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof saveWarehouseAlertRule>>, TError,SaveWarehouseAlertRuleMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof saveWarehouseAlertRule>>,
+        TError,
+        SaveWarehouseAlertRuleMutationVariables,
+        TContext
+      > => {
+      return useMutation(getSaveWarehouseAlertRuleMutationOptions(options), queryClient);
+    }
 
 export const getLookupPosBarcodeUrl = (params: LookupPosBarcodeParams,) => {
   const normalizedParams = new URLSearchParams();

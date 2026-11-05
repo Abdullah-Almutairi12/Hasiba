@@ -1,4 +1,6 @@
 import { Router } from "express";
+import {warehouseAlertScope} from "../lib/warehouse-stock-alerts";
+import {managedProfile} from "../lib/responsibility-context";
 import { db } from "@workspace/db";
 import {
   productsTable,
@@ -293,7 +295,9 @@ router.get("/dashboard/alerts", async (req, res) => {
   try {
     const companyId = getCompanyId(req);
     const userId = req.session?.userId;
-    const alertScope = eq(alertsTable.companyId, companyId);
+    const scopedInventory=typeof userId==="number"&&!!await managedProfile(userId,companyId);
+    const alertScope = and(eq(alertsTable.companyId, companyId),await warehouseAlertScope(req),
+      scopedInventory?eq(alertsTable.type,"warehouse_low_stock"):undefined);
     const role = req.session?.role;
     const isFinance = typeof role === "string" && FINANCE_ROLES.has(role);
 
@@ -497,7 +501,7 @@ router.post("/dashboard/alerts/dismiss", async (req, res) => {
       const [row] = await db
         .select({ id: alertsTable.id })
         .from(alertsTable)
-        .where(and(eq(alertsTable.id, numericId), eq(alertsTable.companyId, companyId)))
+        .where(and(eq(alertsTable.id, numericId), eq(alertsTable.companyId, companyId),await warehouseAlertScope(req)))
         .limit(1);
       if (!row) {
         res.status(404).json({ error: "Alert not found" });
@@ -607,6 +611,7 @@ router.get("/dashboard/alerts/dismissed", async (req, res) => {
                 // Defence-in-depth: never reveal a sibling tenant's
                 // alert metadata even if a stale dismissal row exists.
                 eq(alertsTable.companyId, companyId),
+                await warehouseAlertScope(req),
               ),
             )
         : [];

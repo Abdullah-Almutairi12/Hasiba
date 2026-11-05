@@ -39,6 +39,7 @@ export const TEAM_ACTIONS = [
     ["receipts.receive_self", "استلام أمر شراء أنشأته بنفسي — فقط عند تفعيل سياسة المنشأة، بالإضافة لإذن الاستلام"],
   ].map(([key, label]) => ({ key: `procurement.${key}`, label, resource: "procurement", available: true })),
   { key: "inventory.read", label: "عرض مخزون المستودعات المحددة", resource: "inventory", available: true },
+  { key: "inventory.reorder.manage", label: "إعداد حدود وتنبيه داخلي للصنف العادي في المستودعات الممنوحة — لا شراء أو إرسال أو حركة مخزون", resource: "inventory", available: true },
   { key: "inventory.cost.read", label: "عرض تكلفة المخزون", resource: "inventory", available: true },
   { key: "inventory.move.receipt", label: "استلام يدوي للصنف العادي بالتكلفة الخادمية — لا تسوية أو شراء أو تعديل تكلفة", resource: "inventory", available: true },
   { key: "inventory.move.issue", label: "صرف مخزون يدوي للصنف العادي — لا صرف نقد أو تعديل تكلفة", resource: "inventory", available: true },

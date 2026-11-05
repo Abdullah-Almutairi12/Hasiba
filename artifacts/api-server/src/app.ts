@@ -192,6 +192,8 @@ app.use(unexpectedErrorHandler);
 // the min threshold. The same query that powers /inventory/reorder-suggestions
 // is used so the surfaced list is always consistent with the UI.
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+import {startWarehouseStockAlertWorker} from "./lib/warehouse-stock-alerts";
+startWarehouseStockAlertWorker();
 async function runReorderCheck(): Promise<void> {
   try {
     const r = await db.execute(sql`

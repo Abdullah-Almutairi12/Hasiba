@@ -42,6 +42,8 @@ import { countPoint, preparePoint, verifyPoint, advanceCountGeneration, type Cou
 import { stocktakeSeparation,stocktakeUnknownParticipantBlock } from "../lib/stocktake-separation";
 import {approveStocktake,StocktakeApproval,stocktakeAction,stocktakePolicy,authorizeStocktakePosting,recheckStocktakePosting,stocktakeVarianceValue} from "../lib/stocktake-review";
 import {AccountSecurityError} from "../lib/account-security";
+import {reorderReadGuard,reorderActor,reorderScope,reorderReference} from "../lib/warehouse-stock-alerts";
+import {teamRows} from "../lib/team-store";
 
 const router = Router();
 router.use("/inventory", supplyReferencesGuard);
@@ -491,39 +493,44 @@ router.post("/inventory/serials", inventoryGuard, async (req, res) => {
 // Reorder rules + suggestions
 // ============================================================
 
-router.get("/inventory/reorder-rules", inventoryReadGuard, async (req, res) => {
+router.get("/inventory/reorder-options",reorderReadGuard,async(req,res)=>{
+ try{
+  const actor=await reorderActor(req);
+  const warehouses=await teamRows(db,sql`SELECT DISTINCT w.id,w.name_ar AS "nameAr" FROM warehouses w
+   JOIN products p ON p.company_id=w.company_id WHERE ${reorderScope(actor)} ORDER BY w.id`);
+  const products=await teamRows(db,sql`SELECT p.id,p.name_ar AS "nameAr",p.sku,p.unit FROM products p WHERE p.company_id=${actor.companyId}
+   AND p.is_active AND p.tracking_mode='none' AND NOT p.is_variant_parent
+   AND NOT EXISTS(SELECT 1 FROM product_variants v WHERE v.product_id=p.id)
+   AND NOT EXISTS(SELECT 1 FROM stock_quants q WHERE q.product_id=p.id AND (q.variant_id IS NOT NULL OR q.lot_id IS NOT NULL))
+   ORDER BY p.id`);
+  res.json({products,warehouses});
+ }catch(e){res.status(e instanceof FinancialRequestError?e.status:500).json({error:e instanceof FinancialRequestError?e.message:"تعذر تحميل خيارات القواعد"});}
+});
+
+router.get("/inventory/reorder-rules", reorderReadGuard, async (req, res) => {
   try {
-    const rows = await db
-      .select({
-        id: reorderRulesTable.id,
-        productId: reorderRulesTable.productId,
-        productName: productsTable.nameAr,
-        sku: productsTable.sku,
-        warehouseId: reorderRulesTable.warehouseId,
-        warehouseName: warehousesTable.nameAr,
-        minQty: reorderRulesTable.minQty,
-        maxQty: reorderRulesTable.maxQty,
-        eoq: reorderRulesTable.eoq,
-        isActive: reorderRulesTable.isActive,
-      })
-      .from(reorderRulesTable)
-      .leftJoin(productsTable, eq(reorderRulesTable.productId, productsTable.id))
-      .leftJoin(warehousesTable, eq(reorderRulesTable.warehouseId, warehousesTable.id))
-      .where(supplyScope("reorder", reorderRulesTable.id, getCompanyId(req)))
-      .orderBy(desc(reorderRulesTable.id));
-    res.json(rows.map((r) => ({
-      ...r,
-      minQty: Number(r.minQty),
-      maxQty: Number(r.maxQty),
-      eoq: Number(r.eoq),
-    })));
+    const actor=await reorderActor(req);
+    const rows=await teamRows(db,sql`SELECT r.id,r.product_id AS "productId",p.name_ar AS "productName",p.sku,p.unit,
+     r.warehouse_id AS "warehouseId",w.name_ar AS "warehouseName",b.name_ar AS "branchName",
+     r.min_qty::float8 AS "minQty",r.max_qty::float8 AS "maxQty",r.eoq::float8 AS eoq,r.is_active AS "isActive",
+     r.alert_enabled AS "alertEnabled",r.revision,r.alert_adopted_at AS "alertAdoptedAt",
+     (p.tracking_mode='none' AND NOT p.is_variant_parent AND NOT EXISTS(SELECT 1 FROM product_variants v WHERE v.product_id=p.id)
+      AND NOT EXISTS(SELECT 1 FROM stock_quants q WHERE q.product_id=p.id AND q.warehouse_id=w.id AND (q.variant_id IS NOT NULL OR q.lot_id IS NOT NULL))) AS supported,
+     coalesce((SELECT sum(q.quantity)::float8 FROM stock_quants q WHERE q.product_id=p.id AND q.warehouse_id=w.id),0) AS "onHand",
+     coalesce((SELECT jsonb_agg(to_jsonb(c) ORDER BY c.id DESC) FROM (
+      SELECT id,status,quantity::text,threshold::text,opened_at,evaluated_at,closed_at FROM warehouse_stock_alert_cycles
+       WHERE rule_id=r.id ORDER BY id DESC LIMIT 20)c),'[]'::jsonb) AS cycles,
+     ${actor.grant?actor.grant.actions.includes("inventory.reorder.manage"):["owner","manager","inventory"].includes(actor.role)} AS "canManage"
+     FROM reorder_rules r JOIN products p ON p.id=r.product_id JOIN warehouses w ON w.id=r.warehouse_id
+     JOIN branches b ON b.id=w.branch_id WHERE ${reorderScope(actor)} ORDER BY r.id DESC`);
+    res.json(rows);
   } catch (err) {
     req.log.error({ err }, "list reorder rules failed");
     res.status(500).json({ error: "Internal server error" });
   }
 });
 
-router.post("/inventory/reorder-rules", inventoryGuard, async (req, res) => {
+router.post("/inventory/reorder-rules", reorderReadGuard, async (req, res) => {
   try {
     const body = z.object({
       productId: z.coerce.number().int(),
@@ -532,37 +539,52 @@ router.post("/inventory/reorder-rules", inventoryGuard, async (req, res) => {
       maxQty: z.coerce.number().nonnegative(),
       eoq: z.coerce.number().nonnegative().default(0),
       isActive: z.coerce.boolean().default(true),
+      alertEnabled: z.boolean().optional(),
+      revision:z.number().int().positive().optional(),
     }).parse(req.body);
     if (body.maxQty > 0 && body.maxQty < body.minQty) {
       return res.status(400).json({ error: "الحد الأقصى يجب أن يكون أكبر من الحد الأدنى" });
     }
-    const r = await db.transaction(async tx=>{
+    const r = await financialTransaction(req,async tx=>{
      await lockApprovalAuthority(tx);
-     const actor=await inventoryActor(tx,req,"inventory.write");
+     const actor=await reorderReference(req,tx,body.productId,body.warehouseId,true);
+     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${`reorder-rule:${body.productId}:${body.warehouseId}`},0))`);
+     // Recheck after any wait; no grant obtained in another responsibility.
+     await reorderReference(req,tx,body.productId,body.warehouseId,true);
+     const [existing]=await teamRows<{revision:number;adopted:boolean}>(tx,sql`SELECT revision,alert_adopted_at IS NOT NULL AS adopted FROM reorder_rules WHERE product_id=${body.productId} AND warehouse_id=${body.warehouseId}`);
+     // Persist a confirmed no-write result under this SAME intent lock. A late
+     // retry cannot overwrite a newer rule after the user corrects the form.
+     if(existing?.adopted&&(body.revision===undefined||body.alertEnabled===undefined)||
+       body.revision!==undefined&&body.revision!==existing?.revision)
+      return {id:null,rejected:true,message:"عُدلت القاعدة أو تبنّت التنبيه الداخلي؛ أعد تحميلها وراجع النسخة الأحدث"};
      const result=await tx.execute(sql`
-      INSERT INTO reorder_rules (product_id, warehouse_id, min_qty, max_qty, eoq, is_active)
-      VALUES (${body.productId}, ${body.warehouseId}, ${body.minQty}, ${body.maxQty}, ${body.eoq}, ${body.isActive})
+      INSERT INTO reorder_rules (product_id, warehouse_id, min_qty, max_qty, eoq, is_active,alert_enabled,alert_adopted_at)
+      VALUES (${body.productId}, ${body.warehouseId}, ${body.minQty}, ${body.maxQty}, ${body.eoq}, ${body.isActive},
+       ${body.alertEnabled??false},CASE WHEN ${body.alertEnabled===true} THEN clock_timestamp() ELSE NULL END)
       ON CONFLICT (product_id, warehouse_id)
       DO UPDATE SET min_qty = EXCLUDED.min_qty,
                     max_qty = EXCLUDED.max_qty,
                     eoq     = EXCLUDED.eoq,
-                    is_active = EXCLUDED.is_active
+                    is_active = EXCLUDED.is_active,
+                    alert_enabled=CASE WHEN ${body.alertEnabled!==undefined} THEN EXCLUDED.alert_enabled ELSE reorder_rules.alert_enabled END,
+                    alert_adopted_at=coalesce(reorder_rules.alert_adopted_at,EXCLUDED.alert_adopted_at),
+                    revision=reorder_rules.revision+1
       RETURNING id
     `);
      const id=Number(result.rows[0]?.id);
      await auditInventoryMutation(tx,actor,"inventory.reorder.saved","reorder_rule",id);
-     return result;
-    });
-    const rows = (r as unknown as { rows?: Array<{ id: number }> }).rows ?? [];
-    return res.status(201).json({ id: rows[0]?.id });
+     return {id};
+    },async tx=>{await reorderReference(req,tx,body.productId,body.warehouseId);});
+    return res.status(201).json(r);
   } catch (err) {
     const msg = err instanceof Error ? err.message : "تعذر حفظ القاعدة";
     return res.status(err instanceof FinancialRequestError?err.status:400).json({ error: msg });
   }
 });
 
-router.get("/inventory/reorder-suggestions", inventoryReadGuard, async (req, res) => {
+router.get("/inventory/reorder-suggestions", reorderReadGuard, async (req, res) => {
   try {
+    const actor=await reorderActor(req);
     const rows = await db.execute(sql`
       SELECT r.id AS rule_id,
              r.product_id,
@@ -580,7 +602,7 @@ router.get("/inventory/reorder-suggestions", inventoryReadGuard, async (req, res
         JOIN warehouses w ON w.id = r.warehouse_id
         LEFT JOIN stock_quants q ON q.product_id = r.product_id AND q.warehouse_id = r.warehouse_id
           AND ${supplyScope("quant", sql`q.id`, getCompanyId(req))}
-       WHERE r.is_active = true AND ${supplyScope("reorder", sql`r.id`, getCompanyId(req))}
+       WHERE r.is_active = true AND ${reorderScope(actor)}
        GROUP BY r.id, p.name_ar, p.sku, w.name_ar
       HAVING COALESCE(SUM(q.quantity), 0) <= r.min_qty
        ORDER BY p.name_ar

@@ -9,6 +9,99 @@ import * as zod from 'zod';
 
 
 /**
+ * @summary Scoped ordinary-product and warehouse selectors with no cost fields
+ */
+export const GetWarehouseAlertOptionsResponse = zod.object({
+  "products": zod.array(zod.object({
+  "id": zod.number().int(),
+  "nameAr": zod.string(),
+  "sku": zod.string(),
+  "unit": zod.string()
+})),
+  "warehouses": zod.array(zod.object({
+  "id": zod.number().int(),
+  "nameAr": zod.string()
+}))
+})
+
+
+/**
+ * @summary Physical warehouse balances, explicitly enabled internal alerts and retained cycle history
+ */
+export const ListWarehouseAlertRulesResponseItem = zod.object({
+  "id": zod.number().int(),
+  "productId": zod.number().int(),
+  "productName": zod.string(),
+  "sku": zod.string(),
+  "unit": zod.string(),
+  "warehouseId": zod.number().int(),
+  "warehouseName": zod.string(),
+  "branchName": zod.string(),
+  "minQty": zod.number(),
+  "maxQty": zod.number(),
+  "eoq": zod.number(),
+  "isActive": zod.boolean(),
+  "alertEnabled": zod.boolean(),
+  "alertAdoptedAt": zod.string().nullish(),
+  "revision": zod.number().int(),
+  "supported": zod.boolean(),
+  "onHand": zod.number(),
+  "canManage": zod.boolean(),
+  "cycles": zod.array(zod.object({
+  "id": zod.number().int(),
+  "status": zod.enum(['open', 'recovered', 'disabled', 'unsupported']),
+  "quantity": zod.string(),
+  "threshold": zod.string(),
+  "evaluated_at": zod.string(),
+  "opened_at": zod.string().optional(),
+  "closed_at": zod.string().nullish()
+}))
+})
+export const ListWarehouseAlertRulesResponse = zod.array(ListWarehouseAlertRulesResponseItem)
+
+
+/**
+ * @summary Save limits and explicitly opt into internal-only warehouse alerts
+ */
+export const saveWarehouseAlertRuleHeaderIdempotencyKeyMin = 8;
+export const saveWarehouseAlertRuleHeaderIdempotencyKeyMax = 128;
+
+
+
+export const SaveWarehouseAlertRuleHeader = zod.object({
+  "Idempotency-Key": zod.string().min(saveWarehouseAlertRuleHeaderIdempotencyKeyMin).max(saveWarehouseAlertRuleHeaderIdempotencyKeyMax).optional()
+})
+
+
+
+export const saveWarehouseAlertRuleBodyMinQtyMin = 0;
+
+export const saveWarehouseAlertRuleBodyMaxQtyMin = 0;
+
+export const saveWarehouseAlertRuleBodyEoqMin = 0;
+
+export const saveWarehouseAlertRuleBodyAlertEnabledDefault = false;
+
+
+export const SaveWarehouseAlertRuleBody = zod.object({
+  "productId": zod.number().int().min(1),
+  "warehouseId": zod.number().int().min(1),
+  "minQty": zod.number().min(saveWarehouseAlertRuleBodyMinQtyMin),
+  "maxQty": zod.number().min(saveWarehouseAlertRuleBodyMaxQtyMin),
+  "eoq": zod.number().min(saveWarehouseAlertRuleBodyEoqMin).optional(),
+  "isActive": zod.boolean().optional().describe('Legacy suggestions flag; not internal alert activation'),
+  "alertEnabled": zod.boolean().default(saveWarehouseAlertRuleBodyAlertEnabledDefault).describe('Explicit internal-only adoption; omission preserves existing setting'),
+  "revision": zod.number().int().min(1).optional().describe('Required for changing previously adopted rules')
+})
+
+export const SaveWarehouseAlertRuleResponse = zod.object({
+  "id": zod.number().int().nullable(),
+  "rejected": zod.boolean().optional(),
+  "message": zod.string().optional()
+})
+
+
+/**
  * @summary Exact ordinary-product barcode lookup within an authorized open POS source
  */
 export const lookupPosBarcodeQueryCodeMax = 200;

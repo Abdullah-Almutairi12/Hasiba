@@ -190,6 +190,7 @@ export function usePermissions() {
       (navKey==="suppliers"&&canProcurement("suppliers.read")) ||
       (navKey==="procurement"&&(canProcurement("orders.read")||canProcurement("receipts.read"))) ||
       (navKey==="stocktake"&&selected?.resource==="inventory"&&selected.actions.includes("inventory.read")) ||
+      (navKey==="reorder"&&selected?.resource==="inventory"&&selected.actions.includes("inventory.read")) ||
       (navKey==="sales"&&!!scopedSales);
     // Honour the admin-defined override matrix when available. The matrix
     // is the union of static defaults + per-cell overrides; an explicit

@@ -5,6 +5,72 @@
  * حاسبة.AI - ERP System API
  * OpenAPI spec version: 0.1.0
  */
+export interface WarehouseAlertRuleInput {
+  /** @minimum 1 */
+  productId: number;
+  /** @minimum 1 */
+  warehouseId: number;
+  /** @minimum 0 */
+  minQty: number;
+  /** @minimum 0 */
+  maxQty: number;
+  /** @minimum 0 */
+  eoq?: number;
+  /** Legacy suggestions flag; not internal alert activation */
+  isActive?: boolean;
+  /** Explicit internal-only adoption; omission preserves existing setting */
+  alertEnabled?: boolean;
+  /**
+     * Required for changing previously adopted rules
+     * @minimum 1
+     */
+  revision?: number;
+}
+
+export type WarehouseAlertCycleStatus = typeof WarehouseAlertCycleStatus[keyof typeof WarehouseAlertCycleStatus];
+
+
+export const WarehouseAlertCycleStatus = {
+  open: 'open',
+  recovered: 'recovered',
+  disabled: 'disabled',
+  unsupported: 'unsupported',
+} as const;
+
+export interface WarehouseAlertCycle {
+  id: number;
+  status: WarehouseAlertCycleStatus;
+  quantity: string;
+  threshold: string;
+  evaluated_at: string;
+  opened_at?: string;
+  /** @nullable */
+  closed_at?: string | null;
+}
+
+export interface WarehouseAlertRule {
+  id: number;
+  productId: number;
+  productName: string;
+  sku: string;
+  unit: string;
+  warehouseId: number;
+  warehouseName: string;
+  branchName: string;
+  minQty: number;
+  maxQty: number;
+  eoq: number;
+  isActive: boolean;
+  alertEnabled: boolean;
+  /** @nullable */
+  alertAdoptedAt?: string | null;
+  revision: number;
+  supported: boolean;
+  onHand: number;
+  canManage: boolean;
+  cycles: WarehouseAlertCycle[];
+}
+
 export type PosResumedBasketInputAction = typeof PosResumedBasketInputAction[keyof typeof PosResumedBasketInputAction];
 
 
@@ -4025,6 +4091,30 @@ export type EditorPreviewInput = EditorScope & {
   design: EditorDesign;
   sample: EditorPreviewInputSample;
   width: EditorPreviewInputWidth;
+};
+
+export type GetWarehouseAlertOptions200ProductsItem = {
+  id: number;
+  nameAr: string;
+  sku: string;
+  unit: string;
+};
+
+export type GetWarehouseAlertOptions200WarehousesItem = {
+  id: number;
+  nameAr: string;
+};
+
+export type GetWarehouseAlertOptions200 = {
+  products: GetWarehouseAlertOptions200ProductsItem[];
+  warehouses: GetWarehouseAlertOptions200WarehousesItem[];
+};
+
+export type SaveWarehouseAlertRule201 = {
+  /** @nullable */
+  id: number | null;
+  rejected?: boolean;
+  message?: string;
 };
 
 export type LookupPosBarcodeParams = {

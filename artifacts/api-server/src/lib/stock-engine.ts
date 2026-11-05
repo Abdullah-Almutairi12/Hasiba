@@ -45,6 +45,10 @@ async function scheduleLowStockNotification(productId: number): Promise<void> {
       .from(productsTable)
       .where(eq(productsTable.id, productId));
     if (!p || !p.isActive) return;
+    // Explicit warehouse-alert adoption replaces this product's unscoped legacy
+    // external notification path, including after the internal rule is disabled.
+    const adopted=await db.execute(sql`SELECT 1 FROM reorder_rules WHERE product_id=${productId} AND alert_adopted_at IS NOT NULL LIMIT 1`);
+    if(adopted.rows.length)return;
     const stock = Number(p.stock);
     const minStock = Number(p.minStock);
     if (!(stock <= minStock)) return;
