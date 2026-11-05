@@ -1590,7 +1590,7 @@ function ParkedOverlay({
 /**
  * Scoped POS header: branch-bound shift opening (POST /pos/sessions) and an
  * honest list of what this responsibility cannot do. No closing, refunds,
- * parking, discounts, barcode lookup or non-cash tenders.
+ * parking, discounts or non-cash tenders.
  */
 function ScopedPosNotice({ branchId, hasSession, canOpenShift, cashierName, onOpened, intentScope, caps, scoped=true,
   fixedBranch, branches, branchesLoading, branchesError, onSelectBranch, onRefreshBranches, contextLocked, onPendingChange,
@@ -1664,7 +1664,6 @@ function ScopedPosNotice({ branchId, hasSession, canOpenShift, cashierName, onOp
     }
   };
   const unavailable = [
-    "قراءة الباركود",
     !caps.discount && "الخصم",
     !caps.recordTender && "الدفع غير النقدي والآجل",
     "الإيقاف المؤقت",

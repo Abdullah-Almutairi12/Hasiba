@@ -60,6 +60,7 @@ describe("native barcode Enter",()=>{
       return Response.json({id:5,name:"Rice",nameAr:"أرز الباركود",sku:"RICE",price:10,trackingMode:"none",isActive:true});
     }));
     mount();const field=await screen.findByTestId("input-pos-search");
+    expect(screen.queryByText(/غير متاح لمسؤوليتك: قراءة الباركود/)).toBeNull();
     await waitFor(()=>expect(screen.getByTestId("pos-active-session-context").textContent).toContain("SHIFT-9"));
     for(let i=0;i<2;i++){fireEvent.change(field,{target:{value:"0000123"}});fireEvent.keyDown(field,{key:"Enter",repeat:false});}
     await waitFor(()=>expect(calls.filter(c=>c.includes("/pos/barcode-lookup"))).toHaveLength(2));
