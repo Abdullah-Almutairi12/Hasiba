@@ -1995,3 +1995,17 @@ mtime_ms = 1793814723107
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/78c5f921-fbb3-428e-8d9c-ced32a274e45/d8c876ac-e4c5-403f-8474-73c929dc63a1"
 storage_version_token = "1793814750044679"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "RybNvHbi2Ft_wgcmJ3T8n"
+uri = "file://generated-artifacts/pos-barcode/hasiba-pos-barcode-evidence.zip"
+type = "unspecified"
+title = "أدلة مهمة باركود POS — التقرير والاختبارات والمصالحة"
+description = "حزمة منقحة تشمل التقرير العربي والإنجليزي، السجل الشامل بمهلة PDF، الإعادة الناجحة 11/11، صور رحلة الكاشير، والمصالحة المستقلة ومطابقة GitHub."
+logical_id = "0013a497-4d50-464b-853e-9ada5a700124"
+content_hash = "sha256:89fa7d61aec35a8e758323e53160723ca29895def97cb84437e857ad5deb30ce"
+size = 1514605
+mtime_ms = 1793856435826
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:8dd2ab45-51e9-46ad-ad7c-50ce92b23ee4/0013a497-4d50-464b-853e-9ada5a700124/bdd8360c-682a-4b88-b3f0-680c0e36495b"
+storage_version_token = "1793856501871599"
+content_type = "application/octet-stream"
