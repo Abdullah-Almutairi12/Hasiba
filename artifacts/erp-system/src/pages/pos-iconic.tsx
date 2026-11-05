@@ -365,7 +365,7 @@ export default function PosIconic({
     editBasket(next,workingBasket.current.customer);
   };
   const scanBarcode=usePosBarcode({
-    context:`${shiftScope}:${activeSession?.id}:${customer?.id??"cash"}:${resumedBasket.value?.source.requestId??""}:${basketEpoch.current}:${checkoutLocked}:${!!review}:${resuming.busy}:${!!resuming.intent}`,
+    context:`${shiftScope}:${activeSession?.id}:${customer?.id??"cash"}:${resumedBasket.value?.source.requestId??""}:${basketEpoch.current}`,
     sessionId:activeSession?.id,
     basketSnapshot:()=>JSON.stringify([basketEpoch.current,workingBasket.current.customer?.id,activeSessionRef.current]),
     blocked:checkoutLocked||!!review||sessionsChecking||!!sessionsError||
@@ -508,6 +508,10 @@ export default function PosIconic({
   };
 
   const handlePay = async (opts?: { approvalRequestId?: number; freshReview?: boolean }) => {
+    if(!checkout.attempt&&scanBarcode.hasUnresolved()){
+      toast({title:"توجد مسحات باركود غير محسومة. انتظر نتيجتها أو أعد المحاولة أو ألغِها صراحةً قبل مراجعة المبلغ والدفع.",variant:"destructive"});
+      return;
+    }
     if (parking.isLocked()) return;
     if (discountAllowed && !pctValid) { toast({ title: "نسبة الخصم يجب أن تكون بين 0 و100", variant: "destructive" }); return; }
     // An open review binds the basket; only its explicit resume/fresh path may pay.
@@ -795,6 +799,15 @@ export default function PosIconic({
           total={total}
           vatEnabled={tp.preview ? tp.preview.context.registered : vatEnabled}
           taxSlot={<>
+            {scanBarcode.entries.length>0&&<div role="status" data-testid="pos-barcode-pending" className="rounded border border-amber-400 p-3 text-sm">
+              <p>توجد {scanBarcode.entries.length} مسحات باركود غير محسومة؛ التحصيل الجديد متوقف حتى حسمها ومراجعة المبلغ.</p>
+              {scanBarcode.entries.map(s=><div key={s.id} className="flex flex-wrap items-center gap-2">
+                <span dir="ltr">{s.code}</span>
+                <span>{s.status==="pending"?"جارٍ البحث…":s.status==="waiting"?"بانتظار التحقق الآمن من الوردية":s.message}</span>
+                {s.status==="failed"&&<Button type="button" variant="outline" disabled={!scanBarcode.canRetry} onClick={()=>void scanBarcode.retry(s.id)}>إعادة محاولة المسحة</Button>}
+                <Button type="button" variant="outline" onClick={()=>scanBarcode.cancel(s.id)}>إلغاء هذه المسحة</Button>
+              </div>)}
+            </div>}
             <TaxPreviewPanel tp={tp} compact={false} frozenNote={checkout.attempt ? "عملية البيع المعلقة محفوظة بنصها ومفتاحها ورموزها الضريبية الأصلية؛ لن تُحدَّث المعاينة حتى تُحسم نتيجتها." : null} />
             {checkout.attempt && (
               <button type="button" onClick={() => void handleCloseIntent()} disabled={checkout.isPending || checkout.scopeMismatch}
@@ -940,7 +953,7 @@ export default function PosIconic({
         onOpenPay={() => void handlePay()}
         onMore={!discountAllowed ? undefined : () => setDiscountOpen((v) => !v)}
         moreExpanded={discountOpen}
-        payDisabled={!!payBlock || !!taxBlock || !checkout.ready || checkout.isPending || cart.length === 0}
+        payDisabled={(!checkout.attempt&&scanBarcode.entries.length>0) || !!payBlock || !!taxBlock || !checkout.ready || checkout.isPending || cart.length === 0}
         parkingUnavailable={isScoped}
       />
 

@@ -53,6 +53,32 @@ function mount() {
   return { ...view, refresh: () => view.rerender(tree()) };
 }
 describe("native barcode Enter",()=>{
+  it("sends no sale while the second intended scan is pending, then requires the new quote for quantity two",async()=>{
+    const transport=saleTransport(),base=globalThis.fetch,u=userEvent.setup();
+    let release!:(r:Response)=>void,count=0;
+    const delayed=new Promise<Response>(r=>{release=r;});
+    const product={id:5,name:"Rice",nameAr:"أرز الباركود",sku:"RICE",price:100,trackingMode:"none",isActive:true};
+    vi.stubGlobal("fetch",vi.fn(async(input:RequestInfo|URL,init?:RequestInit)=>{
+      if(String(input).includes("/pos/barcode-lookup"))return ++count===1?Response.json(product):delayed;
+      return base(input,init);
+    }));
+    mount();const field=await screen.findByTestId("input-pos-search");
+    await waitFor(()=>expect(screen.getByTestId("pos-active-session-context").textContent).toContain("SHIFT-9"));
+    const scan=()=>{fireEvent.change(field,{target:{value:"0000123"}});fireEvent.keyDown(field,{key:"Enter"});};
+    scan();await waitFor(()=>expect(screen.getByTestId("cart-row-unit-5").parentElement?.textContent).toContain("× 1"));
+    await review(u);scan();
+    await u.click(screen.getByTestId("button-pay-rail"));
+    expect(transport.attempts).toHaveLength(0);
+    expect(screen.getByTestId("pos-barcode-pending")).toBeTruthy();
+    act(()=>{release(Response.json(product));});
+    await waitFor(()=>expect(screen.getByTestId("cart-row-unit-5").parentElement?.textContent).toContain("× 2"));
+    expect(screen.queryByTestId("pos-barcode-pending")).toBeNull();
+    await u.click(screen.getByTestId("button-pay-rail"));
+    expect(transport.attempts).toHaveLength(0); // Old reviewed amount must not authorize two.
+    await review(u);await u.click(screen.getByTestId("button-pay-rail"));
+    await waitFor(()=>expect(transport.attempts).toHaveLength(1));
+    expect(JSON.parse(transport.attempts[0].body).items[0].quantity).toBe(2);
+  });
   it("sends one exact lookup per intended scan and increments the existing basket",async()=>{
     const calls:string[]=[];
     vi.stubGlobal("fetch",vi.fn(async(input)=>{
