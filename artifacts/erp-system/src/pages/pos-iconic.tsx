@@ -833,7 +833,9 @@ export default function PosIconic({
               onDiscard={() => setReview(null)} busy={checkout.isPending} />
           ) : null}
           vatUnknown={vatUnknown || !tp.preview}
-          payBlock={payBlock ?? taxBlock}
+          payBlock={!checkout.attempt&&scanBarcode.entries.length>0
+            ? "توجد مسحات باركود غير محسومة. احسمها ثم راجع المبلغ قبل الدفع."
+            : payBlock ?? taxBlock}
           onRetryVat={live.isError ? () => void live.refetch() : undefined}
           locked={checkoutLocked}
           recovery={!!checkout.attempt}

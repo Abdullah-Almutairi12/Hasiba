@@ -67,6 +67,7 @@ describe("native barcode Enter",()=>{
     const scan=()=>{fireEvent.change(field,{target:{value:"0000123"}});fireEvent.keyDown(field,{key:"Enter"});};
     scan();await waitFor(()=>expect(screen.getByTestId("cart-row-unit-5").parentElement?.textContent).toContain("× 1"));
     await review(u);scan();
+    expect(screen.getByTestId("button-pay-rail").matches(":disabled")).toBe(true);
     await u.click(screen.getByTestId("button-pay-rail"));
     expect(transport.attempts).toHaveLength(0);
     expect(screen.getByTestId("pos-barcode-pending")).toBeTruthy();
