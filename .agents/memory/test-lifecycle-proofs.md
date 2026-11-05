@@ -41,3 +41,24 @@ timed out; the intended automatic-release evidence was therefore incomplete.
 **How to apply:** Verify controller liveness before arming. If it dies, retain
 its incomplete receipt, capture actual read-only state, release explicitly and
 record the real timeout/retry path instead of inventing the planned timing.
+
+Resolve runtime evidence fingerprints from the explicit workspace root, not
+the process working directory of a pnpm-filtered command.
+
+**Why:** pnpm filtering changes cwd. A valid Git SHA can then accompany a hash
+of the wrong file coverage, falsely suggesting different source or masking drift.
+
+**How to apply:** Derive the intended workspace root explicitly and use it for
+both Git/file enumeration and hashing; compare the same definition at test,
+host startup and reconciliation capture.
+
+Treat shared stage-output files as belonging to their last completed run until
+the current stage's completion and provenance have been established.
+
+**Why:** Buffered gate output can leave an old failure visible while a new
+stage is still running. Reading that file prematurely once misattributed an
+old failure to a fresh run that subsequently passed.
+
+**How to apply:** Use per-run receipts and archived directories, verify stage
+completion plus timestamps/source before attributing results, and preserve an
+interruption without inventing an exit code or reusing a previous summary.
