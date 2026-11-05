@@ -250,6 +250,7 @@ import type {
   ListWarehousesParams,
   LookupCountProduct200,
   LookupCountProductParams,
+  LookupPosBarcodeParams,
   LookupResumedPosSale200,
   ManagerKpiBar,
   MarkAllInboxRead200,
@@ -443,6 +444,114 @@ const withQueryKey = <T extends object, K>(query: T, queryKey: K): T & { queryKe
   }
   return result;
 };
+
+export const getLookupPosBarcodeUrl = (params: LookupPosBarcodeParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/pos/barcode-lookup?${stringifiedParams}` : `/api/pos/barcode-lookup`
+}
+
+/**
+ * @summary Exact ordinary-product barcode lookup within an authorized open POS source
+ */
+export const lookupPosBarcode = async (params: LookupPosBarcodeParams, options?: Parameters<typeof customFetch>[1]): Promise<Product> => {
+
+  return customFetch<Product>(getLookupPosBarcodeUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getLookupPosBarcodeQueryKey = (params?: LookupPosBarcodeParams,) => {
+    return [
+    `/api/pos/barcode-lookup`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getLookupPosBarcodeQueryOptions = <TData = Awaited<ReturnType<typeof lookupPosBarcode>>, TError = ErrorType<void>>(params: LookupPosBarcodeParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof lookupPosBarcode>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getLookupPosBarcodeQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof lookupPosBarcode>>> = ({ signal }) => lookupPosBarcode(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof lookupPosBarcode>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type LookupPosBarcodeQueryResult = NonNullable<Awaited<ReturnType<typeof lookupPosBarcode>>>
+export type LookupPosBarcodeQueryError = ErrorType<void>
+
+
+export function useLookupPosBarcode<TData = Awaited<ReturnType<typeof lookupPosBarcode>>, TError = ErrorType<void>>(
+ params: LookupPosBarcodeParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof lookupPosBarcode>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof lookupPosBarcode>>,
+          TError,
+          Awaited<ReturnType<typeof lookupPosBarcode>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useLookupPosBarcode<TData = Awaited<ReturnType<typeof lookupPosBarcode>>, TError = ErrorType<void>>(
+ params: LookupPosBarcodeParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof lookupPosBarcode>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof lookupPosBarcode>>,
+          TError,
+          Awaited<ReturnType<typeof lookupPosBarcode>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useLookupPosBarcode<TData = Awaited<ReturnType<typeof lookupPosBarcode>>, TError = ErrorType<void>>(
+ params: LookupPosBarcodeParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof lookupPosBarcode>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Exact ordinary-product barcode lookup within an authorized open POS source
+ */
+
+export function useLookupPosBarcode<TData = Awaited<ReturnType<typeof lookupPosBarcode>>, TError = ErrorType<void>>(
+ params: LookupPosBarcodeParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof lookupPosBarcode>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getLookupPosBarcodeQueryOptions(params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
 export const getPreviewPosTaxUrl = () => {
 

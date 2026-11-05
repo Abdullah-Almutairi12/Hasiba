@@ -7,6 +7,7 @@ import { PosDeviceControls } from "@/components/pos-device-controls";
 import { PosCustomerPicker, type PosCustomerChoice } from "@/components/pos-customer-picker";
 import {usePosResumedBasket} from "@/hooks/use-pos-resumed-basket";
 import {usePosResumedVersion} from "@/hooks/use-pos-resumed-version";
+import {usePosBarcode} from "@/hooks/use-pos-barcode";
 import { useLocation } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -134,9 +135,11 @@ export default function PosIconic({
   const resumedVersion=usePosResumedVersion(resumedBasket);
 
   const [cart, setCart] = useState<CartItem[]>([]);
+  const basketEpoch=useRef(0);
   const workingBasket=useRef({cart,customer});
   workingBasket.current={cart,customer};
   const editBasket=(nextCart:CartItem[],nextCustomer:PosCustomerChoice|null)=>{
+    if(workingBasket.current.cart.length&&!nextCart.length)basketEpoch.current++;
     if(resumedBasket.value)resumedBasket.update(nextCart,nextCustomer);
     workingBasket.current={cart:nextCart,customer:nextCustomer};
     setCart(nextCart);setCustomerChoice({scope:shiftScope,customer:nextCustomer});
@@ -361,6 +364,15 @@ export default function PosIconic({
     })();
     editBasket(next,workingBasket.current.customer);
   };
+  const scanBarcode=usePosBarcode({
+    context:`${shiftScope}:${activeSession?.id}:${customer?.id??"cash"}:${resumedBasket.value?.source.requestId??""}:${basketEpoch.current}:${checkoutLocked}:${!!review}:${resuming.busy}:${!!resuming.intent}`,
+    sessionId:activeSession?.id,
+    basketSnapshot:()=>JSON.stringify([basketEpoch.current,workingBasket.current.customer?.id,activeSessionRef.current]),
+    blocked:checkoutLocked||!!review||sessionsChecking||!!sessionsError||
+      openingState.scope===shiftScope&&openingState.pending||!!resuming.intent||resuming.busy,
+    add:addToCart,
+    error:message=>toast({title:"تعذر إضافة الباركود",description:message,variant:"destructive"}),
+  });
 
   const bump = (id: number, delta: number) => {
     if(checkoutLocked||review)return;
@@ -374,6 +386,7 @@ export default function PosIconic({
   const clearCart = () => {
     if(!checkoutLocked&&!review){
       if(resumedBasket.value&&!resumedBasket.clear())return;
+      basketEpoch.current++;
       setCart([]);
     }
   };
@@ -419,6 +432,7 @@ export default function PosIconic({
     }
     void refreshParked();
     if (basketVersion.current.revision !== revision) return;
+    basketEpoch.current++;
     setCart([]);
     setCustomerChoice(current => current.scope === shiftScope ? { scope: shiftScope, customer: null } : current);
     setParkLabel("");
@@ -572,6 +586,7 @@ export default function PosIconic({
   };
 
   const finishSale = (created: NonNullable<Awaited<ReturnType<typeof checkout.pay>>>, body: CreatePosOrderBody) => {
+    basketEpoch.current++;
     if((created as {alreadyFinalized?:boolean}).alreadyFinalized)
       toast({title:"المسودة بيعت بالفعل؛ هذه نتيجة البيع الأصلية. لا تستلم مبلغًا جديدًا.",description:created.orderNumber});
     if(body.resumedDraft&&resumedBasket.value?.source.id===body.resumedDraft.id)resumedBasket.clear();
@@ -672,6 +687,7 @@ export default function PosIconic({
             branchesError={branches.isError}
             onRefreshBranches={() => void branches.refetch()}
             onSelectBranch={(branchId) => {
+              basketEpoch.current++;
               chooseShift({ branchId });
               setCart([]); setSellerWhole(null); setSellerLines({});
             }}
@@ -710,6 +726,15 @@ export default function PosIconic({
                 placeholder={t("pos_iconic.search_ph")}
                 className="ps-9 h-11 rounded-2xl border-neutral-200 bg-white/80 backdrop-blur dark:border-neutral-800 dark:bg-neutral-900/60"
                 data-testid="input-pos-search"
+                onKeyDown={e=>{
+                  if(e.key!=="Enter"||e.repeat||e.nativeEvent.isComposing)return;
+                  e.preventDefault();
+                  const code=e.currentTarget.value;
+                  if(!code.trim())return;
+                  setSearch("");
+                  void scanBarcode(code);
+                  e.currentTarget.focus();
+                }}
               />
             </div>
           </div>
@@ -872,6 +897,7 @@ export default function PosIconic({
             onClick={()=>{
               if(checkout.attempt||checkout.isPending||resumedVersion.busy||resumedVersion.pending||
                 !resumedBasket.value?.continuationResolved||!resumedBasket.clear())return;
+              basketEpoch.current++;
               setCart([]);setCustomerChoice({scope:shiftScope,customer:null});setReview(null);
               setDiscountPct("");setSellerWhole(null);setSellerLines({});
               toast({title:"انتهت متابعة المسودة؛ السلة الجديدة فارغة. سجل المسودة ونتيجتها محفوظان."});

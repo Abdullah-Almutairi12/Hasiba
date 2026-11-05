@@ -48,6 +48,7 @@ export const SCOPED_ROUTES = [
   ["GET", "/pos/sessions", "pos.read"],
   ["GET", "/pos/sessions/:id", "pos.read"],
   ["GET", "/pos/tax-context", "pos.read"],
+  ["GET", "/pos/barcode-lookup", "pos.read"],
   ["POST", "/pos/tax-preview", "pos.sell"],
   // Recovery seals/returns the original attempt; it never grants a new sale.
   ["POST", "/pos/tax-preview/close-intent", "pos.read"],

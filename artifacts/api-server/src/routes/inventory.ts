@@ -1,4 +1,5 @@
 import { Router } from "express";
+import {barcodeIdentity} from "../lib/pos-barcode";
 import { randomUUID } from "node:crypto";
 import {
   db,
@@ -1035,7 +1036,7 @@ router.get("/inventory/lookup", inventoryLookupGuard, async (req, res) => {
     const [byProductBarcode] = await db
       .select()
       .from(productsTable)
-      .where(and(eq(productsTable.companyId, getCompanyId(req)), sql`(${productsTable.barcode} = ${code} OR ${productsTable.sku} = ${code})`))
+      .where(and(eq(productsTable.companyId, getCompanyId(req)), barcodeIdentity(productsTable.barcode,productsTable.sku,code)))
       .limit(1);
     if (byProductBarcode) {
       return res.json({
@@ -1049,7 +1050,7 @@ router.get("/inventory/lookup", inventoryLookupGuard, async (req, res) => {
     const [byVariant] = await db
       .select()
       .from(productVariantsTable)
-      .where(and(supplyScope("variant", productVariantsTable.id, getCompanyId(req)), sql`(${productVariantsTable.barcode} = ${code} OR ${productVariantsTable.sku} = ${code})`))
+      .where(and(supplyScope("variant", productVariantsTable.id, getCompanyId(req)), barcodeIdentity(productVariantsTable.barcode,productVariantsTable.sku,code)))
       .limit(1);
     if (byVariant) {
       return res.json({

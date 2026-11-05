@@ -4027,6 +4027,18 @@ export type EditorPreviewInput = EditorScope & {
   width: EditorPreviewInputWidth;
 };
 
+export type LookupPosBarcodeParams = {
+/**
+ * @minLength 1
+ * @maxLength 200
+ */
+code: string;
+/**
+ * @minimum 1
+ */
+sessionId: number;
+};
+
 export type PreviewPosTaxBodyItemsItem = {
   productId: number;
   quantity: number;

@@ -30,6 +30,23 @@ tags:
   - name: auth
     description: Authentication & session management
 paths:
+  /pos/barcode-lookup:
+    get:
+      operationId: lookupPosBarcode
+      summary: Exact ordinary-product barcode lookup within an authorized open POS source
+      parameters:
+        - {name: code, in: query, required: true, schema: {type: string, minLength: 1, maxLength: 200}}
+        - {name: sessionId, in: query, required: true, schema: {type: integer, minimum: 1}}
+      responses:
+        "200":
+          description: Ordinary saleable product; costPrice is never returned
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Product"}
+        "403": {description: Source or current responsibility denied}
+        "404": {description: No exact match in this company}
+        "409": {description: Ambiguous barcode or closed source shift}
+        "422": {description: "Disabled, tracked or variant product is unsupported here"}
   /pos/tax-preview:
     $ref: "./vat-policy-paths.yaml#/posPreview"
   /sales/invoices/tax-preview:

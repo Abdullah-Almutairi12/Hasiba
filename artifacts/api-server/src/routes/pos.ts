@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import {posTaxPreviewBody,preparePosTaxPreview,posTaxFacts,posIntentRead} from "../lib/pos-tax-preview";
 import {closeSaleIntent} from "../lib/close-sale-intent";
 import {authorizeParkedSource} from "../lib/pos-parked-access";
+import {posBarcode} from "../lib/pos-barcode";
 import {lockResumedSale,withResumedSale} from "../lib/pos-resumed-sale";
 import {appendBasket,presentBasket} from "../lib/pos-resumed-basket";
 import {issueTaxPreview,verifyTaxPreview} from "../lib/tax-preview";
@@ -96,6 +97,12 @@ const posOverrideLimiter = rateLimit({
 });
 
 const router = Router();
+router.get("/pos/barcode-lookup",posReadGuard,async(req,res)=>{
+  try{
+    const {code,sessionId}=z.object({code:z.string().trim().min(1).max(200),sessionId:z.coerce.number().int().positive()}).parse(req.query);
+    res.json(await posBarcode(req,code,sessionId));
+  }catch(err){handleRouteError(err,res);}
+});
 router.post("/pos/tax-preview/close-intent",posReadGuard,async(req,res)=>{
   try{
     const closed=await closeSaleIntent(req,"/pos/orders",(tx,body,saved)=>posIntentRead(tx,req,body,saved));

@@ -52,6 +52,22 @@ function mount() {
   const view = render(tree());
   return { ...view, refresh: () => view.rerender(tree()) };
 }
+describe("native barcode Enter",()=>{
+  it("sends one exact lookup per intended scan and increments the existing basket",async()=>{
+    const calls:string[]=[];
+    vi.stubGlobal("fetch",vi.fn(async(input)=>{
+      calls.push(String(input));
+      return Response.json({id:5,name:"Rice",nameAr:"أرز الباركود",sku:"RICE",price:10,trackingMode:"none",isActive:true});
+    }));
+    mount();const field=await screen.findByTestId("input-pos-search");
+    await waitFor(()=>expect(screen.getByTestId("pos-active-session-context").textContent).toContain("SHIFT-9"));
+    for(let i=0;i<2;i++){fireEvent.change(field,{target:{value:"0000123"}});fireEvent.keyDown(field,{key:"Enter",repeat:false});}
+    await waitFor(()=>expect(calls.filter(c=>c.includes("/pos/barcode-lookup"))).toHaveLength(2));
+    await waitFor(()=>expect(screen.getByTestId("cart-row-unit-5").parentElement?.textContent).toContain("× 2"));
+    expect(calls.filter(c=>c.includes("/pos/barcode-lookup")).every(c=>c.includes("code=0000123"))).toBe(true);
+    expect((field as HTMLInputElement).value).toBe("");expect(document.activeElement).toBe(field);
+  });
+});
 describe("shift state must be established before a fresh opening", () => {
   const shiftRow = (id:number,status="open") => ({id,status,branchId:7,cashierUserId:11,sessionNumber:`SHIFT-${id}`,openedAt:"2026-11-04T02:00:00Z"});
   it("retains a reviewed sale across an unchanged background shift refresh, but invalidates it on closure", async()=>{

@@ -8,6 +8,41 @@
 import * as zod from 'zod';
 
 
+/**
+ * @summary Exact ordinary-product barcode lookup within an authorized open POS source
+ */
+export const lookupPosBarcodeQueryCodeMax = 200;
+
+
+
+
+export const LookupPosBarcodeQueryParams = zod.object({
+  "code": zod.coerce.string().min(1).max(lookupPosBarcodeQueryCodeMax),
+  "sessionId": zod.coerce.number().int().min(1)
+})
+
+export const LookupPosBarcodeResponse = zod.object({
+  "id": zod.number().int(),
+  "name": zod.string(),
+  "nameAr": zod.string(),
+  "sku": zod.string(),
+  "categoryId": zod.number().int(),
+  "categoryName": zod.string(),
+  "price": zod.number(),
+  "costPrice": zod.number().optional(),
+  "stock": zod.number().int(),
+  "availableQuantity": zod.string().optional(),
+  "minStock": zod.number().int(),
+  "unit": zod.string(),
+  "imageUrl": zod.string().nullish(),
+  "isActive": zod.boolean(),
+  "barcode": zod.string().nullish(),
+  "trackingMode": zod.enum(['none', 'lot', 'serial']),
+  "costingMethod": zod.enum(['average', 'fifo', 'standard']),
+  "createdAt": zod.string()
+})
+
+
 
 
 
