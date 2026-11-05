@@ -26,3 +26,18 @@ announce readiness while requests reach another service.
 
 **How to apply:** Use ephemeral internal target ports, keep the configured
 preview proxy port stable, and verify the intended service before testing.
+
+A guessed internal target can be the managed preview gateway itself, producing
+recursive forwarding and431/502 rather than reaching the intended test app.
+Preserve that as infrastructure evidence, not an application-login failure.
+
+Use a supervised, bounded background task for browser fault controllers; do not
+assume a shell child launched with `&` by the browser tester stays alive.
+
+**Why:** A tester shell returned after starting a release controller, but its
+child terminated before observing the held response. The application correctly
+timed out; the intended automatic-release evidence was therefore incomplete.
+
+**How to apply:** Verify controller liveness before arming. If it dies, retain
+its incomplete receipt, capture actual read-only state, release explicitly and
+record the real timeout/retry path instead of inventing the planned timing.
