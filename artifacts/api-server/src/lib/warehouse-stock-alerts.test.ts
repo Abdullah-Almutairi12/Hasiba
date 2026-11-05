@@ -5,6 +5,7 @@ import {sql} from "drizzle-orm";
 import {posTemplateFixture,personInput,accepted,fixtureRows} from "../test/pos-template-fixture";
 import {evaluateWarehouseStockAlerts} from "./warehouse-stock-alerts";
 import {recordStockMove} from "./stock-engine";
+import {runAlertsCleanup} from "./alerts-cleanup-cron";
 type Fixture=Awaited<ReturnType<typeof posTemplateFixture>>;
 const payload=(f:Fixture,extra={})=>({productId:f.products[0].id,warehouseId:f.warehouses[0].id,minQty:20,maxQty:100,isActive:false,alertEnabled:true,...extra});
 async function grant(f:Fixture,actions=["inventory.read","inventory.reorder.manage"],warehouses=[f.warehouses[0].id]){
@@ -32,6 +33,17 @@ async function move(f:Fixture,quantity:number,kind:"receipt"|"issue"){
   ...(kind==="receipt"?{toWarehouseId:f.warehouses[0].id}:{fromWarehouseId:f.warehouses[0].id}),createdBy:f.ownerUser.id}));
 }
 describe("explicit warehouse stock alerts: transactional, scoped and internal only",()=>{
+ it("retention keeps linked cycle evidence while still sweeping unrelated old read alerts without financial effects",async()=>{
+  const f=await posTemplateFixture();accepted(await save(f),201);await evaluateWarehouseStockAlerts();
+  const [cycle]=await cycles(f);
+  await fixtureRows("UPDATE alerts SET is_read=true,created_at=now()-interval '50000 days' WHERE id=$1",[cycle.alert_id]);
+  const [ordinary]=await fixtureRows("INSERT INTO alerts(company_id,type,title,message,is_read,created_at) VALUES($1,'retention_fixture','isolated old read alert','unrelated fixture',true,now()-interval '50000 days') RETURNING id",[f.companies[0].id]);
+  const before=await effects(f);
+  await runAlertsCleanup();
+  expect(await fixtureRows("SELECT id FROM alerts WHERE id=$1",[ordinary.id])).toHaveLength(0);
+  expect(await fixtureRows("SELECT id FROM alerts WHERE id=$1",[cycle.alert_id])).toHaveLength(1);
+  expect(await cycles(f)).toHaveLength(1);expect(await effects(f)).toEqual(before);
+ });
  it("new and legacy rules remain unadopted unless explicitly enabled; configuration has no financial effects",async()=>{
   const f=await posTemplateFixture(),before=await effects(f);
   const body:any=payload(f);delete body.alertEnabled;

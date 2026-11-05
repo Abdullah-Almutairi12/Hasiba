@@ -167,6 +167,9 @@ export async function runAlertsCleanup(): Promise<AlertsSweepSummary> {
       DELETE FROM alerts
        WHERE is_read = true
          AND created_at < NOW() - ($1::int * INTERVAL '1 day')
+         AND NOT EXISTS (
+           SELECT 1 FROM warehouse_stock_alert_cycles c WHERE c.alert_id = alerts.id
+         )
       `,
       [retentionDays],
     );
